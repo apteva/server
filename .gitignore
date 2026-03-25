@@ -2,3 +2,5 @@
 backplane
 backplane.db
 data/
+backplane.db-shm
+backplane.db-wal
