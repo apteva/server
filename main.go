@@ -333,6 +333,10 @@ func main() {
 		s.handleInstance(w, r)
 	}))
 
+	// Dashboard — serves embedded static files with SPA fallback
+	// Registered last so API routes take priority
+	mux.Handle("/", dashboardHandler())
+
 	fmt.Fprintf(os.Stderr, "apteva-server running on :%s\n", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
