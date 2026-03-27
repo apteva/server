@@ -5,17 +5,78 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
 
 type Server struct {
-	store        *Store
-	instances    *InstanceManager
-	fireworksKey string
+	store       *Store
+	instances   *InstanceManager
+	mcpManager  *MCPManager
+	catalog     *AppCatalog
+	secret      []byte  // AES-256 key for encrypting provider data
+	port        string  // server port for telemetry callback
+	broadcaster *TelemetryBroadcaster
 }
 
 func main() {
+	// Check for MCP server modes
+	for i, arg := range os.Args[1:] {
+		if arg == "--mcp-proxy" {
+			var connID int64
+			for _, a := range os.Args[i+2:] {
+				if strings.HasPrefix(a, "--connection-id=") {
+					connID, _ = strconv.ParseInt(strings.TrimPrefix(a, "--connection-id="), 10, 64)
+				}
+			}
+			dbPath := os.Getenv("DB_PATH")
+			if dbPath == "" {
+				dbPath = "apteva-server.db"
+			}
+			dataDir := os.Getenv("DATA_DIR")
+			if dataDir == "" {
+				dataDir = "data"
+			}
+			secret, err := LoadSecret(dataDir)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "secret: %v\n", err)
+				os.Exit(1)
+			}
+			if err := runMCPProxy(dbPath, connID, secret); err != nil {
+				fmt.Fprintf(os.Stderr, "mcp-proxy: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if arg == "--mcp-gateway" {
+			var userID int64
+			for _, a := range os.Args[i+2:] {
+				if strings.HasPrefix(a, "--user-id=") {
+					userID, _ = strconv.ParseInt(strings.TrimPrefix(a, "--user-id="), 10, 64)
+				}
+			}
+			dbPath := os.Getenv("DB_PATH")
+			if dbPath == "" {
+				dbPath = "apteva-server.db"
+			}
+			dataDir := os.Getenv("DATA_DIR")
+			if dataDir == "" {
+				dataDir = "data"
+			}
+			secret, err := LoadSecret(dataDir)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "secret: %v\n", err)
+				os.Exit(1)
+			}
+			if err := runMCPGateway(dbPath, userID, secret); err != nil {
+				fmt.Fprintf(os.Stderr, "mcp-gateway: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -23,20 +84,18 @@ func main() {
 
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
-		dbPath = "backplane.db"
+		dbPath = "apteva-server.db"
 	}
 
-	cogitoCmd := os.Getenv("COGITO_CMD")
-	if cogitoCmd == "" {
-		cogitoCmd = "cogito"
+	coreCmd := os.Getenv("CORE_CMD")
+	if coreCmd == "" {
+		coreCmd = "apteva-core"
 	}
 
 	dataDir := os.Getenv("DATA_DIR")
 	if dataDir == "" {
 		dataDir = "data"
 	}
-
-	fireworksKey := os.Getenv("FIREWORKS_API_KEY")
 
 	store, err := NewStore(dbPath)
 	if err != nil {
@@ -45,10 +104,32 @@ func main() {
 	}
 	defer store.Close()
 
+	secret, err := LoadSecret(dataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load encryption key: %v\n", err)
+		os.Exit(1)
+	}
+
+	catalog := NewAppCatalog()
+	appsDir := os.Getenv("APPS_DIR")
+	if appsDir == "" {
+		// Default: look for integrations package relative to data dir
+		appsDir = filepath.Join(dataDir, "..", "..", "integrations", "src", "apps")
+	}
+	if err := catalog.LoadFromDir(appsDir); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not load app catalog from %s: %v\n", appsDir, err)
+	} else {
+		fmt.Fprintf(os.Stderr, "loaded %d apps from catalog\n", catalog.Count())
+	}
+
 	s := &Server{
-		store:        store,
-		instances:    NewInstanceManager(dataDir, cogitoCmd, 3210),
-		fireworksKey: fireworksKey,
+		store:       store,
+		instances:   NewInstanceManager(dataDir, coreCmd, 3210),
+		mcpManager:  NewMCPManager(),
+		catalog:     catalog,
+		secret:      secret,
+		port:        port,
+		broadcaster: NewTelemetryBroadcaster(),
 	}
 
 	mux := http.NewServeMux()
@@ -59,6 +140,8 @@ func main() {
 	})
 	mux.HandleFunc("/auth/register", s.handleRegister)
 	mux.HandleFunc("/auth/login", s.handleLogin)
+	mux.HandleFunc("/auth/logout", s.handleLogout)
+	mux.HandleFunc("/auth/me", s.handleMe)
 
 	// Authenticated routes
 	mux.HandleFunc("/auth/keys", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +155,140 @@ func main() {
 		}
 	}))
 	mux.HandleFunc("/auth/keys/", s.authMiddleware(s.handleDeleteKey))
+
+	// Telemetry routes (ingest is unauthenticated — core instances POST here)
+	mux.HandleFunc("/telemetry/timeline", s.authMiddleware(s.handleTelemetryTimeline))
+	mux.HandleFunc("/telemetry/stats", s.authMiddleware(s.handleTelemetryStats))
+	mux.HandleFunc("/telemetry/stream", s.handleTelemetryStream) // SSE — no auth (needs cookie passthrough)
+	mux.HandleFunc("/telemetry/live", s.handleLiveTelemetry)     // broadcast-only ingest for chunks
+	mux.HandleFunc("/telemetry", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			s.handleIngestTelemetry(w, r)
+		case http.MethodGet:
+			s.authMiddleware(s.handleQueryTelemetry)(w, r)
+		case http.MethodDelete:
+			s.authMiddleware(s.handleWipeTelemetry)(w, r)
+		default:
+			http.Error(w, "GET, POST, or DELETE", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Webhook receiver (unauthenticated — external services POST here)
+	mux.HandleFunc("/webhooks/", s.handleWebhook)
+
+	// Subscription management
+	mux.HandleFunc("/subscriptions", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.handleListSubscriptions(w, r)
+		case http.MethodPost:
+			s.handleCreateSubscription(w, r)
+		default:
+			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
+		}
+	}))
+	mux.HandleFunc("/subscriptions/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/subscriptions/")
+		if strings.HasSuffix(path, "/enable") || strings.HasSuffix(path, "/disable") {
+			s.handleToggleSubscription(w, r)
+		} else if strings.HasSuffix(path, "/test") {
+			s.handleTestSubscription(w, r)
+		} else {
+			s.handleDeleteSubscription(w, r)
+		}
+	}))
+
+	// MCP Streamable HTTP endpoint (no auth — MCP clients connect directly)
+	mux.HandleFunc("/mcp/", s.handleMCPEndpoint)
+
+	// Projects
+	mux.HandleFunc("/projects", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.handleListProjects(w, r)
+		case http.MethodPost:
+			s.handleCreateProject(w, r)
+		default:
+			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
+		}
+	}))
+	mux.HandleFunc("/projects/", s.authMiddleware(s.handleProject))
+
+	// Integration catalog routes
+	mux.HandleFunc("/integrations/catalog/", s.authMiddleware(s.handleGetCatalogApp))
+	mux.HandleFunc("/integrations/catalog", s.authMiddleware(s.handleListCatalog))
+
+	// Connection routes
+	mux.HandleFunc("/connections", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.handleListConnections(w, r)
+		case http.MethodPost:
+			s.handleCreateConnection(w, r)
+		default:
+			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
+		}
+	}))
+	mux.HandleFunc("/connections/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/connections/")
+		if strings.HasSuffix(path, "/tools") {
+			s.handleConnectionTools(w, r)
+		} else if strings.HasSuffix(path, "/execute") {
+			s.handleExecuteTool(w, r)
+		} else {
+			s.handleDeleteConnection(w, r)
+		}
+	}))
+
+	// MCP server routes
+	mux.HandleFunc("/mcp-servers", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.handleListMCPServers(w, r)
+		case http.MethodPost:
+			s.handleCreateMCPServer(w, r)
+		default:
+			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
+		}
+	}))
+	mux.HandleFunc("/mcp-servers/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/mcp-servers/")
+		if strings.HasSuffix(path, "/start") {
+			s.handleStartMCPServer(w, r)
+		} else if strings.HasSuffix(path, "/stop") {
+			s.handleStopMCPServer(w, r)
+		} else if strings.HasSuffix(path, "/tools") {
+			s.handleMCPServerTools(w, r)
+		} else {
+			s.handleDeleteMCPServer(w, r)
+		}
+	}))
+
+	// Provider routes
+	mux.HandleFunc("/provider-types", s.authMiddleware(s.handleListProviderTypes))
+	mux.HandleFunc("/providers", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.handleListProviders(w, r)
+		case http.MethodPost:
+			s.handleCreateProvider(w, r)
+		default:
+			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
+		}
+	}))
+	mux.HandleFunc("/providers/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.handleGetProvider(w, r)
+		case http.MethodPut:
+			s.handleUpdateProvider(w, r)
+		case http.MethodDelete:
+			s.handleDeleteProvider(w, r)
+		default:
+			http.Error(w, "GET, PUT, or DELETE", http.StatusMethodNotAllowed)
+		}
+	}))
 
 	mux.HandleFunc("/instances", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -94,7 +311,19 @@ func main() {
 			return
 		}
 
-		// /instances/:id/status, /instances/:id/threads, etc. → proxy
+		// /instances/:id/stop
+		if strings.HasSuffix(path, "/stop") {
+			s.handleStopInstance(w, r)
+			return
+		}
+
+		// /instances/:id/start
+		if strings.HasSuffix(path, "/start") {
+			s.handleStartInstance(w, r)
+			return
+		}
+
+		// /instances/:id/status, /instances/:id/threads, /instances/:id/pause, etc. → proxy
 		if strings.Contains(path, "/") {
 			s.handleProxy(w, r)
 			return
@@ -104,7 +333,7 @@ func main() {
 		s.handleInstance(w, r)
 	}))
 
-	fmt.Fprintf(os.Stderr, "backplane running on :%s\n", port)
+	fmt.Fprintf(os.Stderr, "apteva-server running on :%s\n", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)

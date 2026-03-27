@@ -1,4 +1,4 @@
-module github.com/apteva/backplane
+module github.com/apteva/server
 
 go 1.25.1
 

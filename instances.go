@@ -12,23 +12,28 @@ import (
 	"sync"
 )
 
+type runningInstance struct {
+	cmd  *exec.Cmd
+	port int
+}
+
 type InstanceManager struct {
 	mu        sync.RWMutex
-	processes map[int64]*exec.Cmd // instanceID → running process
+	processes map[int64]*runningInstance // instanceID → running process + port
 	basePort  int
 	nextPort  int
 	dataDir   string
-	cogitoCmd string // path to cogito binary
+	coreCmd string // path to core binary
 }
 
-func NewInstanceManager(dataDir, cogitoCmd string, basePort int) *InstanceManager {
+func NewInstanceManager(dataDir, coreCmd string, basePort int) *InstanceManager {
 	os.MkdirAll(dataDir, 0755)
 	return &InstanceManager{
-		processes: make(map[int64]*exec.Cmd),
+		processes: make(map[int64]*runningInstance),
 		basePort:  basePort,
 		nextPort:  basePort,
 		dataDir:   dataDir,
-		cogitoCmd: cogitoCmd,
+		coreCmd: coreCmd,
 	}
 }
 
@@ -43,44 +48,74 @@ func (im *InstanceManager) instanceDir(id int64) string {
 	return dir
 }
 
-// Start launches a Cogito process for the given instance.
-func (im *InstanceManager) Start(inst *Instance, fireworksKey string) error {
+// Start launches a core process for the given instance.
+// providerEnv contains decrypted provider env vars to inject.
+// serverPort is this server's port so core can POST telemetry back.
+func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, serverPort string) error {
 	im.mu.Lock()
 	defer im.mu.Unlock()
 
-	if _, running := im.processes[inst.ID]; running {
+	if ri, running := im.processes[inst.ID]; running && ri.cmd.ProcessState == nil {
 		return fmt.Errorf("instance %d already running", inst.ID)
 	}
 
 	port := im.allocPort()
 	dir := im.instanceDir(inst.ID)
 
-	// Write config.json for this instance
+	// Get server binary path for MCP gateway
+	serverBin, _ := os.Executable()
+
+	// Write config.json with meta gateway MCP server
 	config := map[string]any{
 		"directive": inst.Directive,
+		"mcp_servers": []map[string]any{
+			{
+				"name":    "apteva-server",
+				"command": serverBin,
+				"args":    []string{"--mcp-gateway", fmt.Sprintf("--user-id=%d", inst.UserID)},
+			},
+		},
 	}
 	if inst.Config != "" && inst.Config != "{}" {
-		json.Unmarshal([]byte(inst.Config), &config)
+		var existing map[string]any
+		json.Unmarshal([]byte(inst.Config), &existing)
+		// Preserve directive override
 		config["directive"] = inst.Directive
+		// Merge existing MCP servers if any
+		if existingServers, ok := existing["mcp_servers"].([]any); ok {
+			servers := config["mcp_servers"].([]map[string]any)
+			for _, s := range existingServers {
+				if sm, ok := s.(map[string]any); ok {
+					servers = append(servers, sm)
+				}
+			}
+			config["mcp_servers"] = servers
+		}
 	}
 	configData, _ := json.MarshalIndent(config, "", "  ")
 	os.WriteFile(filepath.Join(dir, "config.json"), configData, 0644)
 
-	cmd := exec.Command(im.cogitoCmd, "--headless")
+	cmd := exec.Command(im.coreCmd, "--headless")
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"FIREWORKS_API_KEY="+fireworksKey,
+	env := append(os.Environ(),
 		"API_PORT="+itoa64(int64(port)),
 		"NO_TUI=1",
+		"SERVER_URL=http://127.0.0.1:"+serverPort,
+		"INSTANCE_ID="+itoa64(inst.ID),
+		"PROJECT_ID="+inst.ProjectID,
 	)
+	for k, v := range providerEnv {
+		env = append(env, k+"="+v)
+	}
+	cmd.Env = env
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start cogito: %w", err)
+		return fmt.Errorf("failed to start core: %w", err)
 	}
 
-	im.processes[inst.ID] = cmd
+	im.processes[inst.ID] = &runningInstance{cmd: cmd, port: port}
 	inst.Port = port
 	inst.Pid = cmd.Process.Pid
 	inst.Status = "running"
@@ -96,23 +131,37 @@ func (im *InstanceManager) Start(inst *Instance, fireworksKey string) error {
 	return nil
 }
 
-// Stop kills a running Cogito process.
+// Stop kills a running core process.
 func (im *InstanceManager) Stop(instanceID int64) {
 	im.mu.Lock()
-	cmd, ok := im.processes[instanceID]
+	ri, ok := im.processes[instanceID]
+	if ok {
+		delete(im.processes, instanceID)
+	}
 	im.mu.Unlock()
-	if ok && cmd.Process != nil {
-		cmd.Process.Kill()
-		cmd.Wait()
+	if ok && ri.cmd.Process != nil {
+		ri.cmd.Process.Kill()
+		ri.cmd.Wait()
 	}
 }
 
 // IsRunning checks if an instance process is alive.
 func (im *InstanceManager) IsRunning(instanceID int64) bool {
 	im.mu.RLock()
-	_, ok := im.processes[instanceID]
+	ri, ok := im.processes[instanceID]
 	im.mu.RUnlock()
-	return ok
+	return ok && ri.cmd.ProcessState == nil
+}
+
+// GetPort returns the port for a running instance, or 0 if not running.
+func (im *InstanceManager) GetPort(instanceID int64) int {
+	im.mu.RLock()
+	ri, ok := im.processes[instanceID]
+	im.mu.RUnlock()
+	if ok && ri.cmd.ProcessState == nil {
+		return ri.port
+	}
+	return 0
 }
 
 // --- HTTP Handlers ---
@@ -129,6 +178,7 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		Name       string `json:"name"`
 		Directive  string `json:"directive"`
 		Config     string `json:"config"` // optional JSON blob for MCP servers etc
+		ProjectID  string `json:"project_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -145,14 +195,20 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		body.Config = "{}"
 	}
 
-	inst, err := s.store.CreateInstance(userID, body.Name, body.Directive, body.Config)
+	inst, err := s.store.CreateInstance(userID, body.Name, body.Directive, body.Config, body.ProjectID)
 	if err != nil {
 		http.Error(w, "failed to create instance", http.StatusInternalServerError)
 		return
 	}
 
-	// Start the Cogito process
-	if err := s.instances.Start(inst, s.fireworksKey); err != nil {
+	// Load provider env vars for this user
+	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret)
+	if err != nil {
+		providerEnv = map[string]string{}
+	}
+
+	// Start the core process
+	if err := s.instances.Start(inst, providerEnv, s.port); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -168,7 +224,8 @@ func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := getUserID(r)
-	instances, err := s.store.ListInstances(userID)
+	projectID := r.URL.Query().Get("project_id")
+	instances, err := s.store.ListInstances(userID, projectID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -226,6 +283,75 @@ func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// POST /instances/:id/stop
+func (s *Server) handleStopInstance(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	path := strings.TrimPrefix(r.URL.Path, "/instances/")
+	idStr := strings.TrimSuffix(path, "/stop")
+	instanceID, err := atoi64(idStr)
+	if err != nil {
+		http.Error(w, "invalid instance ID", http.StatusBadRequest)
+		return
+	}
+
+	inst, err := s.store.GetInstance(userID, instanceID)
+	if err != nil {
+		http.Error(w, "instance not found", http.StatusNotFound)
+		return
+	}
+
+	s.instances.Stop(inst.ID)
+	inst.Status = "stopped"
+	inst.Pid = 0
+	inst.Port = 0
+	s.store.UpdateInstance(inst)
+	writeJSON(w, inst)
+}
+
+// POST /instances/:id/start
+func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	path := strings.TrimPrefix(r.URL.Path, "/instances/")
+	idStr := strings.TrimSuffix(path, "/start")
+	instanceID, err := atoi64(idStr)
+	if err != nil {
+		http.Error(w, "invalid instance ID", http.StatusBadRequest)
+		return
+	}
+
+	inst, err := s.store.GetInstance(userID, instanceID)
+	if err != nil {
+		http.Error(w, "instance not found", http.StatusNotFound)
+		return
+	}
+
+	if s.instances.IsRunning(inst.ID) {
+		http.Error(w, "instance already running", http.StatusConflict)
+		return
+	}
+
+	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret)
+	if err != nil {
+		providerEnv = map[string]string{}
+	}
+
+	if err := s.instances.Start(inst, providerEnv, s.port); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.store.UpdateInstance(inst)
+	writeJSON(w, inst)
+}
+
 // PUT /instances/:id/config
 func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
@@ -262,19 +388,19 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.UpdateInstance(inst)
 
-	// If running, update Cogito's config via its API
-	if s.instances.IsRunning(inst.ID) && body.Directive != "" {
-		proxyPUT(inst.Port, "/config", map[string]string{"directive": body.Directive})
+	// If running, update core's config via its API
+	if cfgPort := s.instances.GetPort(inst.ID); cfgPort > 0 && body.Directive != "" {
+		proxyPUT(cfgPort, "/config", map[string]string{"directive": body.Directive})
 	}
 
 	writeJSON(w, inst)
 }
 
-// Proxy handler: forwards to Cogito instance's API
+// Proxy handler: forwards to core instance's API
 func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
 
-	// Parse /instances/:id/<cogito-path>
+	// Parse /instances/:id/<core-path>
 	path := strings.TrimPrefix(r.URL.Path, "/instances/")
 	parts := strings.SplitN(path, "/", 2)
 	if len(parts) < 2 {
@@ -294,13 +420,14 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.instances.IsRunning(inst.ID) {
+	port := s.instances.GetPort(inst.ID)
+	if port == 0 {
 		http.Error(w, "instance not running", http.StatusServiceUnavailable)
 		return
 	}
 
-	cogitoPath := "/" + parts[1]
-	targetURL := fmt.Sprintf("http://127.0.0.1:%d%s", inst.Port, cogitoPath)
+	corePath := "/" + parts[1]
+	targetURL := fmt.Sprintf("http://127.0.0.1:%d%s", port, corePath)
 
 	// Forward the request
 	proxyReq, err := http.NewRequest(r.Method, targetURL, r.Body)
@@ -312,7 +439,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := http.DefaultClient.Do(proxyReq)
 	if err != nil {
-		http.Error(w, "cogito unreachable", http.StatusBadGateway)
+		http.Error(w, "core unreachable", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()

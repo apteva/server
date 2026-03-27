@@ -11,8 +11,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// Session tokens: map token → userID (in-memory, lost on restart)
-var sessions = map[string]int64{}
+const sessionDuration = 7 * 24 * time.Hour
+const cookieName = "session"
 
 func generateToken(n int) string {
 	b := make([]byte, n)
@@ -20,33 +20,53 @@ func generateToken(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// authMiddleware extracts user from session token or API key.
+func setSessionCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     cookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(sessionDuration.Seconds()),
+	})
+}
+
+func clearSessionCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     cookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   -1,
+	})
+}
+
+// authMiddleware extracts user from session cookie or API key.
 func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Try session cookie first
+		if cookie, err := r.Cookie(cookieName); err == nil && cookie.Value != "" {
+			if userID, err := s.store.GetSession(cookie.Value); err == nil {
+				r.Header.Set("X-User-ID", itoa(userID))
+				next(w, r)
+				return
+			}
+		}
+
+		// Try Authorization header (API key)
 		auth := r.Header.Get("Authorization")
-		if auth == "" {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
+		if auth != "" {
+			token := strings.TrimPrefix(auth, "Bearer ")
+			keyHash := HashAPIKey(token)
+			user, err := s.store.GetUserByAPIKey(keyHash)
+			if err == nil {
+				r.Header.Set("X-User-ID", itoa(user.ID))
+				next(w, r)
+				return
+			}
 		}
 
-		token := strings.TrimPrefix(auth, "Bearer ")
-
-		// Try session token first
-		if userID, ok := sessions[token]; ok {
-			r.Header.Set("X-User-ID", itoa(userID))
-			next(w, r)
-			return
-		}
-
-		// Try API key
-		keyHash := HashAPIKey(token)
-		user, err := s.store.GetUserByAPIKey(keyHash)
-		if err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		r.Header.Set("X-User-ID", itoa(user.ID))
-		next(w, r)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	}
 }
 
@@ -71,7 +91,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Email == "" || body.Password == "" {
-		http.Error(w, "email and password required", http.StatusBadRequest)
+		http.Error(w, "username and password required", http.StatusBadRequest)
 		return
 	}
 	if len(body.Password) < 8 {
@@ -87,9 +107,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	user, err := s.store.CreateUser(body.Email, string(hash))
 	if err != nil {
-		http.Error(w, "email already registered", http.StatusConflict)
+		http.Error(w, "username already taken", http.StatusConflict)
 		return
 	}
+
+	// Auto-create a default project for the new user
+	s.store.CreateProject(user.ID, "Default", "Default project", "#6366f1")
 
 	writeJSON(w, map[string]any{"id": user.ID, "email": user.Email})
 }
@@ -122,14 +145,46 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := generateToken(32)
-	sessions[token] = user.ID
+	if err := s.store.CreateSession(token, user.ID, time.Now().Add(sessionDuration)); err != nil {
+		http.Error(w, "failed to create session: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
+	setSessionCookie(w, token)
 	writeJSON(w, map[string]any{
-		"token":      token,
-		"user_id":    user.ID,
-		"email":      user.Email,
-		"expires_in": int((24 * time.Hour).Seconds()),
+		"user_id": user.ID,
+		"email":   user.Email,
 	})
+}
+
+// POST /auth/logout
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	clearSessionCookie(w)
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// GET /auth/me — check if session is valid
+func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	cookie, err := r.Cookie(cookieName)
+	if err != nil || cookie.Value == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userID, err := s.store.GetSession(cookie.Value)
+	if err != nil {
+		clearSessionCookie(w)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	writeJSON(w, map[string]any{"user_id": userID})
 }
 
 // POST /auth/keys — create API key

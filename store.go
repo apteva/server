@@ -27,6 +27,15 @@ type APIKey struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type Project struct {
+	ID          string    `json:"id"`
+	UserID      int64     `json:"user_id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Color       string    `json:"color"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 type Instance struct {
 	ID        int64     `json:"id"`
 	UserID    int64     `json:"user_id"`
@@ -36,6 +45,7 @@ type Instance struct {
 	Port      int       `json:"port"`
 	Pid       int       `json:"pid"`
 	Status    string    `json:"status"` // running, stopped
+	ProjectID string    `json:"project_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -49,8 +59,8 @@ func NewStore(path string) (*Store, error) {
 		return nil, err
 	}
 
-	// Enable WAL mode for better concurrency
-	db.Exec("PRAGMA journal_mode=WAL")
+	// Use simple journal mode — single file, no -wal/-shm sidecars
+	db.Exec("PRAGMA journal_mode=DELETE")
 
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
@@ -76,6 +86,102 @@ func (s *Store) migrate() error {
 			last_used DATETIME,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
+		CREATE TABLE IF NOT EXISTS sessions (
+			token TEXT PRIMARY KEY,
+			user_id INTEGER NOT NULL REFERENCES users(id),
+			expires_at DATETIME NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TABLE IF NOT EXISTS provider_types (
+			id INTEGER PRIMARY KEY,
+			type TEXT NOT NULL,
+			name TEXT UNIQUE NOT NULL,
+			description TEXT DEFAULT '',
+			fields TEXT DEFAULT '[]',
+			requires_credentials INTEGER DEFAULT 1,
+			sort_order INTEGER DEFAULT 0
+		);
+
+		INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
+			(1, 'llm', 'Fireworks', 'LLM inference via Fireworks AI', '["FIREWORKS_API_KEY"]', 1, 10),
+			(2, 'llm', 'OpenAI', 'LLM inference and embeddings', '["OPENAI_API_KEY","OPENAI_BASE_URL"]', 1, 11),
+			(3, 'llm', 'Anthropic', 'LLM inference via Anthropic', '["ANTHROPIC_API_KEY"]', 1, 12),
+			(4, 'llm', 'Ollama', 'Local LLM inference', '["OLLAMA_HOST"]', 1, 13),
+			(5, 'integrations', 'Apteva Local', '200+ app integrations (GitHub, Slack, Stripe, etc.)', '[]', 0, 15),
+			(6, 'embeddings', 'Voyage', 'Text embeddings', '["VOYAGE_API_KEY"]', 1, 20),
+			(7, 'tts', 'ElevenLabs', 'Text-to-speech', '["ELEVENLABS_API_KEY"]', 1, 30),
+			(8, 'browser', 'Browserbase', 'Browser automation', '["BROWSERBASE_API_KEY","BROWSERBASE_PROJECT_ID"]', 1, 40);
+
+		CREATE TABLE IF NOT EXISTS providers (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL REFERENCES users(id),
+			provider_type_id INTEGER DEFAULT 0,
+			type TEXT NOT NULL,
+			name TEXT NOT NULL,
+			encrypted_data TEXT NOT NULL,
+			status TEXT DEFAULT 'active',
+			project_id TEXT DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TABLE IF NOT EXISTS connections (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL REFERENCES users(id),
+			app_slug TEXT NOT NULL,
+			app_name TEXT NOT NULL,
+			name TEXT NOT NULL,
+			auth_type TEXT NOT NULL,
+			encrypted_credentials TEXT NOT NULL,
+			status TEXT DEFAULT 'active',
+			project_id TEXT DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE TABLE IF NOT EXISTS mcp_servers (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL REFERENCES users(id),
+			name TEXT NOT NULL,
+			command TEXT NOT NULL DEFAULT '',
+			args TEXT DEFAULT '[]',
+			encrypted_env TEXT DEFAULT '',
+			description TEXT DEFAULT '',
+			status TEXT DEFAULT 'stopped',
+			tool_count INTEGER DEFAULT 0,
+			pid INTEGER DEFAULT 0,
+			source TEXT DEFAULT 'custom',
+			connection_id INTEGER DEFAULT 0,
+			project_id TEXT DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE TABLE IF NOT EXISTS subscriptions (
+			id TEXT PRIMARY KEY,
+			user_id INTEGER NOT NULL REFERENCES users(id),
+			instance_id INTEGER NOT NULL DEFAULT 0,
+			connection_id INTEGER NOT NULL DEFAULT 0,
+			name TEXT NOT NULL,
+			slug TEXT NOT NULL DEFAULT '',
+			description TEXT DEFAULT '',
+			webhook_path TEXT UNIQUE NOT NULL,
+			encrypted_hmac_secret TEXT DEFAULT '',
+			enabled INTEGER DEFAULT 1,
+			thread_id TEXT DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_sub_webhook ON subscriptions(webhook_path);
+
+		CREATE TABLE IF NOT EXISTS telemetry (
+			id TEXT PRIMARY KEY,
+			instance_id INTEGER NOT NULL,
+			thread_id TEXT NOT NULL DEFAULT 'main',
+			type TEXT NOT NULL,
+			time DATETIME NOT NULL,
+			data TEXT NOT NULL DEFAULT '{}',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_telem_instance_time ON telemetry(instance_id, time);
+		CREATE INDEX IF NOT EXISTS idx_telem_type ON telemetry(type, time);
+
 		CREATE TABLE IF NOT EXISTS instances (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id INTEGER NOT NULL REFERENCES users(id),
@@ -85,10 +191,32 @@ func (s *Store) migrate() error {
 			port INTEGER DEFAULT 0,
 			pid INTEGER DEFAULT 0,
 			status TEXT DEFAULT 'stopped',
+			project_id TEXT DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE TABLE IF NOT EXISTS projects (
+			id TEXT PRIMARY KEY,
+			user_id INTEGER NOT NULL REFERENCES users(id),
+			name TEXT NOT NULL,
+			description TEXT DEFAULT '',
+			color TEXT DEFAULT '#6366f1',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Migrations for existing DBs — silently ignored if columns already exist
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN thread_id TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE connections ADD COLUMN project_id TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN project_id TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN project_id TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE instances ADD COLUMN project_id TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE providers ADD COLUMN project_id TEXT DEFAULT ''")
+
+	return nil
 }
 
 func (s *Store) Close() error {
@@ -118,7 +246,7 @@ func (s *Store) GetUserByEmail(email string) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
-	u.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+	u.CreatedAt, _ = parseTime(createdAt)
 	return &u, nil
 }
 
@@ -171,7 +299,7 @@ func (s *Store) ListAPIKeys(userID int64) ([]APIKey, error) {
 		var createdAt string
 		rows.Scan(&k.ID, &k.Name, &k.KeyPrefix, &createdAt)
 		k.UserID = userID
-		k.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		k.CreatedAt, _ = parseTime(createdAt)
 		keys = append(keys, k)
 	}
 	return keys, nil
@@ -184,36 +312,42 @@ func (s *Store) DeleteAPIKey(userID, keyID int64) error {
 
 // --- Instances ---
 
-func (s *Store) CreateInstance(userID int64, name, directive, config string) (*Instance, error) {
+func (s *Store) CreateInstance(userID int64, name, directive, config, projectID string) (*Instance, error) {
 	result, err := s.db.Exec(
-		"INSERT INTO instances (user_id, name, directive, config) VALUES (?, ?, ?, ?)",
-		userID, name, directive, config,
+		"INSERT INTO instances (user_id, name, directive, config, project_id) VALUES (?, ?, ?, ?, ?)",
+		userID, name, directive, config, projectID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := result.LastInsertId()
-	return &Instance{ID: id, UserID: userID, Name: name, Directive: directive, Config: config, Status: "stopped", CreatedAt: time.Now()}, nil
+	return &Instance{ID: id, UserID: userID, Name: name, Directive: directive, Config: config, Status: "stopped", ProjectID: projectID, CreatedAt: time.Now()}, nil
 }
 
 func (s *Store) GetInstance(userID, instanceID int64) (*Instance, error) {
 	var inst Instance
 	var createdAt string
 	err := s.db.QueryRow(
-		"SELECT id, user_id, name, directive, config, port, pid, status, created_at FROM instances WHERE id = ? AND user_id = ?",
+		"SELECT id, user_id, name, directive, config, port, pid, status, COALESCE(project_id,''), created_at FROM instances WHERE id = ? AND user_id = ?",
 		instanceID, userID,
-	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Config, &inst.Port, &inst.Pid, &inst.Status, &createdAt)
+	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Config, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &createdAt)
 	if err != nil {
 		return nil, err
 	}
-	inst.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+	inst.CreatedAt, _ = parseTime(createdAt)
 	return &inst, nil
 }
 
-func (s *Store) ListInstances(userID int64) ([]Instance, error) {
-	rows, err := s.db.Query(
-		"SELECT id, name, directive, port, pid, status, created_at FROM instances WHERE user_id = ?", userID,
-	)
+func (s *Store) ListInstances(userID int64, projectID string) ([]Instance, error) {
+	var rows *sql.Rows
+	var err error
+	if projectID != "" {
+		rows, err = s.db.Query(
+			"SELECT id, name, directive, port, pid, status, COALESCE(project_id,''), created_at FROM instances WHERE user_id = ? AND project_id = ?", userID, projectID)
+	} else {
+		rows, err = s.db.Query(
+			"SELECT id, name, directive, port, pid, status, COALESCE(project_id,''), created_at FROM instances WHERE user_id = ?", userID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -223,9 +357,9 @@ func (s *Store) ListInstances(userID int64) ([]Instance, error) {
 	for rows.Next() {
 		var inst Instance
 		var createdAt string
-		rows.Scan(&inst.ID, &inst.Name, &inst.Directive, &inst.Port, &inst.Pid, &inst.Status, &createdAt)
+		rows.Scan(&inst.ID, &inst.Name, &inst.Directive, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &createdAt)
 		inst.UserID = userID
-		inst.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		inst.CreatedAt, _ = parseTime(createdAt)
 		instances = append(instances, inst)
 	}
 	return instances, nil
@@ -233,8 +367,8 @@ func (s *Store) ListInstances(userID int64) ([]Instance, error) {
 
 func (s *Store) UpdateInstance(inst *Instance) error {
 	_, err := s.db.Exec(
-		"UPDATE instances SET directive=?, config=?, port=?, pid=?, status=? WHERE id=?",
-		inst.Directive, inst.Config, inst.Port, inst.Pid, inst.Status, inst.ID,
+		"UPDATE instances SET directive=?, config=?, port=?, pid=?, status=?, project_id=? WHERE id=?",
+		inst.Directive, inst.Config, inst.Port, inst.Pid, inst.Status, inst.ProjectID, inst.ID,
 	)
 	return err
 }
@@ -242,4 +376,115 @@ func (s *Store) UpdateInstance(inst *Instance) error {
 func (s *Store) DeleteInstance(userID, instanceID int64) error {
 	_, err := s.db.Exec("DELETE FROM instances WHERE id = ? AND user_id = ?", instanceID, userID)
 	return err
+}
+
+// --- Projects ---
+
+func (s *Store) CreateProject(userID int64, name, description, color string) (*Project, error) {
+	id := generateID()
+	if color == "" {
+		color = "#6366f1"
+	}
+	_, err := s.db.Exec(
+		"INSERT INTO projects (id, user_id, name, description, color) VALUES (?, ?, ?, ?, ?)",
+		id, userID, name, description, color,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &Project{ID: id, UserID: userID, Name: name, Description: description, Color: color, CreatedAt: time.Now()}, nil
+}
+
+func (s *Store) ListProjects(userID int64) ([]Project, error) {
+	rows, err := s.db.Query("SELECT id, name, description, color, created_at FROM projects WHERE user_id = ?", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var projects []Project
+	for rows.Next() {
+		var p Project
+		var createdAt string
+		rows.Scan(&p.ID, &p.Name, &p.Description, &p.Color, &createdAt)
+		p.UserID = userID
+		p.CreatedAt, _ = parseTime(createdAt)
+		projects = append(projects, p)
+	}
+	return projects, nil
+}
+
+func (s *Store) GetProject(userID int64, id string) (*Project, error) {
+	var p Project
+	var createdAt string
+	err := s.db.QueryRow("SELECT id, name, description, color, created_at FROM projects WHERE id = ? AND user_id = ?", id, userID).
+		Scan(&p.ID, &p.Name, &p.Description, &p.Color, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+	p.UserID = userID
+	p.CreatedAt, _ = parseTime(createdAt)
+	return &p, nil
+}
+
+func (s *Store) UpdateProject(userID int64, id, name, description, color string) error {
+	_, err := s.db.Exec("UPDATE projects SET name=?, description=?, color=? WHERE id=? AND user_id=?",
+		name, description, color, id, userID)
+	return err
+}
+
+func (s *Store) DeleteProject(userID int64, id string) error {
+	_, err := s.db.Exec("DELETE FROM projects WHERE id = ? AND user_id = ?", id, userID)
+	return err
+}
+
+// --- Sessions ---
+
+func (s *Store) CreateSession(token string, userID int64, expiresAt time.Time) error {
+	_, err := s.db.Exec(
+		"INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
+		token, userID, expiresAt.UTC().Format("2006-01-02 15:04:05"),
+	)
+	return err
+}
+
+func (s *Store) GetSession(token string) (int64, error) {
+	var userID int64
+	var expiresAt string
+	err := s.db.QueryRow(
+		"SELECT user_id, expires_at FROM sessions WHERE token = ?", token,
+	).Scan(&userID, &expiresAt)
+	if err != nil {
+		return 0, err
+	}
+	exp, err := parseTime(expiresAt)
+	if err != nil {
+		return 0, fmt.Errorf("bad expires_at %q: %w", expiresAt, err)
+	}
+	if time.Now().UTC().After(exp) {
+		s.db.Exec("DELETE FROM sessions WHERE token = ?", token)
+		return 0, fmt.Errorf("session expired")
+	}
+	return userID, nil
+}
+
+// parseTime tries multiple formats that SQLite may return.
+func parseTime(s string) (time.Time, error) {
+	formats := []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05Z",
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05+00:00",
+		"2006-01-02 15:04:05-07:00",
+		time.RFC3339,
+	}
+	for _, f := range formats {
+		if t, err := time.Parse(f, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("cannot parse %q", s)
+}
+
+func (s *Store) DeleteExpiredSessions() {
+	s.db.Exec("DELETE FROM sessions WHERE expires_at < ?", time.Now().UTC().Format("2006-01-02 15:04:05"))
 }
