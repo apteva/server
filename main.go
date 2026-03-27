@@ -17,6 +17,7 @@ type Server struct {
 	catalog     *AppCatalog
 	secret      []byte  // AES-256 key for encrypting provider data
 	port        string  // server port for telemetry callback
+	dataDir     string  // data directory for downloads, etc.
 	broadcaster *TelemetryBroadcaster
 }
 
@@ -113,13 +114,19 @@ func main() {
 	catalog := NewAppCatalog()
 	appsDir := os.Getenv("APPS_DIR")
 	if appsDir == "" {
-		// Default: look for integrations package relative to data dir
-		appsDir = filepath.Join(dataDir, "..", "..", "integrations", "src", "apps")
+		// Try dev path first (relative to repo), then downloaded path
+		devPath := filepath.Join(dataDir, "..", "..", "integrations", "src", "apps")
+		downloadedPath := filepath.Join(dataDir, "integrations")
+		if info, err := os.Stat(devPath); err == nil && info.IsDir() {
+			appsDir = devPath
+		} else {
+			appsDir = downloadedPath
+		}
 	}
 	if err := catalog.LoadFromDir(appsDir); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not load app catalog from %s: %v\n", appsDir, err)
+		fmt.Fprintf(os.Stderr, "no integration catalog found (download via dashboard Settings)\n")
 	} else {
-		fmt.Fprintf(os.Stderr, "loaded %d apps from catalog\n", catalog.Count())
+		fmt.Fprintf(os.Stderr, "loaded %d integrations from catalog\n", catalog.Count())
 	}
 
 	s := &Server{
@@ -129,6 +136,7 @@ func main() {
 		catalog:     catalog,
 		secret:      secret,
 		port:        port,
+		dataDir:     dataDir,
 		broadcaster: NewTelemetryBroadcaster(),
 	}
 
@@ -216,6 +224,8 @@ func main() {
 	mux.HandleFunc("/projects/", s.authMiddleware(s.handleProject))
 
 	// Integration catalog routes
+	mux.HandleFunc("/integrations/catalog/status", s.authMiddleware(s.handleCatalogStatus))
+	mux.HandleFunc("/integrations/catalog/download", s.authMiddleware(s.handleCatalogDownload))
 	mux.HandleFunc("/integrations/catalog/", s.authMiddleware(s.handleGetCatalogApp))
 	mux.HandleFunc("/integrations/catalog", s.authMiddleware(s.handleListCatalog))
 
