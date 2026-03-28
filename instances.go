@@ -65,9 +65,14 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 	// Get server binary path for MCP gateway
 	serverBin, _ := os.Executable()
 
-	// Write config.json with meta gateway MCP server
+	// Write config.json with mode and meta gateway MCP server
+	mode := inst.Mode
+	if mode == "" {
+		mode = "autonomous"
+	}
 	config := map[string]any{
 		"directive": inst.Directive,
+		"mode":      mode,
 		"mcp_servers": []map[string]any{
 			{
 				"name":    "apteva-server",
@@ -177,6 +182,7 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name       string `json:"name"`
 		Directive  string `json:"directive"`
+		Mode       string `json:"mode"` // "autonomous" or "supervised"
 		Config     string `json:"config"` // optional JSON blob for MCP servers etc
 		ProjectID  string `json:"project_id"`
 	}
@@ -191,11 +197,14 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	if body.Directive == "" {
 		body.Directive = "Idle. Waiting for configuration via directive."
 	}
+	if body.Mode != "supervised" {
+		body.Mode = "autonomous"
+	}
 	if body.Config == "" {
 		body.Config = "{}"
 	}
 
-	inst, err := s.store.CreateInstance(userID, body.Name, body.Directive, body.Config, body.ProjectID)
+	inst, err := s.store.CreateInstance(userID, body.Name, body.Directive, body.Mode, body.Config, body.ProjectID)
 	if err != nil {
 		http.Error(w, "failed to create instance", http.StatusInternalServerError)
 		return

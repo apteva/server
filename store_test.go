@@ -144,7 +144,7 @@ func TestStore_CreateInstance(t *testing.T) {
 	store := newTestStore(t)
 	user, _ := store.CreateUser("alice@test.com", "hash")
 
-	inst, err := store.CreateInstance(user.ID, "my-agent", "do stuff", "{}", "")
+	inst, err := store.CreateInstance(user.ID, "my-agent", "do stuff", "autonomous", "{}", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestStore_CreateInstance(t *testing.T) {
 func TestStore_GetInstance(t *testing.T) {
 	store := newTestStore(t)
 	user, _ := store.CreateUser("alice@test.com", "hash")
-	created, _ := store.CreateInstance(user.ID, "my-agent", "directive", `{"key":"val"}`, "")
+	created, _ := store.CreateInstance(user.ID, "my-agent", "directive", "autonomous", `{"key":"val"}`, "")
 
 	inst, err := store.GetInstance(user.ID, created.ID)
 	if err != nil {
@@ -177,7 +177,7 @@ func TestStore_GetInstance_WrongUser(t *testing.T) {
 	store := newTestStore(t)
 	alice, _ := store.CreateUser("alice@test.com", "hash")
 	bob, _ := store.CreateUser("bob@test.com", "hash")
-	inst, _ := store.CreateInstance(alice.ID, "agent", "dir", "{}", "")
+	inst, _ := store.CreateInstance(alice.ID, "agent", "dir", "autonomous", "{}", "")
 
 	_, err := store.GetInstance(bob.ID, inst.ID)
 	if err == nil {
@@ -188,8 +188,8 @@ func TestStore_GetInstance_WrongUser(t *testing.T) {
 func TestStore_ListInstances(t *testing.T) {
 	store := newTestStore(t)
 	user, _ := store.CreateUser("alice@test.com", "hash")
-	store.CreateInstance(user.ID, "agent1", "dir1", "{}", "")
-	store.CreateInstance(user.ID, "agent2", "dir2", "{}", "")
+	store.CreateInstance(user.ID, "agent1", "dir1", "autonomous", "{}", "")
+	store.CreateInstance(user.ID, "agent2", "dir2", "autonomous", "{}", "")
 
 	instances, err := store.ListInstances(user.ID, "")
 	if err != nil {
@@ -203,7 +203,7 @@ func TestStore_ListInstances(t *testing.T) {
 func TestStore_UpdateInstance(t *testing.T) {
 	store := newTestStore(t)
 	user, _ := store.CreateUser("alice@test.com", "hash")
-	inst, _ := store.CreateInstance(user.ID, "agent", "old", "{}", "")
+	inst, _ := store.CreateInstance(user.ID, "agent", "old", "autonomous", "{}", "")
 
 	inst.Directive = "new directive"
 	inst.Status = "running"
@@ -226,7 +226,7 @@ func TestStore_UpdateInstance(t *testing.T) {
 func TestStore_DeleteInstance(t *testing.T) {
 	store := newTestStore(t)
 	user, _ := store.CreateUser("alice@test.com", "hash")
-	inst, _ := store.CreateInstance(user.ID, "agent", "dir", "{}", "")
+	inst, _ := store.CreateInstance(user.ID, "agent", "dir", "autonomous", "{}", "")
 
 	store.DeleteInstance(user.ID, inst.ID)
 
@@ -240,7 +240,7 @@ func TestStore_DeleteInstance_WrongUser(t *testing.T) {
 	store := newTestStore(t)
 	alice, _ := store.CreateUser("alice@test.com", "hash")
 	bob, _ := store.CreateUser("bob@test.com", "hash")
-	inst, _ := store.CreateInstance(alice.ID, "agent", "dir", "{}", "")
+	inst, _ := store.CreateInstance(alice.ID, "agent", "dir", "autonomous", "{}", "")
 
 	store.DeleteInstance(bob.ID, inst.ID)
 
@@ -302,8 +302,8 @@ func TestStore_ProjectIsolation(t *testing.T) {
 	projB, _ := store.CreateProject(user.ID, "Business B", "", "")
 
 	// Create instances in each project
-	store.CreateInstance(user.ID, "agent-a", "dir-a", "{}", projA.ID)
-	store.CreateInstance(user.ID, "agent-b", "dir-b", "{}", projB.ID)
+	store.CreateInstance(user.ID, "agent-a", "dir-a", "autonomous", "{}", projA.ID)
+	store.CreateInstance(user.ID, "agent-b", "dir-b", "autonomous", "{}", projB.ID)
 
 	// List with project filter
 	listA, _ := store.ListInstances(user.ID, projA.ID)

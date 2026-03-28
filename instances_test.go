@@ -79,7 +79,7 @@ func TestCreateInstance_NoStart(t *testing.T) {
 func TestGetInstance(t *testing.T) {
 	s := newTestServer(t)
 	registerAndLogin(t, s)
-	s.store.CreateInstance(1, "agent", "directive", "{}", "")
+	s.store.CreateInstance(1, "agent", "directive", "autonomous", "{}", "")
 
 	req := authedRequest(t, "GET", "/instances/1", "", nil)
 	w := httptest.NewRecorder()
@@ -110,7 +110,7 @@ func TestGetInstance_NotFound(t *testing.T) {
 func TestDeleteInstance(t *testing.T) {
 	s := newTestServer(t)
 	registerAndLogin(t, s)
-	s.store.CreateInstance(1, "agent", "dir", "{}", "")
+	s.store.CreateInstance(1, "agent", "dir", "autonomous", "{}", "")
 
 	req := authedRequest(t, "DELETE", "/instances/1", "", nil)
 	w := httptest.NewRecorder()
@@ -129,7 +129,7 @@ func TestDeleteInstance(t *testing.T) {
 func TestUpdateConfig(t *testing.T) {
 	s := newTestServer(t)
 	registerAndLogin(t, s)
-	s.store.CreateInstance(1, "agent", "old directive", "{}", "")
+	s.store.CreateInstance(1, "agent", "old directive", "autonomous", "{}", "")
 
 	req := authedRequest(t, "PUT", "/instances/1/config", "", map[string]string{
 		"directive": "new directive",
@@ -202,10 +202,10 @@ func TestInstanceIsolation(t *testing.T) {
 	})
 
 	// Alice creates an instance
-	s.store.CreateInstance(1, "alice-agent", "alice stuff", "{}", "")
+	s.store.CreateInstance(1, "alice-agent", "alice stuff", "autonomous", "{}", "")
 
 	// Bob creates an instance
-	s.store.CreateInstance(2, "bob-agent", "bob stuff", "{}", "")
+	s.store.CreateInstance(2, "bob-agent", "bob stuff", "autonomous", "{}", "")
 
 	// Alice should see only her instance
 	aliceInstances, _ := s.store.ListInstances(1, "")

@@ -41,6 +41,7 @@ type Instance struct {
 	UserID    int64     `json:"user_id"`
 	Name      string    `json:"name"`
 	Directive string    `json:"directive"`
+	Mode      string    `json:"mode"` // "autonomous" or "supervised"
 	Config    string    `json:"config"` // JSON blob
 	Port      int       `json:"port"`
 	Pid       int       `json:"pid"`
@@ -187,6 +188,7 @@ func (s *Store) migrate() error {
 			user_id INTEGER NOT NULL REFERENCES users(id),
 			name TEXT NOT NULL,
 			directive TEXT DEFAULT '',
+			mode TEXT DEFAULT 'autonomous',
 			config TEXT DEFAULT '{}',
 			port INTEGER DEFAULT 0,
 			pid INTEGER DEFAULT 0,
@@ -215,6 +217,7 @@ func (s *Store) migrate() error {
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN project_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE instances ADD COLUMN project_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE providers ADD COLUMN project_id TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE instances ADD COLUMN mode TEXT DEFAULT 'autonomous'")
 
 	return nil
 }
@@ -312,25 +315,28 @@ func (s *Store) DeleteAPIKey(userID, keyID int64) error {
 
 // --- Instances ---
 
-func (s *Store) CreateInstance(userID int64, name, directive, config, projectID string) (*Instance, error) {
+func (s *Store) CreateInstance(userID int64, name, directive, mode, config, projectID string) (*Instance, error) {
+	if mode == "" {
+		mode = "autonomous"
+	}
 	result, err := s.db.Exec(
-		"INSERT INTO instances (user_id, name, directive, config, project_id) VALUES (?, ?, ?, ?, ?)",
-		userID, name, directive, config, projectID,
+		"INSERT INTO instances (user_id, name, directive, mode, config, project_id) VALUES (?, ?, ?, ?, ?, ?)",
+		userID, name, directive, mode, config, projectID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := result.LastInsertId()
-	return &Instance{ID: id, UserID: userID, Name: name, Directive: directive, Config: config, Status: "stopped", ProjectID: projectID, CreatedAt: time.Now()}, nil
+	return &Instance{ID: id, UserID: userID, Name: name, Directive: directive, Mode: mode, Config: config, Status: "stopped", ProjectID: projectID, CreatedAt: time.Now()}, nil
 }
 
 func (s *Store) GetInstance(userID, instanceID int64) (*Instance, error) {
 	var inst Instance
 	var createdAt string
 	err := s.db.QueryRow(
-		"SELECT id, user_id, name, directive, config, port, pid, status, COALESCE(project_id,''), created_at FROM instances WHERE id = ? AND user_id = ?",
+		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, status, COALESCE(project_id,''), created_at FROM instances WHERE id = ? AND user_id = ?",
 		instanceID, userID,
-	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Config, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &createdAt)
+	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -343,10 +349,10 @@ func (s *Store) ListInstances(userID int64, projectID string) ([]Instance, error
 	var err error
 	if projectID != "" {
 		rows, err = s.db.Query(
-			"SELECT id, name, directive, port, pid, status, COALESCE(project_id,''), created_at FROM instances WHERE user_id = ? AND project_id = ?", userID, projectID)
+			"SELECT id, name, directive, COALESCE(mode,'autonomous'), port, pid, status, COALESCE(project_id,''), created_at FROM instances WHERE user_id = ? AND project_id = ?", userID, projectID)
 	} else {
 		rows, err = s.db.Query(
-			"SELECT id, name, directive, port, pid, status, COALESCE(project_id,''), created_at FROM instances WHERE user_id = ?", userID)
+			"SELECT id, name, directive, COALESCE(mode,'autonomous'), port, pid, status, COALESCE(project_id,''), created_at FROM instances WHERE user_id = ?", userID)
 	}
 	if err != nil {
 		return nil, err
@@ -357,7 +363,7 @@ func (s *Store) ListInstances(userID int64, projectID string) ([]Instance, error
 	for rows.Next() {
 		var inst Instance
 		var createdAt string
-		rows.Scan(&inst.ID, &inst.Name, &inst.Directive, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &createdAt)
+		rows.Scan(&inst.ID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &createdAt)
 		inst.UserID = userID
 		inst.CreatedAt, _ = parseTime(createdAt)
 		instances = append(instances, inst)
@@ -367,8 +373,8 @@ func (s *Store) ListInstances(userID int64, projectID string) ([]Instance, error
 
 func (s *Store) UpdateInstance(inst *Instance) error {
 	_, err := s.db.Exec(
-		"UPDATE instances SET directive=?, config=?, port=?, pid=?, status=?, project_id=? WHERE id=?",
-		inst.Directive, inst.Config, inst.Port, inst.Pid, inst.Status, inst.ProjectID, inst.ID,
+		"UPDATE instances SET directive=?, mode=?, config=?, port=?, pid=?, status=?, project_id=? WHERE id=?",
+		inst.Directive, inst.Mode, inst.Config, inst.Port, inst.Pid, inst.Status, inst.ProjectID, inst.ID,
 	)
 	return err
 }
