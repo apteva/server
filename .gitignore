@@ -1,8 +1,7 @@
 .env
-backplane
-backplane.db
-apteva-server
-apteva-server.db
+server
+server.db
 *.db-shm
 *.db-wal
 data/
+apteva-server

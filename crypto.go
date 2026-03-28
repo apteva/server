@@ -12,14 +12,14 @@ import (
 )
 
 // LoadSecret returns a 32-byte encryption key.
-// It checks BACKPLANE_SECRET env var first, then falls back to a .secret file
+// It checks SERVER_SECRET env var first, then falls back to a .secret file
 // next to the database. If neither exists, it generates a new key and saves it.
 func LoadSecret(dataDir string) ([]byte, error) {
 	// Try env var first
-	if env := os.Getenv("BACKPLANE_SECRET"); env != "" {
+	if env := os.Getenv("SERVER_SECRET"); env != "" {
 		key, err := hex.DecodeString(env)
 		if err != nil || len(key) != 32 {
-			return nil, fmt.Errorf("BACKPLANE_SECRET must be 64 hex chars (32 bytes)")
+			return nil, fmt.Errorf("SERVER_SECRET must be 64 hex chars (32 bytes)")
 		}
 		return key, nil
 	}
