@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -100,6 +101,16 @@ func (s *Store) GetSubscriptionByPath(webhookPath string) (*Subscription, string
 func (s *Store) DeleteSubscription(userID int64, id string) error {
 	_, err := s.db.Exec("DELETE FROM subscriptions WHERE id = ? AND user_id = ?", id, userID)
 	return err
+}
+
+func (s *Store) SetSubscriptionExternalID(id, externalID string) {
+	s.db.Exec("UPDATE subscriptions SET external_webhook_id = ? WHERE id = ?", externalID, id)
+}
+
+func (s *Store) GetSubscriptionExternalID(id string) string {
+	var extID string
+	s.db.QueryRow("SELECT COALESCE(external_webhook_id,'') FROM subscriptions WHERE id = ?", id).Scan(&extID)
+	return extID
 }
 
 func (s *Store) SetSubscriptionEnabled(userID int64, id string, enabled bool) error {
@@ -266,7 +277,7 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	webhookURL := fmt.Sprintf("http://127.0.0.1:%s/webhooks/%s", s.port, webhookPath)
+	webhookURL := s.webhookURL(webhookPath)
 
 	// Auto-register webhook with the external service if it has registration config
 	var autoRegistered bool
@@ -311,10 +322,24 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 						}
 						resp, err := http.DefaultClient.Do(req)
 						if err == nil {
+							respBody, _ := io.ReadAll(resp.Body)
 							resp.Body.Close()
 							if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 								autoRegistered = true
+								if reg.IDField != "" {
+									var respData map[string]any
+									if json.Unmarshal(respBody, &respData) == nil {
+										extID := extractJSONPath(respData, reg.IDField)
+										if extID != "" {
+											s.store.SetSubscriptionExternalID(sub.ID, extID)
+										}
+									}
+								}
+							} else {
+								log.Printf("[WEBHOOK-REG] failed %d: %s", resp.StatusCode, string(respBody))
 							}
+						} else {
+							log.Printf("[WEBHOOK-REG] error: %v", err)
 						}
 					}
 				}
@@ -350,7 +375,7 @@ func (s *Server) handleListSubscriptions(w http.ResponseWriter, r *http.Request)
 	for _, sub := range subs {
 		enriched = append(enriched, subWithURL{
 			Subscription: sub,
-			WebhookURL:   fmt.Sprintf("http://127.0.0.1:%s/webhooks/%s", s.port, sub.WebhookPath),
+			WebhookURL:   s.webhookURL(sub.WebhookPath),
 		})
 	}
 	writeJSON(w, enriched)
@@ -367,6 +392,48 @@ func (s *Server) handleDeleteSubscription(w http.ResponseWriter, r *http.Request
 	if strings.HasSuffix(id, "/enable") || strings.HasSuffix(id, "/disable") {
 		return // handled elsewhere
 	}
+
+	// Unregister from external service if we have an external webhook ID
+	extID := s.store.GetSubscriptionExternalID(id)
+	if extID != "" {
+		sub, _ := s.store.GetSubscription(userID, id)
+		if sub != nil && sub.ConnectionID > 0 {
+			conn, encCreds, err := s.store.GetConnection(userID, sub.ConnectionID)
+			if err == nil && conn != nil {
+				app := s.catalog.Get(conn.AppSlug)
+				if app != nil && app.Webhooks != nil && app.Webhooks.Registration != nil && app.Webhooks.Registration.DeletePath != "" {
+					plain, err := Decrypt(s.secret, encCreds)
+					if err == nil {
+						reg := app.Webhooks.Registration
+						deletePath := strings.ReplaceAll(reg.DeletePath, "{id}", extID)
+						deleteURL := strings.TrimSuffix(app.BaseURL, "/") + deletePath
+
+						headers := map[string]string{}
+						for k, v := range app.Auth.Headers {
+							headers[k] = resolveCredTemplate(v, plain)
+						}
+
+						method := reg.DeleteMethod
+						if method == "" {
+							method = "DELETE"
+						}
+
+						req, err := http.NewRequest(method, deleteURL, nil)
+						if err == nil {
+							for k, v := range headers {
+								req.Header.Set(k, v)
+							}
+							resp, err := http.DefaultClient.Do(req)
+							if err == nil {
+								resp.Body.Close()
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	s.store.DeleteSubscription(userID, id)
 	writeJSON(w, map[string]string{"status": "deleted"})
 }
@@ -495,6 +562,30 @@ func resolveCredTemplate(template string, credsJSON string) string {
 		result = strings.ReplaceAll(result, "{{"+k+"}}", v)
 	}
 	return result
+}
+
+// extractJSONPath extracts a value at a dot-notation path from a map (e.g. "data.id")
+func extractJSONPath(obj map[string]any, path string) string {
+	parts := strings.Split(path, ".")
+	var current any = obj
+	for _, part := range parts {
+		m, ok := current.(map[string]any)
+		if !ok {
+			return ""
+		}
+		current = m[part]
+	}
+	if current == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", current)
+}
+
+func (s *Server) webhookURL(path string) string {
+	if s.publicURL != "" {
+		return fmt.Sprintf("%s/webhooks/%s", strings.TrimSuffix(s.publicURL, "/"), path)
+	}
+	return fmt.Sprintf("http://127.0.0.1:%s/webhooks/%s", s.port, path)
 }
 
 // setField sets a value at a dot-notation path in a map

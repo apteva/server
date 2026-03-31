@@ -60,8 +60,9 @@ func NewStore(path string) (*Store, error) {
 		return nil, err
 	}
 
-	// Use simple journal mode — single file, no -wal/-shm sidecars
-	db.Exec("PRAGMA journal_mode=DELETE")
+	// WAL mode allows concurrent reads + writes (server + mcp-gateway subprocess)
+	db.Exec("PRAGMA journal_mode=WAL")
+	db.Exec("PRAGMA busy_timeout=5000")
 
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
@@ -104,7 +105,7 @@ func (s *Store) migrate() error {
 		);
 
 		INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
-			(1, 'llm', 'Fireworks', 'LLM inference via Fireworks AI', '["FIREWORKS_API_KEY"]', 1, 10),
+			(1, 'llm', 'Fireworks', 'LLM inference via Fireworks AI', '["FIREWORKS_API_KEY","CORE_MODEL_LARGE","CORE_MODEL_SMALL"]', 1, 10),
 			(2, 'llm', 'OpenAI', 'LLM inference and embeddings', '["OPENAI_API_KEY","OPENAI_BASE_URL"]', 1, 11),
 			(3, 'llm', 'Anthropic', 'LLM inference via Anthropic', '["ANTHROPIC_API_KEY"]', 1, 12),
 			(4, 'llm', 'Ollama', 'Local LLM inference', '["OLLAMA_HOST"]', 1, 13),
@@ -112,6 +113,9 @@ func (s *Store) migrate() error {
 			(6, 'embeddings', 'Voyage', 'Text embeddings', '["VOYAGE_API_KEY"]', 1, 20),
 			(7, 'tts', 'ElevenLabs', 'Text-to-speech', '["ELEVENLABS_API_KEY"]', 1, 30),
 			(8, 'browser', 'Browserbase', 'Browser automation', '["BROWSERBASE_API_KEY","BROWSERBASE_PROJECT_ID"]', 1, 40);
+
+		-- Update existing Fireworks provider type to include model override fields
+		UPDATE provider_types SET fields = '["FIREWORKS_API_KEY","CORE_MODEL_LARGE","CORE_MODEL_SMALL"]' WHERE id = 1;
 
 		CREATE TABLE IF NOT EXISTS providers (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -218,6 +222,7 @@ func (s *Store) migrate() error {
 	s.db.Exec("ALTER TABLE instances ADD COLUMN project_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE providers ADD COLUMN project_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE instances ADD COLUMN mode TEXT DEFAULT 'autonomous'")
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN external_webhook_id TEXT DEFAULT ''")
 
 	return nil
 }
@@ -328,6 +333,14 @@ func (s *Store) CreateInstance(userID int64, name, directive, mode, config, proj
 	}
 	id, _ := result.LastInsertId()
 	return &Instance{ID: id, UserID: userID, Name: name, Directive: directive, Mode: mode, Config: config, Status: "stopped", ProjectID: projectID, CreatedAt: time.Now()}, nil
+}
+
+// GetInstanceName returns the name of an instance by ID (no user check).
+// Used by the console logger to resolve instance names from telemetry events.
+func (s *Store) GetInstanceName(instanceID int64) (string, error) {
+	var name string
+	err := s.db.QueryRow("SELECT name FROM instances WHERE id = ?", instanceID).Scan(&name)
+	return name, err
 }
 
 func (s *Store) GetInstance(userID, instanceID int64) (*Instance, error) {

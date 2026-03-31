@@ -10,6 +10,9 @@ import (
 	"strings"
 )
 
+// Version is set at build time via -ldflags.
+var Version = "dev"
+
 type Server struct {
 	store       *Store
 	instances   *InstanceManager
@@ -18,6 +21,7 @@ type Server struct {
 	secret      []byte  // AES-256 key for encrypting provider data
 	port        string  // server port for telemetry callback
 	dataDir     string  // data directory for downloads, etc.
+	publicURL   string  // public base URL for webhooks (e.g. "https://agents.example.com")
 	broadcaster *TelemetryBroadcaster
 }
 
@@ -129,6 +133,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "loaded %d integrations from catalog\n", catalog.Count())
 	}
 
+	publicURL := os.Getenv("PUBLIC_URL") // e.g. "https://agents.example.com"
+
 	s := &Server{
 		store:       store,
 		instances:   NewInstanceManager(dataDir, coreCmd, 3210),
@@ -137,14 +143,24 @@ func main() {
 		secret:      secret,
 		port:        port,
 		dataDir:     dataDir,
+		publicURL:   publicURL,
 		broadcaster: NewTelemetryBroadcaster(),
+	}
+
+	// Start console telemetry logger
+	if os.Getenv("QUIET") != "1" {
+		console := NewConsoleLogger(s.broadcaster, store)
+		go console.Run()
 	}
 
 	mux := http.NewServeMux()
 
 	// Public routes (no auth)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]bool{"ok": true})
+		writeJSON(w, map[string]any{"ok": true, "version": Version})
+	})
+	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]string{"version": Version})
 	})
 	mux.HandleFunc("/auth/register", s.handleRegister)
 	mux.HandleFunc("/auth/login", s.handleLogin)
@@ -347,7 +363,7 @@ func main() {
 	// Registered last so API routes take priority
 	mux.Handle("/", dashboardHandler())
 
-	fmt.Fprintf(os.Stderr, "apteva-server running on :%s\n", port)
+	fmt.Fprintf(os.Stderr, "apteva-server v%s running on :%s\n", Version, port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)

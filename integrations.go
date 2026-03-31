@@ -44,8 +44,9 @@ type WebhookRegConfig struct {
 	SecretField string                 `json:"secret_field,omitempty"`
 	Extra       map[string]interface{} `json:"extra,omitempty"`
 	IDField     string                 `json:"id_field,omitempty"`
-	DeletePath  string                 `json:"delete_path,omitempty"`
-	ManualSetup string                 `json:"manual_setup,omitempty"`
+	DeletePath   string                 `json:"delete_path,omitempty"`
+	DeleteMethod string                 `json:"delete_method,omitempty"`
+	ManualSetup  string                 `json:"manual_setup,omitempty"`
 }
 
 type AppAuthConfig struct {
@@ -134,6 +135,12 @@ func (c *AppCatalog) LoadFromDir(dir string) error {
 	}
 
 	return nil
+}
+
+func (c *AppCatalog) Register(app *AppTemplate) {
+	c.mu.Lock()
+	c.apps[app.Slug] = app
+	c.mu.Unlock()
 }
 
 func (c *AppCatalog) Get(slug string) *AppTemplate {

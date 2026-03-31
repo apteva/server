@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sort"
 	"strconv"
@@ -49,7 +50,19 @@ func (b *TelemetryBroadcaster) Unsubscribe(instanceID int64, ch chan TelemetryEv
 	}
 }
 
-// Broadcast sends events to all subscribers for the given instance.
+// SubscribeAll returns a channel that receives events for all instances.
+// Used by the console logger to render all activity.
+func (b *TelemetryBroadcaster) SubscribeAll() chan TelemetryEvent {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	ch := make(chan TelemetryEvent, 200)
+	// Use instanceID -1 as the "all" sentinel
+	b.subscribers[-1] = append(b.subscribers[-1], ch)
+	return ch
+}
+
+// Broadcast sends events to all subscribers for the given instance,
+// plus any "all" subscribers (instanceID -1).
 func (b *TelemetryBroadcaster) Broadcast(events []TelemetryEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -58,7 +71,13 @@ func (b *TelemetryBroadcaster) Broadcast(events []TelemetryEvent) {
 			select {
 			case ch <- ev:
 			default:
-				// Drop if subscriber is slow
+			}
+		}
+		// Fan out to "all" subscribers
+		for _, ch := range b.subscribers[-1] {
+			select {
+			case ch <- ev:
+			default:
 			}
 		}
 	}
@@ -273,6 +292,7 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 
 	var events []TelemetryEvent
 	if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+		log.Printf("[TELEMETRY] POST /telemetry: invalid JSON: %v", err)
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
@@ -287,8 +307,8 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Broadcast to SSE subscribers
-	s.broadcaster.Broadcast(events)
+	// No broadcast here — /telemetry/live handles real-time broadcast.
+	// This endpoint is for DB persistence only.
 
 	writeJSON(w, map[string]int{"inserted": len(events)})
 }

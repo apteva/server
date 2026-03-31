@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -59,7 +61,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "list_integrations", Description: "Browse available integrations. Returns name, slug, description, tool count.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"query": {Type: "string", Description: "Search query"}}}},
 		{Name: "get_integration", Description: "Get full details of an integration including credential fields and tools.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}}, Required: []string{"slug"}}},
 		{Name: "list_connections", Description: "List active integration connections.", InputSchema: toolSchema{Type: "object"}},
-		{Name: "create_connection", Description: "Create a new integration connection. Returns server config for connecting.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}, "name": {Type: "string", Description: "Connection name"}, "credentials": {Type: "string", Description: "JSON object of credential key-value pairs"}}, Required: []string{"slug", "credentials"}}},
+		{Name: "create_connection", Description: "Create a new integration connection. Returns server config for connecting.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}, "name": {Type: "string", Description: "Connection name"}, "credentials": {Type: "string", Description: "JSON string with credential fields matching the integration's auth config. Example: {\"api_key\": \"sk_...\"}"}}, Required: []string{"slug", "credentials"}}},
 		{Name: "delete_connection", Description: "Delete an integration connection.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Connection ID"}}, Required: []string{"id"}}},
 		// MCP Servers
 		{Name: "list_mcp_servers", Description: "List registered MCP servers with status, tool count, and mcp_url. Use the mcp_url with [[connect]] to access the server's tools.", InputSchema: toolSchema{Type: "object"}},
@@ -70,7 +72,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "list_server_tools", Description: "List tools from a running MCP server.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Server ID"}}, Required: []string{"id"}}},
 		// Subscriptions
 		{Name: "list_subscribable", Description: "List connected integrations that support automatic webhook subscriptions.", InputSchema: toolSchema{Type: "object"}},
-		{Name: "create_subscription", Description: "Subscribe to events from a connected integration. Auto-registers the webhook with the external service. Use list_subscribable to see available events. Set thread_id to deliver webhook events directly to a specific thread instead of main.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"connection_id": {Type: "string", Description: "Connection ID"}, "name": {Type: "string", Description: "Subscription name"}, "events": {Type: "string", Description: "Comma-separated event names to subscribe to (e.g. 'content.created,content.updated'). Omit for all events."}, "thread_id": {Type: "string", Description: "Target thread ID for webhook events (e.g. 'webhook-listener'). If omitted, events go to main thread."}}, Required: []string{"connection_id"}}},
+		{Name: "create_subscription", Description: "Subscribe to events from a connected integration. Auto-registers the webhook with the external service. Use list_subscribable to see available events. Set thread_id to deliver webhook events directly to a specific thread instead of main.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"connection_id": {Type: "string", Description: "Connection ID"}, "name": {Type: "string", Description: "Subscription name"}, "events": {Type: "string", Description: "Comma-separated event names from list_subscribable. Use EXACT event names (e.g. 'messaging.inbound_message_processed'). Do NOT invent event names."}, "thread_id": {Type: "string", Description: "Target thread ID for webhook events. Must be an already-running thread (spawn it first). If omitted, events go to main thread."}}, Required: []string{"connection_id"}}},
 		{Name: "list_subscriptions", Description: "List active webhook subscriptions for this instance.", InputSchema: toolSchema{Type: "object"}},
 		{Name: "delete_subscription", Description: "Remove a webhook subscription.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Subscription ID"}}, Required: []string{"id"}}},
 		// Providers
@@ -147,7 +149,12 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			var creds map[string]string
 			json.Unmarshal([]byte(credsStr), &creds)
 			if creds == nil {
-				return nil, fmt.Errorf("invalid credentials JSON")
+				// Build hint showing expected fields
+				fields := []string{}
+				for _, f := range app.Auth.CredentialFields {
+					fields = append(fields, fmt.Sprintf("%q", f.Name))
+				}
+				return nil, fmt.Errorf("credentials must be a JSON object, e.g. {%s: \"value\"}", strings.Join(fields, ", "))
 			}
 
 			authType := "api_key"
@@ -327,6 +334,27 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				return nil, fmt.Errorf("app %q not found", conn.AppSlug)
 			}
 
+			// Validate event names against the app's webhook events
+			if len(eventsList) > 0 && app.Webhooks != nil {
+				validEvents := map[string]bool{}
+				for _, e := range app.Webhooks.Events {
+					validEvents[e.Name] = true
+				}
+				var invalid []string
+				for _, e := range eventsList {
+					if !validEvents[e] {
+						invalid = append(invalid, e)
+					}
+				}
+				if len(invalid) > 0 {
+					var validNames []string
+					for _, e := range app.Webhooks.Events {
+						validNames = append(validNames, e.Name)
+					}
+					return nil, fmt.Errorf("invalid event names: %v. Valid events: %v", invalid, validNames)
+				}
+			}
+
 			if subName == "" {
 				subName = conn.AppName + " webhooks"
 			}
@@ -338,11 +366,17 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			}
 
 			webhookPath := generateToken(16)
-			serverPort := os.Getenv("PORT")
-			if serverPort == "" {
-				serverPort = "8080"
+			publicURL := os.Getenv("PUBLIC_URL")
+			var webhookURL string
+			if publicURL != "" {
+				webhookURL = strings.TrimSuffix(publicURL, "/") + "/webhooks/" + webhookPath
+			} else {
+				serverPort := os.Getenv("PORT")
+				if serverPort == "" {
+					serverPort = "8080"
+				}
+				webhookURL = fmt.Sprintf("http://127.0.0.1:%s/webhooks/%s", serverPort, webhookPath)
 			}
-			webhookURL := fmt.Sprintf("http://127.0.0.1:%s/webhooks/%s", serverPort, webhookPath)
 
 			sub, err := store.CreateSubscription(userID, instanceID, conn.ID, subName, conn.AppSlug, "", webhookPath, "", threadID)
 			if err != nil {
@@ -353,7 +387,9 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			autoRegistered := false
 			if app.Webhooks != nil && app.Webhooks.Registration != nil && app.Webhooks.Registration.ManualSetup == "" {
 				plain, err := Decrypt(secret, encCreds)
-				if err == nil {
+				if err != nil {
+					log.Printf("[WEBHOOK-REG] decrypt error: %v", err)
+				} else {
 					reg := app.Webhooks.Registration
 					headers := map[string]string{"Content-Type": "application/json"}
 					for k, v := range app.Auth.Headers {
@@ -373,21 +409,35 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 
 					regURL := strings.TrimSuffix(app.BaseURL, "/") + reg.Path
 					regBodyJSON, _ := json.Marshal(reqBody)
-
 					req, err := http.NewRequest(reg.Method, regURL, strings.NewReader(string(regBodyJSON)))
 					if err == nil {
 						for k, v := range headers {
 							req.Header.Set(k, v)
 						}
 						resp, err := http.DefaultClient.Do(req)
-						if err == nil {
+						if err != nil {
+							log.Printf("[WEBHOOK-REG] error: %v", err)
+						} else {
+							respBody, _ := io.ReadAll(resp.Body)
 							resp.Body.Close()
 							if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 								autoRegistered = true
+								if reg.IDField != "" {
+									var respData map[string]any
+									if json.Unmarshal(respBody, &respData) == nil {
+										extID := extractJSONPath(respData, reg.IDField)
+										if extID != "" {
+											store.SetSubscriptionExternalID(sub.ID, extID)
+										}
+									}
+								}
+							} else {
+								log.Printf("[WEBHOOK-REG] failed %d: %s", resp.StatusCode, string(respBody))
 							}
 						}
 					}
 				}
+			} else {
 			}
 
 			return map[string]any{

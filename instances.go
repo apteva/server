@@ -65,38 +65,46 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 	// Get server binary path for MCP gateway
 	serverBin, _ := os.Executable()
 
-	// Write config.json with mode and meta gateway MCP server
+	// Build config.json — restore saved config from DB, then ensure directive/mode/gateway are current
 	mode := inst.Mode
 	if mode == "" {
 		mode = "autonomous"
 	}
-	config := map[string]any{
-		"directive": inst.Directive,
-		"mode":      mode,
-		"mcp_servers": []map[string]any{
-			{
-				"name":    "apteva-server",
-				"command": serverBin,
-				"args":    []string{"--mcp-gateway", fmt.Sprintf("--user-id=%d", inst.UserID)},
-			},
-		},
+
+	gateway := map[string]any{
+		"name":    "apteva-server",
+		"command": serverBin,
+		"args":    []string{"--mcp-gateway", fmt.Sprintf("--user-id=%d", inst.UserID)},
 	}
+
+	// Start from saved config (preserves MCP connections, threads added at runtime)
+	// Try DB first, fall back to config.json on disk (handles crash case)
+	config := map[string]any{}
 	if inst.Config != "" && inst.Config != "{}" {
-		var existing map[string]any
-		json.Unmarshal([]byte(inst.Config), &existing)
-		// Preserve directive override
-		config["directive"] = inst.Directive
-		// Merge existing MCP servers if any
-		if existingServers, ok := existing["mcp_servers"].([]any); ok {
-			servers := config["mcp_servers"].([]map[string]any)
-			for _, s := range existingServers {
-				if sm, ok := s.(map[string]any); ok {
-					servers = append(servers, sm)
+		json.Unmarshal([]byte(inst.Config), &config)
+	} else if diskConfig, err := os.ReadFile(filepath.Join(dir, "config.json")); err == nil {
+		json.Unmarshal(diskConfig, &config)
+	}
+
+	// Always update directive and mode from DB (user may have changed them)
+	config["directive"] = inst.Directive
+	config["mode"] = mode
+
+	// Ensure apteva-server gateway is present (update command path in case binary moved)
+	var servers []any
+	if existing, ok := config["mcp_servers"].([]any); ok {
+		for _, s := range existing {
+			if sm, ok := s.(map[string]any); ok {
+				if sm["name"] == "apteva-server" {
+					continue // remove old gateway entry, we'll re-add below
 				}
+				servers = append(servers, sm)
 			}
-			config["mcp_servers"] = servers
 		}
 	}
+	servers = append([]any{gateway}, servers...) // gateway first
+	config["mcp_servers"] = servers
+
 	configData, _ := json.MarshalIndent(config, "", "  ")
 	os.WriteFile(filepath.Join(dir, "config.json"), configData, 0644)
 
@@ -182,9 +190,10 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name       string `json:"name"`
 		Directive  string `json:"directive"`
-		Mode       string `json:"mode"` // "autonomous" or "supervised"
+		Mode       string `json:"mode"`   // "autonomous" or "supervised"
 		Config     string `json:"config"` // optional JSON blob for MCP servers etc
 		ProjectID  string `json:"project_id"`
+		Start      *bool  `json:"start,omitempty"` // default true; set false to create without starting
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -210,16 +219,17 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Load provider env vars for this user
-	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret)
-	if err != nil {
-		providerEnv = map[string]string{}
-	}
-
-	// Start the core process
-	if err := s.instances.Start(inst, providerEnv, s.port); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	// Start unless explicitly disabled
+	shouldStart := body.Start == nil || *body.Start
+	if shouldStart {
+		providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret)
+		if err != nil {
+			providerEnv = map[string]string{}
+		}
+		if err := s.instances.Start(inst, providerEnv, s.port); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	s.store.UpdateInstance(inst)
@@ -313,6 +323,12 @@ func (s *Server) handleStopInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Save config.json to DB before stopping (preserves MCP connections, threads, etc.)
+	dir := s.instances.instanceDir(inst.ID)
+	if configData, err := os.ReadFile(filepath.Join(dir, "config.json")); err == nil {
+		inst.Config = string(configData)
+	}
+
 	s.instances.Stop(inst.ID)
 	inst.Status = "stopped"
 	inst.Pid = 0
@@ -385,6 +401,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 
 	var body struct {
 		Directive string `json:"directive"`
+		Mode      string `json:"mode"`
 		Config    string `json:"config"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
@@ -392,14 +409,26 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if body.Directive != "" {
 		inst.Directive = body.Directive
 	}
+	if body.Mode == "autonomous" || body.Mode == "supervised" {
+		inst.Mode = body.Mode
+	}
 	if body.Config != "" {
 		inst.Config = body.Config
 	}
 	s.store.UpdateInstance(inst)
 
-	// If running, update core's config via its API
-	if cfgPort := s.instances.GetPort(inst.ID); cfgPort > 0 && body.Directive != "" {
-		proxyPUT(cfgPort, "/config", map[string]string{"directive": body.Directive})
+	// If running, forward changes to core's API
+	if cfgPort := s.instances.GetPort(inst.ID); cfgPort > 0 {
+		update := map[string]string{}
+		if body.Directive != "" {
+			update["directive"] = body.Directive
+		}
+		if body.Mode == "autonomous" || body.Mode == "supervised" {
+			update["mode"] = body.Mode
+		}
+		if len(update) > 0 {
+			proxyPUT(cfgPort, "/config", update)
+		}
 	}
 
 	writeJSON(w, inst)
