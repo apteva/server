@@ -88,8 +88,8 @@ func (s *Store) DeleteConnection(userID, connID int64) error {
 // CreateMCPServerFromConnection creates an MCP server entry for a local integration
 func (s *Store) CreateMCPServerFromConnection(userID int64, conn *Connection, toolCount int) (int64, error) {
 	result, err := s.db.Exec(
-		"INSERT INTO mcp_servers (user_id, name, description, status, tool_count, source, connection_id) VALUES (?, ?, ?, 'running', ?, 'local', ?)",
-		userID, conn.AppName, fmt.Sprintf("Local integration: %s", conn.AppSlug), toolCount, conn.ID,
+		"INSERT INTO mcp_servers (user_id, name, description, status, tool_count, source, connection_id, project_id) VALUES (?, ?, ?, 'running', ?, 'local', ?, ?)",
+		userID, conn.AppName, fmt.Sprintf("Local integration: %s", conn.AppSlug), toolCount, conn.ID, conn.ProjectID,
 	)
 	if err != nil {
 		return 0, err
@@ -110,6 +110,24 @@ type ExecuteResult struct {
 }
 
 func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any) (*ExecuteResult, error) {
+	// Coerce input values to match the tool's schema types.
+	// LLMs often send scalars where arrays are expected (e.g. account_ids=33 instead of [33]).
+	if props, ok := tool.InputSchema["properties"].(map[string]any); ok {
+		for k, v := range input {
+			propDef, exists := props[k].(map[string]any)
+			if !exists {
+				continue
+			}
+			schemaType, _ := propDef["type"].(string)
+			if schemaType == "array" {
+				if _, isSlice := v.([]any); !isSlice {
+					// Scalar value for an array field — wrap it
+					input[k] = []any{v}
+				}
+			}
+		}
+	}
+
 	// Build URL with path param interpolation
 	url := buildURL(app.BaseURL, tool.Path, input)
 

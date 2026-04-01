@@ -105,7 +105,7 @@ func (s *Store) migrate() error {
 		);
 
 		INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
-			(1, 'llm', 'Fireworks', 'LLM inference via Fireworks AI', '["FIREWORKS_API_KEY","CORE_MODEL_LARGE","CORE_MODEL_SMALL"]', 1, 10),
+			(1, 'llm', 'Fireworks', 'LLM inference via Fireworks AI', '["FIREWORKS_API_KEY"]', 1, 10),
 			(2, 'llm', 'OpenAI', 'LLM inference and embeddings', '["OPENAI_API_KEY","OPENAI_BASE_URL"]', 1, 11),
 			(3, 'llm', 'Anthropic', 'LLM inference via Anthropic', '["ANTHROPIC_API_KEY"]', 1, 12),
 			(4, 'llm', 'Ollama', 'Local LLM inference', '["OLLAMA_HOST"]', 1, 13),
@@ -115,7 +115,7 @@ func (s *Store) migrate() error {
 			(8, 'browser', 'Browserbase', 'Browser automation', '["BROWSERBASE_API_KEY","BROWSERBASE_PROJECT_ID"]', 1, 40);
 
 		-- Update existing Fireworks provider type to include model override fields
-		UPDATE provider_types SET fields = '["FIREWORKS_API_KEY","CORE_MODEL_LARGE","CORE_MODEL_SMALL"]' WHERE id = 1;
+		UPDATE provider_types SET fields = '["FIREWORKS_API_KEY"]' WHERE id = 1;
 
 		CREATE TABLE IF NOT EXISTS providers (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,

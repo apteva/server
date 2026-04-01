@@ -78,7 +78,7 @@ func runMCPProxy(dbPath string, connectionID int64, secret []byte) error {
 			}
 		}
 		tools = append(tools, mcpTool{
-			Name:        appSlug + "_" + t.Name,
+			Name:        t.Name,
 			Description: fmt.Sprintf("[%s] %s", app.Name, t.Description),
 			InputSchema: schema,
 		})
@@ -87,7 +87,7 @@ func runMCPProxy(dbPath string, connectionID int64, secret []byte) error {
 	// toolsByName for quick lookup
 	toolsByOrigName := map[string]*AppToolDef{}
 	for i, t := range app.Tools {
-		toolsByOrigName[appSlug+"_"+t.Name] = &app.Tools[i]
+		toolsByOrigName[t.Name] = &app.Tools[i]
 	}
 
 	// Stdio JSON-RPC server

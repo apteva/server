@@ -72,9 +72,10 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 	}
 
 	gateway := map[string]any{
-		"name":    "apteva-server",
-		"command": serverBin,
-		"args":    []string{"--mcp-gateway", fmt.Sprintf("--user-id=%d", inst.UserID)},
+		"name":        "apteva-server",
+		"command":     serverBin,
+		"args":        []string{"--mcp-gateway", fmt.Sprintf("--user-id=%d", inst.UserID)},
+		"main_access": true,
 	}
 
 	// Start from saved config (preserves MCP connections, threads added at runtime)
@@ -86,8 +87,11 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 		json.Unmarshal(diskConfig, &config)
 	}
 
-	// Always update directive and mode from DB (user may have changed them)
-	config["directive"] = inst.Directive
+	// Use config.json directive if it was evolved at runtime (it's more recent than DB).
+	// Only override with DB directive if config has no directive yet.
+	if _, hasDirective := config["directive"]; !hasDirective || config["directive"] == "" {
+		config["directive"] = inst.Directive
+	}
 	config["mode"] = mode
 
 	// Ensure apteva-server gateway is present (update command path in case binary moved)

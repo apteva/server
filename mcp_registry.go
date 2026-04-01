@@ -66,10 +66,14 @@ type MCPServerRecord struct {
 
 // --- Store methods ---
 
-func (s *Store) CreateMCPServer(userID int64, name, command, args, encryptedEnv, description string) (*MCPServerRecord, error) {
+func (s *Store) CreateMCPServer(userID int64, name, command, args, encryptedEnv, description string, projectID ...string) (*MCPServerRecord, error) {
+	pid := ""
+	if len(projectID) > 0 {
+		pid = projectID[0]
+	}
 	result, err := s.db.Exec(
-		"INSERT INTO mcp_servers (user_id, name, command, args, encrypted_env, description) VALUES (?, ?, ?, ?, ?, ?)",
-		userID, name, command, args, encryptedEnv, description,
+		"INSERT INTO mcp_servers (user_id, name, command, args, encrypted_env, description, project_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		userID, name, command, args, encryptedEnv, description, pid,
 	)
 	if err != nil {
 		return nil, err
@@ -350,6 +354,7 @@ func (s *Server) handleCreateMCPServer(w http.ResponseWriter, r *http.Request) {
 		Args        []string          `json:"args"`
 		Env         map[string]string `json:"env"`
 		Description string            `json:"description"`
+		ProjectID   string            `json:"project_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -374,7 +379,7 @@ func (s *Server) handleCreateMCPServer(w http.ResponseWriter, r *http.Request) {
 		encryptedEnv = enc
 	}
 
-	record, err := s.store.CreateMCPServer(userID, body.Name, body.Command, string(argsJSON), encryptedEnv, body.Description)
+	record, err := s.store.CreateMCPServer(userID, body.Name, body.Command, string(argsJSON), encryptedEnv, body.Description, body.ProjectID)
 	if err != nil {
 		http.Error(w, "failed to create", http.StatusInternalServerError)
 		return
@@ -386,7 +391,8 @@ func (s *Server) handleCreateMCPServer(w http.ResponseWriter, r *http.Request) {
 // GET /mcp-servers
 func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
-	servers, err := s.store.ListMCPServers(userID)
+	projectID := r.URL.Query().Get("project_id")
+	servers, err := s.store.ListMCPServers(userID, projectID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

@@ -119,7 +119,7 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppT
 				schema["required"] = req
 			}
 			tools = append(tools, map[string]any{
-				"name":        app.Slug + "_" + t.Name,
+				"name":        t.Name,
 				"description": fmt.Sprintf("[%s] %s", app.Name, t.Description),
 				"inputSchema": schema,
 			})

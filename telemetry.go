@@ -307,6 +307,16 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// React to directive changes — update DB so dashboard sees it immediately
+	for _, ev := range events {
+		if ev.Type == "directive.evolved" && ev.InstanceID > 0 {
+			var data struct{ New string `json:"new"` }
+			if json.Unmarshal(ev.Data, &data) == nil && data.New != "" {
+				s.store.db.Exec("UPDATE instances SET directive=? WHERE id=?", data.New, ev.InstanceID)
+			}
+		}
+	}
+
 	// No broadcast here — /telemetry/live handles real-time broadcast.
 	// This endpoint is for DB persistence only.
 

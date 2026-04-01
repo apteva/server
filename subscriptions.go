@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -42,10 +43,16 @@ func (s *Store) CreateSubscription(userID, instanceID, connectionID int64, name,
 	return &Subscription{ID: id, UserID: userID, InstanceID: instanceID, ConnectionID: connectionID, Name: name, Slug: slug, Description: description, WebhookPath: webhookPath, Enabled: true, ThreadID: threadID, CreatedAt: time.Now()}, nil
 }
 
-func (s *Store) ListSubscriptions(userID int64) ([]Subscription, error) {
-	rows, err := s.db.Query(
-		"SELECT id, instance_id, connection_id, name, slug, description, webhook_path, enabled, COALESCE(thread_id,''), created_at FROM subscriptions WHERE user_id = ?", userID,
-	)
+func (s *Store) ListSubscriptions(userID int64, projectID ...string) ([]Subscription, error) {
+	var rows *sql.Rows
+	var err error
+	if len(projectID) > 0 && projectID[0] != "" {
+		rows, err = s.db.Query(
+			"SELECT id, instance_id, connection_id, name, slug, description, webhook_path, enabled, COALESCE(thread_id,''), created_at FROM subscriptions WHERE user_id = ? AND project_id = ?", userID, projectID[0])
+	} else {
+		rows, err = s.db.Query(
+			"SELECT id, instance_id, connection_id, name, slug, description, webhook_path, enabled, COALESCE(thread_id,''), created_at FROM subscriptions WHERE user_id = ?", userID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -357,7 +364,8 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 // GET /subscriptions
 func (s *Server) handleListSubscriptions(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
-	subs, err := s.store.ListSubscriptions(userID)
+	projectID := r.URL.Query().Get("project_id")
+	subs, err := s.store.ListSubscriptions(userID, projectID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
