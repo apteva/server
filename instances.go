@@ -381,12 +381,8 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, inst)
 }
 
-// PUT /instances/:id/config
+// /instances/:id/config — GET proxies to core, PUT updates DB + proxies full body to core
 func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPut {
-		http.Error(w, "PUT only", http.StatusMethodNotAllowed)
-		return
-	}
 	userID := getUserID(r)
 	// Extract instance ID from /instances/:id/config
 	path := strings.TrimPrefix(r.URL.Path, "/instances/")
@@ -403,17 +399,49 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	port := s.instances.GetPort(inst.ID)
+
+	// GET — proxy directly to core
+	if r.Method == http.MethodGet {
+		if port == 0 {
+			http.Error(w, "instance not running", http.StatusServiceUnavailable)
+			return
+		}
+		targetURL := fmt.Sprintf("http://127.0.0.1:%d/config", port)
+		proxyReq, _ := http.NewRequest("GET", targetURL, nil)
+		resp, err := http.DefaultClient.Do(proxyReq)
+		if err != nil {
+			http.Error(w, "core unreachable", http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		for k, v := range resp.Header {
+			w.Header()[k] = v
+		}
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+		return
+	}
+
+	if r.Method != http.MethodPut {
+		http.Error(w, "GET or PUT", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// PUT — read body, update DB fields, then proxy FULL body to core
+	bodyBytes, _ := io.ReadAll(r.Body)
+
 	var body struct {
 		Directive string `json:"directive"`
 		Mode      string `json:"mode"`
 		Config    string `json:"config"`
 	}
-	json.NewDecoder(r.Body).Decode(&body)
+	json.Unmarshal(bodyBytes, &body)
 
 	if body.Directive != "" {
 		inst.Directive = body.Directive
 	}
-	if body.Mode == "autonomous" || body.Mode == "supervised" {
+	if body.Mode == "autonomous" || body.Mode == "supervised" || body.Mode == "cautious" || body.Mode == "learn" {
 		inst.Mode = body.Mode
 	}
 	if body.Config != "" {
@@ -421,17 +449,21 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.UpdateInstance(inst)
 
-	// If running, forward changes to core's API
-	if cfgPort := s.instances.GetPort(inst.ID); cfgPort > 0 {
-		update := map[string]string{}
-		if body.Directive != "" {
-			update["directive"] = body.Directive
-		}
-		if body.Mode == "autonomous" || body.Mode == "supervised" {
-			update["mode"] = body.Mode
-		}
-		if len(update) > 0 {
-			proxyPUT(cfgPort, "/config", update)
+	// Forward the FULL body to core (includes mcp_servers, computer, etc.)
+	if port > 0 {
+		targetURL := fmt.Sprintf("http://127.0.0.1:%d/config", port)
+		proxyReq, _ := http.NewRequest("PUT", targetURL, strings.NewReader(string(bodyBytes)))
+		proxyReq.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(proxyReq)
+		if err == nil {
+			defer resp.Body.Close()
+			// Return core's response
+			for k, v := range resp.Header {
+				w.Header()[k] = v
+			}
+			w.WriteHeader(resp.StatusCode)
+			io.Copy(w, resp.Body)
+			return
 		}
 	}
 
@@ -486,12 +518,29 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	// Copy response
+	// Copy response headers
 	for k, v := range resp.Header {
 		w.Header()[k] = v
 	}
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+
+	// For SSE streams, flush after each chunk
+	flusher, canFlush := w.(http.Flusher)
+	if canFlush && resp.Header.Get("Content-Type") == "text/event-stream" {
+		buf := make([]byte, 4096)
+		for {
+			n, err := resp.Body.Read(buf)
+			if n > 0 {
+				w.Write(buf[:n])
+				flusher.Flush()
+			}
+			if err != nil {
+				break
+			}
+		}
+	} else {
+		io.Copy(w, resp.Body)
+	}
 }
 
 func proxyPUT(port int, path string, body any) {
