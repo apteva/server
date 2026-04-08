@@ -4,12 +4,53 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
+
+// rateLimiter tracks attempts per IP.
+type rateLimiter struct {
+	mu       sync.Mutex
+	attempts map[string][]time.Time
+}
+
+var loginLimiter = &rateLimiter{attempts: make(map[string][]time.Time)}
+var registerLimiter = &rateLimiter{attempts: make(map[string][]time.Time)}
+
+func (rl *rateLimiter) allow(ip string, maxAttempts int, window time.Duration) bool {
+	if ip == "" {
+		return true // no IP = test or internal call
+	}
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	now := time.Now()
+	// Clean old entries
+	var recent []time.Time
+	for _, t := range rl.attempts[ip] {
+		if now.Sub(t) < window {
+			recent = append(recent, t)
+		}
+	}
+	if len(recent) >= maxAttempts {
+		rl.attempts[ip] = recent
+		return false
+	}
+	rl.attempts[ip] = append(recent, now)
+	return true
+}
+
+func clientIP(r *http.Request) string {
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+		return strings.Split(fwd, ",")[0]
+	}
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	return ip
+}
 
 const sessionDuration = 7 * 24 * time.Hour
 const cookieName = "session"
@@ -82,6 +123,32 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Rate limit: 3 registrations per IP per hour
+	if !registerLimiter.allow(clientIP(r), 3, time.Hour) {
+		http.Error(w, "too many registration attempts", http.StatusTooManyRequests)
+		return
+	}
+
+	// Check registration mode
+	switch s.regMode {
+	case "locked":
+		// Require invite token
+		invite := r.Header.Get("X-Invite-Token")
+		if invite == "" {
+			http.Error(w, "registration locked — invite token required", http.StatusForbidden)
+			return
+		}
+		// TODO: validate invite token against DB
+	case "setup":
+		// Require setup token (first user)
+		token := r.Header.Get("X-Setup-Token")
+		if token == "" || token != s.setupToken {
+			http.Error(w, "setup token required for first registration", http.StatusForbidden)
+			return
+		}
+	// "open" — no restriction
+	}
+
 	var body struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -111,6 +178,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Lock registration after first user (if was in setup mode)
+	if s.regMode == "setup" {
+		s.regMode = "locked"
+		s.setupToken = ""
+	}
+
 	// Auto-create a default project for the new user
 	s.store.CreateProject(user.ID, "Default", "Default project", "#6366f1")
 
@@ -121,6 +194,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Rate limit: 5 login attempts per IP per minute
+	if !loginLimiter.allow(clientIP(r), 5, time.Minute) {
+		http.Error(w, "too many login attempts", http.StatusTooManyRequests)
 		return
 	}
 

@@ -290,6 +290,14 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Require instance secret
+	if s.instanceSecret != "" {
+		if r.Header.Get("X-Instance-Secret") != s.instanceSecret {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+
 	var events []TelemetryEvent
 	if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
 		log.Printf("[TELEMETRY] POST /telemetry: invalid JSON: %v", err)
@@ -300,6 +308,36 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 	if len(events) == 0 {
 		writeJSON(w, map[string]int{"inserted": 0})
 		return
+	}
+
+	// Enrich llm.done events with server-side cost calculation
+	for i, ev := range events {
+		if ev.Type == "llm.done" && ev.Data != nil {
+			var data map[string]any
+			if json.Unmarshal(ev.Data, &data) == nil {
+				model, _ := data["model"].(string)
+				tokIn, _ := data["tokens_in"].(float64)
+				tokOut, _ := data["tokens_out"].(float64)
+				if model != "" && (tokIn > 0 || tokOut > 0) {
+					// Determine provider type from instance
+					providerType := ""
+					if ev.InstanceID > 0 {
+						if inst, err := s.store.GetInstanceByID(ev.InstanceID); err == nil {
+							pi := s.GetProviderInfo(inst.UserID)
+							providerType = pi.Type
+						}
+					}
+					if providerType != "" {
+						inputCost, outputCost := GetModelPricing(providerType, model)
+						if inputCost > 0 || outputCost > 0 {
+							cost := (tokIn * inputCost / 1_000_000) + (tokOut * outputCost / 1_000_000)
+							data["cost_usd"] = cost
+							events[i].Data, _ = json.Marshal(data)
+						}
+					}
+				}
+			}
+		}
 	}
 
 	if err := s.store.InsertTelemetry(events); err != nil {
@@ -328,6 +366,14 @@ func (s *Server) handleLiveTelemetry(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
+	}
+
+	// Require instance secret
+	if s.instanceSecret != "" {
+		if r.Header.Get("X-Instance-Secret") != s.instanceSecret {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 	}
 
 	var events []TelemetryEvent

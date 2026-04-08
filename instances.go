@@ -13,8 +13,9 @@ import (
 )
 
 type runningInstance struct {
-	cmd  *exec.Cmd
-	port int
+	cmd       *exec.Cmd
+	port      int
+	coreAPIKey string // API key injected into core for auth
 }
 
 type InstanceManager struct {
@@ -48,10 +49,20 @@ func (im *InstanceManager) instanceDir(id int64) string {
 	return dir
 }
 
+// ProviderInfo holds provider metadata for config.json injection.
+type ProviderInfo struct {
+	Type         string
+	ModelLarge   string
+	ModelMedium  string
+	ModelSmall   string
+	BuiltinTools []string
+}
+
 // Start launches a core process for the given instance.
 // providerEnv contains decrypted provider env vars to inject.
+// providerPool provides LLM provider configs for config.json (first = default).
 // serverPort is this server's port so core can POST telemetry back.
-func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, serverPort string) error {
+func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, serverPort string, providerPool []ProviderInfo) error {
 	im.mu.Lock()
 	defer im.mu.Unlock()
 
@@ -94,6 +105,33 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 	}
 	config["mode"] = mode
 
+	// Inject providers array into config (core reads "providers" field)
+	if len(providerPool) > 0 {
+		var provArray []map[string]any
+		for i, pi := range providerPool {
+			if pi.Type == "" {
+				continue
+			}
+			entry := map[string]any{
+				"name": pi.Type,
+				"models": map[string]string{
+					"large":  pi.ModelLarge,
+					"medium": pi.ModelMedium,
+					"small":  pi.ModelSmall,
+				},
+				"default": i == 0, // first provider = default
+			}
+			if len(pi.BuiltinTools) > 0 {
+				entry["builtin_tools"] = pi.BuiltinTools
+			}
+			provArray = append(provArray, entry)
+		}
+		if len(provArray) > 0 {
+			config["providers"] = provArray
+			delete(config, "provider") // remove legacy single-provider field
+		}
+	}
+
 	// Ensure apteva-server gateway is present (update command path in case binary moved)
 	var servers []any
 	if existing, ok := config["mcp_servers"].([]any); ok {
@@ -112,6 +150,9 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 	configData, _ := json.MarshalIndent(config, "", "  ")
 	os.WriteFile(filepath.Join(dir, "config.json"), configData, 0644)
 
+	// Generate a unique API key for this core instance
+	coreAPIKey := "core_" + generateToken(16)
+
 	cmd := exec.Command(im.coreCmd, "--headless")
 	cmd.Dir = dir
 	env := append(os.Environ(),
@@ -120,6 +161,7 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 		"SERVER_URL=http://127.0.0.1:"+serverPort,
 		"INSTANCE_ID="+itoa64(inst.ID),
 		"PROJECT_ID="+inst.ProjectID,
+		"APTEVA_API_KEY="+coreAPIKey,
 	)
 	for k, v := range providerEnv {
 		env = append(env, k+"="+v)
@@ -132,7 +174,7 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 		return fmt.Errorf("failed to start core: %w", err)
 	}
 
-	im.processes[inst.ID] = &runningInstance{cmd: cmd, port: port}
+	im.processes[inst.ID] = &runningInstance{cmd: cmd, port: port, coreAPIKey: coreAPIKey}
 	inst.Port = port
 	inst.Pid = cmd.Process.Pid
 	inst.Status = "running"
@@ -168,6 +210,17 @@ func (im *InstanceManager) IsRunning(instanceID int64) bool {
 	ri, ok := im.processes[instanceID]
 	im.mu.RUnlock()
 	return ok && ri.cmd.ProcessState == nil
+}
+
+// GetCoreAPIKey returns the API key for a running instance.
+func (im *InstanceManager) GetCoreAPIKey(instanceID int64) string {
+	im.mu.RLock()
+	ri, ok := im.processes[instanceID]
+	im.mu.RUnlock()
+	if ok && ri.cmd.ProcessState == nil {
+		return ri.coreAPIKey
+	}
+	return ""
 }
 
 // GetPort returns the port for a running instance, or 0 if not running.
@@ -230,7 +283,8 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			providerEnv = map[string]string{}
 		}
-		if err := s.instances.Start(inst, providerEnv, s.port); err != nil {
+		pool := s.GetProviderPool(userID)
+		if err := s.instances.Start(inst, providerEnv, s.port, pool); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -371,8 +425,9 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		providerEnv = map[string]string{}
 	}
+	pool := s.GetProviderPool(userID)
 
-	if err := s.instances.Start(inst, providerEnv, s.port); err != nil {
+	if err := s.instances.Start(inst, providerEnv, s.port, pool); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -409,6 +464,9 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		targetURL := fmt.Sprintf("http://127.0.0.1:%d/config", port)
 		proxyReq, _ := http.NewRequest("GET", targetURL, nil)
+		if coreKey := s.instances.GetCoreAPIKey(inst.ID); coreKey != "" {
+			proxyReq.Header.Set("Authorization", "Bearer "+coreKey)
+		}
 		resp, err := http.DefaultClient.Do(proxyReq)
 		if err != nil {
 			http.Error(w, "core unreachable", http.StatusBadGateway)
@@ -454,6 +512,9 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		targetURL := fmt.Sprintf("http://127.0.0.1:%d/config", port)
 		proxyReq, _ := http.NewRequest("PUT", targetURL, strings.NewReader(string(bodyBytes)))
 		proxyReq.Header.Set("Content-Type", "application/json")
+		if coreKey := s.instances.GetCoreAPIKey(inst.ID); coreKey != "" {
+			proxyReq.Header.Set("Authorization", "Bearer "+coreKey)
+		}
 		resp, err := http.DefaultClient.Do(proxyReq)
 		if err == nil {
 			defer resp.Body.Close()
@@ -503,13 +564,16 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	corePath := "/" + parts[1]
 	targetURL := fmt.Sprintf("http://127.0.0.1:%d%s", port, corePath)
 
-	// Forward the request
+	// Forward the request with core's API key
 	proxyReq, err := http.NewRequest(r.Method, targetURL, r.Body)
 	if err != nil {
 		http.Error(w, "proxy error", http.StatusBadGateway)
 		return
 	}
-	proxyReq.Header = r.Header
+	proxyReq.Header = r.Header.Clone()
+	if coreKey := s.instances.GetCoreAPIKey(inst.ID); coreKey != "" {
+		proxyReq.Header.Set("Authorization", "Bearer "+coreKey)
+	}
 
 	resp, err := http.DefaultClient.Do(proxyReq)
 	if err != nil {
@@ -543,9 +607,12 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func proxyPUT(port int, path string, body any) {
+func proxyPUT(port int, path string, body any, coreAPIKey string) {
 	data, _ := json.Marshal(body)
 	req, _ := http.NewRequest("PUT", fmt.Sprintf("http://127.0.0.1:%d%s", port, path), strings.NewReader(string(data)))
 	req.Header.Set("Content-Type", "application/json")
+	if coreAPIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+coreAPIKey)
+	}
 	http.DefaultClient.Do(req)
 }

@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func newTestServer(t *testing.T) *Server {
@@ -18,10 +19,16 @@ func newTestServer(t *testing.T) *Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { store.Close() })
+	// Reset rate limiters for clean test state
+	loginLimiter = &rateLimiter{attempts: make(map[string][]time.Time)}
+	registerLimiter = &rateLimiter{attempts: make(map[string][]time.Time)}
+
 	return &Server{
-		store:       store,
-		instances:   NewInstanceManager(t.TempDir(), "echo", 4000),
-		broadcaster: NewTelemetryBroadcaster(),
+		store:          store,
+		instances:      NewInstanceManager(t.TempDir(), "echo", 4000),
+		broadcaster:    NewTelemetryBroadcaster(),
+		regMode:        "open",
+		instanceSecret: "test-secret",
 	}
 }
 

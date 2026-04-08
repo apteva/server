@@ -23,6 +23,9 @@ type Server struct {
 	dataDir     string  // data directory for downloads, etc.
 	publicURL   string  // public base URL for webhooks (e.g. "https://agents.example.com")
 	broadcaster *TelemetryBroadcaster
+	setupToken     string  // one-time token for first registration (empty after use)
+	regMode        string  // "open", "locked", "setup" — controls registration
+	instanceSecret string  // shared secret for MCP and telemetry auth
 }
 
 func main() {
@@ -135,6 +138,24 @@ func main() {
 
 	publicURL := os.Getenv("PUBLIC_URL") // e.g. "https://agents.example.com"
 
+	// Determine registration mode
+	regMode := os.Getenv("APTEVA_REGISTRATION") // "open", "locked", or empty
+	setupToken := ""
+	if regMode == "" {
+		// Check if any users exist
+		hasUsers := store.HasUsers()
+		if hasUsers {
+			regMode = "locked"
+		} else {
+			regMode = "setup"
+			setupToken = "apt_" + generateToken(16)
+			fmt.Fprintf(os.Stderr, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+			fmt.Fprintf(os.Stderr, "  Setup token: %s\n", setupToken)
+			fmt.Fprintf(os.Stderr, "  Use this to create the first admin account.\n")
+			fmt.Fprintf(os.Stderr, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+		}
+	}
+
 	s := &Server{
 		store:       store,
 		instances:   NewInstanceManager(dataDir, coreCmd, 3210),
@@ -144,7 +165,10 @@ func main() {
 		port:        port,
 		dataDir:     dataDir,
 		publicURL:   publicURL,
-		broadcaster: NewTelemetryBroadcaster(),
+		broadcaster:    NewTelemetryBroadcaster(),
+		setupToken:     setupToken,
+		regMode:        regMode,
+		instanceSecret: generateToken(16),
 	}
 
 	// Start console telemetry logger
@@ -304,6 +328,11 @@ func main() {
 		}
 	}))
 	mux.HandleFunc("/providers/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/providers/")
+		if strings.HasSuffix(path, "/models") {
+			s.handleProviderModels(w, r)
+			return
+		}
 		switch r.Method {
 		case http.MethodGet:
 			s.handleGetProvider(w, r)

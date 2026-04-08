@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -334,4 +335,114 @@ func (s *Server) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.DeleteProvider(userID, providerID)
 	writeJSON(w, map[string]string{"status": "deleted"})
+}
+
+// GetProviderInfo extracts provider type + model selections from the first LLM provider.
+// Kept for backward compatibility — use GetProviderPool for multi-provider support.
+func (s *Server) GetProviderInfo(userID int64) ProviderInfo {
+	pool := s.GetProviderPool(userID)
+	if len(pool) == 0 {
+		return ProviderInfo{}
+	}
+	return pool[0]
+}
+
+// GetProviderPool returns all LLM providers for a user with their model/tool configs.
+// First provider is marked as default. Only includes type="llm" providers (skips integrations, embeddings, etc.).
+func (s *Server) GetProviderPool(userID int64) []ProviderInfo {
+	providers, err := s.store.ListProviders(userID)
+	if err != nil || len(providers) == 0 {
+		return nil
+	}
+
+	var pool []ProviderInfo
+	for _, p := range providers {
+		// Only include LLM providers (fireworks, openai, anthropic, google, ollama)
+		switch strings.ToLower(p.Type) {
+		case "fireworks", "openai", "anthropic", "google", "ollama":
+			// OK
+		default:
+			continue
+		}
+
+		_, encData, err := s.store.GetProvider(userID, p.ID)
+		if err != nil {
+			pool = append(pool, ProviderInfo{Type: p.Type})
+			continue
+		}
+		plaintext, err := Decrypt(s.secret, encData)
+		if err != nil {
+			pool = append(pool, ProviderInfo{Type: p.Type})
+			continue
+		}
+		var data map[string]string
+		json.Unmarshal([]byte(plaintext), &data)
+
+		var builtinTools []string
+		if bt, ok := data["builtin_tools"]; ok && bt != "" {
+			json.Unmarshal([]byte(bt), &builtinTools)
+		}
+
+		pool = append(pool, ProviderInfo{
+			Type:         p.Type,
+			ModelLarge:   data["model_large"],
+			ModelMedium:  data["model_medium"],
+			ModelSmall:   data["model_small"],
+			BuiltinTools: builtinTools,
+		})
+	}
+	return pool
+}
+
+// GET /providers/:id/models — fetch live model list
+func (s *Server) handleProviderModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+
+	path := strings.TrimPrefix(r.URL.Path, "/providers/")
+	idStr := strings.TrimSuffix(path, "/models")
+	providerID, err := atoi64(idStr)
+	if err != nil {
+		http.Error(w, "invalid provider ID", http.StatusBadRequest)
+		return
+	}
+
+	provider, encData, err := s.store.GetProvider(userID, providerID)
+	if err != nil {
+		http.Error(w, "provider not found", http.StatusNotFound)
+		return
+	}
+
+	// Decrypt to get API key
+	plaintext, err := Decrypt(s.secret, encData)
+	if err != nil {
+		http.Error(w, "decryption failed", http.StatusInternalServerError)
+		return
+	}
+	var data map[string]string
+	json.Unmarshal([]byte(plaintext), &data)
+
+	// Find the API key
+	apiKey := ""
+	for k, v := range data {
+		if strings.HasSuffix(k, "_KEY") || strings.HasSuffix(k, "_API_KEY") {
+			apiKey = v
+			break
+		}
+	}
+	if apiKey == "" {
+		http.Error(w, "no API key found in provider data", http.StatusBadRequest)
+		return
+	}
+
+	models, err := FetchModels(provider.Type, apiKey)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to fetch models: %v", err), http.StatusBadGateway)
+		return
+	}
+
+	writeJSON(w, models)
 }

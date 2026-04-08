@@ -245,6 +245,12 @@ func (s *Store) CreateUser(email, passwordHash string) (*User, error) {
 	return &User{ID: id, Email: email, CreatedAt: time.Now()}, nil
 }
 
+func (s *Store) HasUsers() bool {
+	var count int
+	s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	return count > 0
+}
+
 func (s *Store) GetUserByEmail(email string) (*User, error) {
 	var u User
 	var createdAt string
@@ -341,6 +347,21 @@ func (s *Store) GetInstanceName(instanceID int64) (string, error) {
 	var name string
 	err := s.db.QueryRow("SELECT name FROM instances WHERE id = ?", instanceID).Scan(&name)
 	return name, err
+}
+
+// GetInstanceByID returns an instance by ID without user check (for server-internal use).
+func (s *Store) GetInstanceByID(instanceID int64) (*Instance, error) {
+	var inst Instance
+	var createdAt string
+	err := s.db.QueryRow(
+		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, status, COALESCE(project_id,''), created_at FROM instances WHERE id = ?",
+		instanceID,
+	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+	inst.CreatedAt, _ = parseTime(createdAt)
+	return &inst, nil
 }
 
 func (s *Store) GetInstance(userID, instanceID int64) (*Instance, error) {

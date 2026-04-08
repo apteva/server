@@ -204,6 +204,7 @@ func TestTelemetryHTTPIngestAndQuery(t *testing.T) {
 	ingestBody, _ := json.Marshal(events)
 	w := httptest.NewRequest("POST", "/telemetry", bytes.NewReader(ingestBody))
 	w.Header.Set("Content-Type", "application/json")
+	w.Header.Set("X-Instance-Secret", s.instanceSecret)
 	rec := httptest.NewRecorder()
 	s.handleIngestTelemetry(rec, w)
 
