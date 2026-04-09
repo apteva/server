@@ -341,7 +341,7 @@ func main() {
 		case http.MethodDelete:
 			s.handleDeleteProvider(w, r)
 		default:
-			http.Error(w, "GET, PUT, or DELETE", http.StatusMethodNotAllowed)
+			http.Error(w, "GET, PUT, POST, or DELETE", http.StatusMethodNotAllowed)
 		}
 	}))
 
@@ -378,6 +378,24 @@ func main() {
 			return
 		}
 
+		// /instances/:id/channels — list connected channels
+		if strings.HasSuffix(path, "/channels") && !strings.Contains(path, "/channels/") {
+			s.handleListChannels(w, r)
+			return
+		}
+
+		// /instances/:id/channels/cli/reply — CLI sends answer to pending ask
+		if strings.HasSuffix(path, "/channels/cli/reply") {
+			s.handleCLIReply(w, r)
+			return
+		}
+
+		// /instances/:id/channels/telegram — connect/disconnect telegram
+		if strings.HasSuffix(path, "/channels/telegram") {
+			s.handleTelegramConnect(w, r)
+			return
+		}
+
 		// /instances/:id/status, /instances/:id/threads, /instances/:id/pause, etc. → proxy
 		if strings.Contains(path, "/") {
 			s.handleProxy(w, r)
@@ -388,9 +406,31 @@ func main() {
 		s.handleInstance(w, r)
 	}))
 
-	// Dashboard — serves embedded static files with SPA fallback
-	// Registered last so API routes take priority
-	mux.Handle("/", dashboardHandler())
+	// Dashboard — served from disk (always up-to-date, copied by CLI on startup)
+	// Falls back to embedded dashboard if disk copy not found
+	appDashDir := filepath.Join(dataDir, "dashboard")
+	if _, err := os.Stat(filepath.Join(appDashDir, "index.html")); err == nil {
+		appFS := http.FileServer(http.Dir(appDashDir))
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			// Let API routes handle their paths (registered before this)
+			relPath := r.URL.Path
+			if relPath == "/" {
+				http.ServeFile(w, r, filepath.Join(appDashDir, "index.html"))
+				return
+			}
+			// Try static file
+			filePath := filepath.Join(appDashDir, relPath)
+			if _, err := os.Stat(filePath); err == nil {
+				appFS.ServeHTTP(w, r)
+				return
+			}
+			// SPA fallback
+			http.ServeFile(w, r, filepath.Join(appDashDir, "index.html"))
+		})
+	} else {
+		// Fallback: embedded dashboard (stale but better than nothing)
+		mux.Handle("/", dashboardHandler())
+	}
 
 	fmt.Fprintf(os.Stderr, "apteva-server v%s running on :%s\n", Version, port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
