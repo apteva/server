@@ -378,6 +378,12 @@ func main() {
 			return
 		}
 
+		// /instances/:id/restart
+		if strings.HasSuffix(path, "/restart") {
+			s.handleRestartInstance(w, r)
+			return
+		}
+
 		// /instances/:id/channels — list connected channels
 		if strings.HasSuffix(path, "/channels") && !strings.Contains(path, "/channels/") {
 			s.handleListChannels(w, r)

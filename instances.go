@@ -638,6 +638,52 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, inst)
 }
 
+// POST /instances/:id/restart
+func (s *Server) handleRestartInstance(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	path := strings.TrimPrefix(r.URL.Path, "/instances/")
+	idStr := strings.TrimSuffix(path, "/restart")
+	instanceID, err := atoi64(idStr)
+	if err != nil {
+		http.Error(w, "invalid instance ID", http.StatusBadRequest)
+		return
+	}
+
+	inst, err := s.store.GetInstance(userID, instanceID)
+	if err != nil {
+		http.Error(w, "instance not found", http.StatusNotFound)
+		return
+	}
+
+	// Save config before stopping
+	dir := s.instances.instanceDir(inst.ID)
+	if configData, err := os.ReadFile(filepath.Join(dir, "config.json")); err == nil {
+		inst.Config = string(configData)
+	}
+
+	// Stop
+	s.instances.Stop(inst.ID)
+
+	// Start
+	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret)
+	if err != nil {
+		providerEnv = map[string]string{}
+	}
+	pool := s.GetProviderPool(userID)
+
+	if err := s.instances.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID), s.loadChannelConfigs(inst.ID)...); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.store.UpdateInstance(inst)
+	writeJSON(w, map[string]string{"status": "restarted"})
+}
+
 // /instances/:id/config — GET proxies to core, PUT updates DB + proxies full body to core
 func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
