@@ -99,13 +99,22 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 		"main_access": true,
 	}
 
-	// Start from saved config (preserves MCP connections, threads added at runtime)
-	// Try DB first, fall back to config.json on disk (handles crash case)
+	// Start from config: prefer disk config.json (core saves threads/MCP there at runtime)
+	// then merge DB config for fields the server manages (directive, mode, providers).
+	// This survives ungraceful shutdowns where the stop handler never saves to DB.
 	config := map[string]any{}
-	if inst.Config != "" && inst.Config != "{}" {
-		json.Unmarshal([]byte(inst.Config), &config)
-	} else if diskConfig, err := os.ReadFile(filepath.Join(dir, "config.json")); err == nil {
+	if diskConfig, err := os.ReadFile(filepath.Join(dir, "config.json")); err == nil {
 		json.Unmarshal(diskConfig, &config)
+	}
+	// Merge DB config as fallback for fields not on disk
+	if inst.Config != "" && inst.Config != "{}" {
+		var dbConfig map[string]any
+		json.Unmarshal([]byte(inst.Config), &dbConfig)
+		for k, v := range dbConfig {
+			if _, exists := config[k]; !exists {
+				config[k] = v
+			}
+		}
 	}
 
 	// Use config.json directive if it was evolved at runtime (it's more recent than DB).
