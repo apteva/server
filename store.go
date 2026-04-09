@@ -175,6 +175,17 @@ func (s *Store) migrate() error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_sub_webhook ON subscriptions(webhook_path);
 
+		CREATE TABLE IF NOT EXISTS channels (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL REFERENCES users(id),
+			instance_id INTEGER NOT NULL DEFAULT 0,
+			type TEXT NOT NULL,
+			name TEXT NOT NULL DEFAULT '',
+			encrypted_config TEXT DEFAULT '',
+			status TEXT DEFAULT 'active',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+
 		CREATE TABLE IF NOT EXISTS telemetry (
 			id TEXT PRIMARY KEY,
 			instance_id INTEGER NOT NULL,
@@ -221,6 +232,7 @@ func (s *Store) migrate() error {
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN project_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE instances ADD COLUMN project_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE providers ADD COLUMN project_id TEXT DEFAULT ''")
+	// is_default removed — default is per-instance, stored in instances.config
 	s.db.Exec("ALTER TABLE instances ADD COLUMN mode TEXT DEFAULT 'autonomous'")
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN external_webhook_id TEXT DEFAULT ''")
 
@@ -479,6 +491,13 @@ func (s *Store) DeleteProject(userID int64, id string) error {
 
 // --- Sessions ---
 
+// GetFirstUserID returns the ID of the first user in the database (for local auto-login).
+func (s *Store) GetFirstUserID() (int64, error) {
+	var userID int64
+	err := s.db.QueryRow("SELECT id FROM users ORDER BY id ASC LIMIT 1").Scan(&userID)
+	return userID, err
+}
+
 func (s *Store) CreateSession(token string, userID int64, expiresAt time.Time) error {
 	_, err := s.db.Exec(
 		"INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
@@ -527,4 +546,54 @@ func parseTime(s string) (time.Time, error) {
 
 func (s *Store) DeleteExpiredSessions() {
 	s.db.Exec("DELETE FROM sessions WHERE expires_at < ?", time.Now().UTC().Format("2006-01-02 15:04:05"))
+}
+
+// --- Channels ---
+
+type ChannelRecord struct {
+	ID         int64  `json:"id"`
+	UserID     int64  `json:"user_id"`
+	InstanceID int64  `json:"instance_id"`
+	Type       string `json:"type"`
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	CreatedAt  string `json:"created_at"`
+}
+
+func (s *Store) CreateChannel(userID, instanceID int64, chType, name, encryptedConfig string) (*ChannelRecord, error) {
+	res, err := s.db.Exec(
+		"INSERT INTO channels (user_id, instance_id, type, name, encrypted_config) VALUES (?, ?, ?, ?, ?)",
+		userID, instanceID, chType, name, encryptedConfig,
+	)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return &ChannelRecord{ID: id, UserID: userID, InstanceID: instanceID, Type: chType, Name: name, Status: "active"}, nil
+}
+
+func (s *Store) ListChannels(instanceID int64) ([]ChannelRecord, error) {
+	rows, err := s.db.Query("SELECT id, user_id, instance_id, type, name, status, created_at FROM channels WHERE instance_id = ? AND status = 'active'", instanceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ChannelRecord
+	for rows.Next() {
+		var c ChannelRecord
+		rows.Scan(&c.ID, &c.UserID, &c.InstanceID, &c.Type, &c.Name, &c.Status, &c.CreatedAt)
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+func (s *Store) GetChannelConfig(id int64) (string, error) {
+	var enc string
+	err := s.db.QueryRow("SELECT encrypted_config FROM channels WHERE id = ?", id).Scan(&enc)
+	return enc, err
+}
+
+func (s *Store) DeleteChannel(id int64) error {
+	_, err := s.db.Exec("DELETE FROM channels WHERE id = ?", id)
+	return err
 }

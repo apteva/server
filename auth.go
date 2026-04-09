@@ -254,16 +254,60 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 	cookie, err := r.Cookie(cookieName)
 	if err != nil || cookie.Value == "" {
+		// Local mode auto-login: if registration is open (local), auto-create session for localhost
+		if s.regMode == "open" && isLocalhost(r) {
+			userID := s.autoLocalSession(w)
+			if userID > 0 {
+				writeJSON(w, map[string]any{"user_id": userID})
+				return
+			}
+		}
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	userID, err := s.store.GetSession(cookie.Value)
 	if err != nil {
 		clearSessionCookie(w)
+		// Try auto-login before failing
+		if s.regMode == "open" && isLocalhost(r) {
+			userID := s.autoLocalSession(w)
+			if userID > 0 {
+				writeJSON(w, map[string]any{"user_id": userID})
+				return
+			}
+		}
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	writeJSON(w, map[string]any{"user_id": userID})
+}
+
+// autoLocalSession creates or reuses the first user account and sets a session cookie.
+// Only used in local mode (APTEVA_REGISTRATION=open).
+func (s *Server) autoLocalSession(w http.ResponseWriter) int64 {
+	// Find or create the local user
+	userID, _ := s.store.GetFirstUserID()
+	if userID == 0 {
+		return 0
+	}
+	// Create session
+	token := generateToken(32)
+	s.store.CreateSession(token, userID, time.Now().Add(30*24*time.Hour))
+	http.SetCookie(w, &http.Cookie{
+		Name:     cookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   86400 * 30, // 30 days
+	})
+	return userID
+}
+
+// isLocalhost checks if the request comes from localhost.
+func isLocalhost(r *http.Request) bool {
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	return host == "127.0.0.1" || host == "::1" || host == "localhost"
 }
 
 // POST /auth/keys — create API key
