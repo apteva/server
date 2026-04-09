@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -13,9 +16,10 @@ import (
 )
 
 type runningInstance struct {
-	cmd       *exec.Cmd
-	port      int
+	cmd        *exec.Cmd
+	port       int
 	coreAPIKey string // API key injected into core for auth
+	channels   *InstanceChannels // channel infrastructure for this instance
 }
 
 type InstanceManager struct {
@@ -62,7 +66,13 @@ type ProviderInfo struct {
 // providerEnv contains decrypted provider env vars to inject.
 // providerPool provides LLM provider configs for config.json (first = default).
 // serverPort is this server's port so core can POST telemetry back.
-func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, serverPort string, providerPool []ProviderInfo) error {
+// ChannelConfig holds decrypted channel config for auto-start.
+type ChannelConfig struct {
+	Type   string
+	Config map[string]string // decrypted config (e.g. {"bot_token": "...", "bot_name": "..."})
+}
+
+func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, serverPort string, providerPool []ProviderInfo, instanceSecret string, browserConfig map[string]any, channelConfigs ...ChannelConfig) error {
 	im.mu.Lock()
 	defer im.mu.Unlock()
 
@@ -105,12 +115,34 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 	}
 	config["mode"] = mode
 
+	// Read default_provider from instance config
+	defaultProvider := ""
+	if instCfg, ok := config["_instance_config"].(string); ok {
+		var ic map[string]any
+		json.Unmarshal([]byte(instCfg), &ic)
+		defaultProvider, _ = ic["default_provider"].(string)
+	}
+	// Also check from the raw instance config field
+	if defaultProvider == "" {
+		var ic map[string]any
+		json.Unmarshal([]byte(inst.Config), &ic)
+		if ic != nil {
+			defaultProvider, _ = ic["default_provider"].(string)
+		}
+	}
+
 	// Inject providers array into config (core reads "providers" field)
 	if len(providerPool) > 0 {
 		var provArray []map[string]any
 		for i, pi := range providerPool {
 			if pi.Type == "" {
 				continue
+			}
+			isDefault := false
+			if defaultProvider != "" {
+				isDefault = pi.Type == defaultProvider
+			} else {
+				isDefault = i == 0 // fallback: first = default
 			}
 			entry := map[string]any{
 				"name": pi.Type,
@@ -119,7 +151,7 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 					"medium": pi.ModelMedium,
 					"small":  pi.ModelSmall,
 				},
-				"default": i == 0, // first provider = default
+				"default": isDefault,
 			}
 			if len(pi.BuiltinTools) > 0 {
 				entry["builtin_tools"] = pi.BuiltinTools
@@ -132,19 +164,48 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 		}
 	}
 
-	// Ensure apteva-server gateway is present (update command path in case binary moved)
+	// Inject browser/computer config if provider exists
+	if browserConfig != nil {
+		config["computer"] = browserConfig
+	}
+
+	// Create channels infrastructure for this instance
+	ic := &InstanceChannels{registry: NewChannelRegistry()}
+	ic.cli = NewCLIBridge()
+	ic.registry.Register(ic.cli)
+
+	// Start channels MCP server
+	channelsMCP, err := newChannelMCPServer(ic.registry)
+	if err == nil {
+		channelsMCP.ic = ic
+	}
+	if err != nil {
+		return fmt.Errorf("failed to start channels MCP: %w", err)
+	}
+	ic.mcp = channelsMCP
+	go channelsMCP.serve()
+
+	channelsEntry := map[string]any{
+		"name":        "channels",
+		"url":         channelsMCP.url(),
+		"transport":   "http",
+		"main_access": true,
+	}
+
+	// Ensure apteva-server gateway and channels are present
 	var servers []any
 	if existing, ok := config["mcp_servers"].([]any); ok {
 		for _, s := range existing {
 			if sm, ok := s.(map[string]any); ok {
-				if sm["name"] == "apteva-server" {
-					continue // remove old gateway entry, we'll re-add below
+				name, _ := sm["name"].(string)
+				if name == "apteva-server" || name == "channels" || name == "apteva-channels" {
+					continue // remove old entries, we'll re-add below
 				}
 				servers = append(servers, sm)
 			}
 		}
 	}
-	servers = append([]any{gateway}, servers...) // gateway first
+	servers = append([]any{gateway, channelsEntry}, servers...)
 	config["mcp_servers"] = servers
 
 	configData, _ := json.MarshalIndent(config, "", "  ")
@@ -158,10 +219,12 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 	env := append(os.Environ(),
 		"API_PORT="+itoa64(int64(port)),
 		"NO_TUI=1",
+		"NO_CONSOLE=1", // server has its own ConsoleLogger
 		"SERVER_URL=http://127.0.0.1:"+serverPort,
 		"INSTANCE_ID="+itoa64(inst.ID),
 		"PROJECT_ID="+inst.ProjectID,
 		"APTEVA_API_KEY="+coreAPIKey,
+		"INSTANCE_SECRET="+instanceSecret,
 	)
 	for k, v := range providerEnv {
 		env = append(env, k+"="+v)
@@ -174,15 +237,42 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 		return fmt.Errorf("failed to start core: %w", err)
 	}
 
-	im.processes[inst.ID] = &runningInstance{cmd: cmd, port: port, coreAPIKey: coreAPIKey}
+	im.processes[inst.ID] = &runningInstance{cmd: cmd, port: port, coreAPIKey: coreAPIKey, channels: ic}
 	inst.Port = port
 	inst.Pid = cmd.Process.Pid
 	inst.Status = "running"
 
-	// Wait for process exit in background
+	// Auto-start persisted channels (e.g. telegram)
+	for _, cc := range channelConfigs {
+		if cc.Type == "telegram" && cc.Config["bot_token"] != "" {
+			corePort := port
+			ck := coreAPIKey
+			sendEvent := func(text, threadID string) {
+				body, _ := json.Marshal(map[string]any{"message": text, "thread_id": threadID})
+				req, _ := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/event", corePort), strings.NewReader(string(body)))
+				req.Header.Set("Content-Type", "application/json")
+				if ck != "" {
+					req.Header.Set("Authorization", "Bearer "+ck)
+				}
+				http.DefaultClient.Do(req)
+			}
+			gw := NewTelegramGateway(cc.Config["bot_token"], ic.registry, sendEvent)
+			if botName, err := gw.Start(); err == nil {
+				ic.telegram = gw
+				ic.registry.AddFactory(gw.ChannelFactory())
+				log.Printf("[CHANNELS] auto-started telegram @%s for instance %d", botName, inst.ID)
+			}
+		}
+	}
+
+	// Wait for process exit in background — clean up channels on exit
 	go func() {
 		cmd.Wait()
 		im.mu.Lock()
+		ri := im.processes[inst.ID]
+		if ri != nil && ri.channels != nil {
+			ri.channels.Stop()
+		}
 		delete(im.processes, inst.ID)
 		im.mu.Unlock()
 	}()
@@ -190,7 +280,7 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 	return nil
 }
 
-// Stop kills a running core process.
+// Stop kills a running core process and cleans up channels.
 func (im *InstanceManager) Stop(instanceID int64) {
 	im.mu.Lock()
 	ri, ok := im.processes[instanceID]
@@ -198,10 +288,122 @@ func (im *InstanceManager) Stop(instanceID int64) {
 		delete(im.processes, instanceID)
 	}
 	im.mu.Unlock()
-	if ok && ri.cmd.Process != nil {
-		ri.cmd.Process.Kill()
-		ri.cmd.Wait()
+	if ok {
+		if ri.channels != nil {
+			ri.channels.Stop()
+		}
+		if ri.cmd.Process != nil {
+			ri.cmd.Process.Kill()
+			ri.cmd.Wait()
+		}
 	}
+}
+
+// GetChannels returns the InstanceChannels for a running instance, or nil.
+func (im *InstanceManager) GetChannels(instanceID int64) *InstanceChannels {
+	im.mu.RLock()
+	defer im.mu.RUnlock()
+	if ri, ok := im.processes[instanceID]; ok {
+		return ri.channels
+	}
+	return nil
+}
+
+// StartTelegram starts the Telegram gateway for an instance.
+func (im *InstanceManager) StartTelegram(instanceID int64, token string) (string, error) {
+	im.mu.RLock()
+	ri, ok := im.processes[instanceID]
+	im.mu.RUnlock()
+	if !ok || ri.channels == nil {
+		return "", fmt.Errorf("instance not running")
+	}
+	if ri.channels.telegram != nil {
+		ri.channels.telegram.Stop()
+	}
+	// sendEvent function — POST to core's /event endpoint
+	corePort := ri.port
+	coreKey := ri.coreAPIKey
+	sendEvent := func(text, threadID string) {
+		body, _ := json.Marshal(map[string]any{"message": text, "thread_id": threadID})
+		req, _ := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/event", corePort), strings.NewReader(string(body)))
+		req.Header.Set("Content-Type", "application/json")
+		if coreKey != "" {
+			req.Header.Set("Authorization", "Bearer "+coreKey)
+		}
+		http.DefaultClient.Do(req)
+	}
+	gw := NewTelegramGateway(token, ri.channels.registry, sendEvent)
+	botName, err := gw.Start()
+	if err != nil {
+		return "", err
+	}
+	ri.channels.telegram = gw
+	ri.channels.registry.AddFactory(gw.ChannelFactory())
+	return botName, nil
+}
+
+// getBrowserConfig returns the browser/computer config from providers if one exists.
+func (s *Server) getBrowserConfig(userID int64) map[string]any {
+	providers, err := s.store.ListProviders(userID)
+	if err != nil {
+		return nil
+	}
+	for _, p := range providers {
+		if p.Type != "browserbase" && p.Type != "browser" {
+			continue
+		}
+		_, encData, err := s.store.GetProvider(userID, p.ID)
+		if err != nil {
+			continue
+		}
+		plaintext, err := Decrypt(s.secret, encData)
+		if err != nil {
+			continue
+		}
+		var data map[string]string
+		json.Unmarshal([]byte(plaintext), &data)
+		if data == nil {
+			continue
+		}
+		apiKey := data["BROWSERBASE_API_KEY"]
+		projectID := data["BROWSERBASE_PROJECT_ID"]
+		if apiKey == "" {
+			continue
+		}
+		return map[string]any{
+			"type":       "browserbase",
+			"api_key":    apiKey,
+			"project_id": projectID,
+			"width":      1280,
+			"height":     800,
+		}
+	}
+	return nil
+}
+
+// loadChannelConfigs fetches persisted channel configs for auto-start.
+func (s *Server) loadChannelConfigs(instanceID int64) []ChannelConfig {
+	records, err := s.store.ListChannels(instanceID)
+	if err != nil || len(records) == 0 {
+		return nil
+	}
+	var configs []ChannelConfig
+	for _, r := range records {
+		enc, err := s.store.GetChannelConfig(r.ID)
+		if err != nil || enc == "" {
+			continue
+		}
+		plain, err := Decrypt(s.secret, enc)
+		if err != nil {
+			continue
+		}
+		var cfg map[string]string
+		json.Unmarshal([]byte(plain), &cfg)
+		if cfg != nil {
+			configs = append(configs, ChannelConfig{Type: r.Type, Config: cfg})
+		}
+	}
+	return configs
 }
 
 // IsRunning checks if an instance process is alive.
@@ -284,7 +486,7 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 			providerEnv = map[string]string{}
 		}
 		pool := s.GetProviderPool(userID)
-		if err := s.instances.Start(inst, providerEnv, s.port, pool); err != nil {
+		if err := s.instances.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID), s.loadChannelConfigs(inst.ID)...); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -427,7 +629,7 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	pool := s.GetProviderPool(userID)
 
-	if err := s.instances.Start(inst, providerEnv, s.port, pool); err != nil {
+	if err := s.instances.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID), s.loadChannelConfigs(inst.ID)...); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -490,9 +692,10 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, _ := io.ReadAll(r.Body)
 
 	var body struct {
-		Directive string `json:"directive"`
-		Mode      string `json:"mode"`
-		Config    string `json:"config"`
+		Directive string         `json:"directive"`
+		Mode      string         `json:"mode"`
+		Config    string         `json:"config"`
+		Providers []map[string]any `json:"providers"`
 	}
 	json.Unmarshal(bodyBytes, &body)
 
@@ -504,6 +707,25 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Config != "" {
 		inst.Config = body.Config
+	}
+	// Save default provider to instance config
+	if len(body.Providers) > 0 {
+		for _, p := range body.Providers {
+			if def, _ := p["default"].(bool); def {
+				name, _ := p["name"].(string)
+				if name != "" {
+					var cfg map[string]any
+					json.Unmarshal([]byte(inst.Config), &cfg)
+					if cfg == nil {
+						cfg = map[string]any{}
+					}
+					cfg["default_provider"] = name
+					cfgBytes, _ := json.Marshal(cfg)
+					inst.Config = string(cfgBytes)
+				}
+				break
+			}
+		}
 	}
 	s.store.UpdateInstance(inst)
 
@@ -588,15 +810,18 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(resp.StatusCode)
 
-	// For SSE streams, flush after each chunk
+	// For SSE streams, flush after each line for real-time delivery
 	flusher, canFlush := w.(http.Flusher)
 	if canFlush && resp.Header.Get("Content-Type") == "text/event-stream" {
-		buf := make([]byte, 4096)
+		br := bufio.NewReader(resp.Body)
 		for {
-			n, err := resp.Body.Read(buf)
-			if n > 0 {
-				w.Write(buf[:n])
-				flusher.Flush()
+			line, err := br.ReadBytes('\n')
+			if len(line) > 0 {
+				w.Write(line)
+				// Flush after each complete SSE frame (empty line = end of frame)
+				if len(bytes.TrimSpace(line)) == 0 {
+					flusher.Flush()
+				}
 			}
 			if err != nil {
 				break
@@ -605,6 +830,134 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	} else {
 		io.Copy(w, resp.Body)
 	}
+}
+
+// POST /instances/:id/channels/cli/reply — CLI sends answer to a pending ask
+func (s *Server) handleCLIReply(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	path := strings.TrimPrefix(r.URL.Path, "/instances/")
+	parts := strings.SplitN(path, "/", 2)
+	instanceID, err := atoi64(parts[0])
+	if err != nil {
+		http.Error(w, "invalid instance ID", http.StatusBadRequest)
+		return
+	}
+	inst, err := s.store.GetInstance(userID, instanceID)
+	if err != nil {
+		http.Error(w, "instance not found", http.StatusNotFound)
+		return
+	}
+	ic := s.instances.GetChannels(inst.ID)
+	if ic == nil || ic.cli == nil {
+		http.Error(w, "instance not running or no CLI channel", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if err := ic.cli.SubmitReply(body.Text); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// POST /instances/:id/channels/telegram — connect telegram bot
+func (s *Server) handleTelegramConnect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	path := strings.TrimPrefix(r.URL.Path, "/instances/")
+	parts := strings.SplitN(path, "/", 2)
+	instanceID, err := atoi64(parts[0])
+	if err != nil {
+		http.Error(w, "invalid instance ID", http.StatusBadRequest)
+		return
+	}
+	inst, err := s.store.GetInstance(userID, instanceID)
+	if err != nil {
+		http.Error(w, "instance not found", http.StatusNotFound)
+		return
+	}
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Token == "" {
+		http.Error(w, "token required", http.StatusBadRequest)
+		return
+	}
+	botName, err := s.instances.StartTelegram(inst.ID, body.Token)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Persist channel to DB (encrypted token)
+	configJSON, _ := json.Marshal(map[string]string{"bot_token": body.Token, "bot_name": botName})
+	encrypted, _ := Encrypt(s.secret, string(configJSON))
+	// Remove existing telegram channel for this instance, then create new
+	if existing, _ := s.store.ListChannels(inst.ID); existing != nil {
+		for _, ch := range existing {
+			if ch.Type == "telegram" {
+				s.store.DeleteChannel(ch.ID)
+			}
+		}
+	}
+	s.store.CreateChannel(userID, inst.ID, "telegram", "@"+botName, encrypted)
+
+	// Notify core that telegram is connected
+	port := s.instances.GetPort(inst.ID)
+	coreKey := s.instances.GetCoreAPIKey(inst.ID)
+	if port > 0 {
+		event := fmt.Sprintf("[telegram] gateway connected. Bot @%s online.", botName)
+		eventBody, _ := json.Marshal(map[string]any{"message": event, "thread_id": "main"})
+		req, _ := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/event", port), strings.NewReader(string(eventBody)))
+		req.Header.Set("Content-Type", "application/json")
+		if coreKey != "" {
+			req.Header.Set("Authorization", "Bearer "+coreKey)
+		}
+		http.DefaultClient.Do(req)
+	}
+
+	writeJSON(w, map[string]string{"status": "connected", "bot_name": botName})
+}
+
+// GET /instances/:id/channels — list connected channels for an instance
+func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	path := strings.TrimPrefix(r.URL.Path, "/instances/")
+	parts := strings.SplitN(path, "/", 2)
+	instanceID, _ := atoi64(parts[0])
+	inst, err := s.store.GetInstance(userID, instanceID)
+	if err != nil {
+		http.Error(w, "instance not found", http.StatusNotFound)
+		return
+	}
+	ic := s.instances.GetChannels(inst.ID)
+	var channels []map[string]string
+	channels = append(channels, map[string]string{"id": "cli", "status": "connected"})
+	if ic != nil && ic.telegram != nil {
+		channels = append(channels, map[string]string{
+			"id":       "telegram",
+			"status":   "connected",
+			"bot_name": ic.telegram.BotName(),
+		})
+	}
+	writeJSON(w, channels)
 }
 
 func proxyPUT(port int, path string, body any, coreAPIKey string) {
