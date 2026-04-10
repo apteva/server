@@ -965,10 +965,14 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Instance,
 		if rawThreads, ok := config["threads"].([]any); ok {
 			for _, rt := range rawThreads {
 				if t, ok := rt.(map[string]any); ok {
+					depth := 0
+					if d, ok := t["depth"].(float64); ok {
+						depth = int(d)
+					}
 					threads = append(threads, map[string]any{
 						"id":        t["id"],
 						"parent_id": t["parent_id"],
-						"depth":     t["depth"],
+						"depth":     depth,
 						"directive": t["directive"],
 						"iteration": 0,
 						"rate":      "stopped",
