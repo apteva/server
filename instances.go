@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 type runningInstance struct {
@@ -184,6 +186,16 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 	}
 	ic.mcp = channelsMCP
 	go channelsMCP.serve()
+
+	// Wait for channels MCP to be ready before starting core
+	for i := 0; i < 50; i++ {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", channelsMCP.port), 50*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	channelsEntry := map[string]any{
 		"name":        "channels",
