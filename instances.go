@@ -99,30 +99,21 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 		"main_access": true,
 	}
 
-	// Start from config: prefer disk config.json (core saves threads/MCP there at runtime)
-	// then merge DB config for fields the server manages (directive, mode, providers).
-	// This survives ungraceful shutdowns where the stop handler never saves to DB.
+	// Disk config.json is the single source of truth.
+	// Core owns it — threads, directives, MCP connections are all here.
+	// Server only injects gateway + channels MCP entries (URLs change on each start).
 	config := map[string]any{}
 	if diskConfig, err := os.ReadFile(filepath.Join(dir, "config.json")); err == nil {
 		json.Unmarshal(diskConfig, &config)
 	}
-	// Merge DB config as fallback for fields not on disk
-	if inst.Config != "" && inst.Config != "{}" {
-		var dbConfig map[string]any
-		json.Unmarshal([]byte(inst.Config), &dbConfig)
-		for k, v := range dbConfig {
-			if _, exists := config[k]; !exists {
-				config[k] = v
-			}
-		}
-	}
 
-	// Use config.json directive if it was evolved at runtime (it's more recent than DB).
-	// Only override with DB directive if config has no directive yet.
+	// Set directive/mode from disk. Fall back to DB only for brand new instances (no config.json yet).
 	if _, hasDirective := config["directive"]; !hasDirective || config["directive"] == "" {
 		config["directive"] = inst.Directive
 	}
-	config["mode"] = mode
+	if _, hasMode := config["mode"]; !hasMode || config["mode"] == "" {
+		config["mode"] = mode
+	}
 
 	// Read default_provider from instance config
 	defaultProvider := ""
@@ -593,12 +584,8 @@ func (s *Server) handleStopInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save config.json to DB before stopping (preserves MCP connections, threads, etc.)
-	dir := s.instances.instanceDir(inst.ID)
-	if configData, err := os.ReadFile(filepath.Join(dir, "config.json")); err == nil {
-		inst.Config = string(configData)
-	}
-
+	// Disk config.json is the source of truth — no need to save to DB.
+	// Core already writes threads/MCP/directive to disk at runtime.
 	s.instances.Stop(inst.ID)
 	inst.Status = "stopped"
 	inst.Pid = 0
@@ -670,12 +657,7 @@ func (s *Server) handleRestartInstance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save config before stopping
-	dir := s.instances.instanceDir(inst.ID)
-	if configData, err := os.ReadFile(filepath.Join(dir, "config.json")); err == nil {
-		inst.Config = string(configData)
-	}
-
-	// Stop
+	// Stop — disk config.json is the source of truth, no DB save needed.
 	s.instances.Stop(inst.ID)
 
 	// Start
@@ -940,9 +922,7 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Instance,
 	if data, err := os.ReadFile(filepath.Join(dir, "config.json")); err == nil {
 		json.Unmarshal(data, &config)
 	}
-	if config == nil && inst.Config != "" {
-		json.Unmarshal([]byte(inst.Config), &config)
-	}
+	// Disk is the single source of truth — no DB fallback
 	if config == nil {
 		config = map[string]any{}
 	}
