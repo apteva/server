@@ -834,12 +834,17 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	port := s.instances.GetPort(inst.ID)
+	corePath := "/" + parts[1]
+
+	// Instance stopped — serve static data from saved config for read-only endpoints
 	if port == 0 {
+		if r.Method == http.MethodGet && (corePath == "/threads" || corePath == "/status" || corePath == "/config") {
+			s.serveStoppedInstanceData(w, inst, corePath)
+			return
+		}
 		http.Error(w, "instance not running", http.StatusServiceUnavailable)
 		return
 	}
-
-	corePath := "/" + parts[1]
 	targetURL := fmt.Sprintf("http://127.0.0.1:%d%s", port, corePath)
 
 	// Forward the request with core's API key
@@ -927,6 +932,83 @@ func (s *Server) handleCLIReply(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /instances/:id/channels/telegram — connect telegram bot
+// serveStoppedInstanceData returns static data from saved config when instance is stopped.
+func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Instance, path string) {
+	// Load config: try disk first, fall back to DB
+	var config map[string]any
+	dir := s.instances.instanceDir(inst.ID)
+	if data, err := os.ReadFile(filepath.Join(dir, "config.json")); err == nil {
+		json.Unmarshal(data, &config)
+	}
+	if config == nil && inst.Config != "" {
+		json.Unmarshal([]byte(inst.Config), &config)
+	}
+	if config == nil {
+		config = map[string]any{}
+	}
+
+	switch path {
+	case "/threads":
+		// Convert PersistentThread format to threadJSON format
+		var threads []map[string]any
+		// Add main
+		threads = append(threads, map[string]any{
+			"id":        "main",
+			"directive": inst.Directive,
+			"depth":     0,
+			"iteration": 0,
+			"rate":      "stopped",
+			"model":     "",
+			"age":       "",
+		})
+		// Add persisted threads
+		if rawThreads, ok := config["threads"].([]any); ok {
+			for _, rt := range rawThreads {
+				if t, ok := rt.(map[string]any); ok {
+					threads = append(threads, map[string]any{
+						"id":        t["id"],
+						"parent_id": t["parent_id"],
+						"depth":     t["depth"],
+						"directive": t["directive"],
+						"iteration": 0,
+						"rate":      "stopped",
+						"model":     "",
+						"age":       "",
+					})
+				}
+			}
+		}
+		writeJSON(w, threads)
+
+	case "/status":
+		writeJSON(w, map[string]any{
+			"iteration":      0,
+			"rate":           "stopped",
+			"model":          "",
+			"paused":         false,
+			"threads":        0,
+			"memories":       0,
+			"uptime_seconds": 0,
+			"mode":           inst.Mode,
+		})
+
+	case "/config":
+		directive, _ := config["directive"].(string)
+		if directive == "" {
+			directive = inst.Directive
+		}
+		mode, _ := config["mode"].(string)
+		if mode == "" {
+			mode = inst.Mode
+		}
+		writeJSON(w, map[string]any{
+			"directive":   directive,
+			"mode":        mode,
+			"mcp_servers": []any{},
+		})
+	}
+}
+
 func (s *Server) handleTelegramConnect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
