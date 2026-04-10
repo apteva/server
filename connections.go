@@ -200,7 +200,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 100_000))
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 10_000_000))
 
 	var data any
 	ct := resp.Header.Get("Content-Type")

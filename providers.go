@@ -288,12 +288,13 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify it exists
-	_, _, err = s.store.GetProvider(userID, providerID)
+	// Read existing data
+	provider, encData, err := s.store.GetProvider(userID, providerID)
 	if err != nil {
 		http.Error(w, "provider not found", http.StatusNotFound)
 		return
 	}
+	_ = provider
 
 	var body struct {
 		Type string            `json:"type"`
@@ -304,12 +305,30 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	if body.Type == "" || body.Name == "" {
-		http.Error(w, "type and name required", http.StatusBadRequest)
-		return
+	if body.Type == "" {
+		body.Type = provider.Type
+	}
+	if body.Name == "" {
+		body.Name = provider.Name
 	}
 
-	dataJSON, _ := json.Marshal(body.Data)
+	// Decrypt existing data and merge — skip masked values (contain "***")
+	var existing map[string]string
+	if plaintext, err := Decrypt(s.secret, encData); err == nil {
+		json.Unmarshal([]byte(plaintext), &existing)
+	}
+	if existing == nil {
+		existing = map[string]string{}
+	}
+	for k, v := range body.Data {
+		// Skip masked values — keep existing secret
+		if isEnvVar(k) && strings.Contains(v, "...") {
+			continue
+		}
+		existing[k] = v
+	}
+
+	dataJSON, _ := json.Marshal(existing)
 	encrypted, err := Encrypt(s.secret, string(dataJSON))
 	if err != nil {
 		http.Error(w, "encryption failed", http.StatusInternalServerError)

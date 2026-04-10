@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -155,5 +159,75 @@ func TestProviderIsolation(t *testing.T) {
 	_, _, err := s.store.GetProvider(2, 1)
 	if err == nil {
 		t.Error("bob should not access alice's provider")
+	}
+}
+
+func TestProviderUpdateMerge(t *testing.T) {
+	s := newTestServer(t)
+	s.secret = testSecret()
+
+	postJSON(t, s.handleRegister, map[string]string{
+		"email": "alice@test.com", "password": "password123",
+	})
+
+	// Create provider with API key + model
+	origData := map[string]string{
+		"ANTHROPIC_API_KEY": "sk-ant-real-key-12345",
+		"model_large":      "claude-opus-4-6",
+		"model_medium":     "claude-sonnet-4-6",
+		"model_small":      "claude-haiku-4-5-20251001",
+	}
+	dataJSON, _ := json.Marshal(origData)
+	enc, _ := Encrypt(s.secret, string(dataJSON))
+	provider, _ := s.store.CreateProvider(1, 0, "anthropic", "anthropic", enc)
+
+	// Simulate GET (returns masked data)
+	getReq := httptest.NewRequest("GET", fmt.Sprintf("/providers/%d", provider.ID), nil)
+	getReq.Header.Set("X-User-ID", "1")
+	getW := httptest.NewRecorder()
+	s.handleGetProvider(getW, getReq)
+
+	var getResult struct {
+		Type string            `json:"type"`
+		Name string            `json:"name"`
+		Data map[string]string `json:"data"`
+	}
+	json.Unmarshal(getW.Body.Bytes(), &getResult)
+
+	// Verify API key is masked
+	if !strings.Contains(getResult.Data["ANTHROPIC_API_KEY"], "...") {
+		t.Errorf("API key should be masked, got: %s", getResult.Data["ANTHROPIC_API_KEY"])
+	}
+
+	// Update just the model_large — send back masked API key
+	getResult.Data["model_large"] = "claude-sonnet-4-6"
+	putBody, _ := json.Marshal(getResult)
+	putReq := httptest.NewRequest("PUT", fmt.Sprintf("/providers/%d", provider.ID), bytes.NewReader(putBody))
+	putReq.Header.Set("Content-Type", "application/json")
+	putReq.Header.Set("X-User-ID", "1")
+	putW := httptest.NewRecorder()
+	s.handleUpdateProvider(putW, putReq)
+
+	if putW.Code != 200 {
+		t.Fatalf("PUT failed: %d %s", putW.Code, putW.Body.String())
+	}
+
+	// Verify API key is preserved (not replaced with masked value)
+	_, encAfter, err := s.store.GetProvider(1, provider.ID)
+	if err != nil {
+		t.Fatalf("GetProvider after update: %v", err)
+	}
+	plain, _ := Decrypt(s.secret, encAfter)
+	var afterData map[string]string
+	json.Unmarshal([]byte(plain), &afterData)
+
+	if afterData["ANTHROPIC_API_KEY"] != "sk-ant-real-key-12345" {
+		t.Errorf("API key was wiped! got: %q", afterData["ANTHROPIC_API_KEY"])
+	}
+	if afterData["model_large"] != "claude-sonnet-4-6" {
+		t.Errorf("model_large not updated, got: %q", afterData["model_large"])
+	}
+	if afterData["model_medium"] != "claude-sonnet-4-6" {
+		t.Errorf("model_medium should be preserved, got: %q", afterData["model_medium"])
 	}
 }

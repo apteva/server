@@ -149,9 +149,14 @@ func (s *Store) InsertTelemetry(events []TelemetryEvent) error {
 	return tx.Commit()
 }
 
-func (s *Store) QueryTelemetry(instanceID int64, eventType string, since time.Time, limit int) ([]TelemetryEvent, error) {
+func (s *Store) QueryTelemetry(instanceID int64, eventType string, since time.Time, limit int, threadID ...string) ([]TelemetryEvent, error) {
 	query := "SELECT id, instance_id, thread_id, type, time, data FROM telemetry WHERE instance_id = ?"
 	args := []any{instanceID}
+
+	if len(threadID) > 0 && threadID[0] != "" {
+		query += " AND thread_id = ?"
+		args = append(args, threadID[0])
+	}
 
 	if eventType != "" {
 		// Support prefix matching: "llm" matches "llm.start", "llm.done", etc.
@@ -440,13 +445,14 @@ func (s *Server) handleQueryTelemetry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	eventType := q.Get("type")
+	threadID := q.Get("thread_id")
 	var since time.Time
 	if s := q.Get("since"); s != "" {
 		since, _ = time.Parse(time.RFC3339, s)
 	}
 	limit, _ := strconv.Atoi(q.Get("limit"))
 
-	events, err := s.store.QueryTelemetry(instanceID, eventType, since, limit)
+	events, err := s.store.QueryTelemetry(instanceID, eventType, since, limit, threadID)
 	if err != nil {
 		http.Error(w, "query failed", http.StatusInternalServerError)
 		return

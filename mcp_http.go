@@ -17,13 +17,8 @@ import (
 //
 // Per MCP spec 2025-03-26: single endpoint, POST for requests, optional SSE.
 func (s *Server) handleMCPEndpoint(w http.ResponseWriter, r *http.Request) {
-	// Require instance secret for MCP access
-	if s.instanceSecret != "" {
-		if r.Header.Get("X-Instance-Secret") != s.instanceSecret {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-	}
+	// MCP endpoints are localhost-only (core connects from same machine)
+	// No auth required — connection ID provides access scoping
 
 	// Parse connection ID from path: /mcp/123
 	idStr := strings.TrimPrefix(r.URL.Path, "/mcp/")

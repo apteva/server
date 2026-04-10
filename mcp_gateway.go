@@ -61,7 +61,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "list_integrations", Description: "Browse available integrations. Returns name, slug, description, tool count.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"query": {Type: "string", Description: "Search query"}}}},
 		{Name: "get_integration", Description: "Get full details of an integration including credential fields and tools.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}}, Required: []string{"slug"}}},
 		{Name: "list_connections", Description: "List active integration connections.", InputSchema: toolSchema{Type: "object"}},
-		{Name: "create_connection", Description: "Create a new integration connection. Returns server config for connecting.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}, "name": {Type: "string", Description: "Connection name"}, "credentials": {Type: "string", Description: "JSON string with credential fields matching the integration's auth config. Example: {\"api_key\": \"sk_...\"}"}}, Required: []string{"slug", "credentials"}}},
+		{Name: "create_connection", Description: "Create a new integration connection. Credentials are stored securely — after creating, use the returned connect_now instruction to access tools. NEVER pass API keys to threads or include them in messages/directives.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}, "name": {Type: "string", Description: "Connection name"}, "credentials": {Type: "string", Description: "JSON string with credential fields matching the integration's auth config. Example: {\"api_key\": \"sk_...\"}"}}, Required: []string{"slug", "credentials"}}},
 		{Name: "delete_connection", Description: "Delete an integration connection.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Connection ID"}}, Required: []string{"id"}}},
 		// MCP Servers
 		{Name: "list_mcp_servers", Description: "List registered MCP servers with status, tool count, and mcp_url. Use the mcp_url with [[connect]] to access the server's tools.", InputSchema: toolSchema{Type: "object"}},
@@ -136,7 +136,6 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		case "create_connection":
 			slug, _ := args["slug"].(string)
 			connName, _ := args["name"].(string)
-			credsStr, _ := args["credentials"].(string)
 
 			app := catalog.Get(slug)
 			if app == nil {
@@ -146,8 +145,17 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				connName = app.Name
 			}
 
+			// Handle credentials as either JSON string or native object
 			var creds map[string]string
-			json.Unmarshal([]byte(credsStr), &creds)
+			switch v := args["credentials"].(type) {
+			case string:
+				json.Unmarshal([]byte(v), &creds)
+			case map[string]any:
+				creds = make(map[string]string)
+				for k, val := range v {
+					creds[k] = fmt.Sprintf("%v", val)
+				}
+			}
 			if creds == nil {
 				// Build hint showing expected fields
 				fields := []string{}
@@ -180,13 +188,12 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			if serverPort == "" {
 				serverPort = "8080"
 			}
+			mcpURL := fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, conn.ID)
 			return map[string]any{
 				"connection_id": conn.ID,
-				"server": map[string]any{
-					"name":      slug,
-					"transport": "http",
-					"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, conn.ID),
-				},
+				"status":        "connected",
+				"tools_count":   len(app.Tools),
+				"connect_now":   fmt.Sprintf("Use [[connect name=\"%s\" url=\"%s\" transport=\"http\"]] to access the tools. Credentials are securely stored — NEVER pass API keys to threads or include them in directives.", slug, mcpURL),
 			}, nil
 
 		case "delete_connection":
@@ -466,11 +473,17 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		case "activate_provider":
 			ptype, _ := args["type"].(string)
 			pname, _ := args["name"].(string)
-			credsStr, _ := args["credentials"].(string)
 
 			data := map[string]string{}
-			if credsStr != "" {
-				json.Unmarshal([]byte(credsStr), &data)
+			switch v := args["credentials"].(type) {
+			case string:
+				if v != "" {
+					json.Unmarshal([]byte(v), &data)
+				}
+			case map[string]any:
+				for k, val := range v {
+					data[k] = fmt.Sprintf("%v", val)
+				}
 			}
 			if len(data) == 0 {
 				data = map[string]string{"_enabled": "true"}

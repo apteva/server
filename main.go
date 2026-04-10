@@ -21,6 +21,7 @@ type Server struct {
 	secret      []byte  // AES-256 key for encrypting provider data
 	port        string  // server port for telemetry callback
 	dataDir     string  // data directory for downloads, etc.
+	appsDir     string  // path to integration app definitions
 	publicURL   string  // public base URL for webhooks (e.g. "https://agents.example.com")
 	broadcaster *TelemetryBroadcaster
 	setupToken     string  // one-time token for first registration (empty after use)
@@ -161,6 +162,7 @@ func main() {
 		instances:   NewInstanceManager(dataDir, coreCmd, 3210),
 		mcpManager:  NewMCPManager(),
 		catalog:     catalog,
+		appsDir:     appsDir,
 		secret:      secret,
 		port:        port,
 		dataDir:     dataDir,
@@ -264,6 +266,7 @@ func main() {
 	mux.HandleFunc("/projects/", s.authMiddleware(s.handleProject))
 
 	// Integration catalog routes
+	mux.HandleFunc("/integrations/catalog/reload", s.authMiddleware(s.handleCatalogReload))
 	mux.HandleFunc("/integrations/catalog/status", s.authMiddleware(s.handleCatalogStatus))
 	mux.HandleFunc("/integrations/catalog/download", s.authMiddleware(s.handleCatalogDownload))
 	mux.HandleFunc("/integrations/catalog/", s.authMiddleware(s.handleGetCatalogApp))

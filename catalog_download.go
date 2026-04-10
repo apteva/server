@@ -17,6 +17,29 @@ const (
 	catalogTarball = "https://api.github.com/repos/" + catalogRepo + "/tarball/main"
 )
 
+// POST /integrations/catalog/reload — re-reads local integration definitions from disk
+func (s *Server) handleCatalogReload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	before := s.catalog.Count()
+	if err := s.catalog.LoadFromDir(s.appsDir); err != nil {
+		http.Error(w, fmt.Sprintf("reload failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	after := s.catalog.Count()
+	fmt.Fprintf(os.Stderr, "integration catalog reloaded: %d integrations (was %d)\n", after, before)
+
+	writeJSON(w, map[string]any{
+		"status":   "reloaded",
+		"before":   before,
+		"after":    after,
+		"apps_dir": s.appsDir,
+	})
+}
+
 // GET /integrations/catalog/status
 func (s *Server) handleCatalogStatus(w http.ResponseWriter, r *http.Request) {
 	integrationsDir := filepath.Join(s.dataDir, "integrations")
