@@ -201,21 +201,22 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 		"main_access": true,
 	}
 
-	// Ensure apteva-server gateway and channels are present
-	var servers []any
+	// Merge apteva-server gateway and channels into existing MCP servers.
+	// Preserve all other MCP servers (schedule, social, helpdesk, etc.) that were
+	// added at runtime or manually. Only replace gateway + channels entries.
+	var userServers []any
 	if existing, ok := config["mcp_servers"].([]any); ok {
 		for _, s := range existing {
 			if sm, ok := s.(map[string]any); ok {
 				name, _ := sm["name"].(string)
 				if name == "apteva-server" || name == "channels" || name == "apteva-channels" {
-					continue // remove old entries, we'll re-add below
+					continue // will be re-added with fresh URLs
 				}
-				servers = append(servers, sm)
+				userServers = append(userServers, sm)
 			}
 		}
 	}
-	servers = append([]any{gateway, channelsEntry}, servers...)
-	config["mcp_servers"] = servers
+	config["mcp_servers"] = append([]any{gateway, channelsEntry}, userServers...)
 
 	configData, _ := json.MarshalIndent(config, "", "  ")
 	os.WriteFile(filepath.Join(dir, "config.json"), configData, 0644)
