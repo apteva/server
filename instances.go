@@ -356,6 +356,7 @@ func (im *InstanceManager) StartTelegram(instanceID int64, token string) (string
 }
 
 // getBrowserConfig returns the browser/computer config from providers if one exists.
+// Supports "browser" (local Chrome or existing CDP) and "browserbase" (cloud) provider types.
 func (s *Server) getBrowserConfig(userID int64) map[string]any {
 	providers, err := s.store.ListProviders(userID)
 	if err != nil {
@@ -378,6 +379,31 @@ func (s *Server) getBrowserConfig(userID int64) map[string]any {
 		if data == nil {
 			continue
 		}
+
+		// Parse optional resolution from provider data (default 1024x768)
+		width, height := 1024, 768
+		if w := data["WIDTH"]; w != "" {
+			fmt.Sscanf(w, "%d", &width)
+		}
+		if h := data["HEIGHT"]; h != "" {
+			fmt.Sscanf(h, "%d", &height)
+		}
+
+		if p.Type == "browser" {
+			// Local browser or existing CDP endpoint
+			cfg := map[string]any{
+				"type":   "local",
+				"width":  width,
+				"height": height,
+			}
+			if cdpURL := data["CDP_URL"]; cdpURL != "" {
+				cfg["type"] = "service"
+				cfg["url"] = cdpURL
+			}
+			return cfg
+		}
+
+		// Browserbase
 		apiKey := data["BROWSERBASE_API_KEY"]
 		projectID := data["BROWSERBASE_PROJECT_ID"]
 		if apiKey == "" {
@@ -387,8 +413,8 @@ func (s *Server) getBrowserConfig(userID int64) map[string]any {
 			"type":       "browserbase",
 			"api_key":    apiKey,
 			"project_id": projectID,
-			"width":      1280,
-			"height":     800,
+			"width":      width,
+			"height":     height,
 		}
 	}
 	return nil
