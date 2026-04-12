@@ -112,7 +112,8 @@ func (s *Store) migrate() error {
 			(5, 'integrations', 'Apteva Local', '200+ app integrations (GitHub, Slack, Stripe, etc.)', '[]', 0, 15),
 			(6, 'embeddings', 'Voyage', 'Text embeddings', '["VOYAGE_API_KEY"]', 1, 20),
 			(7, 'tts', 'ElevenLabs', 'Text-to-speech', '["ELEVENLABS_API_KEY"]', 1, 30),
-			(8, 'browser', 'Browserbase', 'Browser automation', '["BROWSERBASE_API_KEY","BROWSERBASE_PROJECT_ID"]', 1, 40);
+			(8, 'browser', 'Browserbase', 'Browser automation', '["BROWSERBASE_API_KEY","BROWSERBASE_PROJECT_ID"]', 1, 40),
+			(9, 'integrations', 'Composio', '250+ app integrations via Composio (MCP-native)', '["COMPOSIO_API_KEY"]', 1, 16);
 
 		-- Update existing Fireworks provider type to include model override fields
 		UPDATE provider_types SET fields = '["FIREWORKS_API_KEY"]' WHERE id = 1;
@@ -235,6 +236,30 @@ func (s *Store) migrate() error {
 	// is_default removed — default is per-instance, stored in instances.config
 	s.db.Exec("ALTER TABLE instances ADD COLUMN mode TEXT DEFAULT 'autonomous'")
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN external_webhook_id TEXT DEFAULT ''")
+
+	// Unified connections + mcp_servers: source discriminator + hosted-provider refs
+	s.db.Exec("ALTER TABLE connections ADD COLUMN source TEXT DEFAULT 'local'")
+	s.db.Exec("ALTER TABLE connections ADD COLUMN provider_id INTEGER DEFAULT 0")
+	s.db.Exec("ALTER TABLE connections ADD COLUMN external_id TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN transport TEXT DEFAULT 'stdio'")
+	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN url TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN provider_id INTEGER DEFAULT 0")
+
+	// Pending-OAuth state table for local catalog OAuth2 flows (composio OAuth is
+	// delegated and does not use this table).
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS oauth_states (
+		state TEXT PRIMARY KEY,
+		user_id INTEGER NOT NULL,
+		connection_id INTEGER NOT NULL,
+		app_slug TEXT NOT NULL,
+		pkce_verifier TEXT DEFAULT '',
+		expires_at DATETIME NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+
+	// Seed new provider types on existing DBs (idempotent)
+	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
+		(9, 'integrations', 'Composio', '250+ app integrations via Composio (MCP-native)', '["COMPOSIO_API_KEY"]', 1, 16)`)
 
 	return nil
 }

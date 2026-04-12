@@ -376,6 +376,7 @@ func (s *Server) handleLiveTelemetry(w http.ResponseWriter, r *http.Request) {
 	// Require instance secret
 	if s.instanceSecret != "" {
 		if r.Header.Get("X-Instance-Secret") != s.instanceSecret {
+			log.Printf("[TELEMETRY] live: unauthorized — header=%q expected=%q (first8)", r.Header.Get("X-Instance-Secret")[:min(8, len(r.Header.Get("X-Instance-Secret")))], s.instanceSecret[:min(8, len(s.instanceSecret))])
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -383,9 +384,16 @@ func (s *Server) handleLiveTelemetry(w http.ResponseWriter, r *http.Request) {
 
 	var events []TelemetryEvent
 	if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+		log.Printf("[TELEMETRY] live: bad json: %v", err)
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
+
+	types := make([]string, len(events))
+	for i, e := range events {
+		types[i] = e.Type
+	}
+	log.Printf("[TELEMETRY] live: received %d events: %v", len(events), types)
 
 	s.broadcaster.Broadcast(events)
 	writeJSON(w, map[string]int{"broadcast": len(events)})

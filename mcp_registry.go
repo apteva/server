@@ -58,10 +58,28 @@ type MCPServerRecord struct {
 	Status       string    `json:"status"`
 	ToolCount    int       `json:"tool_count"`
 	Pid          int       `json:"pid"`
-	Source       string    `json:"source"`
+	Source       string    `json:"source"`     // 'custom' | 'local' | 'remote'
+	Transport    string    `json:"transport"`  // 'stdio' | 'http'
+	URL          string    `json:"url,omitempty"`
+	ProviderID   int64     `json:"provider_id,omitempty"`
 	ConnectionID int64     `json:"connection_id"`
 	ProjectID    string    `json:"project_id,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+// MCPServerInput carries the full field set for creating any MCP server row.
+type MCPServerInput struct {
+	UserID       int64
+	Name         string
+	Description  string
+	Source       string // '' → 'custom'
+	Transport    string // '' → 'stdio'
+	Command      string
+	Args         string // JSON array
+	EncryptedEnv string
+	URL          string
+	ProviderID   int64
+	ProjectID    string
 }
 
 // --- Store methods ---
@@ -71,26 +89,49 @@ func (s *Store) CreateMCPServer(userID int64, name, command, args, encryptedEnv,
 	if len(projectID) > 0 {
 		pid = projectID[0]
 	}
+	return s.CreateMCPServerExt(MCPServerInput{
+		UserID: userID, Name: name, Description: description,
+		Source: "custom", Transport: "stdio",
+		Command: command, Args: args, EncryptedEnv: encryptedEnv,
+		ProjectID: pid,
+	})
+}
+
+func (s *Store) CreateMCPServerExt(in MCPServerInput) (*MCPServerRecord, error) {
+	if in.Source == "" {
+		in.Source = "custom"
+	}
+	if in.Transport == "" {
+		in.Transport = "stdio"
+	}
 	result, err := s.db.Exec(
-		"INSERT INTO mcp_servers (user_id, name, command, args, encrypted_env, description, project_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		userID, name, command, args, encryptedEnv, description, pid,
+		`INSERT INTO mcp_servers (user_id, name, command, args, encrypted_env, description, project_id, source, transport, url, provider_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		in.UserID, in.Name, in.Command, in.Args, in.EncryptedEnv, in.Description, in.ProjectID,
+		in.Source, in.Transport, in.URL, in.ProviderID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := result.LastInsertId()
-	return &MCPServerRecord{ID: id, UserID: userID, Name: name, Command: command, Args: args, Description: description, Status: "stopped"}, nil
+	return &MCPServerRecord{
+		ID: id, UserID: in.UserID, Name: in.Name, Command: in.Command, Args: in.Args,
+		Description: in.Description, Status: "stopped",
+		Source: in.Source, Transport: in.Transport, URL: in.URL, ProviderID: in.ProviderID,
+		ProjectID: in.ProjectID,
+	}, nil
 }
 
 func (s *Store) ListMCPServers(userID int64, projectID ...string) ([]MCPServerRecord, error) {
+	const cols = `id, name, command, args, description, status, tool_count, pid,
+		COALESCE(source,'custom'), COALESCE(transport,'stdio'), COALESCE(url,''), COALESCE(provider_id,0),
+		COALESCE(connection_id,0), COALESCE(project_id,''), created_at`
 	var rows *sql.Rows
 	var err error
 	if len(projectID) > 0 && projectID[0] != "" {
-		rows, err = s.db.Query(
-			"SELECT id, name, command, args, description, status, tool_count, pid, COALESCE(source,'custom'), COALESCE(connection_id,0), COALESCE(project_id,''), created_at FROM mcp_servers WHERE user_id = ? AND project_id = ?", userID, projectID[0])
+		rows, err = s.db.Query(`SELECT `+cols+` FROM mcp_servers WHERE user_id = ? AND project_id = ?`, userID, projectID[0])
 	} else {
-		rows, err = s.db.Query(
-			"SELECT id, name, command, args, description, status, tool_count, pid, COALESCE(source,'custom'), COALESCE(connection_id,0), COALESCE(project_id,''), created_at FROM mcp_servers WHERE user_id = ?", userID)
+		rows, err = s.db.Query(`SELECT `+cols+` FROM mcp_servers WHERE user_id = ?`, userID)
 	}
 	if err != nil {
 		return nil, err
@@ -101,7 +142,9 @@ func (s *Store) ListMCPServers(userID int64, projectID ...string) ([]MCPServerRe
 	for rows.Next() {
 		var r MCPServerRecord
 		var createdAt string
-		rows.Scan(&r.ID, &r.Name, &r.Command, &r.Args, &r.Description, &r.Status, &r.ToolCount, &r.Pid, &r.Source, &r.ConnectionID, &r.ProjectID, &createdAt)
+		rows.Scan(&r.ID, &r.Name, &r.Command, &r.Args, &r.Description, &r.Status, &r.ToolCount, &r.Pid,
+			&r.Source, &r.Transport, &r.URL, &r.ProviderID,
+			&r.ConnectionID, &r.ProjectID, &createdAt)
 		r.UserID = userID
 		r.CreatedAt, _ = parseTime(createdAt)
 		servers = append(servers, r)
@@ -113,15 +156,50 @@ func (s *Store) GetMCPServer(userID, serverID int64) (*MCPServerRecord, string, 
 	var r MCPServerRecord
 	var encryptedEnv, createdAt string
 	err := s.db.QueryRow(
-		"SELECT id, name, command, args, encrypted_env, description, status, tool_count, pid, COALESCE(source,'custom'), COALESCE(connection_id,0), created_at FROM mcp_servers WHERE id = ? AND user_id = ?",
+		`SELECT id, name, command, args, encrypted_env, description, status, tool_count, pid,
+			COALESCE(source,'custom'), COALESCE(transport,'stdio'), COALESCE(url,''), COALESCE(provider_id,0),
+			COALESCE(connection_id,0), created_at
+		 FROM mcp_servers WHERE id = ? AND user_id = ?`,
 		serverID, userID,
-	).Scan(&r.ID, &r.Name, &r.Command, &r.Args, &encryptedEnv, &r.Description, &r.Status, &r.ToolCount, &r.Pid, &r.Source, &r.ConnectionID, &createdAt)
+	).Scan(&r.ID, &r.Name, &r.Command, &r.Args, &encryptedEnv, &r.Description, &r.Status, &r.ToolCount, &r.Pid,
+		&r.Source, &r.Transport, &r.URL, &r.ProviderID,
+		&r.ConnectionID, &createdAt)
 	if err != nil {
 		return nil, "", err
 	}
 	r.UserID = userID
 	r.CreatedAt, _ = parseTime(createdAt)
 	return &r, encryptedEnv, nil
+}
+
+// FindMCPServerByProviderProject returns an existing remote MCP server for a
+// given (user, provider, project) tuple, if one exists. Used by the Composio
+// reconciler to find the aggregate server for a project.
+func (s *Store) FindMCPServerByProviderProject(userID, providerID int64, projectID string) (*MCPServerRecord, error) {
+	var r MCPServerRecord
+	var createdAt string
+	err := s.db.QueryRow(
+		`SELECT id, name, command, args, description, status, tool_count, pid,
+			COALESCE(source,'custom'), COALESCE(transport,'stdio'), COALESCE(url,''), COALESCE(provider_id,0),
+			COALESCE(connection_id,0), COALESCE(project_id,''), created_at
+		 FROM mcp_servers WHERE user_id = ? AND provider_id = ? AND project_id = ? AND source = 'remote'
+		 LIMIT 1`,
+		userID, providerID, projectID,
+	).Scan(&r.ID, &r.Name, &r.Command, &r.Args, &r.Description, &r.Status, &r.ToolCount, &r.Pid,
+		&r.Source, &r.Transport, &r.URL, &r.ProviderID,
+		&r.ConnectionID, &r.ProjectID, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+	r.UserID = userID
+	r.CreatedAt, _ = parseTime(createdAt)
+	return &r, nil
+}
+
+// UpdateMCPServerURL replaces the remote URL on an existing mcp_servers row.
+func (s *Store) UpdateMCPServerURL(serverID int64, url string) error {
+	_, err := s.db.Exec("UPDATE mcp_servers SET url = ? WHERE id = ?", url, serverID)
+	return err
 }
 
 func (s *Store) UpdateMCPServerStatus(serverID int64, status string, toolCount, pid int) {
@@ -138,15 +216,21 @@ func (s *Store) DeleteMCPServer(userID, serverID int64) error {
 type MCPProcess struct {
 	ServerID int64
 	Name     string
-	cmd      *exec.Cmd
-	stdin    io.WriteCloser
-	scanner  *bufio.Scanner
-	mu       sync.Mutex
-	nextID   atomic.Int64
-	pending  map[int64]chan jsonRPCResponse
-	pendMu   sync.Mutex
-	Tools    []mcpToolDef
+	// stdio fields — nil for remote transport
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	scanner *bufio.Scanner
+	// remote fields — empty for stdio transport
+	remoteURL string
+	// shared
+	mu      sync.Mutex
+	nextID  atomic.Int64
+	pending map[int64]chan jsonRPCResponse
+	pendMu  sync.Mutex
+	Tools   []mcpToolDef
 }
+
+func (p *MCPProcess) isRemote() bool { return p.cmd == nil && p.remoteURL != "" }
 
 func (p *MCPProcess) readLoop() {
 	for p.scanner.Scan() {
@@ -213,8 +297,13 @@ func (p *MCPProcess) ListTools() ([]mcpToolDef, error) {
 }
 
 func (p *MCPProcess) Close() {
-	p.stdin.Close()
-	if p.cmd.Process != nil {
+	if p.isRemote() {
+		return
+	}
+	if p.stdin != nil {
+		p.stdin.Close()
+	}
+	if p.cmd != nil && p.cmd.Process != nil {
 		p.cmd.Process.Kill()
 		p.cmd.Wait()
 	}
@@ -239,6 +328,28 @@ func (m *MCPManager) Start(record *MCPServerRecord, env map[string]string) (*MCP
 
 	if _, running := m.processes[record.ID]; running {
 		return nil, fmt.Errorf("MCP server %d already running", record.ID)
+	}
+
+	// Remote HTTP transport: probe the URL with a tools/list and cache tools.
+	// There is no subprocess to spawn; cores connect directly to record.URL
+	// using the proxy_config emitted by handleListMCPServers.
+	if record.Transport == "http" || record.Source == "remote" {
+		if record.URL == "" {
+			return nil, fmt.Errorf("remote MCP server %d has no URL", record.ID)
+		}
+		tools, err := probeRemoteMCP(record.URL, env)
+		if err != nil {
+			return nil, fmt.Errorf("probe %s: %w", record.URL, err)
+		}
+		proc := &MCPProcess{
+			ServerID:  record.ID,
+			Name:      record.Name,
+			remoteURL: record.URL,
+			pending:   make(map[int64]chan jsonRPCResponse),
+			Tools:     tools,
+		}
+		m.processes[record.ID] = proc
+		return proc, nil
 	}
 
 	var args []string
@@ -342,6 +453,16 @@ func (m *MCPManager) GetTools(serverID int64) []mcpToolDef {
 	return proc.Tools
 }
 
+// processByID returns the running MCPProcess for a server id, if any. Used
+// by the tool-call handler to dispatch tools/call against a custom stdio
+// subprocess.
+func (m *MCPManager) processByID(serverID int64) (*MCPProcess, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	proc, ok := m.processes[serverID]
+	return proc, ok
+}
+
 // --- HTTP Handlers ---
 
 // POST /mcp-servers
@@ -403,6 +524,15 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 		if servers[i].Source == "local" {
 			// Local integration servers are always "running" — no subprocess needed
 			servers[i].Status = "running"
+		} else if servers[i].Source == "remote" {
+			// Remote MCP endpoints live outside our process; status is
+			// "reachable" once we've probed tools/list successfully.
+			if s.mcpManager.IsRunning(servers[i].ID) {
+				servers[i].Status = "reachable"
+				servers[i].ToolCount = len(s.mcpManager.GetTools(servers[i].ID))
+			} else if servers[i].Status == "" {
+				servers[i].Status = "unprobed"
+			}
 		} else if s.mcpManager.IsRunning(servers[i].ID) {
 			servers[i].Status = "running"
 			servers[i].ToolCount = len(s.mcpManager.GetTools(servers[i].ID))
@@ -424,8 +554,16 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 	var enriched []enrichedServer
 	for _, srv := range servers {
 		es := enrichedServer{MCPServerRecord: srv}
-		if srv.Source == "local" && srv.ConnectionID > 0 {
-			// Streamable HTTP endpoint
+		if srv.Source == "remote" && srv.URL != "" {
+			// Hosted MCP endpoint (Composio, Pipedream, ...). Cores connect
+			// directly to the upstream URL — we do not proxy.
+			es.ProxyConfig = &map[string]any{
+				"name":      srv.Name,
+				"transport": "http",
+				"url":       srv.URL,
+			}
+		} else if srv.Source == "local" && srv.ConnectionID > 0 {
+			// Streamable HTTP endpoint served by apteva-server itself
 			es.ProxyConfig = &map[string]any{
 				"name":      srv.Name,
 				"transport": "http",
@@ -483,7 +621,15 @@ func (s *Server) handleStartMCPServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.store.UpdateMCPServerStatus(record.ID, "running", len(proc.Tools), proc.cmd.Process.Pid)
+	pid := 0
+	if !proc.isRemote() && proc.cmd != nil && proc.cmd.Process != nil {
+		pid = proc.cmd.Process.Pid
+	}
+	status := "running"
+	if proc.isRemote() {
+		status = "reachable"
+	}
+	s.store.UpdateMCPServerStatus(record.ID, status, len(proc.Tools), pid)
 
 	writeJSON(w, map[string]any{
 		"status":     "running",
@@ -566,6 +712,103 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, tools)
 }
 
+// POST /mcp-servers/:id/call-tool
+//
+// Body: {"tool": "<tool name>", "args": {...}}
+//
+// Dispatches on the server row's source:
+//   - remote (Composio, Pipedream, ...) → callRemoteMCPTool against the
+//     stored URL, using the row's decrypted env for any auth headers.
+//   - custom (stdio subprocess managed by MCPManager) → call through the
+//     already-running process's client. We use the same call() helper that
+//     probeRemoteMCP internalized, but for stdio we invoke directly via
+//     MCPProcess.call("tools/call", ...).
+//   - local (Apteva catalog shim) → return 400 and hint to use
+//     /connections/:id/execute instead, since catalog tools are executed
+//     as HTTP calls, not MCP ones.
+//
+// The response shape mirrors /connections/:id/execute so the dashboard can
+// render both uniformly:
+//   {"success": bool, "status": int, "data": any}
+func (s *Server) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	path := strings.TrimPrefix(r.URL.Path, "/mcp-servers/")
+	idStr := strings.TrimSuffix(path, "/call-tool")
+	serverID, err := atoi64(idStr)
+	if err != nil {
+		http.Error(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	record, encEnv, err := s.store.GetMCPServer(userID, serverID)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	var body struct {
+		Tool string         `json:"tool"`
+		Args map[string]any `json:"args"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if body.Tool == "" {
+		http.Error(w, "tool name required", http.StatusBadRequest)
+		return
+	}
+	if body.Args == nil {
+		body.Args = map[string]any{}
+	}
+
+	// Decrypt env so callRemoteMCPTool can inject auth headers if present.
+	env := map[string]string{}
+	if encEnv != "" {
+		plain, derr := Decrypt(s.secret, encEnv)
+		if derr == nil {
+			_ = json.Unmarshal([]byte(plain), &env)
+		}
+	}
+
+	switch record.Source {
+	case "remote":
+		if record.URL == "" {
+			http.Error(w, "remote mcp row has no URL", http.StatusInternalServerError)
+			return
+		}
+		result, err := callRemoteMCPTool(record.URL, body.Tool, body.Args, env)
+		if err != nil {
+			writeJSON(w, map[string]any{"success": false, "status": 0, "data": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"success": true, "status": 200, "data": json.RawMessage(result)})
+	case "custom":
+		proc, ok := s.mcpManager.processByID(serverID)
+		if !ok {
+			http.Error(w, "custom MCP server not running — start it first", http.StatusConflict)
+			return
+		}
+		result, err := proc.call("tools/call", map[string]any{
+			"name":      body.Tool,
+			"arguments": body.Args,
+		})
+		if err != nil {
+			writeJSON(w, map[string]any{"success": false, "status": 0, "data": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"success": true, "status": 200, "data": json.RawMessage(result)})
+	case "local":
+		http.Error(w, "local catalog tools — use /connections/:id/execute", http.StatusBadRequest)
+	default:
+		http.Error(w, "unknown source: "+record.Source, http.StatusInternalServerError)
+	}
+}
+
 // DELETE /mcp-servers/:id
 func (s *Server) handleDeleteMCPServer(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
@@ -583,4 +826,238 @@ func (s *Server) handleDeleteMCPServer(w http.ResponseWriter, r *http.Request) {
 	s.mcpManager.Stop(serverID)
 	s.store.DeleteMCPServer(userID, serverID)
 	writeJSON(w, map[string]string{"status": "deleted"})
+}
+
+// callRemoteMCPTool invokes a single tool on a Streamable-HTTP MCP server
+// (tools/call method) and returns the raw result payload as JSON. It uses
+// the same redirect / SSE-parsing path as probeRemoteMCP and is safe for
+// repeated invocation.
+//
+// The returned []byte is the JSON result from the server, which matches the
+// MCP spec shape: `{ content: [{ type: "text" | "image", text?, data?, ... }], isError?: bool }`.
+// Callers are responsible for surfacing that shape to the dashboard.
+func callRemoteMCPTool(rawURL, toolName string, args map[string]any, env map[string]string) (json.RawMessage, error) {
+	headers := map[string]string{
+		"Content-Type": "application/json",
+		"Accept":       "application/json, text/event-stream",
+	}
+	if tok, ok := env["AUTHORIZATION"]; ok && tok != "" {
+		headers["Authorization"] = tok
+	}
+	if key, ok := env["API_KEY"]; ok && key != "" {
+		headers["X-Api-Key"] = key
+	}
+
+	client := &http.Client{
+		Timeout: 60 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	call := func(id int64, method string, params any, targetURL string) (json.RawMessage, string, error) {
+		req := jsonRPCRequest{JSONRPC: "2.0", ID: id, Method: method, Params: params}
+		body, _ := json.Marshal(req)
+		currentURL := targetURL
+		for attempt := 0; attempt < 4; attempt++ {
+			httpReq, err := http.NewRequest("POST", currentURL, strings.NewReader(string(body)))
+			if err != nil {
+				return nil, "", err
+			}
+			for k, v := range headers {
+				httpReq.Header.Set(k, v)
+			}
+			resp, err := client.Do(httpReq)
+			if err != nil {
+				return nil, "", err
+			}
+			if resp.StatusCode == 307 || resp.StatusCode == 308 {
+				loc := resp.Header.Get("Location")
+				resp.Body.Close()
+				if loc == "" {
+					return nil, "", fmt.Errorf("redirect with no Location header")
+				}
+				currentURL = loc
+				continue
+			}
+			defer resp.Body.Close()
+			respBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 10_000_000))
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				return nil, "", fmt.Errorf("http %d: %s", resp.StatusCode, string(respBytes))
+			}
+			payload, err := decodeMCPResponseBody(resp.Header.Get("Content-Type"), respBytes)
+			if err != nil {
+				return nil, "", fmt.Errorf("decode: %w (body=%s)", err, truncateProbeErr(string(respBytes), 200))
+			}
+			var rpc jsonRPCResponse
+			if err := json.Unmarshal(payload, &rpc); err != nil {
+				return nil, "", fmt.Errorf("parse rpc: %w (payload=%s)", err, truncateProbeErr(string(payload), 200))
+			}
+			if rpc.Error != nil {
+				return nil, "", fmt.Errorf("mcp error %d: %s", rpc.Error.Code, rpc.Error.Message)
+			}
+			return rpc.Result, currentURL, nil
+		}
+		return nil, "", fmt.Errorf("too many redirects")
+	}
+
+	// Initialize first to land on the post-redirect URL, then issue the tool
+	// call on that URL so we don't redirect twice.
+	_, resolvedURL, err := call(1, "initialize", map[string]any{
+		"protocolVersion": "2024-11-05",
+		"capabilities":    map[string]any{},
+		"clientInfo":      map[string]string{"name": "apteva-server", "version": "1.0.0"},
+	}, rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("initialize: %w", err)
+	}
+
+	result, _, err := call(2, "tools/call", map[string]any{
+		"name":      toolName,
+		"arguments": args,
+	}, resolvedURL)
+	if err != nil {
+		return nil, fmt.Errorf("tools/call: %w", err)
+	}
+	return result, nil
+}
+
+// probeRemoteMCP issues a minimal MCP handshake + tools/list against a
+// Streamable-HTTP MCP endpoint. Used when "starting" a remote MCP server — we
+// do not run a subprocess, we only verify the endpoint is reachable and cache
+// its tool list.
+//
+// Compatibility notes for real-world MCP servers (observed against Composio):
+//   - Some servers return SSE-framed responses (`Content-Type: text/event-stream`
+//     with `event: message\ndata: {...}\n\n` bodies) even for POSTs. We parse
+//     both plain JSON and SSE frames.
+//   - Some servers host the MCP endpoint at a sub-path (`.../v3/mcp/<id>/mcp`)
+//     and respond to the parent path with 307 → the `/mcp` suffix. Go's POST
+//     redirect behavior strips the body, so we handle the redirect ourselves
+//     by retrying against the Location.
+//   - Auth: `env["AUTHORIZATION"]` (e.g. `Bearer <token>`) and `env["API_KEY"]`
+//     are added as headers. Many hosted MCPs (Composio) embed the auth token
+//     in the URL and need no extra headers.
+func probeRemoteMCP(rawURL string, env map[string]string) ([]mcpToolDef, error) {
+	headers := map[string]string{
+		"Content-Type": "application/json",
+		// Accept both JSON and SSE — Composio returns SSE for POSTs.
+		"Accept": "application/json, text/event-stream",
+	}
+	if tok, ok := env["AUTHORIZATION"]; ok && tok != "" {
+		headers["Authorization"] = tok
+	}
+	if key, ok := env["API_KEY"]; ok && key != "" {
+		headers["X-Api-Key"] = key
+	}
+
+	// Disable auto-redirects so we can manually re-issue the POST with the
+	// body intact against the Location header.
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	call := func(id int64, method string, params any, targetURL string) (json.RawMessage, string, error) {
+		req := jsonRPCRequest{JSONRPC: "2.0", ID: id, Method: method, Params: params}
+		body, _ := json.Marshal(req)
+
+		// Try original URL, then follow up to 3 307/308 redirects.
+		currentURL := targetURL
+		for attempt := 0; attempt < 4; attempt++ {
+			httpReq, err := http.NewRequest("POST", currentURL, strings.NewReader(string(body)))
+			if err != nil {
+				return nil, "", err
+			}
+			for k, v := range headers {
+				httpReq.Header.Set(k, v)
+			}
+			resp, err := client.Do(httpReq)
+			if err != nil {
+				return nil, "", err
+			}
+			if resp.StatusCode == 307 || resp.StatusCode == 308 {
+				loc := resp.Header.Get("Location")
+				resp.Body.Close()
+				if loc == "" {
+					return nil, "", fmt.Errorf("redirect with no Location header")
+				}
+				currentURL = loc
+				continue
+			}
+			defer resp.Body.Close()
+			respBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4_000_000))
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				return nil, "", fmt.Errorf("http %d: %s", resp.StatusCode, string(respBytes))
+			}
+			payload, err := decodeMCPResponseBody(resp.Header.Get("Content-Type"), respBytes)
+			if err != nil {
+				return nil, "", fmt.Errorf("decode: %w (body=%s)", err, truncateProbeErr(string(respBytes), 200))
+			}
+			var rpc jsonRPCResponse
+			if err := json.Unmarshal(payload, &rpc); err != nil {
+				return nil, "", fmt.Errorf("parse rpc: %w (payload=%s)", err, truncateProbeErr(string(payload), 200))
+			}
+			if rpc.Error != nil {
+				return nil, "", fmt.Errorf("mcp error %d: %s", rpc.Error.Code, rpc.Error.Message)
+			}
+			return rpc.Result, currentURL, nil
+		}
+		return nil, "", fmt.Errorf("too many redirects")
+	}
+
+	// Run initialize to land on the final URL (following redirects), then
+	// issue tools/list against the same URL so we don't re-redirect.
+	_, resolvedURL, err := call(1, "initialize", map[string]any{
+		"protocolVersion": "2024-11-05",
+		"capabilities":    map[string]any{},
+		"clientInfo":      map[string]string{"name": "apteva-server", "version": "1.0.0"},
+	}, rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("initialize: %w", err)
+	}
+
+	result, _, err := call(2, "tools/list", nil, resolvedURL)
+	if err != nil {
+		return nil, fmt.Errorf("tools/list: %w", err)
+	}
+	var list mcpToolsListResult
+	if err := json.Unmarshal(result, &list); err != nil {
+		return nil, fmt.Errorf("parse tools: %w", err)
+	}
+	return list.Tools, nil
+}
+
+// decodeMCPResponseBody extracts the JSON-RPC payload from either a plain
+// JSON body or an SSE-framed `event: message\ndata: {...}` body. Returns the
+// raw JSON bytes suitable for unmarshaling into jsonRPCResponse.
+func decodeMCPResponseBody(contentType string, body []byte) ([]byte, error) {
+	ct := strings.ToLower(contentType)
+	trimmed := strings.TrimSpace(string(body))
+	// SSE path — walk lines, look for "data: {…}" and return the last data
+	// payload (the final event in the stream for a single JSON-RPC call).
+	if strings.Contains(ct, "text/event-stream") || (strings.HasPrefix(trimmed, "event:") || strings.HasPrefix(trimmed, "data:")) {
+		var lastData string
+		for _, line := range strings.Split(trimmed, "\n") {
+			line = strings.TrimRight(line, "\r")
+			if strings.HasPrefix(line, "data:") {
+				lastData = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			}
+		}
+		if lastData == "" {
+			return nil, fmt.Errorf("SSE body had no data: line")
+		}
+		return []byte(lastData), nil
+	}
+	// Plain JSON path
+	return body, nil
+}
+
+func truncateProbeErr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }

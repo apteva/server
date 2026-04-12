@@ -181,20 +181,45 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// Public routes (no auth)
+	// All REST/JSON routes live under /api/. The SPA owns everything else,
+	// which means a browser refresh on /instances/42 no longer collides with
+	// the API's /instances/ prefix match.
+	//
+	// Externally-called endpoints that can't move stay at root:
+	//   - /health, /version           — public liveness checks
+	//   - /webhooks/*                 — upstream services register these URLs
+	//   - /oauth/local/callback       — OAuth redirect target
+	//   - /mcp/*                      — core MCP Streamable HTTP endpoint
+	//   - /                           — SPA catch-all
+	//
+	// Everything else goes on apiMux and is exposed at /api/*. Inside the
+	// sub-mux the path has already been stripped, so handlers that inspect
+	// r.URL.Path (e.g. strings.TrimPrefix(r.URL.Path, "/instances/")) work
+	// unchanged.
+	apiMux := http.NewServeMux()
+
+	// Public routes (no auth) at root for external liveness checks
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": true, "version": Version})
 	})
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]string{"version": Version})
 	})
-	mux.HandleFunc("/auth/register", s.handleRegister)
-	mux.HandleFunc("/auth/login", s.handleLogin)
-	mux.HandleFunc("/auth/logout", s.handleLogout)
-	mux.HandleFunc("/auth/me", s.handleMe)
+	// Also expose health/version under /api for uniformity from the dashboard.
+	apiMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"ok": true, "version": Version})
+	})
+	apiMux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]string{"version": Version})
+	})
+
+	apiMux.HandleFunc("/auth/register", s.handleRegister)
+	apiMux.HandleFunc("/auth/login", s.handleLogin)
+	apiMux.HandleFunc("/auth/logout", s.handleLogout)
+	apiMux.HandleFunc("/auth/me", s.handleMe)
 
 	// Authenticated routes
-	mux.HandleFunc("/auth/keys", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	apiMux.HandleFunc("/auth/keys", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			s.handleListKeys(w, r)
@@ -204,14 +229,17 @@ func main() {
 			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
 		}
 	}))
-	mux.HandleFunc("/auth/keys/", s.authMiddleware(s.handleDeleteKey))
+	apiMux.HandleFunc("/auth/keys/", s.authMiddleware(s.handleDeleteKey))
 
-	// Telemetry routes (ingest is unauthenticated — core instances POST here)
-	mux.HandleFunc("/telemetry/timeline", s.authMiddleware(s.handleTelemetryTimeline))
-	mux.HandleFunc("/telemetry/stats", s.authMiddleware(s.handleTelemetryStats))
-	mux.HandleFunc("/telemetry/stream", s.handleTelemetryStream) // SSE — no auth (needs cookie passthrough)
-	mux.HandleFunc("/telemetry/live", s.handleLiveTelemetry)     // broadcast-only ingest for chunks
-	mux.HandleFunc("/telemetry", func(w http.ResponseWriter, r *http.Request) {
+	// Telemetry routes. Core instances also POST /telemetry and /telemetry/live
+	// back to the server, so those paths also need to be reachable via /api.
+	// The core was updated to target /api/telemetry{,/live} in the same pass
+	// as this refactor.
+	apiMux.HandleFunc("/telemetry/timeline", s.authMiddleware(s.handleTelemetryTimeline))
+	apiMux.HandleFunc("/telemetry/stats", s.authMiddleware(s.handleTelemetryStats))
+	apiMux.HandleFunc("/telemetry/stream", s.handleTelemetryStream) // SSE — cookie auth via browser
+	apiMux.HandleFunc("/telemetry/live", s.handleLiveTelemetry)     // broadcast-only ingest for chunks
+	apiMux.HandleFunc("/telemetry", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
 			s.handleIngestTelemetry(w, r)
@@ -224,11 +252,26 @@ func main() {
 		}
 	})
 
-	// Webhook receiver (unauthenticated — external services POST here)
+	// Webhook receiver (unauthenticated — external services POST here).
+	// Stays at root because the URLs are registered upstream with Composio,
+	// GitHub, etc. — changing the path would break every registered webhook.
 	mux.HandleFunc("/webhooks/", s.handleWebhook)
 
+	// Local OAuth2 callback (unauthenticated — upstream providers redirect here).
+	// Stays at root because the redirect URI is registered with the provider.
+	mux.HandleFunc("/oauth/local/callback", s.handleLocalOAuthCallback)
+
+	// MCP Streamable HTTP endpoint (no auth — core MCP clients connect directly).
+	// Stays at root because core instances connect here with a fixed URL.
+	mux.HandleFunc("/mcp/", s.handleMCPEndpoint)
+
+	// Hosted providers — proxy calls that need the stored API key
+	apiMux.HandleFunc("/composio/apps", s.authMiddleware(s.handleListComposioApps))
+	apiMux.HandleFunc("/composio/toolkit/", s.authMiddleware(s.handleGetComposioToolkit))
+	apiMux.HandleFunc("/composio/reconcile", s.authMiddleware(s.handleComposioReconcile))
+
 	// Subscription management
-	mux.HandleFunc("/subscriptions", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	apiMux.HandleFunc("/subscriptions", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			s.handleListSubscriptions(w, r)
@@ -238,7 +281,7 @@ func main() {
 			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
 		}
 	}))
-	mux.HandleFunc("/subscriptions/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	apiMux.HandleFunc("/subscriptions/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/subscriptions/")
 		if strings.HasSuffix(path, "/enable") || strings.HasSuffix(path, "/disable") {
 			s.handleToggleSubscription(w, r)
@@ -249,11 +292,8 @@ func main() {
 		}
 	}))
 
-	// MCP Streamable HTTP endpoint (no auth — MCP clients connect directly)
-	mux.HandleFunc("/mcp/", s.handleMCPEndpoint)
-
 	// Projects
-	mux.HandleFunc("/projects", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	apiMux.HandleFunc("/projects", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			s.handleListProjects(w, r)
@@ -263,17 +303,17 @@ func main() {
 			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
 		}
 	}))
-	mux.HandleFunc("/projects/", s.authMiddleware(s.handleProject))
+	apiMux.HandleFunc("/projects/", s.authMiddleware(s.handleProject))
 
 	// Integration catalog routes
-	mux.HandleFunc("/integrations/catalog/reload", s.authMiddleware(s.handleCatalogReload))
-	mux.HandleFunc("/integrations/catalog/status", s.authMiddleware(s.handleCatalogStatus))
-	mux.HandleFunc("/integrations/catalog/download", s.authMiddleware(s.handleCatalogDownload))
-	mux.HandleFunc("/integrations/catalog/", s.authMiddleware(s.handleGetCatalogApp))
-	mux.HandleFunc("/integrations/catalog", s.authMiddleware(s.handleListCatalog))
+	apiMux.HandleFunc("/integrations/catalog/reload", s.authMiddleware(s.handleCatalogReload))
+	apiMux.HandleFunc("/integrations/catalog/status", s.authMiddleware(s.handleCatalogStatus))
+	apiMux.HandleFunc("/integrations/catalog/download", s.authMiddleware(s.handleCatalogDownload))
+	apiMux.HandleFunc("/integrations/catalog/", s.authMiddleware(s.handleGetCatalogApp))
+	apiMux.HandleFunc("/integrations/catalog", s.authMiddleware(s.handleListCatalog))
 
 	// Connection routes
-	mux.HandleFunc("/connections", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	apiMux.HandleFunc("/connections", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			s.handleListConnections(w, r)
@@ -283,19 +323,21 @@ func main() {
 			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
 		}
 	}))
-	mux.HandleFunc("/connections/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	apiMux.HandleFunc("/connections/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/connections/")
 		if strings.HasSuffix(path, "/tools") {
 			s.handleConnectionTools(w, r)
 		} else if strings.HasSuffix(path, "/execute") {
 			s.handleExecuteTool(w, r)
+		} else if r.Method == http.MethodGet {
+			s.handleGetConnection(w, r)
 		} else {
 			s.handleDeleteConnection(w, r)
 		}
 	}))
 
 	// MCP server routes
-	mux.HandleFunc("/mcp-servers", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	apiMux.HandleFunc("/mcp-servers", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			s.handleListMCPServers(w, r)
@@ -305,7 +347,7 @@ func main() {
 			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
 		}
 	}))
-	mux.HandleFunc("/mcp-servers/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	apiMux.HandleFunc("/mcp-servers/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/mcp-servers/")
 		if strings.HasSuffix(path, "/start") {
 			s.handleStartMCPServer(w, r)
@@ -313,14 +355,16 @@ func main() {
 			s.handleStopMCPServer(w, r)
 		} else if strings.HasSuffix(path, "/tools") {
 			s.handleMCPServerTools(w, r)
+		} else if strings.HasSuffix(path, "/call-tool") {
+			s.handleCallMCPTool(w, r)
 		} else {
 			s.handleDeleteMCPServer(w, r)
 		}
 	}))
 
 	// Provider routes
-	mux.HandleFunc("/provider-types", s.authMiddleware(s.handleListProviderTypes))
-	mux.HandleFunc("/providers", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	apiMux.HandleFunc("/provider-types", s.authMiddleware(s.handleListProviderTypes))
+	apiMux.HandleFunc("/providers", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			s.handleListProviders(w, r)
@@ -330,7 +374,7 @@ func main() {
 			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
 		}
 	}))
-	mux.HandleFunc("/providers/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	apiMux.HandleFunc("/providers/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/providers/")
 		if strings.HasSuffix(path, "/models") {
 			s.handleProviderModels(w, r)
@@ -348,7 +392,7 @@ func main() {
 		}
 	}))
 
-	mux.HandleFunc("/instances", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	apiMux.HandleFunc("/instances", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			s.handleListInstances(w, r)
@@ -360,7 +404,7 @@ func main() {
 	}))
 
 	// Instance routes — need to distinguish /instances/:id from /instances/:id/...
-	mux.HandleFunc("/instances/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	apiMux.HandleFunc("/instances/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/instances/")
 
 		// /instances/:id/config
@@ -414,6 +458,13 @@ func main() {
 		// /instances/:id
 		s.handleInstance(w, r)
 	}))
+
+	// Mount the API sub-mux under /api. http.StripPrefix rewrites r.URL.Path
+	// before the sub-mux runs, so handlers that parse paths (e.g.
+	// `strings.TrimPrefix(r.URL.Path, "/instances/")`) work unchanged — they
+	// see the post-strip path (e.g. `/instances/42/status`) exactly as
+	// before.
+	mux.Handle("/api/", http.StripPrefix("/api", apiMux))
 
 	// Dashboard — served from disk (always up-to-date, copied by CLI on startup)
 	// Falls back to embedded dashboard if disk copy not found

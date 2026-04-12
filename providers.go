@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -25,6 +26,7 @@ type Provider struct {
 	Type           string    `json:"type"`
 	Name           string    `json:"name"`
 	Status         string    `json:"status"`
+	ProjectID      string    `json:"project_id,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
@@ -51,22 +53,43 @@ func (s *Store) ListProviderTypes() ([]ProviderType, error) {
 	return types, nil
 }
 
-func (s *Store) CreateProvider(userID, providerTypeID int64, ptype, name, encryptedData string) (*Provider, error) {
+// CreateProvider stores a new provider for a user. If projectID is provided
+// and non-empty, the provider is scoped to that project; otherwise it is
+// "unscoped" (project_id='') and visible across all projects.
+func (s *Store) CreateProvider(userID, providerTypeID int64, ptype, name, encryptedData string, projectID ...string) (*Provider, error) {
+	pid := ""
+	if len(projectID) > 0 {
+		pid = projectID[0]
+	}
 	result, err := s.db.Exec(
-		"INSERT INTO providers (user_id, provider_type_id, type, name, encrypted_data) VALUES (?, ?, ?, ?, ?)",
-		userID, providerTypeID, ptype, name, encryptedData,
+		"INSERT INTO providers (user_id, provider_type_id, type, name, encrypted_data, project_id) VALUES (?, ?, ?, ?, ?, ?)",
+		userID, providerTypeID, ptype, name, encryptedData, pid,
 	)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := result.LastInsertId()
-	return &Provider{ID: id, UserID: userID, ProviderTypeID: providerTypeID, Type: ptype, Name: name, Status: "active", CreatedAt: time.Now(), UpdatedAt: time.Now()}, nil
+	return &Provider{ID: id, UserID: userID, ProviderTypeID: providerTypeID, Type: ptype, Name: name, Status: "active", ProjectID: pid, CreatedAt: time.Now(), UpdatedAt: time.Now()}, nil
 }
 
-func (s *Store) ListProviders(userID int64) ([]Provider, error) {
-	rows, err := s.db.Query(
-		"SELECT id, provider_type_id, type, name, COALESCE(status,'active'), created_at, updated_at FROM providers WHERE user_id = ?", userID,
-	)
+// ListProviders returns all providers for a user. If projectID is provided
+// and non-empty, the result includes both providers scoped to that project
+// AND unscoped (project_id='') providers — the latter act as "global" so
+// existing providers stay visible after this per-project feature rolls out.
+func (s *Store) ListProviders(userID int64, projectID ...string) ([]Provider, error) {
+	const cols = `id, provider_type_id, type, name, COALESCE(status,'active'), COALESCE(project_id,''), created_at, updated_at`
+	var rows *sql.Rows
+	var err error
+	if len(projectID) > 0 && projectID[0] != "" {
+		rows, err = s.db.Query(
+			`SELECT `+cols+` FROM providers WHERE user_id = ? AND (project_id = ? OR project_id = '')`,
+			userID, projectID[0],
+		)
+	} else {
+		rows, err = s.db.Query(
+			`SELECT `+cols+` FROM providers WHERE user_id = ?`, userID,
+		)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +99,7 @@ func (s *Store) ListProviders(userID int64) ([]Provider, error) {
 	for rows.Next() {
 		var p Provider
 		var createdAt, updatedAt string
-		rows.Scan(&p.ID, &p.ProviderTypeID, &p.Type, &p.Name, &p.Status, &createdAt, &updatedAt)
+		rows.Scan(&p.ID, &p.ProviderTypeID, &p.Type, &p.Name, &p.Status, &p.ProjectID, &createdAt, &updatedAt)
 		p.UserID = userID
 		p.CreatedAt, _ = parseTime(createdAt)
 		p.UpdatedAt, _ = parseTime(updatedAt)
@@ -114,9 +137,21 @@ func (s *Store) DeleteProvider(userID, providerID int64) error {
 	return err
 }
 
-// GetAllProviderEnvVars decrypts all providers for a user and returns env vars (UPPER_CASE keys).
-func (s *Store) GetAllProviderEnvVars(userID int64, secret []byte) (map[string]string, error) {
-	rows, err := s.db.Query("SELECT encrypted_data FROM providers WHERE user_id = ?", userID)
+// GetAllProviderEnvVars decrypts all providers for a user and returns env vars
+// (UPPER_CASE keys). If projectID is provided and non-empty, only providers
+// scoped to that project (or unscoped globals) are included — matching the
+// visibility rules in ListProviders.
+func (s *Store) GetAllProviderEnvVars(userID int64, secret []byte, projectID ...string) (map[string]string, error) {
+	var rows *sql.Rows
+	var err error
+	if len(projectID) > 0 && projectID[0] != "" {
+		rows, err = s.db.Query(
+			"SELECT encrypted_data FROM providers WHERE user_id = ? AND (project_id = ? OR project_id = '')",
+			userID, projectID[0],
+		)
+	} else {
+		rows, err = s.db.Query("SELECT encrypted_data FROM providers WHERE user_id = ?", userID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -188,6 +223,7 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		Type           string            `json:"type"`
 		Name           string            `json:"name"`
 		Data           map[string]string `json:"data"`
+		ProjectID      string            `json:"project_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -210,7 +246,7 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider, err := s.store.CreateProvider(userID, body.ProviderTypeID, body.Type, body.Name, encrypted)
+	provider, err := s.store.CreateProvider(userID, body.ProviderTypeID, body.Type, body.Name, encrypted, body.ProjectID)
 	if err != nil {
 		http.Error(w, "failed to create provider", http.StatusInternalServerError)
 		return
@@ -219,10 +255,11 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, provider)
 }
 
-// GET /providers
+// GET /providers[?project_id=<id>]
 func (s *Server) handleListProviders(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
-	providers, err := s.store.ListProviders(userID)
+	projectID := r.URL.Query().Get("project_id")
+	providers, err := s.store.ListProviders(userID, projectID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -358,40 +395,66 @@ func (s *Server) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 
 // GetProviderInfo extracts provider type + model selections from the first LLM provider.
 // Kept for backward compatibility — use GetProviderPool for multi-provider support.
-func (s *Server) GetProviderInfo(userID int64) ProviderInfo {
-	pool := s.GetProviderPool(userID)
+func (s *Server) GetProviderInfo(userID int64, projectID ...string) ProviderInfo {
+	pool := s.GetProviderPool(userID, projectID...)
 	if len(pool) == 0 {
 		return ProviderInfo{}
 	}
 	return pool[0]
 }
 
-// GetProviderPool returns all LLM providers for a user with their model/tool configs.
-// First provider is marked as default. Only includes type="llm" providers (skips integrations, embeddings, etc.).
-func (s *Server) GetProviderPool(userID int64) []ProviderInfo {
-	providers, err := s.store.ListProviders(userID)
+// GetProviderPool returns all LLM providers for a user, optionally scoped to a
+// project (+ unscoped globals). First provider is marked as default. Only
+// includes LLM providers (skips integrations, embeddings, browser, etc.).
+//
+// Two storage formats coexist in the providers table:
+//
+//   - Legacy (pre-provider-types): the `type` column held the specific
+//     provider name ("google", "fireworks", ...). These rows have
+//     provider_type_id = 0.
+//   - New (seeded via provider_types): the `type` column holds the category
+//     ("llm"), and the specific provider name is in the `name` column
+//     ("Fireworks", "OpenAI", ...).
+//
+// This loop normalizes both into a single `providerKey` (lowercase specific
+// name) and uses it as both the pool entry's Type and the downstream
+// config.json provider name, so cores always get concrete names like
+// "fireworks" rather than the category "llm".
+func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderInfo {
+	providers, err := s.store.ListProviders(userID, projectID...)
 	if err != nil || len(providers) == 0 {
 		return nil
 	}
 
+	isLLMKey := func(k string) bool {
+		switch k {
+		case "fireworks", "openai", "anthropic", "google", "ollama":
+			return true
+		}
+		return false
+	}
+
 	var pool []ProviderInfo
 	for _, p := range providers {
-		// Only include LLM providers (fireworks, openai, anthropic, google, ollama)
-		switch strings.ToLower(p.Type) {
-		case "fireworks", "openai", "anthropic", "google", "ollama":
-			// OK
-		default:
+		// Normalize across the two formats. If type == "llm" this is a
+		// new-format row and we use the name column as the provider key.
+		// Otherwise we treat type as the key (legacy format).
+		providerKey := strings.ToLower(p.Type)
+		if providerKey == "llm" {
+			providerKey = strings.ToLower(p.Name)
+		}
+		if !isLLMKey(providerKey) {
 			continue
 		}
 
 		_, encData, err := s.store.GetProvider(userID, p.ID)
 		if err != nil {
-			pool = append(pool, ProviderInfo{Type: p.Type})
+			pool = append(pool, ProviderInfo{Type: providerKey})
 			continue
 		}
 		plaintext, err := Decrypt(s.secret, encData)
 		if err != nil {
-			pool = append(pool, ProviderInfo{Type: p.Type})
+			pool = append(pool, ProviderInfo{Type: providerKey})
 			continue
 		}
 		var data map[string]string
@@ -403,7 +466,7 @@ func (s *Server) GetProviderPool(userID int64) []ProviderInfo {
 		}
 
 		pool = append(pool, ProviderInfo{
-			Type:         p.Type,
+			Type:         providerKey,
 			ModelLarge:   data["model_large"],
 			ModelMedium:  data["model_medium"],
 			ModelSmall:   data["model_small"],

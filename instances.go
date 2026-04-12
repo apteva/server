@@ -74,11 +74,21 @@ type ChannelConfig struct {
 	Config map[string]string // decrypted config (e.g. {"bot_token": "...", "bot_name": "..."})
 }
 
+func providerEnvKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, serverPort string, providerPool []ProviderInfo, instanceSecret string, browserConfig map[string]any, channelConfigs ...ChannelConfig) error {
+	log.Printf("[SPAWN] Start called for instance=%d name=%q project=%s", inst.ID, inst.Name, inst.ProjectID)
 	im.mu.Lock()
 	defer im.mu.Unlock()
 
 	if ri, running := im.processes[inst.ID]; running && ri.cmd.ProcessState == nil {
+		log.Printf("[SPAWN] instance=%d already running pid=%d port=%d", inst.ID, ri.cmd.Process.Pid, ri.port)
 		return fmt.Errorf("instance %d already running", inst.ID)
 	}
 
@@ -234,6 +244,8 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 		"NO_TUI=1",
 		"NO_CONSOLE=1", // server has its own ConsoleLogger
 		"SERVER_URL=http://127.0.0.1:"+serverPort,
+		"TELEMETRY_URL=http://127.0.0.1:"+serverPort+"/api/telemetry",
+		"TELEMETRY_LIVE_URL=http://127.0.0.1:"+serverPort+"/api/telemetry/live",
 		"INSTANCE_ID="+itoa64(inst.ID),
 		"PROJECT_ID="+inst.ProjectID,
 		"APTEVA_API_KEY="+coreAPIKey,
@@ -246,9 +258,28 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
+	log.Printf("[SPAWN] exec %s --headless dir=%s port=%d providerEnvKeys=%v", im.coreCmd, dir, port, providerEnvKeys(providerEnv))
 	if err := cmd.Start(); err != nil {
+		log.Printf("[SPAWN] exec failed: %v", err)
 		return fmt.Errorf("failed to start core: %w", err)
 	}
+	log.Printf("[SPAWN] core started instance=%d pid=%d port=%d", inst.ID, cmd.Process.Pid, port)
+
+	// Background health check — dial the port every 100ms for 5s so we can
+	// see in logs exactly when (or if) core becomes reachable.
+	go func(id int64, pid, p int) {
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", p), 100*time.Millisecond)
+			if err == nil {
+				conn.Close()
+				log.Printf("[SPAWN] core instance=%d pid=%d port=%d is LISTENING", id, pid, p)
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		log.Printf("[SPAWN] core instance=%d pid=%d port=%d FAILED to listen within 5s (last check: connection refused)", id, pid, p)
+	}(inst.ID, cmd.Process.Pid, port)
 
 	im.processes[inst.ID] = &runningInstance{cmd: cmd, port: port, coreAPIKey: coreAPIKey, channels: ic}
 	inst.Port = port
@@ -279,15 +310,27 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 	}
 
 	// Wait for process exit in background — clean up channels on exit
+	instID := inst.ID
+	spawnedPid := cmd.Process.Pid
+	spawnedPort := port
+	startedAt := time.Now()
 	go func() {
-		cmd.Wait()
+		waitErr := cmd.Wait()
+		lived := time.Since(startedAt)
+		exitCode := -1
+		if cmd.ProcessState != nil {
+			exitCode = cmd.ProcessState.ExitCode()
+		}
+		log.Printf("[SPAWN] core EXITED instance=%d pid=%d port=%d exitCode=%d lived=%s waitErr=%v",
+			instID, spawnedPid, spawnedPort, exitCode, lived, waitErr)
 		im.mu.Lock()
-		ri := im.processes[inst.ID]
+		ri := im.processes[instID]
 		if ri != nil && ri.channels != nil {
 			ri.channels.Stop()
 		}
-		delete(im.processes, inst.ID)
+		delete(im.processes, instID)
 		im.mu.Unlock()
+		log.Printf("[SPAWN] cleaned up process map for instance=%d", instID)
 	}()
 
 	return nil
@@ -357,8 +400,8 @@ func (im *InstanceManager) StartTelegram(instanceID int64, token string) (string
 
 // getBrowserConfig returns the browser/computer config from providers if one exists.
 // Supports "browser" (local Chrome or existing CDP) and "browserbase" (cloud) provider types.
-func (s *Server) getBrowserConfig(userID int64) map[string]any {
-	providers, err := s.store.ListProviders(userID)
+func (s *Server) getBrowserConfig(userID int64, projectID ...string) map[string]any {
+	providers, err := s.store.ListProviders(userID, projectID...)
 	if err != nil {
 		return nil
 	}
@@ -520,12 +563,12 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	// Start unless explicitly disabled
 	shouldStart := body.Start == nil || *body.Start
 	if shouldStart {
-		providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret)
+		providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret, inst.ProjectID)
 		if err != nil {
 			providerEnv = map[string]string{}
 		}
-		pool := s.GetProviderPool(userID)
-		if err := s.instances.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID), s.loadChannelConfigs(inst.ID)...); err != nil {
+		pool := s.GetProviderPool(userID, inst.ProjectID)
+		if err := s.instances.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, inst.ProjectID), s.loadChannelConfigs(inst.ID)...); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -658,13 +701,13 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret)
+	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret, inst.ProjectID)
 	if err != nil {
 		providerEnv = map[string]string{}
 	}
-	pool := s.GetProviderPool(userID)
+	pool := s.GetProviderPool(userID, inst.ProjectID)
 
-	if err := s.instances.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID), s.loadChannelConfigs(inst.ID)...); err != nil {
+	if err := s.instances.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, inst.ProjectID), s.loadChannelConfigs(inst.ID)...); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -699,13 +742,13 @@ func (s *Server) handleRestartInstance(w http.ResponseWriter, r *http.Request) {
 	s.instances.Stop(inst.ID)
 
 	// Start
-	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret)
+	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret, inst.ProjectID)
 	if err != nil {
 		providerEnv = map[string]string{}
 	}
-	pool := s.GetProviderPool(userID)
+	pool := s.GetProviderPool(userID, inst.ProjectID)
 
-	if err := s.instances.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID), s.loadChannelConfigs(inst.ID)...); err != nil {
+	if err := s.instances.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, inst.ProjectID), s.loadChannelConfigs(inst.ID)...); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -734,20 +777,19 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 
 	port := s.instances.GetPort(inst.ID)
 
-	// GET — proxy directly to core
+	// GET — proxy directly to core (with boot-wait retry)
 	if r.Method == http.MethodGet {
 		if port == 0 {
-			http.Error(w, "instance not running", http.StatusServiceUnavailable)
+			// Instance stopped — serve saved config from disk, same as handleProxy.
+			s.serveStoppedInstanceData(w, inst, "/config")
 			return
 		}
 		targetURL := fmt.Sprintf("http://127.0.0.1:%d/config", port)
-		proxyReq, _ := http.NewRequest("GET", targetURL, nil)
-		if coreKey := s.instances.GetCoreAPIKey(inst.ID); coreKey != "" {
-			proxyReq.Header.Set("Authorization", "Bearer "+coreKey)
-		}
-		resp, err := http.DefaultClient.Do(proxyReq)
+		coreKey := s.instances.GetCoreAPIKey(inst.ID)
+		resp, err := s.coreDoWithBootWait(inst.ID, "GET", targetURL, nil, coreKey)
 		if err != nil {
-			http.Error(w, "core unreachable", http.StatusBadGateway)
+			log.Printf("[PROXY] core unreachable instance=%d path=/config: %v", inst.ID, err)
+			http.Error(w, fmt.Sprintf("core unreachable: %v", err), http.StatusBadGateway)
 			return
 		}
 		defer resp.Body.Close()
@@ -766,6 +808,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 
 	// PUT — read body, update DB fields, then proxy FULL body to core
 	bodyBytes, _ := io.ReadAll(r.Body)
+	log.Printf("[CONFIG] PUT /instances/%d/config body=%s", inst.ID, truncStr(string(bodyBytes), 400))
 
 	var body struct {
 		Directive string         `json:"directive"`
@@ -808,28 +851,95 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// Forward the FULL body to core (includes mcp_servers, computer, etc.)
 	if port > 0 {
 		targetURL := fmt.Sprintf("http://127.0.0.1:%d/config", port)
-		proxyReq, _ := http.NewRequest("PUT", targetURL, strings.NewReader(string(bodyBytes)))
-		proxyReq.Header.Set("Content-Type", "application/json")
-		if coreKey := s.instances.GetCoreAPIKey(inst.ID); coreKey != "" {
-			proxyReq.Header.Set("Authorization", "Bearer "+coreKey)
-		}
-		resp, err := http.DefaultClient.Do(proxyReq)
-		if err == nil {
-			defer resp.Body.Close()
-			// Return core's response
-			for k, v := range resp.Header {
-				w.Header()[k] = v
-			}
-			w.WriteHeader(resp.StatusCode)
-			io.Copy(w, resp.Body)
+		coreKey := s.instances.GetCoreAPIKey(inst.ID)
+		resp, err := s.coreDoWithBootWait(inst.ID, "PUT", targetURL, bodyBytes, coreKey, http.Header{"Content-Type": []string{"application/json"}})
+		if err != nil {
+			log.Printf("[CONFIG] PUT forward to core failed: %v", err)
+			http.Error(w, fmt.Sprintf("core unreachable: %v", err), http.StatusBadGateway)
 			return
 		}
+		defer resp.Body.Close()
+		log.Printf("[CONFIG] PUT forward to core status=%d", resp.StatusCode)
+		for k, v := range resp.Header {
+			w.Header()[k] = v
+		}
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+		return
 	}
 
+	log.Printf("[CONFIG] PUT but instance not running (port=0), returning stale instance data")
 	writeJSON(w, inst)
 }
 
+func truncStr(s string, n int) string {
+	if len(s) > n {
+		return s[:n] + "…"
+	}
+	return s
+}
+
 // Proxy handler: forwards to core instance's API
+// errInstanceNotRunning signals that the proxy retry loop observed the core
+// process disappearing from the instance manager — i.e. the reaper saw core
+// exit and removed its entry. Callers translate this to 503.
+var errInstanceNotRunning = fmt.Errorf("instance not running")
+
+// coreDoWithBootWait POSTs/GETs to a core URL, retrying for up to 3 seconds
+// while the connection is refused. Core takes ~1s to bind its HTTP port after
+// exec, so fresh requests that race with the boot window briefly block here
+// instead of bubbling up as 502s. The cmd.Wait() reaper is still the single
+// source of truth for "core dead": if the entry disappears from the process
+// map mid-retry, we bail with errInstanceNotRunning.
+//
+// headers is optional; when non-nil it's cloned onto every retry so the
+// original request's headers (content-type, tracing, etc.) survive.
+func (s *Server) coreDoWithBootWait(instanceID int64, method, targetURL string, bodyBytes []byte, coreKey string, headers ...http.Header) (*http.Response, error) {
+	build := func() (*http.Request, error) {
+		var body io.Reader
+		if bodyBytes != nil {
+			body = bytes.NewReader(bodyBytes)
+		}
+		req, err := http.NewRequest(method, targetURL, body)
+		if err != nil {
+			return nil, err
+		}
+		if len(headers) > 0 && headers[0] != nil {
+			req.Header = headers[0].Clone()
+		}
+		if coreKey != "" {
+			req.Header.Set("Authorization", "Bearer "+coreKey)
+		}
+		return req, nil
+	}
+
+	req, err := build()
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err == nil {
+		return resp, nil
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if s.instances.GetPort(instanceID) == 0 {
+			return nil, errInstanceNotRunning
+		}
+		time.Sleep(100 * time.Millisecond)
+		req, err = build()
+		if err != nil {
+			return nil, err
+		}
+		resp, err = http.DefaultClient.Do(req)
+		if err == nil {
+			return resp, nil
+		}
+	}
+	return nil, err
+}
+
 func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
 
@@ -867,20 +977,22 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	targetURL := fmt.Sprintf("http://127.0.0.1:%d%s", port, corePath)
 
-	// Forward the request with core's API key
-	proxyReq, err := http.NewRequest(r.Method, targetURL, r.Body)
-	if err != nil {
-		http.Error(w, "proxy error", http.StatusBadGateway)
-		return
-	}
-	proxyReq.Header = r.Header.Clone()
-	if coreKey := s.instances.GetCoreAPIKey(inst.ID); coreKey != "" {
-		proxyReq.Header.Set("Authorization", "Bearer "+coreKey)
+	// Read the body once so we can replay it across boot-wait retries. SSE/GET
+	// paths have no body so this is cheap in practice.
+	var bodyBytes []byte
+	if r.Body != nil {
+		bodyBytes, _ = io.ReadAll(r.Body)
 	}
 
-	resp, err := http.DefaultClient.Do(proxyReq)
+	coreKey := s.instances.GetCoreAPIKey(inst.ID)
+	resp, err := s.coreDoWithBootWait(inst.ID, r.Method, targetURL, bodyBytes, coreKey, r.Header)
 	if err != nil {
-		http.Error(w, "core unreachable", http.StatusBadGateway)
+		if err == errInstanceNotRunning {
+			http.Error(w, "instance not running", http.StatusServiceUnavailable)
+			return
+		}
+		log.Printf("[PROXY] core unreachable instance=%d port=%d path=%s: %v", inst.ID, port, corePath, err)
+		http.Error(w, fmt.Sprintf("core unreachable: %v", err), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()

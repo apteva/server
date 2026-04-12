@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -13,29 +14,69 @@ import (
 // --- DB Model ---
 
 type Connection struct {
-	ID        int64     `json:"id"`
-	UserID    int64     `json:"user_id"`
-	AppSlug   string    `json:"app_slug"`
-	AppName   string    `json:"app_name"`
-	Name      string    `json:"name"`
-	AuthType  string    `json:"auth_type"`
-	Status    string    `json:"status"`
-	ProjectID string    `json:"project_id,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         int64     `json:"id"`
+	UserID     int64     `json:"user_id"`
+	AppSlug    string    `json:"app_slug"`
+	AppName    string    `json:"app_name"`
+	Name       string    `json:"name"`
+	AuthType   string    `json:"auth_type"`
+	Status     string    `json:"status"`
+	Source     string    `json:"source"`                 // 'local' | 'composio'
+	ProviderID int64     `json:"provider_id,omitempty"`  // FK → providers (for hosted sources)
+	ExternalID string    `json:"external_id,omitempty"`  // composio connected_account_id, etc.
+	ProjectID  string    `json:"project_id,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// ConnectionInput carries the full set of fields for creating a connection via
+// any source (local, composio, ...). Use this for new code paths; the legacy
+// CreateConnection(...) helper below is kept so existing tests and mcp_gateway
+// don't need to change.
+type ConnectionInput struct {
+	UserID         int64
+	AppSlug        string
+	AppName        string
+	Name           string
+	AuthType       string
+	EncryptedCreds string
+	ProjectID      string
+	Source         string // '' → 'local'
+	Status         string // '' → 'active'
+	ProviderID     int64
+	ExternalID     string
 }
 
 // --- Store methods ---
 
+// CreateConnection is the legacy helper — local-source, active status, no provider.
+// Prefer CreateConnectionExt for new code.
 func (s *Store) CreateConnection(userID int64, appSlug, appName, name, authType, encryptedCreds, projectID string) (*Connection, error) {
+	return s.CreateConnectionExt(ConnectionInput{
+		UserID: userID, AppSlug: appSlug, AppName: appName, Name: name,
+		AuthType: authType, EncryptedCreds: encryptedCreds, ProjectID: projectID,
+	})
+}
+
+func (s *Store) CreateConnectionExt(in ConnectionInput) (*Connection, error) {
+	if in.Source == "" {
+		in.Source = "local"
+	}
+	if in.Status == "" {
+		in.Status = "active"
+	}
 	result, err := s.db.Exec(
-		"INSERT INTO connections (user_id, app_slug, app_name, name, auth_type, encrypted_credentials, project_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		userID, appSlug, appName, name, authType, encryptedCreds, projectID,
+		"INSERT INTO connections (user_id, app_slug, app_name, name, auth_type, encrypted_credentials, status, project_id, source, provider_id, external_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		in.UserID, in.AppSlug, in.AppName, in.Name, in.AuthType, in.EncryptedCreds, in.Status, in.ProjectID, in.Source, in.ProviderID, in.ExternalID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := result.LastInsertId()
-	return &Connection{ID: id, UserID: userID, AppSlug: appSlug, AppName: appName, Name: name, AuthType: authType, Status: "active", ProjectID: projectID, CreatedAt: time.Now()}, nil
+	return &Connection{
+		ID: id, UserID: in.UserID, AppSlug: in.AppSlug, AppName: in.AppName, Name: in.Name,
+		AuthType: in.AuthType, Status: in.Status, Source: in.Source, ProviderID: in.ProviderID,
+		ExternalID: in.ExternalID, ProjectID: in.ProjectID, CreatedAt: time.Now(),
+	}, nil
 }
 
 func (s *Store) ListConnections(userID int64, projectID ...string) ([]Connection, error) {
@@ -43,10 +84,12 @@ func (s *Store) ListConnections(userID int64, projectID ...string) ([]Connection
 	var err error
 	if len(projectID) > 0 && projectID[0] != "" {
 		rows, err = s.db.Query(
-			"SELECT id, app_slug, app_name, name, auth_type, status, COALESCE(project_id,''), created_at FROM connections WHERE user_id = ? AND project_id = ?", userID, projectID[0])
+			`SELECT id, app_slug, app_name, name, auth_type, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''), created_at
+			 FROM connections WHERE user_id = ? AND project_id = ?`, userID, projectID[0])
 	} else {
 		rows, err = s.db.Query(
-			"SELECT id, app_slug, app_name, name, auth_type, status, COALESCE(project_id,''), created_at FROM connections WHERE user_id = ?", userID)
+			`SELECT id, app_slug, app_name, name, auth_type, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''), created_at
+			 FROM connections WHERE user_id = ?`, userID)
 	}
 	if err != nil {
 		return nil, err
@@ -57,7 +100,7 @@ func (s *Store) ListConnections(userID int64, projectID ...string) ([]Connection
 	for rows.Next() {
 		var c Connection
 		var createdAt string
-		rows.Scan(&c.ID, &c.AppSlug, &c.AppName, &c.Name, &c.AuthType, &c.Status, &c.ProjectID, &createdAt)
+		rows.Scan(&c.ID, &c.AppSlug, &c.AppName, &c.Name, &c.AuthType, &c.Status, &c.Source, &c.ProviderID, &c.ExternalID, &c.ProjectID, &createdAt)
 		c.UserID = userID
 		c.CreatedAt, _ = parseTime(createdAt)
 		conns = append(conns, c)
@@ -69,15 +112,29 @@ func (s *Store) GetConnection(userID, connID int64) (*Connection, string, error)
 	var c Connection
 	var encCreds, createdAt string
 	err := s.db.QueryRow(
-		"SELECT id, app_slug, app_name, name, auth_type, encrypted_credentials, status, COALESCE(project_id,''), created_at FROM connections WHERE id = ? AND user_id = ?",
+		`SELECT id, app_slug, app_name, name, auth_type, encrypted_credentials, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''), created_at
+		 FROM connections WHERE id = ? AND user_id = ?`,
 		connID, userID,
-	).Scan(&c.ID, &c.AppSlug, &c.AppName, &c.Name, &c.AuthType, &encCreds, &c.Status, &c.ProjectID, &createdAt)
+	).Scan(&c.ID, &c.AppSlug, &c.AppName, &c.Name, &c.AuthType, &encCreds, &c.Status, &c.Source, &c.ProviderID, &c.ExternalID, &c.ProjectID, &createdAt)
 	if err != nil {
 		return nil, "", err
 	}
 	c.UserID = userID
 	c.CreatedAt, _ = parseTime(createdAt)
 	return &c, encCreds, nil
+}
+
+// UpdateConnectionStatus flips a connection's status (pending → active → failed).
+func (s *Store) UpdateConnectionStatus(connID int64, status string) error {
+	_, err := s.db.Exec("UPDATE connections SET status = ? WHERE id = ?", status, connID)
+	return err
+}
+
+// UpdateConnectionCredentials replaces the encrypted credential blob (used after
+// local OAuth token exchange and on refresh).
+func (s *Store) UpdateConnectionCredentials(connID int64, encryptedCreds string) error {
+	_, err := s.db.Exec("UPDATE connections SET encrypted_credentials = ? WHERE id = ?", encryptedCreds, connID)
+	return err
 }
 
 func (s *Store) DeleteConnection(userID, connID int64) error {
@@ -240,31 +297,103 @@ func extractPath(data map[string]any, path string) any {
 // --- HTTP Handlers ---
 
 // POST /connections
+//
+// Source dispatch:
+//   - source=='local' (default) + auth_type=='oauth2' → startLocalOAuth, return authorize_url
+//   - source=='local' otherwise → existing api_key / basic path, return active connection
+//   - source=='composio' → InitiateConnection on Composio, return redirect_url and pending row
 func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
 
 	var body struct {
+		Source      string            `json:"source"`
 		AppSlug     string            `json:"app_slug"`
 		Name        string            `json:"name"`
 		AuthType    string            `json:"auth_type"`
 		Credentials map[string]string `json:"credentials"`
 		ProjectID   string            `json:"project_id"`
+		ProviderID  int64             `json:"provider_id"` // required for source=composio
+		// Composio-only: which upstream auth mode to configure (OAUTH2, API_KEY, BASIC, ...)
+		// and two credential maps — one for auth_config creation and one for
+		// the per-connection link (Composio schema distinguishes them).
+		ComposioAuthMode    string            `json:"composio_auth_mode"`
+		ComposioConfigCreds map[string]string `json:"composio_config_creds"`
+		ComposioInitCreds   map[string]string `json:"composio_init_creds"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	if body.AppSlug == "" || body.Name == "" {
-		http.Error(w, "app_slug and name required", http.StatusBadRequest)
+	if body.AppSlug == "" {
+		http.Error(w, "app_slug required", http.StatusBadRequest)
+		return
+	}
+	if body.Source == "" {
+		body.Source = "local"
+	}
+
+	// --- Composio (hosted) ---
+	if body.Source == "composio" {
+		if body.ProviderID == 0 {
+			http.Error(w, "provider_id required for composio source", http.StatusBadRequest)
+			return
+		}
+		client, err := s.composioClientFor(userID, body.ProviderID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		endUserID := composioEndUserID(userID, body.ProjectID)
+		acct, redirectURL, err := client.InitiateConnection(
+			body.AppSlug, body.ComposioAuthMode, endUserID,
+			body.ComposioConfigCreds, body.ComposioInitCreds,
+		)
+		if err != nil {
+			http.Error(w, "composio initiate: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		connName := body.Name
+		if connName == "" {
+			connName = body.AppSlug
+		}
+		// Composio's hosted flow is the source of truth for credential
+		// collection. Every new connection starts as pending and flips to
+		// active only after the user completes the Connect Link on
+		// Composio's side. Reconcile runs later in the polling path
+		// (handleGetConnection) when we observe the upstream ACTIVE state.
+		conn, err := s.store.CreateConnectionExt(ConnectionInput{
+			UserID:     userID,
+			AppSlug:    body.AppSlug,
+			AppName:    body.AppSlug,
+			Name:       connName,
+			AuthType:   "composio",
+			ProjectID:  body.ProjectID,
+			Source:     "composio",
+			Status:     "pending",
+			ProviderID: body.ProviderID,
+			ExternalID: acct.ID,
+		})
+		if err != nil {
+			http.Error(w, "failed to create connection", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{
+			"connection":   conn,
+			"redirect_url": redirectURL,
+		})
 		return
 	}
 
+	// --- Local catalog ---
 	app := s.catalog.Get(body.AppSlug)
 	if app == nil {
 		http.Error(w, "app not found in catalog", http.StatusNotFound)
 		return
 	}
-
+	if body.Name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
 	if body.AuthType == "" {
 		if len(app.Auth.Types) > 0 {
 			body.AuthType = app.Auth.Types[0]
@@ -273,23 +402,85 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	// Encrypt credentials
+	// Local OAuth2 — two-phase: start flow, return authorize URL, finish in callback.
+	if body.AuthType == "oauth2" {
+		conn, authURL, err := s.startLocalOAuth(userID, app, body.Name, body.ProjectID)
+		if err != nil {
+			http.Error(w, "oauth start: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{
+			"connection":   conn,
+			"redirect_url": authURL,
+		})
+		return
+	}
+
+	// Local non-OAuth (api_key, basic, bearer, ...): store creds immediately.
 	credsJSON, _ := json.Marshal(body.Credentials)
 	encrypted, err := Encrypt(s.secret, string(credsJSON))
 	if err != nil {
 		http.Error(w, "encryption failed", http.StatusInternalServerError)
 		return
 	}
-
-	conn, err := s.store.CreateConnection(userID, body.AppSlug, app.Name, body.Name, body.AuthType, encrypted, body.ProjectID)
+	conn, err := s.store.CreateConnectionExt(ConnectionInput{
+		UserID:         userID,
+		AppSlug:        body.AppSlug,
+		AppName:        app.Name,
+		Name:           body.Name,
+		AuthType:       body.AuthType,
+		EncryptedCreds: encrypted,
+		ProjectID:      body.ProjectID,
+		Source:         "local",
+		Status:         "active",
+	})
 	if err != nil {
 		http.Error(w, "failed to create connection", http.StatusInternalServerError)
 		return
 	}
-
-	// Auto-create MCP server entry
 	s.store.CreateMCPServerFromConnection(userID, conn, len(app.Tools))
+	writeJSON(w, conn)
+}
 
+// GET /connections/:id — single connection (used by dashboard to poll pending
+// states during OAuth flows).
+func (s *Server) handleGetConnection(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	idStr := strings.TrimPrefix(r.URL.Path, "/connections/")
+	connID, err := atoi64(idStr)
+	if err != nil {
+		http.Error(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	conn, _, err := s.store.GetConnection(userID, connID)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	// Composio pending connections: poll upstream and flip to active on ACTIVE.
+	if conn.Source == "composio" && conn.Status == "pending" && conn.ExternalID != "" {
+		if client, cerr := s.composioClientFor(userID, conn.ProviderID); cerr == nil {
+			if acct, perr := client.GetConnectedAccount(conn.ExternalID); perr == nil {
+				switch strings.ToUpper(acct.Status) {
+				case "ACTIVE":
+					s.store.UpdateConnectionStatus(conn.ID, "active")
+					conn.Status = "active"
+					// Reconcile the project's aggregate Composio MCP server.
+					if rerr := s.reconcileComposioMCPServer(userID, conn.ProviderID, conn.ProjectID); rerr != nil {
+						fmt.Fprintf(os.Stderr, "composio reconcile: %v\n", rerr)
+					}
+				case "FAILED", "EXPIRED":
+					s.store.UpdateConnectionStatus(conn.ID, "failed")
+					conn.Status = "failed"
+				}
+			}
+		}
+	}
 	writeJSON(w, conn)
 }
 
@@ -336,8 +527,31 @@ func (s *Server) handleDeleteConnection(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	s.store.DeleteMCPServerByConnection(connID)
-	s.store.DeleteConnection(userID, connID)
+	// Load the row first so we know the source and can revoke upstream.
+	conn, _, err := s.store.GetConnection(userID, connID)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	switch conn.Source {
+	case "composio":
+		if client, cerr := s.composioClientFor(userID, conn.ProviderID); cerr == nil && conn.ExternalID != "" {
+			if rerr := client.RevokeConnection(conn.ExternalID); rerr != nil {
+				fmt.Fprintf(os.Stderr, "composio revoke %s: %v\n", conn.ExternalID, rerr)
+			}
+		}
+		s.store.DeleteConnection(userID, connID)
+		// Reconcile aggregate MCP server (may remove it if this was the last
+		// Composio connection in the project).
+		if rerr := s.reconcileComposioMCPServer(userID, conn.ProviderID, conn.ProjectID); rerr != nil {
+			fmt.Fprintf(os.Stderr, "composio reconcile: %v\n", rerr)
+		}
+	default:
+		s.store.DeleteMCPServerByConnection(connID)
+		s.store.DeleteConnection(userID, connID)
+	}
+
 	writeJSON(w, map[string]string{"status": "deleted"})
 }
 
