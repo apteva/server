@@ -26,32 +26,40 @@ type Subscription struct {
 	Enabled      bool      `json:"enabled"`
 	ThreadID     string    `json:"thread_id,omitempty"`
 	ProjectID    string    `json:"project_id,omitempty"`
+	Events       []string  `json:"events"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
 // --- Store methods ---
 
-func (s *Store) CreateSubscription(userID, instanceID, connectionID int64, name, slug, description, webhookPath, encryptedSecret, threadID string) (*Subscription, error) {
+func (s *Store) CreateSubscription(userID, instanceID, connectionID int64, name, slug, description, webhookPath, encryptedSecret, threadID, projectID string, events []string) (*Subscription, error) {
 	id := generateID()
+	eventsJSON := ""
+	if len(events) > 0 {
+		if b, merr := json.Marshal(events); merr == nil {
+			eventsJSON = string(b)
+		}
+	}
 	_, err := s.db.Exec(
-		"INSERT INTO subscriptions (id, user_id, instance_id, connection_id, name, slug, description, webhook_path, encrypted_hmac_secret, thread_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		id, userID, instanceID, connectionID, name, slug, description, webhookPath, encryptedSecret, threadID,
+		"INSERT INTO subscriptions (id, user_id, instance_id, connection_id, name, slug, description, webhook_path, encrypted_hmac_secret, thread_id, project_id, events) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		id, userID, instanceID, connectionID, name, slug, description, webhookPath, encryptedSecret, threadID, projectID, eventsJSON,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &Subscription{ID: id, UserID: userID, InstanceID: instanceID, ConnectionID: connectionID, Name: name, Slug: slug, Description: description, WebhookPath: webhookPath, Enabled: true, ThreadID: threadID, CreatedAt: time.Now()}, nil
+	return &Subscription{ID: id, UserID: userID, InstanceID: instanceID, ConnectionID: connectionID, Name: name, Slug: slug, Description: description, WebhookPath: webhookPath, Enabled: true, ThreadID: threadID, ProjectID: projectID, Events: events, CreatedAt: time.Now()}, nil
 }
 
 func (s *Store) ListSubscriptions(userID int64, projectID ...string) ([]Subscription, error) {
 	var rows *sql.Rows
 	var err error
+	const cols = "id, instance_id, connection_id, name, slug, description, webhook_path, enabled, COALESCE(thread_id,''), COALESCE(events,''), created_at"
 	if len(projectID) > 0 && projectID[0] != "" {
 		rows, err = s.db.Query(
-			"SELECT id, instance_id, connection_id, name, slug, description, webhook_path, enabled, COALESCE(thread_id,''), created_at FROM subscriptions WHERE user_id = ? AND project_id = ?", userID, projectID[0])
+			"SELECT "+cols+" FROM subscriptions WHERE user_id = ? AND (project_id = ? OR project_id = '')", userID, projectID[0])
 	} else {
 		rows, err = s.db.Query(
-			"SELECT id, instance_id, connection_id, name, slug, description, webhook_path, enabled, COALESCE(thread_id,''), created_at FROM subscriptions WHERE user_id = ?", userID)
+			"SELECT "+cols+" FROM subscriptions WHERE user_id = ?", userID)
 	}
 	if err != nil {
 		return nil, err
@@ -62,11 +70,14 @@ func (s *Store) ListSubscriptions(userID int64, projectID ...string) ([]Subscrip
 	for rows.Next() {
 		var sub Subscription
 		var enabled int
-		var createdAt string
-		rows.Scan(&sub.ID, &sub.InstanceID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath, &enabled, &sub.ThreadID, &createdAt)
+		var createdAt, eventsJSON string
+		rows.Scan(&sub.ID, &sub.InstanceID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath, &enabled, &sub.ThreadID, &eventsJSON, &createdAt)
 		sub.UserID = userID
 		sub.Enabled = enabled == 1
 		sub.CreatedAt, _ = parseTime(createdAt)
+		if eventsJSON != "" {
+			json.Unmarshal([]byte(eventsJSON), &sub.Events)
+		}
 		subs = append(subs, sub)
 	}
 	return subs, nil
@@ -254,6 +265,7 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 		HMACSecret   string   `json:"hmac_secret"`
 		Events       []string `json:"events"`
 		ThreadID     string   `json:"thread_id"`
+		ProjectID    string   `json:"project_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -267,44 +279,59 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 	// Generate unique webhook path
 	webhookPath := generateToken(16)
 
-	// Encrypt HMAC secret if provided
-	encSecret := ""
-	if body.HMACSecret != "" {
-		enc, err := Encrypt(s.secret, body.HMACSecret)
-		if err != nil {
-			http.Error(w, "encryption failed", http.StatusInternalServerError)
-			return
-		}
-		encSecret = enc
+	// Auto-generate an HMAC secret when the caller didn't supply one —
+	// we want HMAC validation to always be on. The plaintext is passed
+	// to the upstream service during auto-registration so both sides
+	// share the same secret; the encrypted copy is stored locally.
+	if body.HMACSecret == "" {
+		body.HMACSecret = generateToken(32)
+	}
+	encSecret, err := Encrypt(s.secret, body.HMACSecret)
+	if err != nil {
+		http.Error(w, "encryption failed", http.StatusInternalServerError)
+		return
 	}
 
-	sub, err := s.store.CreateSubscription(userID, body.InstanceID, body.ConnectionID, body.Name, body.Slug, body.Description, webhookPath, encSecret, body.ThreadID)
+	sub, err := s.store.CreateSubscription(userID, body.InstanceID, body.ConnectionID, body.Name, body.Slug, body.Description, webhookPath, encSecret, body.ThreadID, body.ProjectID, body.Events)
 	if err != nil {
 		http.Error(w, "failed to create", http.StatusInternalServerError)
 		return
 	}
 
 	webhookURL := s.webhookURL(webhookPath)
+	log.Printf("[SUB-CREATE] sub=%s name=%q slug=%q conn=%d instance=%d webhook_url=%s events=%v",
+		sub.ID, body.Name, body.Slug, body.ConnectionID, body.InstanceID, webhookURL, body.Events)
 
 	// Auto-register webhook with the external service if it has registration config
 	var autoRegistered bool
 	if body.ConnectionID > 0 {
-		// Look up app from the connection's app_slug
 		conn, encCreds, err := s.store.GetConnection(userID, body.ConnectionID)
-		if err == nil && conn != nil {
+		if err != nil || conn == nil {
+			log.Printf("[SUB-CREATE] skip auto-reg: connection %d lookup failed: err=%v conn=%v", body.ConnectionID, err, conn)
+		} else {
+			log.Printf("[SUB-CREATE] connection %d → app=%s name=%q", conn.ID, conn.AppSlug, conn.Name)
 			app := s.catalog.Get(conn.AppSlug)
-			if app != nil && app.Webhooks != nil && app.Webhooks.Registration != nil && app.Webhooks.Registration.ManualSetup == "" {
-				plain, err := Decrypt(s.secret, encCreds)
-				if err == nil {
+			switch {
+			case app == nil:
+				log.Printf("[SUB-CREATE] skip auto-reg: app %q not found in catalog", conn.AppSlug)
+			case app.Webhooks == nil:
+				log.Printf("[SUB-CREATE] skip auto-reg: app %s has no webhooks config", conn.AppSlug)
+			case app.Webhooks.Registration == nil:
+				log.Printf("[SUB-CREATE] skip auto-reg: app %s has no webhooks.registration config", conn.AppSlug)
+			case app.Webhooks.Registration.ManualSetup != "":
+				log.Printf("[SUB-CREATE] skip auto-reg: app %s requires manual setup (%s)", conn.AppSlug, app.Webhooks.Registration.ManualSetup)
+			default:
+				plain, derr := Decrypt(s.secret, encCreds)
+				if derr != nil {
+					log.Printf("[SUB-CREATE] skip auto-reg: decrypt creds failed: %v", derr)
+				} else {
 					reg := app.Webhooks.Registration
 
-					// Build auth headers from app config
 					headers := map[string]string{"Content-Type": "application/json"}
 					for k, v := range app.Auth.Headers {
 						headers[k] = resolveCredTemplate(v, plain)
 					}
 
-					// Build request body
 					reqBody := map[string]any{}
 					if reg.Extra != nil {
 						for k, v := range reg.Extra {
@@ -322,37 +349,57 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 					regURL := strings.TrimSuffix(app.BaseURL, "/") + reg.Path
 					regBody, _ := json.Marshal(reqBody)
 
-					req, err := http.NewRequest(reg.Method, regURL, strings.NewReader(string(regBody)))
-					if err == nil {
+					// Redact auth header values for the log line
+					logHeaders := make(map[string]string, len(headers))
+					for k, v := range headers {
+						if k == "Content-Type" {
+							logHeaders[k] = v
+						} else if len(v) > 8 {
+							logHeaders[k] = v[:4] + "…" + v[len(v)-4:]
+						} else {
+							logHeaders[k] = "***"
+						}
+					}
+					log.Printf("[SUB-CREATE] → %s %s headers=%v body=%s", reg.Method, regURL, logHeaders, string(regBody))
+
+					req, rerr := http.NewRequest(reg.Method, regURL, strings.NewReader(string(regBody)))
+					if rerr != nil {
+						log.Printf("[SUB-CREATE] build request failed: %v", rerr)
+					} else {
 						for k, v := range headers {
 							req.Header.Set(k, v)
 						}
-						resp, err := http.DefaultClient.Do(req)
-						if err == nil {
+						resp, herr := http.DefaultClient.Do(req)
+						if herr != nil {
+							log.Printf("[SUB-CREATE] HTTP error: %v", herr)
+						} else {
 							respBody, _ := io.ReadAll(resp.Body)
 							resp.Body.Close()
+							log.Printf("[SUB-CREATE] ← %d %s", resp.StatusCode, string(respBody))
 							if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 								autoRegistered = true
 								if reg.IDField != "" {
 									var respData map[string]any
 									if json.Unmarshal(respBody, &respData) == nil {
 										extID := extractJSONPath(respData, reg.IDField)
+										log.Printf("[SUB-CREATE] extracted external_id=%q via path %q", extID, reg.IDField)
 										if extID != "" {
 											s.store.SetSubscriptionExternalID(sub.ID, extID)
 										}
+									} else {
+										log.Printf("[SUB-CREATE] response body is not JSON, cannot extract id")
 									}
 								}
-							} else {
-								log.Printf("[WEBHOOK-REG] failed %d: %s", resp.StatusCode, string(respBody))
 							}
-						} else {
-							log.Printf("[WEBHOOK-REG] error: %v", err)
 						}
 					}
 				}
 			}
 		}
+	} else {
+		log.Printf("[SUB-CREATE] skip auto-reg: connection_id=0")
 	}
+	log.Printf("[SUB-CREATE] done sub=%s auto_registered=%v", sub.ID, autoRegistered)
 
 	writeJSON(w, map[string]any{
 		"subscription":    sub,
@@ -590,10 +637,7 @@ func extractJSONPath(obj map[string]any, path string) string {
 }
 
 func (s *Server) webhookURL(path string) string {
-	if s.publicURL != "" {
-		return fmt.Sprintf("%s/webhooks/%s", strings.TrimSuffix(s.publicURL, "/"), path)
-	}
-	return fmt.Sprintf("http://127.0.0.1:%s/webhooks/%s", s.port, path)
+	return s.publicBaseURL() + "/webhooks/" + path
 }
 
 // setField sets a value at a dot-notation path in a map

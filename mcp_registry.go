@@ -64,7 +64,20 @@ type MCPServerRecord struct {
 	ProviderID   int64     `json:"provider_id,omitempty"`
 	ConnectionID int64     `json:"connection_id"`
 	ProjectID    string    `json:"project_id,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
+	// AllowedTools restricts which tools are exposed. nil / empty = all
+	// tools from the underlying source. Populated = only these names are
+	// returned by tools/list and only these are accepted by tools/call.
+	//
+	// For source=local we enforce this in mcp_http.go on every request.
+	// For source=remote (Composio) we pass the list as `actions` to the
+	// hosted MCP create endpoint; Composio then filters on its side.
+	AllowedTools []string `json:"allowed_tools,omitempty"`
+	// UpstreamID is the external identifier for source=remote rows — e.g.
+	// the Composio MCP server id. We rotate this when the tool filter
+	// changes because the upstream create call is not idempotent for
+	// action-list updates.
+	UpstreamID string    `json:"upstream_id,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // MCPServerInput carries the full field set for creating any MCP server row.
@@ -80,6 +93,10 @@ type MCPServerInput struct {
 	URL          string
 	ProviderID   int64
 	ProjectID    string
+	ConnectionID int64    // FK into connections; 0 if not connection-backed
+	AllowedTools []string // nil/empty = all tools exposed; populated = filter
+	UpstreamID   string   // external identifier (composio server id, …)
+	ToolCount    int      // initial tool_count; local rows trust the DB column
 }
 
 // --- Store methods ---
@@ -104,11 +121,16 @@ func (s *Store) CreateMCPServerExt(in MCPServerInput) (*MCPServerRecord, error) 
 	if in.Transport == "" {
 		in.Transport = "stdio"
 	}
+	allowedJSON := ""
+	if len(in.AllowedTools) > 0 {
+		b, _ := json.Marshal(in.AllowedTools)
+		allowedJSON = string(b)
+	}
 	result, err := s.db.Exec(
-		`INSERT INTO mcp_servers (user_id, name, command, args, encrypted_env, description, project_id, source, transport, url, provider_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO mcp_servers (user_id, name, command, args, encrypted_env, description, project_id, source, transport, url, provider_id, connection_id, allowed_tools, upstream_id, tool_count)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		in.UserID, in.Name, in.Command, in.Args, in.EncryptedEnv, in.Description, in.ProjectID,
-		in.Source, in.Transport, in.URL, in.ProviderID,
+		in.Source, in.Transport, in.URL, in.ProviderID, in.ConnectionID, allowedJSON, in.UpstreamID, in.ToolCount,
 	)
 	if err != nil {
 		return nil, err
@@ -118,14 +140,16 @@ func (s *Store) CreateMCPServerExt(in MCPServerInput) (*MCPServerRecord, error) 
 		ID: id, UserID: in.UserID, Name: in.Name, Command: in.Command, Args: in.Args,
 		Description: in.Description, Status: "stopped",
 		Source: in.Source, Transport: in.Transport, URL: in.URL, ProviderID: in.ProviderID,
-		ProjectID: in.ProjectID,
+		ConnectionID: in.ConnectionID, ProjectID: in.ProjectID,
+		AllowedTools: in.AllowedTools, UpstreamID: in.UpstreamID,
 	}, nil
 }
 
 func (s *Store) ListMCPServers(userID int64, projectID ...string) ([]MCPServerRecord, error) {
 	const cols = `id, name, command, args, description, status, tool_count, pid,
 		COALESCE(source,'custom'), COALESCE(transport,'stdio'), COALESCE(url,''), COALESCE(provider_id,0),
-		COALESCE(connection_id,0), COALESCE(project_id,''), created_at`
+		COALESCE(connection_id,0), COALESCE(project_id,''),
+		COALESCE(allowed_tools,''), COALESCE(upstream_id,''), created_at`
 	var rows *sql.Rows
 	var err error
 	if len(projectID) > 0 && projectID[0] != "" {
@@ -141,12 +165,16 @@ func (s *Store) ListMCPServers(userID int64, projectID ...string) ([]MCPServerRe
 	var servers []MCPServerRecord
 	for rows.Next() {
 		var r MCPServerRecord
-		var createdAt string
+		var createdAt, allowedJSON string
 		rows.Scan(&r.ID, &r.Name, &r.Command, &r.Args, &r.Description, &r.Status, &r.ToolCount, &r.Pid,
 			&r.Source, &r.Transport, &r.URL, &r.ProviderID,
-			&r.ConnectionID, &r.ProjectID, &createdAt)
+			&r.ConnectionID, &r.ProjectID,
+			&allowedJSON, &r.UpstreamID, &createdAt)
 		r.UserID = userID
 		r.CreatedAt, _ = parseTime(createdAt)
+		if allowedJSON != "" {
+			json.Unmarshal([]byte(allowedJSON), &r.AllowedTools)
+		}
 		servers = append(servers, r)
 	}
 	return servers, nil
@@ -154,22 +182,113 @@ func (s *Store) ListMCPServers(userID int64, projectID ...string) ([]MCPServerRe
 
 func (s *Store) GetMCPServer(userID, serverID int64) (*MCPServerRecord, string, error) {
 	var r MCPServerRecord
-	var encryptedEnv, createdAt string
+	var encryptedEnv, createdAt, allowedJSON string
 	err := s.db.QueryRow(
 		`SELECT id, name, command, args, encrypted_env, description, status, tool_count, pid,
 			COALESCE(source,'custom'), COALESCE(transport,'stdio'), COALESCE(url,''), COALESCE(provider_id,0),
-			COALESCE(connection_id,0), created_at
+			COALESCE(connection_id,0), COALESCE(project_id,''),
+			COALESCE(allowed_tools,''), COALESCE(upstream_id,''), created_at
 		 FROM mcp_servers WHERE id = ? AND user_id = ?`,
 		serverID, userID,
 	).Scan(&r.ID, &r.Name, &r.Command, &r.Args, &encryptedEnv, &r.Description, &r.Status, &r.ToolCount, &r.Pid,
 		&r.Source, &r.Transport, &r.URL, &r.ProviderID,
-		&r.ConnectionID, &createdAt)
+		&r.ConnectionID, &r.ProjectID,
+		&allowedJSON, &r.UpstreamID, &createdAt)
 	if err != nil {
 		return nil, "", err
 	}
 	r.UserID = userID
 	r.CreatedAt, _ = parseTime(createdAt)
+	if allowedJSON != "" {
+		json.Unmarshal([]byte(allowedJSON), &r.AllowedTools)
+	}
 	return &r, encryptedEnv, nil
+}
+
+// GetMCPServerByIDUnscoped looks up an mcp_servers row by id WITHOUT a
+// user-id check. Used by the localhost MCP HTTP endpoint, which has no
+// session cookie — access is gated by knowing the row id (which is only
+// emitted to the local core via the gateway). Returns nil + nil when
+// the row doesn't exist (so callers can fall back to legacy lookups).
+func (s *Store) GetMCPServerByIDUnscoped(serverID int64) (*MCPServerRecord, error) {
+	var r MCPServerRecord
+	var encryptedEnv, createdAt, allowedJSON string
+	err := s.db.QueryRow(
+		`SELECT id, user_id, name, command, args, encrypted_env, description, status, tool_count, pid,
+			COALESCE(source,'custom'), COALESCE(transport,'stdio'), COALESCE(url,''), COALESCE(provider_id,0),
+			COALESCE(connection_id,0), COALESCE(project_id,''),
+			COALESCE(allowed_tools,''), COALESCE(upstream_id,''), created_at
+		 FROM mcp_servers WHERE id = ?`,
+		serverID,
+	).Scan(&r.ID, &r.UserID, &r.Name, &r.Command, &r.Args, &encryptedEnv, &r.Description, &r.Status, &r.ToolCount, &r.Pid,
+		&r.Source, &r.Transport, &r.URL, &r.ProviderID,
+		&r.ConnectionID, &r.ProjectID,
+		&allowedJSON, &r.UpstreamID, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+	r.CreatedAt, _ = parseTime(createdAt)
+	if allowedJSON != "" {
+		json.Unmarshal([]byte(allowedJSON), &r.AllowedTools)
+	}
+	return &r, nil
+}
+
+// UpdateMCPServerAllowedTools overwrites the allowed_tools filter on an
+// existing row. Passing nil or an empty slice clears the filter (all tools
+// are exposed again).
+func (s *Store) UpdateMCPServerAllowedTools(userID, serverID int64, allowed []string) error {
+	allowedJSON := ""
+	if len(allowed) > 0 {
+		b, _ := json.Marshal(allowed)
+		allowedJSON = string(b)
+	}
+	res, err := s.db.Exec(
+		"UPDATE mcp_servers SET allowed_tools = ? WHERE id = ? AND user_id = ?",
+		allowedJSON, serverID, userID,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("mcp_server %d not found", serverID)
+	}
+	return nil
+}
+
+// UpdateMCPServerUpstreamID sets the external identifier for a remote server.
+// Used by the Composio reconciler when a versioned rename rotates the id.
+func (s *Store) UpdateMCPServerUpstreamID(serverID int64, upstreamID string) error {
+	_, err := s.db.Exec("UPDATE mcp_servers SET upstream_id = ? WHERE id = ?", upstreamID, serverID)
+	return err
+}
+
+// FindMCPServerByID returns a server without the user_id scope check — used
+// internally by the mcp_http proxy when resolving /mcp/<conn_id> to an mcp
+// server row by the shared connection.
+func (s *Store) FindMCPServerByConnection(connectionID int64) (*MCPServerRecord, error) {
+	var r MCPServerRecord
+	var createdAt, allowedJSON string
+	err := s.db.QueryRow(
+		`SELECT id, user_id, name, command, args, description, status, tool_count, pid,
+			COALESCE(source,'custom'), COALESCE(transport,'stdio'), COALESCE(url,''), COALESCE(provider_id,0),
+			COALESCE(connection_id,0), COALESCE(project_id,''),
+			COALESCE(allowed_tools,''), COALESCE(upstream_id,''), created_at
+		 FROM mcp_servers WHERE connection_id = ? ORDER BY id DESC LIMIT 1`,
+		connectionID,
+	).Scan(&r.ID, &r.UserID, &r.Name, &r.Command, &r.Args, &r.Description, &r.Status, &r.ToolCount, &r.Pid,
+		&r.Source, &r.Transport, &r.URL, &r.ProviderID,
+		&r.ConnectionID, &r.ProjectID,
+		&allowedJSON, &r.UpstreamID, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+	r.CreatedAt, _ = parseTime(createdAt)
+	if allowedJSON != "" {
+		json.Unmarshal([]byte(allowedJSON), &r.AllowedTools)
+	}
+	return &r, nil
 }
 
 // FindMCPServerByProviderProject returns an existing remote MCP server for a
@@ -177,22 +296,27 @@ func (s *Store) GetMCPServer(userID, serverID int64) (*MCPServerRecord, string, 
 // reconciler to find the aggregate server for a project.
 func (s *Store) FindMCPServerByProviderProject(userID, providerID int64, projectID string) (*MCPServerRecord, error) {
 	var r MCPServerRecord
-	var createdAt string
+	var createdAt, allowedJSON string
 	err := s.db.QueryRow(
 		`SELECT id, name, command, args, description, status, tool_count, pid,
 			COALESCE(source,'custom'), COALESCE(transport,'stdio'), COALESCE(url,''), COALESCE(provider_id,0),
-			COALESCE(connection_id,0), COALESCE(project_id,''), created_at
+			COALESCE(connection_id,0), COALESCE(project_id,''),
+			COALESCE(allowed_tools,''), COALESCE(upstream_id,''), created_at
 		 FROM mcp_servers WHERE user_id = ? AND provider_id = ? AND project_id = ? AND source = 'remote'
 		 LIMIT 1`,
 		userID, providerID, projectID,
 	).Scan(&r.ID, &r.Name, &r.Command, &r.Args, &r.Description, &r.Status, &r.ToolCount, &r.Pid,
 		&r.Source, &r.Transport, &r.URL, &r.ProviderID,
-		&r.ConnectionID, &r.ProjectID, &createdAt)
+		&r.ConnectionID, &r.ProjectID,
+		&allowedJSON, &r.UpstreamID, &createdAt)
 	if err != nil {
 		return nil, err
 	}
 	r.UserID = userID
 	r.CreatedAt, _ = parseTime(createdAt)
+	if allowedJSON != "" {
+		json.Unmarshal([]byte(allowedJSON), &r.AllowedTools)
+	}
 	return &r, nil
 }
 
@@ -563,11 +687,15 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 				"url":       srv.URL,
 			}
 		} else if srv.Source == "local" && srv.ConnectionID > 0 {
-			// Streamable HTTP endpoint served by apteva-server itself
+			// Streamable HTTP endpoint served by apteva-server itself.
+			// URL keyed on the mcp_servers row id (not the connection
+			// id) so two scoped views over the same connection get
+			// distinct URLs and the dashboard's instance config can
+			// attach them independently.
 			es.ProxyConfig = &map[string]any{
 				"name":      srv.Name,
 				"transport": "http",
-				"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", s.port, srv.ConnectionID),
+				"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", s.port, srv.ID),
 			}
 		} else if srv.Command != "" {
 			// stdio process
@@ -667,11 +795,16 @@ func (s *Server) handleStopMCPServer(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /mcp-servers/:id/tools
+//
+// Returns the canonical list of tools the server *can* expose, regardless of
+// the current allowed_tools filter. The UI uses this to render the picker:
+// every tool is shown as a checkbox, and the checkboxes that match the
+// server row's allowed_tools come back pre-ticked.
+//
+// Response shape: {"tools": [...], "allowed_tools": [...]}. The tools array
+// is the full catalog; allowed_tools is the currently-persisted filter (may
+// be empty = all tools enabled).
 func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "GET only", http.StatusMethodNotAllowed)
-		return
-	}
 	userID := getUserID(r)
 	path := strings.TrimPrefix(r.URL.Path, "/mcp-servers/")
 	idStr := strings.TrimSuffix(path, "/tools")
@@ -702,6 +835,21 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// Composio remote rows: fetch the toolkit action list so the picker has
+	// something to render. One row = one toolkit, so we use the row Name as
+	// the slug (matches how reconcileComposioMCPServer stores it).
+	if len(tools) == 0 && record != nil && record.Source == "remote" {
+		if client := s.newComposioClient(userID); client != nil {
+			if actions, err := client.ListToolkitActions(record.Name); err == nil {
+				for _, a := range actions {
+					tools = append(tools, mcpToolDef{
+						Name:        a.Slug,
+						Description: a.Description,
+					})
+				}
+			}
+		}
+	}
 	// Fall back to MCP manager for process-based servers
 	if len(tools) == 0 {
 		tools = s.mcpManager.GetTools(serverID)
@@ -709,7 +857,91 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 	if tools == nil {
 		tools = []mcpToolDef{}
 	}
-	writeJSON(w, tools)
+	writeJSON(w, map[string]any{
+		"tools":         tools,
+		"allowed_tools": record.AllowedTools,
+	})
+}
+
+// PUT /mcp-servers/:id/tools
+//
+// Body: {"allowed_tools": ["tool_a", "tool_b"]} — pass an empty array to
+// clear the filter (all tools re-enabled).
+//
+// For source=local servers the change takes effect immediately on the next
+// tools/list / tools/call, since handleMCPEndpoint reads the filter fresh
+// per request. For source=remote (Composio) servers, the next reconcile
+// rotates the upstream server to a new versioned name so Composio picks up
+// the new action set — the dashboard triggers /composio/reconcile after
+// writing the filter.
+func (s *Server) handleUpdateMCPServerAllowedTools(w http.ResponseWriter, r *http.Request) {
+	userID := getUserID(r)
+	path := strings.TrimPrefix(r.URL.Path, "/mcp-servers/")
+	idStr := strings.TrimSuffix(path, "/tools")
+	serverID, err := atoi64(idStr)
+	if err != nil {
+		http.Error(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	var body struct {
+		AllowedTools []string `json:"allowed_tools"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	// De-dup + trim — be forgiving about what the client sends.
+	seen := map[string]bool{}
+	clean := make([]string, 0, len(body.AllowedTools))
+	for _, name := range body.AllowedTools {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		clean = append(clean, name)
+	}
+
+	if err := s.store.UpdateMCPServerAllowedTools(userID, serverID, clean); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"status":        "updated",
+		"allowed_tools": clean,
+	})
+}
+
+// handleListComposioToolkitActions — GET /composio/toolkits/:slug/actions
+//
+// Returns the action menu for a Composio toolkit so the dashboard tool
+// picker has something to render before a connection exists. Uses the
+// per-user composio provider credentials; 404 if the user has no composio
+// provider configured.
+func (s *Server) handleListComposioToolkitActions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	path := strings.TrimPrefix(r.URL.Path, "/composio/toolkits/")
+	slug := strings.TrimSuffix(path, "/actions")
+	if slug == "" {
+		http.Error(w, "slug required", http.StatusBadRequest)
+		return
+	}
+	client := s.newComposioClient(userID)
+	if client == nil {
+		http.Error(w, "composio provider not configured", http.StatusNotFound)
+		return
+	}
+	actions, err := client.ListToolkitActions(slug)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, actions)
 }
 
 // POST /mcp-servers/:id/call-tool

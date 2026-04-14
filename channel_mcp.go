@@ -143,7 +143,8 @@ func (s *channelMCPServer) toolsList() map[string]any {
 			{
 				"name": "respond",
 				"description": fmt.Sprintf(
-					"Send a message to a user on a channel. Every user message MUST get a response via this tool. "+
+					"Send a message to a user on a channel. Every user message MUST get a response via this tool — text written in your thoughts is INVISIBLE to the user; only this tool delivers messages. "+
+						"After completing any user request (including after spawn/exec/other tool calls), your FINAL action MUST be a respond call confirming the result — if you write \"Done\" or \"Here's what I did\" as plain thought text without calling respond, the user never sees it. "+
 						"IMPORTANT: Send ONE complete response per user message. Include ALL information in a single call — do NOT split across multiple calls or follow up with a second message repeating the same content. "+
 						"Connected channels: [%s]. "+
 						"Match the channel from the event prefix: [cli] → channel=\"cli\", [telegram:@john:12345] → channel=\"telegram:12345\".",

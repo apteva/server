@@ -51,7 +51,9 @@ func (b *TelemetryBroadcaster) Unsubscribe(instanceID int64, ch chan TelemetryEv
 }
 
 // SubscribeAll returns a channel that receives events for all instances.
-// Used by the console logger to render all activity.
+// Used by the console logger to render all activity, and by the dashboard's
+// Instances list page to render a per-row live activity strip without
+// opening N concurrent SSE connections.
 func (b *TelemetryBroadcaster) SubscribeAll() chan TelemetryEvent {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -59,6 +61,21 @@ func (b *TelemetryBroadcaster) SubscribeAll() chan TelemetryEvent {
 	// Use instanceID -1 as the "all" sentinel
 	b.subscribers[-1] = append(b.subscribers[-1], ch)
 	return ch
+}
+
+// UnsubscribeAll removes a channel previously returned by SubscribeAll.
+// Mirrors Unsubscribe but with the -1 sentinel key.
+func (b *TelemetryBroadcaster) UnsubscribeAll(ch chan TelemetryEvent) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	subs := b.subscribers[-1]
+	for i, s := range subs {
+		if s == ch {
+			b.subscribers[-1] = append(subs[:i], subs[i+1:]...)
+			close(ch)
+			return
+		}
+	}
 }
 
 // Broadcast sends events to all subscribers for the given instance,
@@ -373,10 +390,10 @@ func (s *Server) handleLiveTelemetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Require instance secret
+	// Require instance secret. Mismatches are silent — if a debugging pass
+	// is needed, re-add a log here scoped to the failing path.
 	if s.instanceSecret != "" {
 		if r.Header.Get("X-Instance-Secret") != s.instanceSecret {
-			log.Printf("[TELEMETRY] live: unauthorized — header=%q expected=%q (first8)", r.Header.Get("X-Instance-Secret")[:min(8, len(r.Header.Get("X-Instance-Secret")))], s.instanceSecret[:min(8, len(s.instanceSecret))])
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -384,22 +401,31 @@ func (s *Server) handleLiveTelemetry(w http.ResponseWriter, r *http.Request) {
 
 	var events []TelemetryEvent
 	if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
-		log.Printf("[TELEMETRY] live: bad json: %v", err)
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-
-	types := make([]string, len(events))
-	for i, e := range events {
-		types[i] = e.Type
-	}
-	log.Printf("[TELEMETRY] live: received %d events: %v", len(events), types)
 
 	s.broadcaster.Broadcast(events)
 	writeJSON(w, map[string]int{"broadcast": len(events)})
 }
 
-// GET /telemetry/stream?instance_id=1 — SSE stream of live events
+// GET /telemetry/stream
+//
+// Two modes:
+//
+//   1. ?instance_id=N — SSE for one specific instance. Used by per-instance
+//      panels that need every event from a single core. The caller must own
+//      the instance (verified against the session user).
+//
+//   2. ?all=1[&project_id=…] — SSE for every running instance the caller
+//      owns, in the (optional) given project. Used by the Instances list
+//      page to render a live activity strip per row without N concurrent
+//      connections. Filtering happens inside this handler — the broadcaster
+//      itself fans every event to every "all" subscriber.
+//
+// Both modes require authentication. Auth is handled by the route's
+// authMiddleware wrapper in main.go; we extract the user id and use it
+// to scope which events are forwarded.
 func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
@@ -412,24 +438,90 @@ func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	instanceID, _ := strconv.ParseInt(r.URL.Query().Get("instance_id"), 10, 64)
-	if instanceID == 0 {
-		http.Error(w, "instance_id required", http.StatusBadRequest)
-		return
-	}
+	userID := getUserID(r)
+	q := r.URL.Query()
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	// Mode 2: all-instances stream, scoped to the caller's instances.
+	if q.Get("all") == "1" {
+		projectID := q.Get("project_id")
+		insts, err := s.store.ListInstances(userID, projectID)
+		if err != nil {
+			http.Error(w, "failed to list instances: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		allowed := make(map[int64]bool, len(insts))
+		for _, in := range insts {
+			allowed[in.ID] = true
+		}
+
+		ch := s.broadcaster.SubscribeAll()
+		defer s.broadcaster.UnsubscribeAll(ch)
+
+		// Heartbeat so browsers / proxies don't time the stream out
+		// when traffic is sparse. SSE comments (`: ping`) are ignored
+		// by EventSource.
+		ticker := time.NewTicker(20 * time.Second)
+		defer ticker.Stop()
+
+		ctx := r.Context()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				fmt.Fprintf(w, ": ping\n\n")
+				flusher.Flush()
+			case ev := <-ch:
+				if !allowed[ev.InstanceID] {
+					// New instance created mid-stream — refresh allowed
+					// set lazily before dropping. This catches "user starts
+					// instance after page load" without polling.
+					if newInsts, err := s.store.ListInstances(userID, projectID); err == nil {
+						for _, in := range newInsts {
+							allowed[in.ID] = true
+						}
+					}
+					if !allowed[ev.InstanceID] {
+						continue
+					}
+				}
+				data, _ := json.Marshal(ev)
+				fmt.Fprintf(w, "data: %s\n\n", data)
+				flusher.Flush()
+			}
+		}
+	}
+
+	// Mode 1: single-instance stream.
+	instanceID, _ := strconv.ParseInt(q.Get("instance_id"), 10, 64)
+	if instanceID == 0 {
+		http.Error(w, "instance_id required (or ?all=1 for all-instances stream)", http.StatusBadRequest)
+		return
+	}
+	// Verify the caller owns this instance.
+	if _, err := s.store.GetInstance(userID, instanceID); err != nil {
+		http.Error(w, "instance not found", http.StatusNotFound)
+		return
+	}
+
 	ch := s.broadcaster.Subscribe(instanceID)
 	defer s.broadcaster.Unsubscribe(instanceID, ch)
+
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
 
 	ctx := r.Context()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-ticker.C:
+			fmt.Fprintf(w, ": ping\n\n")
+			flusher.Flush()
 		case ev := <-ch:
 			data, _ := json.Marshal(ev)
 			fmt.Fprintf(w, "data: %s\n\n", data)

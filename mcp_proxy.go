@@ -140,7 +140,26 @@ func runMCPProxy(dbPath string, connectionID int64, secret []byte) error {
 			if tool == nil {
 				rpcErr = &jsonRPCError{Code: -32602, Message: fmt.Sprintf("unknown tool %q", params.Name)}
 			} else {
-				execResult, err := executeIntegrationTool(app, tool, credentials, params.Arguments)
+				// Persist refreshed OAuth credentials back to the DB so they
+				// survive the next subprocess restart. The credentials map
+				// is mutated in place by the refresher; we just re-encrypt
+				// and write the whole blob.
+				persist := func(updated map[string]string) error {
+					blob, err := json.Marshal(updated)
+					if err != nil {
+						return err
+					}
+					enc, err := Encrypt(secret, string(blob))
+					if err != nil {
+						return err
+					}
+					_, err = store.db.Exec(
+						"UPDATE connections SET encrypted_credentials = ? WHERE id = ?",
+						enc, connectionID,
+					)
+					return err
+				}
+				execResult, err := executeIntegrationToolWithRefresh(app, tool, credentials, params.Arguments, persist)
 				if err != nil {
 					result = map[string]any{
 						"content": []map[string]any{{"type": "text", "text": fmt.Sprintf("error: %v", err)}},

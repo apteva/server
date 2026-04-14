@@ -213,6 +213,7 @@ func main() {
 		writeJSON(w, map[string]string{"version": Version})
 	})
 
+	apiMux.HandleFunc("/auth/status", s.handleAuthStatus)
 	apiMux.HandleFunc("/auth/register", s.handleRegister)
 	apiMux.HandleFunc("/auth/login", s.handleLogin)
 	apiMux.HandleFunc("/auth/logout", s.handleLogout)
@@ -237,7 +238,7 @@ func main() {
 	// as this refactor.
 	apiMux.HandleFunc("/telemetry/timeline", s.authMiddleware(s.handleTelemetryTimeline))
 	apiMux.HandleFunc("/telemetry/stats", s.authMiddleware(s.handleTelemetryStats))
-	apiMux.HandleFunc("/telemetry/stream", s.handleTelemetryStream) // SSE — cookie auth via browser
+	apiMux.HandleFunc("/telemetry/stream", s.authMiddleware(s.handleTelemetryStream)) // SSE — cookie or API key auth
 	apiMux.HandleFunc("/telemetry/live", s.handleLiveTelemetry)     // broadcast-only ingest for chunks
 	apiMux.HandleFunc("/telemetry", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -323,12 +324,31 @@ func main() {
 			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
 		}
 	}))
+	// GET /api/oauth/local/client?app_slug=github&project_id=...
+	// Returns whether OAuth client credentials are saved for this user+project+app.
+	// The dashboard hits this when the user picks an oauth2 app so it can
+	// hide the client_id/secret form when creds already exist.
+	apiMux.HandleFunc("/oauth/local/client", s.authMiddleware(s.handleOAuthClientStatus))
+
+	// Server-wide settings (public_url and similar admin-editable things).
+	// GET returns the current effective values plus their source so the
+	// dashboard can show "currently using env var" vs "stored in DB". PUT
+	// upserts the keys passed in the body. Locked to authenticated users —
+	// in a multi-tenant deploy you'd add an admin check, but right now any
+	// user with a session can edit these (server is single-tenant by
+	// default and the setup-token flow ensures only the operator gets in).
+	apiMux.HandleFunc("/settings/server", s.authMiddleware(s.handleServerSettings))
+
 	apiMux.HandleFunc("/connections/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/connections/")
 		if strings.HasSuffix(path, "/tools") {
 			s.handleConnectionTools(w, r)
 		} else if strings.HasSuffix(path, "/execute") {
 			s.handleExecuteTool(w, r)
+		} else if strings.HasSuffix(path, "/mcp") {
+			// POST /api/connections/:id/mcp — create a scoped MCP server
+			// from an existing connection. Body: { name, allowed_tools }.
+			s.handleCreateScopedMCP(w, r)
 		} else if r.Method == http.MethodGet {
 			s.handleGetConnection(w, r)
 		} else {
@@ -354,12 +374,34 @@ func main() {
 		} else if strings.HasSuffix(path, "/stop") {
 			s.handleStopMCPServer(w, r)
 		} else if strings.HasSuffix(path, "/tools") {
-			s.handleMCPServerTools(w, r)
+			// GET  /mcp-servers/:id/tools — list tools available from the server
+			// PUT  /mcp-servers/:id/tools — update the allowed_tools filter
+			//   (legacy: GET used to also be handled by handleMCPServerTools —
+			//    route on method to keep both working.)
+			switch r.Method {
+			case http.MethodGet:
+				s.handleMCPServerTools(w, r)
+			case http.MethodPut:
+				s.handleUpdateMCPServerAllowedTools(w, r)
+			default:
+				http.Error(w, "GET or PUT", http.StatusMethodNotAllowed)
+			}
 		} else if strings.HasSuffix(path, "/call-tool") {
 			s.handleCallMCPTool(w, r)
 		} else {
 			s.handleDeleteMCPServer(w, r)
 		}
+	}))
+
+	// Composio per-toolkit action listing — powers the dashboard tool picker
+	// when the user is scoping down a Composio MCP server.
+	apiMux.HandleFunc("/composio/toolkits/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/composio/toolkits/")
+		if strings.HasSuffix(path, "/actions") {
+			s.handleListComposioToolkitActions(w, r)
+			return
+		}
+		http.Error(w, "not found", http.StatusNotFound)
 	}))
 
 	// Provider routes
@@ -491,6 +533,15 @@ func main() {
 		// Fallback: embedded dashboard (stale but better than nothing)
 		mux.Handle("/", dashboardHandler())
 	}
+
+	// Boot-time recovery: any instance left in `status='running'` from a
+	// previous server process had its core subprocess die with that
+	// process group, so the DB state is stale. Walk those rows and
+	// re-spawn fresh cores + channels MCPs so restarts look like a
+	// brief pause rather than "all my instances silently vanished".
+	// Run async so a slow resume (many instances, slow provider probe)
+	// doesn't block the HTTP listener from accepting new requests.
+	go s.ResumeRunningInstances()
 
 	fmt.Fprintf(os.Stderr, "apteva-server v%s running on :%s\n", Version, port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {

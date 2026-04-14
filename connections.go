@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"strings"
 	"time"
@@ -32,6 +33,18 @@ type Connection struct {
 // any source (local, composio, ...). Use this for new code paths; the legacy
 // CreateConnection(...) helper below is kept so existing tests and mcp_gateway
 // don't need to change.
+// containsString returns true when needle appears in haystack.
+// Tiny helper used by the auth-type selector — pulled out so the switch
+// statement above stays readable.
+func containsString(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
+}
+
 type ConnectionInput struct {
 	UserID         int64
 	AppSlug        string
@@ -142,11 +155,34 @@ func (s *Store) DeleteConnection(userID, connID int64) error {
 	return err
 }
 
-// CreateMCPServerFromConnection creates an MCP server entry for a local integration
-func (s *Store) CreateMCPServerFromConnection(userID int64, conn *Connection, toolCount int) (int64, error) {
+// CreateMCPServerFromConnection creates an MCP server entry for a local
+// integration. allowedTools is optional — pass nil or empty for "all tools
+// exposed" (legacy behaviour). A populated list scopes the resulting MCP
+// server row to that subset, enforced by handleMCPEndpoint on every request.
+//
+// `name` is the CANONICAL SLUG (e.g. "omnikit-storage"), not the human
+// display name. The slug is what shows up everywhere downstream:
+//   - Entry name in the instance's config.json
+//   - Prefix in the system prompt's [AVAILABLE MCP SERVERS] block
+//   - Prefix of tool names registered with core ("omnikit-storage_get_file")
+//   - Exact-match key when a sub-thread looks up an MCP by name at spawn
+//     time (core/thread.go does string equality there)
+//
+// The display name (conn.AppName, e.g. "OmniKit Storage") goes into the
+// description so the dashboard can still show it, but the canonical name
+// is the slug. Mixing them was the bug behind "spawn(mcp=\"omnikit-storage\")
+// silently produces a worker with zero tools" — the LLM used the slug (which
+// it inferred from tool prefixes) but the config stored the display name, so
+// the lookup failed.
+func (s *Store) CreateMCPServerFromConnection(userID int64, conn *Connection, toolCount int, allowedTools ...[]string) (int64, error) {
+	var allowedJSON string
+	if len(allowedTools) > 0 && len(allowedTools[0]) > 0 {
+		b, _ := json.Marshal(allowedTools[0])
+		allowedJSON = string(b)
+	}
 	result, err := s.db.Exec(
-		"INSERT INTO mcp_servers (user_id, name, description, status, tool_count, source, connection_id, project_id) VALUES (?, ?, ?, 'running', ?, 'local', ?, ?)",
-		userID, conn.AppName, fmt.Sprintf("Local integration: %s", conn.AppSlug), toolCount, conn.ID, conn.ProjectID,
+		"INSERT INTO mcp_servers (user_id, name, description, status, tool_count, source, connection_id, project_id, allowed_tools) VALUES (?, ?, ?, 'running', ?, 'local', ?, ?, ?)",
+		userID, conn.AppSlug, conn.AppName, toolCount, conn.ID, conn.ProjectID, allowedJSON,
 	)
 	if err != nil {
 		return 0, err
@@ -164,6 +200,183 @@ type ExecuteResult struct {
 	Success bool   `json:"success"`
 	Status  int    `json:"status"`
 	Data    any    `json:"data"`
+}
+
+// onCredsRefresh is the optional callback executeIntegrationTool invokes
+// when it auto-refreshes an OAuth2 access token. Callers wire it to write
+// the new credentials map back to the DB so the refreshed tokens survive
+// process restarts. Pass nil to skip persistence (e.g. dry-run / tests).
+type onCredsRefresh func(updated map[string]string) error
+
+// executeIntegrationToolWithRefresh wraps executeIntegrationTool with an
+// auto-refresh + retry-once loop on HTTP 401. The credentials map is
+// mutated in place when a refresh succeeds, and the optional onRefresh
+// callback fires so the caller can persist the new tokens.
+//
+// Refresh fires only when:
+//   1. The HTTP response status is 401 (Unauthorized)
+//   2. The app has an OAuth2 config (so we know the token endpoint)
+//   3. The credentials map contains a refresh_token (or refreshToken)
+//
+// All other failure modes (network, 4xx other than 401, 5xx) bubble up
+// unchanged. Refresh failures are non-fatal — we return the original 401
+// so the caller can surface the auth error to the user.
+func executeIntegrationToolWithRefresh(
+	app *AppTemplate,
+	tool *AppToolDef,
+	credentials map[string]string,
+	input map[string]any,
+	onRefresh onCredsRefresh,
+) (*ExecuteResult, error) {
+	result, err := executeIntegrationTool(app, tool, credentials, input)
+	if err != nil {
+		return result, err
+	}
+	if result.Status != 401 {
+		return result, nil
+	}
+	// 401 — try to refresh and retry once.
+	if app.Auth.OAuth2 == nil {
+		return result, nil
+	}
+	rt := credentials["refresh_token"]
+	if rt == "" {
+		rt = credentials["refreshToken"]
+	}
+	if rt == "" {
+		return result, nil
+	}
+	if err := refreshOAuthAccessToken(app, credentials); err != nil {
+		// Refresh failed — surface the original 401 so the caller knows
+		// the connection needs manual re-auth. Log so the operator can
+		// see why refresh isn't working (likely revoked refresh token,
+		// missing client_id/secret, or upstream provider error).
+		fmt.Fprintf(os.Stderr, "[oauth-refresh] %s: %v\n", app.Slug, err)
+		return result, nil
+	}
+	// Persist the refreshed tokens before retrying so a crash mid-retry
+	// doesn't lose them.
+	if onRefresh != nil {
+		if err := onRefresh(credentials); err != nil {
+			fmt.Fprintf(os.Stderr, "[oauth-refresh] persist failed for %s: %v\n", app.Slug, err)
+			// Don't bail — the refreshed token still works in this
+			// process, we just lose it on restart. Better than a hard
+			// failure on what was a successful refresh.
+		}
+	}
+	// Retry the original call with the refreshed token. executeIntegrationTool
+	// reads from the same credentials map so the new token is picked up.
+	return executeIntegrationTool(app, tool, credentials, input)
+}
+
+// refreshOAuthAccessToken POSTs to the app's OAuth2 token endpoint with
+// grant_type=refresh_token and merges the response back into the credentials
+// map. Mutates credentials in place. Returns an error if the refresh fails.
+//
+// Some providers (notably Google) only return a NEW access_token on
+// refresh — they do NOT return a new refresh_token. We preserve the
+// existing refresh_token in that case. Other providers (Microsoft, some
+// Atlassian flows) rotate the refresh_token on every refresh — we accept
+// the new one and overwrite. The merge handles both correctly: any field
+// present in the response replaces the matching field in credentials.
+func refreshOAuthAccessToken(app *AppTemplate, credentials map[string]string) error {
+	cfg := app.Auth.OAuth2
+	if cfg == nil || cfg.TokenURL == "" {
+		return fmt.Errorf("no oauth2 token_url for %s", app.Slug)
+	}
+	rt := credentials["refresh_token"]
+	if rt == "" {
+		rt = credentials["refreshToken"]
+	}
+	if rt == "" {
+		return fmt.Errorf("no refresh_token in credentials")
+	}
+	clientID := credentials["client_id"]
+	if clientID == "" {
+		clientID = credentials["clientId"]
+	}
+	clientSecret := credentials["client_secret"]
+	if clientSecret == "" {
+		clientSecret = credentials["clientSecret"]
+	}
+	// Fall back to env vars so headless deploys without inline creds
+	// (the original env-var-only flow) still get auto-refresh.
+	if clientID == "" {
+		clientID = oauthEnvClientID(app.Slug)
+	}
+	if clientSecret == "" {
+		clientSecret = oauthEnvClientSecret(app.Slug)
+	}
+	if clientID == "" {
+		return fmt.Errorf("no client_id available for refresh")
+	}
+
+	form := neturl.Values{}
+	form.Set("grant_type", "refresh_token")
+	form.Set("refresh_token", rt)
+	form.Set("client_id", clientID)
+	if clientSecret != "" {
+		form.Set("client_secret", clientSecret)
+	}
+
+	req, err := http.NewRequest("POST", cfg.TokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	if clientSecret != "" {
+		req.SetBasicAuth(clientID, clientSecret)
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1_000_000))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("token endpoint http %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Accept either JSON or form-encoded responses (matching exchangeOAuthCode).
+	out := make(map[string]string)
+	if strings.Contains(resp.Header.Get("Content-Type"), "json") || (len(body) > 0 && body[0] == '{') {
+		var raw map[string]any
+		if err := json.Unmarshal(body, &raw); err != nil {
+			return fmt.Errorf("json decode: %w", err)
+		}
+		for k, v := range raw {
+			out[k] = fmt.Sprint(v)
+		}
+	} else {
+		values, err := neturl.ParseQuery(string(body))
+		if err != nil {
+			return fmt.Errorf("form decode: %w", err)
+		}
+		for k := range values {
+			out[k] = values.Get(k)
+		}
+	}
+	if out["access_token"] == "" {
+		return fmt.Errorf("no access_token in refresh response: %s", string(body))
+	}
+	// Merge new tokens into credentials. Don't clobber the refresh_token
+	// if the response didn't include a new one (Google's behavior).
+	for k, v := range out {
+		credentials[k] = v
+	}
+	// Update the camelCase mirrors so resolveTemplate's normalization
+	// stays consistent for templates that use {{accessToken}} etc.
+	if v := out["access_token"]; v != "" {
+		credentials["accessToken"] = v
+		credentials["token"] = v
+	}
+	if v := out["refresh_token"]; v != "" {
+		credentials["refreshToken"] = v
+	}
+	return nil
 }
 
 func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any) (*ExecuteResult, error) {
@@ -195,6 +408,41 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	headers := buildHeaders(app.Auth.Headers, credentials)
 	headers["Accept"] = "application/json"
 
+	// Tool-level query_params: a set of input field names that must be
+	// sent in the URL query string regardless of HTTP method. Required
+	// for APIs that mix query+body on POST/PUT (Google Sheets'
+	// values:append wants valueInputOption in the URL but the ValueRange
+	// in the body). The set is built once and consulted for both the
+	// body-building path (POST/PUT/PATCH) and the all-params-to-query
+	// path (GET/DELETE) below. Empty when the template doesn't declare
+	// query_params, in which case the new code path is a complete no-op
+	// and behavior is identical to before — which is why this change is
+	// safe for the other 261 templates that don't use the field.
+	toolQuerySet := make(map[string]bool, len(tool.QueryParams))
+	for _, name := range tool.QueryParams {
+		toolQuerySet[name] = true
+	}
+	// Collect tool-declared query params from input. Skip empty-string
+	// values so optional fields don't become noisy ?foo= in the URL.
+	var toolQueryParts []string
+	for _, name := range tool.QueryParams {
+		v, ok := input[name]
+		if !ok || v == nil {
+			continue
+		}
+		if str, isStr := v.(string); isStr && str == "" {
+			continue
+		}
+		toolQueryParts = append(toolQueryParts, fmt.Sprintf("%s=%v", name, v))
+	}
+	if len(toolQueryParts) > 0 {
+		sep := "&"
+		if !strings.Contains(url, "?") {
+			sep = "?"
+		}
+		url += sep + strings.Join(toolQueryParts, "&")
+	}
+
 	// Build body for POST/PUT/PATCH
 	var bodyReader io.Reader
 	if tool.Method != "GET" && tool.Method != "DELETE" {
@@ -214,6 +462,11 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			if strings.Contains(tool.Path, "{"+k+"}") {
 				continue
 			}
+			// Skip tool-declared query params — they were peeled out
+			// above and added to the URL.
+			if toolQuerySet[k] {
+				continue
+			}
 			// Don't override credential defaults with empty values
 			if str, ok := v.(string); ok && str == "" {
 				continue
@@ -226,12 +479,18 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			headers["Content-Type"] = "application/json"
 		}
 	} else {
-		// GET/DELETE: add remaining params as query string
+		// GET/DELETE: add remaining params as query string. Skip
+		// path params and tool-declared query params (already added
+		// above) to avoid emitting them twice.
 		var qparts []string
 		for k, v := range input {
-			if !strings.Contains(tool.Path, "{"+k+"}") {
-				qparts = append(qparts, fmt.Sprintf("%s=%v", k, v))
+			if strings.Contains(tool.Path, "{"+k+"}") {
+				continue
 			}
+			if toolQuerySet[k] {
+				continue
+			}
+			qparts = append(qparts, fmt.Sprintf("%s=%v", k, v))
 		}
 		if len(qparts) > 0 {
 			sep := "&"
@@ -313,6 +572,12 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		Credentials map[string]string `json:"credentials"`
 		ProjectID   string            `json:"project_id"`
 		ProviderID  int64             `json:"provider_id"` // required for source=composio
+		// Local OAuth2 only: the user's own OAuth app credentials, collected
+		// from the dashboard form on first connect to a given app+project.
+		// Folded into the connection's encrypted blob so subsequent connects
+		// to the same app skip the form entirely.
+		ClientID     string `json:"client_id"`
+		ClientSecret string `json:"client_secret"`
 		// Composio-only: which upstream auth mode to configure (OAUTH2, API_KEY, BASIC, ...)
 		// and two credential maps — one for auth_config creation and one for
 		// the per-connection link (Composio schema distinguishes them).
@@ -395,16 +660,30 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if body.AuthType == "" {
-		if len(app.Auth.Types) > 0 {
+		// Auto-pick the most appropriate auth type for this app. Many
+		// templates list both "bearer" and "oauth2" — bearer because the
+		// access token IS a bearer token, oauth2 because that's how to
+		// obtain it. We always prefer oauth2 in that case (and prefer
+		// it whenever an oauth2 block exists), otherwise fall back to
+		// the first declared type, otherwise default to api_key.
+		//
+		// Without this preference, Google Sheets and similar apps were
+		// silently routed through the non-OAuth path on connect: the
+		// server stored an empty credentials blob and marked the row
+		// active without ever triggering the OAuth popup.
+		switch {
+		case app.Auth.OAuth2 != nil && containsString(app.Auth.Types, "oauth2"):
+			body.AuthType = "oauth2"
+		case len(app.Auth.Types) > 0:
 			body.AuthType = app.Auth.Types[0]
-		} else {
+		default:
 			body.AuthType = "api_key"
 		}
 	}
 
 	// Local OAuth2 — two-phase: start flow, return authorize URL, finish in callback.
 	if body.AuthType == "oauth2" {
-		conn, authURL, err := s.startLocalOAuth(userID, app, body.Name, body.ProjectID)
+		conn, authURL, err := s.startLocalOAuth(userID, app, body.Name, body.ProjectID, body.ClientID, body.ClientSecret)
 		if err != nil {
 			http.Error(w, "oauth start: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -661,11 +940,133 @@ func (s *Server) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
 	var credentials map[string]string
 	json.Unmarshal([]byte(plain), &credentials)
 
-	result, err := executeIntegrationTool(app, tool, credentials, body.Input)
+	// Auto-refresh OAuth tokens on 401 + persist back to DB.
+	persist := func(updated map[string]string) error {
+		blob, err := json.Marshal(updated)
+		if err != nil {
+			return err
+		}
+		enc, err := Encrypt(s.secret, string(blob))
+		if err != nil {
+			return err
+		}
+		return s.store.UpdateConnectionCredentials(connID, enc)
+	}
+	result, err := executeIntegrationToolWithRefresh(app, tool, credentials, body.Input, persist)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 
 	writeJSON(w, result)
+}
+
+// handleCreateScopedMCP creates an additional mcp_servers row over an
+// existing connection with a specific tool subset. Lets the dashboard
+// give different scopes to different sub-threads (read-only worker,
+// full-access main, etc.) without re-authorizing the upstream service.
+//
+// Body: { name: "google-sheets-readonly", allowed_tools: ["read_range", ...] }
+//
+// Validation:
+//   - name is required and unique within the project
+//   - allowed_tools must be non-empty (otherwise the user should just
+//     use the default unscoped MCP that gets created automatically)
+//   - every tool name must exist on the underlying app template
+//
+// The new row gets a fresh URL keyed on its mcp_servers.id, so two
+// scoped views over the same connection have distinct routing.
+func (s *Server) handleCreateScopedMCP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	// Path: /connections/:id/mcp
+	path := strings.TrimPrefix(r.URL.Path, "/connections/")
+	idStr := strings.TrimSuffix(path, "/mcp")
+	connID, err := atoi64(idStr)
+	if err != nil {
+		http.Error(w, "invalid connection ID", http.StatusBadRequest)
+		return
+	}
+
+	conn, _, err := s.store.GetConnection(userID, connID)
+	if err != nil {
+		http.Error(w, "connection not found", http.StatusNotFound)
+		return
+	}
+
+	var body struct {
+		Name         string   `json:"name"`
+		AllowedTools []string `json:"allowed_tools"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	body.Name = strings.TrimSpace(body.Name)
+	if body.Name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	if len(body.AllowedTools) == 0 {
+		http.Error(w, "allowed_tools required — use the default mcp_server if you want all tools", http.StatusBadRequest)
+		return
+	}
+
+	app := s.catalog.Get(conn.AppSlug)
+	if app == nil {
+		http.Error(w, "app not found in catalog", http.StatusNotFound)
+		return
+	}
+
+	// Validate every tool name against the app template. Accept both
+	// bare names ("read_range") and slug-prefixed names
+	// ("google-sheets_read_range") since the agent might emit either.
+	valid := make(map[string]bool, len(app.Tools)*2)
+	for _, t := range app.Tools {
+		valid[t.Name] = true
+		valid[conn.AppSlug+"_"+t.Name] = true
+	}
+	var bad []string
+	for _, name := range body.AllowedTools {
+		if !valid[name] {
+			bad = append(bad, name)
+		}
+	}
+	if len(bad) > 0 {
+		http.Error(w, "unknown tool name(s): "+strings.Join(bad, ", "), http.StatusBadRequest)
+		return
+	}
+
+	// Insert the scoped row.
+	row, err := s.store.CreateMCPServerExt(MCPServerInput{
+		UserID:       userID,
+		Name:         body.Name,
+		Description:  fmt.Sprintf("Scoped view of %s — %d tools", conn.AppName, len(body.AllowedTools)),
+		Source:       "local",
+		Transport:    "http",
+		ConnectionID: conn.ID,
+		ProjectID:    conn.ProjectID,
+		AllowedTools: body.AllowedTools,
+		ToolCount:    len(app.Tools),
+	})
+	if err != nil {
+		http.Error(w, "create scoped mcp_server: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	serverPort := s.port
+	if serverPort == "" {
+		serverPort = "8080"
+	}
+	writeJSON(w, map[string]any{
+		"id":            row.ID,
+		"name":          row.Name,
+		"connection_id": conn.ID,
+		"app_slug":      conn.AppSlug,
+		"allowed_tools": body.AllowedTools,
+		"url":           fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, row.ID),
+	})
 }

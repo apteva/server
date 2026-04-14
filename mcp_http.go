@@ -10,7 +10,14 @@ import (
 )
 
 // handleMCPEndpoint serves Streamable HTTP MCP transport for integration connections.
-// Endpoint: POST/GET /mcp/:connection-id
+// Endpoint: POST/GET /mcp/:id
+//
+// :id is interpreted as an mcp_servers.id FIRST (the row holds both the
+// allowed_tools filter and the connection_id pointer). If that lookup
+// misses, we fall back to interpreting :id as a connection_id and use
+// the most recent mcp_servers row over that connection — this preserves
+// backward compatibility with URLs emitted by older builds and gives
+// existing single-MCP-per-connection setups zero-effort migration.
 //
 // POST: JSON-RPC request → JSON-RPC response (or SSE stream for streaming)
 // GET: SSE stream for server-initiated messages (notifications)
@@ -20,12 +27,29 @@ func (s *Server) handleMCPEndpoint(w http.ResponseWriter, r *http.Request) {
 	// MCP endpoints are localhost-only (core connects from same machine)
 	// No auth required — connection ID provides access scoping
 
-	// Parse connection ID from path: /mcp/123
+	// Parse the id from /mcp/123
 	idStr := strings.TrimPrefix(r.URL.Path, "/mcp/")
-	connectionID, err := strconv.ParseInt(idStr, 10, 64)
+	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		http.Error(w, "invalid connection ID", http.StatusBadRequest)
+		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
+	}
+
+	// Resolve to a connection + allowed_tools by trying mcp_servers.id
+	// first, then falling back to connection_id (legacy URL format).
+	var connectionID int64
+	var allowedTools []string
+
+	if srv, err := s.store.GetMCPServerByIDUnscoped(id); err == nil && srv != nil && srv.ConnectionID > 0 {
+		connectionID = srv.ConnectionID
+		allowedTools = srv.AllowedTools
+	} else {
+		// Legacy: id is a connection_id. Use the most recent mcp_servers
+		// row over that connection for the allowed_tools filter.
+		connectionID = id
+		if srv, err := s.store.FindMCPServerByConnection(connectionID); err == nil && srv != nil {
+			allowedTools = srv.AllowedTools
+		}
 	}
 
 	// Load connection (no user auth check — MCP clients don't have session cookies)
@@ -56,7 +80,7 @@ func (s *Server) handleMCPEndpoint(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPost:
-		s.handleMCPPost(w, r, app, credentials, connectionID)
+		s.handleMCPPost(w, r, app, credentials, connectionID, allowedTools)
 	case http.MethodGet:
 		// GET = SSE stream for server notifications (not needed for simple request-response)
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -73,7 +97,20 @@ func (s *Server) handleMCPEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppTemplate, credentials map[string]string, connectionID int64) {
+func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppTemplate, credentials map[string]string, connectionID int64, allowedTools []string) {
+	// Fast membership lookup for the tool filter. nil map = no filter.
+	var allowedSet map[string]bool
+	if len(allowedTools) > 0 {
+		allowedSet = make(map[string]bool, len(allowedTools)*2)
+		for _, name := range allowedTools {
+			allowedSet[name] = true
+			// Accept both bare and prefixed names (agents sometimes send
+			// "slug_toolname"). The registry uses prefixed names, but the
+			// native MCP tools/list emits bare ones.
+			allowedSet[app.Slug+"_"+name] = true
+			allowedSet[strings.TrimPrefix(name, app.Slug+"_")] = true
+		}
+	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1024*1024))
 	if err != nil {
 		http.Error(w, "read error", http.StatusBadRequest)
@@ -114,6 +151,16 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppT
 	case "tools/list":
 		var tools []map[string]any
 		for _, t := range app.Tools {
+			// Apply allowed_tools filter. When the MCP server row has a
+			// populated allowed_tools list, any tool not in the set is
+			// hidden from the client entirely — it can't see it, can't
+			// call it. Accepting both bare and slug-prefixed forms in
+			// allowedSet above lets callers that stored prefixed names
+			// (mcp_registry list output) and bare ones (native schema)
+			// both work.
+			if allowedSet != nil && !allowedSet[t.Name] {
+				continue
+			}
 			schema := map[string]any{"type": "object"}
 			if props, ok := t.InputSchema["properties"]; ok {
 				schema["properties"] = props
@@ -136,6 +183,17 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppT
 		}
 		json.Unmarshal(req.Params, &params)
 
+		// Enforce the allowed_tools filter at call time too — don't rely on
+		// the client having hidden the tool in its UI. Reject with a clear
+		// JSON-RPC error so the caller sees why.
+		if allowedSet != nil && !allowedSet[params.Name] {
+			rpcErr = &jsonRPCError{
+				Code:    -32601,
+				Message: fmt.Sprintf("tool %q is not enabled on this connection (filtered by allowed_tools)", params.Name),
+			}
+			break
+		}
+
 		// Find tool by name
 		var tool *AppToolDef
 		for i, t := range app.Tools {
@@ -147,7 +205,18 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppT
 		if tool == nil {
 			rpcErr = &jsonRPCError{Code: -32602, Message: fmt.Sprintf("unknown tool %q", params.Name)}
 		} else {
-			execResult, err := executeIntegrationTool(app, tool, credentials, params.Arguments)
+			persist := func(updated map[string]string) error {
+				blob, err := json.Marshal(updated)
+				if err != nil {
+					return err
+				}
+				enc, err := Encrypt(s.secret, string(blob))
+				if err != nil {
+					return err
+				}
+				return s.store.UpdateConnectionCredentials(connectionID, enc)
+			}
+			execResult, err := executeIntegrationToolWithRefresh(app, tool, credentials, params.Arguments, persist)
 			if err != nil {
 				result = map[string]any{
 					"content": []map[string]any{{"type": "text", "text": fmt.Sprintf("error: %v", err)}},

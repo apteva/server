@@ -116,6 +116,20 @@ func getUserID(r *http.Request) int64 {
 	return id
 }
 
+// GET /auth/status — public, returns the server's current registration mode
+// so the dashboard can decide whether to render a setup screen, a normal
+// login, or a locked-down "no signups" page. No auth required.
+func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"reg_mode":    s.regMode,
+		"needs_setup": s.regMode == "setup",
+	})
+}
+
 // POST /auth/register
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

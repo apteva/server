@@ -61,8 +61,10 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "list_integrations", Description: "Browse available integrations. Returns name, slug, description, tool count.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"query": {Type: "string", Description: "Search query"}}}},
 		{Name: "get_integration", Description: "Get full details of an integration including credential fields and tools.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}}, Required: []string{"slug"}}},
 		{Name: "list_connections", Description: "List active integration connections.", InputSchema: toolSchema{Type: "object"}},
-		{Name: "create_connection", Description: "Create a new integration connection. Credentials are stored securely — after creating, use the returned connect_now instruction to access tools. NEVER pass API keys to threads or include them in messages/directives.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}, "name": {Type: "string", Description: "Connection name"}, "credentials": {Type: "string", Description: "JSON string with credential fields matching the integration's auth config. Example: {\"api_key\": \"sk_...\"}"}}, Required: []string{"slug", "credentials"}}},
+		{Name: "create_connection", Description: "Create a new integration connection. Credentials are stored securely — after creating, use the returned connect_now instruction to access tools. NEVER pass API keys to threads or include them in messages/directives. Pass allowed_tools to scope the resulting MCP server row to a subset of the integration's tools (least-privilege). Omit or pass empty for all tools.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}, "name": {Type: "string", Description: "Connection name"}, "credentials": {Type: "string", Description: "JSON string with credential fields matching the integration's auth config. Example: {\"api_key\": \"sk_...\"}"}, "allowed_tools": {Type: "string", Description: "Comma-separated list of tool names to expose. Leave empty to expose all tools. Use list_integrations + get_integration to see the full set before picking."}}, Required: []string{"slug", "credentials"}}},
 		{Name: "delete_connection", Description: "Delete an integration connection.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Connection ID"}}, Required: []string{"id"}}},
+		{Name: "create_mcp_server_from_connection", Description: "Create a second MCP server row over an existing connection with a different tool scope. Lets a team give some workers a read-only surface while others see the full tool set over the same credentials.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"connection_id": {Type: "string", Description: "Connection ID to attach to"}, "name": {Type: "string", Description: "Friendly name for this scoped server (e.g. \"sheets-readonly\")"}, "allowed_tools": {Type: "string", Description: "Comma-separated list of tool names this view exposes. Required — use list_integrations/get_integration to pick."}}, Required: []string{"connection_id", "allowed_tools"}}},
+		{Name: "update_mcp_server_tools", Description: "Change the allowed_tools filter on an existing MCP server row. Pass an empty string to clear the filter (all tools re-enabled). Takes effect immediately for local MCP servers; remote (Composio) rows require a reconcile to propagate.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "MCP server ID"}, "allowed_tools": {Type: "string", Description: "Comma-separated tool names (empty = all)"}}, Required: []string{"id"}}},
 		// MCP Servers
 		{Name: "list_mcp_servers", Description: "List registered MCP servers with status, tool count, and mcp_url. Use the mcp_url with [[connect]] to access the server's tools.", InputSchema: toolSchema{Type: "object"}},
 		{Name: "create_mcp_server", Description: "Register a new custom MCP server.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"name": {Type: "string"}, "command": {Type: "string"}, "args": {Type: "string", Description: "Comma-separated arguments"}, "description": {Type: "string"}}, Required: []string{"name", "command"}}},
@@ -121,6 +123,11 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				if app := catalog.Get(c.AppSlug); app != nil {
 					tc = len(app.Tools)
 				}
+				// One entry per CONNECTION (not per scoped MCP view).
+				// The URL uses connection id which the HTTP endpoint
+				// handles via legacy fallback (most-recent server for
+				// this connection). Agents that need the list of every
+				// scoped view should call list_mcp_servers instead.
 				result = append(result, connWithServer{
 					Connection: c,
 					ToolCount:  tc,
@@ -181,19 +188,124 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				return nil, fmt.Errorf("create connection: %w", err)
 			}
 
-			store.CreateMCPServerFromConnection(userID, conn, len(app.Tools))
+			// Optional allowed_tools filter — scopes the resulting MCP server
+			// row to a subset of the integration's tools. Agents should
+			// prefer this over "all tools" to stay least-privilege.
+			allowedTools := parseCSV(args["allowed_tools"])
+			// Validate requested tools against the app's actual tool set —
+			// otherwise a typo silently drops to "no tools exposed" and the
+			// agent gets a confusing 0-tool MCP.
+			if len(allowedTools) > 0 {
+				valid := map[string]bool{}
+				for _, t := range app.Tools {
+					valid[t.Name] = true
+					valid[slug+"_"+t.Name] = true
+				}
+				var bad []string
+				for _, name := range allowedTools {
+					if !valid[name] {
+						bad = append(bad, name)
+					}
+				}
+				if len(bad) > 0 {
+					return nil, fmt.Errorf("unknown tool name(s) for %s: %s — call get_integration(slug=%q) to see the full list", slug, strings.Join(bad, ", "), slug)
+				}
+			}
+			toolCount := len(app.Tools)
+			if len(allowedTools) > 0 {
+				toolCount = len(allowedTools)
+			}
+			srvID, _ := store.CreateMCPServerFromConnection(userID, conn, toolCount, allowedTools)
 
-			// Return connection + server config for core to connect
+			// Return connection + server config for core to connect.
+			// URL is keyed on the mcp_servers row id (not the connection
+			// id) so this row gets a unique URL even if the user later
+			// creates additional scoped views over the same connection.
 			serverPort := os.Getenv("PORT")
 			if serverPort == "" {
 				serverPort = "8080"
 			}
-			mcpURL := fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, conn.ID)
+			mcpURL := fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, srvID)
 			return map[string]any{
 				"connection_id": conn.ID,
 				"status":        "connected",
-				"tools_count":   len(app.Tools),
+				"tools_count":   toolCount,
+				"allowed_tools": allowedTools,
 				"connect_now":   fmt.Sprintf("Use [[connect name=\"%s\" url=\"%s\" transport=\"http\"]] to access the tools. Credentials are securely stored — NEVER pass API keys to threads or include them in directives.", slug, mcpURL),
+			}, nil
+
+		case "create_mcp_server_from_connection":
+			connID, _ := parseIntArg(args["connection_id"])
+			scopedName, _ := args["name"].(string)
+			allowedTools := parseCSV(args["allowed_tools"])
+			if len(allowedTools) == 0 {
+				return nil, fmt.Errorf("allowed_tools is required — this tool exists to make a narrower view of an existing connection. Use list_mcp_servers if you want the default full-tool view.")
+			}
+			conn, _, err := store.GetConnection(userID, connID)
+			if err != nil {
+				return nil, fmt.Errorf("connection %d not found", connID)
+			}
+			app := catalog.Get(conn.AppSlug)
+			if app == nil {
+				return nil, fmt.Errorf("app %q not found in catalog", conn.AppSlug)
+			}
+			// Validate tool names against the app catalog.
+			valid := map[string]bool{}
+			for _, t := range app.Tools {
+				valid[t.Name] = true
+				valid[conn.AppSlug+"_"+t.Name] = true
+			}
+			var bad []string
+			for _, name := range allowedTools {
+				if !valid[name] {
+					bad = append(bad, name)
+				}
+			}
+			if len(bad) > 0 {
+				return nil, fmt.Errorf("unknown tool name(s): %s", strings.Join(bad, ", "))
+			}
+			if scopedName == "" {
+				scopedName = fmt.Sprintf("%s-scoped-%d", conn.AppSlug, len(allowedTools))
+			}
+			row, err := store.CreateMCPServerExt(MCPServerInput{
+				UserID:       userID,
+				Name:         scopedName,
+				Description:  fmt.Sprintf("Scoped view of %s — %d tools", conn.AppName, len(allowedTools)),
+				Source:       "local",
+				Transport:    "http",
+				ConnectionID: conn.ID,
+				ProjectID:    conn.ProjectID,
+				AllowedTools: allowedTools,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("create scoped mcp_server: %w", err)
+			}
+			serverPort := os.Getenv("PORT")
+			if serverPort == "" {
+				serverPort = "8080"
+			}
+			// URL is keyed on the mcp_servers row id (not the
+			// connection id) so two scoped views over the same
+			// connection get distinct URLs. The HTTP endpoint at
+			// /mcp/{id} resolves the row → connection + allowed_tools.
+			return map[string]any{
+				"id":            row.ID,
+				"name":          row.Name,
+				"connection_id": conn.ID,
+				"allowed_tools": allowedTools,
+				"url":           fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, row.ID),
+			}, nil
+
+		case "update_mcp_server_tools":
+			serverID, _ := parseIntArg(args["id"])
+			allowedTools := parseCSV(args["allowed_tools"])
+			if err := store.UpdateMCPServerAllowedTools(userID, serverID, allowedTools); err != nil {
+				return nil, err
+			}
+			return map[string]any{
+				"id":            serverID,
+				"allowed_tools": allowedTools,
+				"note":          "Local MCP servers take effect immediately. Composio (remote) servers need a reconcile to propagate — call composio reconcile from the dashboard or restart the instance.",
 			}, nil
 
 		case "delete_connection":
@@ -220,7 +332,8 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			for _, s := range servers {
 				sw := serverWithURL{MCPServerRecord: s}
 				if s.Source == "local" && s.ConnectionID > 0 {
-					sw.MCPURL = fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, s.ConnectionID)
+					// URL keyed on row id so scoped views are distinct.
+					sw.MCPURL = fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, s.ID)
 				}
 				result = append(result, sw)
 			}
@@ -373,7 +486,14 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			}
 
 			webhookPath := generateToken(16)
-			publicURL := os.Getenv("PUBLIC_URL")
+			// Resolve public base URL the same way the parent server does:
+			// server_settings.public_url > PUBLIC_URL env > localhost. The
+			// mcp-gateway runs as a subprocess with its own DB handle so we
+			// query the settings table directly here.
+			publicURL := store.GetSetting("public_url")
+			if publicURL == "" {
+				publicURL = os.Getenv("PUBLIC_URL")
+			}
 			var webhookURL string
 			if publicURL != "" {
 				webhookURL = strings.TrimSuffix(publicURL, "/") + "/webhooks/" + webhookPath
@@ -385,7 +505,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				webhookURL = fmt.Sprintf("http://127.0.0.1:%s/webhooks/%s", serverPort, webhookPath)
 			}
 
-			sub, err := store.CreateSubscription(userID, instanceID, conn.ID, subName, conn.AppSlug, "", webhookPath, "", threadID)
+			sub, err := store.CreateSubscription(userID, instanceID, conn.ID, subName, conn.AppSlug, "", webhookPath, "", threadID, conn.ProjectID, nil)
 			if err != nil {
 				return nil, fmt.Errorf("create subscription: %w", err)
 			}
@@ -599,4 +719,48 @@ func splitArgs(s string) []string {
 		}
 	}
 	return args
+}
+
+// parseCSV accepts either a comma-separated string, a JSON string array, or
+// a native []any / []string value (depending on how the MCP client encoded
+// the arg) and returns a clean de-duped slice of names. Used by the gateway
+// tools that take an allowed_tools list.
+func parseCSV(v any) []string {
+	if v == nil {
+		return nil
+	}
+	var raw []string
+	switch t := v.(type) {
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" {
+			return nil
+		}
+		// Accept JSON array syntax ["a","b"] too.
+		if strings.HasPrefix(s, "[") {
+			_ = json.Unmarshal([]byte(s), &raw)
+		}
+		if len(raw) == 0 {
+			raw = splitArgs(s)
+		}
+	case []any:
+		for _, item := range t {
+			if str, ok := item.(string); ok {
+				raw = append(raw, str)
+			}
+		}
+	case []string:
+		raw = t
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(raw))
+	for _, s := range raw {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }

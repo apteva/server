@@ -548,7 +548,13 @@ func (c *ComposioClient) FindMCPServerByName(name string) (*ComposioMCPServer, e
 // created, we keep the old toolkit list. That is a visible limitation but
 // it's better than a hard failure, and it matches Composio's own API
 // capabilities today.
-func (c *ComposioClient) CreateMCPServer(name string, toolkitSlugs []string, authConfigIDs []string) (*ComposioMCPServer, error) {
+// CreateMCPServer now accepts an optional `actions` list. When non-nil and
+// non-empty, the hosted MCP endpoint will only expose those action ids; the
+// default (nil/empty) continues to expose every tool from every toolkit in
+// the toolkit list. Composio's create endpoint is NOT idempotent for action
+// changes, so the reconciler versions the server name when the filter
+// changes — see reconcileComposioMCPServer.
+func (c *ComposioClient) CreateMCPServer(name string, toolkitSlugs []string, authConfigIDs []string, actions []string) (*ComposioMCPServer, error) {
 	body := map[string]any{
 		"name":                      name,
 		"toolkits":                  toolkitSlugs,
@@ -556,6 +562,9 @@ func (c *ComposioClient) CreateMCPServer(name string, toolkitSlugs []string, aut
 	}
 	if len(authConfigIDs) > 0 {
 		body["auth_config_ids"] = authConfigIDs
+	}
+	if len(actions) > 0 {
+		body["actions"] = actions
 	}
 	var out ComposioMCPServer
 	err := c.do("POST", "/api/v3/mcp/servers/custom", body, &out)
@@ -676,6 +685,76 @@ func mcpServerNameFor(endUserID string, toolkitSlugs []string) string {
 	return "apteva-" + suffix
 }
 
+// allowedToolsSuffix hashes the filter set into a short, stable suffix. Empty
+// input yields "" so the existing unversioned server name is preserved for
+// legacy rows that have no filter. A populated list is sorted first so order
+// doesn't churn the hash — identical sets always give the same suffix.
+func allowedToolsSuffix(allowed []string) string {
+	if len(allowed) == 0 {
+		return ""
+	}
+	sorted := append([]string(nil), allowed...)
+	sort.Strings(sorted)
+	sum := sha256.Sum256([]byte(strings.Join(sorted, ",")))
+	return "-v" + hex.EncodeToString(sum[:])[:8]
+}
+
+// ListToolkitActions returns the set of actions Composio exposes for a
+// toolkit slug. This powers the dashboard's tool-picker: the user sees every
+// available action and ticks the ones they want enabled on their MCP server
+// row. The server then persists those names as allowed_tools and passes them
+// to CreateMCPServer on the next reconcile.
+//
+// Composio's /api/v3/tools endpoint paginates; for most toolkits the count is
+// small (<200) but we still walk the cursor to be safe.
+func (c *ComposioClient) ListToolkitActions(toolkitSlug string) ([]ComposioAction, error) {
+	var out []ComposioAction
+	cursor := ""
+	for {
+		path := fmt.Sprintf("/api/v3/tools?toolkit_slug=%s&limit=100", toolkitSlug)
+		if cursor != "" {
+			path += "&cursor=" + cursor
+		}
+		var resp struct {
+			Items []struct {
+				Slug        string `json:"slug"`
+				Name        string `json:"name"`
+				Description string `json:"description"`
+				Toolkit     struct {
+					Slug string `json:"slug"`
+				} `json:"toolkit"`
+			} `json:"items"`
+			NextCursor string `json:"next_cursor"`
+		}
+		if err := c.do("GET", path, nil, &resp); err != nil {
+			return nil, err
+		}
+		for _, it := range resp.Items {
+			out = append(out, ComposioAction{
+				Slug:        it.Slug,
+				Name:        it.Name,
+				Description: it.Description,
+				Toolkit:     it.Toolkit.Slug,
+			})
+		}
+		if resp.NextCursor == "" || len(resp.Items) == 0 {
+			break
+		}
+		cursor = resp.NextCursor
+	}
+	return out, nil
+}
+
+// ComposioAction is a single action (tool) exposed by a Composio toolkit.
+// Slug is what gets passed in the `actions` array when creating an MCP
+// server — e.g. "GOOGLESHEETS_BATCH_GET_VALUES".
+type ComposioAction struct {
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Toolkit     string `json:"toolkit"`
+}
+
 // --- Server integration ---
 
 // handleComposioReconcile is a manual trigger for the Composio MCP
@@ -785,6 +864,26 @@ var testComposioBaseURL string
 // composioClientFor returns a Composio client authenticated with the credential
 // stored in the given providers row. Returns an error if the row is not a
 // Composio provider or the key is missing.
+// newComposioClient picks the first active Composio provider for the given
+// user and returns a client for it, or nil if none is configured. Used by
+// routes that need Composio-side info (toolkit actions, toolkit details)
+// without being tied to a specific provider id.
+func (s *Server) newComposioClient(userID int64) *ComposioClient {
+	providers, err := s.store.ListProviders(userID)
+	if err != nil {
+		return nil
+	}
+	for _, p := range providers {
+		if !strings.EqualFold(p.Name, "Composio") {
+			continue
+		}
+		if c, err := s.composioClientFor(userID, p.ID); err == nil {
+			return c
+		}
+	}
+	return nil
+}
+
 func (s *Server) composioClientFor(userID, providerID int64) (*ComposioClient, error) {
 	p, encData, err := s.store.GetProvider(userID, providerID)
 	if err != nil {
@@ -888,13 +987,42 @@ func (s *Server) reconcileComposioMCPServer(userID, providerID int64, projectID 
 
 	// Upsert one row per desired toolkit.
 	for slug, w := range desiredBySlug {
-		upstreamName := mcpServerNameFor(endUserID, []string{slug})
-
-		// Create or reuse the Composio MCP server for this single toolkit.
-		upstream, err := client.CreateMCPServer(upstreamName, []string{slug}, nil)
-		if err != nil {
-			return fmt.Errorf("create composio mcp for %s: %w", slug, err)
+		// Preserve any existing allowed_tools filter the user set through
+		// the dashboard or agent gateway. Without this, every reconcile
+		// would reset the filter back to "all tools".
+		existing, existedBefore := existingByName[slug]
+		var allowedTools []string
+		if existedBefore {
+			allowedTools = append([]string(nil), existing.AllowedTools...)
 		}
+
+		// Composio's create endpoint is non-idempotent for the action list:
+		// we can't modify an existing server's filter in place. When the
+		// user changes allowed_tools on a previously-created row we bump a
+		// version suffix so Composio creates a fresh hosted server and we
+		// rotate our mcp_servers.upstream_id + URL to point at it.
+		// Versioning is stable-hash based on the sorted action list, so
+		// repeated reconciles of the same filter reuse the same suffix.
+		variantSuffix := allowedToolsSuffix(allowedTools)
+		upstreamName := mcpServerNameFor(endUserID, []string{slug}) + variantSuffix
+
+		// If the variant suffix differs from the existing upstream_id's
+		// encoded variant, we'll need to create a new upstream. Detect by
+		// comparing the stored upstream name against the desired one.
+		var upstream *ComposioMCPServer
+		needsNewUpstream := !existedBefore || !strings.HasSuffix(existing.UpstreamID, variantSuffix)
+
+		if !needsNewUpstream && existing.UpstreamID != "" {
+			// Reuse the existing upstream — no change needed.
+			upstream = &ComposioMCPServer{ID: existing.UpstreamID, URL: existing.URL}
+		} else {
+			created, err := client.CreateMCPServer(upstreamName, []string{slug}, nil, allowedTools)
+			if err != nil {
+				return fmt.Errorf("create composio mcp for %s: %w", slug, err)
+			}
+			upstream = created
+		}
+
 		// Ensure a per-user instance exists.
 		if err := client.EnsureMCPInstance(upstream.ID, endUserID); err != nil {
 			return fmt.Errorf("ensure composio mcp instance for %s: %w", slug, err)
@@ -912,23 +1040,28 @@ func (s *Server) reconcileComposioMCPServer(userID, providerID int64, projectID 
 		description := fmt.Sprintf("Composio hosted MCP — %s", w.appName)
 
 		var localID int64
-		if existing, ok := existingByName[slug]; ok {
-			// Update URL in case upstream regenerated it.
+		if existedBefore {
+			// Update URL + upstream_id in case either rotated.
 			if err := s.store.UpdateMCPServerURL(existing.ID, connectURL); err != nil {
+				return err
+			}
+			if err := s.store.UpdateMCPServerUpstreamID(existing.ID, upstream.ID+variantSuffix); err != nil {
 				return err
 			}
 			localID = existing.ID
 			delete(existingByName, slug) // mark as handled so it isn't reaped below
 		} else {
 			row, err := s.store.CreateMCPServerExt(MCPServerInput{
-				UserID:      userID,
-				Name:        slug,
-				Description: description,
-				Source:      "remote",
-				Transport:   "http",
-				URL:         connectURL,
-				ProviderID:  providerID,
-				ProjectID:   projectID,
+				UserID:       userID,
+				Name:         slug,
+				Description:  description,
+				Source:       "remote",
+				Transport:    "http",
+				URL:          connectURL,
+				ProviderID:   providerID,
+				ProjectID:    projectID,
+				AllowedTools: allowedTools,
+				UpstreamID:   upstream.ID + variantSuffix,
 			})
 			if err != nil {
 				return err

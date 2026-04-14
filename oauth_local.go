@@ -46,14 +46,202 @@ func oauthEnvClientSecret(slug string) string {
 	return os.Getenv("OAUTH_" + strings.ToUpper(strings.ReplaceAll(slug, "-", "_")) + "_CLIENT_SECRET")
 }
 
-// localOAuthRedirectURI returns the redirect URI we register with upstream
-// providers. In local dev this is http://localhost:<port>/oauth/local/callback;
-// in hosted environments PUBLIC_URL overrides the scheme/host.
-func (s *Server) localOAuthRedirectURI() string {
-	if s.publicURL != "" {
-		return strings.TrimRight(s.publicURL, "/") + "/oauth/local/callback"
+// findStoredOAuthClient looks up OAuth client credentials a user has already
+// saved for this app+project combination. Strategy:
+//
+//   1. Walk the user's existing connections for the same project + slug + source=local,
+//      newest first.
+//   2. Decrypt each one's credentials blob and check for client_id/client_secret
+//      keys. The first hit wins.
+//
+// Returns ("", "") when nothing is found — callers fall back to env vars.
+//
+// Why connections-table reuse instead of a separate oauth_clients table:
+// it's the same encryption key, the same per-user/project scoping, and a
+// connection that already authorized successfully has, by definition, valid
+// client creds. Subsequent connects to the same app reuse them transparently
+// without the user having to re-enter anything.
+func (s *Server) findStoredOAuthClient(userID int64, projectID, slug string) (clientID, clientSecret string) {
+	conns, err := s.store.ListConnections(userID, projectID)
+	if err != nil {
+		return "", ""
 	}
-	return "http://localhost:" + s.port + "/oauth/local/callback"
+	for _, c := range conns {
+		if c.AppSlug != slug || c.Source != "local" {
+			continue
+		}
+		// We don't filter by status — even a 'pending' or 'failed' row
+		// might have client creds the user just saved before the OAuth
+		// dance broke. Better to reuse them than ask twice.
+		_, encData, err := s.store.GetConnection(userID, c.ID)
+		if err != nil || encData == "" {
+			continue
+		}
+		plain, err := Decrypt(s.secret, encData)
+		if err != nil {
+			continue
+		}
+		var data map[string]string
+		if err := json.Unmarshal([]byte(plain), &data); err != nil {
+			continue
+		}
+		id := data["client_id"]
+		secret := data["client_secret"]
+		if id != "" {
+			return id, secret
+		}
+	}
+	return "", ""
+}
+
+// handleOAuthClientStatus tells the dashboard whether OAuth client credentials
+// are already on file for a given user+project+app. It NEVER returns the
+// secret value — only a boolean and the (non-secret) client_id, plus the
+// callback URL the user will need to register with the upstream provider.
+//
+// GET /api/oauth/local/client?app_slug=github&project_id=abc
+func (s *Server) handleOAuthClientStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	slug := r.URL.Query().Get("app_slug")
+	projectID := r.URL.Query().Get("project_id")
+	if slug == "" {
+		http.Error(w, "app_slug required", http.StatusBadRequest)
+		return
+	}
+	id, secret := s.findStoredOAuthClient(userID, projectID, slug)
+	envID := oauthEnvClientID(slug)
+	resolved := id != "" || envID != ""
+	writeJSON(w, map[string]any{
+		"has_client_id":     id != "" || envID != "",
+		"has_client_secret": secret != "" || oauthEnvClientSecret(slug) != "",
+		"client_id":         id, // empty if only env-var path is set; we don't reveal env values
+		"source":            map[bool]string{true: "stored", false: "env"}[id != ""],
+		"resolved":          resolved,
+		"callback_url":      s.localOAuthRedirectURI(),
+	})
+}
+
+// handleServerSettings exposes the small key/value settings table to the
+// dashboard. GET returns every effective server-level setting plus where
+// each value came from (DB / env / unset). PUT upserts the keys provided
+// in the body, treating empty string as "delete".
+//
+// Today the only real key is public_url; the shape generalizes so we can
+// add more without touching the route.
+func (s *Server) handleServerSettings(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		dbURL := s.store.GetSetting("public_url")
+		envURL := s.publicURL // captured at boot
+		effective := dbURL
+		source := "db"
+		if effective == "" {
+			effective = envURL
+			source = "env"
+			if effective == "" {
+				source = "unset"
+			}
+		}
+		writeJSON(w, map[string]any{
+			"public_url": map[string]any{
+				"value":          dbURL,
+				"env_value":      envURL,
+				"effective":      effective,
+				"source":         source,
+				"oauth_callback": s.localOAuthRedirectURI(),
+			},
+		})
+		return
+
+	case http.MethodPut:
+		var body struct {
+			PublicURL *string `json:"public_url"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if body.PublicURL != nil {
+			v := strings.TrimSpace(*body.PublicURL)
+			// Light validation: if non-empty, must look like a URL with a
+			// scheme. We don't want to silently store garbage that breaks
+			// every webhook on the system.
+			if v != "" && !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
+				http.Error(w, "public_url must start with http:// or https://", http.StatusBadRequest)
+				return
+			}
+			if err := s.store.SetSetting("public_url", v); err != nil {
+				http.Error(w, "failed to save: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		// Re-read and return the new state so the dashboard can refresh
+		// its form fields without a second round-trip.
+		s.handleServerSettings(w, &http.Request{Method: http.MethodGet, Header: r.Header})
+		return
+
+	default:
+		http.Error(w, "GET or PUT", http.StatusMethodNotAllowed)
+	}
+}
+
+// resolveOAuthClient is the canonical OAuth client lookup. Order of precedence:
+//
+//   1. Explicit creds passed by the caller (the dashboard's create-connection
+//      form sends them when the user types into the inline client_id/secret
+//      fields).
+//   2. Already-saved creds on a prior local connection for the same user +
+//      project + app slug. Lets the user enter creds once per app per project.
+//   3. OAUTH_<SLUG>_CLIENT_ID / OAUTH_<SLUG>_CLIENT_SECRET env vars. Preserves
+//      the original headless deployment story and existing tests.
+//
+// Returns empty strings if nothing is set anywhere — caller decides whether
+// that's an error (it is for ClientIDRequired apps).
+func (s *Server) resolveOAuthClient(userID int64, projectID, slug, explicitID, explicitSecret string) (string, string) {
+	if explicitID != "" {
+		return explicitID, explicitSecret
+	}
+	storedID, storedSecret := s.findStoredOAuthClient(userID, projectID, slug)
+	if storedID != "" {
+		return storedID, storedSecret
+	}
+	return oauthEnvClientID(slug), oauthEnvClientSecret(slug)
+}
+
+// localOAuthRedirectURI returns the redirect URI we register with upstream
+// providers. Built off s.publicBaseURL() so it follows the DB → env → localhost
+// precedence and updates the moment the admin saves a new public URL in
+// Settings → Server (no restart required).
+func (s *Server) localOAuthRedirectURI() string {
+	return s.publicBaseURL() + "/oauth/local/callback"
+}
+
+// publicBaseURL is the canonical "where am I reachable from the outside"
+// resolver. Precedence:
+//
+//   1. server_settings.public_url — admin-editable from Settings → Server.
+//      Lets a self-hosted user fix the OAuth callback without restarting
+//      or shelling into the box. Stored in the same DB as everything else
+//      so it survives container redeploys and lives under SERVER_SECRET.
+//   2. PUBLIC_URL env var — the original boot-time setting, kept for
+//      headless deploys that prefer 12-factor config.
+//   3. http://localhost:<PORT> — the dev fallback. OAuth providers can't
+//      reach this, but everything else (links in logs, internal URLs)
+//      still works locally.
+//
+// Trailing slashes are stripped so callers can append paths directly.
+func (s *Server) publicBaseURL() string {
+	if v := s.store.GetSetting("public_url"); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	if s.publicURL != "" {
+		return strings.TrimRight(s.publicURL, "/")
+	}
+	return "http://localhost:" + s.port
 }
 
 // mintState generates a cryptographically random state token and persists it
@@ -118,26 +306,45 @@ func pkcePair() (verifier, challenge string, err error) {
 // startLocalOAuth creates a pending connection and returns the authorize URL
 // to redirect the user to. The caller is responsible for returning that URL to
 // the dashboard, which opens it in a popup.
-func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, projectID string) (*Connection, string, error) {
+func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, projectID, explicitClientID, explicitClientSecret string) (*Connection, string, error) {
 	if app.Auth.OAuth2 == nil {
 		return nil, "", fmt.Errorf("app %s has no oauth2 config", app.Slug)
 	}
 	cfg := app.Auth.OAuth2
-	clientID := oauthEnvClientID(app.Slug)
+	clientID, clientSecret := s.resolveOAuthClient(userID, projectID, app.Slug, explicitClientID, explicitClientSecret)
 	if cfg.ClientIDRequired && clientID == "" {
-		return nil, "", fmt.Errorf("OAUTH_%s_CLIENT_ID not set", strings.ToUpper(strings.ReplaceAll(app.Slug, "-", "_")))
+		return nil, "", fmt.Errorf("missing client_id for %s — set it in the connect form, on a prior connection, or via env var OAUTH_%s_CLIENT_ID",
+			app.Slug, strings.ToUpper(strings.ReplaceAll(app.Slug, "-", "_")))
 	}
 
-	// Create pending row with empty credentials
+	// Create pending row. If we have client credentials at this point, fold
+	// them into the encrypted blob immediately so the OAuth callback can
+	// read them back without trusting state. The blob is empty for users
+	// relying purely on env vars (existing behavior).
+	var initialBlob string
+	if clientID != "" {
+		creds := map[string]string{"client_id": clientID}
+		if clientSecret != "" {
+			creds["client_secret"] = clientSecret
+		}
+		credsJSON, _ := json.Marshal(creds)
+		enc, err := Encrypt(s.secret, string(credsJSON))
+		if err != nil {
+			return nil, "", fmt.Errorf("encrypt client creds: %w", err)
+		}
+		initialBlob = enc
+	}
+
 	conn, err := s.store.CreateConnectionExt(ConnectionInput{
-		UserID:    userID,
-		AppSlug:   app.Slug,
-		AppName:   app.Name,
-		Name:      connName,
-		AuthType:  "oauth2",
-		ProjectID: projectID,
-		Source:    "local",
-		Status:    "pending",
+		UserID:         userID,
+		AppSlug:        app.Slug,
+		AppName:        app.Name,
+		Name:           connName,
+		AuthType:       "oauth2",
+		ProjectID:      projectID,
+		Source:         "local",
+		Status:         "pending",
+		EncryptedCreds: initialBlob,
 	})
 	if err != nil {
 		return nil, "", err
@@ -167,6 +374,17 @@ func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, proje
 	if cfg.PKCE {
 		q.Set("code_challenge", challenge)
 		q.Set("code_challenge_method", "S256")
+	}
+	// Merge in provider-specific authorize params. We DO NOT let these
+	// override the standard params above (response_type / client_id /
+	// redirect_uri / scope / state / code_challenge*) — those are
+	// flow-critical and a malformed template shouldn't be able to break
+	// the OAuth handshake. Only "new" keys land. The clobber-protection
+	// is also why we can't just use q.Set blindly here.
+	for k, v := range cfg.ExtraAuthorizeParams {
+		if q.Get(k) == "" {
+			q.Set(k, v)
+		}
 	}
 
 	sep := "?"
@@ -213,14 +431,37 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	tokens, err := s.exchangeOAuthCode(app, code, row.PKCEVerifier)
+	// Recover any client_id/client_secret the user supplied at start. They
+	// were stored on the pending connection's encrypted blob by
+	// startLocalOAuth so the callback doesn't have to trust state and so
+	// env-var fallback still works for headless deploys.
+	var preBlobCreds map[string]string
+	if _, encData, err := s.store.GetConnection(row.UserID, row.ConnectionID); err == nil && encData != "" {
+		if plain, err := Decrypt(s.secret, encData); err == nil {
+			_ = json.Unmarshal([]byte(plain), &preBlobCreds)
+		}
+	}
+	preClientID, _ := preBlobCreds["client_id"]
+	preClientSecret, _ := preBlobCreds["client_secret"]
+
+	tokens, err := s.exchangeOAuthCode(app, code, row.PKCEVerifier, row.UserID, preClientID, preClientSecret)
 	if err != nil {
 		s.store.UpdateConnectionStatus(row.ConnectionID, "failed")
 		renderOAuthResult(w, false, "token exchange failed: "+err.Error())
 		return
 	}
 
-	encJSON, _ := json.Marshal(tokens)
+	// Merge the token bundle back onto the existing blob so we KEEP the
+	// client credentials in the row. This is what lets the next "Connect
+	// GitHub" within the same project skip the credentials form.
+	merged := make(map[string]string)
+	for k, v := range preBlobCreds {
+		merged[k] = v
+	}
+	for k, v := range tokens {
+		merged[k] = v
+	}
+	encJSON, _ := json.Marshal(merged)
 	enc, err := Encrypt(s.secret, string(encJSON))
 	if err != nil {
 		http.Error(w, "encryption failed", http.StatusInternalServerError)
@@ -245,10 +486,15 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 // exchangeOAuthCode performs the standard RFC 6749 authorization_code grant
 // against the catalog's token_url. Returns a flat string map the connection
 // executor can read.
-func (s *Server) exchangeOAuthCode(app *AppTemplate, code, pkceVerifier string) (map[string]string, error) {
+//
+// The userID + projectID + explicit ID/secret args drive the same
+// resolveOAuthClient precedence used at start: explicit creds win, then
+// stored creds on prior connections, then env vars. The pending row's
+// own blob (set by startLocalOAuth) is what the callback passes here as
+// the explicit args.
+func (s *Server) exchangeOAuthCode(app *AppTemplate, code, pkceVerifier string, userID int64, explicitClientID, explicitClientSecret string) (map[string]string, error) {
 	cfg := app.Auth.OAuth2
-	clientID := oauthEnvClientID(app.Slug)
-	clientSecret := oauthEnvClientSecret(app.Slug)
+	clientID, clientSecret := s.resolveOAuthClient(userID, "", app.Slug, explicitClientID, explicitClientSecret)
 
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")

@@ -112,8 +112,9 @@ func (s *Store) migrate() error {
 			(5, 'integrations', 'Apteva Local', '200+ app integrations (GitHub, Slack, Stripe, etc.)', '[]', 0, 15),
 			(6, 'embeddings', 'Voyage', 'Text embeddings', '["VOYAGE_API_KEY"]', 1, 20),
 			(7, 'tts', 'ElevenLabs', 'Text-to-speech', '["ELEVENLABS_API_KEY"]', 1, 30),
-			(8, 'browser', 'Browserbase', 'Browser automation', '["BROWSERBASE_API_KEY","BROWSERBASE_PROJECT_ID"]', 1, 40),
-			(9, 'integrations', 'Composio', '250+ app integrations via Composio (MCP-native)', '["COMPOSIO_API_KEY"]', 1, 16);
+			(8, 'browserbase', 'Browserbase', 'Cloud browser automation via Browserbase', '["BROWSERBASE_API_KEY","BROWSERBASE_PROJECT_ID"]', 1, 40),
+			(9, 'integrations', 'Composio', '250+ app integrations via Composio (MCP-native)', '["COMPOSIO_API_KEY"]', 1, 16),
+			(10, 'llm', 'NVIDIA', 'LLM inference via NVIDIA NIM (integrate.api.nvidia.com)', '["NVIDIA_API_KEY"]', 1, 14);
 
 		-- Update existing Fireworks provider type to include model override fields
 		UPDATE provider_types SET fields = '["FIREWORKS_API_KEY"]' WHERE id = 1;
@@ -236,6 +237,7 @@ func (s *Store) migrate() error {
 	// is_default removed — default is per-instance, stored in instances.config
 	s.db.Exec("ALTER TABLE instances ADD COLUMN mode TEXT DEFAULT 'autonomous'")
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN external_webhook_id TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN events TEXT DEFAULT ''")
 
 	// Unified connections + mcp_servers: source discriminator + hosted-provider refs
 	s.db.Exec("ALTER TABLE connections ADD COLUMN source TEXT DEFAULT 'local'")
@@ -244,6 +246,17 @@ func (s *Store) migrate() error {
 	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN transport TEXT DEFAULT 'stdio'")
 	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN url TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN provider_id INTEGER DEFAULT 0")
+	// Tool-level scoping. JSON array of allowed tool names. Empty string ('')
+	// means "all tools exposed by the underlying source are enabled" — the
+	// legacy behaviour we keep for existing rows. Populated means the MCP
+	// endpoint only serves those specific tools and rejects any tools/call
+	// targeting anything outside the list.
+	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN allowed_tools TEXT NOT NULL DEFAULT ''")
+	// upstream_id: used for source=remote rows (Composio) so we can track a
+	// versioned rename when the tool filter changes. Our mcp_servers.id
+	// stays stable for clients; upstream_id is rotated when we re-create
+	// the hosted server with a different action list.
+	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN upstream_id TEXT NOT NULL DEFAULT ''")
 
 	// Pending-OAuth state table for local catalog OAuth2 flows (composio OAuth is
 	// delegated and does not use this table).
@@ -257,9 +270,68 @@ func (s *Store) migrate() error {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
 
-	// Seed new provider types on existing DBs (idempotent)
+	// Seed new provider types on existing DBs (idempotent). The initial
+	// CREATE-TABLE seed above only fires on fresh schemas; this block
+	// catches upgrades so new provider types show up in the dashboard's
+	// "add provider" picker after a binary upgrade without requiring a
+	// DB reset.
 	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
 		(9, 'integrations', 'Composio', '250+ app integrations via Composio (MCP-native)', '["COMPOSIO_API_KEY"]', 1, 16)`)
+	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
+		(10, 'llm', 'NVIDIA', 'LLM inference via NVIDIA NIM (integrate.api.nvidia.com)', '["NVIDIA_API_KEY"]', 1, 14)`)
+	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
+		(11, 'browser', 'Local Browser', 'Local Chromium via chromedp (requires Chromium in the runtime image)', '[]', 0, 41)`)
+	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
+		(12, 'browser', 'Remote CDP', 'Connect to an existing Chrome over CDP (ws:// or http://)', '["CDP_URL"]', 1, 42)`)
+
+	// Fix historical row 8: it was seeded with type='browser' but its
+	// fields / name describe Browserbase. getBrowserConfig treats
+	// type='browser' as local-Chromium/CDP, so credentials saved under the
+	// old row were silently ignored at spawn time. Flip the type to
+	// 'browserbase' on existing installs. Idempotent — re-running is a
+	// no-op once the row has the correct type.
+	s.db.Exec(`UPDATE provider_types
+		SET type='browserbase',
+		    description='Cloud browser automation via Browserbase',
+		    fields='["BROWSERBASE_API_KEY","BROWSERBASE_PROJECT_ID"]'
+		WHERE id = 8 AND type='browser'`)
+	// And rewrite any providers rows already created against the broken
+	// seed so they start working immediately. The encrypted_data still
+	// holds valid Browserbase credentials — only the type column is wrong.
+	s.db.Exec(`UPDATE providers
+		SET type='browserbase'
+		WHERE type='browser' AND provider_type_id=8`)
+
+	// Server-wide settings table — simple key/value bag for things the
+	// admin needs to configure from the dashboard, not just from env
+	// vars at boot. Today: public_url. Tomorrow: anything else that
+	// belongs at the server level rather than per-user/per-project.
+	s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS server_settings (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+
+	// Migrate legacy local mcp_servers rows: the name was written as
+	// conn.AppName (display name with spaces like "OmniKit Storage") but
+	// it should be the slug (e.g. "omnikit-storage"). Sub-threads look
+	// up MCP servers by exact-match name at spawn time, and the LLM
+	// infers slug-form from tool prefixes — so display-name rows cause
+	// silent "worker got 0 tools" bugs.
+	//
+	// This UPDATE rewrites every local row to use the linked connection's
+	// app_slug as the name and keeps the pretty form in description.
+	// Safe to re-run: idempotent because name = app_slug is the new
+	// invariant, subsequent runs are a no-op.
+	s.db.Exec(`
+		UPDATE mcp_servers
+		SET
+			name = COALESCE((SELECT app_slug FROM connections WHERE id = mcp_servers.connection_id), name),
+			description = COALESCE((SELECT app_name FROM connections WHERE id = mcp_servers.connection_id), description)
+		WHERE source = 'local' AND connection_id > 0
+	`)
 
 	return nil
 }
@@ -444,10 +516,36 @@ func (s *Store) ListInstances(userID int64, projectID string) ([]Instance, error
 
 func (s *Store) UpdateInstance(inst *Instance) error {
 	_, err := s.db.Exec(
-		"UPDATE instances SET directive=?, mode=?, config=?, port=?, pid=?, status=?, project_id=? WHERE id=?",
-		inst.Directive, inst.Mode, inst.Config, inst.Port, inst.Pid, inst.Status, inst.ProjectID, inst.ID,
+		"UPDATE instances SET name=?, directive=?, mode=?, config=?, port=?, pid=?, status=?, project_id=? WHERE id=?",
+		inst.Name, inst.Directive, inst.Mode, inst.Config, inst.Port, inst.Pid, inst.Status, inst.ProjectID, inst.ID,
 	)
 	return err
+}
+
+// ListInstancesByStatus scans every user's instances for ones in the given
+// status. Used by the server's boot-time resume path to find everything
+// that was `running` before the last shutdown and re-spawn those cores.
+// The result is unsorted; callers that need ordering should sort themselves.
+func (s *Store) ListInstancesByStatus(status string) ([]Instance, error) {
+	rows, err := s.db.Query(
+		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, status, COALESCE(project_id,''), created_at
+		 FROM instances WHERE status = ?`,
+		status,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var instances []Instance
+	for rows.Next() {
+		var inst Instance
+		var createdAt string
+		rows.Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &createdAt)
+		inst.CreatedAt, _ = parseTime(createdAt)
+		instances = append(instances, inst)
+	}
+	return instances, nil
 }
 
 func (s *Store) DeleteInstance(userID, instanceID int64) error {
@@ -620,5 +718,35 @@ func (s *Store) GetChannelConfig(id int64) (string, error) {
 
 func (s *Store) DeleteChannel(id int64) error {
 	_, err := s.db.Exec("DELETE FROM channels WHERE id = ?", id)
+	return err
+}
+
+// --- server_settings (key/value bag) ---
+
+// GetSetting returns the stored value for a setting key, or "" if unset.
+// Errors are intentionally swallowed to "" so callers can treat missing and
+// errored the same — these settings are advisory overlays on env vars and
+// shouldn't break boot if the table is somehow unreachable.
+func (s *Store) GetSetting(key string) string {
+	var v string
+	err := s.db.QueryRow("SELECT value FROM server_settings WHERE key = ?", key).Scan(&v)
+	if err != nil {
+		return ""
+	}
+	return v
+}
+
+// SetSetting upserts a key/value. Empty value deletes the row so the
+// fallback chain (env var, default) re-engages cleanly.
+func (s *Store) SetSetting(key, value string) error {
+	if value == "" {
+		_, err := s.db.Exec("DELETE FROM server_settings WHERE key = ?", key)
+		return err
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO server_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+		key, value,
+	)
 	return err
 }

@@ -71,6 +71,20 @@ type OAuthConfig struct {
 	Scopes           []string `json:"scopes"`
 	ClientIDRequired bool     `json:"client_id_required"`
 	PKCE             bool     `json:"pkce"`
+	// Extra static query parameters merged into the authorize URL after
+	// the standard ones (response_type, client_id, redirect_uri, scope,
+	// state, code_challenge). Required by some providers to actually
+	// hand out a refresh_token. Examples:
+	//   Google: { "access_type": "offline", "prompt": "consent",
+	//             "include_granted_scopes": "true" }
+	//   Microsoft: { "prompt": "consent" }
+	// Without access_type=offline + prompt=consent on Google, the FIRST
+	// authorization yields both access + refresh tokens but every
+	// SUBSEQUENT one (after revocation/re-link) yields only an access
+	// token — you only ever get the refresh_token on the very first
+	// consent, and Google skips the consent screen by default for
+	// already-authorized apps.
+	ExtraAuthorizeParams map[string]string `json:"extra_authorize_params,omitempty"`
 }
 
 type AppToolDef struct {
@@ -79,7 +93,17 @@ type AppToolDef struct {
 	Method       string         `json:"method"`
 	Path         string         `json:"path"`
 	InputSchema  map[string]any `json:"input_schema"`
-	ResponsePath *string        `json:"response_path,omitempty"`
+	// Names of input fields that should be sent as URL query string
+	// parameters instead of being folded into the request body. Required
+	// for APIs that mix query+body on POST/PUT/PATCH (e.g. Google Sheets'
+	// values:append puts valueInputOption in the URL but the ValueRange
+	// object in the body). Without this, executeIntegrationTool sends
+	// every non-path field as body content and the API rejects the
+	// request — google-sheets.write_range / append_rows were broken
+	// before this field existed on the Go side. Mirrors the same field
+	// in @apteva/integrations/src/types.ts AppToolTemplate.
+	QueryParams []string `json:"query_params,omitempty"`
+	ResponsePath *string `json:"response_path,omitempty"`
 }
 
 // AppSummary is a lightweight version for catalog listing
@@ -249,21 +273,68 @@ func (s *Server) handleGetCatalogApp(w http.ResponseWriter, r *http.Request) {
 
 // --- Template resolution for HTTP execution ---
 
+// credAliases groups credential field names that should all resolve to
+// the same value. Within a group, the first non-empty value found in the
+// credentials map is mirrored under every other name in the group, so a
+// template using {{token}} works whether the credential blob has
+// `token`, `access_token`, `accessToken`, `bearer_token`, etc.
+//
+// This is what fixes 48 templates that ship with cred field names like
+// `accessToken`, `apiToken`, `authToken`, `apikey`, etc. and headers
+// using `{{token}}` or `{{api_key}}`. Without normalization the literal
+// substitution would leave the placeholder unresolved → 401 on every
+// outbound call.
+var credAliases = [][]string{
+	// Bearer access tokens — the canonical "API access" credential.
+	// Anything in this group becomes available under all other names.
+	{"access_token", "accessToken", "token", "bearer_token", "auth_token", "authToken"},
+	// API keys — same idea, plus the camelCase variants we keep seeing.
+	{"api_key", "apiKey", "apikey", "api_token", "apiToken", "x_api_key"},
+	// Refresh tokens
+	{"refresh_token", "refreshToken"},
+	// Token metadata
+	{"token_type", "tokenType"},
+	{"expires_in", "expiresIn"},
+	// OAuth client identity (mostly internal but template authors sometimes
+	// reference these in custom auth flows)
+	{"client_id", "clientId"},
+	{"client_secret", "clientSecret"},
+}
+
+// normalizeCredentials returns a copy of the credentials map with every
+// alias group filled in from the first non-empty member found. Order
+// inside each group is significant — earlier names are preferred as the
+// canonical value source.
+func normalizeCredentials(c map[string]string) map[string]string {
+	out := make(map[string]string, len(c)*2)
+	for k, v := range c {
+		out[k] = v
+	}
+	for _, group := range credAliases {
+		var val string
+		for _, name := range group {
+			if v, ok := out[name]; ok && v != "" {
+				val = v
+				break
+			}
+		}
+		if val == "" {
+			continue
+		}
+		for _, name := range group {
+			if existing, ok := out[name]; !ok || existing == "" {
+				out[name] = val
+			}
+		}
+	}
+	return out
+}
+
 func resolveTemplate(template string, credentials map[string]string) string {
+	norm := normalizeCredentials(credentials)
 	result := template
-	for key, val := range credentials {
+	for key, val := range norm {
 		result = strings.ReplaceAll(result, "{{"+key+"}}", val)
-	}
-	// Fallback mappings
-	if token, ok := credentials["access_token"]; ok {
-		result = strings.ReplaceAll(result, "{{token}}", token)
-	}
-	if token, ok := credentials["bearer_token"]; ok {
-		result = strings.ReplaceAll(result, "{{token}}", token)
-	}
-	if key, ok := credentials["api_key"]; ok {
-		result = strings.ReplaceAll(result, "{{token}}", key)
-		result = strings.ReplaceAll(result, "{{api_key}}", key)
 	}
 	return result
 }

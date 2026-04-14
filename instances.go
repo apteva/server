@@ -398,9 +398,46 @@ func (im *InstanceManager) StartTelegram(instanceID int64, token string) (string
 	return botName, nil
 }
 
+// browserDefaultsFor returns the recommended (width, height) for a given LLM
+// provider. Anthropic uses 1024×768 because its computer-use tool was trained
+// on that exact resolution and the docs recommend keeping screenshots at it.
+// Everything else uses 2000×1000 — a 2:1 widescreen that gives non-native
+// vision models more horizontal context per screenshot. Pure helper so both
+// the spawn path (getBrowserConfig) and the hot-attach path can share it.
+func browserDefaultsFor(providerName string) (int, int) {
+	if providerName == "anthropic" {
+		return 1024, 768
+	}
+	// 1600×800 — exact 2:1 at a common laptop width. Wide enough for
+	// desktop layouts without horizontal scroll, but small enough to
+	// keep screenshot token counts modest. Sweet spot for non-native
+	// vision models (Kimi, Gemini) where every pixel costs tokens.
+	return 1600, 800
+}
+
+// defaultProviderForInstance pulls the instance's preferred LLM provider
+// name out of inst.Config. Used to pick provider-aware defaults (e.g.
+// browser viewport size). Returns empty string when nothing is set,
+// which downstream callers treat as "non-Anthropic".
+func defaultProviderForInstance(inst *Instance) string {
+	if inst == nil || inst.Config == "" {
+		return ""
+	}
+	var ic map[string]any
+	if err := json.Unmarshal([]byte(inst.Config), &ic); err != nil || ic == nil {
+		return ""
+	}
+	name, _ := ic["default_provider"].(string)
+	return name
+}
+
 // getBrowserConfig returns the browser/computer config from providers if one exists.
 // Supports "browser" (local Chrome or existing CDP) and "browserbase" (cloud) provider types.
-func (s *Server) getBrowserConfig(userID int64, projectID ...string) map[string]any {
+// providerName picks the default viewport when WIDTH/HEIGHT aren't set on the
+// provider record — pass the name of the LLM that will run inside the
+// instance ("anthropic", "fireworks", "google", …). Empty string falls back
+// to the non-Anthropic widescreen default.
+func (s *Server) getBrowserConfig(userID int64, providerName string, projectID ...string) map[string]any {
 	providers, err := s.store.ListProviders(userID, projectID...)
 	if err != nil {
 		return nil
@@ -423,8 +460,12 @@ func (s *Server) getBrowserConfig(userID int64, projectID ...string) map[string]
 			continue
 		}
 
-		// Parse optional resolution from provider data (default 1024x768)
-		width, height := 1024, 768
+		// Parse optional resolution from provider data. Default depends on
+		// the LLM that will run in the instance: 1024×768 for Anthropic
+		// (matches Claude's native computer-use training), 2000×1000 for
+		// everything else (2:1 widescreen, better with non-native vision
+		// models like Kimi/Gemini). Override per-provider via WIDTH/HEIGHT.
+		width, height := browserDefaultsFor(providerName)
 		if w := data["WIDTH"]; w != "" {
 			fmt.Sscanf(w, "%d", &width)
 		}
@@ -568,7 +609,7 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 			providerEnv = map[string]string{}
 		}
 		pool := s.GetProviderPool(userID, inst.ProjectID)
-		if err := s.instances.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, inst.ProjectID), s.loadChannelConfigs(inst.ID)...); err != nil {
+		if err := s.instances.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, defaultProviderForInstance(inst), inst.ProjectID), s.loadChannelConfigs(inst.ID)...); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -634,13 +675,42 @@ func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, inst)
 
+	case http.MethodPut, http.MethodPatch:
+		// Rename / metadata edit. The only mutable field for now is name —
+		// directive/mode/config go through /instances/:id/config which also
+		// forwards to the running core. Keep this endpoint narrow on
+		// purpose so renaming a running instance never has to touch the
+		// core process.
+		var body struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		name := strings.TrimSpace(body.Name)
+		if name == "" {
+			http.Error(w, "name required", http.StatusBadRequest)
+			return
+		}
+		if len(name) > 100 {
+			http.Error(w, "name too long (max 100)", http.StatusBadRequest)
+			return
+		}
+		inst.Name = name
+		if err := s.store.UpdateInstance(inst); err != nil {
+			http.Error(w, "failed to update instance", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, inst)
+
 	case http.MethodDelete:
 		s.instances.Stop(inst.ID)
 		s.store.DeleteInstance(userID, instanceID)
 		writeJSON(w, map[string]string{"status": "deleted"})
 
 	default:
-		http.Error(w, "GET or DELETE", http.StatusMethodNotAllowed)
+		http.Error(w, "GET, PUT, or DELETE", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -676,6 +746,62 @@ func (s *Server) handleStopInstance(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /instances/:id/start
+// ResumeRunningInstances is the boot-time recovery path. When the server
+// starts, every instance in the DB marked `status='running'` is assumed to
+// have been left in that state by a previous server process — its core
+// subprocess died when the server died (child of the same process group).
+//
+// We walk every such row and re-Start each one: spawn a fresh channels MCP
+// subprocess, spawn a fresh core that connects to it, write a new
+// instance_X/config.json with the live URLs, and populate the in-memory
+// process map. Without this, a `go build && restart` silently orphans
+// every running core — the DB still says "running" but nothing responds,
+// and you only notice when you try to chat.
+//
+// Any instance that fails to resume (missing provider credentials, port
+// already taken, bad config, etc.) is flipped to `stopped` in the DB so
+// the dashboard's Start button can try again cleanly.
+func (s *Server) ResumeRunningInstances() {
+	rows, err := s.store.ListInstancesByStatus("running")
+	if err != nil {
+		log.Printf("[RESUME] list running instances: %v", err)
+		return
+	}
+	if len(rows) == 0 {
+		return
+	}
+	log.Printf("[RESUME] found %d instance(s) marked running in DB — re-spawning cores", len(rows))
+
+	for i := range rows {
+		inst := &rows[i]
+		providerEnv, err := s.store.GetAllProviderEnvVars(inst.UserID, s.secret, inst.ProjectID)
+		if err != nil {
+			providerEnv = map[string]string{}
+		}
+		pool := s.GetProviderPool(inst.UserID, inst.ProjectID)
+
+		if err := s.instances.Start(
+			inst,
+			providerEnv,
+			s.port,
+			pool,
+			s.instanceSecret,
+			s.getBrowserConfig(inst.UserID, defaultProviderForInstance(inst), inst.ProjectID),
+			s.loadChannelConfigs(inst.ID)...,
+		); err != nil {
+			log.Printf("[RESUME] instance %d (%s): start failed: %v — marking stopped", inst.ID, inst.Name, err)
+			inst.Status = "stopped"
+			s.store.UpdateInstance(inst)
+			continue
+		}
+
+		// Start() mutates inst.Port + Pid + Status to the new values;
+		// persist them so the UI reflects the fresh process state.
+		s.store.UpdateInstance(inst)
+		log.Printf("[RESUME] instance %d (%s): resumed on port %d pid %d", inst.ID, inst.Name, inst.Port, inst.Pid)
+	}
+}
+
 func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -707,7 +833,7 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	pool := s.GetProviderPool(userID, inst.ProjectID)
 
-	if err := s.instances.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, inst.ProjectID), s.loadChannelConfigs(inst.ID)...); err != nil {
+	if err := s.instances.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, defaultProviderForInstance(inst), inst.ProjectID), s.loadChannelConfigs(inst.ID)...); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -748,7 +874,7 @@ func (s *Server) handleRestartInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	pool := s.GetProviderPool(userID, inst.ProjectID)
 
-	if err := s.instances.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, inst.ProjectID), s.loadChannelConfigs(inst.ID)...); err != nil {
+	if err := s.instances.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, defaultProviderForInstance(inst), inst.ProjectID), s.loadChannelConfigs(inst.ID)...); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -808,7 +934,6 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 
 	// PUT — read body, update DB fields, then proxy FULL body to core
 	bodyBytes, _ := io.ReadAll(r.Body)
-	log.Printf("[CONFIG] PUT /instances/%d/config body=%s", inst.ID, truncStr(string(bodyBytes), 400))
 
 	var body struct {
 		Directive string         `json:"directive"`
@@ -817,6 +942,46 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		Providers []map[string]any `json:"providers"`
 	}
 	json.Unmarshal(bodyBytes, &body)
+
+	// Enrich computer config with credentials from the saved provider so the
+	// dashboard never has to handle them client-side. The dashboard sends a
+	// thin payload like {computer: {type: "browserbase"}} or
+	// {computer: {type: "service"}}; we look up the matching browser provider
+	// and inject api_key/project_id (browserbase) or url (service) before
+	// forwarding to the core. {computer: {type: ""}} (off) is forwarded
+	// as-is. {computer: {type: "local"}} also forwards untouched —
+	// chromedp doesn't need credentials.
+	var rawBody map[string]any
+	if err := json.Unmarshal(bodyBytes, &rawBody); err == nil && rawBody != nil {
+		if compRaw, ok := rawBody["computer"].(map[string]any); ok {
+			compType, _ := compRaw["type"].(string)
+			needsEnrich := (compType == "browserbase" || compType == "service") &&
+				compRaw["api_key"] == nil && compRaw["url"] == nil
+			if needsEnrich {
+				if browserCfg := s.getBrowserConfig(userID, defaultProviderForInstance(inst), inst.ProjectID); browserCfg != nil {
+					// getBrowserConfig returns a fully-populated map. Merge
+					// it into the request, but let the user's explicit type
+					// win (so "service" overrides a saved "browserbase",
+					// for instance).
+					for k, v := range browserCfg {
+						if _, set := compRaw[k]; !set {
+							compRaw[k] = v
+						}
+					}
+					// Force the user's requested type back in case
+					// browserCfg overwrote it via the merge.
+					compRaw["type"] = compType
+					rawBody["computer"] = compRaw
+					if newBytes, err := json.Marshal(rawBody); err == nil {
+						bodyBytes = newBytes
+					}
+				} else {
+					http.Error(w, fmt.Sprintf("no %s provider configured for this project", compType), http.StatusBadRequest)
+					return
+				}
+			}
+		}
+	}
 
 	if body.Directive != "" {
 		inst.Directive = body.Directive
@@ -854,12 +1019,11 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		coreKey := s.instances.GetCoreAPIKey(inst.ID)
 		resp, err := s.coreDoWithBootWait(inst.ID, "PUT", targetURL, bodyBytes, coreKey, http.Header{"Content-Type": []string{"application/json"}})
 		if err != nil {
-			log.Printf("[CONFIG] PUT forward to core failed: %v", err)
+			log.Printf("[CONFIG] PUT forward to core failed instance=%d: %v", inst.ID, err)
 			http.Error(w, fmt.Sprintf("core unreachable: %v", err), http.StatusBadGateway)
 			return
 		}
 		defer resp.Body.Close()
-		log.Printf("[CONFIG] PUT forward to core status=%d", resp.StatusCode)
 		for k, v := range resp.Header {
 			w.Header()[k] = v
 		}
@@ -870,13 +1034,6 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[CONFIG] PUT but instance not running (port=0), returning stale instance data")
 	writeJSON(w, inst)
-}
-
-func truncStr(s string, n int) string {
-	if len(s) > n {
-		return s[:n] + "…"
-	}
-	return s
 }
 
 // Proxy handler: forwards to core instance's API
