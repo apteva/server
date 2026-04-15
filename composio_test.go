@@ -512,7 +512,7 @@ func TestComposio_CreateMCPServer_UsesCustomEndpoint(t *testing.T) {
 		})
 	})
 
-	srv, err := m.client().CreateMCPServer("apteva-proj-sheets", []string{"github", "pushover"}, nil)
+	srv, err := m.client().CreateMCPServer("apteva-proj-sheets", []string{"github", "pushover"}, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateMCPServer: %v", err)
 	}
@@ -604,7 +604,7 @@ func TestComposio_CreateMCPServer_DuplicateNameFallsBackToLookup(t *testing.T) {
 		})
 	})
 
-	srv, err := m.client().CreateMCPServer("apteva-abc", []string{"pushover"}, nil)
+	srv, err := m.client().CreateMCPServer("apteva-abc", []string{"pushover"}, nil, nil)
 	if err != nil {
 		t.Fatalf("CreateMCPServer: %v", err)
 	}

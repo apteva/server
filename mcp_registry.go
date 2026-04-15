@@ -825,9 +825,17 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 		conn, _, err := s.store.GetConnection(userID, record.ConnectionID)
 		if err == nil {
 			if app := s.catalog.Get(conn.AppSlug); app != nil {
+				// Prefix with the MCP row's own name rather than the app
+				// slug. For the default row these are the same, but for
+				// additional connections of the same app (socialcast-2,
+				// socialcast-3) this lets the agent distinguish them.
+				prefix := record.Name
+				if prefix == "" {
+					prefix = conn.AppSlug
+				}
 				for _, t := range app.Tools {
 					tools = append(tools, mcpToolDef{
-						Name:        conn.AppSlug + "_" + t.Name,
+						Name:        prefix + "_" + t.Name,
 						Description: fmt.Sprintf("[%s] %s", app.Name, t.Description),
 						InputSchema: t.InputSchema,
 					})

@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // Version is set at build time via -ldflags.
@@ -159,7 +162,7 @@ func main() {
 
 	s := &Server{
 		store:       store,
-		instances:   NewInstanceManager(dataDir, coreCmd, 3210),
+		instances:   NewInstanceManager(dataDir, coreCmd),
 		mcpManager:  NewMCPManager(),
 		catalog:     catalog,
 		appsDir:     appsDir,
@@ -254,8 +257,13 @@ func main() {
 	})
 
 	// Webhook receiver (unauthenticated — external services POST here).
-	// Stays at root because the URLs are registered upstream with Composio,
-	// GitHub, etc. — changing the path would break every registered webhook.
+	// One route, one handler, one URL shape: /webhooks/<opaque_token>.
+	// The handler dispatches internally based on which table the token
+	// matches: subscription rows (for per-sub upstream deliveries
+	// registered with the external service) or provider rows (for
+	// project-level trigger deliveries from Composio and friends).
+	// Opaque tokens mean the URL doesn't leak project id or provider
+	// kind and the route is future-proof for any new trigger backend.
 	mux.HandleFunc("/webhooks/", s.handleWebhook)
 
 	// Local OAuth2 callback (unauthenticated — upstream providers redirect here).
@@ -349,6 +357,13 @@ func main() {
 			// POST /api/connections/:id/mcp — create a scoped MCP server
 			// from an existing connection. Body: { name, allowed_tools }.
 			s.handleCreateScopedMCP(w, r)
+		} else if strings.HasSuffix(path, "/triggers") {
+			// GET /api/connections/:id/triggers — list Composio trigger
+			// types available for this connection's toolkit. Only
+			// meaningful for composio-source connections; returns 404
+			// for local. Used by the dashboard subscription create form
+			// to populate the trigger picker.
+			s.handleConnectionTriggers(w, r)
 		} else if r.Method == http.MethodGet {
 			s.handleGetConnection(w, r)
 		} else {
@@ -542,6 +557,24 @@ func main() {
 	// Run async so a slow resume (many instances, slow provider probe)
 	// doesn't block the HTTP listener from accepting new requests.
 	go s.ResumeRunningInstances()
+
+	// Graceful shutdown: on SIGTERM or SIGINT (Ctrl+C), stop every
+	// tracked core child cleanly before we exit. Prevents today's
+	// "restart apteva-server and now half a dozen apteva-core zombies
+	// are sitting in the process table holding ports" situation. The
+	// StopAll handler uses SIGTERM → wait 5s → SIGKILL, which gives
+	// cores a chance to flush session state to disk. Port-0
+	// allocation (see instances.go allocPort) already ensures the
+	// surviving zombie scenario no longer CAUSES new bugs; this
+	// handler stops the zombies from existing at all on clean exit.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		sig := <-sigCh
+		fmt.Fprintf(os.Stderr, "\napteva-server received %s — stopping children\n", sig)
+		s.instances.StopAll(5 * time.Second)
+		os.Exit(0)
+	}()
 
 	fmt.Fprintf(os.Stderr, "apteva-server v%s running on :%s\n", Version, port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {

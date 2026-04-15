@@ -239,6 +239,47 @@ func (s *Store) migrate() error {
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN external_webhook_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN events TEXT DEFAULT ''")
 
+	// Provider webhook_token: per-provider-per-project opaque token used
+	// as the path component of /webhooks/<token>. The unified ingress
+	// handler matches this column for provider-backed trigger deliveries
+	// (Composio today; any other trigger backend tomorrow). Indexed so
+	// the ingress lookup is O(1) without decrypting blobs.
+	s.db.Exec("ALTER TABLE providers ADD COLUMN webhook_token TEXT DEFAULT ''")
+	s.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_providers_webhook_token ON providers(webhook_token) WHERE webhook_token != ''")
+
+	// Multi-connection support: dedupe any existing (user, project, name)
+	// collisions in mcp_servers by suffixing all but the oldest row with
+	// the row id, then enforce uniqueness with an index. Do the same for
+	// connections keyed on (user, project, app_slug, name). Both are
+	// idempotent on re-run because the suffixed names no longer collide.
+	s.db.Exec(`
+		UPDATE mcp_servers
+		SET name = name || '-' || id
+		WHERE id IN (
+			SELECT m1.id FROM mcp_servers m1
+			JOIN mcp_servers m2
+			  ON m1.user_id = m2.user_id
+			 AND COALESCE(m1.project_id,'') = COALESCE(m2.project_id,'')
+			 AND m1.name = m2.name
+			 AND m1.id > m2.id
+		)
+	`)
+	s.db.Exec(`
+		UPDATE connections
+		SET name = name || '-' || id
+		WHERE id IN (
+			SELECT c1.id FROM connections c1
+			JOIN connections c2
+			  ON c1.user_id = c2.user_id
+			 AND COALESCE(c1.project_id,'') = COALESCE(c2.project_id,'')
+			 AND c1.app_slug = c2.app_slug
+			 AND c1.name = c2.name
+			 AND c1.id > c2.id
+		)
+	`)
+	s.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_mcp_servers_name ON mcp_servers(user_id, project_id, name)")
+	s.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_name ON connections(user_id, project_id, app_slug, name)")
+
 	// Unified connections + mcp_servers: source discriminator + hosted-provider refs
 	s.db.Exec("ALTER TABLE connections ADD COLUMN source TEXT DEFAULT 'local'")
 	s.db.Exec("ALTER TABLE connections ADD COLUMN provider_id INTEGER DEFAULT 0")

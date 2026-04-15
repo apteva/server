@@ -755,6 +755,188 @@ type ComposioAction struct {
 	Toolkit     string `json:"toolkit"`
 }
 
+// --- Triggers ---
+
+// ComposioTriggerType describes one trigger template in Composio's catalog.
+// Slug is the unique key ("GMAIL_NEW_GMAIL_MESSAGE",
+// "GOOGLESHEETS_CELL_RANGE_VALUES_CHANGED", etc). Kind is "webhook" (real
+// push from upstream) or "poll" (Composio polls upstream on a schedule).
+// Config is the raw JSON schema describing trigger_config fields the caller
+// must supply when upserting an instance (e.g. spreadsheet_id, range).
+type ComposioTriggerType struct {
+	Slug         string                 `json:"slug"`
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description"`
+	Instructions string                 `json:"instructions"`
+	Kind         string                 `json:"type"` // "webhook" | "poll"
+	Toolkit      string                 `json:"toolkit"`
+	Config       map[string]interface{} `json:"config"`
+}
+
+// ListTriggerTypes fetches trigger templates for one or more toolkits from
+// Composio. Used by the dashboard Subscriptions tab to populate the
+// trigger picker when the connection's source is composio. Walks the
+// cursor in case a toolkit exposes more than `limit` triggers.
+func (c *ComposioClient) ListTriggerTypes(toolkitSlug string) ([]ComposioTriggerType, error) {
+	var out []ComposioTriggerType
+	cursor := ""
+	for {
+		path := fmt.Sprintf("/api/v3/triggers_types?toolkit_slugs=%s&limit=100", toolkitSlug)
+		if cursor != "" {
+			path += "&cursor=" + cursor
+		}
+		var resp struct {
+			Items []struct {
+				Slug         string                 `json:"slug"`
+				Name         string                 `json:"name"`
+				Description  string                 `json:"description"`
+				Instructions string                 `json:"instructions"`
+				Type         string                 `json:"type"`
+				Toolkit      struct {
+					Slug string `json:"slug"`
+				} `json:"toolkit"`
+				Config map[string]interface{} `json:"config"`
+			} `json:"items"`
+			NextCursor string `json:"next_cursor"`
+		}
+		if err := c.do("GET", path, nil, &resp); err != nil {
+			return nil, err
+		}
+		for _, it := range resp.Items {
+			out = append(out, ComposioTriggerType{
+				Slug:         it.Slug,
+				Name:         it.Name,
+				Description:  it.Description,
+				Instructions: it.Instructions,
+				Kind:         it.Type,
+				Toolkit:      it.Toolkit.Slug,
+				Config:       it.Config,
+			})
+		}
+		if resp.NextCursor == "" || len(resp.Items) == 0 {
+			break
+		}
+		cursor = resp.NextCursor
+	}
+	return out, nil
+}
+
+// UpsertTriggerInstance creates (or updates in place) a trigger instance
+// scoped to one connected account. Returns the Composio-assigned instance
+// id which we store as external_webhook_id on the apteva subscription row.
+func (c *ComposioClient) UpsertTriggerInstance(slug, connectedAccountID string, config map[string]any) (string, error) {
+	body := map[string]any{
+		"connected_account_id": connectedAccountID,
+		"trigger_config":       config,
+	}
+	var resp struct {
+		TriggerID string `json:"trigger_id"`
+		ID        string `json:"id"`
+	}
+	if err := c.do("POST", fmt.Sprintf("/api/v3/trigger_instances/%s/upsert", slug), body, &resp); err != nil {
+		return "", err
+	}
+	if resp.TriggerID != "" {
+		return resp.TriggerID, nil
+	}
+	return resp.ID, nil
+}
+
+// PatchTriggerInstance enables or disables an existing trigger instance
+// on Composio's side. Called from handleToggleSubscription when the sub's
+// connection is composio-sourced.
+func (c *ComposioClient) PatchTriggerInstance(triggerID string, enable bool) error {
+	status := "enable"
+	if !enable {
+		status = "disable"
+	}
+	return c.do("PATCH", fmt.Sprintf("/api/v3/trigger_instances/manage/%s", triggerID), map[string]any{"status": status}, nil)
+}
+
+// DeleteTriggerInstance permanently removes a trigger instance.
+func (c *ComposioClient) DeleteTriggerInstance(triggerID string) error {
+	return c.do("DELETE", fmt.Sprintf("/api/v3/trigger_instances/manage/%s", triggerID), nil, nil)
+}
+
+// ComposioWebhookSubscription represents the per-project webhook
+// destination Composio POSTs trigger events to. Exactly one allowed per
+// Composio project; the signing secret is returned on create only.
+type ComposioWebhookSubscription struct {
+	ID            string   `json:"id"`
+	WebhookURL    string   `json:"webhook_url"`
+	Version       string   `json:"version"`
+	EnabledEvents []string `json:"enabled_events"`
+	Secret        string   `json:"secret"`
+}
+
+// EnsureWebhookSubscription idempotently sets up the project-level
+// webhook subscription that receives all trigger events. Tries to find
+// an existing one first; if none exists, creates one and returns the
+// signing secret. If one exists but points at a different URL, updates
+// it via PATCH. Composio caps projects at one webhook_subscription so we
+// always converge to the same row.
+//
+// Callers persist the returned secret in the provider's encrypted blob
+// because Composio never returns it again after the initial create.
+func (c *ComposioClient) EnsureWebhookSubscription(webhookURL string, events []string) (*ComposioWebhookSubscription, error) {
+	if len(events) == 0 {
+		events = []string{"trigger.event"}
+	}
+	// Look for an existing subscription first.
+	var listResp struct {
+		Items []ComposioWebhookSubscription `json:"items"`
+	}
+	if err := c.do("GET", "/api/v3/webhook_subscriptions", nil, &listResp); err == nil && len(listResp.Items) > 0 {
+		existing := listResp.Items[0]
+		// If URL matches and events superset the desired ones, reuse.
+		if existing.WebhookURL == webhookURL && containsAll(existing.EnabledEvents, events) {
+			return &existing, nil
+		}
+		// Otherwise, patch it in place. PATCH response does NOT include
+		// the secret — caller is expected to have stashed it the first
+		// time around. We return the existing row sans secret; the
+		// caller code treats an empty secret on reuse as "already known".
+		patchBody := map[string]any{
+			"webhook_url":    webhookURL,
+			"enabled_events": events,
+		}
+		var patched ComposioWebhookSubscription
+		if err := c.do("PATCH", "/api/v3/webhook_subscriptions/"+existing.ID, patchBody, &patched); err != nil {
+			return nil, err
+		}
+		if patched.ID == "" {
+			patched.ID = existing.ID
+		}
+		return &patched, nil
+	}
+	// None exists — create it. This is the only path that returns the
+	// signing secret, so callers must persist it from this response.
+	body := map[string]any{
+		"webhook_url":    webhookURL,
+		"enabled_events": events,
+		"version":        "V3",
+	}
+	var created ComposioWebhookSubscription
+	if err := c.do("POST", "/api/v3/webhook_subscriptions", body, &created); err != nil {
+		return nil, err
+	}
+	return &created, nil
+}
+
+// containsAll reports whether every element of `want` is present in `got`.
+func containsAll(got, want []string) bool {
+	set := make(map[string]bool, len(got))
+	for _, g := range got {
+		set[g] = true
+	}
+	for _, w := range want {
+		if !set[w] {
+			return false
+		}
+	}
+	return true
+}
+
 // --- Server integration ---
 
 // handleComposioReconcile is a manual trigger for the Composio MCP
@@ -917,6 +1099,151 @@ func composioEndUserID(userID int64, projectID string) string {
 		return "proj:" + projectID
 	}
 	return fmt.Sprintf("user:%d", userID)
+}
+
+// ensureComposioWebhookSubscription idempotently registers a project-level
+// Composio webhook_subscription pointing back at apteva-server's unified
+// ingress route. Returns the signing secret so the caller can validate
+// inbound HMAC headers.
+//
+// The webhook URL uses an opaque per-provider token as its path
+// component — the unified /webhooks/<token> handler matches that token
+// against the providers.webhook_token column and dispatches to the
+// Composio trigger flow. No provider-name or project id ever appears
+// in the URL, which makes the route provider-agnostic (future trigger
+// backends like Svix or n8n will use the same endpoint) and prevents
+// URL enumeration.
+//
+// Flow:
+//  1. Load the Composio provider row and its webhook_token column.
+//     Mint a fresh token if empty and persist before touching Composio.
+//  2. Decrypt its credential blob to check for a cached signing secret.
+//  3. Call EnsureWebhookSubscription on Composio with our ingress URL.
+//  4. If Composio returns a secret (create path), persist it in the
+//     blob. If PATCH returns empty, keep the cached secret.
+//  5. Return the secret.
+//
+// Called lazily on the first Composio-source subscription create in a
+// project so users who never touch triggers never pay for the setup.
+func (s *Server) ensureComposioWebhookSubscription(userID int64, providerID int64, projectID string) (string, error) {
+	p, encData, err := s.store.GetProvider(userID, providerID)
+	if err != nil {
+		return "", fmt.Errorf("provider: %w", err)
+	}
+	if !strings.EqualFold(p.Name, "Composio") {
+		return "", fmt.Errorf("provider %d is not Composio", providerID)
+	}
+	// Mint + persist the webhook token before calling Composio so the
+	// ingress route resolves correctly the instant Composio starts
+	// delivering events. Existing rows keep their token.
+	var currentToken string
+	s.store.db.QueryRow("SELECT COALESCE(webhook_token,'') FROM providers WHERE id = ?", providerID).Scan(&currentToken)
+	if currentToken == "" {
+		currentToken = generateToken(16)
+		if err := s.store.SetProviderWebhookToken(providerID, currentToken); err != nil {
+			return "", fmt.Errorf("persist webhook_token: %w", err)
+		}
+	}
+
+	plain, err := Decrypt(s.secret, encData)
+	if err != nil {
+		return "", fmt.Errorf("decrypt provider: %w", err)
+	}
+	var blob map[string]string
+	_ = json.Unmarshal([]byte(plain), &blob)
+	if blob == nil {
+		blob = map[string]string{}
+	}
+
+	wantURL := s.publicBaseURL() + "/webhooks/" + currentToken
+	cachedURL := blob["composio_webhook_url"]
+	cachedSecret := blob["composio_webhook_secret"]
+
+	// Already bootstrapped at this URL? Reuse.
+	if cachedURL == wantURL && cachedSecret != "" {
+		return cachedSecret, nil
+	}
+
+	client, err := s.composioClientFor(userID, providerID)
+	if err != nil {
+		return "", err
+	}
+	sub, err := client.EnsureWebhookSubscription(wantURL, []string{"trigger.event"})
+	if err != nil {
+		return "", fmt.Errorf("composio webhook subscribe: %w", err)
+	}
+
+	// Composio only returns the secret on CREATE, not on PATCH or reuse.
+	secret := sub.Secret
+	if secret == "" {
+		secret = cachedSecret
+	}
+	if secret == "" {
+		return "", fmt.Errorf("composio webhook_subscriptions returned no signing secret — cannot validate inbound HMAC")
+	}
+
+	blob["composio_webhook_id"] = sub.ID
+	blob["composio_webhook_url"] = wantURL
+	blob["composio_webhook_secret"] = secret
+	updated, err := json.Marshal(blob)
+	if err != nil {
+		return "", err
+	}
+	encUpdated, err := Encrypt(s.secret, string(updated))
+	if err != nil {
+		return "", err
+	}
+	if err := s.store.UpdateProvider(userID, providerID, p.Type, p.Name, encUpdated); err != nil {
+		return "", err
+	}
+	return secret, nil
+}
+
+// GET /api/connections/:id/triggers — list Composio trigger templates
+// for the connection's toolkit. Only composio-source connections return
+// content; local-source returns 404. Response shape is designed to feed
+// directly into the dashboard trigger picker.
+func (s *Server) handleConnectionTriggers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	path := strings.TrimPrefix(r.URL.Path, "/connections/")
+	idStr := strings.TrimSuffix(path, "/triggers")
+	connID, err := atoi64(idStr)
+	if err != nil {
+		http.Error(w, "invalid connection id", http.StatusBadRequest)
+		return
+	}
+	conn, _, err := s.store.GetConnection(userID, connID)
+	if err != nil || conn == nil {
+		http.Error(w, "connection not found", http.StatusNotFound)
+		return
+	}
+	if conn.Source != "composio" {
+		http.Error(w, "triggers are only supported for composio connections", http.StatusNotFound)
+		return
+	}
+	if conn.ProviderID == 0 {
+		http.Error(w, "composio connection missing provider_id", http.StatusBadRequest)
+		return
+	}
+	client, err := s.composioClientFor(userID, conn.ProviderID)
+	if err != nil {
+		http.Error(w, "composio client: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	triggers, err := client.ListTriggerTypes(conn.AppSlug)
+	if err != nil {
+		http.Error(w, "list trigger types: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"connection_id": conn.ID,
+		"toolkit":       conn.AppSlug,
+		"triggers":      triggers,
+	})
 }
 
 // reconcileComposioMCPServer ensures there is exactly one remote mcp_servers

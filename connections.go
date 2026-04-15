@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -180,14 +181,85 @@ func (s *Store) CreateMCPServerFromConnection(userID int64, conn *Connection, to
 		b, _ := json.Marshal(allowedTools[0])
 		allowedJSON = string(b)
 	}
+	// Pick a unique name for this MCP row. First connection of an app in
+	// a project keeps the bare slug (so existing scenarios and tool
+	// prefixes keep working); any subsequent connection falls back to a
+	// suffixed form so both rows can coexist under the unique index on
+	// (user_id, project_id, name).
+	mcpName := s.uniqueMCPName(userID, conn.ProjectID, conn.AppSlug, conn.ID)
+	// Description is what the dashboard renders as the row's headline.
+	// Use the user-chosen connection name so two connections of the same
+	// app are visually distinguishable (e.g. "SocialCast work" vs
+	// "SocialCast personal"). Fall back to the app's display name for
+	// legacy callers that didn't set a connection name.
+	description := conn.Name
+	if description == "" {
+		description = conn.AppName
+	}
 	result, err := s.db.Exec(
 		"INSERT INTO mcp_servers (user_id, name, description, status, tool_count, source, connection_id, project_id, allowed_tools) VALUES (?, ?, ?, 'running', ?, 'local', ?, ?, ?)",
-		userID, conn.AppSlug, conn.AppName, toolCount, conn.ID, conn.ProjectID, allowedJSON,
+		userID, mcpName, description, toolCount, conn.ID, conn.ProjectID, allowedJSON,
 	)
 	if err != nil {
 		return 0, err
 	}
 	return result.LastInsertId()
+}
+
+// CanonicalMCPNameForConnection returns the canonical MCP server name used
+// as the tool-name prefix for a connection. It prefers the default (non-
+// scoped) mcp_servers row bound to that connection; if none is found (e.g.
+// the default row was deleted), it falls back to the app slug. This is the
+// string every dashboard-facing "list tools for connection X" path should
+// use to prefix bare tool names so agents can tell two connections for the
+// same app apart.
+func (s *Store) CanonicalMCPNameForConnection(connID int64) string {
+	var name string
+	// Prefer the oldest row (= auto-created default) over scoped copies.
+	s.db.QueryRow(
+		"SELECT name FROM mcp_servers WHERE connection_id = ? ORDER BY id ASC LIMIT 1",
+		connID,
+	).Scan(&name)
+	if name != "" {
+		return name
+	}
+	// Fallback: look up the connection's app slug directly.
+	var slug string
+	s.db.QueryRow("SELECT app_slug FROM connections WHERE id = ?", connID).Scan(&slug)
+	return slug
+}
+
+// uniqueMCPName returns a per-project unique MCP server name for the given
+// app slug. First connection of the app in the project keeps the bare slug
+// (backward-compat with existing scenarios + tool-prefix expectations);
+// any subsequent connection gets `${slug}-${connID}`, with a counter
+// appended if that's also already taken (can happen when a legacy row was
+// renamed by migration to exactly the suffix we'd otherwise generate).
+func (s *Store) uniqueMCPName(userID int64, projectID, appSlug string, connID int64) string {
+	nameTaken := func(candidate string) bool {
+		var count int
+		s.db.QueryRow(
+			"SELECT COUNT(*) FROM mcp_servers WHERE user_id = ? AND project_id = ? AND name = ?",
+			userID, projectID, candidate,
+		).Scan(&count)
+		return count > 0
+	}
+	if !nameTaken(appSlug) {
+		return appSlug
+	}
+	base := fmt.Sprintf("%s-%d", appSlug, connID)
+	if !nameTaken(base) {
+		return base
+	}
+	// Walk a counter until we land on a free name. Bounded to 1000 to
+	// avoid an infinite loop if the DB is in an unexpected state.
+	for i := 2; i < 1000; i++ {
+		candidate := fmt.Sprintf("%s.%d", base, i)
+		if !nameTaken(candidate) {
+			return candidate
+		}
+	}
+	return base // caller will still fail the insert — better than hanging
 }
 
 func (s *Store) DeleteMCPServerByConnection(connID int64) {
@@ -681,6 +753,18 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	// Enforce (user, project, app, name) uniqueness upfront so the user
+	// gets a readable error instead of a raw UNIQUE constraint violation.
+	var existingCount int
+	s.store.db.QueryRow(
+		"SELECT COUNT(*) FROM connections WHERE user_id = ? AND project_id = ? AND app_slug = ? AND name = ?",
+		userID, body.ProjectID, body.AppSlug, body.Name,
+	).Scan(&existingCount)
+	if existingCount > 0 {
+		http.Error(w, "a connection for this app with that name already exists in this project — pick a different name", http.StatusConflict)
+		return
+	}
+
 	// Local OAuth2 — two-phase: start flow, return authorize URL, finish in callback.
 	if body.AuthType == "oauth2" {
 		conn, authURL, err := s.startLocalOAuth(userID, app, body.Name, body.ProjectID, body.ClientID, body.ClientSecret)
@@ -717,7 +801,9 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "failed to create connection", http.StatusInternalServerError)
 		return
 	}
-	s.store.CreateMCPServerFromConnection(userID, conn, len(app.Tools))
+	if _, merr := s.store.CreateMCPServerFromConnection(userID, conn, len(app.Tools)); merr != nil {
+		log.Printf("[CONN-CREATE] auto-mcp failed for conn %d (%s/%s): %v", conn.ID, conn.AppSlug, conn.Name, merr)
+	}
 	writeJSON(w, conn)
 }
 
@@ -813,6 +899,20 @@ func (s *Server) handleDeleteConnection(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Cascade delete any subscriptions bound to this connection. When the
+	// app template has webhook registration config we also try to
+	// unregister each external webhook upstream — best-effort, we don't
+	// block the local delete on a 4xx/5xx from a third-party.
+	if subs, _ := s.store.ListSubscriptionsByConnection(userID, connID); len(subs) > 0 {
+		app := s.catalog.Get(conn.AppSlug)
+		for _, sub := range subs {
+			if app != nil && app.Webhooks != nil && app.Webhooks.Registration != nil && app.Webhooks.Registration.DeletePath != "" && sub.ExternalWebhookID != "" {
+				s.unregisterUpstreamWebhook(conn, app, sub.ExternalWebhookID)
+			}
+			s.store.DeleteSubscription(userID, sub.ID)
+		}
+	}
+
 	switch conn.Source {
 	case "composio":
 		if client, cerr := s.composioClientFor(userID, conn.ProviderID); cerr == nil && conn.ExternalID != "" {
@@ -821,8 +921,6 @@ func (s *Server) handleDeleteConnection(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 		s.store.DeleteConnection(userID, connID)
-		// Reconcile aggregate MCP server (may remove it if this was the last
-		// Composio connection in the project).
 		if rerr := s.reconcileComposioMCPServer(userID, conn.ProviderID, conn.ProjectID); rerr != nil {
 			fmt.Fprintf(os.Stderr, "composio reconcile: %v\n", rerr)
 		}
@@ -869,10 +967,11 @@ func (s *Server) handleConnectionTools(w http.ResponseWriter, r *http.Request) {
 		Path        string         `json:"path"`
 		InputSchema map[string]any `json:"input_schema"`
 	}
+	prefix := s.store.CanonicalMCPNameForConnection(conn.ID)
 	var tools []ToolInfo
 	for _, t := range app.Tools {
 		tools = append(tools, ToolInfo{
-			Name:        conn.AppSlug + "_" + t.Name,
+			Name:        prefix + "_" + t.Name,
 			Description: fmt.Sprintf("[%s] %s", app.Name, t.Description),
 			Method:      t.Method,
 			Path:        t.Path,
@@ -918,10 +1017,13 @@ func (s *Server) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find the tool
+	// Find the tool. Accept the bare name, the canonical MCP-prefixed form
+	// (for this specific connection), or the legacy app-slug-prefixed form
+	// so scenarios created before unique MCP names keep working.
+	prefix := s.store.CanonicalMCPNameForConnection(conn.ID)
 	var tool *AppToolDef
 	for i, t := range app.Tools {
-		if t.Name == body.Tool || conn.AppSlug+"_"+t.Name == body.Tool {
+		if t.Name == body.Tool || prefix+"_"+t.Name == body.Tool || conn.AppSlug+"_"+t.Name == body.Tool {
 			tool = &app.Tools[i]
 			break
 		}
@@ -1021,12 +1123,15 @@ func (s *Server) handleCreateScopedMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate every tool name against the app template. Accept both
-	// bare names ("read_range") and slug-prefixed names
-	// ("google-sheets_read_range") since the agent might emit either.
-	valid := make(map[string]bool, len(app.Tools)*2)
+	// Validate every tool name against the app template. Accept bare
+	// names, canonical-MCP-prefixed names (for this specific connection),
+	// and the legacy app-slug-prefixed form. The agent might emit any of
+	// these depending on how it discovered the tool.
+	canonPrefix := s.store.CanonicalMCPNameForConnection(conn.ID)
+	valid := make(map[string]bool, len(app.Tools)*3)
 	for _, t := range app.Tools {
 		valid[t.Name] = true
+		valid[canonPrefix+"_"+t.Name] = true
 		valid[conn.AppSlug+"_"+t.Name] = true
 	}
 	var bad []string

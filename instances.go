@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -27,26 +28,54 @@ type runningInstance struct {
 type InstanceManager struct {
 	mu        sync.RWMutex
 	processes map[int64]*runningInstance // instanceID → running process + port
-	basePort  int
-	nextPort  int
 	dataDir   string
-	coreCmd string // path to core binary
+	coreCmd   string // path to core binary
 }
 
-func NewInstanceManager(dataDir, coreCmd string, basePort int) *InstanceManager {
+func NewInstanceManager(dataDir, coreCmd string) *InstanceManager {
 	os.MkdirAll(dataDir, 0755)
 	return &InstanceManager{
 		processes: make(map[int64]*runningInstance),
-		basePort:  basePort,
-		nextPort:  basePort,
 		dataDir:   dataDir,
-		coreCmd: coreCmd,
+		coreCmd:   coreCmd,
 	}
 }
 
+// allocPort asks the OS for a free ephemeral port by binding to :0 and
+// immediately closing the listener. The kernel returns a high-numbered
+// port that's guaranteed free at the instant of the Listen call. We
+// hand that port to the child process, which binds it itself a few ms
+// later.
+//
+// This replaces the old counter+probe approach that made us vulnerable
+// to orphaned cores from previous apteva-server runs hijacking the same
+// port and poisoning the in-memory map. Port 0 allocation makes that
+// class of failure structurally impossible: the OS simply never returns
+// a port that's currently bound, so zombies can't collide.
+//
+// Cross-platform: binds-and-closes works identically on Linux, macOS,
+// Windows, BSD — every OS's TCP stack exposes port 0 allocation.
+//
+// Residual race: between our Close() and the child's subsequent
+// net.Listen (~10ms window), another process could in theory grab the
+// same high-numbered port. In practice this never happens — ephemeral
+// ranges are thousands of ports wide and kernels spread allocations
+// across them. If it ever does, the child's Listen fails and our
+// spawn-health-check catches it; the next Start call gets a different
+// port.
 func (im *InstanceManager) allocPort() int {
-	im.nextPort++
-	return im.nextPort
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		// Should be unreachable on any platform we target — the
+		// kernel always has ephemeral ports to hand out. Fall back to
+		// a high fixed port and let the caller's bind surface the
+		// eventual error.
+		log.Printf("[SPAWN] port 0 allocation failed: %v — falling back to 0 (let child pick)", err)
+		return 0
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+	return port
 }
 
 func (im *InstanceManager) instanceDir(id int64) string {
@@ -214,6 +243,20 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 		"main_access": true,
 	}
 
+	// Read the opt-out flags for the auto-injected system MCPs. Default
+	// true (= inject them) so existing instances keep the current
+	// behaviour. Setting either flag to false leaves that system MCP
+	// out of the merged config — the user gets a lean agent with only
+	// the MCPs they explicitly configured.
+	includeGateway := true
+	if v, ok := config["include_apteva_server"].(bool); ok {
+		includeGateway = v
+	}
+	includeChannels := true
+	if v, ok := config["include_channels"].(bool); ok {
+		includeChannels = v
+	}
+
 	// Merge apteva-server gateway and channels into existing MCP servers.
 	// Preserve all other MCP servers (schedule, social, helpdesk, etc.) that were
 	// added at runtime or manually. Only replace gateway + channels entries.
@@ -223,13 +266,20 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 			if sm, ok := s.(map[string]any); ok {
 				name, _ := sm["name"].(string)
 				if name == "apteva-server" || name == "channels" || name == "apteva-channels" {
-					continue // will be re-added with fresh URLs
+					continue // will be re-added with fresh URLs (if enabled)
 				}
 				userServers = append(userServers, sm)
 			}
 		}
 	}
-	config["mcp_servers"] = append([]any{gateway, channelsEntry}, userServers...)
+	var systemEntries []any
+	if includeGateway {
+		systemEntries = append(systemEntries, gateway)
+	}
+	if includeChannels {
+		systemEntries = append(systemEntries, channelsEntry)
+	}
+	config["mcp_servers"] = append(systemEntries, userServers...)
 
 	configData, _ := json.MarshalIndent(config, "", "  ")
 	os.WriteFile(filepath.Join(dir, "config.json"), configData, 0644)
@@ -529,6 +579,79 @@ func (s *Server) loadChannelConfigs(instanceID int64) []ChannelConfig {
 	return configs
 }
 
+// StopAll gracefully terminates every tracked child process. Called
+// from the SIGTERM/SIGINT signal handler in main so apteva-server's
+// children don't orphan when we're asked to shut down.
+//
+// Two-phase shutdown:
+//   1. SIGTERM every child, wait up to `graceful` for clean exits so
+//      cores can flush session state to disk and tell their own MCP
+//      children to pack up.
+//   2. Anything still alive after the deadline gets SIGKILL.
+//
+// Cross-platform caveat: on Windows os.Process.Signal only accepts
+// os.Kill, so SIGTERM silently maps to Kill there — graceful phase
+// collapses to hard kill. Unix gets the full two-phase behaviour.
+func (im *InstanceManager) StopAll(graceful time.Duration) {
+	im.mu.Lock()
+	procs := make([]*runningInstance, 0, len(im.processes))
+	for _, ri := range im.processes {
+		if ri != nil && ri.cmd != nil && ri.cmd.Process != nil {
+			procs = append(procs, ri)
+		}
+	}
+	im.mu.Unlock()
+
+	if len(procs) == 0 {
+		return
+	}
+	log.Printf("[SHUTDOWN] stopping %d tracked core process(es) — graceful %s", len(procs), graceful)
+
+	// Phase 1: polite SIGTERM.
+	for _, ri := range procs {
+		ri.cmd.Process.Signal(syscall.SIGTERM)
+	}
+
+	// Phase 2: wait per-process for clean exit, then SIGKILL the
+	// holdouts once the global deadline fires. Each Wait runs in its
+	// own goroutine so slow-draining cores don't serialise the loop.
+	deadline := time.After(graceful)
+	type waitResult struct {
+		pid  int
+		name string
+		err  error
+	}
+	results := make(chan waitResult, len(procs))
+	for _, ri := range procs {
+		go func(r *runningInstance) {
+			err := r.cmd.Wait()
+			results <- waitResult{pid: r.cmd.Process.Pid, err: err}
+		}(ri)
+	}
+
+	remaining := len(procs)
+	for remaining > 0 {
+		select {
+		case res := <-results:
+			log.Printf("[SHUTDOWN] core pid=%d exited: %v", res.pid, res.err)
+			remaining--
+		case <-deadline:
+			log.Printf("[SHUTDOWN] graceful deadline hit, SIGKILLing %d holdout core(s)", remaining)
+			for _, ri := range procs {
+				if ri.cmd.ProcessState == nil {
+					ri.cmd.Process.Kill()
+				}
+			}
+			// Drain the remaining Wait results so goroutines exit.
+			for remaining > 0 {
+				<-results
+				remaining--
+			}
+		}
+	}
+	log.Printf("[SHUTDOWN] all children stopped")
+}
+
 // IsRunning checks if an instance process is alive.
 func (im *InstanceManager) IsRunning(instanceID int64) bool {
 	im.mu.RLock()
@@ -576,6 +699,14 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		Config     string `json:"config"` // optional JSON blob for MCP servers etc
 		ProjectID  string `json:"project_id"`
 		Start      *bool  `json:"start,omitempty"` // default true; set false to create without starting
+		// Auto-injected system MCPs. Both default to true so existing
+		// callers keep the current behaviour (agent gets the apteva
+		// gateway + channels out of the box). Set to false to create a
+		// lean instance that only sees whatever MCPs are in `config`.
+		// Useful for sandbox / test agents or when you want to swap in
+		// a custom gateway.
+		IncludeAptevaServer *bool `json:"include_apteva_server,omitempty"`
+		IncludeChannels     *bool `json:"include_channels,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -599,6 +730,22 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "failed to create instance", http.StatusInternalServerError)
 		return
+	}
+
+	// Seed the instance's config.json with the system-MCP flags so
+	// Start() picks them up on first (and every subsequent) boot. The
+	// flags live inside the disk config blob, not the DB row, because
+	// that's core's source of truth and Start() already reads and
+	// rewrites that file.
+	includeGateway := body.IncludeAptevaServer == nil || *body.IncludeAptevaServer
+	includeChannels := body.IncludeChannels == nil || *body.IncludeChannels
+	instDir := s.instances.instanceDir(inst.ID)
+	initialConfig := map[string]any{
+		"include_apteva_server": includeGateway,
+		"include_channels":      includeChannels,
+	}
+	if cfgBytes, merr := json.MarshalIndent(initialConfig, "", "  "); merr == nil {
+		_ = os.WriteFile(filepath.Join(instDir, "config.json"), cfgBytes, 0644)
 	}
 
 	// Start unless explicitly disabled

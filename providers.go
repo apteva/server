@@ -137,6 +137,81 @@ func (s *Store) DeleteProvider(userID, providerID int64) error {
 	return err
 }
 
+// FindProviderByWebhookToken looks up a provider row by its webhook
+// token. Used by the unified /webhooks/:token ingress handler to
+// dispatch provider-backed trigger deliveries (Composio today, any
+// other trigger backend tomorrow) alongside per-subscription
+// deliveries. Returns the row + encrypted blob.
+func (s *Store) FindProviderByWebhookToken(token string) (*Provider, string, error) {
+	if token == "" {
+		return nil, "", sql.ErrNoRows
+	}
+	var p Provider
+	var encryptedData, createdAt, updatedAt string
+	err := s.db.QueryRow(`
+		SELECT id, user_id, type, name, encrypted_data, COALESCE(project_id,''), created_at, updated_at
+		FROM providers
+		WHERE webhook_token = ?
+		LIMIT 1
+	`, token).Scan(&p.ID, &p.UserID, &p.Type, &p.Name, &encryptedData, &p.ProjectID, &createdAt, &updatedAt)
+	if err != nil {
+		return nil, "", err
+	}
+	p.CreatedAt, _ = parseTime(createdAt)
+	p.UpdatedAt, _ = parseTime(updatedAt)
+	return &p, encryptedData, nil
+}
+
+// SetProviderWebhookToken persists a webhook_token for a provider row.
+// Idempotent: safe to call repeatedly with the same token.
+func (s *Store) SetProviderWebhookToken(providerID int64, token string) error {
+	_, err := s.db.Exec("UPDATE providers SET webhook_token = ? WHERE id = ?", token, providerID)
+	return err
+}
+
+// FindComposioProviderForProject returns the Composio provider row that
+// owns the given (user, project) pair. Used by the webhook ingress path
+// to locate the signing secret and by the subscription create path to
+// bootstrap a per-project webhook subscription on first use.
+//
+// Pass userID=0 for the webhook ingress path, which knows only the
+// project id from the URL. We look up by project alone in that case
+// and the caller uses the resolved row's user_id for downstream
+// subscription lookups.
+//
+// Precedence: a project-scoped row wins over a global (project_id='')
+// row of the same type — matches how ListProviders surfaces both.
+func (s *Store) FindComposioProviderForProject(userID int64, projectID string) (*Provider, string, error) {
+	var p Provider
+	var encryptedData, createdAt, updatedAt string
+	var err error
+	if userID > 0 {
+		err = s.db.QueryRow(`
+			SELECT id, user_id, type, name, encrypted_data, COALESCE(project_id,''), created_at, updated_at
+			FROM providers
+			WHERE user_id = ? AND type = 'integrations' AND name = 'Composio'
+			  AND (project_id = ? OR project_id = '')
+			ORDER BY CASE WHEN project_id = ? THEN 0 ELSE 1 END, id DESC
+			LIMIT 1
+		`, userID, projectID, projectID).Scan(&p.ID, &p.UserID, &p.Type, &p.Name, &encryptedData, &p.ProjectID, &createdAt, &updatedAt)
+	} else {
+		err = s.db.QueryRow(`
+			SELECT id, user_id, type, name, encrypted_data, COALESCE(project_id,''), created_at, updated_at
+			FROM providers
+			WHERE type = 'integrations' AND name = 'Composio'
+			  AND (project_id = ? OR project_id = '')
+			ORDER BY CASE WHEN project_id = ? THEN 0 ELSE 1 END, id DESC
+			LIMIT 1
+		`, projectID, projectID).Scan(&p.ID, &p.UserID, &p.Type, &p.Name, &encryptedData, &p.ProjectID, &createdAt, &updatedAt)
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	p.CreatedAt, _ = parseTime(createdAt)
+	p.UpdatedAt, _ = parseTime(updatedAt)
+	return &p, encryptedData, nil
+}
+
 // GetAllProviderEnvVars decrypts all providers for a user and returns env vars
 // (UPPER_CASE keys). If projectID is provided and non-empty, only providers
 // scoped to that project (or unscoped globals) are included — matching the

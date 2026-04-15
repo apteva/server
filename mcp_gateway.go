@@ -249,10 +249,13 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			if app == nil {
 				return nil, fmt.Errorf("app %q not found in catalog", conn.AppSlug)
 			}
-			// Validate tool names against the app catalog.
+			// Validate tool names against the app catalog. Accept bare,
+			// canonical-MCP-prefixed, and legacy app-slug-prefixed forms.
+			canonPrefix := store.CanonicalMCPNameForConnection(conn.ID)
 			valid := map[string]bool{}
 			for _, t := range app.Tools {
 				valid[t.Name] = true
+				valid[canonPrefix+"_"+t.Name] = true
 				valid[conn.AppSlug+"_"+t.Name] = true
 			}
 			var bad []string
@@ -394,10 +397,11 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				conn, _, err := store.GetConnection(userID, connID)
 				if err == nil {
 					if app := catalog.Get(conn.AppSlug); app != nil {
+						prefix := store.CanonicalMCPNameForConnection(conn.ID)
 						var toolList []map[string]string
 						for _, t := range app.Tools {
 							toolList = append(toolList, map[string]string{
-								"name":        conn.AppSlug + "_" + t.Name,
+								"name":        prefix + "_" + t.Name,
 								"description": t.Description,
 								"method":      t.Method,
 							})
@@ -575,7 +579,11 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			}, nil
 
 		case "list_subscriptions":
-			subs, err := store.ListSubscriptions(userID)
+			// Scope to the instance's project so agents only see what's
+			// relevant to their workspace. ListSubscriptions already
+			// includes legacy unscoped rows (project_id = '') in its
+			// OR clause so older subs still surface.
+			subs, err := store.ListSubscriptions(userID, projectID)
 			if err != nil {
 				return nil, err
 			}

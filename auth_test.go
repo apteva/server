@@ -25,7 +25,7 @@ func newTestServer(t *testing.T) *Server {
 
 	return &Server{
 		store:          store,
-		instances:      NewInstanceManager(t.TempDir(), "echo", 4000),
+		instances:      NewInstanceManager(t.TempDir(), "echo"),
 		broadcaster:    NewTelemetryBroadcaster(),
 		regMode:        "open",
 		instanceSecret: "test-secret",

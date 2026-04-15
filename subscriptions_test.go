@@ -20,7 +20,7 @@ func TestSubscriptionCRUD(t *testing.T) {
 	})
 
 	// Create
-	sub, err := s.store.CreateSubscription(1, 1, 0, "GitHub pushes", "github", "Push events", "webhook-abc", "", "")
+	sub, err := s.store.CreateSubscription(1, 1, 0, "GitHub pushes", "github", "Push events", "webhook-abc", "", "", "", nil)
 	if err != nil {
 		t.Fatalf("CreateSubscription: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestWebhookHMACVerification(t *testing.T) {
 	// Create subscription with HMAC secret
 	hmacSecret := "test-hmac-secret"
 	encSecret, _ := Encrypt(s.secret, hmacSecret)
-	sub, _ := s.store.CreateSubscription(1, 1, 0, "HMAC test", "test", "", "hmac-webhook", encSecret, "")
+	sub, _ := s.store.CreateSubscription(1, 1, 0, "HMAC test", "test", "", "hmac-webhook", encSecret, "", "", nil)
 
 	// Valid signature
 	payload := []byte(`{"event":"test"}`)
@@ -210,7 +210,7 @@ func TestSubscriptionDisabledRejects(t *testing.T) {
 		"email": "alice@test.com", "password": "password123",
 	})
 
-	sub, _ := s.store.CreateSubscription(1, 1, 0, "Disabled", "test", "", "disabled-webhook", "", "")
+	sub, _ := s.store.CreateSubscription(1, 1, 0, "Disabled", "test", "", "disabled-webhook", "", "", "", nil)
 	s.store.SetSubscriptionEnabled(1, sub.ID, false)
 
 	req := httptest.NewRequest("POST", "/webhooks/disabled-webhook", bytes.NewReader([]byte(`{}`)))
@@ -231,7 +231,7 @@ func TestSubscriptionThreadID(t *testing.T) {
 	})
 
 	// Create subscription with thread_id
-	sub, err := s.store.CreateSubscription(1, 1, 0, "Webhook listener", "omnikit", "", "thread-webhook", "", "webhook-listener")
+	sub, err := s.store.CreateSubscription(1, 1, 0, "Webhook listener", "omnikit", "", "thread-webhook", "", "webhook-listener", "", nil)
 	if err != nil {
 		t.Fatalf("CreateSubscription: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestSubscriptionThreadID_Empty(t *testing.T) {
 	})
 
 	// Create subscription without thread_id — should default to empty (main)
-	sub, _ := s.store.CreateSubscription(1, 1, 0, "Default", "test", "", "no-thread", "", "")
+	sub, _ := s.store.CreateSubscription(1, 1, 0, "Default", "test", "", "no-thread", "", "", "", nil)
 	if sub.ThreadID != "" {
 		t.Errorf("expected empty thread_id, got %q", sub.ThreadID)
 	}

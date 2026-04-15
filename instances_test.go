@@ -148,7 +148,7 @@ func TestUpdateConfig(t *testing.T) {
 }
 
 func TestInstanceManager_PortTracking(t *testing.T) {
-	im := NewInstanceManager(t.TempDir(), "sleep", 5000)
+	im := NewInstanceManager(t.TempDir(), "sleep")
 
 	// Not running initially
 	if im.IsRunning(1) {
@@ -185,7 +185,7 @@ func TestInstanceManager_PortTracking(t *testing.T) {
 }
 
 func TestInstanceManager_StopNotRunning(t *testing.T) {
-	im := NewInstanceManager(t.TempDir(), "sleep", 5000)
+	im := NewInstanceManager(t.TempDir(), "sleep")
 	// Should not panic
 	im.Stop(999)
 }
