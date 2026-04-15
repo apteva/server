@@ -13,8 +13,30 @@ import (
 	"time"
 )
 
-// Version is set at build time via -ldflags.
-var Version = "dev"
+// Version fields are injected at build time via -ldflags "-X main.Xxx=..."
+// The Dockerfile reads each component's package.json or go.mod at build
+// time and passes the extracted values, so /health reflects the actual
+// shipped component versions instead of an opaque timestamp.
+var (
+	Version             = "dev" // apteva umbrella version (root package.json)
+	BuildTime           = "dev" // ISO-ish build timestamp
+	CLIVersion          = "dev" // apteva/package.json
+	DashboardVersion    = "dev" // dashboard/package.json
+	IntegrationsVersion = "dev" // integrations/package.json
+	CoreVersion         = "dev" // core/go.mod or explicit tag
+)
+
+// versionInfo is the shape /health and /version return.
+func versionInfo() map[string]any {
+	return map[string]any{
+		"apteva":       Version,
+		"build":        BuildTime,
+		"cli":          CLIVersion,
+		"dashboard":    DashboardVersion,
+		"integrations": IntegrationsVersion,
+		"core":         CoreVersion,
+	}
+}
 
 type Server struct {
 	store       *Store
@@ -201,19 +223,26 @@ func main() {
 	// unchanged.
 	apiMux := http.NewServeMux()
 
-	// Public routes (no auth) at root for external liveness checks
+	// Public routes (no auth) at root for external liveness checks.
+	// /health returns ok + every injected component version so a single
+	// call tells you what's running (apteva umbrella, cli, dashboard,
+	// integrations, core) along with the build timestamp.
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"ok": true, "version": Version})
+		info := versionInfo()
+		info["ok"] = true
+		writeJSON(w, info)
 	})
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]string{"version": Version})
+		writeJSON(w, versionInfo())
 	})
 	// Also expose health/version under /api for uniformity from the dashboard.
 	apiMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"ok": true, "version": Version})
+		info := versionInfo()
+		info["ok"] = true
+		writeJSON(w, info)
 	})
 	apiMux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]string{"version": Version})
+		writeJSON(w, versionInfo())
 	})
 
 	apiMux.HandleFunc("/auth/status", s.handleAuthStatus)
@@ -576,7 +605,8 @@ func main() {
 		os.Exit(0)
 	}()
 
-	fmt.Fprintf(os.Stderr, "apteva-server v%s running on :%s\n", Version, port)
+	fmt.Fprintf(os.Stderr, "apteva-server v%s (core=%s cli=%s dashboard=%s integrations=%s build=%s) running on :%s\n",
+		Version, CoreVersion, CLIVersion, DashboardVersion, IntegrationsVersion, BuildTime, port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)
