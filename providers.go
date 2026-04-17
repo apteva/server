@@ -595,7 +595,13 @@ func (s *Server) handleProviderModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	models, err := FetchModels(provider.Type, apiKey)
+	// Normalize provider type: "llm" rows use the name as the key
+	providerKey := strings.ToLower(provider.Type)
+	if providerKey == "llm" {
+		providerKey = strings.ToLower(provider.Name)
+	}
+
+	models, err := FetchModels(providerKey, apiKey)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to fetch models: %v", err), http.StatusBadGateway)
 		return

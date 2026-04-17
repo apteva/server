@@ -760,6 +760,8 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		s.restoreSlackForInstance(inst)
+		s.restoreEmailForInstance(inst)
 	}
 
 	s.store.UpdateInstance(inst)
@@ -945,6 +947,8 @@ func (s *Server) ResumeRunningInstances() {
 		// Start() mutates inst.Port + Pid + Status to the new values;
 		// persist them so the UI reflects the fresh process state.
 		s.store.UpdateInstance(inst)
+		s.restoreSlackForInstance(inst)
+		s.restoreEmailForInstance(inst)
 		log.Printf("[RESUME] instance %d (%s): resumed on port %d pid %d", inst.ID, inst.Name, inst.Port, inst.Pid)
 	}
 }
@@ -984,6 +988,8 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.restoreSlackForInstance(inst)
+	s.restoreEmailForInstance(inst)
 
 	s.store.UpdateInstance(inst)
 	writeJSON(w, inst)
@@ -1025,6 +1031,8 @@ func (s *Server) handleRestartInstance(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.restoreSlackForInstance(inst)
+	s.restoreEmailForInstance(inst)
 
 	s.store.UpdateInstance(inst)
 	writeJSON(w, map[string]string{"status": "restarted"})
@@ -1307,15 +1315,24 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(resp.StatusCode)
 
-	// For SSE streams, flush after each line for real-time delivery
+	// Track CLI channel connection for SSE event streams.
+	// When a client opens /events, mark the CLI channel as connected so the
+	// agent knows someone is listening. On disconnect, decrement.
 	flusher, canFlush := w.(http.Flusher)
-	if canFlush && resp.Header.Get("Content-Type") == "text/event-stream" {
+	isSSE := canFlush && resp.Header.Get("Content-Type") == "text/event-stream"
+	if isSSE && corePath == "/events" {
+		if ic := s.instances.GetChannels(inst.ID); ic != nil && ic.cli != nil {
+			ic.cli.Connect()
+			defer ic.cli.Disconnect()
+		}
+	}
+
+	if isSSE {
 		br := bufio.NewReader(resp.Body)
 		for {
 			line, err := br.ReadBytes('\n')
 			if len(line) > 0 {
 				w.Write(line)
-				// Flush after each complete SSE frame (empty line = end of frame)
 				if len(bytes.TrimSpace(line)) == 0 {
 					flusher.Flush()
 				}
@@ -1327,44 +1344,6 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	} else {
 		io.Copy(w, resp.Body)
 	}
-}
-
-// POST /instances/:id/channels/cli/reply — CLI sends answer to a pending ask
-func (s *Server) handleCLIReply(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
-	}
-	userID := getUserID(r)
-	path := strings.TrimPrefix(r.URL.Path, "/instances/")
-	parts := strings.SplitN(path, "/", 2)
-	instanceID, err := atoi64(parts[0])
-	if err != nil {
-		http.Error(w, "invalid instance ID", http.StatusBadRequest)
-		return
-	}
-	inst, err := s.store.GetInstance(userID, instanceID)
-	if err != nil {
-		http.Error(w, "instance not found", http.StatusNotFound)
-		return
-	}
-	ic := s.instances.GetChannels(inst.ID)
-	if ic == nil || ic.cli == nil {
-		http.Error(w, "instance not running or no CLI channel", http.StatusServiceUnavailable)
-		return
-	}
-	var body struct {
-		Text string `json:"text"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
-		return
-	}
-	if err := ic.cli.SubmitReply(body.Text); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	writeJSON(w, map[string]string{"status": "ok"})
 }
 
 // POST /instances/:id/channels/telegram — connect telegram bot
@@ -1449,67 +1428,6 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Instance,
 	}
 }
 
-func (s *Server) handleTelegramConnect(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
-	}
-	userID := getUserID(r)
-	path := strings.TrimPrefix(r.URL.Path, "/instances/")
-	parts := strings.SplitN(path, "/", 2)
-	instanceID, err := atoi64(parts[0])
-	if err != nil {
-		http.Error(w, "invalid instance ID", http.StatusBadRequest)
-		return
-	}
-	inst, err := s.store.GetInstance(userID, instanceID)
-	if err != nil {
-		http.Error(w, "instance not found", http.StatusNotFound)
-		return
-	}
-	var body struct {
-		Token string `json:"token"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Token == "" {
-		http.Error(w, "token required", http.StatusBadRequest)
-		return
-	}
-	botName, err := s.instances.StartTelegram(inst.ID, body.Token)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Persist channel to DB (encrypted token)
-	configJSON, _ := json.Marshal(map[string]string{"bot_token": body.Token, "bot_name": botName})
-	encrypted, _ := Encrypt(s.secret, string(configJSON))
-	// Remove existing telegram channel for this instance, then create new
-	if existing, _ := s.store.ListChannels(inst.ID); existing != nil {
-		for _, ch := range existing {
-			if ch.Type == "telegram" {
-				s.store.DeleteChannel(ch.ID)
-			}
-		}
-	}
-	s.store.CreateChannel(userID, inst.ID, "telegram", "@"+botName, encrypted)
-
-	// Notify core that telegram is connected
-	port := s.instances.GetPort(inst.ID)
-	coreKey := s.instances.GetCoreAPIKey(inst.ID)
-	if port > 0 {
-		event := fmt.Sprintf("[telegram] gateway connected. Bot @%s online.", botName)
-		eventBody, _ := json.Marshal(map[string]any{"message": event, "thread_id": "main"})
-		req, _ := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/event", port), strings.NewReader(string(eventBody)))
-		req.Header.Set("Content-Type", "application/json")
-		if coreKey != "" {
-			req.Header.Set("Authorization", "Bearer "+coreKey)
-		}
-		http.DefaultClient.Do(req)
-	}
-
-	writeJSON(w, map[string]string{"status": "connected", "bot_name": botName})
-}
-
 // GET /instances/:id/channels — list connected channels for an instance
 func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -1527,13 +1445,36 @@ func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
 	}
 	ic := s.instances.GetChannels(inst.ID)
 	var channels []map[string]string
-	channels = append(channels, map[string]string{"id": "cli", "status": "connected"})
+	cliStatus := "disconnected"
+	if ic != nil && ic.cli != nil && ic.cli.IsConnected() {
+		cliStatus = "connected"
+	}
+	channels = append(channels, map[string]string{"id": "cli", "status": cliStatus})
 	if ic != nil && ic.telegram != nil {
 		channels = append(channels, map[string]string{
 			"id":       "telegram",
 			"status":   "connected",
 			"bot_name": ic.telegram.BotName(),
 		})
+	}
+	// Include persisted channels (slack, email, etc.)
+	if records, _ := s.store.ListChannels(inst.ID); records != nil {
+		for _, r := range records {
+			switch r.Type {
+			case "slack":
+				status := "disconnected"
+				if getSlackGateway(inst.ProjectID) != nil {
+					status = "connected"
+				}
+				channels = append(channels, map[string]string{"id": "slack", "name": r.Name, "status": status})
+			case "email":
+				status := "disconnected"
+				if getEmailGateway(inst.ProjectID) != nil {
+					status = "connected"
+				}
+				channels = append(channels, map[string]string{"id": "email", "name": r.Name, "status": status})
+			}
+		}
 	}
 	writeJSON(w, channels)
 }

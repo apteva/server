@@ -70,7 +70,7 @@ func (c *ConsoleLogger) ClearInstanceName(id int64) {
 func (c *ConsoleLogger) render(ev TelemetryEvent) {
 	// Skip events that produce no console output
 	switch ev.Type {
-	case "llm.done", "llm.error", "tool.call", "tool.result", "tool.pending", "tool.approved", "tool.rejected",
+	case "llm.start", "llm.done", "llm.error", "tool.call", "tool.result", "tool.pending", "tool.approved", "tool.rejected",
 		"thread.spawn", "thread.done", "event.received", "instance.paused", "instance.resumed", "mode.changed":
 		// These produce output — continue
 	default:
@@ -109,6 +109,15 @@ func (c *ConsoleLogger) render(ev TelemetryEvent) {
 	ts := ev.Time.Format("15:04:05")
 
 	switch ev.Type {
+	case "llm.start":
+		model := getString(data, "model")
+		fmt.Fprintf(os.Stderr, "  %s│%s %s⟳%s %sthinking%s  %s%s  %s%s\n",
+			dim, reset,
+			yellow, reset,
+			white, reset,
+			dim, model, ts, reset,
+		)
+
 	case "llm.done":
 		msg := truncate(getString(data, "message"), 60)
 		dur := getFloat(data, "duration_ms")

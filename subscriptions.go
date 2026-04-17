@@ -286,25 +286,34 @@ func verifyStandardWebhook(body []byte, msgID, msgTS, sigHeader, secret string) 
 // token in the URL is opaque random bytes (16 bytes / 32 hex chars),
 // not a guessable id, so URL enumeration is not a concern.
 func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[WEBHOOK-IN] %s %s remote=%s ua=%q content-type=%q content-length=%s",
+		r.Method, r.URL.Path, r.RemoteAddr, r.Header.Get("User-Agent"),
+		r.Header.Get("Content-Type"), r.Header.Get("Content-Length"))
+
 	if r.Method != http.MethodPost {
+		log.Printf("[WEBHOOK-IN] rejecting %s — POST only", r.Method)
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
 
 	token := strings.TrimPrefix(r.URL.Path, "/webhooks/")
 	if token == "" {
+		log.Printf("[WEBHOOK-IN] empty token on path %q", r.URL.Path)
 		http.Error(w, "token required", http.StatusBadRequest)
 		return
 	}
+	log.Printf("[WEBHOOK-IN] token=%s len=%d", token, len(token))
 
 	// Dispatch 1: subscription-backed webhook. Try this first because
 	// it's the common case for local templates and has a cheaper
 	// lookup.
 	sub, encSecret, err := s.store.GetSubscriptionByPath(token)
 	if err == nil && sub != nil {
+		log.Printf("[WEBHOOK-IN] matched subscription id=%s name=%q slug=%q enabled=%v", sub.ID, sub.Name, sub.Slug, sub.Enabled)
 		s.handleSubscriptionWebhook(w, r, sub, encSecret)
 		return
 	}
+	log.Printf("[WEBHOOK-IN] no subscription row for token=%s err=%v", token, err)
 
 	// Dispatch 2: provider-backed trigger webhook. The token matches
 	// providers.webhook_token; we find the provider, look up its
@@ -312,11 +321,14 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	// flow.
 	prov, encData, perr := s.store.FindProviderByWebhookToken(token)
 	if perr == nil && prov != nil {
+		log.Printf("[WEBHOOK-IN] matched provider id=%d name=%q", prov.ID, prov.Name)
 		s.handleProviderTriggerWebhook(w, r, prov, encData)
 		return
 	}
+	log.Printf("[WEBHOOK-IN] no provider row for token=%s err=%v", token, perr)
 
 	// Neither matched.
+	log.Printf("[WEBHOOK-IN] 404 token=%s — no subscription or provider row matched", token)
 	http.Error(w, "unknown webhook token", http.StatusNotFound)
 }
 
@@ -332,6 +344,7 @@ func (s *Server) handleSubscriptionWebhook(w http.ResponseWriter, r *http.Reques
 	}
 
 	if !sub.Enabled {
+		log.Printf("[WEBHOOK] sub %s disabled — 403", sub.ID)
 		http.Error(w, "subscription disabled", http.StatusForbidden)
 		return
 	}
@@ -339,9 +352,11 @@ func (s *Server) handleSubscriptionWebhook(w http.ResponseWriter, r *http.Reques
 	// Read body
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1024*1024)) // 1MB max
 	if err != nil {
+		log.Printf("[WEBHOOK] sub %s body read error: %v", sub.ID, err)
 		http.Error(w, "read error", http.StatusBadRequest)
 		return
 	}
+	log.Printf("[WEBHOOK] sub %s received body len=%d", sub.ID, len(body))
 
 	// Verify HMAC if configured
 	if encSecret != "" {
@@ -354,29 +369,40 @@ func (s *Server) handleSubscriptionWebhook(w http.ResponseWriter, r *http.Reques
 			if sig == "" {
 				sig = r.Header.Get("x-webhook-signature")
 			}
+			log.Printf("[WEBHOOK] sub %s HMAC check — sig header present=%v", sub.ID, sig != "")
 			if !verifyHMAC(body, sig, secret) {
+				log.Printf("[WEBHOOK] sub %s HMAC verification FAILED (sig=%q)", sub.ID, sig)
 				http.Error(w, "invalid signature", http.StatusUnauthorized)
 				return
 			}
+			log.Printf("[WEBHOOK] sub %s HMAC verified ok", sub.ID)
+		} else if err != nil {
+			log.Printf("[WEBHOOK] sub %s: failed to decrypt HMAC secret: %v — skipping verification", sub.ID, err)
 		}
+	} else {
+		log.Printf("[WEBHOOK] sub %s has no HMAC secret — skipping verification", sub.ID)
 	}
 
 	// Find the target instance
 	if sub.InstanceID == 0 {
+		log.Printf("[WEBHOOK] sub %s: no instance configured", sub.ID)
 		http.Error(w, "no instance configured", http.StatusBadRequest)
 		return
 	}
 
 	inst, err := s.store.GetInstance(sub.UserID, sub.InstanceID)
 	if err != nil {
+		log.Printf("[WEBHOOK] sub %s: instance %d not found: %v", sub.ID, sub.InstanceID, err)
 		http.Error(w, "instance not found", http.StatusServiceUnavailable)
 		return
 	}
 	port := s.instances.GetPort(inst.ID)
 	if port == 0 {
+		log.Printf("[WEBHOOK] sub %s: instance %d not running", sub.ID, inst.ID)
 		http.Error(w, "instance not running", http.StatusServiceUnavailable)
 		return
 	}
+	log.Printf("[WEBHOOK] sub %s: delivering to instance %d port %d", sub.ID, inst.ID, port)
 
 	// Format and inject the event into core
 	var payload any

@@ -234,6 +234,7 @@ func (s *Store) migrate() error {
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN project_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE instances ADD COLUMN project_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE providers ADD COLUMN project_id TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE channels ADD COLUMN project_id TEXT DEFAULT ''")
 	// is_default removed — default is per-instance, stored in instances.config
 	s.db.Exec("ALTER TABLE instances ADD COLUMN mode TEXT DEFAULT 'autonomous'")
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN external_webhook_id TEXT DEFAULT ''")
@@ -718,26 +719,31 @@ type ChannelRecord struct {
 	ID         int64  `json:"id"`
 	UserID     int64  `json:"user_id"`
 	InstanceID int64  `json:"instance_id"`
+	ProjectID  string `json:"project_id,omitempty"`
 	Type       string `json:"type"`
 	Name       string `json:"name"`
 	Status     string `json:"status"`
 	CreatedAt  string `json:"created_at"`
 }
 
-func (s *Store) CreateChannel(userID, instanceID int64, chType, name, encryptedConfig string) (*ChannelRecord, error) {
+func (s *Store) CreateChannel(userID, instanceID int64, chType, name, encryptedConfig string, projectID ...string) (*ChannelRecord, error) {
+	pid := ""
+	if len(projectID) > 0 {
+		pid = projectID[0]
+	}
 	res, err := s.db.Exec(
-		"INSERT INTO channels (user_id, instance_id, type, name, encrypted_config) VALUES (?, ?, ?, ?, ?)",
-		userID, instanceID, chType, name, encryptedConfig,
+		"INSERT INTO channels (user_id, instance_id, type, name, encrypted_config, project_id) VALUES (?, ?, ?, ?, ?, ?)",
+		userID, instanceID, chType, name, encryptedConfig, pid,
 	)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
-	return &ChannelRecord{ID: id, UserID: userID, InstanceID: instanceID, Type: chType, Name: name, Status: "active"}, nil
+	return &ChannelRecord{ID: id, UserID: userID, InstanceID: instanceID, ProjectID: pid, Type: chType, Name: name, Status: "active"}, nil
 }
 
 func (s *Store) ListChannels(instanceID int64) ([]ChannelRecord, error) {
-	rows, err := s.db.Query("SELECT id, user_id, instance_id, type, name, status, created_at FROM channels WHERE instance_id = ? AND status = 'active'", instanceID)
+	rows, err := s.db.Query("SELECT id, user_id, instance_id, COALESCE(project_id,''), type, name, status, created_at FROM channels WHERE instance_id = ? AND status = 'active'", instanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -745,7 +751,27 @@ func (s *Store) ListChannels(instanceID int64) ([]ChannelRecord, error) {
 	var out []ChannelRecord
 	for rows.Next() {
 		var c ChannelRecord
-		rows.Scan(&c.ID, &c.UserID, &c.InstanceID, &c.Type, &c.Name, &c.Status, &c.CreatedAt)
+		rows.Scan(&c.ID, &c.UserID, &c.InstanceID, &c.ProjectID, &c.Type, &c.Name, &c.Status, &c.CreatedAt)
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// ListChannelsByProject returns all channels for a project (including project-level ones with instance_id=0).
+func (s *Store) ListChannelsByProject(projectID string, chType string) ([]ChannelRecord, error) {
+	rows, err := s.db.Query(
+		"SELECT id, user_id, instance_id, COALESCE(project_id,''), type, name, encrypted_config, status, created_at FROM channels WHERE project_id = ? AND type = ? AND status = 'active'",
+		projectID, chType,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ChannelRecord
+	for rows.Next() {
+		var c ChannelRecord
+		var enc string
+		rows.Scan(&c.ID, &c.UserID, &c.InstanceID, &c.ProjectID, &c.Type, &c.Name, &enc, &c.Status, &c.CreatedAt)
 		out = append(out, c)
 	}
 	return out, nil

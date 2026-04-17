@@ -217,6 +217,156 @@ func (s *Store) QueryTelemetry(instanceID int64, eventType string, since time.Ti
 	return events, nil
 }
 
+// ChatHistoryMessage is a reconstructed chat message from telemetry.
+type ChatHistoryMessage struct {
+	ID   string `json:"id"`
+	Role string `json:"role"` // "user", "agent", "tool", "status"
+	Text string `json:"text"`
+	Time string `json:"time"`
+	// Tool fields (only for role=tool)
+	ToolName      string `json:"tool_name,omitempty"`
+	ToolDone      bool   `json:"tool_done,omitempty"`
+	ToolDurationMs int64 `json:"tool_duration_ms,omitempty"`
+	ToolSuccess   bool   `json:"tool_success,omitempty"`
+}
+
+// QueryChatHistory reconstructs a chat conversation from telemetry events.
+// Returns messages in chronological order.
+func (s *Store) QueryChatHistory(instanceID int64, limit int) ([]ChatHistoryMessage, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+
+	// Query event types that contribute to chat:
+	//   event.received (source=cli)  → user messages
+	//   tool.call (channels_respond) → agent messages
+	//   tool.call (other, main thread) → tool indicators
+	//   tool.result (other, main thread) → tool completion
+	rows, err := s.db.Query(`
+		SELECT id, thread_id, type, time, data FROM telemetry
+		WHERE instance_id = ?
+		  AND thread_id IN ('main', '')
+		  AND type IN ('event.received', 'tool.call', 'tool.result')
+		ORDER BY time DESC
+		LIMIT ?
+	`, instanceID, limit*3) // over-fetch to account for filtering
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	hiddenTools := map[string]bool{
+		"pace": true, "done": true, "evolve": true, "remember": true, "send": true,
+		"channels_respond": true, "channels_status": true,
+	}
+
+	type rawEvent struct {
+		id       string
+		threadID string
+		typ      string
+		timeStr  string
+		data     map[string]any
+	}
+
+	var raw []rawEvent
+	for rows.Next() {
+		var e rawEvent
+		var dataStr string
+		rows.Scan(&e.id, &e.threadID, &e.typ, &e.timeStr, &dataStr)
+		json.Unmarshal([]byte(dataStr), &e.data)
+		if e.data == nil {
+			e.data = map[string]any{}
+		}
+		raw = append(raw, e)
+	}
+
+	// Reverse to chronological order
+	for i, j := 0, len(raw)-1; i < j; i, j = i+1, j-1 {
+		raw[i], raw[j] = raw[j], raw[i]
+	}
+
+	// Build tool result lookup (id → result data)
+	toolResults := map[string]rawEvent{}
+	for _, e := range raw {
+		if e.typ == "tool.result" {
+			if id, ok := e.data["id"].(string); ok && id != "" {
+				toolResults[id] = e
+			}
+		}
+	}
+
+	var msgs []ChatHistoryMessage
+	for _, e := range raw {
+		switch e.typ {
+		case "event.received":
+			source, _ := e.data["source"].(string)
+			if source != "cli" {
+				continue
+			}
+			msg, _ := e.data["message"].(string)
+			msg = strings.TrimPrefix(msg, "[cli] ")
+			if msg == "" || strings.Contains(msg, "connected via dashboard") || strings.Contains(msg, "disconnected from terminal") {
+				continue
+			}
+			msgs = append(msgs, ChatHistoryMessage{
+				ID: e.id, Role: "user", Text: msg, Time: e.timeStr,
+			})
+
+		case "tool.call":
+			name, _ := e.data["name"].(string)
+			if name == "" {
+				continue
+			}
+
+			if name == "channels_respond" {
+				args, _ := e.data["args"].(map[string]any)
+				if args == nil {
+					continue
+				}
+				channel, _ := args["channel"].(string)
+				if channel != "" && channel != "cli" {
+					continue
+				}
+				text, _ := args["text"].(string)
+				if text == "" {
+					continue
+				}
+				msgs = append(msgs, ChatHistoryMessage{
+					ID: e.id, Role: "agent", Text: text, Time: e.timeStr,
+				})
+				continue
+			}
+
+			if hiddenTools[name] {
+				continue
+			}
+
+			// Visible tool call
+			callID, _ := e.data["id"].(string)
+			reason, _ := e.data["reason"].(string)
+			m := ChatHistoryMessage{
+				ID: e.id, Role: "tool", Text: reason, Time: e.timeStr,
+				ToolName: name, ToolDone: true, ToolSuccess: true,
+			}
+			if res, ok := toolResults[callID]; ok {
+				if dur, ok := res.data["duration_ms"].(float64); ok {
+					m.ToolDurationMs = int64(dur)
+				}
+				if success, ok := res.data["success"].(bool); ok {
+					m.ToolSuccess = success
+				}
+			}
+			msgs = append(msgs, m)
+		}
+
+		if len(msgs) >= limit {
+			break
+		}
+	}
+
+	return msgs, nil
+}
+
 func (s *Store) TelemetryStats(instanceID int64, since time.Time) (*TelemetryStats, error) {
 	sinceStr := since.UTC().Format(time.RFC3339)
 	stats := &TelemetryStats{}
@@ -511,6 +661,12 @@ func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
 	ch := s.broadcaster.Subscribe(instanceID)
 	defer s.broadcaster.Unsubscribe(instanceID, ch)
 
+	// Track CLI channel connection so the agent knows a user is listening.
+	if ic := s.instances.GetChannels(instanceID); ic != nil && ic.cli != nil {
+		ic.cli.Connect()
+		defer ic.cli.Disconnect()
+	}
+
 	ticker := time.NewTicker(20 * time.Second)
 	defer ticker.Stop()
 
@@ -561,6 +717,36 @@ func (s *Server) handleQueryTelemetry(w http.ResponseWriter, r *http.Request) {
 		events = []TelemetryEvent{}
 	}
 	writeJSON(w, events)
+}
+
+// GET /instances/:id/chat-history?limit=50
+func (s *Server) handleChatHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	path := strings.TrimPrefix(r.URL.Path, "/instances/")
+	parts := strings.SplitN(path, "/", 2)
+	instanceID, err := atoi64(parts[0])
+	if err != nil {
+		http.Error(w, "invalid instance ID", http.StatusBadRequest)
+		return
+	}
+	if _, err := s.store.GetInstance(userID, instanceID); err != nil {
+		http.Error(w, "instance not found", http.StatusNotFound)
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	msgs, err := s.store.QueryChatHistory(instanceID, limit)
+	if err != nil {
+		http.Error(w, "query failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if msgs == nil {
+		msgs = []ChatHistoryMessage{}
+	}
+	writeJSON(w, msgs)
 }
 
 // GET /telemetry/stats?instance_id=1&period=1h

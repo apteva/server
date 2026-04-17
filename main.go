@@ -204,6 +204,9 @@ func main() {
 		go console.Run()
 	}
 
+	s.initSlack()
+	s.initEmail()
+
 	mux := http.NewServeMux()
 
 	// All REST/JSON routes live under /api/. The SPA owns everything else,
@@ -293,6 +296,7 @@ func main() {
 	// project-level trigger deliveries from Composio and friends).
 	// Opaque tokens mean the URL doesn't leak project id or provider
 	// kind and the route is future-proof for any new trigger backend.
+	mux.HandleFunc("/webhooks/email", s.handleEmailWebhook)
 	mux.HandleFunc("/webhooks/", s.handleWebhook)
 
 	// Local OAuth2 callback (unauthenticated — upstream providers redirect here).
@@ -302,6 +306,20 @@ func main() {
 	// MCP Streamable HTTP endpoint (no auth — core MCP clients connect directly).
 	// Stays at root because core instances connect here with a fixed URL.
 	mux.HandleFunc("/mcp/", s.handleMCPEndpoint)
+
+	// Channel management — unified under /channels
+	apiMux.HandleFunc("/channels/connect", s.authMiddleware(s.handleChannelConnect))
+	apiMux.HandleFunc("/channels/disconnect/", s.authMiddleware(s.handleChannelDisconnect))
+	apiMux.HandleFunc("/channels", s.authMiddleware(s.handleChannelList))
+
+	// Slack gateway config
+	apiMux.HandleFunc("/slack/configure", s.authMiddleware(s.handleSlackConfigure))
+	apiMux.HandleFunc("/slack/status", s.authMiddleware(s.handleSlackStatus))
+	apiMux.HandleFunc("/slack/channels", s.authMiddleware(s.handleSlackListChannels))
+
+	// Email (AgentMail) gateway config
+	apiMux.HandleFunc("/email/configure", s.authMiddleware(s.handleEmailConfigure))
+	apiMux.HandleFunc("/email/status", s.authMiddleware(s.handleEmailStatus))
 
 	// Hosted providers — proxy calls that need the stored API key
 	apiMux.HandleFunc("/composio/apps", s.authMiddleware(s.handleListComposioApps))
@@ -517,21 +535,15 @@ func main() {
 			return
 		}
 
-		// /instances/:id/channels — list connected channels
+		// /instances/:id/chat-history — reconstructed chat from telemetry
+		if strings.HasSuffix(path, "/chat-history") {
+			s.handleChatHistory(w, r)
+			return
+		}
+
+		// /instances/:id/channels — list connected channels (read-only, used by instance view)
 		if strings.HasSuffix(path, "/channels") && !strings.Contains(path, "/channels/") {
 			s.handleListChannels(w, r)
-			return
-		}
-
-		// /instances/:id/channels/cli/reply — CLI sends answer to pending ask
-		if strings.HasSuffix(path, "/channels/cli/reply") {
-			s.handleCLIReply(w, r)
-			return
-		}
-
-		// /instances/:id/channels/telegram — connect/disconnect telegram
-		if strings.HasSuffix(path, "/channels/telegram") {
-			s.handleTelegramConnect(w, r)
 			return
 		}
 

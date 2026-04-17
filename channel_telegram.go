@@ -237,15 +237,6 @@ func (c *TelegramChannel) Send(text string) error {
 	return c.gateway.sendMessage(c.chatID, text)
 }
 
-func (c *TelegramChannel) Ask(question string) (string, error) {
-	// For Telegram, we can't easily block-wait for a reply in the MCP context.
-	// Send the question and return immediately — the user's reply comes as a new event.
-	if err := c.gateway.sendMessage(c.chatID, question); err != nil {
-		return "", err
-	}
-	return "(waiting for telegram reply — it will arrive as a new event)", nil
-}
-
 func (c *TelegramChannel) Status(text, level string) error {
 	prefix := ""
 	switch level {

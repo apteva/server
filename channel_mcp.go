@@ -135,7 +135,7 @@ func (s *channelMCPServer) toolsList() map[string]any {
 	}
 	channelList := strings.Join(channelIDs, ", ")
 	if channelList == "" {
-		channelList = "cli"
+		channelList = "none — no users connected"
 	}
 
 	return map[string]any{
@@ -147,7 +147,7 @@ func (s *channelMCPServer) toolsList() map[string]any {
 						"After completing any user request (including after spawn/exec/other tool calls), your FINAL action MUST be a respond call confirming the result — if you write \"Done\" or \"Here's what I did\" as plain thought text without calling respond, the user never sees it. "+
 						"IMPORTANT: Send ONE complete response per user message. Include ALL information in a single call — do NOT split across multiple calls or follow up with a second message repeating the same content. "+
 						"Connected channels: [%s]. "+
-						"Match the channel from the event prefix: [cli] → channel=\"cli\", [telegram:@john:12345] → channel=\"telegram:12345\".",
+						"Match the channel from the event prefix: [cli] → channel=\"cli\", [telegram:@john:12345] → channel=\"telegram:12345\", [slack:user:C12345] → channel=\"slack:C12345\" (use only the C-prefixed ID, NOT the username part), [email:user@example.com] → channel=\"email:inbox@agentmail.to\".",
 					channelList,
 				),
 				"inputSchema": map[string]any{
@@ -206,6 +206,7 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		if channel == "" {
 			channel = "cli"
 		}
+		channel = normalizeChannelID(channel)
 		if err := s.registry.Send(channel, text); err != nil {
 			return nil, &mcpRPCError{Code: -32602, Message: err.Error()}
 		}
@@ -218,6 +219,7 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		if channel == "" {
 			channel = "cli"
 		}
+		channel = normalizeChannelID(channel)
 		if level == "" {
 			level = "info"
 		}
@@ -225,7 +227,9 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		if ch == nil {
 			return nil, &mcpRPCError{Code: -32602, Message: fmt.Sprintf("channel %q not found", channel)}
 		}
-		ch.Status(line, level)
+		if err := ch.Status(line, level); err != nil {
+			return nil, &mcpRPCError{Code: -32602, Message: err.Error()}
+		}
 		return textResult("ok"), nil
 
 	case "list_channels":
@@ -242,4 +246,22 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 	default:
 		return nil, &mcpRPCError{Code: -32602, Message: fmt.Sprintf("unknown tool: %s", call.Name)}
 	}
+}
+
+// normalizeChannelID strips extra prefix parts that agents include from
+// event format: slack:user:C123 → slack:C123, telegram:@user:123 → telegram:123
+func normalizeChannelID(channel string) string {
+	if strings.HasPrefix(channel, "slack:") {
+		parts := strings.Split(channel, ":")
+		if len(parts) == 3 {
+			return "slack:" + parts[2]
+		}
+	}
+	if strings.HasPrefix(channel, "telegram:") {
+		parts := strings.Split(channel, ":")
+		if len(parts) == 3 {
+			return "telegram:" + parts[2]
+		}
+	}
+	return channel
 }

@@ -56,6 +56,8 @@ func FetchModels(providerType, apiKey string) ([]ModelInfo, error) {
 		models, err = fetchAnthropicModels(apiKey)
 	case "google":
 		models, err = fetchGoogleModels(apiKey)
+	case "nvidia":
+		models, err = fetchOpenAICompatModels("https://integrate.api.nvidia.com/v1/models", apiKey)
 	default:
 		return nil, fmt.Errorf("unknown provider type: %s", providerType)
 	}
@@ -137,6 +139,28 @@ func fetchOpenAIModels(apiKey string) ([]ModelInfo, error) {
 		Data []struct {
 			ID      string `json:"id"`
 			Created int64  `json:"created"`
+		} `json:"data"`
+	}
+	json.Unmarshal(data, &resp)
+
+	var models []ModelInfo
+	for _, m := range resp.Data {
+		models = append(models, ModelInfo{ID: m.ID, Name: m.ID})
+	}
+	return models, nil
+}
+
+// fetchOpenAICompatModels works for any provider with an OpenAI-compatible /models endpoint.
+func fetchOpenAICompatModels(url, apiKey string) ([]ModelInfo, error) {
+	data, err := apiGet(url, map[string]string{
+		"Authorization": "Bearer " + apiKey,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
 		} `json:"data"`
 	}
 	json.Unmarshal(data, &resp)

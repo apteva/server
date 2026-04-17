@@ -9,7 +9,6 @@ import (
 type Channel interface {
 	ID() string
 	Send(text string) error
-	Ask(question string) (string, error)
 	Status(text, level string) error
 	Close()
 }
@@ -90,14 +89,6 @@ func (r *ChannelRegistry) Send(channelID, text string) error {
 	return ch.Send(text)
 }
 
-func (r *ChannelRegistry) Ask(channelID, question string) (string, error) {
-	ch := r.Get(channelID)
-	if ch == nil {
-		return "", fmt.Errorf("channel %q not found", channelID)
-	}
-	return ch.Ask(question)
-}
-
 func (r *ChannelRegistry) CloseAll() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -115,13 +106,16 @@ type InstanceChannels struct {
 	cli      *CLIBridge
 }
 
-// AvailableChannels returns channel IDs including gateway-level channels.
+// AvailableChannels returns channel IDs for channels that are actually
+// connected and can receive messages right now.
 func (ic *InstanceChannels) AvailableChannels() []string {
-	ids := []string{"cli"}
+	var ids []string
+	if ic.cli != nil && ic.cli.IsConnected() {
+		ids = append(ids, "cli")
+	}
 	if ic.telegram != nil {
 		ids = append(ids, "telegram (bot @"+ic.telegram.BotName()+")")
 	}
-	// Also include any per-chat channels already in registry
 	for _, ch := range ic.registry.List() {
 		id := ch.ID()
 		if id == "cli" {
