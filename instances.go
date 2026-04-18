@@ -30,6 +30,23 @@ type InstanceManager struct {
 	processes map[int64]*runningInstance // instanceID → running process + port
 	dataDir   string
 	coreCmd   string // path to core binary
+
+	// PostChannelsInit is invoked right after an instance's
+	// ChannelRegistry is created and the CLI bridge is registered,
+	// but BEFORE the channels MCP server boots and the core binary
+	// is spawned. The Apteva Apps framework uses this hook to
+	// register per-instance channels (chat, helpdesk, …) so they're
+	// visible in the channels MCP tool list the agent discovers.
+	//
+	// The hook receives the Instance directly — it MUST NOT call
+	// back into any InstanceManager accessor that takes im.mu
+	// (GetPort, GetCoreAPIKey, GetChannels, …) because Start
+	// already holds im.mu.Lock() and Go's sync.RWMutex is not
+	// reentrant: the re-acquire would deadlock silently.
+	//
+	// Leave nil in tests or single-instance bring-up paths that
+	// don't have an apps registry yet.
+	PostChannelsInit func(inst *Instance, ic *InstanceChannels)
 }
 
 func NewInstanceManager(dataDir, coreCmd string) *InstanceManager {
@@ -214,6 +231,15 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 	ic := &InstanceChannels{registry: NewChannelRegistry()}
 	ic.cli = NewCLIBridge()
 	ic.registry.Register(ic.cli)
+
+	// Let the Apteva Apps framework register its per-instance
+	// channels (chat, future helpdesk, …) before the channels MCP
+	// boots — the MCP's tool schema is fixed at serve() time but the
+	// registry is read per tool call, so ordering here is safety +
+	// consistency, not correctness.
+	if im.PostChannelsInit != nil {
+		im.PostChannelsInit(inst, ic)
+	}
 
 	// Start channels MCP server
 	channelsMCP, err := newChannelMCPServer(ic.registry)
@@ -1315,17 +1341,18 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(resp.StatusCode)
 
-	// Track CLI channel connection for SSE event streams.
-	// When a client opens /events, mark the CLI channel as connected so the
-	// agent knows someone is listening. On disconnect, decrement.
+	// /events is telemetry-only now (thoughts, tool activity, status).
+	// It used to double as "user is present on cli" — the dashboard
+	// opened /events and the agent was expected to reply via
+	// channels_respond(channel="cli"). That channel has been replaced
+	// by the channel-chat app, which tracks its own presence via
+	// the hub-subscriber count on /api/apps/channel-chat/stream.
+	// So we NO LONGER increment CLIBridge on /events subscriptions —
+	// otherwise every dashboard / TUI status reader made the agent
+	// think cli was reachable and caused it to respond there by
+	// default (stranding messages no one would ever see).
 	flusher, canFlush := w.(http.Flusher)
 	isSSE := canFlush && resp.Header.Get("Content-Type") == "text/event-stream"
-	if isSSE && corePath == "/events" {
-		if ic := s.instances.GetChannels(inst.ID); ic != nil && ic.cli != nil {
-			ic.cli.Connect()
-			defer ic.cli.Disconnect()
-		}
-	}
 
 	if isSSE {
 		br := bufio.NewReader(resp.Body)

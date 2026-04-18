@@ -142,14 +142,7 @@ func (s *channelMCPServer) toolsList() map[string]any {
 		"tools": []map[string]any{
 			{
 				"name": "respond",
-				"description": fmt.Sprintf(
-					"Send a message to a user on a channel. Every user message MUST get a response via this tool — text written in your thoughts is INVISIBLE to the user; only this tool delivers messages. "+
-						"After completing any user request (including after spawn/exec/other tool calls), your FINAL action MUST be a respond call confirming the result — if you write \"Done\" or \"Here's what I did\" as plain thought text without calling respond, the user never sees it. "+
-						"IMPORTANT: Send ONE complete response per user message. Include ALL information in a single call — do NOT split across multiple calls or follow up with a second message repeating the same content. "+
-						"Connected channels: [%s]. "+
-						"Match the channel from the event prefix: [cli] → channel=\"cli\", [telegram:@john:12345] → channel=\"telegram:12345\", [slack:user:C12345] → channel=\"slack:C12345\" (use only the C-prefixed ID, NOT the username part), [email:user@example.com] → channel=\"email:inbox@agentmail.to\".",
-					channelList,
-				),
+				"description": buildRespondDescription(channelIDs),
 				"inputSchema": map[string]any{
 					"type":     "object",
 					"required": []string{"text", "channel"},
@@ -174,11 +167,87 @@ func (s *channelMCPServer) toolsList() map[string]any {
 			},
 			{
 				"name":        "list_channels",
-				"description": "List all currently connected communication channels.",
+				"description": "List currently connected channels. RARELY NEEDED: the `respond` tool's description already lists the connected channels on every turn (that listing IS authoritative). Call this tool ONLY if you need to introspect channel availability for some out-of-band reason — never as a precondition to calling respond.",
 				"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 			},
 		},
 	}
+}
+
+// buildRespondDescription emits a respond-tool description whose
+// routing examples are filtered to ONLY the currently connected
+// channels. The previous static description listed every possible
+// channel (cli, chat, telegram, slack, email) even when only one
+// was live — LLMs treat examples as strong priors and would call
+// respond(channel="cli") even with chat as the sole connected
+// channel, because "cli" appeared right there in the tool doc.
+// Dynamic examples kill that failure mode: if the agent sees only
+// [chat] as a valid channel in the docs, it calls channel="chat".
+func buildRespondDescription(channelIDs []string) string {
+	var examples []string
+	for _, id := range channelIDs {
+		// Strip cosmetic telegram suffixes for the example.
+		raw := id
+		if i := strings.Index(raw, " "); i > 0 {
+			raw = raw[:i]
+		}
+		switch {
+		case raw == "cli":
+			examples = append(examples, `[cli] → channel="cli"`)
+		case raw == "chat":
+			examples = append(examples, `[chat] → channel="chat"`)
+		case strings.HasPrefix(raw, "telegram"):
+			examples = append(examples, `[telegram:@user:12345] → channel="telegram:12345" (digits only)`)
+		case strings.HasPrefix(raw, "slack:"):
+			examples = append(examples, fmt.Sprintf(`[slack:user:%s] → channel="%s" (C-prefixed id only, not the username)`, raw[len("slack:"):], raw))
+		case strings.HasPrefix(raw, "email:"):
+			examples = append(examples, fmt.Sprintf(`[email:user@example.com] → channel="%s"`, raw))
+		default:
+			examples = append(examples, fmt.Sprintf(`channel="%s"`, raw))
+		}
+	}
+	connectedList := strings.Join(channelIDs, ", ")
+	if connectedList == "" {
+		connectedList = "none"
+	}
+	examplesLine := strings.Join(examples, "; ")
+	if examplesLine == "" {
+		examplesLine = "(none — no channels currently accept responses; see DIRECTIVES rule below)"
+	}
+
+	return fmt.Sprintf(
+		"Send a message to a user on a channel. Every user message MUST get a response via this tool — text written in your thoughts is INVISIBLE to the user; only this tool delivers messages. "+
+			"After completing any user request (including after spawn/exec/other tool calls), your FINAL action MUST be a respond call confirming the result — if you write \"Done\" or \"Here's what I did\" as plain thought text without calling respond, the user never sees it. "+
+			"IMPORTANT: Send ONE complete response per user message. Include ALL information in a single call — do NOT split across multiple calls or follow up with a second message repeating the same content. "+
+			"CONNECTED CHANNELS (authoritative, refreshed every turn, the ONLY valid values for the `channel` parameter): [%s]. "+
+			"This line IS the source of truth — do NOT call list_channels to double-check it, do NOT guess channel names from past conversations, do NOT default to \"cli\". "+
+			"Any value not in this list will FAIL. If the list is empty, no one is reachable — stay silent, do not call respond. "+
+			"Routing — match the event prefix to the channel: %s. "+
+			"DIRECTIVES vs MESSAGES: events whose tag does NOT correspond to a connected channel above — e.g. [admin], [system], [inject], or a bare untagged event — are DIRECTIVES from an operator, not user messages. Act on them (run tools, update state) but do NOT call respond for them.",
+		connectedList, examplesLine,
+	)
+}
+
+// channelInList reports whether `channel` (normalized) matches any
+// entry in the available-channels list, after trimming the display
+// suffix telegram channels carry (e.g. "telegram (bot @foo)" → "telegram").
+// Needed so the gate in the respond handler can accept channel="chat"
+// when AvailableChannels returned ["chat"] verbatim, and channel="telegram:123"
+// when it returned "telegram (bot @mybot)".
+func channelInList(channel string, available []string) bool {
+	for _, a := range available {
+		if a == channel {
+			return true
+		}
+		if i := strings.Index(a, " "); i > 0 && a[:i] == channel {
+			return true
+		}
+		// Accept the "telegram:123" vs "telegram" prefix case.
+		if strings.HasPrefix(channel, a+":") {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCError) {
@@ -200,14 +269,35 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 	case "respond":
 		text, _ := call.Arguments["text"].(string)
 		channel, _ := call.Arguments["channel"].(string)
+		rawChannel := channel
 		if text == "" {
 			return nil, &mcpRPCError{Code: -32602, Message: "text required"}
 		}
-		if channel == "" {
-			channel = "cli"
+		// Gate by the active channels list BEFORE attempting Send.
+		// This makes the feedback loop loud when the agent picks a
+		// channel that isn't in the connected list (e.g. defaulting
+		// to "cli" from training). The error tells it exactly what
+		// the valid options are, so the next turn's tool_result
+		// becomes the correction signal the LLM needs.
+		var connected []string
+		if s.ic != nil {
+			connected = s.ic.AvailableChannels()
+		} else {
+			for _, ch := range s.registry.List() {
+				connected = append(connected, ch.ID())
+			}
 		}
-		channel = normalizeChannelID(channel)
-		if err := s.registry.Send(channel, text); err != nil {
+		normalized := normalizeChannelID(channel)
+		if channel == "" || !channelInList(normalized, connected) {
+			msg := fmt.Sprintf(
+				"channel %q is not in the currently connected channels %v. "+
+					"Use ONLY a channel from that list. If the list is empty, no user is reachable — "+
+					"do NOT call respond; treat the event as a directive and act silently.",
+				rawChannel, connected,
+			)
+			return nil, &mcpRPCError{Code: -32602, Message: msg}
+		}
+		if err := s.registry.Send(normalized, text); err != nil {
 			return nil, &mcpRPCError{Code: -32602, Message: err.Error()}
 		}
 		return textResult("delivered — do NOT send another respond for this same user message"), nil

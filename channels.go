@@ -81,6 +81,19 @@ func (r *ChannelRegistry) List() []Channel {
 	return out
 }
 
+// ChannelIDs returns registered channel ids (regardless of IsActive
+// state). Useful for debug logs that want to distinguish "channel
+// doesn't exist" from "channel exists but is silently inactive".
+func (r *ChannelRegistry) ChannelIDs() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := make([]string, 0, len(r.channels))
+	for id := range r.channels {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 func (r *ChannelRegistry) Send(channelID, text string) error {
 	ch := r.Get(channelID)
 	if ch == nil {
@@ -106,6 +119,19 @@ type InstanceChannels struct {
 	cli      *CLIBridge
 }
 
+// activeChannel is an optional interface channels may implement to
+// gate their presence in the available-channels list. When missing,
+// a channel is considered always active (today's default for slack,
+// email, telegram proper). When present, the channel only appears in
+// AvailableChannels() while IsActive() returns true — letting the
+// chat channel say "I'm not advertised unless a dashboard is open".
+// Keeps the agent from reflexively responding on channels where no
+// human is listening (e.g. an inject/admin event shouldn't get a
+// chat reply just because chat was registered with the instance).
+type activeChannel interface {
+	IsActive() bool
+}
+
 // AvailableChannels returns channel IDs for channels that are actually
 // connected and can receive messages right now.
 func (ic *InstanceChannels) AvailableChannels() []string {
@@ -119,6 +145,12 @@ func (ic *InstanceChannels) AvailableChannels() []string {
 	for _, ch := range ic.registry.List() {
 		id := ch.ID()
 		if id == "cli" {
+			continue
+		}
+		// activeChannel gate — DB-backed channels like chat report
+		// "no one's listening right now" so the agent doesn't see
+		// them as valid respond targets when no UI is open.
+		if ac, ok := ch.(activeChannel); ok && !ac.IsActive() {
 			continue
 		}
 		ids = append(ids, id)

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/apteva/server/apps/framework"
 )
 
 // Version fields are injected at build time via -ldflags "-X main.Xxx=..."
@@ -52,7 +54,16 @@ type Server struct {
 	setupToken     string  // one-time token for first registration (empty after use)
 	regMode        string  // "open", "locked", "setup" — controls registration
 	instanceSecret string  // shared secret for MCP and telemetry auth
+	// apps holds the loaded Apteva Apps registry. Apps attach to
+	// instance lifecycle via NotifyInstanceAttach/Detach and expose
+	// HTTP routes under /api/apps/<slug>/. Nil before startApps().
+	apps *appsRegistry
 }
+
+// appsRegistry is a thin alias over framework.Registry so main.go
+// doesn't need to import the framework package just to hold a pointer.
+// Defined in apps_wire.go's import path.
+type appsRegistry = framework.Registry
 
 func main() {
 	// Check for MCP server modes
@@ -610,9 +621,23 @@ func main() {
 	// handler stops the zombies from existing at all on clean exit.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	// Boot the Apteva Apps framework AFTER the rest of the mux is
+	// set up so apps can mount routes under /api/apps/<slug>/ without
+	// racing the primary handlers. The returned registry holds the
+	// lifecycle handle; we Stop it on shutdown before killing
+	// instances so apps can flush state that depends on per-instance
+	// channels.
+	appsReg, err := s.startApps(apiMux)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "apps startup failed: %v\n", err)
+		os.Exit(1)
+	}
+	s.apps = appsReg
+
 	go func() {
 		sig := <-sigCh
 		fmt.Fprintf(os.Stderr, "\napteva-server received %s — stopping children\n", sig)
+		s.stopApps(appsReg)
 		s.instances.StopAll(5 * time.Second)
 		os.Exit(0)
 	}()
