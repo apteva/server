@@ -228,6 +228,18 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	user, err := s.store.GetUserByEmail(body.Email)
 	if err != nil {
+		// Back-compat: older CLI setups silently appended "@local" to
+		// plain usernames at registration time. If the typed value has
+		// no "@" and the direct lookup failed, try the legacy variant
+		// so those accounts remain loginable without re-running setup.
+		if !strings.Contains(body.Email, "@") {
+			if u2, err2 := s.store.GetUserByEmail(body.Email + "@local"); err2 == nil {
+				user = u2
+				err = nil
+			}
+		}
+	}
+	if err != nil {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}

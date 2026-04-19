@@ -569,13 +569,39 @@ func (s *Server) getBrowserConfig(userID int64, providerName string, projectID .
 		if apiKey == "" {
 			continue
 		}
-		return map[string]any{
+		cfg := map[string]any{
 			"type":       "browserbase",
 			"api_key":    apiKey,
 			"project_id": projectID,
 			"width":      width,
 			"height":     height,
 		}
+		// Extended Browserbase options — all optional. Each maps to a
+		// POST /v1/sessions field. Stored on the provider record as
+		// plain strings; parsed and forwarded only when set.
+		if v := data["BROWSERBASE_REGION"]; v != "" {
+			cfg["region"] = v
+		}
+		if v := data["BROWSERBASE_EXTENSION_ID"]; v != "" {
+			cfg["extension_id"] = v
+		}
+		if v := data["BROWSERBASE_KEEP_ALIVE"]; v == "1" || v == "true" {
+			cfg["keep_alive"] = true
+		}
+		if v := data["BROWSERBASE_SOLVE_CAPTCHAS"]; v == "1" || v == "true" {
+			cfg["solve_captchas"] = true
+		}
+		if v := data["BROWSERBASE_PROXIES"]; v == "1" || v == "true" {
+			cfg["proxies"] = true
+		}
+		if v := data["BROWSERBASE_TIMEOUT"]; v != "" {
+			var t int
+			fmt.Sscanf(v, "%d", &t)
+			if t > 0 {
+				cfg["timeout"] = t
+			}
+		}
+		return cfg
 	}
 	return nil
 }
@@ -721,7 +747,7 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name       string `json:"name"`
 		Directive  string `json:"directive"`
-		Mode       string `json:"mode"`   // "autonomous" or "supervised"
+		Mode       string `json:"mode"`   // "autonomous" | "cautious" | "learn"
 		Config     string `json:"config"` // optional JSON blob for MCP servers etc
 		ProjectID  string `json:"project_id"`
 		Start      *bool  `json:"start,omitempty"` // default true; set false to create without starting
@@ -745,7 +771,13 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	if body.Directive == "" {
 		body.Directive = "Idle. Waiting for configuration via directive."
 	}
-	if body.Mode != "supervised" {
+	// Core supports autonomous, cautious, and learn. Anything else
+	// (including the legacy "supervised" string that never existed on
+	// the core side) falls back to autonomous.
+	switch body.Mode {
+	case "autonomous", "cautious", "learn":
+		// keep
+	default:
 		body.Mode = "autonomous"
 	}
 	if body.Config == "" {
@@ -1167,7 +1199,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if body.Directive != "" {
 		inst.Directive = body.Directive
 	}
-	if body.Mode == "autonomous" || body.Mode == "supervised" || body.Mode == "cautious" || body.Mode == "learn" {
+	if body.Mode == "autonomous" || body.Mode == "cautious" || body.Mode == "learn" {
 		inst.Mode = body.Mode
 	}
 	if body.Config != "" {

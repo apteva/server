@@ -41,7 +41,7 @@ type Instance struct {
 	UserID    int64     `json:"user_id"`
 	Name      string    `json:"name"`
 	Directive string    `json:"directive"`
-	Mode      string    `json:"mode"` // "autonomous" or "supervised"
+	Mode      string    `json:"mode"` // "autonomous" | "cautious" | "learn"
 	Config    string    `json:"config"` // JSON blob
 	Port      int       `json:"port"`
 	Pid       int       `json:"pid"`
