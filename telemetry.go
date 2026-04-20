@@ -482,35 +482,10 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Enrich llm.done events with server-side cost calculation
-	for i, ev := range events {
-		if ev.Type == "llm.done" && ev.Data != nil {
-			var data map[string]any
-			if json.Unmarshal(ev.Data, &data) == nil {
-				model, _ := data["model"].(string)
-				tokIn, _ := data["tokens_in"].(float64)
-				tokOut, _ := data["tokens_out"].(float64)
-				if model != "" && (tokIn > 0 || tokOut > 0) {
-					// Determine provider type from instance
-					providerType := ""
-					if ev.InstanceID > 0 {
-						if inst, err := s.store.GetInstanceByID(ev.InstanceID); err == nil {
-							pi := s.GetProviderInfo(inst.UserID)
-							providerType = pi.Type
-						}
-					}
-					if providerType != "" {
-						inputCost, outputCost := GetModelPricing(providerType, model)
-						if inputCost > 0 || outputCost > 0 {
-							cost := (tokIn * inputCost / 1_000_000) + (tokOut * outputCost / 1_000_000)
-							data["cost_usd"] = cost
-							events[i].Data, _ = json.Marshal(data)
-						}
-					}
-				}
-			}
-		}
-	}
+	// Enrich llm.done events with server-side cost calculation.
+	// Pricing data lives here, not in core — core emits raw token
+	// counts + model, and this pass layers in cost_usd on persist.
+	s.enrichCostInPlace(events)
 
 	if err := s.store.InsertTelemetry(events); err != nil {
 		http.Error(w, "insert failed: "+err.Error(), http.StatusInternalServerError)
@@ -555,8 +530,54 @@ func (s *Server) handleLiveTelemetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enrich live events too — the dashboard's per-instance streaming
+	// cost + context bars all read cost_usd. If we skip this, the
+	// streaming path shows $0.00 until the persistence ingest catches
+	// up and the caller refetches.
+	s.enrichCostInPlace(events)
+
 	s.broadcaster.Broadcast(events)
 	writeJSON(w, map[string]int{"broadcast": len(events)})
+}
+
+// enrichCostInPlace scans events for llm.done payloads and adds a
+// server-computed cost_usd to each. The event's own `model` string is
+// the lookup key — we match the model across the pricing table
+// regardless of which provider the instance was configured against,
+// so multi-provider instances (e.g. pool with fireworks default but an
+// occasional openai fallback) are priced correctly. Cached tokens are
+// priced at the cached rate where the model exposes one.
+func (s *Server) enrichCostInPlace(events []TelemetryEvent) {
+	for i, ev := range events {
+		if ev.Type != "llm.done" || ev.Data == nil {
+			continue
+		}
+		var data map[string]any
+		if json.Unmarshal(ev.Data, &data) != nil {
+			continue
+		}
+		model, _ := data["model"].(string)
+		if model == "" {
+			continue
+		}
+		tokIn, _ := data["tokens_in"].(float64)
+		tokCached, _ := data["tokens_cached"].(float64)
+		tokOut, _ := data["tokens_out"].(float64)
+		if tokIn == 0 && tokOut == 0 {
+			continue
+		}
+		input, cached, output, ok := LookupModelPricing(model)
+		if !ok {
+			continue
+		}
+		uncached := tokIn - tokCached
+		if uncached < 0 {
+			uncached = 0
+		}
+		cost := (uncached*input + tokCached*cached + tokOut*output) / 1_000_000
+		data["cost_usd"] = cost
+		events[i].Data, _ = json.Marshal(data)
+	}
 }
 
 // GET /telemetry/stream

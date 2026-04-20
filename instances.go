@@ -155,6 +155,10 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 		"command":     serverBin,
 		"args":        []string{"--mcp-gateway", fmt.Sprintf("--user-id=%d", inst.UserID)},
 		"main_access": true,
+		// no_spawn blocks sub-threads from attaching this MCP via
+		// spawn(mcp="apteva-server"). Management capabilities (creating
+		// instances, MCP servers, …) stay on main only.
+		"no_spawn": true,
 	}
 
 	// Disk config.json is the single source of truth.
@@ -267,20 +271,31 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 		"url":         channelsMCP.url(),
 		"transport":   "http",
 		"main_access": true,
+		// Outbound user-facing chat bridge — main only. A worker that
+		// could attach channels would be able to reply to end users
+		// directly, which we don't want.
+		"no_spawn": true,
 	}
 
-	// Read the opt-out flags for the auto-injected system MCPs. Default
-	// true (= inject them) so existing instances keep the current
-	// behaviour. Setting either flag to false leaves that system MCP
-	// out of the merged config — the user gets a lean agent with only
-	// the MCPs they explicitly configured.
+	// Read the opt-out flags for the auto-injected system MCPs. These
+	// live in the instance's DB record (inst.Config JSON blob) rather
+	// than disk config.json — core owns the disk config and drops
+	// unknown fields on save, so any server-only state needs to live
+	// elsewhere. Default true (= inject) so existing instances keep
+	// current behaviour.
 	includeGateway := true
-	if v, ok := config["include_apteva_server"].(bool); ok {
-		includeGateway = v
-	}
 	includeChannels := true
-	if v, ok := config["include_channels"].(bool); ok {
-		includeChannels = v
+	{
+		var instCfg map[string]any
+		if inst.Config != "" {
+			json.Unmarshal([]byte(inst.Config), &instCfg)
+		}
+		if v, ok := instCfg["include_apteva_server"].(bool); ok {
+			includeGateway = v
+		}
+		if v, ok := instCfg["include_channels"].(bool); ok {
+			includeChannels = v
+		}
 	}
 
 	// Merge apteva-server gateway and channels into existing MCP servers.
@@ -1283,6 +1298,40 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// System-MCP opt-out persistence: when the client sends an
+	// mcp_servers list, detect whether the system entries the server
+	// auto-injects at startup (apteva-server, channels / apteva-channels)
+	// are present. Absent means "user detached" — we remember that in
+	// the instance DB record so the next start respects the choice.
+	// Present means "user wants it", which clears any stale opt-out.
+	if mcpList, ok := rawBody["mcp_servers"].([]any); ok {
+		var instCfg map[string]any
+		if inst.Config != "" {
+			json.Unmarshal([]byte(inst.Config), &instCfg)
+		}
+		if instCfg == nil {
+			instCfg = map[string]any{}
+		}
+		hasGateway := false
+		hasChannels := false
+		for _, s := range mcpList {
+			if sm, ok := s.(map[string]any); ok {
+				n, _ := sm["name"].(string)
+				if n == "apteva-server" {
+					hasGateway = true
+				}
+				if n == "channels" || n == "apteva-channels" {
+					hasChannels = true
+				}
+			}
+		}
+		instCfg["include_apteva_server"] = hasGateway
+		instCfg["include_channels"] = hasChannels
+		if out, err := json.Marshal(instCfg); err == nil {
+			inst.Config = string(out)
+		}
+	}
+
 	s.store.UpdateInstance(inst)
 
 	// Forward the FULL body to core (includes mcp_servers, computer, etc.)
@@ -1450,7 +1499,18 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		for {
 			line, err := br.ReadBytes('\n')
 			if len(line) > 0 {
-				w.Write(line)
+				// SSE frames are `data: <json>\n`. Parse just the llm.done
+				// frames and inject a server-computed cost_usd before
+				// forwarding, so the dashboard's live stream shows cost
+				// without another round-trip. Non-llm.done frames (and
+				// anything that doesn't parse cleanly) pass through
+				// verbatim.
+				if bytes.HasPrefix(line, []byte("data: ")) {
+					rewritten := enrichLLMDoneSSELine(line)
+					w.Write(rewritten)
+				} else {
+					w.Write(line)
+				}
 				if len(bytes.TrimSpace(line)) == 0 {
 					flusher.Flush()
 				}
@@ -1462,6 +1522,59 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	} else {
 		io.Copy(w, resp.Body)
 	}
+}
+
+// enrichLLMDoneSSELine rewrites a single SSE `data: {...}` line for an
+// llm.done event to include a server-computed cost_usd. Used by the
+// /api/instances/:id/events proxy so the dashboard's live stream sees
+// enriched cost without refetching from the persisted telemetry table.
+//
+// Any parse failure returns the input unchanged — we never want to
+// break the frame if the shape shifts. The event-level JSON shape here
+// mirrors what core emits: `{ "id", "type", "thread_id", "data": {...} }`.
+func enrichLLMDoneSSELine(line []byte) []byte {
+	payload := bytes.TrimPrefix(line, []byte("data: "))
+	payload = bytes.TrimRight(payload, "\r\n")
+	if len(payload) == 0 {
+		return line
+	}
+	var env map[string]any
+	if err := json.Unmarshal(payload, &env); err != nil {
+		return line
+	}
+	if env["type"] != "llm.done" {
+		return line
+	}
+	data, ok := env["data"].(map[string]any)
+	if !ok {
+		return line
+	}
+	model, _ := data["model"].(string)
+	if model == "" {
+		return line
+	}
+	tokIn, _ := data["tokens_in"].(float64)
+	tokCached, _ := data["tokens_cached"].(float64)
+	tokOut, _ := data["tokens_out"].(float64)
+	if tokIn == 0 && tokOut == 0 {
+		return line
+	}
+	input, cached, output, ok := LookupModelPricing(model)
+	if !ok {
+		return line
+	}
+	uncached := tokIn - tokCached
+	if uncached < 0 {
+		uncached = 0
+	}
+	cost := (uncached*input + tokCached*cached + tokOut*output) / 1_000_000
+	data["cost_usd"] = cost
+	env["data"] = data
+	out, err := json.Marshal(env)
+	if err != nil {
+		return line
+	}
+	return append(append([]byte("data: "), out...), '\n')
 }
 
 // POST /instances/:id/channels/telegram — connect telegram bot

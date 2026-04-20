@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -38,6 +39,25 @@ func versionInfo() map[string]any {
 		"integrations": IntegrationsVersion,
 		"core":         CoreVersion,
 	}
+}
+
+// loadOrMintInstanceSecret returns the persisted instance secret from
+// server_settings, creating + saving a fresh one the first time. A
+// stable secret across server restarts is the key to not 401-ing cores
+// that were running before the restart — they keep using their
+// INSTANCE_SECRET env value, which now matches.
+func loadOrMintInstanceSecret(store *Store) string {
+	if v := store.GetSetting("instance_secret"); v != "" {
+		return v
+	}
+	v := generateToken(16)
+	if err := store.SetSetting("instance_secret", v); err != nil {
+		// Fall back to the generated token — next boot will mint a
+		// new one and rotate cores, but that's still better than a
+		// panic here on a write failure.
+		log.Printf("[BOOT] failed to persist instance_secret: %v", err)
+	}
+	return v
 }
 
 type Server struct {
@@ -206,7 +226,14 @@ func main() {
 		broadcaster:    NewTelemetryBroadcaster(),
 		setupToken:     setupToken,
 		regMode:        regMode,
-		instanceSecret: generateToken(16),
+		// instanceSecret gates both the /api/telemetry ingest path and
+		// the MCP gateway's instance auth. Cores we spawn receive it as
+		// INSTANCE_SECRET and send it back in X-Instance-Secret on every
+		// telemetry POST. Regenerating it on every server start breaks
+		// already-running cores (they keep using their old env value
+		// and hit 401 forever until re-spawned), so we persist it in
+		// server_settings and only mint a fresh one on first boot.
+		instanceSecret: loadOrMintInstanceSecret(store),
 	}
 
 	// Start console telemetry logger

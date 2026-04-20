@@ -248,29 +248,65 @@ func fetchGoogleModels(apiKey string) ([]ModelInfo, error) {
 
 // ── Pricing defaults ──
 
-var defaultPricing = map[string]map[string][2]float64{
-	"anthropic": {
-		"claude-opus-4-6":         {15.0, 75.0},
-		"claude-sonnet-4-6":       {3.0, 15.0},
-		"claude-sonnet-4-20250514": {3.0, 15.0},
-		"claude-haiku-4-5-20251001": {0.80, 4.0},
-	},
-	"openai": {
-		"gpt-4.1":       {2.0, 8.0},
-		"gpt-4.1-mini":  {0.40, 1.60},
-		"gpt-4.1-nano":  {0.10, 0.40},
-	},
-	"fireworks": {
-		"accounts/fireworks/models/kimi-k2p5": {0.60, 3.0},
-	},
+// modelPricing is input/cached/output per 1M tokens for a single model.
+// Cached rate falls back to input when the model doesn't publish one
+// (look up returns input/10 as a reasonable default only if nothing is
+// stored — explicit entries win).
+type modelPricing struct {
+	input  float64
+	cached float64
+	output float64
 }
 
-// GetModelPricing returns input/output cost per 1M tokens.
-func GetModelPricing(providerType, modelID string) (input, output float64) {
-	if providerPricing, ok := defaultPricing[providerType]; ok {
-		if costs, ok := providerPricing[modelID]; ok {
-			return costs[0], costs[1]
-		}
+// Canonical pricing table keyed by the model string we receive in
+// llm.done telemetry. Rates are USD per 1M tokens for
+// (uncached input, cached input, output). Adding a model anywhere else
+// in the stack is a no-op for cost — this is the single source of truth.
+//
+// Provider pricing sources (verified via web search, April 2026):
+//   - Fireworks:  https://fireworks.ai/pricing
+//   - Anthropic:  https://platform.claude.com/docs/en/about-claude/pricing
+//   - OpenAI:     https://openai.com/api/pricing/
+// Bump the comment date when you refresh the table against the vendors.
+var modelPricingTable = map[string]modelPricing{
+	// Anthropic (https://platform.claude.com/docs/en/about-claude/pricing)
+	"claude-opus-4-7":           {5.0, 0.5, 25.0},
+	"claude-opus-4-6":           {5.0, 0.5, 25.0},
+	"claude-sonnet-4-6":         {3.0, 0.3, 15.0},
+	"claude-sonnet-4-20250514":  {3.0, 0.3, 15.0},
+	"claude-haiku-4-5-20251001": {1.0, 0.10, 5.0},
+
+	// OpenAI (https://openai.com/api/pricing/)
+	"gpt-5.4":      {2.50, 0.25, 15.00},
+	"gpt-5.4-mini": {0.75, 0.075, 4.50},
+	"gpt-4.1":      {2.0, 0.5, 8.0},
+	"gpt-4.1-mini": {0.40, 0.10, 1.60},
+	"gpt-4.1-nano": {0.10, 0.025, 0.40},
+
+	// Fireworks (https://fireworks.ai/pricing)
+	"accounts/fireworks/models/kimi-k2p5":        {0.60, 0.10, 3.00},
+	"accounts/fireworks/routers/kimi-k2p5-turbo": {0.99, 0.16, 4.94},
+	"accounts/fireworks/models/minimax-m2p7":     {0.30, 0.06, 1.20},
+	"accounts/fireworks/models/minimax-m2p5":     {0.30, 0.03, 1.20},
+}
+
+// LookupModelPricing returns the per-1M pricing for a model, derived
+// entirely from the event-supplied model string. Callers receive the
+// three rates + ok=true when the model is known; ok=false means we
+// can't price the event and it should be left un-enriched.
+func LookupModelPricing(model string) (input, cached, output float64, ok bool) {
+	if p, found := modelPricingTable[model]; found {
+		return p.input, p.cached, p.output, true
+	}
+	return 0, 0, 0, false
+}
+
+// Legacy helper kept for the analytics panel that still queries by
+// (providerType, model). Prefer LookupModelPricing for new code — it
+// doesn't need the provider hint.
+func GetModelPricing(_, modelID string) (input, output float64) {
+	if p, ok := modelPricingTable[modelID]; ok {
+		return p.input, p.output
 	}
 	return 0, 0
 }
