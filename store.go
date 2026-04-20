@@ -114,7 +114,8 @@ func (s *Store) migrate() error {
 			(7, 'tts', 'ElevenLabs', 'Text-to-speech', '["ELEVENLABS_API_KEY"]', 1, 30),
 			(8, 'browserbase', 'Browserbase', 'Cloud browser automation via Browserbase', '["BROWSERBASE_API_KEY","BROWSERBASE_PROJECT_ID"]', 1, 40),
 			(9, 'integrations', 'Composio', '250+ app integrations via Composio (MCP-native)', '["COMPOSIO_API_KEY"]', 1, 16),
-			(10, 'llm', 'NVIDIA', 'LLM inference via NVIDIA NIM (integrate.api.nvidia.com)', '["NVIDIA_API_KEY"]', 1, 14);
+			(10, 'llm', 'NVIDIA', 'LLM inference via NVIDIA NIM (integrate.api.nvidia.com)', '["NVIDIA_API_KEY"]', 1, 14),
+			(11, 'steel', 'Steel', 'Cloud browser automation via Steel.dev', '["STEEL_API_KEY"]', 1, 41);
 
 		-- Update existing Fireworks provider type to include model override fields
 		UPDATE provider_types SET fields = '["FIREWORKS_API_KEY"]' WHERE id = 1;

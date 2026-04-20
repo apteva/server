@@ -412,7 +412,11 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 	return nil
 }
 
-// Stop kills a running core process and cleans up channels.
+// Stop kills a running core process and cleans up channels. Sends
+// SIGTERM first and waits up to 2s for core to release its computer
+// session (local Chrome / Browserbase) before escalating to SIGKILL.
+// Without the grace window, Chrome is orphaned to PID 1 and keeps
+// running after every instance stop.
 func (im *InstanceManager) Stop(instanceID int64) {
 	im.mu.Lock()
 	ri, ok := im.processes[instanceID]
@@ -420,14 +424,27 @@ func (im *InstanceManager) Stop(instanceID int64) {
 		delete(im.processes, instanceID)
 	}
 	im.mu.Unlock()
-	if ok {
-		if ri.channels != nil {
-			ri.channels.Stop()
-		}
-		if ri.cmd.Process != nil {
-			ri.cmd.Process.Kill()
-			ri.cmd.Wait()
-		}
+	if !ok {
+		return
+	}
+	if ri.channels != nil {
+		ri.channels.Stop()
+	}
+	if ri.cmd.Process == nil {
+		return
+	}
+	// Phase 1: polite SIGTERM.
+	_ = ri.cmd.Process.Signal(syscall.SIGTERM)
+	done := make(chan struct{})
+	go func() { ri.cmd.Wait(); close(done) }()
+	select {
+	case <-done:
+		// clean exit
+	case <-time.After(2 * time.Second):
+		// Phase 2: escalate. Chrome may be stuck on a navigation or
+		// an agent may be ignoring SIGTERM — don't wait forever.
+		ri.cmd.Process.Kill()
+		<-done
 	}
 }
 
@@ -508,7 +525,7 @@ func defaultProviderForInstance(inst *Instance) string {
 }
 
 // getBrowserConfig returns the browser/computer config from providers if one exists.
-// Supports "browser" (local Chrome or existing CDP) and "browserbase" (cloud) provider types.
+// Supports "browser" (local Chrome or existing CDP), "browserbase" (cloud), and "steel" (cloud) provider types.
 // providerName picks the default viewport when WIDTH/HEIGHT aren't set on the
 // provider record — pass the name of the LLM that will run inside the
 // instance ("anthropic", "fireworks", "google", …). Empty string falls back
@@ -519,7 +536,7 @@ func (s *Server) getBrowserConfig(userID int64, providerName string, projectID .
 		return nil
 	}
 	for _, p := range providers {
-		if p.Type != "browserbase" && p.Type != "browser" {
+		if p.Type != "browserbase" && p.Type != "browser" && p.Type != "steel" {
 			continue
 		}
 		_, encData, err := s.store.GetProvider(userID, p.ID)
@@ -559,6 +576,48 @@ func (s *Server) getBrowserConfig(userID int64, providerName string, projectID .
 			if cdpURL := data["CDP_URL"]; cdpURL != "" {
 				cfg["type"] = "service"
 				cfg["url"] = cdpURL
+			}
+			return cfg
+		}
+
+		if p.Type == "steel" {
+			apiKey := data["STEEL_API_KEY"]
+			if apiKey == "" {
+				continue
+			}
+			cfg := map[string]any{
+				"type":    "steel",
+				"api_key": apiKey,
+				"width":   width,
+				"height":  height,
+			}
+			// Extended Steel options — all optional. Each maps to a
+			// POST /v1/sessions field. Stored as plain strings; parsed
+			// and forwarded only when set.
+			if v := data["STEEL_REGION"]; v != "" {
+				cfg["region"] = v
+			}
+			if v := data["STEEL_USER_AGENT"]; v != "" {
+				cfg["user_agent"] = v
+			}
+			if v := data["STEEL_PROXY_URL"]; v != "" {
+				cfg["proxy_url"] = v
+			}
+			if v := data["STEEL_USE_PROXY"]; v == "1" || v == "true" {
+				cfg["use_proxy"] = true
+			}
+			if v := data["STEEL_BLOCK_ADS"]; v == "1" || v == "true" {
+				cfg["block_ads"] = true
+			}
+			if v := data["STEEL_SOLVE_CAPTCHA"]; v == "1" || v == "true" {
+				cfg["solve_captcha"] = true
+			}
+			if v := data["STEEL_TIMEOUT"]; v != "" {
+				var t int
+				fmt.Sscanf(v, "%d", &t)
+				if t > 0 {
+					cfg["timeout"] = t
+				}
 			}
 			return cfg
 		}
@@ -1168,7 +1227,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(bodyBytes, &rawBody); err == nil && rawBody != nil {
 		if compRaw, ok := rawBody["computer"].(map[string]any); ok {
 			compType, _ := compRaw["type"].(string)
-			needsEnrich := (compType == "browserbase" || compType == "service") &&
+			needsEnrich := (compType == "browserbase" || compType == "steel" || compType == "service") &&
 				compRaw["api_key"] == nil && compRaw["url"] == nil
 			if needsEnrich {
 				if browserCfg := s.getBrowserConfig(userID, defaultProviderForInstance(inst), inst.ProjectID); browserCfg != nil {
