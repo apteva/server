@@ -849,6 +849,60 @@ func (s *Server) handleGetConnection(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, conn)
 }
 
+// PATCH /connections/:id — rename an existing connection.
+// Body: { "name": "..." }. Only the name is editable via this endpoint;
+// credential swap goes through the invite flow or the OAuth callback.
+func (s *Server) handleRenameConnection(w http.ResponseWriter, r *http.Request) {
+	userID := getUserID(r)
+	idStr := strings.TrimPrefix(r.URL.Path, "/connections/")
+	connID, err := atoi64(idStr)
+	if err != nil {
+		http.Error(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	conn, _, err := s.store.GetConnection(userID, connID)
+	if err != nil || conn == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if conn.Name == name {
+		writeJSON(w, conn)
+		return
+	}
+	// Uniqueness: (user, project, app, name) must stay unique — match the
+	// guard in handleCreateConnection so rename failures are readable.
+	var existing int
+	s.store.db.QueryRow(
+		"SELECT COUNT(*) FROM connections WHERE user_id = ? AND project_id = ? AND app_slug = ? AND name = ? AND id != ?",
+		userID, conn.ProjectID, conn.AppSlug, name, connID,
+	).Scan(&existing)
+	if existing > 0 {
+		http.Error(w, "a connection with that name already exists for this app in this project", http.StatusConflict)
+		return
+	}
+	if _, err := s.store.db.Exec(
+		"UPDATE connections SET name = ? WHERE id = ? AND user_id = ?",
+		name, connID, userID,
+	); err != nil {
+		http.Error(w, "rename failed", http.StatusInternalServerError)
+		return
+	}
+	conn.Name = name
+	writeJSON(w, conn)
+}
+
 // GET /connections
 func (s *Server) handleListConnections(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)

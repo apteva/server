@@ -424,10 +424,30 @@ func main() {
 			s.handleConnectionTriggers(w, r)
 		} else if r.Method == http.MethodGet {
 			s.handleGetConnection(w, r)
+		} else if r.Method == http.MethodPatch {
+			s.handleRenameConnection(w, r)
 		} else {
 			s.handleDeleteConnection(w, r)
 		}
 	}))
+
+	// Connection invites — operator mints a shareable link (authed);
+	// the public fetch + fulfill endpoints live under /public/ WITHOUT
+	// authMiddleware so a client without a dashboard login can complete
+	// the flow using only the signed token.
+	apiMux.HandleFunc("/invites", s.authMiddleware(s.handleCreateInvite))
+	apiMux.HandleFunc("/public/invites/", func(w http.ResponseWriter, r *http.Request) {
+		rest := strings.TrimPrefix(r.URL.Path, "/public/invites/")
+		if strings.HasSuffix(rest, "/fulfill") {
+			// Rewrite path so handleFulfillInvite's TrimPrefix logic works
+			// unchanged (it expects /connect/:token/fulfill).
+			r.URL.Path = "/connect/" + strings.TrimSuffix(rest, "/fulfill") + "/fulfill"
+			s.handleFulfillInvite(w, r)
+			return
+		}
+		r.URL.Path = "/connect/" + strings.TrimSuffix(rest, "/")
+		s.handlePublicInvite(w, r)
+	})
 
 	// MCP server routes
 	apiMux.HandleFunc("/mcp-servers", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
