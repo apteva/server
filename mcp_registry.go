@@ -1050,12 +1050,16 @@ func (s *Server) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 }
 
 // DELETE /mcp-servers/:id
-// PATCH /mcp-servers/:id — rename an MCP server row. Body: {"name": "..."}.
-// The MCP server "name" is the canonical identifier used everywhere
-// downstream (instance config entries, tool-name prefixes, exact-match
-// lookups on spawn). Changing it is a real rename, not a cosmetic edit —
-// agents that referred to the old name will need to be re-spawned or
-// re-pointed. UI should make the blast radius clear before calling this.
+// PATCH /mcp-servers/:id — update the DISPLAY name of an MCP server row.
+// Body: {"description": "..."}.
+//
+// We deliberately only touch `description` here, not `name`. The name is
+// the canonical slug used everywhere downstream — instance config entries,
+// tool-name prefixes, exact-match lookups when a sub-thread spawns — so
+// renaming it would silently break any already-running or saved agent
+// that referenced the old slug. The display name (description) is what
+// the dashboard shows as the row headline; changing it is cosmetic and
+// safe at any time.
 func (s *Server) handleRenameMCPServer(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
 	idStr := strings.TrimPrefix(r.URL.Path, "/mcp-servers/")
@@ -1065,53 +1069,34 @@ func (s *Server) handleRenameMCPServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Name string `json:"name"`
+		Description string `json:"description"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	name := strings.TrimSpace(body.Name)
-	if name == "" {
-		http.Error(w, "name required", http.StatusBadRequest)
+	desc := strings.TrimSpace(body.Description)
+	if desc == "" {
+		http.Error(w, "description required", http.StatusBadRequest)
 		return
-	}
-	// Reject whitespace and shell-unfriendly chars up-front — the name ends
-	// up as a tool-prefix and in system prompts, so keep it slug-like.
-	for _, c := range name {
-		if !(c == '-' || c == '_' || c == '.' ||
-			(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
-			http.Error(w, "name must contain only letters, digits, -, _, .", http.StatusBadRequest)
-			return
-		}
 	}
 	record, _, err := s.store.GetMCPServer(userID, serverID)
 	if err != nil || record == nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	if record.Name == name {
+	if record.Description == desc {
 		writeJSON(w, record)
 		return
 	}
-	// Per-project uniqueness on (user_id, project_id, name).
-	var existing int
-	s.store.db.QueryRow(
-		"SELECT COUNT(*) FROM mcp_servers WHERE user_id = ? AND project_id = ? AND name = ? AND id != ?",
-		userID, record.ProjectID, name, serverID,
-	).Scan(&existing)
-	if existing > 0 {
-		http.Error(w, "an MCP server with that name already exists in this project", http.StatusConflict)
-		return
-	}
 	if _, err := s.store.db.Exec(
-		"UPDATE mcp_servers SET name = ? WHERE id = ? AND user_id = ?",
-		name, serverID, userID,
+		"UPDATE mcp_servers SET description = ? WHERE id = ? AND user_id = ?",
+		desc, serverID, userID,
 	); err != nil {
 		http.Error(w, "rename failed", http.StatusInternalServerError)
 		return
 	}
-	record.Name = name
+	record.Description = desc
 	writeJSON(w, record)
 }
 
