@@ -181,12 +181,20 @@ func (s *Store) CreateMCPServerFromConnection(userID int64, conn *Connection, to
 		b, _ := json.Marshal(allowedTools[0])
 		allowedJSON = string(b)
 	}
-	// Pick a unique name for this MCP row. First connection of an app in
-	// a project keeps the bare slug (so existing scenarios and tool
-	// prefixes keep working); any subsequent connection falls back to a
-	// suffixed form so both rows can coexist under the unique index on
-	// (user_id, project_id, name).
-	mcpName := s.uniqueMCPName(userID, conn.ProjectID, conn.AppSlug, conn.ID)
+	// Pick a unique slug for this MCP row. The user-chosen integration
+	// name takes precedence — if they typed "mybusiness-socialcast" on
+	// create, sub-threads reference it as `mcp="mybusiness-socialcast"`
+	// and tool-name prefixes come from that slug (e.g.
+	// `mybusiness-socialcast_post`). We slugify the name rather than
+	// accepting it verbatim so the result stays safe for prompts and
+	// downstream consumers that treat it as an identifier. Only if the
+	// name is empty or slugifies to nothing do we fall back to the raw
+	// app slug.
+	base := slugify(conn.Name)
+	if base == "" {
+		base = conn.AppSlug
+	}
+	mcpName := s.uniqueMCPName(userID, conn.ProjectID, base, conn.ID)
 	// Description is what the dashboard renders as the row's headline.
 	// Use the user-chosen connection name so two connections of the same
 	// app are visually distinguishable (e.g. "SocialCast work" vs
@@ -235,6 +243,42 @@ func (s *Store) CanonicalMCPNameForConnection(connID int64) string {
 // any subsequent connection gets `${slug}-${connID}`, with a counter
 // appended if that's also already taken (can happen when a legacy row was
 // renamed by migration to exactly the suffix we'd otherwise generate).
+// slugify collapses a human-friendly label into a lowercase identifier
+// safe to use as an MCP name. Keeps letters, digits, dot, dash, and
+// underscore; everything else (spaces, punctuation, emoji) becomes a
+// single dash. Leading / trailing / doubled dashes are trimmed.
+//
+// Examples:
+//
+//	"MyBusiness — SocialCast"  → "mybusiness-socialcast"
+//	"Acme / Gmail Inbox"        → "acme-gmail-inbox"
+//	"  "                        → ""
+func slugify(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	lastDash := true
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '.', r == '_':
+			b.WriteRune(r)
+			lastDash = false
+		case r == '-':
+			if !lastDash {
+				b.WriteRune('-')
+				lastDash = true
+			}
+		default:
+			if !lastDash {
+				b.WriteRune('-')
+				lastDash = true
+			}
+		}
+	}
+	out := b.String()
+	out = strings.Trim(out, "-")
+	return out
+}
+
 func (s *Store) uniqueMCPName(userID int64, projectID, appSlug string, connID int64) string {
 	nameTaken := func(candidate string) bool {
 		var count int
