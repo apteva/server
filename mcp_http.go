@@ -39,16 +39,19 @@ func (s *Server) handleMCPEndpoint(w http.ResponseWriter, r *http.Request) {
 	// first, then falling back to connection_id (legacy URL format).
 	var connectionID int64
 	var allowedTools []string
+	var mcpRowName string
 
 	if srv, err := s.store.GetMCPServerByIDUnscoped(id); err == nil && srv != nil && srv.ConnectionID > 0 {
 		connectionID = srv.ConnectionID
 		allowedTools = srv.AllowedTools
+		mcpRowName = srv.Name
 	} else {
 		// Legacy: id is a connection_id. Use the most recent mcp_servers
 		// row over that connection for the allowed_tools filter.
 		connectionID = id
 		if srv, err := s.store.FindMCPServerByConnection(connectionID); err == nil && srv != nil {
 			allowedTools = srv.AllowedTools
+			mcpRowName = srv.Name
 		}
 	}
 
@@ -80,7 +83,7 @@ func (s *Server) handleMCPEndpoint(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPost:
-		s.handleMCPPost(w, r, app, credentials, connectionID, allowedTools)
+		s.handleMCPPost(w, r, app, credentials, connectionID, allowedTools, mcpRowName)
 	case http.MethodGet:
 		// GET = SSE stream for server notifications (not needed for simple request-response)
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -97,18 +100,39 @@ func (s *Server) handleMCPEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppTemplate, credentials map[string]string, connectionID int64, allowedTools []string) {
+func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppTemplate, credentials map[string]string, connectionID int64, allowedTools []string, mcpRowName string) {
 	// Fast membership lookup for the tool filter. nil map = no filter.
+	// Stored names may arrive in any of three forms depending on which
+	// UI wrote them:
+	//   - bare ("create_template")
+	//   - app-slug-prefixed ("omnikit-messaging_create_template") — used by
+	//     older pickers that always prefixed with app slug
+	//   - mcp-row-name-prefixed ("socialcast-messaging_create_template") —
+	//     used by handleMCPServerTools since the MCP row slug can now
+	//     diverge from the app slug
+	// Expand each stored entry into every recognised form and drop each
+	// form into the set. This lets allowedSet[bareName] succeed in the
+	// tools/list loop regardless of how the user's allowed_tools were
+	// written.
 	var allowedSet map[string]bool
 	if len(allowedTools) > 0 {
-		allowedSet = make(map[string]bool, len(allowedTools)*2)
+		allowedSet = make(map[string]bool, len(allowedTools)*4)
+		stripPrefixes := []string{app.Slug + "_"}
+		if mcpRowName != "" && mcpRowName != app.Slug {
+			stripPrefixes = append(stripPrefixes, mcpRowName+"_")
+		}
 		for _, name := range allowedTools {
+			bare := name
+			for _, p := range stripPrefixes {
+				bare = strings.TrimPrefix(bare, p)
+			}
+			allowedSet[bare] = true
+			allowedSet[app.Slug+"_"+bare] = true
+			if mcpRowName != "" {
+				allowedSet[mcpRowName+"_"+bare] = true
+			}
+			// Also keep the original stored form for good measure.
 			allowedSet[name] = true
-			// Accept both bare and prefixed names (agents sometimes send
-			// "slug_toolname"). The registry uses prefixed names, but the
-			// native MCP tools/list emits bare ones.
-			allowedSet[app.Slug+"_"+name] = true
-			allowedSet[strings.TrimPrefix(name, app.Slug+"_")] = true
 		}
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1024*1024))
