@@ -481,6 +481,8 @@ func main() {
 			}
 		} else if strings.HasSuffix(path, "/call-tool") {
 			s.handleCallMCPTool(w, r)
+		} else if r.Method == http.MethodPatch {
+			s.handleRenameMCPServer(w, r)
 		} else {
 			s.handleDeleteMCPServer(w, r)
 		}
