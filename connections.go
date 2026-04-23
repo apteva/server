@@ -649,6 +649,16 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		}
 	}
 
+	// Strip any fields the tool declared we shouldn't expose. Runs
+	// AFTER response_path so the paths are relative to whatever the
+	// agent actually ends up seeing. Silent no-op on unmatched paths
+	// so a minor upstream schema drift doesn't break the tool.
+	if len(tool.ResponseOmit) > 0 && data != nil {
+		for _, p := range tool.ResponseOmit {
+			data = omitPath(data, p)
+		}
+	}
+
 	return &ExecuteResult{
 		Success: resp.StatusCode >= 200 && resp.StatusCode < 300,
 		Status:  resp.StatusCode,
@@ -669,6 +679,70 @@ func extractPath(data map[string]any, path string) any {
 	return current
 }
 
+// omitPath walks `data` along the dot-separated path and deletes the
+// leaf segment wherever it matches. `[]` in a segment means "for every
+// element of this array, continue the walk". Non-matching structures
+// are left alone — this is an in-place filter that's forgiving about
+// schema drift.
+//
+// Examples:
+//   "metadata.sha256"                              → delete root.metadata.sha256
+//   "results.channels[].alternatives[].words"     → delete words from every alt of every channel
+//   "utterances"                                   → delete root.utterances
+func omitPath(data any, path string) any {
+	parts := strings.Split(path, ".")
+	omitWalk(data, parts)
+	return data
+}
+
+func omitWalk(node any, parts []string) {
+	if len(parts) == 0 {
+		return
+	}
+	head := parts[0]
+	rest := parts[1:]
+
+	// Normalise "foo[]" into two steps: descend into `foo`, then step
+	// across the array. This lets the caller write
+	// `results.channels[].alternatives[].words` naturally.
+	arrayStep := strings.HasSuffix(head, "[]")
+	if arrayStep {
+		head = strings.TrimSuffix(head, "[]")
+	}
+
+	switch n := node.(type) {
+	case map[string]any:
+		if len(rest) == 0 && !arrayStep {
+			// Leaf: remove the key if it exists. Silent if absent.
+			delete(n, head)
+			return
+		}
+		child, ok := n[head]
+		if !ok {
+			return
+		}
+		if arrayStep {
+			// `head` is expected to be an array; iterate and recurse
+			// with the remaining parts.
+			if arr, ok := child.([]any); ok {
+				for i := range arr {
+					omitWalk(arr[i], rest)
+				}
+			}
+			return
+		}
+		omitWalk(child, rest)
+
+	case []any:
+		// Array with no `[]` marker in the pattern — fan out anyway so
+		// callers can write shorter paths when there's exactly one
+		// array in the chain. Safer as a fallback than a no-op.
+		for i := range n {
+			omitWalk(n[i], append([]string{head}, rest...))
+		}
+	}
+}
+
 // --- HTTP Handlers ---
 
 // POST /connections
@@ -678,6 +752,13 @@ func extractPath(data map[string]any, path string) any {
 //   - source=='local' otherwise → existing api_key / basic path, return active connection
 //   - source=='composio' → InitiateConnection on Composio, return redirect_url and pending row
 func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) {
+	// Log the whole lifecycle under a single tag so failures are easy
+	// to locate in the server log. Follow-up lines read "[CONN] step …
+	// source=X slug=Y project=Z outcome=…".
+	reqStart := time.Now()
+	defer func() {
+		log.Printf("[CONN] POST /connections completed in %s", time.Since(reqStart).Round(time.Millisecond))
+	}()
 	userID := getUserID(r)
 
 	var body struct {
@@ -715,24 +796,77 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 
 	// --- Composio (hosted) ---
 	if body.Source == "composio" {
+		log.Printf("[CONN] composio create: user=%d slug=%s project=%s provider=%d auth_mode=%s",
+			userID, body.AppSlug, body.ProjectID, body.ProviderID, body.ComposioAuthMode)
 		if body.ProviderID == 0 {
 			http.Error(w, "provider_id required for composio source", http.StatusBadRequest)
 			return
 		}
 		client, err := s.composioClientFor(userID, body.ProviderID)
 		if err != nil {
+			log.Printf("[CONN] composio client resolve failed user=%d provider=%d: %v", userID, body.ProviderID, err)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+
+		// Dedup: each call to /api/v3/connected_accounts/link creates a fresh
+		// upstream `ca_*` on Composio, and Composio does not clean up the
+		// prior one when the user retries (old links expire instead). Result:
+		// one real attempt leaves two or more connected accounts against the
+		// same (auth_config, user_id), and the MCP endpoint may route tool
+		// calls through the stale one — which is what breaks tools for the
+		// user after a retry.
+		//
+		// Before initiating, look for an existing connection row in this
+		// (user, project, provider, app_slug) scope:
+		//   - status=active: return it as-is. The UI treats this as "already
+		//     connected" so the user doesn't double-click into a duplicate.
+		//   - status=pending: revoke the stale composio-side connected
+		//     account (best-effort) and delete the local row, then continue
+		//     with a fresh InitiateConnection.
+		existing, lerr := s.store.ListConnections(userID, body.ProjectID)
+		if lerr == nil {
+			for i := range existing {
+				c := &existing[i]
+				if c.Source != "composio" || c.ProviderID != body.ProviderID || c.AppSlug != body.AppSlug {
+					continue
+				}
+				if c.Status == "active" {
+					log.Printf("[CONN] composio reuse active connection id=%d external_id=%s", c.ID, c.ExternalID)
+					writeJSON(w, map[string]any{
+						"connection":   c,
+						"redirect_url": "",
+					})
+					return
+				}
+				if c.Status == "pending" {
+					log.Printf("[CONN] composio pruning stale pending connection id=%d external_id=%s", c.ID, c.ExternalID)
+					if c.ExternalID != "" {
+						if rerr := client.RevokeConnection(c.ExternalID); rerr != nil {
+							// Non-fatal — the upstream record may already be
+							// expired/gone. Log and continue so the user's
+							// retry still works.
+							log.Printf("[CONN] composio revoke stale external_id=%s failed (continuing): %v", c.ExternalID, rerr)
+						}
+					}
+					if derr := s.store.DeleteConnection(userID, c.ID); derr != nil {
+						log.Printf("[CONN] composio delete stale local row id=%d failed: %v", c.ID, derr)
+					}
+				}
+			}
+		}
+
 		endUserID := composioEndUserID(userID, body.ProjectID)
 		acct, redirectURL, err := client.InitiateConnection(
 			body.AppSlug, body.ComposioAuthMode, endUserID,
 			body.ComposioConfigCreds, body.ComposioInitCreds,
 		)
 		if err != nil {
+			log.Printf("[CONN] composio InitiateConnection failed slug=%s auth_mode=%s: %v", body.AppSlug, body.ComposioAuthMode, err)
 			http.Error(w, "composio initiate: "+err.Error(), http.StatusBadGateway)
 			return
 		}
+		log.Printf("[CONN] composio InitiateConnection ok slug=%s external_id=%s redirect=%v", body.AppSlug, acct.ID, redirectURL != "")
 		connName := body.Name
 		if connName == "" {
 			connName = body.AppSlug
@@ -755,9 +889,18 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 			ExternalID: acct.ID,
 		})
 		if err != nil {
-			http.Error(w, "failed to create connection", http.StatusInternalServerError)
+			// Surface the underlying DB error so the dashboard shows
+			// something actionable instead of a generic message. Most
+			// common cause: the UNIQUE (user_id, project_id, app_slug,
+			// name) index fires when the user already has a connection
+			// with this name.
+			log.Printf("[CONN] composio CreateConnectionExt failed slug=%s name=%s project=%s: %v",
+				body.AppSlug, connName, body.ProjectID, err)
+			http.Error(w, "failed to create connection: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		log.Printf("[CONN] composio connection row id=%d slug=%s status=pending external_id=%s",
+			conn.ID, conn.AppSlug, conn.ExternalID)
 		writeJSON(w, map[string]any{
 			"connection":   conn,
 			"redirect_url": redirectURL,
@@ -824,9 +967,12 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Local non-OAuth (api_key, basic, bearer, ...): store creds immediately.
+	log.Printf("[CONN] local create: user=%d slug=%s name=%s auth=%s project=%s",
+		userID, body.AppSlug, body.Name, body.AuthType, body.ProjectID)
 	credsJSON, _ := json.Marshal(body.Credentials)
 	encrypted, err := Encrypt(s.secret, string(credsJSON))
 	if err != nil {
+		log.Printf("[CONN] local encrypt failed slug=%s: %v", body.AppSlug, err)
 		http.Error(w, "encryption failed", http.StatusInternalServerError)
 		return
 	}
@@ -842,11 +988,16 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		Status:         "active",
 	})
 	if err != nil {
-		http.Error(w, "failed to create connection", http.StatusInternalServerError)
+		log.Printf("[CONN] local CreateConnectionExt failed slug=%s name=%s project=%s: %v",
+			body.AppSlug, body.Name, body.ProjectID, err)
+		http.Error(w, "failed to create connection: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if _, merr := s.store.CreateMCPServerFromConnection(userID, conn, len(app.Tools)); merr != nil {
-		log.Printf("[CONN-CREATE] auto-mcp failed for conn %d (%s/%s): %v", conn.ID, conn.AppSlug, conn.Name, merr)
+	log.Printf("[CONN] local connection row id=%d slug=%s status=active", conn.ID, conn.AppSlug)
+	if mcpID, merr := s.store.CreateMCPServerFromConnection(userID, conn, len(app.Tools)); merr != nil {
+		log.Printf("[CONN] local auto-mcp FAILED conn=%d (%s/%s): %v", conn.ID, conn.AppSlug, conn.Name, merr)
+	} else {
+		log.Printf("[CONN] local auto-mcp created mcp_id=%d conn=%d slug=%s tools=%d", mcpID, conn.ID, conn.AppSlug, len(app.Tools))
 	}
 	writeJSON(w, conn)
 }

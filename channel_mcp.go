@@ -125,9 +125,17 @@ func (s *channelMCPServer) handle(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *channelMCPServer) toolsList() map[string]any {
+	// Use RegisteredChannels, NOT AvailableChannels. MCP clients cache
+	// tools/list from the initialize handshake and never re-fetch — if
+	// we emit a description that says "CONNECTED CHANNELS: [none]" at
+	// boot (before any dashboard has opened chat), that cached line
+	// follows the agent forever. The call-time gate in handleToolCall
+	// still rejects dead channels with a clean error, so nothing is
+	// lost on correctness; we just stop lying to the agent about
+	// which channels exist as targets.
 	var channelIDs []string
 	if s.ic != nil {
-		channelIDs = s.ic.AvailableChannels()
+		channelIDs = s.ic.RegisteredChannels()
 	} else {
 		for _, ch := range s.registry.List() {
 			channelIDs = append(channelIDs, ch.ID())
@@ -135,7 +143,7 @@ func (s *channelMCPServer) toolsList() map[string]any {
 	}
 	channelList := strings.Join(channelIDs, ", ")
 	if channelList == "" {
-		channelList = "none — no users connected"
+		channelList = "none — no channels configured"
 	}
 
 	return map[string]any{
@@ -219,11 +227,11 @@ func buildRespondDescription(channelIDs []string) string {
 		"Send a message to a user on a channel. Every user message MUST get a response via this tool — text written in your thoughts is INVISIBLE to the user; only this tool delivers messages. "+
 			"After completing any user request (including after spawn/exec/other tool calls), your FINAL action MUST be a respond call confirming the result — if you write \"Done\" or \"Here's what I did\" as plain thought text without calling respond, the user never sees it. "+
 			"IMPORTANT: Send ONE complete response per user message. Include ALL information in a single call — do NOT split across multiple calls or follow up with a second message repeating the same content. "+
-			"CONNECTED CHANNELS (authoritative, refreshed every turn, the ONLY valid values for the `channel` parameter): [%s]. "+
-			"This line IS the source of truth — do NOT call list_channels to double-check it, do NOT guess channel names from past conversations, do NOT default to \"cli\". "+
-			"Any value not in this list will FAIL. If the list is empty, no one is reachable — stay silent, do not call respond. "+
+			"KNOWN CHANNELS (valid values for the `channel` parameter): [%s]. "+
+			"Liveness is checked at call time — if no user is currently connected to the targeted channel, this tool returns a clear error telling you the channel is not active and you should stay silent. "+
+			"Do NOT guess channel names from past conversations and do NOT default to \"cli\" just because training data mentions it. "+
 			"Routing — match the event prefix to the channel: %s. "+
-			"DIRECTIVES vs MESSAGES: events whose tag does NOT correspond to a connected channel above — e.g. [admin], [system], [inject], or a bare untagged event — are DIRECTIVES from an operator, not user messages. Act on them (run tools, update state) but do NOT call respond for them.",
+			"DIRECTIVES vs MESSAGES: events whose tag does NOT correspond to a known channel above — e.g. [admin], [system], [inject], or a bare untagged event — are DIRECTIVES from an operator, not user messages. Act on them (run tools, update state) but do NOT call respond for them.",
 		connectedList, examplesLine,
 	)
 }

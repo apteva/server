@@ -133,7 +133,9 @@ type activeChannel interface {
 }
 
 // AvailableChannels returns channel IDs for channels that are actually
-// connected and can receive messages right now.
+// connected and can receive messages right now. The channels MCP uses
+// this at tool-call time to gate respond/status with a clean rejection
+// when nobody's listening.
 func (ic *InstanceChannels) AvailableChannels() []string {
 	var ids []string
 	if ic.cli != nil && ic.cli.IsConnected() {
@@ -151,6 +153,34 @@ func (ic *InstanceChannels) AvailableChannels() []string {
 		// "no one's listening right now" so the agent doesn't see
 		// them as valid respond targets when no UI is open.
 		if ac, ok := ch.(activeChannel); ok && !ac.IsActive() {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// RegisteredChannels returns every channel id the instance knows
+// about, regardless of whether it's live right now. Used by the
+// channels MCP's tool description so the respond tool's schema stays
+// stable across an instance's lifetime — MCP clients cache the
+// tools/list result after initialize and don't re-fetch, so a
+// description computed from AvailableChannels at boot would be
+// permanently stale the moment a chat tab opens or closes. The agent
+// still gets the accurate "is this channel live?" signal at call
+// time, where AvailableChannels is consulted and a clear rejection
+// comes back for dead channels.
+func (ic *InstanceChannels) RegisteredChannels() []string {
+	var ids []string
+	if ic.cli != nil {
+		ids = append(ids, "cli")
+	}
+	if ic.telegram != nil {
+		ids = append(ids, "telegram (bot @"+ic.telegram.BotName()+")")
+	}
+	for _, ch := range ic.registry.List() {
+		id := ch.ID()
+		if id == "cli" {
 			continue
 		}
 		ids = append(ids, id)

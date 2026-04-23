@@ -131,7 +131,12 @@ func (c *ConsoleLogger) render(ev TelemetryEvent) {
 		)
 
 	case "llm.error":
-		errMsg := truncate(getString(data, "error"), 70)
+		// Provider errors carry the actual failure detail in a JSON
+		// body (context too long, schema mismatch, quota, invalid
+		// model, …). A 70-char prefix masks all of it. Print the
+		// full message — this is the one place in the console log
+		// where truncation defeats the purpose.
+		errMsg := getString(data, "error")
 		fmt.Fprintf(os.Stderr, "  %s│%s %s✗ %s%s  %s%s%s\n",
 			dim, reset,
 			red, errMsg, reset,

@@ -104,6 +104,20 @@ type AppToolDef struct {
 	// in @apteva/integrations/src/types.ts AppToolTemplate.
 	QueryParams []string `json:"query_params,omitempty"`
 	ResponsePath *string `json:"response_path,omitempty"`
+
+	// ResponseOmit declares JSON paths in the tool's response that
+	// should be stripped before the agent sees them. Use `.` to
+	// descend into objects and `[]` to step into every element of an
+	// array. Intended for upstream APIs that return huge redundant
+	// metadata (per-word timestamps, full re-serialisations of the
+	// same text, model info, etc) that would otherwise blow the
+	// agent's context window. Unmatched paths are silent no-ops.
+	//
+	// Examples:
+	//   "metadata.model_info"
+	//   "results.channels[].alternatives[].words"
+	//   "results.utterances"
+	ResponseOmit []string `json:"response_omit,omitempty"`
 }
 
 // AppSummary is a lightweight version for catalog listing

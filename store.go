@@ -416,6 +416,144 @@ func (s *Store) GetUserByEmail(email string) (*User, error) {
 	return &u, nil
 }
 
+// GetUserByID fetches a user row by primary key. Used by /auth/me and
+// any handler that needs to reply with the caller's email when only
+// the session's user_id is known.
+func (s *Store) GetUserByID(id int64) (*User, error) {
+	var u User
+	var createdAt string
+	err := s.db.QueryRow(
+		"SELECT id, email, password_hash, created_at FROM users WHERE id = ?", id,
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+	u.CreatedAt, _ = parseTime(createdAt)
+	return &u, nil
+}
+
+// UpdateUserPassword rewrites a user's bcrypt hash. The caller must
+// have already verified the old password — this only enforces that
+// the target row exists.
+func (s *Store) UpdateUserPassword(userID int64, newHash string) error {
+	res, err := s.db.Exec(
+		"UPDATE users SET password_hash = ? WHERE id = ?",
+		newHash, userID,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("user %d not found", userID)
+	}
+	return nil
+}
+
+// ListUsers returns every user row, ordered by id so user_id=1 (the
+// admin) always comes first. Used by the /users endpoint.
+func (s *Store) ListUsers() ([]User, error) {
+	rows, err := s.db.Query("SELECT id, email, created_at FROM users ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []User
+	for rows.Next() {
+		var u User
+		var createdAt string
+		if err := rows.Scan(&u.ID, &u.Email, &createdAt); err != nil {
+			return nil, err
+		}
+		u.CreatedAt, _ = parseTime(createdAt)
+		out = append(out, u)
+	}
+	return out, nil
+}
+
+// CountUserResources returns the tenant-scoped counts for a user. Used
+// as the blast-radius preview on admin-delete (dry-run).
+type UserResourceCounts struct {
+	Agents        int `json:"agents"`
+	APIKeys       int `json:"keys"`
+	Projects      int `json:"projects"`
+	Providers     int `json:"providers"`
+	Connections   int `json:"connections"`
+	MCPServers    int `json:"mcp_servers"`
+	Subscriptions int `json:"subscriptions"`
+	Channels      int `json:"channels"`
+}
+
+func (s *Store) CountUserResources(userID int64) UserResourceCounts {
+	var c UserResourceCounts
+	s.db.QueryRow("SELECT COUNT(*) FROM instances WHERE user_id=?", userID).Scan(&c.Agents)
+	s.db.QueryRow("SELECT COUNT(*) FROM api_keys WHERE user_id=?", userID).Scan(&c.APIKeys)
+	s.db.QueryRow("SELECT COUNT(*) FROM projects WHERE user_id=?", userID).Scan(&c.Projects)
+	s.db.QueryRow("SELECT COUNT(*) FROM providers WHERE user_id=?", userID).Scan(&c.Providers)
+	s.db.QueryRow("SELECT COUNT(*) FROM connections WHERE user_id=?", userID).Scan(&c.Connections)
+	s.db.QueryRow("SELECT COUNT(*) FROM mcp_servers WHERE user_id=?", userID).Scan(&c.MCPServers)
+	s.db.QueryRow("SELECT COUNT(*) FROM subscriptions WHERE user_id=?", userID).Scan(&c.Subscriptions)
+	s.db.QueryRow("SELECT COUNT(*) FROM channels WHERE user_id=?", userID).Scan(&c.Channels)
+	return c
+}
+
+// DeleteUser removes every row tied to this user across every tenant-
+// scoped table, then the user row itself. The tables don't have ON
+// DELETE CASCADE in the schema, so we do the cascade explicitly. Done
+// in a single transaction so a partial failure can't leave orphaned
+// rows pointing at a vanished user_id.
+func (s *Store) DeleteUser(userID int64) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Order matters only for readability; none of these have FKs to
+	// each other, only to users(id). Telemetry is keyed by instance_id,
+	// not user_id, so it goes away transitively once instances do —
+	// but we clean it up anyway for explicit hygiene.
+	for _, q := range []string{
+		"DELETE FROM telemetry WHERE instance_id IN (SELECT id FROM instances WHERE user_id = ?)",
+		"DELETE FROM instances WHERE user_id = ?",
+		"DELETE FROM api_keys WHERE user_id = ?",
+		"DELETE FROM sessions WHERE user_id = ?",
+		"DELETE FROM providers WHERE user_id = ?",
+		"DELETE FROM connections WHERE user_id = ?",
+		"DELETE FROM mcp_servers WHERE user_id = ?",
+		"DELETE FROM subscriptions WHERE user_id = ?",
+		"DELETE FROM channels WHERE user_id = ?",
+		"DELETE FROM projects WHERE user_id = ?",
+		"DELETE FROM oauth_states WHERE user_id = ?",
+		"DELETE FROM users WHERE id = ?",
+	} {
+		if _, err := tx.Exec(q, userID); err != nil {
+			return fmt.Errorf("%s: %w", q, err)
+		}
+	}
+	return tx.Commit()
+}
+
+// DeleteSessionsForUser is the unconditional sibling of
+// DeleteSessionsForUserExcept — used when an admin resets someone
+// else's password and we want every one of that user's active sessions
+// to stop working immediately.
+func (s *Store) DeleteSessionsForUser(userID int64) error {
+	_, err := s.db.Exec("DELETE FROM sessions WHERE user_id = ?", userID)
+	return err
+}
+
+// DeleteSessionsForUserExcept nukes every session row for the user
+// except the one whose token is `keepToken` (which should be the
+// session the password change was made from). Prevents a leaked
+// cookie from surviving a password rotation.
+func (s *Store) DeleteSessionsForUserExcept(userID int64, keepToken string) error {
+	_, err := s.db.Exec(
+		"DELETE FROM sessions WHERE user_id = ? AND token != ?",
+		userID, keepToken,
+	)
+	return err
+}
+
 // --- API Keys ---
 
 func HashAPIKey(key string) string {

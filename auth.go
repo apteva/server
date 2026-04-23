@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -55,6 +56,13 @@ func clientIP(r *http.Request) string {
 const sessionDuration = 7 * 24 * time.Hour
 const cookieName = "session"
 
+// crossOriginCookies is flipped on at server boot (see main.go) when
+// the configured CORS mode permits credentialed cross-origin calls.
+// When true, the session cookie goes out as SameSite=None; Secure so
+// browsers will send it on cross-origin requests. Otherwise we keep
+// the stricter SameSite=Lax default.
+var crossOriginCookies bool
+
 func generateToken(n int) string {
 	b := make([]byte, n)
 	rand.Read(b)
@@ -62,24 +70,38 @@ func generateToken(n int) string {
 }
 
 func setSessionCookie(w http.ResponseWriter, token string) {
-	http.SetCookie(w, &http.Cookie{
+	c := &http.Cookie{
 		Name:     cookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionDuration.Seconds()),
-	})
+	}
+	if crossOriginCookies {
+		// Browsers require Secure whenever SameSite=None, which in turn
+		// is required for cross-origin credentialed requests. The cost
+		// is that dev must be over HTTPS (or localhost, which browsers
+		// exempt).
+		c.SameSite = http.SameSiteNoneMode
+		c.Secure = true
+	}
+	http.SetCookie(w, c)
 }
 
 func clearSessionCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{
+	c := &http.Cookie{
 		Name:     cookieName,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
 		MaxAge:   -1,
-	})
+	}
+	if crossOriginCookies {
+		c.SameSite = http.SameSiteNoneMode
+		c.Secure = true
+	}
+	http.SetCookie(w, c)
 }
 
 // authMiddleware extracts user from session cookie or API key.
@@ -94,10 +116,23 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
-		// Try Authorization header (API key)
-		auth := r.Header.Get("Authorization")
-		if auth != "" {
-			token := strings.TrimPrefix(auth, "Bearer ")
+		// API key auth. Three carrier forms (first match wins):
+		//   1. Authorization: Bearer <key>      — canonical
+		//   2. X-API-Key: <key>                 — common alt header
+		//   3. ?api_key=<key>                   — SSE/EventSource path
+		//      (browsers can't set custom headers on EventSource, so
+		//      the key must travel as a query param)
+		token := ""
+		if a := r.Header.Get("Authorization"); a != "" {
+			token = strings.TrimPrefix(a, "Bearer ")
+		}
+		if token == "" {
+			token = r.Header.Get("X-API-Key")
+		}
+		if token == "" {
+			token = r.URL.Query().Get("api_key")
+		}
+		if token != "" {
 			keyHash := HashAPIKey(token)
 			user, err := s.store.GetUserByAPIKey(keyHash)
 			if err == nil {
@@ -272,24 +307,125 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
-// GET /auth/me — check if session is valid
+// GET /auth/me — returns the authenticated user's profile (id + email +
+// created_at). Accepts either a session cookie or an API key so
+// programmatic clients can introspect their own identity without
+// scraping /auth/keys. Matches the carrier rules in authMiddleware.
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
 	}
-	cookie, err := r.Cookie(cookieName)
-	if err != nil || cookie.Value == "" {
+	var userID int64
+	if cookie, err := r.Cookie(cookieName); err == nil && cookie.Value != "" {
+		if uid, err := s.store.GetSession(cookie.Value); err == nil {
+			userID = uid
+		} else {
+			// Expired or invalid cookie — clear it so the browser stops
+			// sending a bad one on every request.
+			clearSessionCookie(w)
+		}
+	}
+	if userID == 0 {
+		// Fall back to API-key auth: Authorization Bearer, X-API-Key, or ?api_key.
+		token := ""
+		if a := r.Header.Get("Authorization"); a != "" {
+			token = strings.TrimPrefix(a, "Bearer ")
+		}
+		if token == "" {
+			token = r.Header.Get("X-API-Key")
+		}
+		if token == "" {
+			token = r.URL.Query().Get("api_key")
+		}
+		if token != "" {
+			if u, err := s.store.GetUserByAPIKey(HashAPIKey(token)); err == nil {
+				userID = u.ID
+			}
+		}
+	}
+	if userID == 0 {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	userID, err := s.store.GetSession(cookie.Value)
+	u, err := s.store.GetUserByID(userID)
 	if err != nil {
-		clearSessionCookie(w)
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"user_id":    u.ID,
+		"email":      u.Email,
+		"created_at": u.CreatedAt.UTC().Format(time.RFC3339),
+	})
+}
+
+// POST /auth/password — change the logged-in user's password. Requires
+// the CURRENT password to be presented (auth still enforced by the
+// middleware-populated X-User-ID header). On success every OTHER active
+// session for this user is wiped, so a leaked cookie on another device
+// is instantly neutralised. The session doing the change keeps its cookie.
+func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	if userID == 0 {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	writeJSON(w, map[string]any{"user_id": userID})
+	var body struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if body.CurrentPassword == "" || body.NewPassword == "" {
+		http.Error(w, "current_password and new_password required", http.StatusBadRequest)
+		return
+	}
+	if len(body.NewPassword) < 8 {
+		http.Error(w, "new password must be at least 8 characters", http.StatusBadRequest)
+		return
+	}
+	if body.CurrentPassword == body.NewPassword {
+		http.Error(w, "new password must differ from current", http.StatusBadRequest)
+		return
+	}
+
+	u, err := s.store.GetUserByID(userID)
+	if err != nil {
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(body.CurrentPassword)); err != nil {
+		http.Error(w, "current password is incorrect", http.StatusUnauthorized)
+		return
+	}
+	newHash, err := bcrypt.GenerateFromPassword([]byte(body.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := s.store.UpdateUserPassword(userID, string(newHash)); err != nil {
+		http.Error(w, "failed to update password", http.StatusInternalServerError)
+		return
+	}
+
+	// Keep the current session alive, revoke every other one.
+	currentToken := ""
+	if c, err := r.Cookie(cookieName); err == nil {
+		currentToken = c.Value
+	}
+	if err := s.store.DeleteSessionsForUserExcept(userID, currentToken); err != nil {
+		log.Printf("[AUTH] password changed user=%d but session sweep failed: %v", userID, err)
+	}
+
+	log.Printf("[AUTH] password changed user=%d remote=%s", userID, r.RemoteAddr)
+	writeJSON(w, map[string]any{"status": "ok"})
 }
 
 // POST /auth/keys — create API key

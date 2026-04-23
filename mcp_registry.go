@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -853,7 +854,14 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 					tools = append(tools, mcpToolDef{
 						Name:        a.Slug,
 						Description: a.Description,
+						InputSchema: a.InputParameters,
 					})
+				}
+				// Keep tool_count in sync with the catalog so the header
+				// pill ("N/total tools") matches the expanded list's
+				// denominator even before the reconcile probe runs again.
+				if len(tools) > 0 && len(tools) != record.ToolCount {
+					s.store.UpdateMCPServerStatus(record.ID, record.Status, len(tools), record.Pid)
 				}
 			}
 		}
@@ -912,9 +920,30 @@ func (s *Server) handleUpdateMCPServerAllowedTools(w http.ResponseWriter, r *htt
 	}
 
 	if err := s.store.UpdateMCPServerAllowedTools(userID, serverID, clean); err != nil {
+		log.Printf("[MCP-TOOLS] user=%d server=%d UpdateMCPServerAllowedTools failed: %v", userID, serverID, err)
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	log.Printf("[MCP-TOOLS] user=%d server=%d allowed_tools set (%d entries)", userID, serverID, len(clean))
+
+	// For Composio remote rows, rotate the upstream hosted server to
+	// match the new action set. Without this, Composio keeps exposing
+	// the old tool list even though our local filter has moved on.
+	// Best-effort: if reconcile fails we still report success on the
+	// local update so the user isn't stuck; next manual reconcile or
+	// connection touch will pick it up.
+	if rec, _, err := s.store.GetMCPServer(userID, serverID); err == nil && rec != nil &&
+		rec.Source == "remote" && rec.ProviderID > 0 {
+		log.Printf("[MCP-TOOLS] reconciling composio provider=%d project=%s after tool-filter change",
+			rec.ProviderID, rec.ProjectID)
+		if rerr := s.reconcileComposioMCPServer(userID, rec.ProviderID, rec.ProjectID); rerr != nil {
+			log.Printf("[MCP-TOOLS] composio reconcile after tool change FAILED provider=%d project=%s: %v",
+				rec.ProviderID, rec.ProjectID, rerr)
+		} else {
+			log.Printf("[MCP-TOOLS] composio reconcile ok provider=%d project=%s", rec.ProviderID, rec.ProjectID)
+		}
+	}
+
 	writeJSON(w, map[string]any{
 		"status":        "updated",
 		"allowed_tools": clean,

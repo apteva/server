@@ -582,6 +582,30 @@ func TestComposio_McpServerNameFor_HashBased(t *testing.T) {
 	if c == d {
 		t.Errorf("adding toolkits should change the name: both produced %q", c)
 	}
+
+	// The server name must fit in Composio's 30-char cap. The reconciler
+	// no longer versions the name by allowed_tools (we PATCH instead), so
+	// this is the worst case we need to check.
+	full := mcpServerNameFor("proj:"+strings.Repeat("x", 80), []string{"googledrive"})
+	if len(full) > 30 {
+		t.Errorf("name %q exceeds 30 chars (len=%d)", full, len(full))
+	}
+}
+
+func TestComposio_StripLegacyVariantSuffix(t *testing.T) {
+	uuid := "328aba0c-6088-430b-a06c-11d4eecc73b8"
+	cases := []struct{ in, want string }{
+		{uuid, uuid},
+		{uuid + "-v6c552bef", uuid},
+		{uuid + "-vabc", uuid},
+		{"short", "short"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		if got := stripLegacyVariantSuffix(tc.in); got != tc.want {
+			t.Errorf("stripLegacyVariantSuffix(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
 }
 
 func TestComposio_CreateMCPServer_DuplicateNameFallsBackToLookup(t *testing.T) {
@@ -726,6 +750,16 @@ func stubComposioMCPReconcile(m *mockComposio) {
 			"id":            "inst_1",
 			"instance_id":   "proj:sheets",
 			"mcp_server_id": "unknown",
+		})
+	})
+	// PATCH /api/v3/mcp/{id} — updates allowed_tools in place. The reconciler
+	// calls this on every subsequent reconcile for an existing toolkit, so
+	// we return the server id echoed back from the URL.
+	m.on("PATCH", "/api/v3/mcp/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/v3/mcp/")
+		writeMockJSON(w, 200, map[string]any{
+			"id":      id,
+			"mcp_url": "https://mcp.example/base/" + id,
 		})
 	})
 }

@@ -100,28 +100,61 @@ func apiGet(url string, headers map[string]string) ([]byte, error) {
 
 // ── Fireworks ──
 
+// fetchFireworksModels uses the native /v1/accounts/fireworks/models
+// endpoint instead of /inference/v1/models. The OpenAI-compat endpoint
+// only returns ~11 curated entries with no pagination; the native one
+// paginates through the full catalog (200+ entries, including newer
+// models like kimi-k2p6 that the compat endpoint omits).
 func fetchFireworksModels(apiKey string) ([]ModelInfo, error) {
-	data, err := apiGet("https://api.fireworks.ai/inference/v1/models", map[string]string{
-		"Authorization": "Bearer " + apiKey,
-	})
-	if err != nil {
-		return nil, err
-	}
-	var resp struct {
-		Data []struct {
-			ID      string `json:"id"`
-			Created int64  `json:"created"`
-		} `json:"data"`
-	}
-	json.Unmarshal(data, &resp)
-
 	var models []ModelInfo
-	for _, m := range resp.Data {
-		name := m.ID
-		if parts := strings.Split(name, "/"); len(parts) > 1 {
-			name = parts[len(parts)-1]
+	seen := map[string]bool{}
+	pageToken := ""
+	for page := 0; page < 20; page++ { // hard cap defensively; real catalog is ~1 page
+		url := "https://api.fireworks.ai/v1/accounts/fireworks/models?pageSize=200"
+		if pageToken != "" {
+			url += "&pageToken=" + pageToken
 		}
-		models = append(models, ModelInfo{ID: m.ID, Name: name})
+		data, err := apiGet(url, map[string]string{"Authorization": "Bearer " + apiKey})
+		if err != nil {
+			return nil, err
+		}
+		var resp struct {
+			Models []struct {
+				Name          string `json:"name"`
+				DisplayName   string `json:"displayName"`
+				State         string `json:"state"`
+				ContextLength int    `json:"contextLength"`
+			} `json:"models"`
+			NextPageToken string `json:"nextPageToken"`
+		}
+		if err := json.Unmarshal(data, &resp); err != nil {
+			return nil, err
+		}
+		for _, m := range resp.Models {
+			if m.State != "" && m.State != "READY" {
+				continue
+			}
+			if seen[m.Name] {
+				continue
+			}
+			seen[m.Name] = true
+			display := m.DisplayName
+			if display == "" {
+				display = m.Name
+				if parts := strings.Split(display, "/"); len(parts) > 1 {
+					display = parts[len(parts)-1]
+				}
+			}
+			models = append(models, ModelInfo{
+				ID:          m.Name,
+				Name:        display,
+				ContextSize: m.ContextLength,
+			})
+		}
+		if resp.NextPageToken == "" {
+			break
+		}
+		pageToken = resp.NextPageToken
 	}
 	return models, nil
 }
@@ -284,6 +317,7 @@ var modelPricingTable = map[string]modelPricing{
 	"gpt-4.1-nano": {0.10, 0.025, 0.40},
 
 	// Fireworks (https://fireworks.ai/pricing)
+	"accounts/fireworks/models/kimi-k2p6":        {0.95, 0.16, 4.00},
 	"accounts/fireworks/models/kimi-k2p5":        {0.60, 0.10, 3.00},
 	"accounts/fireworks/routers/kimi-k2p5-turbo": {0.99, 0.16, 4.94},
 	"accounts/fireworks/models/minimax-m2p7":     {0.30, 0.06, 1.20},

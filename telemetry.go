@@ -124,6 +124,41 @@ type TelemetryStats struct {
 	Errors         int     `json:"errors"`
 }
 
+// InstanceStats is one row of the per-instance aggregate for a project
+// over some period — enough to rank instances by spend and surface
+// simple anomaly signals (error count, cache hit rate, burn rate).
+// Emitted by TelemetryStatsByProject and the /telemetry/project-stats
+// endpoint; the dashboard uses this to render the "biggest spenders"
+// view.
+type InstanceStats struct {
+	InstanceID     int64   `json:"instance_id"`
+	Name           string  `json:"name"`
+	Status         string  `json:"status"`
+	LLMCalls       int     `json:"llm_calls"`
+	TokensIn       int     `json:"tokens_in"`
+	TokensOut      int     `json:"tokens_out"`
+	TokensCached   int     `json:"tokens_cached"`
+	Cost           float64 `json:"cost"`
+	Errors         int     `json:"errors"`
+	ToolCalls      int     `json:"tool_calls"`
+	AvgDurationMs  float64 `json:"avg_duration_ms"`
+	DistinctThreads int    `json:"distinct_threads"`
+}
+
+// ProjectTimelineBucket: one time slice of project-wide spend with a
+// per-instance breakdown. CostByInstance is keyed by instance id
+// (stringified — JSON object keys must be strings).
+type ProjectTimelineBucket struct {
+	Time            string              `json:"time"`
+	Cost            float64             `json:"cost"`
+	TokensIn        int                 `json:"tokens_in"`
+	TokensOut       int                 `json:"tokens_out"`
+	LLMCalls        int                 `json:"llm_calls"`
+	Errors          int                 `json:"errors"`
+	CostByInstance  map[string]float64  `json:"cost_by_instance"`
+	CallsByInstance map[string]int      `json:"calls_by_instance"`
+}
+
 func generateID() string {
 	// Simple time-prefixed random ID
 	b := make([]byte, 8)
@@ -875,6 +910,271 @@ func (s *Store) TelemetryTimeline(instanceID int64, since time.Time, bucketMinut
 		return result[i].Time < result[j].Time
 	})
 	return result, nil
+}
+
+// TelemetryStatsByProject aggregates llm.done / tool.call / *.error
+// events across every instance in (userID, projectID) since `since`.
+// Returns one InstanceStats per instance that has at least one event
+// in the window, with zero-count instances omitted so the caller can
+// do a clean "top N spenders" render. projectID="" means "all projects
+// this user owns".
+func (s *Store) TelemetryStatsByProject(userID int64, projectID string, since time.Time) ([]InstanceStats, error) {
+	insts, err := s.ListInstances(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if len(insts) == 0 {
+		return []InstanceStats{}, nil
+	}
+	// Build lookup + id list for the IN clause.
+	byID := map[int64]*InstanceStats{}
+	ids := make([]any, 0, len(insts))
+	placeholders := make([]string, 0, len(insts))
+	for i := range insts {
+		byID[insts[i].ID] = &InstanceStats{
+			InstanceID: insts[i].ID,
+			Name:       insts[i].Name,
+			Status:     insts[i].Status,
+		}
+		ids = append(ids, insts[i].ID)
+		placeholders = append(placeholders, "?")
+	}
+
+	args := append([]any{}, ids...)
+	args = append(args, since.UTC().Format(time.RFC3339))
+	q := fmt.Sprintf(
+		"SELECT instance_id, thread_id, type, data FROM telemetry WHERE instance_id IN (%s) AND time >= ?",
+		strings.Join(placeholders, ","),
+	)
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// Distinct (instance, thread) pairs for DistinctThreads — a
+	// cheap proxy for "how many threads ran inside this instance in
+	// the window". We count from llm.done rather than thread.spawn
+	// because the spawn event is optional in older runs.
+	threadSeen := map[int64]map[string]struct{}{}
+	durationByInstance := map[int64]float64{}
+
+	for rows.Next() {
+		var instanceID int64
+		var threadID, evType, dataStr string
+		if err := rows.Scan(&instanceID, &threadID, &evType, &dataStr); err != nil {
+			continue
+		}
+		agg, ok := byID[instanceID]
+		if !ok {
+			continue
+		}
+		switch evType {
+		case "llm.done":
+			agg.LLMCalls++
+			if threadID != "" {
+				seen, ok := threadSeen[instanceID]
+				if !ok {
+					seen = map[string]struct{}{}
+					threadSeen[instanceID] = seen
+				}
+				seen[threadID] = struct{}{}
+			}
+			var d map[string]any
+			if json.Unmarshal([]byte(dataStr), &d) == nil {
+				if v, ok := d["tokens_in"].(float64); ok {
+					agg.TokensIn += int(v)
+				}
+				if v, ok := d["tokens_out"].(float64); ok {
+					agg.TokensOut += int(v)
+				}
+				if v, ok := d["tokens_cached"].(float64); ok {
+					agg.TokensCached += int(v)
+				}
+				if v, ok := d["cost_usd"].(float64); ok {
+					agg.Cost += v
+				}
+				if v, ok := d["duration_ms"].(float64); ok {
+					durationByInstance[instanceID] += v
+				}
+			}
+		case "tool.call":
+			agg.ToolCalls++
+		case "llm.error", "tool.error":
+			agg.Errors++
+		}
+	}
+	for id, seen := range threadSeen {
+		if agg, ok := byID[id]; ok {
+			agg.DistinctThreads = len(seen)
+		}
+	}
+	for id, total := range durationByInstance {
+		if agg, ok := byID[id]; ok && agg.LLMCalls > 0 {
+			agg.AvgDurationMs = total / float64(agg.LLMCalls)
+		}
+	}
+
+	// Materialize + drop instances with zero activity so the caller's
+	// top-N render doesn't pad with empty rows. Sorted by cost desc.
+	out := make([]InstanceStats, 0, len(byID))
+	for _, agg := range byID {
+		if agg.LLMCalls == 0 && agg.ToolCalls == 0 && agg.Errors == 0 {
+			continue
+		}
+		out = append(out, *agg)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Cost > out[j].Cost })
+	return out, nil
+}
+
+// TelemetryTimelineByProject buckets llm.done events by time and
+// instance, so the dashboard can render a stacked chart of spend over
+// time with one stack per instance. bucketMinutes controls the slice
+// width. Instances with zero events in the window are omitted from
+// every bucket to keep the payload tight.
+func (s *Store) TelemetryTimelineByProject(userID int64, projectID string, since time.Time, bucketMinutes int) ([]ProjectTimelineBucket, error) {
+	insts, err := s.ListInstances(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if len(insts) == 0 {
+		return []ProjectTimelineBucket{}, nil
+	}
+	ids := make([]any, 0, len(insts))
+	placeholders := make([]string, 0, len(insts))
+	for _, inst := range insts {
+		ids = append(ids, inst.ID)
+		placeholders = append(placeholders, "?")
+	}
+	args := append([]any{}, ids...)
+	args = append(args, since.UTC().Format(time.RFC3339))
+	q := fmt.Sprintf(
+		"SELECT instance_id, type, time, data FROM telemetry WHERE instance_id IN (%s) AND time >= ? ORDER BY time",
+		strings.Join(placeholders, ","),
+	)
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	buckets := map[string]*ProjectTimelineBucket{}
+	for rows.Next() {
+		var instanceID int64
+		var evType, timeStr, dataStr string
+		if err := rows.Scan(&instanceID, &evType, &timeStr, &dataStr); err != nil {
+			continue
+		}
+		t, _ := parseTime(timeStr)
+		bucket := t.Truncate(time.Duration(bucketMinutes) * time.Minute).UTC().Format(time.RFC3339)
+		b, ok := buckets[bucket]
+		if !ok {
+			b = &ProjectTimelineBucket{
+				Time:            bucket,
+				CostByInstance:  map[string]float64{},
+				CallsByInstance: map[string]int{},
+			}
+			buckets[bucket] = b
+		}
+		instKey := strconv.FormatInt(instanceID, 10)
+		switch evType {
+		case "llm.done":
+			b.LLMCalls++
+			b.CallsByInstance[instKey]++
+			var d map[string]any
+			if json.Unmarshal([]byte(dataStr), &d) == nil {
+				if v, ok := d["tokens_in"].(float64); ok {
+					b.TokensIn += int(v)
+				}
+				if v, ok := d["tokens_out"].(float64); ok {
+					b.TokensOut += int(v)
+				}
+				if v, ok := d["cost_usd"].(float64); ok {
+					b.Cost += v
+					b.CostByInstance[instKey] += v
+				}
+			}
+		case "llm.error", "tool.error":
+			b.Errors++
+		}
+	}
+	out := make([]ProjectTimelineBucket, 0, len(buckets))
+	for _, b := range buckets {
+		out = append(out, *b)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Time < out[j].Time })
+	return out, nil
+}
+
+// GET /telemetry/project-stats?project_id=X&period=24h
+func (s *Server) handleTelemetryProjectStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	q := r.URL.Query()
+	projectID := q.Get("project_id")
+	since := parsePeriod(q.Get("period"))
+	stats, err := s.store.TelemetryStatsByProject(userID, projectID, since)
+	if err != nil {
+		http.Error(w, "stats failed", http.StatusInternalServerError)
+		return
+	}
+	if stats == nil {
+		stats = []InstanceStats{}
+	}
+	writeJSON(w, stats)
+}
+
+// GET /telemetry/project-timeline?project_id=X&period=24h
+func (s *Server) handleTelemetryProjectTimeline(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	q := r.URL.Query()
+	projectID := q.Get("project_id")
+	period := q.Get("period")
+	since := parsePeriod(period)
+	bucketMinutes := bucketWidthFor(period)
+	timeline, err := s.store.TelemetryTimelineByProject(userID, projectID, since, bucketMinutes)
+	if err != nil {
+		http.Error(w, "timeline failed", http.StatusInternalServerError)
+		return
+	}
+	if timeline == nil {
+		timeline = []ProjectTimelineBucket{}
+	}
+	writeJSON(w, timeline)
+}
+
+func parsePeriod(p string) time.Time {
+	switch p {
+	case "1h":
+		return time.Now().Add(-1 * time.Hour)
+	case "7d":
+		return time.Now().Add(-7 * 24 * time.Hour)
+	case "30d":
+		return time.Now().Add(-30 * 24 * time.Hour)
+	default: // 24h
+		return time.Now().Add(-24 * time.Hour)
+	}
+}
+
+func bucketWidthFor(p string) int {
+	switch p {
+	case "1h":
+		return 1
+	case "7d":
+		return 360 // 6 hours
+	case "30d":
+		return 1440 // 1 day
+	default:
+		return 60 // 24h → hourly
+	}
 }
 
 // GET /telemetry/timeline?instance_id=1&period=24h

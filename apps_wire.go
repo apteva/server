@@ -9,6 +9,8 @@ import (
 
 	"github.com/apteva/server/apps/channelchat"
 	"github.com/apteva/server/apps/framework"
+	"github.com/apteva/server/apps/status"
+	"github.com/apteva/server/apps/tasks"
 )
 
 // Bridges between apteva-server internals and the Apteva Apps
@@ -30,6 +32,8 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 	resolver := &serverResolver{srv: s}
 	apps := []framework.App{
 		channelchat.New(resolver),
+		tasks.New(resolver),
+		status.New(resolver),
 	}
 	for _, a := range apps {
 		if err := reg.Load(a); err != nil {

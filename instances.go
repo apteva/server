@@ -864,20 +864,26 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Seed the instance's config.json with the system-MCP flags so
-	// Start() picks them up on first (and every subsequent) boot. The
-	// flags live inside the disk config blob, not the DB row, because
-	// that's core's source of truth and Start() already reads and
-	// rewrites that file.
+	// Persist the system-MCP opt-out flags on the instance DB row so
+	// Start() picks them up on first (and every subsequent) boot.
+	// Start() reads these from inst.Config, not from disk config.json
+	// (which core owns and rewrites on every run), so the DB row is the
+	// authoritative place for server-side flags.
 	includeGateway := body.IncludeAptevaServer == nil || *body.IncludeAptevaServer
 	includeChannels := body.IncludeChannels == nil || *body.IncludeChannels
-	instDir := s.instances.instanceDir(inst.ID)
-	initialConfig := map[string]any{
-		"include_apteva_server": includeGateway,
-		"include_channels":      includeChannels,
-	}
-	if cfgBytes, merr := json.MarshalIndent(initialConfig, "", "  "); merr == nil {
-		_ = os.WriteFile(filepath.Join(instDir, "config.json"), cfgBytes, 0644)
+	{
+		var instCfg map[string]any
+		if inst.Config != "" {
+			json.Unmarshal([]byte(inst.Config), &instCfg)
+		}
+		if instCfg == nil {
+			instCfg = map[string]any{}
+		}
+		instCfg["include_apteva_server"] = includeGateway
+		instCfg["include_channels"] = includeChannels
+		if out, err := json.Marshal(instCfg); err == nil {
+			inst.Config = string(out)
+		}
 	}
 
 	// Start unless explicitly disabled
@@ -986,6 +992,8 @@ func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, inst)
 
 	case http.MethodDelete:
+		log.Printf("[LIFECYCLE] DELETE %s instance=%d remote=%s ua=%q referer=%q",
+			r.URL.Path, inst.ID, r.RemoteAddr, r.UserAgent(), r.Referer())
 		s.instances.Stop(inst.ID)
 		s.store.DeleteInstance(userID, instanceID)
 		writeJSON(w, map[string]string{"status": "deleted"})
@@ -1353,7 +1361,42 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[CONFIG] PUT but instance not running (port=0), returning stale instance data")
+	// Stopped: persist to config.json on disk so the next core boot
+	// picks up the edit. Fields the client sent are overlaid on the
+	// existing file; unset fields are preserved. Supported keys match
+	// core.Config (directive, mode, mcp_servers, computer, providers,
+	// threads, unconscious) and the `reset` sub-object.
+	err = s.writeStoppedConfigAtomic(inst.ID, func(cfg map[string]any) error {
+		if body.Directive != "" {
+			cfg["directive"] = body.Directive
+		}
+		if body.Mode == "autonomous" || body.Mode == "cautious" || body.Mode == "learn" {
+			cfg["mode"] = body.Mode
+		}
+		// rawBody was decoded above for computer enrichment; re-use it
+		// for the surface-level fields the client may set. If a key is
+		// absent in the request we keep whatever disk already held.
+		for _, k := range []string{"mcp_servers", "computer", "providers", "threads", "unconscious"} {
+			if v, ok := rawBody[k]; ok {
+				cfg[k] = v
+			}
+		}
+		// Honour the reset envelope on a stopped instance — only
+		// threads can realistically be reset without a running core;
+		// history lives in session.jsonl which we leave alone.
+		if reset, ok := rawBody["reset"].(map[string]any); ok {
+			if t, _ := reset["threads"].(bool); t {
+				delete(cfg, "threads")
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("[CONFIG] PUT stopped-write failed instance=%d: %v", inst.ID, err)
+		http.Error(w, fmt.Sprintf("persist config: %v", err), http.StatusInternalServerError)
+		return
+	}
+	log.Printf("[CONFIG] PUT stopped instance=%d — persisted to config.json (applies on next start)", inst.ID)
 	writeJSON(w, inst)
 }
 
@@ -1444,10 +1487,16 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	port := s.instances.GetPort(inst.ID)
 	corePath := "/" + parts[1]
 
-	// Instance stopped — serve static data from saved config for read-only endpoints
+	// Instance stopped — serve static data from saved config for read-only endpoints,
+	// and honour a small set of mutations directly against config.json so the dashboard
+	// can edit a stopped agent's configuration (add/remove MCPs, drop persisted threads)
+	// without needing to boot the core.
 	if port == 0 {
 		if r.Method == http.MethodGet && (corePath == "/threads" || corePath == "/status" || corePath == "/config") {
 			s.serveStoppedInstanceData(w, inst, corePath)
+			return
+		}
+		if s.handleStoppedMutation(w, r, inst, corePath) {
 			return
 		}
 		http.Error(w, "instance not running", http.StatusServiceUnavailable)
@@ -1651,12 +1700,160 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Instance,
 		if mode == "" {
 			mode = inst.Mode
 		}
-		writeJSON(w, map[string]any{
+		// Return the full persisted config surface — mcp_servers,
+		// computer, providers, threads — so the stopped-instance UI
+		// renders the real state rather than a placeholder. Before
+		// this fix we hard-coded mcp_servers:[] even though the disk
+		// config had them; the MCP pane showed empty for every
+		// stopped agent.
+		out := map[string]any{
 			"directive":   directive,
 			"mode":        mode,
-			"mcp_servers": []any{},
-		})
+			"mcp_servers": config["mcp_servers"],
+			"computer":    config["computer"],
+			"providers":   config["providers"],
+			"threads":     config["threads"],
+			"unconscious": config["unconscious"],
+		}
+		if out["mcp_servers"] == nil {
+			out["mcp_servers"] = []any{}
+		}
+		writeJSON(w, out)
 	}
+}
+
+// handleStoppedMutation attempts to satisfy a mutation request against a
+// stopped instance by rewriting its on-disk config.json. Returns true if
+// the request was handled (response already written). Returns false if
+// the operation is one that genuinely needs a running core — caller
+// should fall through to the standard 503.
+//
+// Supported today:
+//   - DELETE /threads/:id              → drop a persisted sub-thread from config
+//   - PUT    /threads/:id              → upsert fields on a persisted sub-thread
+//
+// Not supported while stopped (return false, caller 503s):
+//   - POST /event, /chat/*, /kill, /invoke — these need the live core
+//   - SSE endpoints — no live events to stream
+func (s *Server) handleStoppedMutation(w http.ResponseWriter, r *http.Request, inst *Instance, corePath string) bool {
+	// DELETE /threads/:id — remove from persisted threads list.
+	if r.Method == http.MethodDelete && strings.HasPrefix(corePath, "/threads/") {
+		tid := strings.TrimPrefix(corePath, "/threads/")
+		if tid == "" || tid == "main" {
+			http.Error(w, "cannot delete main thread", http.StatusBadRequest)
+			return true
+		}
+		err := s.writeStoppedConfigAtomic(inst.ID, func(cfg map[string]any) error {
+			raw, _ := cfg["threads"].([]any)
+			var kept []any
+			for _, t := range raw {
+				if m, ok := t.(map[string]any); ok {
+					if id, _ := m["id"].(string); id == tid {
+						continue
+					}
+				}
+				kept = append(kept, t)
+			}
+			if len(kept) == 0 {
+				delete(cfg, "threads")
+			} else {
+				cfg["threads"] = kept
+			}
+			return nil
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf("persist threads: %v", err), http.StatusInternalServerError)
+			return true
+		}
+		log.Printf("[THREADS] stopped instance=%d dropped persisted thread %q", inst.ID, tid)
+		writeJSON(w, map[string]any{"status": "deleted", "id": tid, "applies_on": "next_start"})
+		return true
+	}
+
+	// PUT /threads/:id — update fields on a persisted sub-thread.
+	if r.Method == http.MethodPut && strings.HasPrefix(corePath, "/threads/") {
+		tid := strings.TrimPrefix(corePath, "/threads/")
+		if tid == "" {
+			http.Error(w, "missing thread id", http.StatusBadRequest)
+			return true
+		}
+		bodyBytes, _ := io.ReadAll(r.Body)
+		var patch map[string]any
+		if err := json.Unmarshal(bodyBytes, &patch); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return true
+		}
+		err := s.writeStoppedConfigAtomic(inst.ID, func(cfg map[string]any) error {
+			raw, _ := cfg["threads"].([]any)
+			found := false
+			for _, t := range raw {
+				if m, ok := t.(map[string]any); ok {
+					if id, _ := m["id"].(string); id == tid {
+						for k, v := range patch {
+							m[k] = v
+						}
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
+				return fmt.Errorf("thread %q not found", tid)
+			}
+			cfg["threads"] = raw
+			return nil
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return true
+		}
+		log.Printf("[THREADS] stopped instance=%d updated persisted thread %q", inst.ID, tid)
+		writeJSON(w, map[string]any{"status": "updated", "id": tid, "applies_on": "next_start"})
+		return true
+	}
+
+	return false
+}
+
+// writeStoppedConfigAtomic mutates /data/instance_N/config.json directly,
+// used when a client asks to edit an instance whose core is not running.
+// The mutator receives the current config map (empty if no file) and
+// mutates it in place; we then write via tmp+rename so a concurrent core
+// boot never sees a half-written file.
+//
+// Why this exists: for stopped instances the dashboard needs to change
+// the directive, add/remove MCPs, drop persisted threads, etc. The core
+// is the runtime owner of config.json while it's alive, but when port==0
+// there is no core — the file is the only source of truth. Writing it
+// directly is safer than spawning a transient core just to apply edits.
+func (s *Server) writeStoppedConfigAtomic(instanceID int64, mutator func(cfg map[string]any) error) error {
+	dir := s.instances.instanceDir(instanceID)
+	if dir == "" {
+		return fmt.Errorf("no instance directory for id=%d", instanceID)
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "config.json")
+	var cfg map[string]any
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &cfg)
+	}
+	if cfg == nil {
+		cfg = map[string]any{}
+	}
+	if err := mutator(cfg); err != nil {
+		return err
+	}
+	out, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, out, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // GET /instances/:id/channels — list connected channels for an instance
@@ -1718,4 +1915,88 @@ func proxyPUT(port int, path string, body any, coreAPIKey string) {
 		req.Header.Set("Authorization", "Bearer "+coreAPIKey)
 	}
 	http.DefaultClient.Do(req)
+}
+
+// POST /instances/:id/system-mcp
+//
+// Body: {"name": "apteva-server"|"channels", "enable": true|false}
+//
+// Flips the corresponding include_apteva_server / include_channels flag
+// on inst.Config. These flags are only consulted at Start() time
+// (instances.go:288-299), so toggling them on a running instance does
+// NOT alter the live MCP list until the instance is restarted — we
+// report restart_required=true in that case so the UI can prompt.
+//
+// Also flips the flag off when enable=false, matching the existing PUT
+// /config behaviour where omitting the system MCP from mcp_servers
+// flips it off. This gives the dashboard a single, clear action for
+// re-enabling a previously-opted-out system MCP without having to
+// synthesize a full mcp_servers payload.
+func (s *Server) handleSystemMCPToggle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	path := strings.TrimPrefix(r.URL.Path, "/instances/")
+	idStr := strings.TrimSuffix(path, "/system-mcp")
+	instanceID, err := atoi64(idStr)
+	if err != nil {
+		http.Error(w, "invalid instance ID", http.StatusBadRequest)
+		return
+	}
+	inst, err := s.store.GetInstance(userID, instanceID)
+	if err != nil {
+		http.Error(w, "instance not found", http.StatusNotFound)
+		return
+	}
+
+	var body struct {
+		Name   string `json:"name"`
+		Enable *bool  `json:"enable"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if body.Enable == nil {
+		http.Error(w, "enable (bool) required", http.StatusBadRequest)
+		return
+	}
+
+	var flag string
+	switch body.Name {
+	case "apteva-server":
+		flag = "include_apteva_server"
+	case "channels", "apteva-channels":
+		flag = "include_channels"
+	default:
+		http.Error(w, fmt.Sprintf("unknown system MCP %q (expected apteva-server or channels)", body.Name), http.StatusBadRequest)
+		return
+	}
+
+	var instCfg map[string]any
+	if inst.Config != "" {
+		json.Unmarshal([]byte(inst.Config), &instCfg)
+	}
+	if instCfg == nil {
+		instCfg = map[string]any{}
+	}
+	previous, _ := instCfg[flag].(bool)
+	instCfg[flag] = *body.Enable
+	if out, merr := json.Marshal(instCfg); merr == nil {
+		inst.Config = string(out)
+	}
+	if err := s.store.UpdateInstance(inst); err != nil {
+		http.Error(w, "failed to persist", http.StatusInternalServerError)
+		return
+	}
+
+	running := s.instances.GetPort(inst.ID) > 0
+	writeJSON(w, map[string]any{
+		"name":             body.Name,
+		"enable":           *body.Enable,
+		"previous":         previous,
+		"restart_required": running && previous != *body.Enable,
+	})
 }

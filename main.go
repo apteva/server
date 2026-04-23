@@ -291,6 +291,14 @@ func main() {
 	apiMux.HandleFunc("/auth/login", s.handleLogin)
 	apiMux.HandleFunc("/auth/logout", s.handleLogout)
 	apiMux.HandleFunc("/auth/me", s.handleMe)
+	apiMux.HandleFunc("/auth/password", s.authMiddleware(s.handleChangePassword))
+
+	// User administration. GET / POST are admin-only; DELETE and
+	// PATCH .../password are too. GET /users/:id is self-or-admin.
+	// Policy is enforced inside each handler so the rules stay
+	// next to the code they apply to.
+	apiMux.HandleFunc("/users", s.authMiddleware(s.handleUsers))
+	apiMux.HandleFunc("/users/", s.authMiddleware(s.handleUserByID))
 
 	// Authenticated routes
 	apiMux.HandleFunc("/auth/keys", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -311,6 +319,8 @@ func main() {
 	// as this refactor.
 	apiMux.HandleFunc("/telemetry/timeline", s.authMiddleware(s.handleTelemetryTimeline))
 	apiMux.HandleFunc("/telemetry/stats", s.authMiddleware(s.handleTelemetryStats))
+	apiMux.HandleFunc("/telemetry/project-stats", s.authMiddleware(s.handleTelemetryProjectStats))
+	apiMux.HandleFunc("/telemetry/project-timeline", s.authMiddleware(s.handleTelemetryProjectTimeline))
 	apiMux.HandleFunc("/telemetry/stream", s.authMiddleware(s.handleTelemetryStream)) // SSE — cookie or API key auth
 	apiMux.HandleFunc("/telemetry/live", s.handleLiveTelemetry)     // broadcast-only ingest for chunks
 	apiMux.HandleFunc("/telemetry", func(w http.ResponseWriter, r *http.Request) {
@@ -579,19 +589,34 @@ func main() {
 
 		// /instances/:id/stop
 		if strings.HasSuffix(path, "/stop") {
+			log.Printf("[LIFECYCLE] POST %s remote=%s ua=%q referer=%q",
+				r.URL.Path, r.RemoteAddr, r.UserAgent(), r.Referer())
 			s.handleStopInstance(w, r)
 			return
 		}
 
 		// /instances/:id/start
 		if strings.HasSuffix(path, "/start") {
+			log.Printf("[LIFECYCLE] POST %s remote=%s ua=%q referer=%q",
+				r.URL.Path, r.RemoteAddr, r.UserAgent(), r.Referer())
 			s.handleStartInstance(w, r)
 			return
 		}
 
 		// /instances/:id/restart
 		if strings.HasSuffix(path, "/restart") {
+			log.Printf("[LIFECYCLE] POST %s remote=%s ua=%q referer=%q",
+				r.URL.Path, r.RemoteAddr, r.UserAgent(), r.Referer())
 			s.handleRestartInstance(w, r)
+			return
+		}
+
+		// /instances/:id/system-mcp — enable/disable an auto-injected
+		// system MCP (apteva-server, channels). Body: {name, enable}.
+		// Sets the corresponding include_* flag on inst.Config; takes
+		// effect on the next Start(). Response includes restart_required.
+		if strings.HasSuffix(path, "/system-mcp") {
+			s.handleSystemMCPToggle(w, r)
 			return
 		}
 
@@ -622,7 +647,13 @@ func main() {
 	// `strings.TrimPrefix(r.URL.Path, "/instances/")`) work unchanged — they
 	// see the post-strip path (e.g. `/instances/42/status`) exactly as
 	// before.
-	mux.Handle("/api/", http.StripPrefix("/api", apiMux))
+	// CORS: default is "permissive" (echo any origin with credentials)
+	// so browser UIs hosted anywhere can authenticate out of the box.
+	// Override CORS_ORIGIN with a comma-separated allowlist to lock it
+	// down, "*" for API-key only clients, or "off" to disable entirely.
+	corsCfg := newCORSConfig(os.Getenv("CORS_ORIGIN"))
+	crossOriginCookies = corsCfg.needsCrossOriginCookies()
+	mux.Handle("/api/", http.StripPrefix("/api", corsCfg.middleware(apiMux)))
 
 	// Dashboard — served from disk (always up-to-date, copied by CLI on startup)
 	// Falls back to embedded dashboard if disk copy not found

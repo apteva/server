@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -535,25 +536,19 @@ func (c *ComposioClient) FindMCPServerByName(name string) (*ComposioMCPServer, e
 // CreateMCPServer creates a Composio "custom" MCP server that exposes the
 // given set of toolkits behind a single URL. Composio's create endpoint is
 // NOT idempotent — it returns HTTP 400 / code 1151 when a server with the
-// same name already exists, and there is no update endpoint to modify
-// toolkits on an existing server.
-//
-// This method makes it idempotent from the caller's perspective:
+// same name already exists. This method makes it idempotent from the
+// caller's perspective:
 //   1. POST /api/v3/mcp/servers/custom
 //   2. If the error is a duplicate-name error, look up the existing server
 //      by name via FindMCPServerByName and return it.
 //   3. Any other error propagates.
 //
-// The trade-off: when toolkits have changed since the existing server was
-// created, we keep the old toolkit list. That is a visible limitation but
-// it's better than a hard failure, and it matches Composio's own API
-// capabilities today.
-// CreateMCPServer now accepts an optional `actions` list. When non-nil and
-// non-empty, the hosted MCP endpoint will only expose those action ids; the
-// default (nil/empty) continues to expose every tool from every toolkit in
-// the toolkit list. Composio's create endpoint is NOT idempotent for action
-// changes, so the reconciler versions the server name when the filter
-// changes — see reconcileComposioMCPServer.
+// The optional `actions` list scopes the hosted MCP endpoint to specific
+// action ids; nil/empty exposes every tool from every toolkit in the
+// toolkit list. To modify `actions` on an existing server use UpdateMCPServer
+// — PATCH /api/v3/mcp/{id} — which the reconciler calls after a filter
+// change so a single upstream server is updated in place instead of a new
+// versioned server being created.
 func (c *ComposioClient) CreateMCPServer(name string, toolkitSlugs []string, authConfigIDs []string, actions []string) (*ComposioMCPServer, error) {
 	body := map[string]any{
 		"name":                      name,
@@ -594,6 +589,24 @@ func (c *ComposioClient) CreateMCPServer(name string, toolkitSlugs []string, aut
 // list instead.
 func (c *ComposioClient) DeleteMCPServer(_ string) error {
 	return nil
+}
+
+// UpdateMCPServer patches an existing Composio MCP server's allowed_tools
+// filter in place. Passing a nil or empty list clears the filter, which
+// Composio interprets as "expose every tool in the toolkit". This lets the
+// reconciler sync filter changes without creating a second upstream server.
+func (c *ComposioClient) UpdateMCPServer(serverID string, allowedTools []string) (*ComposioMCPServer, error) {
+	body := map[string]any{
+		"allowed_tools": allowedTools,
+	}
+	if allowedTools == nil {
+		body["allowed_tools"] = []string{}
+	}
+	var out ComposioMCPServer
+	if err := c.do("PATCH", "/api/v3/mcp/"+serverID, body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // ListMCPInstances returns the per-user instances registered against a given
@@ -661,6 +674,27 @@ func (c *ComposioClient) GenerateMCPURL(serverID, userID string) (string, error)
 
 func urlQueryEscape(s string) string { return url.QueryEscape(s) }
 
+// stripComposioHelperActions forces `include_composio_helper_actions=false` on
+// a Composio MCP URL. The helpers (COMPOSIO_CHECK_ACTIVE_CONNECTION,
+// INITIATE_CONNECTION, etc.) are pure connection-management tools and our
+// server already owns that flow via the reconciler — exposing them to agents
+// just bloats the tool schema (~5k extra input tokens per spawn) and tempts
+// workers into retry dances when a connection blips. Called on every URL we
+// persist so new and reconciled rows are clean by default.
+func stripComposioHelperActions(raw string) string {
+	if raw == "" {
+		return raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	q := u.Query()
+	q.Set("include_composio_helper_actions", "false")
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
 // mcpServerNameFor builds a deterministic Composio MCP server name within
 // Composio's 4-30 character window. The hash input is the end-user id PLUS
 // the sorted toolkit slugs, so any change to the toolkit set produces a new
@@ -685,18 +719,21 @@ func mcpServerNameFor(endUserID string, toolkitSlugs []string) string {
 	return "apteva-" + suffix
 }
 
-// allowedToolsSuffix hashes the filter set into a short, stable suffix. Empty
-// input yields "" so the existing unversioned server name is preserved for
-// legacy rows that have no filter. A populated list is sorted first so order
-// doesn't churn the hash — identical sets always give the same suffix.
-func allowedToolsSuffix(allowed []string) string {
-	if len(allowed) == 0 {
-		return ""
+// stripLegacyVariantSuffix removes the old "-v<hex>" variant suffix that a
+// prior version of the reconciler appended to upstream_id to encode the
+// allowed_tools hash. Real Composio server ids are plain UUIDs (five
+// hyphen-separated hex groups: 8-4-4-4-12), so anything past the 36-char
+// UUID boundary is the legacy suffix. No-op for clean ids.
+func stripLegacyVariantSuffix(upstreamID string) string {
+	if len(upstreamID) <= 36 {
+		return upstreamID
 	}
-	sorted := append([]string(nil), allowed...)
-	sort.Strings(sorted)
-	sum := sha256.Sum256([]byte(strings.Join(sorted, ",")))
-	return "-v" + hex.EncodeToString(sum[:])[:8]
+	head := upstreamID[:36]
+	tail := upstreamID[36:]
+	if strings.HasPrefix(tail, "-v") {
+		return head
+	}
+	return upstreamID
 }
 
 // ListToolkitActions returns the set of actions Composio exposes for a
@@ -705,24 +742,28 @@ func allowedToolsSuffix(allowed []string) string {
 // row. The server then persists those names as allowed_tools and passes them
 // to CreateMCPServer on the next reconcile.
 //
-// Composio's /api/v3/tools endpoint paginates; for most toolkits the count is
-// small (<200) but we still walk the cursor to be safe.
+// Uses /api/v3.1/tools with toolkit_versions=latest — the v3 endpoint and
+// default version selector both under-report the action count (googledrive
+// shows 51 vs. the 76 the Composio dashboard lists). Pagination is cursor
+// based (max limit 1000); we use 500 and walk next_cursor to be safe.
 func (c *ComposioClient) ListToolkitActions(toolkitSlug string) ([]ComposioAction, error) {
 	var out []ComposioAction
 	cursor := ""
 	for {
-		path := fmt.Sprintf("/api/v3/tools?toolkit_slug=%s&limit=100", toolkitSlug)
+		path := fmt.Sprintf("/api/v3.1/tools?toolkit_slug=%s&toolkit_versions=latest&limit=500", toolkitSlug)
 		if cursor != "" {
 			path += "&cursor=" + cursor
 		}
 		var resp struct {
 			Items []struct {
-				Slug        string `json:"slug"`
-				Name        string `json:"name"`
-				Description string `json:"description"`
-				Toolkit     struct {
+				Slug            string         `json:"slug"`
+				Name            string         `json:"name"`
+				Description     string         `json:"description"`
+				InputParameters map[string]any `json:"input_parameters"`
+				Toolkit         struct {
 					Slug string `json:"slug"`
 				} `json:"toolkit"`
+				IsDeprecated bool `json:"is_deprecated"`
 			} `json:"items"`
 			NextCursor string `json:"next_cursor"`
 		}
@@ -730,11 +771,15 @@ func (c *ComposioClient) ListToolkitActions(toolkitSlug string) ([]ComposioActio
 			return nil, err
 		}
 		for _, it := range resp.Items {
+			if it.IsDeprecated {
+				continue
+			}
 			out = append(out, ComposioAction{
-				Slug:        it.Slug,
-				Name:        it.Name,
-				Description: it.Description,
-				Toolkit:     it.Toolkit.Slug,
+				Slug:            it.Slug,
+				Name:            it.Name,
+				Description:     it.Description,
+				Toolkit:         it.Toolkit.Slug,
+				InputParameters: it.InputParameters,
 			})
 		}
 		if resp.NextCursor == "" || len(resp.Items) == 0 {
@@ -747,12 +792,16 @@ func (c *ComposioClient) ListToolkitActions(toolkitSlug string) ([]ComposioActio
 
 // ComposioAction is a single action (tool) exposed by a Composio toolkit.
 // Slug is what gets passed in the `actions` array when creating an MCP
-// server — e.g. "GOOGLESHEETS_BATCH_GET_VALUES".
+// server — e.g. "GOOGLESHEETS_BATCH_GET_VALUES". InputParameters is the
+// JSON Schema for the action's arguments (`input_parameters` on the
+// /api/v3.1/tools response); it mirrors the MCP `inputSchema` shape and is
+// forwarded to the dashboard Test modal so users can invoke the tool.
 type ComposioAction struct {
-	Slug        string `json:"slug"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Toolkit     string `json:"toolkit"`
+	Slug            string         `json:"slug"`
+	Name            string         `json:"name"`
+	Description     string         `json:"description"`
+	Toolkit         string         `json:"toolkit"`
+	InputParameters map[string]any `json:"input_parameters,omitempty"`
 }
 
 // --- Triggers ---
@@ -957,7 +1006,10 @@ func (s *Server) handleComposioReconcile(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	projectID := r.URL.Query().Get("project_id")
+	log.Printf("[COMPOSIO-RECONCILE] manual trigger user=%d provider=%d project=%s remote=%s",
+		userID, providerID, projectID, r.RemoteAddr)
 	if err := s.reconcileComposioMCPServer(userID, providerID, projectID); err != nil {
+		log.Printf("[COMPOSIO-RECONCILE] manual trigger FAILED: %v", err)
 		http.Error(w, "reconcile: "+err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -1268,8 +1320,15 @@ func (s *Server) handleConnectionTriggers(w http.ResponseWriter, r *http.Request
 //
 // Called after every Composio connection create/delete.
 func (s *Server) reconcileComposioMCPServer(userID, providerID int64, projectID string) error {
+	start := time.Now()
+	log.Printf("[COMPOSIO-RECONCILE] begin user=%d provider=%d project=%s", userID, providerID, projectID)
+	defer func() {
+		log.Printf("[COMPOSIO-RECONCILE] end user=%d provider=%d project=%s dur=%s",
+			userID, providerID, projectID, time.Since(start).Round(time.Millisecond))
+	}()
 	client, err := s.composioClientFor(userID, providerID)
 	if err != nil {
+		log.Printf("[COMPOSIO-RECONCILE] client resolve failed: %v", err)
 		return err
 	}
 
@@ -1312,6 +1371,8 @@ func (s *Server) reconcileComposioMCPServer(userID, providerID int64, projectID 
 
 	endUserID := composioEndUserID(userID, projectID)
 
+	log.Printf("[COMPOSIO-RECONCILE] desired_slugs=%d existing_remote_rows=%d", len(desiredBySlug), len(existingByName))
+
 	// Upsert one row per desired toolkit.
 	for slug, w := range desiredBySlug {
 		// Preserve any existing allowed_tools filter the user set through
@@ -1322,58 +1383,75 @@ func (s *Server) reconcileComposioMCPServer(userID, providerID int64, projectID 
 		if existedBefore {
 			allowedTools = append([]string(nil), existing.AllowedTools...)
 		}
+		log.Printf("[COMPOSIO-RECONCILE] toolkit=%s existed=%v allowed_tools=%d", slug, existedBefore, len(allowedTools))
 
-		// Composio's create endpoint is non-idempotent for the action list:
-		// we can't modify an existing server's filter in place. When the
-		// user changes allowed_tools on a previously-created row we bump a
-		// version suffix so Composio creates a fresh hosted server and we
-		// rotate our mcp_servers.upstream_id + URL to point at it.
-		// Versioning is stable-hash based on the sorted action list, so
-		// repeated reconciles of the same filter reuse the same suffix.
-		variantSuffix := allowedToolsSuffix(allowedTools)
-		upstreamName := mcpServerNameFor(endUserID, []string{slug}) + variantSuffix
+		// One upstream Composio server per (user, toolkit). On the first
+		// reconcile we create it; on every subsequent reconcile we PATCH its
+		// allowed_tools in place. Composio exposes PATCH /api/v3/mcp/{id}
+		// (confirmed in the public API docs), which makes this a true
+		// in-place update — no name versioning, no orphaned servers.
+		upstreamName := mcpServerNameFor(endUserID, []string{slug})
+		var upstreamID string
+		if existedBefore {
+			upstreamID = stripLegacyVariantSuffix(existing.UpstreamID)
+		}
 
-		// If the variant suffix differs from the existing upstream_id's
-		// encoded variant, we'll need to create a new upstream. Detect by
-		// comparing the stored upstream name against the desired one.
 		var upstream *ComposioMCPServer
-		needsNewUpstream := !existedBefore || !strings.HasSuffix(existing.UpstreamID, variantSuffix)
-
-		if !needsNewUpstream && existing.UpstreamID != "" {
-			// Reuse the existing upstream — no change needed.
-			upstream = &ComposioMCPServer{ID: existing.UpstreamID, URL: existing.URL}
+		if existedBefore && upstreamID != "" {
+			log.Printf("[COMPOSIO-RECONCILE] toolkit=%s patch upstream=%s allowed_tools=%d", slug, upstreamID, len(allowedTools))
+			patched, err := client.UpdateMCPServer(upstreamID, allowedTools)
+			if err != nil {
+				log.Printf("[COMPOSIO-RECONCILE] toolkit=%s UpdateMCPServer failed: %v", slug, err)
+				return fmt.Errorf("update composio mcp for %s: %w", slug, err)
+			}
+			// Fall back to the stored URL if the PATCH response omits it.
+			url := patched.URL
+			if url == "" {
+				url = existing.URL
+			}
+			upstream = &ComposioMCPServer{ID: upstreamID, URL: url}
 		} else {
+			log.Printf("[COMPOSIO-RECONCILE] toolkit=%s creating upstream name=%s allowed_tools=%d", slug, upstreamName, len(allowedTools))
 			created, err := client.CreateMCPServer(upstreamName, []string{slug}, nil, allowedTools)
 			if err != nil {
+				log.Printf("[COMPOSIO-RECONCILE] toolkit=%s CreateMCPServer failed: %v", slug, err)
 				return fmt.Errorf("create composio mcp for %s: %w", slug, err)
 			}
+			log.Printf("[COMPOSIO-RECONCILE] toolkit=%s created upstream id=%s", slug, created.ID)
 			upstream = created
 		}
 
 		// Ensure a per-user instance exists.
 		if err := client.EnsureMCPInstance(upstream.ID, endUserID); err != nil {
+			log.Printf("[COMPOSIO-RECONCILE] toolkit=%s EnsureMCPInstance failed: %v", slug, err)
 			return fmt.Errorf("ensure composio mcp instance for %s: %w", slug, err)
 		}
 		// Resolve the per-user connection URL (the /custom response is a
 		// server-level base URL with no user routing).
 		connectURL, err := client.GenerateMCPURL(upstream.ID, endUserID)
 		if err != nil {
+			log.Printf("[COMPOSIO-RECONCILE] toolkit=%s GenerateMCPURL failed: %v", slug, err)
 			return fmt.Errorf("generate composio mcp url for %s: %w", slug, err)
 		}
 		if connectURL == "" {
 			connectURL = upstream.URL
 		}
+		connectURL = stripComposioHelperActions(connectURL)
 
 		description := fmt.Sprintf("Composio hosted MCP — %s", w.appName)
 
 		var localID int64
 		if existedBefore {
-			// Update URL + upstream_id in case either rotated.
 			if err := s.store.UpdateMCPServerURL(existing.ID, connectURL); err != nil {
 				return err
 			}
-			if err := s.store.UpdateMCPServerUpstreamID(existing.ID, upstream.ID+variantSuffix); err != nil {
-				return err
+			// Clean up any legacy "-vXXXX" suffix left on the stored upstream
+			// id by the old name-versioning scheme, so later PATCH calls hit
+			// the real Composio server id.
+			if existing.UpstreamID != upstream.ID {
+				if err := s.store.UpdateMCPServerUpstreamID(existing.ID, upstream.ID); err != nil {
+					return err
+				}
 			}
 			localID = existing.ID
 			delete(existingByName, slug) // mark as handled so it isn't reaped below
@@ -1388,17 +1466,23 @@ func (s *Server) reconcileComposioMCPServer(userID, providerID int64, projectID 
 				ProviderID:   providerID,
 				ProjectID:    projectID,
 				AllowedTools: allowedTools,
-				UpstreamID:   upstream.ID + variantSuffix,
+				UpstreamID:   upstream.ID,
 			})
 			if err != nil {
+				log.Printf("[COMPOSIO-RECONCILE] toolkit=%s CreateMCPServerExt failed: %v", slug, err)
 				return err
 			}
+			log.Printf("[COMPOSIO-RECONCILE] toolkit=%s created local mcp_id=%d", slug, row.ID)
 			localID = row.ID
 		}
 
 		// Best-effort async probe: discover tools and mark the row reachable.
 		// Failures downgrade to "unprobed" but do not fail the whole reconcile.
-		go func(rowID int64) {
+		// For tool_count we prefer the toolkit catalog size over the
+		// MCP-advertised list, because the MCP endpoint applies the
+		// allowed_tools filter (and inflates by helper actions), so its count
+		// would misrepresent the server's capacity in the dashboard header.
+		go func(rowID int64, toolkitSlug string) {
 			time.Sleep(500 * time.Millisecond)
 			row, _, rerr := s.store.GetMCPServer(userID, rowID)
 			if rerr != nil {
@@ -1410,17 +1494,21 @@ func (s *Server) reconcileComposioMCPServer(userID, providerID int64, projectID 
 				s.store.UpdateMCPServerStatus(rowID, "unprobed", 0, 0)
 				return
 			}
-			s.store.UpdateMCPServerStatus(rowID, "reachable", len(proc.Tools), 0)
-		}(localID)
+			count := len(proc.Tools)
+			if actions, aerr := client.ListToolkitActions(toolkitSlug); aerr == nil && len(actions) > 0 {
+				count = len(actions)
+			}
+			s.store.UpdateMCPServerStatus(rowID, "reachable", count, 0)
+		}(localID, slug)
 	}
 
 	// Reap leftovers: any remote row for this provider/project whose name
 	// isn't a currently-desired toolkit slug. This covers both connection
 	// deletions and legacy "composio" aggregate rows from the old design.
 	for name, row := range existingByName {
+		log.Printf("[COMPOSIO-RECONCILE] reaping stale row id=%d name=%s (no matching active connection)", row.ID, name)
 		s.mcpManager.Stop(row.ID)
 		s.store.DeleteMCPServer(userID, row.ID)
-		_ = name
 	}
 
 	return nil
