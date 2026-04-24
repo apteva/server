@@ -723,6 +723,12 @@ func newComposioTestServer(t *testing.T, mock *mockComposio) (*Server, int64) {
 // toolkit maps to a distinct srv_* id, and /generate returns a URL that
 // embeds the name for easy assertion in tests.
 func stubComposioMCPReconcile(m *mockComposio) {
+	// Reconcile now lists connected_accounts first to discover the upstream
+	// user_id owning each toolkit. Empty list → reconciler falls back to
+	// the local composioEndUserID, preserving pre-existing test behaviour.
+	m.on("GET", "/api/v3/connected_accounts", func(w http.ResponseWriter, r *http.Request) {
+		writeMockJSON(w, 200, map[string]any{"items": []any{}})
+	})
 	// Register exact-match routes first so they take precedence over the
 	// prefix catch-all below (mockComposio uses first-match-wins ordering).
 	m.on("POST", "/api/v3/mcp/servers/custom", func(w http.ResponseWriter, r *http.Request) {
@@ -1066,12 +1072,6 @@ func TestHandleGetConnection_ComposioPending_FlipsActiveAndReconciles(t *testing
 func TestSyncComposioProviderData_ImportsConnectionsAndMCPServers(t *testing.T) {
 	mock := newMockComposio(t)
 
-	// Reconcile fires at the end of sync — stub its endpoints so the
-	// pre-existing reconciler happy path doesn't make the test blow up
-	// when there are no existing upstream MCP servers for the imported
-	// toolkits.
-	stubComposioMCPReconcile(mock)
-
 	// auth_configs: one managed OAuth for github.
 	mock.on("GET", "/api/v3/auth_configs", func(w http.ResponseWriter, r *http.Request) {
 		writeMockJSON(w, 200, map[string]any{
@@ -1129,6 +1129,12 @@ func TestSyncComposioProviderData_ImportsConnectionsAndMCPServers(t *testing.T) 
 			},
 		})
 	})
+
+	// Reconcile fires at the end of sync. Register its stubs AFTER the
+	// explicit connected_accounts/mcp routes above so the test's own
+	// fixtures win on first-match (the reconcile helper also registers
+	// /api/v3/connected_accounts with empty items as a safe default).
+	stubComposioMCPReconcile(mock)
 
 	s, providerID := newComposioTestServer(t, mock)
 

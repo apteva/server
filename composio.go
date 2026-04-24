@@ -1370,9 +1370,37 @@ func (s *Server) reconcileComposioMCPServer(userID, providerID int64, projectID 
 		}
 	}
 
-	endUserID := composioEndUserID(userID, projectID)
+	defaultEndUserID := composioEndUserID(userID, projectID)
 
-	log.Printf("[COMPOSIO-RECONCILE] desired_slugs=%d existing_remote_rows=%d", len(desiredBySlug), len(existingByName))
+	// For imported connected_accounts, the composio-side user_id was set
+	// by whoever created them (outside our flow) — usually NOT matching
+	// our composioEndUserID. EnsureMCPInstance + GenerateMCPURL must use
+	// the same user_id that's on the connected_account, otherwise tool
+	// calls 404 with "no connected account found for user_id=...".
+	//
+	// One API call: list all active accounts, take the first per toolkit.
+	// If multiple accounts for the same toolkit have different user_ids
+	// we can only serve one — that's a Composio data model limit, not
+	// ours (the MCP server URL carries a single user_id).
+	upstreamUserBySlug := map[string]string{}
+	if accounts, err := client.ListConnectedAccounts(); err == nil {
+		for _, a := range accounts {
+			if strings.ToUpper(a.Status) != "ACTIVE" || a.UserID == "" {
+				continue
+			}
+			slug := a.ToolkitSlug
+			if slug == "" {
+				continue
+			}
+			if _, ok := upstreamUserBySlug[slug]; !ok {
+				upstreamUserBySlug[slug] = a.UserID
+			}
+		}
+	} else {
+		log.Printf("[COMPOSIO-RECONCILE] list connected_accounts failed (falling back to local user_id): %v", err)
+	}
+
+	log.Printf("[COMPOSIO-RECONCILE] desired_slugs=%d existing_remote_rows=%d upstream_user_map=%d", len(desiredBySlug), len(existingByName), len(upstreamUserBySlug))
 
 	// Upsert one row per desired toolkit.
 	for slug, w := range desiredBySlug {
@@ -1391,6 +1419,15 @@ func (s *Server) reconcileComposioMCPServer(userID, providerID int64, projectID 
 		// allowed_tools in place. Composio exposes PATCH /api/v3/mcp/{id}
 		// (confirmed in the public API docs), which makes this a true
 		// in-place update — no name versioning, no orphaned servers.
+		// Pick the user_id that actually owns the connected_account on
+		// composio for this toolkit. Imported accounts keep their original
+		// upstream user_id; accounts we created via InitiateConnection use
+		// our composioEndUserID (which matches by default).
+		endUserID := defaultEndUserID
+		if u, ok := upstreamUserBySlug[slug]; ok && u != "" {
+			endUserID = u
+		}
+
 		upstreamName := mcpServerNameFor(endUserID, []string{slug})
 		var upstreamID string
 		if existedBefore {
@@ -1587,6 +1624,9 @@ type ComposioConnectedAccountSummary struct {
 	Status       string
 	AuthConfigID string
 	ToolkitSlug  string
+	UserID       string // composio's end_user_id on the account — imported flows
+	// need this because the MCP server's per-user instance URL must use the
+	// same user_id the account was authorized under, not our local project id.
 }
 
 // ListConnectedAccounts pages GET /api/v3/connected_accounts.
@@ -1598,6 +1638,7 @@ func (c *ComposioClient) ListConnectedAccounts() ([]ComposioConnectedAccountSumm
 			Items []struct {
 				ID           string `json:"id"`
 				Status       string `json:"status"`
+				UserID       string `json:"user_id"`
 				AuthConfigID string `json:"auth_config_id"`
 				AuthConfig   struct {
 					ID      string `json:"id"`
@@ -1632,6 +1673,7 @@ func (c *ComposioClient) ListConnectedAccounts() ([]ComposioConnectedAccountSumm
 				Status:       it.Status,
 				AuthConfigID: acID,
 				ToolkitSlug:  slug,
+				UserID:       it.UserID,
 			})
 		}
 		if resp.NextCursor == "" || len(resp.Items) == 0 {
