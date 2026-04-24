@@ -1342,6 +1342,7 @@ func (s *Server) reconcileComposioMCPServer(userID, providerID int64, projectID 
 	type wanted struct {
 		slug    string
 		appName string
+		connID  int64 // first active connection for this toolkit — used as the mcp row's connection_id for UI linking
 	}
 	desiredBySlug := map[string]*wanted{}
 	for _, c := range all {
@@ -1353,7 +1354,7 @@ func (s *Server) reconcileComposioMCPServer(userID, providerID int64, projectID 
 			if appName == "" || appName == c.AppSlug {
 				appName = c.AppSlug
 			}
-			desiredBySlug[c.AppSlug] = &wanted{slug: c.AppSlug, appName: appName}
+			desiredBySlug[c.AppSlug] = &wanted{slug: c.AppSlug, appName: appName, connID: c.ID}
 		}
 	}
 
@@ -1453,6 +1454,18 @@ func (s *Server) reconcileComposioMCPServer(userID, providerID int64, projectID 
 					return err
 				}
 			}
+			// Keep connection_id aligned with the current first-active
+			// connection for this toolkit — lets the UI link the MCP row
+			// back to a connection even if the original one was deleted
+			// and another one was added later.
+			if existing.ConnectionID != w.connID {
+				if _, err := s.store.db.Exec(
+					`UPDATE mcp_servers SET connection_id = ? WHERE id = ?`,
+					w.connID, existing.ID,
+				); err != nil {
+					return err
+				}
+			}
 			localID = existing.ID
 			delete(existingByName, slug) // mark as handled so it isn't reaped below
 		} else {
@@ -1465,6 +1478,7 @@ func (s *Server) reconcileComposioMCPServer(userID, providerID int64, projectID 
 				URL:          connectURL,
 				ProviderID:   providerID,
 				ProjectID:    projectID,
+				ConnectionID: w.connID,
 				AllowedTools: allowedTools,
 				UpstreamID:   upstream.ID,
 			})

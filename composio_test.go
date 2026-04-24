@@ -1066,6 +1066,12 @@ func TestHandleGetConnection_ComposioPending_FlipsActiveAndReconciles(t *testing
 func TestSyncComposioProviderData_ImportsConnectionsAndMCPServers(t *testing.T) {
 	mock := newMockComposio(t)
 
+	// Reconcile fires at the end of sync — stub its endpoints so the
+	// pre-existing reconciler happy path doesn't make the test blow up
+	// when there are no existing upstream MCP servers for the imported
+	// toolkits.
+	stubComposioMCPReconcile(mock)
+
 	// auth_configs: one managed OAuth for github.
 	mock.on("GET", "/api/v3/auth_configs", func(w http.ResponseWriter, r *http.Request) {
 		writeMockJSON(w, 200, map[string]any{
@@ -1148,19 +1154,22 @@ func TestSyncComposioProviderData_ImportsConnectionsAndMCPServers(t *testing.T) 
 		t.Errorf("slack conn shape wrong: %+v", sl)
 	}
 
+	// Reconcile runs at the end of sync and creates one local mcp_servers
+	// row per toolkit with an active connection. The "slack" one stays
+	// pending so reconcile skips it; only github should materialise.
 	rows := listRemoteMCPs(t, s, 1, "")
-	srv, ok := rows["apteva/github"]
+	srv, ok := rows["github"]
 	if !ok {
-		t.Fatalf("github MCP server not imported; got %v", rows)
+		t.Fatalf("github MCP server not created by reconcile; got %v", rows)
 	}
-	if srv.UpstreamID != "srv_github" || srv.URL != "https://mcp.example/github" || srv.Transport != "http" {
+	if srv.Transport != "http" || srv.Source != "remote" || srv.ProviderID != providerID {
 		t.Errorf("mcp row shape wrong: %+v", srv)
 	}
-	if srv.ConnectionID != gh.ID {
-		t.Errorf("expected mcp connection_id=%d, got %d", gh.ID, srv.ConnectionID)
+	if srv.UpstreamID == "" || srv.URL == "" {
+		t.Errorf("expected upstream_id + url populated, got id=%q url=%q", srv.UpstreamID, srv.URL)
 	}
-	if len(srv.AllowedTools) != 1 || srv.AllowedTools[0] != "github_create_issue" {
-		t.Errorf("allowed_tools not imported: %+v", srv.AllowedTools)
+	if srv.ConnectionID != gh.ID {
+		t.Errorf("expected mcp connection_id=%d (first active conn for toolkit), got %d", gh.ID, srv.ConnectionID)
 	}
 
 	// Re-run: idempotent, no duplicate rows.

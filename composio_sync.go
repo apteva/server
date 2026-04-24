@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"log"
 	"strings"
 	"time"
@@ -101,66 +100,17 @@ func (s *Server) syncComposioProviderData(userID, providerID int64, projectID st
 		log.Printf("[COMPOSIO-SYNC] imported conn id=%d slug=%s external=%s status=%s", conn.ID, slug, a.ID, status)
 	}
 
-	// MCP servers → mcp_servers (source=remote).
-	servers, err := client.ListComposioMCPServers()
-	if err != nil {
-		log.Printf("[COMPOSIO-SYNC] list mcp_servers failed: %v", err)
-		return
-	}
-	log.Printf("[COMPOSIO-SYNC] fetched %d mcp_servers", len(servers))
-
-	existingMCP, _ := s.store.ListMCPServers(userID, projectID)
-	mcpByUpstream := map[string]MCPServerRecord{}
-	for _, r := range existingMCP {
-		if r.Source == "remote" && r.ProviderID == providerID && r.UpstreamID != "" {
-			mcpByUpstream[r.UpstreamID] = r
-		}
-	}
-	for _, srv := range servers {
-		// Link to a connection when we can pin a toolkit slug. A multi-toolkit
-		// server picks the first matching connection we have on record; the
-		// reconciler can re-key it if the scope changes later.
-		var connID int64
-		for _, slug := range srv.ToolkitSlugs {
-			if id, ok := connIDBySlug[slug]; ok {
-				connID = id
-				break
-			}
-		}
-		allowedJSON := ""
-		if len(srv.AllowedTools) > 0 {
-			b, _ := json.Marshal(srv.AllowedTools)
-			allowedJSON = string(b)
-		}
-		if existing, ok := mcpByUpstream[srv.ID]; ok {
-			_, err := s.store.db.Exec(
-				`UPDATE mcp_servers SET name=?, url=?, allowed_tools=?, connection_id=? WHERE id=?`,
-				srv.Name, srv.URL, allowedJSON, connID, existing.ID,
-			)
-			if err != nil {
-				log.Printf("[COMPOSIO-SYNC] update mcp id=%d upstream=%s failed: %v", existing.ID, srv.ID, err)
-			}
-			continue
-		}
-		desc := "Composio MCP: " + strings.Join(srv.ToolkitSlugs, ", ")
-		row, err := s.store.CreateMCPServerExt(MCPServerInput{
-			UserID:       userID,
-			Name:         srv.Name,
-			Description:  desc,
-			Source:       "remote",
-			Transport:    "http",
-			URL:          srv.URL,
-			ProviderID:   providerID,
-			ProjectID:    projectID,
-			ConnectionID: connID,
-			AllowedTools: srv.AllowedTools,
-			UpstreamID:   srv.ID,
-		})
-		if err != nil {
-			log.Printf("[COMPOSIO-SYNC] create mcp name=%s upstream=%s failed: %v", srv.Name, srv.ID, err)
-			continue
-		}
-		log.Printf("[COMPOSIO-SYNC] imported mcp id=%d name=%s upstream=%s conn=%d", row.ID, srv.Name, srv.ID, connID)
+	// MCP servers: defer to the per-toolkit reconciler. It owns both
+	// sides of the "one MCP server per active toolkit" mapping — creates
+	// fresh Composio MCP servers if none exist for an imported toolkit,
+	// reuses by canonical name if they do, and keeps our mcp_servers
+	// table aligned. Trying to mirror arbitrary pre-existing Composio MCP
+	// server rows here just creates duplicates that the reconciler reaps
+	// on the next tick because the names don't match its toolkit-slug
+	// scheme.
+	_ = connIDBySlug
+	if err := s.reconcileComposioMCPServer(userID, providerID, projectID); err != nil {
+		log.Printf("[COMPOSIO-SYNC] reconcile failed (connections imported, mcp servers may be incomplete): %v", err)
 	}
 }
 
