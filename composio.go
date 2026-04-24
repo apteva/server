@@ -1513,3 +1513,168 @@ func (s *Server) reconcileComposioMCPServer(userID, providerID int64, projectID 
 
 	return nil
 }
+
+// --- Bulk listing used by provider-create sync ---
+
+// ComposioAuthConfigSummary is what ListAllAuthConfigs returns — enough to
+// correlate a connected_account's auth_config_id back to a toolkit slug
+// when the connected_account payload doesn't carry the slug inline.
+type ComposioAuthConfigSummary struct {
+	ID                string
+	AuthScheme        string
+	IsComposioManaged bool
+	ToolkitSlug       string
+}
+
+// ListAllAuthConfigs pages GET /api/v3/auth_configs across toolkits.
+func (c *ComposioClient) ListAllAuthConfigs() ([]ComposioAuthConfigSummary, error) {
+	var out []ComposioAuthConfigSummary
+	cursor := ""
+	for {
+		var resp struct {
+			Items []struct {
+				ID                string `json:"id"`
+				AuthScheme        string `json:"auth_scheme"`
+				IsComposioManaged bool   `json:"is_composio_managed"`
+				Toolkit           struct {
+					Slug string `json:"slug"`
+				} `json:"toolkit"`
+			} `json:"items"`
+			NextCursor string `json:"next_cursor"`
+		}
+		path := "/api/v3/auth_configs?limit=100"
+		if cursor != "" {
+			path += "&cursor=" + urlQueryEscape(cursor)
+		}
+		if err := c.do("GET", path, nil, &resp); err != nil {
+			return nil, err
+		}
+		for _, it := range resp.Items {
+			out = append(out, ComposioAuthConfigSummary{
+				ID:                it.ID,
+				AuthScheme:        it.AuthScheme,
+				IsComposioManaged: it.IsComposioManaged,
+				ToolkitSlug:       it.Toolkit.Slug,
+			})
+		}
+		if resp.NextCursor == "" || len(resp.Items) == 0 {
+			break
+		}
+		cursor = resp.NextCursor
+	}
+	return out, nil
+}
+
+// ComposioConnectedAccountSummary is the bulk-list shape — richer than
+// ComposioConnectedAccount because the list endpoint returns the nested
+// auth_config + toolkit inline.
+type ComposioConnectedAccountSummary struct {
+	ID           string
+	Status       string
+	AuthConfigID string
+	ToolkitSlug  string
+}
+
+// ListConnectedAccounts pages GET /api/v3/connected_accounts.
+func (c *ComposioClient) ListConnectedAccounts() ([]ComposioConnectedAccountSummary, error) {
+	var out []ComposioConnectedAccountSummary
+	cursor := ""
+	for {
+		var resp struct {
+			Items []struct {
+				ID           string `json:"id"`
+				Status       string `json:"status"`
+				AuthConfigID string `json:"auth_config_id"`
+				AuthConfig   struct {
+					ID      string `json:"id"`
+					Toolkit struct {
+						Slug string `json:"slug"`
+					} `json:"toolkit"`
+				} `json:"auth_config"`
+				Toolkit struct {
+					Slug string `json:"slug"`
+				} `json:"toolkit"`
+			} `json:"items"`
+			NextCursor string `json:"next_cursor"`
+		}
+		path := "/api/v3/connected_accounts?limit=100"
+		if cursor != "" {
+			path += "&cursor=" + urlQueryEscape(cursor)
+		}
+		if err := c.do("GET", path, nil, &resp); err != nil {
+			return nil, err
+		}
+		for _, it := range resp.Items {
+			acID := it.AuthConfigID
+			if acID == "" {
+				acID = it.AuthConfig.ID
+			}
+			slug := it.Toolkit.Slug
+			if slug == "" {
+				slug = it.AuthConfig.Toolkit.Slug
+			}
+			out = append(out, ComposioConnectedAccountSummary{
+				ID:           it.ID,
+				Status:       it.Status,
+				AuthConfigID: acID,
+				ToolkitSlug:  slug,
+			})
+		}
+		if resp.NextCursor == "" || len(resp.Items) == 0 {
+			break
+		}
+		cursor = resp.NextCursor
+	}
+	return out, nil
+}
+
+// ComposioMCPServerSummary is the bulk-list shape for custom MCP servers.
+type ComposioMCPServerSummary struct {
+	ID            string
+	Name          string
+	URL           string
+	ToolkitSlugs  []string
+	AuthConfigIDs []string
+	AllowedTools  []string
+}
+
+// ListComposioMCPServers pages GET /api/v3/mcp/servers (no name filter).
+func (c *ComposioClient) ListComposioMCPServers() ([]ComposioMCPServerSummary, error) {
+	var out []ComposioMCPServerSummary
+	cursor := ""
+	for {
+		var resp struct {
+			Items []struct {
+				ID            string   `json:"id"`
+				Name          string   `json:"name"`
+				MCPURL        string   `json:"mcp_url"`
+				Toolkits      []string `json:"toolkits"`
+				AuthConfigIDs []string `json:"auth_config_ids"`
+				AllowedTools  []string `json:"allowed_tools"`
+			} `json:"items"`
+			NextCursor string `json:"next_cursor"`
+		}
+		path := "/api/v3/mcp/servers?limit=100"
+		if cursor != "" {
+			path += "&cursor=" + urlQueryEscape(cursor)
+		}
+		if err := c.do("GET", path, nil, &resp); err != nil {
+			return nil, err
+		}
+		for _, it := range resp.Items {
+			out = append(out, ComposioMCPServerSummary{
+				ID:            it.ID,
+				Name:          it.Name,
+				URL:           it.MCPURL,
+				ToolkitSlugs:  it.Toolkits,
+				AuthConfigIDs: it.AuthConfigIDs,
+				AllowedTools:  it.AllowedTools,
+			})
+		}
+		if resp.NextCursor == "" || len(resp.Items) == 0 {
+			break
+		}
+		cursor = resp.NextCursor
+	}
+	return out, nil
+}

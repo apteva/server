@@ -140,6 +140,18 @@ func runMCPProxy(dbPath string, connectionID int64, secret []byte) error {
 			if tool == nil {
 				rpcErr = &jsonRPCError{Code: -32602, Message: fmt.Sprintf("unknown tool %q", params.Name)}
 			} else {
+				// Resolve master/child indirection + project binding.
+				// Passes userID=0 so the resolver uses the trusted
+				// direct-lookup path.
+				ctx, err := resolveConnectionContextRaw(store, secret, 0, app, credentials, params.Arguments)
+				if err != nil {
+					rpcErr = &jsonRPCError{Code: -32603, Message: fmt.Sprintf("resolve context: %v", err)}
+					break
+				}
+				persistTargetID := connectionID
+				if ctx.MasterConnID != 0 {
+					persistTargetID = ctx.MasterConnID
+				}
 				// Persist refreshed OAuth credentials back to the DB so they
 				// survive the next subprocess restart. The credentials map
 				// is mutated in place by the refresher; we just re-encrypt
@@ -155,11 +167,11 @@ func runMCPProxy(dbPath string, connectionID int64, secret []byte) error {
 					}
 					_, err = store.db.Exec(
 						"UPDATE connections SET encrypted_credentials = ? WHERE id = ?",
-						enc, connectionID,
+						enc, persistTargetID,
 					)
 					return err
 				}
-				execResult, err := executeIntegrationToolWithRefresh(app, tool, credentials, params.Arguments, persist)
+				execResult, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, persist)
 				if err != nil {
 					result = map[string]any{
 						"content": []map[string]any{{"type": "text", "text": fmt.Sprintf("error: %v", err)}},

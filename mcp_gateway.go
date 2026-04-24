@@ -81,6 +81,13 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "list_providers", Description: "List active providers.", InputSchema: toolSchema{Type: "object"}},
 		{Name: "activate_provider", Description: "Activate a provider.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"type": {Type: "string"}, "name": {Type: "string"}, "credentials": {Type: "string", Description: "JSON object of credentials (optional)"}}, Required: []string{"type", "name"}}},
 		{Name: "deactivate_provider", Description: "Deactivate a provider.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Provider ID"}}, Required: []string{"id"}}},
+		// Credential-group suites (OmniKit, SocialCast, ...)
+		{Name: "list_credential_groups", Description: "List integration suites (groups of apps that share one credential). Members, account/project scope support, and display metadata.", InputSchema: toolSchema{Type: "object"}},
+		{Name: "add_account_credential", Description: "Add an account-wide credential for a suite, run project discovery, and cache the discovered project list. Use for OmniKit/SocialCast-style suites where one key unlocks many sub-services across many projects. NEVER echo the key in responses.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"group_id": {Type: "string", Description: "Suite id (e.g. omnikit, socialcast)"}, "credentials": {Type: "string", Description: "JSON object matching the group's account-scope credential_fields. Example: {\"api_key\":\"okt_acc_...\"}"}}, Required: []string{"group_id", "credentials"}}},
+		{Name: "list_group_projects", Description: "List the projects discovered for a suite's account credential. Returns cached values; call refresh_group_projects to re-query upstream.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"group_id": {Type: "string", Description: "Suite id"}}, Required: []string{"group_id"}}},
+		{Name: "refresh_group_projects", Description: "Re-run discovery for a suite's account credential, picking up any new projects on the remote side.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"group_id": {Type: "string"}}, Required: []string{"group_id"}}},
+		{Name: "enable_apps_for_projects", Description: "Fan out a suite credential into project-scoped connections. selections is a JSON array of { app_slug, external_project_id, label }. One child connection per pair; idempotent on re-run.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"group_id": {Type: "string"}, "selections": {Type: "string", Description: "JSON array of { app_slug, external_project_id, label } objects"}, "replace": {Type: "string", Description: "'true' to remove child connections not in the new selection; defaults to false"}}, Required: []string{"group_id", "selections"}}},
+		{Name: "delete_group_credential", Description: "Remove a suite's account credential and every child connection fanned out from it. Use with care — equivalent to the dashboard's 'Disconnect all'.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"group_id": {Type: "string"}}, Required: []string{"group_id"}}},
 	}
 
 	// Handler dispatch
@@ -625,6 +632,258 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			id, _ := parseIntArg(args["id"])
 			store.DeleteProvider(userID, id)
 			return map[string]string{"status": "deleted"}, nil
+
+		// --- Credential-group (suite) management ---
+		case "list_credential_groups":
+			return catalog.ListGroups(), nil
+
+		case "add_account_credential":
+			groupID, _ := args["group_id"].(string)
+			if groupID == "" {
+				return nil, fmt.Errorf("group_id required")
+			}
+			g := catalog.GetGroup(groupID)
+			if g == nil {
+				return nil, fmt.Errorf("group %q not found", groupID)
+			}
+			app := catalog.Get(g.Members[0])
+			if app == nil {
+				return nil, fmt.Errorf("group %q has no resolvable members", groupID)
+			}
+			credsJSON, _ := args["credentials"].(string)
+			var creds map[string]string
+			if err := json.Unmarshal([]byte(credsJSON), &creds); err != nil {
+				return nil, fmt.Errorf("credentials must be JSON object: %v", err)
+			}
+			projects, err := discoverProjects(app, &g.Meta, creds)
+			if err != nil {
+				return nil, err
+			}
+			blob := map[string]string{credKeyType: "master", credKeyGroup: groupID, credKeyScope: "account"}
+			for k, v := range creds {
+				blob[k] = v
+			}
+			cacheBytes, _ := json.Marshal(projects)
+			blob[credKeyProjectsCache] = string(cacheBytes)
+			encoded, _ := json.Marshal(blob)
+			enc, err := Encrypt(secret, string(encoded))
+			if err != nil {
+				return nil, err
+			}
+			// Upsert
+			existingID := int64(0)
+			all, _ := store.ListConnections(userID, projectID)
+			for _, c := range all {
+				if c.AppSlug == MasterSlug(groupID) {
+					existingID = c.ID
+					break
+				}
+			}
+			if existingID != 0 {
+				if err := store.UpdateConnectionCredentials(existingID, enc); err != nil {
+					return nil, err
+				}
+				return map[string]any{"master_id": existingID, "projects": projects, "updated": true}, nil
+			}
+			conn, err := store.CreateConnectionExt(ConnectionInput{
+				UserID: userID, AppSlug: MasterSlug(groupID), AppName: g.Meta.Name,
+				Name: g.Meta.Name + " master", AuthType: "api_key",
+				EncryptedCreds: enc, Status: "active", Source: "local", ProjectID: projectID,
+			})
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"master_id": conn.ID, "projects": projects, "created": true}, nil
+
+		case "list_group_projects":
+			groupID, _ := args["group_id"].(string)
+			all, _ := store.ListConnections(userID, projectID)
+			for _, c := range all {
+				if c.AppSlug != MasterSlug(groupID) {
+					continue
+				}
+				_, enc, err := store.GetConnection(userID, c.ID)
+				if err != nil {
+					return nil, err
+				}
+				plain, err := Decrypt(secret, enc)
+				if err != nil {
+					return nil, err
+				}
+				var blob map[string]string
+				json.Unmarshal([]byte(plain), &blob)
+				var projects []CachedProject
+				json.Unmarshal([]byte(blob[credKeyProjectsCache]), &projects)
+				return map[string]any{"master_id": c.ID, "projects": projects}, nil
+			}
+			return nil, fmt.Errorf("no master credential for group %q — call add_account_credential first", groupID)
+
+		case "refresh_group_projects":
+			groupID, _ := args["group_id"].(string)
+			g := catalog.GetGroup(groupID)
+			app := catalog.Get(g.Members[0])
+			if g == nil || app == nil {
+				return nil, fmt.Errorf("group %q not found", groupID)
+			}
+			all, _ := store.ListConnections(userID, projectID)
+			for _, c := range all {
+				if c.AppSlug != MasterSlug(groupID) {
+					continue
+				}
+				_, enc, _ := store.GetConnection(userID, c.ID)
+				plain, _ := Decrypt(secret, enc)
+				var blob map[string]string
+				json.Unmarshal([]byte(plain), &blob)
+				real := stripReservedCreds(blob)
+				projects, err := discoverProjects(app, &g.Meta, real)
+				if err != nil {
+					return nil, err
+				}
+				cacheBytes, _ := json.Marshal(projects)
+				blob[credKeyProjectsCache] = string(cacheBytes)
+				encoded, _ := json.Marshal(blob)
+				enc2, _ := Encrypt(secret, string(encoded))
+				store.UpdateConnectionCredentials(c.ID, enc2)
+				return map[string]any{"projects": projects}, nil
+			}
+			return nil, fmt.Errorf("no master for group %q", groupID)
+
+		case "enable_apps_for_projects":
+			groupID, _ := args["group_id"].(string)
+			g := catalog.GetGroup(groupID)
+			if g == nil {
+				return nil, fmt.Errorf("group %q not found", groupID)
+			}
+			selJSON, _ := args["selections"].(string)
+			var selections []struct {
+				AppSlug           string `json:"app_slug"`
+				ExternalProjectID string `json:"external_project_id"`
+				Label             string `json:"label"`
+			}
+			if err := json.Unmarshal([]byte(selJSON), &selections); err != nil {
+				return nil, fmt.Errorf("selections must be JSON array: %v", err)
+			}
+			members := map[string]bool{}
+			for _, m := range g.Members {
+				members[m] = true
+			}
+			var masterID int64
+			all, _ := store.ListConnections(userID, projectID)
+			existing := map[string]int64{}
+			for _, c := range all {
+				if c.AppSlug == MasterSlug(groupID) {
+					masterID = c.ID
+					continue
+				}
+				if !members[c.AppSlug] {
+					continue
+				}
+				_, enc, err := store.GetConnection(userID, c.ID)
+				if err != nil {
+					continue
+				}
+				plain, err := Decrypt(secret, enc)
+				if err != nil {
+					continue
+				}
+				var cb map[string]string
+				json.Unmarshal([]byte(plain), &cb)
+				if cb[credKeyType] != "child" {
+					continue
+				}
+				existing[c.AppSlug+"|"+cb[credKeyProjectID]] = c.ID
+			}
+			if masterID == 0 {
+				return nil, fmt.Errorf("no master for group %q — add_account_credential first", groupID)
+			}
+			created := []map[string]any{}
+			for _, sel := range selections {
+				if !members[sel.AppSlug] {
+					continue
+				}
+				key := sel.AppSlug + "|" + sel.ExternalProjectID
+				if _, ok := existing[key]; ok {
+					continue
+				}
+				app := catalog.Get(sel.AppSlug)
+				if app == nil {
+					continue
+				}
+				blob := map[string]string{
+					credKeyType: "child", credKeyMasterID: strconv.FormatInt(masterID, 10),
+					credKeyProjectID: sel.ExternalProjectID,
+				}
+				encoded, _ := json.Marshal(blob)
+				enc, err := Encrypt(secret, string(encoded))
+				if err != nil {
+					continue
+				}
+				connName := sel.Label
+				if connName == "" {
+					connName = sel.ExternalProjectID
+				}
+				conn, err := store.CreateConnectionExt(ConnectionInput{
+					UserID: userID, AppSlug: sel.AppSlug, AppName: app.Name,
+					Name: connName, AuthType: "api_key",
+					EncryptedCreds: enc, Status: "active", Source: "local", ProjectID: projectID,
+				})
+				if err != nil {
+					continue
+				}
+				// Register the MCP row so the connection is callable.
+				// Slug base encodes both the service and project so
+				// tool prefixes stay distinct across fan-outs.
+				store.CreateMCPServerFromConnectionWithSlug(userID, conn, len(app.Tools), sel.AppSlug+"-"+connName)
+				created = append(created, map[string]any{"id": conn.ID, "app_slug": conn.AppSlug, "project_id": sel.ExternalProjectID})
+			}
+			return map[string]any{"created": created, "already_exists": len(existing)}, nil
+
+		case "delete_group_credential":
+			groupID, _ := args["group_id"].(string)
+			g := catalog.GetGroup(groupID)
+			members := map[string]bool{}
+			if g != nil {
+				for _, m := range g.Members {
+					members[m] = true
+				}
+			}
+			all, _ := store.ListConnections(userID, projectID)
+			var masterID int64
+			masterSlug := MasterSlug(groupID)
+			for _, c := range all {
+				if c.AppSlug == masterSlug {
+					masterID = c.ID
+					break
+				}
+			}
+			if masterID == 0 {
+				return map[string]any{"removed": 0}, nil
+			}
+			masterIDStr := strconv.FormatInt(masterID, 10)
+			removed := 0
+			for _, c := range all {
+				if !members[c.AppSlug] {
+					continue
+				}
+				_, enc, err := store.GetConnection(userID, c.ID)
+				if err != nil {
+					continue
+				}
+				plain, err := Decrypt(secret, enc)
+				if err != nil {
+					continue
+				}
+				var cb map[string]string
+				json.Unmarshal([]byte(plain), &cb)
+				if cb[credKeyType] != "child" || cb[credKeyMasterID] != masterIDStr {
+					continue
+				}
+				if err := store.DeleteConnection(userID, c.ID); err == nil {
+					removed++
+				}
+			}
+			store.DeleteConnection(userID, masterID)
+			return map[string]any{"removed": removed + 1}, nil
 
 		default:
 			return nil, fmt.Errorf("unknown tool %q", name)

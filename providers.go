@@ -327,6 +327,14 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Composio: mirror the user's existing connected accounts + custom MCP
+	// servers into our tables so the dashboard reflects current upstream
+	// state without forcing the user to rebuild connections here.
+	// Best-effort async — failures are logged, provider create still succeeds.
+	if strings.EqualFold(provider.Name, "Composio") {
+		go s.syncComposioProviderData(userID, provider.ID, provider.ProjectID)
+	}
+
 	writeJSON(w, provider)
 }
 

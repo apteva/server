@@ -23,6 +23,51 @@ type AppTemplate struct {
 	Auth        AppAuthConfig      `json:"auth"`
 	Tools       []AppToolDef       `json:"tools"`
 	Webhooks    *AppWebhookConfig  `json:"webhooks,omitempty"`
+	// Suite membership + per-scope credential variants. Opt-in; legacy
+	// apps leave both nil. See types.ts for the canonical description.
+	CredentialGroup *CredentialGroup `json:"credential_group,omitempty"`
+	Scopes          *AppScopes       `json:"scopes,omitempty"`
+}
+
+// --- Credential groups (suites) ---
+
+type CredentialGroup struct {
+	ID          string                `json:"id"`
+	Name        string                `json:"name"`
+	Logo        *string               `json:"logo,omitempty"`
+	Description string                `json:"description,omitempty"`
+	Discovery   *GroupDiscoveryConfig `json:"discovery,omitempty"`
+}
+
+type GroupDiscoveryConfig struct {
+	ListProjects DiscoveryCall `json:"list_projects"`
+}
+
+type DiscoveryCall struct {
+	Method       string `json:"method"`
+	Path         string `json:"path"`
+	BaseURL      string `json:"base_url,omitempty"`
+	ResponsePath string `json:"response_path,omitempty"`
+	IDField      string `json:"id_field"`
+	LabelField   string `json:"label_field"`
+}
+
+type AppScopes struct {
+	Account *AppScope `json:"account,omitempty"`
+	Project *AppScope `json:"project,omitempty"`
+}
+
+type AppScope struct {
+	CredentialFields []CredentialField `json:"credential_fields"`
+	AuthHeaders      map[string]string `json:"auth_headers,omitempty"`
+	AuthQuery        map[string]string `json:"auth_query,omitempty"`
+	ProjectBinding   *ProjectBinding   `json:"project_binding,omitempty"`
+}
+
+type ProjectBinding struct {
+	Type  string `json:"type"`  // "header" | "path_prefix" | "path_param"
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 type AppWebhookConfig struct {
@@ -136,12 +181,39 @@ type AppSummary struct {
 // --- App Catalog ---
 
 type AppCatalog struct {
-	mu   sync.RWMutex
-	apps map[string]*AppTemplate
+	mu     sync.RWMutex
+	apps   map[string]*AppTemplate
+	// Aggregated by credential_group.id → metadata + member app slugs.
+	// Rebuilt on every LoadFromDir/Register call. Empty when no app in
+	// the catalog declares `credential_group`.
+	groups map[string]*catalogGroup
+}
+
+type catalogGroup struct {
+	Meta    CredentialGroup
+	Members []string // app slugs participating in the group
+}
+
+// GroupSummary is the catalog-surface view of a suite (for the UI).
+type GroupSummary struct {
+	ID          string              `json:"id"`
+	Name        string              `json:"name"`
+	Logo        *string             `json:"logo,omitempty"`
+	Description string              `json:"description,omitempty"`
+	Members     []GroupMemberSummary `json:"members"`
+	HasAccountScope bool            `json:"has_account_scope"`
+	HasProjectScope bool            `json:"has_project_scope"`
+}
+
+type GroupMemberSummary struct {
+	Slug      string `json:"slug"`
+	Name      string `json:"name"`
+	ToolCount int    `json:"tool_count"`
+	Logo      *string `json:"logo,omitempty"`
 }
 
 func NewAppCatalog() *AppCatalog {
-	return &AppCatalog{apps: make(map[string]*AppTemplate)}
+	return &AppCatalog{apps: make(map[string]*AppTemplate), groups: make(map[string]*catalogGroup)}
 }
 
 func (c *AppCatalog) LoadFromDir(dir string) error {
@@ -152,6 +224,11 @@ func (c *AppCatalog) LoadFromDir(dir string) error {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Full reload: wipe before rebuilding so stale entries from a
+	// previously-loaded dir don't survive a swap.
+	c.apps = make(map[string]*AppTemplate)
+	c.groups = make(map[string]*catalogGroup)
 
 	for _, f := range files {
 		// Skip index.ts etc
@@ -170,6 +247,25 @@ func (c *AppCatalog) LoadFromDir(dir string) error {
 			continue
 		}
 		c.apps[app.Slug] = &app
+
+		// Aggregate into the group map when this app opts into a suite.
+		// First app declaring the group seeds its metadata (name, logo,
+		// description, discovery). Subsequent members just append.
+		if app.CredentialGroup != nil && app.CredentialGroup.ID != "" {
+			gid := app.CredentialGroup.ID
+			g, ok := c.groups[gid]
+			if !ok {
+				g = &catalogGroup{Meta: *app.CredentialGroup}
+				// Inherit discovery from the first member that
+				// declares it (templates usually duplicate it — we
+				// only need it once).
+				c.groups[gid] = g
+			}
+			if g.Meta.Discovery == nil && app.CredentialGroup.Discovery != nil {
+				g.Meta.Discovery = app.CredentialGroup.Discovery
+			}
+			g.Members = append(g.Members, app.Slug)
+		}
 	}
 
 	return nil
@@ -178,7 +274,81 @@ func (c *AppCatalog) LoadFromDir(dir string) error {
 func (c *AppCatalog) Register(app *AppTemplate) {
 	c.mu.Lock()
 	c.apps[app.Slug] = app
+	if app.CredentialGroup != nil && app.CredentialGroup.ID != "" {
+		gid := app.CredentialGroup.ID
+		g, ok := c.groups[gid]
+		if !ok {
+			g = &catalogGroup{Meta: *app.CredentialGroup}
+			c.groups[gid] = g
+		}
+		if g.Meta.Discovery == nil && app.CredentialGroup.Discovery != nil {
+			g.Meta.Discovery = app.CredentialGroup.Discovery
+		}
+		g.Members = append(g.Members, app.Slug)
+	}
 	c.mu.Unlock()
+}
+
+// GetGroup returns the metadata + member list for a credential group,
+// or nil if no app in the catalog participates in it.
+func (c *AppCatalog) GetGroup(id string) *catalogGroup {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.groups[id]
+}
+
+// ListGroups returns a stable-sorted summary of every credential group
+// represented in the catalog.
+func (c *AppCatalog) ListGroups() []GroupSummary {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make([]GroupSummary, 0, len(c.groups))
+	for _, g := range c.groups {
+		s := GroupSummary{
+			ID:          g.Meta.ID,
+			Name:        g.Meta.Name,
+			Logo:        g.Meta.Logo,
+			Description: g.Meta.Description,
+		}
+		for _, slug := range g.Members {
+			app := c.apps[slug]
+			if app == nil {
+				continue
+			}
+			s.Members = append(s.Members, GroupMemberSummary{
+				Slug:      app.Slug,
+				Name:      app.Name,
+				ToolCount: len(app.Tools),
+				Logo:      app.Logo,
+			})
+			if app.Scopes != nil {
+				if app.Scopes.Account != nil {
+					s.HasAccountScope = true
+				}
+				if app.Scopes.Project != nil {
+					s.HasProjectScope = true
+				}
+			}
+		}
+		sort.Slice(s.Members, func(i, j int) bool { return s.Members[i].Name < s.Members[j].Name })
+		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// appInGroup returns true when `slug` is a member of any credential
+// group — used to hide members from the flat catalog (the group card
+// is shown instead). Read lock must not be held by the caller.
+func (c *AppCatalog) appInGroup(slug string) bool {
+	for _, g := range c.groups {
+		for _, m := range g.Members {
+			if m == slug {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (c *AppCatalog) Get(slug string) *AppTemplate {
@@ -216,6 +386,34 @@ func (c *AppCatalog) List() []AppSummary {
 	return summaries
 }
 
+// ListUngrouped returns catalog entries that are NOT members of any
+// credential group. For the dashboard: grouped apps surface as their
+// suite card instead.
+func (c *AppCatalog) ListUngrouped() []AppSummary {
+	all := c.List()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make([]AppSummary, 0, len(all))
+	for _, s := range all {
+		inGroup := false
+		for _, g := range c.groups {
+			for _, m := range g.Members {
+				if m == s.Slug {
+					inGroup = true
+					break
+				}
+			}
+			if inGroup {
+				break
+			}
+		}
+		if !inGroup {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func (c *AppCatalog) Search(query string) []AppSummary {
 	q := strings.ToLower(query)
 	all := c.List()
@@ -250,6 +448,12 @@ func (c *AppCatalog) Count() int {
 // --- HTTP Handlers ---
 
 // GET /integrations/catalog?q=search
+//
+// When `group=1` is passed, omits apps that are members of a
+// credential group so the dashboard can render one card per suite
+// (the group details come from /integrations/groups). When omitted
+// the legacy flat list is returned, for backwards compatibility with
+// clients that don't know about groups yet.
 func (s *Server) handleListCatalog(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
@@ -257,9 +461,12 @@ func (s *Server) handleListCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query().Get("q")
+	group := r.URL.Query().Get("group")
 	var apps []AppSummary
 	if q != "" {
 		apps = s.catalog.Search(q)
+	} else if group == "1" || group == "true" {
+		apps = s.catalog.ListUngrouped()
 	} else {
 		apps = s.catalog.List()
 	}
@@ -267,6 +474,71 @@ func (s *Server) handleListCatalog(w http.ResponseWriter, r *http.Request) {
 		apps = []AppSummary{}
 	}
 	writeJSON(w, apps)
+}
+
+// GET /integrations/groups
+// Returns every credential group represented in the catalog plus
+// their member apps. The dashboard uses this to render suite cards.
+func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, s.catalog.ListGroups())
+}
+
+// GET /integrations/groups/:id
+func (s *Server) handleGetGroup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/integrations/groups/")
+	id = strings.TrimSuffix(id, "/")
+	if id == "" {
+		http.Error(w, "group id required", http.StatusBadRequest)
+		return
+	}
+	g := s.catalog.GetGroup(id)
+	if g == nil {
+		http.Error(w, "group not found", http.StatusNotFound)
+		return
+	}
+	// Return the summary shape the dashboard expects + the discovery
+	// config + the two account/project scope credential_fields lists
+	// (pick from any member — they're validated identical at load).
+	sum := GroupSummary{
+		ID: g.Meta.ID, Name: g.Meta.Name, Logo: g.Meta.Logo,
+		Description: g.Meta.Description,
+	}
+	var accountScope, projectScope *AppScope
+	for _, slug := range g.Members {
+		app := s.catalog.Get(slug)
+		if app == nil {
+			continue
+		}
+		sum.Members = append(sum.Members, GroupMemberSummary{
+			Slug: app.Slug, Name: app.Name, ToolCount: len(app.Tools), Logo: app.Logo,
+		})
+		if app.Scopes != nil {
+			if accountScope == nil && app.Scopes.Account != nil {
+				accountScope = app.Scopes.Account
+				sum.HasAccountScope = true
+			}
+			if projectScope == nil && app.Scopes.Project != nil {
+				projectScope = app.Scopes.Project
+				sum.HasProjectScope = true
+			}
+		}
+	}
+	sort.Slice(sum.Members, func(i, j int) bool { return sum.Members[i].Name < sum.Members[j].Name })
+
+	writeJSON(w, map[string]any{
+		"summary":       sum,
+		"discovery":     g.Meta.Discovery,
+		"account_scope": accountScope,
+		"project_scope": projectScope,
+	})
 }
 
 // GET /integrations/catalog/:slug

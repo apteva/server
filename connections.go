@@ -176,21 +176,33 @@ func (s *Store) DeleteConnection(userID, connID int64) error {
 // it inferred from tool prefixes) but the config stored the display name, so
 // the lookup failed.
 func (s *Store) CreateMCPServerFromConnection(userID int64, conn *Connection, toolCount int, allowedTools ...[]string) (int64, error) {
+	return s.CreateMCPServerFromConnectionWithSlug(userID, conn, toolCount, "", allowedTools...)
+}
+
+// CreateMCPServerFromConnectionWithSlug is the explicit-base variant.
+// Pass `slugBase` to override the name derivation — required for
+// suite fan-outs where the connection Name is just the project label
+// (e.g. "Real Estate") and the MCP slug needs to encode the service
+// too (e.g. "omnikit-storage-real-estate") so tool prefixes stay
+// distinct when the same project hosts several services.
+func (s *Store) CreateMCPServerFromConnectionWithSlug(userID int64, conn *Connection, toolCount int, slugBase string, allowedTools ...[]string) (int64, error) {
 	var allowedJSON string
 	if len(allowedTools) > 0 && len(allowedTools[0]) > 0 {
 		b, _ := json.Marshal(allowedTools[0])
 		allowedJSON = string(b)
 	}
-	// Pick a unique slug for this MCP row. The user-chosen integration
-	// name takes precedence — if they typed "mybusiness-socialcast" on
-	// create, sub-threads reference it as `mcp="mybusiness-socialcast"`
-	// and tool-name prefixes come from that slug (e.g.
-	// `mybusiness-socialcast_post`). We slugify the name rather than
-	// accepting it verbatim so the result stays safe for prompts and
-	// downstream consumers that treat it as an identifier. Only if the
-	// name is empty or slugifies to nothing do we fall back to the raw
-	// app slug.
-	base := slugify(conn.Name)
+	// Pick a unique slug for this MCP row. Explicit slugBase wins;
+	// otherwise fall back to the user-chosen integration name — if
+	// they typed "mybusiness-socialcast" on create, sub-threads
+	// reference it as `mcp="mybusiness-socialcast"` and tool-name
+	// prefixes come from that slug (e.g. `mybusiness-socialcast_post`).
+	// We slugify whatever we get rather than accepting it verbatim so
+	// the result stays safe for prompts and downstream consumers that
+	// treat it as an identifier.
+	base := slugify(slugBase)
+	if base == "" {
+		base = slugify(conn.Name)
+	}
 	if base == "" {
 		base = conn.AppSlug
 	}
@@ -1111,18 +1123,50 @@ func (s *Server) handleListConnections(w http.ResponseWriter, r *http.Request) {
 		conns = []Connection{}
 	}
 
-	// Enrich with tool count from catalog
+	// Enrich with tool count + credential-group metadata. Master rows
+	// (slug prefix `_group:`) are hidden from the default list — they
+	// have no user-facing tools and exist only as credential storage
+	// for their children. Pass ?include=masters to see them (used by
+	// the credential manager screen).
+	includeMasters := r.URL.Query().Get("include") == "masters"
+
 	type ConnectionWithTools struct {
 		Connection
-		ToolCount int `json:"tool_count"`
+		ToolCount        int    `json:"tool_count"`
+		GroupID          string `json:"group_id,omitempty"`
+		IsGroupChild     bool   `json:"is_group_child,omitempty"`
+		ExternalProjectID string `json:"external_project_id,omitempty"`
 	}
 	var enriched []ConnectionWithTools
 	for _, c := range conns {
+		if !includeMasters && IsMasterSlug(c.AppSlug) {
+			continue
+		}
 		tc := 0
+		var groupID string
 		if app := s.catalog.Get(c.AppSlug); app != nil {
 			tc = len(app.Tools)
+			if app.CredentialGroup != nil {
+				groupID = app.CredentialGroup.ID
+			}
 		}
-		enriched = append(enriched, ConnectionWithTools{Connection: c, ToolCount: tc})
+		row := ConnectionWithTools{Connection: c, ToolCount: tc, GroupID: groupID}
+		// Detect child rows cheaply by peeking at the decrypted blob.
+		// We only need `_type` + `_project_id` so this is a light JSON
+		// parse per connection — acceptable for the N ~ 100 case.
+		if _, enc, err := s.store.GetConnection(userID, c.ID); err == nil {
+			if plain, derr := Decrypt(s.secret, enc); derr == nil {
+				var blob map[string]string
+				if json.Unmarshal([]byte(plain), &blob) == nil && blob[credKeyType] == "child" {
+					row.IsGroupChild = true
+					row.ExternalProjectID = blob[credKeyProjectID]
+				}
+			}
+		}
+		enriched = append(enriched, row)
+	}
+	if enriched == nil {
+		enriched = []ConnectionWithTools{}
 	}
 	writeJSON(w, enriched)
 }
@@ -1145,6 +1189,23 @@ func (s *Server) handleDeleteConnection(w http.ResponseWriter, r *http.Request) 
 	conn, _, err := s.store.GetConnection(userID, connID)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	// Suite master rows cascade-delete their children. We route
+	// straight to the suite handler so the cleanup path is shared
+	// between the UI's "Disconnect all" button and a plain DELETE
+	// /connections/:id call on a master row.
+	if IsMasterSlug(conn.AppSlug) {
+		// Rewrite the URL path so the suite handler can extract
+		// groupID from it, then delegate.
+		gid := GroupIDFromMasterSlug(conn.AppSlug)
+		newReq := r.Clone(r.Context())
+		newReq.URL.Path = "/integrations/groups/" + gid + "/master"
+		q := newReq.URL.Query()
+		q.Set("project_id", conn.ProjectID)
+		newReq.URL.RawQuery = q.Encode()
+		s.handleDeleteGroupMaster(w, newReq)
 		return
 	}
 
@@ -1291,7 +1352,21 @@ func (s *Server) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
 	var credentials map[string]string
 	json.Unmarshal([]byte(plain), &credentials)
 
-	// Auto-refresh OAuth tokens on 401 + persist back to DB.
+	// Resolve master/child indirection + project binding. For legacy
+	// connections (no `_type` key) this is a no-op passthrough.
+	ctx, err := s.resolveConnectionContext(userID, app, credentials, body.Input)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	// Auto-refresh OAuth tokens on 401 + persist back to DB. For child
+	// connections that resolved through a master, persist the refreshed
+	// tokens to the master row so all siblings inherit the update.
+	persistTargetID := connID
+	if ctx.MasterConnID != 0 {
+		persistTargetID = ctx.MasterConnID
+	}
 	persist := func(updated map[string]string) error {
 		blob, err := json.Marshal(updated)
 		if err != nil {
@@ -1301,9 +1376,9 @@ func (s *Server) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		return s.store.UpdateConnectionCredentials(connID, enc)
+		return s.store.UpdateConnectionCredentials(persistTargetID, enc)
 	}
-	result, err := executeIntegrationToolWithRefresh(app, tool, credentials, body.Input, persist)
+	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, persist)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

@@ -1063,6 +1063,118 @@ func TestHandleGetConnection_ComposioPending_FlipsActiveAndReconciles(t *testing
 	}
 }
 
+func TestSyncComposioProviderData_ImportsConnectionsAndMCPServers(t *testing.T) {
+	mock := newMockComposio(t)
+
+	// auth_configs: one managed OAuth for github.
+	mock.on("GET", "/api/v3/auth_configs", func(w http.ResponseWriter, r *http.Request) {
+		writeMockJSON(w, 200, map[string]any{
+			"items": []any{
+				map[string]any{
+					"id":                  "ac_github",
+					"auth_scheme":         "OAUTH2",
+					"is_composio_managed": true,
+					"toolkit":             map[string]string{"slug": "github"},
+				},
+				map[string]any{
+					"id":                  "ac_slack",
+					"auth_scheme":         "OAUTH2",
+					"is_composio_managed": true,
+					"toolkit":             map[string]string{"slug": "slack"},
+				},
+			},
+		})
+	})
+
+	// connected_accounts: one active github (inline toolkit), one pending
+	// slack (slug only via auth_config lookup).
+	mock.on("GET", "/api/v3/connected_accounts", func(w http.ResponseWriter, r *http.Request) {
+		writeMockJSON(w, 200, map[string]any{
+			"items": []any{
+				map[string]any{
+					"id":             "ca_github",
+					"status":         "ACTIVE",
+					"auth_config_id": "ac_github",
+					"toolkit":        map[string]string{"slug": "github"},
+				},
+				map[string]any{
+					"id":     "ca_slack",
+					"status": "INITIATED",
+					"auth_config": map[string]any{
+						"id": "ac_slack",
+					},
+				},
+			},
+		})
+	})
+
+	// mcp servers: one server spanning github.
+	mock.on("GET", "/api/v3/mcp/servers", func(w http.ResponseWriter, r *http.Request) {
+		writeMockJSON(w, 200, map[string]any{
+			"items": []any{
+				map[string]any{
+					"id":              "srv_github",
+					"name":            "apteva/github",
+					"mcp_url":         "https://mcp.example/github",
+					"toolkits":        []string{"github"},
+					"auth_config_ids": []string{"ac_github"},
+					"allowed_tools":   []string{"github_create_issue"},
+				},
+			},
+		})
+	})
+
+	s, providerID := newComposioTestServer(t, mock)
+
+	s.syncComposioProviderData(1, providerID, "")
+
+	conns, _ := s.store.ListConnections(1, "")
+	byExt := map[string]Connection{}
+	for _, c := range conns {
+		byExt[c.ExternalID] = c
+	}
+	gh, ok := byExt["ca_github"]
+	if !ok {
+		t.Fatalf("github connection not imported; got %+v", conns)
+	}
+	if gh.Status != "active" || gh.AppSlug != "github" || gh.Source != "composio" || gh.ProviderID != providerID {
+		t.Errorf("github conn shape wrong: %+v", gh)
+	}
+	sl, ok := byExt["ca_slack"]
+	if !ok {
+		t.Fatalf("slack connection not imported (needed slug from auth_config); got %+v", conns)
+	}
+	if sl.Status != "pending" || sl.AppSlug != "slack" {
+		t.Errorf("slack conn shape wrong: %+v", sl)
+	}
+
+	rows := listRemoteMCPs(t, s, 1, "")
+	srv, ok := rows["apteva/github"]
+	if !ok {
+		t.Fatalf("github MCP server not imported; got %v", rows)
+	}
+	if srv.UpstreamID != "srv_github" || srv.URL != "https://mcp.example/github" || srv.Transport != "http" {
+		t.Errorf("mcp row shape wrong: %+v", srv)
+	}
+	if srv.ConnectionID != gh.ID {
+		t.Errorf("expected mcp connection_id=%d, got %d", gh.ID, srv.ConnectionID)
+	}
+	if len(srv.AllowedTools) != 1 || srv.AllowedTools[0] != "github_create_issue" {
+		t.Errorf("allowed_tools not imported: %+v", srv.AllowedTools)
+	}
+
+	// Re-run: idempotent, no duplicate rows.
+	s.syncComposioProviderData(1, providerID, "")
+	conns2, _ := s.store.ListConnections(1, "")
+	if len(conns2) != len(conns) {
+		t.Errorf("re-sync created duplicates: before=%d after=%d", len(conns), len(conns2))
+	}
+	rows2 := listRemoteMCPs(t, s, 1, "")
+	if len(rows2) != len(rows) {
+		t.Errorf("re-sync duplicated mcp rows: before=%d after=%d", len(rows), len(rows2))
+	}
+}
+
 func TestComposioClientFor_RejectsWrongProvider(t *testing.T) {
 	s := newTestServer(t)
 	s.secret = testSecret()

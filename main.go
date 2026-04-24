@@ -416,6 +416,38 @@ func main() {
 	apiMux.HandleFunc("/integrations/catalog/", s.authMiddleware(s.handleGetCatalogApp))
 	apiMux.HandleFunc("/integrations/catalog", s.authMiddleware(s.handleListCatalog))
 
+	// Credential-group (suite) routes. Let templates declare that N
+	// apps share one key, optionally an account-scoped one that fans
+	// out across external projects. See suites_handlers.go.
+	apiMux.HandleFunc("/integrations/groups", s.authMiddleware(s.handleListGroups))
+	apiMux.HandleFunc("/integrations/groups/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		// Subpath routing:
+		//   /integrations/groups/{id}                     (GET)
+		//   /integrations/groups/{id}/master              (GET, POST, DELETE)
+		//   /integrations/groups/{id}/master/refresh      (POST)
+		//   /integrations/groups/{id}/master/enable       (POST)
+		path := r.URL.Path
+		switch {
+		case strings.HasSuffix(path, "/master/refresh"):
+			s.handleRefreshGroupMaster(w, r)
+		case strings.HasSuffix(path, "/master/enable"):
+			s.handleEnableGroupApps(w, r)
+		case strings.HasSuffix(path, "/master"):
+			switch r.Method {
+			case http.MethodGet:
+				s.handleGetGroupMaster(w, r)
+			case http.MethodPost:
+				s.handleCreateGroupMaster(w, r)
+			case http.MethodDelete:
+				s.handleDeleteGroupMaster(w, r)
+			default:
+				http.Error(w, "GET, POST or DELETE", http.StatusMethodNotAllowed)
+			}
+		default:
+			s.handleGetGroup(w, r)
+		}
+	}))
+
 	// Connection routes
 	apiMux.HandleFunc("/connections", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -689,6 +721,13 @@ func main() {
 	// Run async so a slow resume (many instances, slow provider probe)
 	// doesn't block the HTTP listener from accepting new requests.
 	go s.ResumeRunningInstances()
+
+	// One-shot on boot: any local connection that's missing its
+	// auto-created mcp_servers row gets one. Covers suite-fan-out
+	// children created before the auto-MCP hook was added to the
+	// suite handler; also defensive against any race where the MCP
+	// insert failed after the connection insert succeeded.
+	go s.BackfillMissingMCPServers()
 
 	// Graceful shutdown: on SIGTERM or SIGINT (Ctrl+C), stop every
 	// tracked core child cleanly before we exit. Prevents today's
