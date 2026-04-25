@@ -331,11 +331,49 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	installID, _ := res.LastInsertId()
 	log.Printf("[APPS] install user=%d app=%s install=%d project=%q version=%s",
 		userID, manifest.Name, installID, body.ProjectID, manifest.Version)
+
+	// Local-spawn path: pick the best delivery mode the manifest
+	// declares — source (clone+build, works on any host with Go),
+	// then per-platform binaries, then fall back. Failures flip the
+	// install row to 'error' with the message stored.
+	preferLocal := os.Getenv("APTEVA_APPS_REMOTE") == "" // default: local mode
+	if preferLocal {
+		if manifest.Runtime.Kind == "source" || manifest.Runtime.Source != nil {
+			go func() {
+				if err := s.installFromSource(installID, manifest, body.ProjectID, body.Config); err != nil {
+					log.Printf("[APPS-SOURCE] install %d failed: %v", installID, err)
+				}
+			}()
+			writeJSON(w, map[string]any{
+				"install_id": installID,
+				"app_id":     appID,
+				"status":     "building",
+				"next_step":  "Apteva is cloning the repo and running `go build`. First builds take 30-60s while dependencies download; subsequent installs of the same version are cached. Refresh the Apps tab — status will be 'running' once health checks pass, or 'error' with details if the build fails.",
+			})
+			return
+		}
+		if _, ok := manifest.Runtime.Binaries[localPlatform()]; ok {
+			go func() {
+				if err := s.installLocally(installID, manifest, body.ProjectID, body.Config); err != nil {
+					log.Printf("[APPS-LOCAL] install %d failed: %v", installID, err)
+				}
+			}()
+			writeJSON(w, map[string]any{
+				"install_id": installID,
+				"app_id":     appID,
+				"status":     "spawning",
+				"next_step":  fmt.Sprintf("Apteva is downloading the binary for %s and starting it as a subprocess. Refresh the Apps tab in a few seconds — status will be 'running' once health checks pass.", localPlatform()),
+			})
+			return
+		}
+		log.Printf("[APPS-LOCAL] no source or binary for %s in manifest; falling back to manual mount", localPlatform())
+	}
+
 	writeJSON(w, map[string]any{
 		"install_id": installID,
 		"app_id":     appID,
 		"status":     "pending",
-		"next_step":  "Operator deploys the runtime.image via the orchestrator, then sets app_installs.status='running' to mount the app.",
+		"next_step":  "Manifest has no source or binary for this platform. Add a source: block, add a binaries[" + localPlatform() + "] entry, or run the sidecar yourself and Mount it by URL.",
 	})
 }
 
@@ -349,6 +387,10 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 	}
 	// Detach in-memory mount first so further proxy calls 404 immediately.
 	s.installedApps.Remove(installID)
+	// Stop the local subprocess if any.
+	if s.localApps != nil {
+		_ = s.localApps.Stop(installID)
+	}
 	if _, err := s.store.db.Exec(`DELETE FROM app_instance_bindings WHERE install_id = ?`, installID); err != nil {
 		log.Printf("[APPS] delete bindings: %v", err)
 	}

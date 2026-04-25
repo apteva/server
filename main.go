@@ -86,6 +86,11 @@ type Server struct {
 	// registry too.
 	installedApps   *InstalledAppsRegistry
 	orchestratorURL string
+	// localApps supervises app sidecars run as native subprocesses on
+	// this host (binary spawn — no Docker). Used in single-host /
+	// laptop installs; coexists with the orchestrator path for prod
+	// multi-worker deployments.
+	localApps *LocalSupervisor
 }
 
 // appsRegistry is a thin alias over framework.Registry so main.go
@@ -833,6 +838,14 @@ func main() {
 	if s.orchestratorURL == "" {
 		s.orchestratorURL = "http://46.224.26.45:8099"
 	}
+	// Local-spawn supervisor: cache binaries under ~/.apteva/apps so
+	// installs survive process restarts and uninstall is a clean rm.
+	cacheBase := filepath.Join(os.Getenv("HOME"), ".apteva", "apps")
+	if cb := os.Getenv("APTEVA_APPS_CACHE"); cb != "" {
+		cacheBase = cb
+	}
+	s.localApps = NewLocalSupervisor(cacheBase)
+	s.ResumeLocalInstalls()
 	s.LoadInstalledApps()
 
 	go func() {

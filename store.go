@@ -410,6 +410,12 @@ func (s *Store) migrate() error {
 	`)
 	// Forward-add the column for installs created before this field existed.
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN sidecar_url_override TEXT NOT NULL DEFAULT ''`)
+	// Local-spawn supervisor state: PID of the running child + path to
+	// the cached binary on disk. Empty for orchestrator-managed apps.
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN local_pid INTEGER NOT NULL DEFAULT 0`)
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN local_bin_path TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN local_port INTEGER NOT NULL DEFAULT 0`)
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN error_message TEXT NOT NULL DEFAULT ''`)
 	s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS app_instance_bindings (
 			install_id   INTEGER NOT NULL REFERENCES app_installs(id),
