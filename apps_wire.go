@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
 	"time"
 
+	sdk "github.com/apteva/app-sdk"
 	"github.com/apteva/server/apps/channelchat"
 	"github.com/apteva/server/apps/framework"
 )
@@ -43,6 +46,11 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 	if err := reg.Start(); err != nil {
 		return nil, fmt.Errorf("start apps: %w", err)
 	}
+	// Seed apps + app_installs rows for every built-in so they show up
+	// alongside sidecar apps in the dashboard's Installed tab. Idempotent
+	// across restarts: INSERT OR IGNORE keys off (name) and (app_id,
+	// project_id='') so re-seeding is a no-op once the rows exist.
+	s.seedBuiltinInstalls(reg)
 	// Mount each app's HTTP routes under /api/apps/<slug>/...
 	reg.MountHTTP(apiMux, s.authMiddleware)
 
@@ -226,4 +234,89 @@ func (r *serverResolver) ForwardEvent(inst framework.InstanceInfo, text, threadI
 	send := makeSendEvent(inst.Port, inst.CoreAPIKey)
 	send(text, threadID)
 	return nil
+}
+
+// seedBuiltinInstalls writes one apps + app_installs row per bundled
+// app so they appear in the dashboard's Installed tab alongside sidecar
+// installs. Status is hard-coded 'running' since the framework already
+// started them; uninstall is gated in the dashboard via source='builtin'.
+//
+// Translation: framework.Manifest is a smaller struct than sdk.Manifest,
+// so we synthesize an sdk shape with the bundled metadata. The list
+// handler reads manifest_json back through sdk.Manifest, so anything
+// the dashboard renders (display_name, description, ui panels) must
+// land in the right sdk fields here.
+func (s *Server) seedBuiltinInstalls(reg *framework.Registry) {
+	for _, app := range reg.Loaded() {
+		fm := app.Manifest()
+		display := fm.Name
+		if display == "" {
+			display = fm.Slug
+		}
+		var panels []sdk.UIPanel
+		for _, slot := range fm.UISlots {
+			panels = append(panels, sdk.UIPanel{
+				Slot:  slot.Slot,
+				Label: slot.Title,
+				Entry: slot.Entry,
+			})
+		}
+		manifest := sdk.Manifest{
+			Schema:      sdk.SchemaCurrent,
+			Name:        fm.Slug,
+			DisplayName: display,
+			Version:     fm.Version,
+			Description: fm.Description,
+			Author:      "Apteva",
+			Scopes:      []sdk.Scope{sdk.ScopeGlobal},
+			Provides: sdk.Provides{
+				UIPanels: panels,
+			},
+		}
+		manifestJSON, _ := json.Marshal(manifest)
+
+		// INSERT OR IGNORE on apps. SQLite returns lastInsertId=0 when
+		// the row already exists, so we re-select to get the id either
+		// way. Source='builtin' is the dashboard's signal to hide the
+		// uninstall control.
+		if _, err := s.store.db.Exec(
+			`INSERT OR IGNORE INTO apps (name, source, repo, ref, manifest_json)
+			 VALUES (?, 'builtin', '', '', ?)`,
+			fm.Slug, string(manifestJSON),
+		); err != nil {
+			log.Printf("[APPS] seed builtin %s: insert apps: %v", fm.Slug, err)
+			continue
+		}
+		// Always re-write manifest_json — keeps the row in sync with
+		// the bundled code if Slug/Name/UISlots changed across versions.
+		if _, err := s.store.db.Exec(
+			`UPDATE apps SET manifest_json = ? WHERE name = ?`,
+			string(manifestJSON), fm.Slug,
+		); err != nil {
+			log.Printf("[APPS] seed builtin %s: update manifest: %v", fm.Slug, err)
+		}
+		var appID int64
+		if err := s.store.db.QueryRow(
+			`SELECT id FROM apps WHERE name = ?`, fm.Slug,
+		).Scan(&appID); err != nil {
+			log.Printf("[APPS] seed builtin %s: lookup id: %v", fm.Slug, err)
+			continue
+		}
+		// Global install row. UNIQUE(app_id, project_id) makes this a
+		// no-op once seeded; on every boot we still bump status back to
+		// 'running' since the bundled app is always running.
+		if _, err := s.store.db.Exec(
+			`INSERT OR IGNORE INTO app_installs
+				(app_id, project_id, status, version, upgrade_policy, permissions_json)
+			 VALUES (?, '', 'running', ?, 'manual', '[]')`,
+			appID, fm.Version,
+		); err != nil {
+			log.Printf("[APPS] seed builtin %s: insert install: %v", fm.Slug, err)
+			continue
+		}
+		s.store.db.Exec(
+			`UPDATE app_installs SET status='running', version=? WHERE app_id=? AND project_id=''`,
+			fm.Version, appID,
+		)
+	}
 }
