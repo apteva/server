@@ -109,23 +109,54 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 	}
 	// Tag entries with installed:true if there's a row in apps for the
 	// same name — lets the dashboard render an "Installed" pill.
+	// Match keys are normalized (lowercase, hyphens/underscores stripped)
+	// so the registry's "channelchat" matches the bundled slug
+	// "channel-chat", and built-ins are pre-seeded so they always show
+	// as installed even though they have no apps row.
 	installed := map[string]bool{}
+	addInstalled := func(name string) {
+		if name == "" {
+			return
+		}
+		installed[normalizeAppName(name)] = true
+	}
 	if rows, err := s.store.db.Query(`SELECT name FROM apps`); err == nil {
 		for rows.Next() {
 			var n string
 			if rows.Scan(&n) == nil {
-				installed[n] = true
+				addInstalled(n)
 			}
 		}
 		rows.Close()
 	}
+	if s.apps != nil {
+		for _, a := range s.apps.Loaded() {
+			m := a.Manifest()
+			addInstalled(m.Slug)
+			addInstalled(m.Name)
+		}
+	}
 	type entryWithStatus struct {
 		RegistryEntry
 		Installed bool `json:"installed"`
+		Builtin   bool `json:"builtin"`
+	}
+	builtin := map[string]bool{}
+	if s.apps != nil {
+		for _, a := range s.apps.Loaded() {
+			m := a.Manifest()
+			builtin[normalizeAppName(m.Slug)] = true
+			builtin[normalizeAppName(m.Name)] = true
+		}
 	}
 	out := make([]entryWithStatus, 0, len(reg.Apps))
 	for _, e := range reg.Apps {
-		out = append(out, entryWithStatus{RegistryEntry: e, Installed: installed[e.Name]})
+		key := normalizeAppName(e.Name)
+		out = append(out, entryWithStatus{
+			RegistryEntry: e,
+			Installed:     installed[key],
+			Builtin:       builtin[key],
+		})
 	}
 	writeJSON(w, map[string]any{
 		"registry_url": url,
@@ -530,4 +561,22 @@ func manifestAllowsScope(m *sdk.Manifest, scope sdk.Scope) bool {
 		}
 	}
 	return false
+}
+
+// normalizeAppName collapses an app identifier to a single canonical
+// form so registry entries match installed rows + bundled slugs even
+// when names diverge. "channel-chat", "channelchat", and "Channel Chat"
+// all collapse to "channelchat".
+func normalizeAppName(s string) string {
+	out := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+			out = append(out, c)
+		}
+	}
+	return string(out)
 }
