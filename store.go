@@ -115,7 +115,8 @@ func (s *Store) migrate() error {
 			(8, 'browserbase', 'Browserbase', 'Cloud browser automation via Browserbase', '["BROWSERBASE_API_KEY","BROWSERBASE_PROJECT_ID"]', 1, 40),
 			(9, 'integrations', 'Composio', '250+ app integrations via Composio (MCP-native)', '["COMPOSIO_API_KEY"]', 1, 16),
 			(10, 'llm', 'NVIDIA', 'LLM inference via NVIDIA NIM (integrate.api.nvidia.com)', '["NVIDIA_API_KEY"]', 1, 14),
-			(11, 'steel', 'Steel', 'Cloud browser automation via Steel.dev', '["STEEL_API_KEY"]', 1, 41);
+			(11, 'steel', 'Steel', 'Cloud browser automation via Steel.dev', '["STEEL_API_KEY"]', 1, 41),
+			(12, 'browser-engine', 'Browser Engine', 'Cloud browser automation via Browser Engine (self-hosted)', '["BROWSER_API_KEY","BROWSER_API_URL"]', 1, 42);
 
 		-- Update existing Fireworks provider type to include model override fields
 		UPDATE provider_types SET fields = '["FIREWORKS_API_KEY"]' WHERE id = 1;
@@ -374,6 +375,48 @@ func (s *Store) migrate() error {
 			name = COALESCE((SELECT app_slug FROM connections WHERE id = mcp_servers.connection_id), name),
 			description = COALESCE((SELECT app_name FROM connections WHERE id = mcp_servers.connection_id), description)
 		WHERE source = 'local' AND connection_id > 0
+	`)
+
+	// Apps system — see apps_loader.go. Keeps the index of every
+	// installed app, plus a per-install row for project/global scope
+	// and an instance-binding table the agent runtime reads.
+	s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS apps (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			name          TEXT NOT NULL UNIQUE,
+			source        TEXT NOT NULL,        -- 'git' | 'registry' | 'builtin'
+			repo          TEXT NOT NULL DEFAULT '',
+			ref           TEXT NOT NULL DEFAULT '',
+			manifest_json TEXT NOT NULL,
+			registered_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS app_installs (
+			id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+			app_id               INTEGER NOT NULL REFERENCES apps(id),
+			project_id           TEXT DEFAULT '',  -- '' = global
+			service_name         TEXT NOT NULL DEFAULT '',
+			sidecar_url_override TEXT NOT NULL DEFAULT '',  -- literal URL for local dev / non-orchestrator deploys
+			config_encrypted     TEXT DEFAULT '',
+			status               TEXT NOT NULL DEFAULT 'pending', -- pending|running|error|disabled
+			upgrade_policy       TEXT NOT NULL DEFAULT 'manual',  -- manual|auto-patch|auto-minor
+			version              TEXT NOT NULL DEFAULT '',
+			permissions_json     TEXT NOT NULL DEFAULT '[]',
+			installed_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+			installed_by         INTEGER DEFAULT 0,
+			UNIQUE(app_id, project_id)
+		)
+	`)
+	// Forward-add the column for installs created before this field existed.
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN sidecar_url_override TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS app_instance_bindings (
+			install_id   INTEGER NOT NULL REFERENCES app_installs(id),
+			instance_id  INTEGER NOT NULL REFERENCES instances(id),
+			enabled      INTEGER NOT NULL DEFAULT 1,
+			PRIMARY KEY (install_id, instance_id)
+		)
 	`)
 
 	return nil

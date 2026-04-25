@@ -9,8 +9,6 @@ import (
 
 	"github.com/apteva/server/apps/channelchat"
 	"github.com/apteva/server/apps/framework"
-	"github.com/apteva/server/apps/status"
-	"github.com/apteva/server/apps/tasks"
 )
 
 // Bridges between apteva-server internals and the Apteva Apps
@@ -27,13 +25,15 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	reg := framework.NewRegistry(s.store.db, logger)
 
-	// Load every built-in app. When we add a second, it goes on this
-	// list — that's the only place you touch to onboard an app.
+	// Built-in apps mounted in-process via the legacy framework.
+	// Tasks + status moved to standalone repos (github.com/apteva/app-tasks,
+	// app-status) — they are now distributed via the sidecar Apps system
+	// (see apps_loader.go) and no longer compiled in here. Channelchat
+	// stays in-process for now because it's deeply tied to the channel
+	// dispatch infrastructure; it'll graduate to a sidecar in a follow-up.
 	resolver := &serverResolver{srv: s}
 	apps := []framework.App{
 		channelchat.New(resolver),
-		tasks.New(resolver),
-		status.New(resolver),
 	}
 	for _, a := range apps {
 		if err := reg.Load(a); err != nil {

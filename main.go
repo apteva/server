@@ -78,6 +78,14 @@ type Server struct {
 	// instance lifecycle via NotifyInstanceAttach/Detach and expose
 	// HTTP routes under /api/apps/<slug>/. Nil before startApps().
 	apps *appsRegistry
+
+	// installedApps is the new sidecar-based Apps system (see
+	// apps_loader.go) — third-party apps deployed via the orchestrator,
+	// referenced from the app_installs table. Coexists with apps for
+	// now; the long-term plan is for built-ins to graduate to this
+	// registry too.
+	installedApps   *InstalledAppsRegistry
+	orchestratorURL string
 }
 
 // appsRegistry is a thin alias over framework.Registry so main.go
@@ -519,6 +527,69 @@ func main() {
 	})
 
 	// MCP server routes
+	// /api/apps* — sidecar-based Apps system. /apps/<name>/* reverse-
+	// proxies into installed app sidecars; /apps/* (the management
+	// surface) handles install / list / bind. See apps_handlers.go.
+	apiMux.HandleFunc("/apps", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			s.handleListApps(w, r)
+			return
+		}
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+	}))
+	apiMux.HandleFunc("/apps/marketplace", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			s.handleMarketplace(w, r)
+			return
+		}
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+	}))
+	apiMux.HandleFunc("/apps/preview", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			s.handlePreviewApp(w, r)
+			return
+		}
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+	}))
+	apiMux.HandleFunc("/apps/install", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			s.handleInstallApp(w, r)
+			return
+		}
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+	}))
+	apiMux.HandleFunc("/apps/installs/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/apps/installs/")
+		switch {
+		case strings.HasSuffix(path, "/status") && r.Method == http.MethodPut:
+			s.handleSetInstallStatus(w, r)
+		case strings.HasSuffix(path, "/instances") && r.Method == http.MethodPut:
+			s.handleSetInstallBindings(w, r)
+		case !strings.Contains(path, "/") && r.Method == http.MethodDelete:
+			s.handleUninstallApp(w, r)
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
+		}
+	}))
+	// Reverse-proxy: any non-management /apps/<name>/... goes to the
+	// installed app's sidecar. Registered LAST so /apps/preview etc.
+	// match first via Go's longest-prefix rule.
+	apiMux.HandleFunc("/apps/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		// Don't shadow management routes — this branch only fires when
+		// the prefix is /apps/<name>/... and <name> isn't a reserved word.
+		path := strings.TrimPrefix(r.URL.Path, "/apps/")
+		first := path
+		if i := strings.Index(path, "/"); i >= 0 {
+			first = path[:i]
+		}
+		switch first {
+		case "preview", "install", "installs", "marketplace":
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.handleAppProxy(w, r)
+	}))
+
 	apiMux.HandleFunc("/mcp-servers", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -752,6 +823,17 @@ func main() {
 		os.Exit(1)
 	}
 	s.apps = appsReg
+
+	// Sidecar-based Apps system (v2). Reads app_installs from the DB
+	// and registers reverse proxies + manifest-derived MCP rows for
+	// every installed app on boot. Failures don't block boot; broken
+	// installs surface in the dashboard's Apps tab.
+	s.installedApps = NewInstalledAppsRegistry()
+	s.orchestratorURL = os.Getenv("ORCHESTRATOR_URL")
+	if s.orchestratorURL == "" {
+		s.orchestratorURL = "http://46.224.26.45:8099"
+	}
+	s.LoadInstalledApps()
 
 	go func() {
 		sig := <-sigCh
