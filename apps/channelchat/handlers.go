@@ -45,6 +45,11 @@ type InstanceResolver interface {
 	// helper — this wraps it so the app doesn't need to know the
 	// port/core-key layout.
 	ForwardEvent(inst framework.InstanceInfo, text, threadID string) error
+
+	// InstanceIDsForUser returns every instance id the user owns,
+	// across all projects. Used by the unread-summary endpoint and
+	// the global SSE stream to scope to "this user's chats".
+	InstanceIDsForUser(userID int64) ([]int64, error)
 }
 
 // --- Chats collection -------------------------------------------------
@@ -204,10 +209,20 @@ func (h *handlers) deleteMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /api/apps/channel-chat/stream?chat_id=<id>&since=<id>
-// SSE stream of new messages. Client reconnects with since=<last_id>
-// to get the exact gap — the hub only broadcasts new deliveries, so
-// the initial backfill comes from the DB.
+// GET /api/apps/channel-chat/stream?scope=user
+//
+// Two modes:
+//   chat_id=… — per-chat panel stream (back-compat). Backfills since=
+//               from the DB then live-tails via the per-chat hub.
+//   scope=user — global notifications stream. Live-tails every message
+//                inserted into any chat the user owns; no backfill (the
+//                tray seeds itself via /unread-summary on connect).
 func (h *handlers) stream(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
+	scope := r.URL.Query().Get("scope")
+	if scope == "user" {
+		h.streamUser(w, r)
+		return
+	}
 	chatID, _, ok := h.authorizeChat(w, r)
 	if !ok {
 		return
@@ -274,6 +289,83 @@ func (h *handlers) stream(w http.ResponseWriter, r *http.Request, _ *framework.A
 			flusher.Flush()
 		}
 	}
+}
+
+// streamUser is the wildcard-by-user SSE path. No backfill — the tray
+// seeds via /unread-summary when it connects, then this stream keeps
+// it live. System messages are filtered out so the tray only shows
+// user-addressable agent replies and inbound user messages.
+func (h *handlers) streamUser(w http.ResponseWriter, r *http.Request) {
+	userID := h.instances.LookupUserID(r)
+	if userID == 0 {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	flusher, canFlush := w.(http.Flusher)
+	if !canFlush {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	ch, _, cancel := h.hub.subscribeUser(userID)
+	defer cancel()
+
+	ping := time.NewTicker(15 * time.Second)
+	defer ping.Stop()
+
+	// Initial event so the client can confirm the stream is up before
+	// any messages arrive.
+	_, _ = io.WriteString(w, "event: ready\ndata: {}\n\n")
+	flusher.Flush()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ping.C:
+			if _, err := io.WriteString(w, ": ping\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		case m, ok := <-ch:
+			if !ok {
+				return
+			}
+			if m.Role == "system" {
+				continue
+			}
+			writeSSE(w, m)
+			flusher.Flush()
+		}
+	}
+}
+
+// GET /api/apps/channel-chat/unread-summary
+//
+// One row per chat the user owns. Dashboard subtracts a localStorage
+// watermark client-side to compute unread counts; the server only
+// reports latest_id + a preview of the latest message.
+func (h *handlers) unreadSummary(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
+	userID := h.instances.LookupUserID(r)
+	if userID == 0 {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	ids, err := h.instances.InstanceIDsForUser(userID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	rows, err := h.store.LatestForOwner(ids)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, rows)
 }
 
 // --- Helpers ----------------------------------------------------------

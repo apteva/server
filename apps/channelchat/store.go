@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -211,4 +212,69 @@ func (s *store) LatestID(chatID string) (int64, error) {
 		return 0, nil
 	}
 	return id.Int64, nil
+}
+
+// ChatLatest is the per-chat snapshot the dashboard's notifications
+// tray uses to compute unread counts. Latest* fields describe the most
+// recent message on the chat (zero values if the chat is empty).
+type ChatLatest struct {
+	ChatID         string    `json:"chat_id"`
+	InstanceID     int64     `json:"instance_id"`
+	InstanceName   string    `json:"instance_name"`
+	Title          string    `json:"title"`
+	LatestID       int64     `json:"latest_id"`
+	LatestRole     string    `json:"latest_role"`
+	LatestPreview  string    `json:"latest_preview"`
+	LatestAt       time.Time `json:"latest_at"`
+}
+
+// LatestForOwner returns one ChatLatest per chat whose instance is
+// owned by ownerIDs. Joins channel_chat_chats to instances so the tray
+// can render the instance name without a second round-trip; the
+// instances table lives in the apteva-server schema, not the app's,
+// but they share one SQLite db so the JOIN works.
+//
+// Single query, indexed on (chat_id, id) for the message subquery and
+// instance_id is the primary key. Cheap even with hundreds of chats.
+func (s *store) LatestForOwner(ownerIDs []int64) ([]ChatLatest, error) {
+	if len(ownerIDs) == 0 {
+		return []ChatLatest{}, nil
+	}
+	placeholders := make([]string, len(ownerIDs))
+	args := make([]any, len(ownerIDs))
+	for i, id := range ownerIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	q := `
+		SELECT c.id, c.instance_id, COALESCE(i.name, ''), c.title,
+		       COALESCE(m.id, 0),
+		       COALESCE(m.role, ''),
+		       COALESCE(m.content, ''),
+		       COALESCE(m.created_at, c.updated_at)
+		FROM channel_chat_chats c
+		JOIN instances i ON i.id = c.instance_id
+		LEFT JOIN channel_chat_messages m
+			ON m.id = (SELECT MAX(id) FROM channel_chat_messages WHERE chat_id = c.id)
+		WHERE c.instance_id IN (` + strings.Join(placeholders, ",") + `)
+		ORDER BY COALESCE(m.created_at, c.updated_at) DESC`
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ChatLatest{}
+	for rows.Next() {
+		var cl ChatLatest
+		if err := rows.Scan(&cl.ChatID, &cl.InstanceID, &cl.InstanceName, &cl.Title,
+			&cl.LatestID, &cl.LatestRole, &cl.LatestPreview, &cl.LatestAt); err != nil {
+			return nil, err
+		}
+		// Trim long previews server-side so the wire stays small.
+		if len(cl.LatestPreview) > 200 {
+			cl.LatestPreview = cl.LatestPreview[:200]
+		}
+		out = append(out, cl)
+	}
+	return out, rows.Err()
 }

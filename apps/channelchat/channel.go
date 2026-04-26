@@ -18,6 +18,7 @@ import (
 type chatChannel struct {
 	chatID   string
 	threadID string
+	userID   int64 // owner of the instance — drives wildcard hub fanout
 	store    *store
 	hub      *hub
 	bus      *framework.AppBus
@@ -38,6 +39,7 @@ func (c *chatChannel) Send(text string) error {
 		return err
 	}
 	c.hub.publish(*m)
+	c.hub.publishToUser(c.userID, *m)
 	if c.bus != nil {
 		c.bus.Publish("chat.message", "channel-chat", *m)
 	}
@@ -47,7 +49,9 @@ func (c *chatChannel) Send(text string) error {
 // Status writes a system-role message so status lines show up in the
 // chat transcript but are visually distinguishable from agent replies.
 // Level (info/warn/alert) is prefixed onto the content; the dashboard
-// renders each role differently.
+// renders each role differently. System messages do NOT publish to the
+// wildcard hub — they're noise for the notifications tray, which only
+// surfaces user-addressable agent replies.
 func (c *chatChannel) Status(text, level string) error {
 	if level == "" {
 		level = "info"
@@ -105,6 +109,7 @@ func (f *chatChannelFactory) Build(_ *framework.AppCtx, inst framework.InstanceI
 	}
 	return &chatChannel{
 		chatID: chat.ID,
+		userID: inst.UserID,
 		store:  f.store,
 		hub:    f.hub,
 		bus:    f.bus,

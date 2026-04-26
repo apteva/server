@@ -80,6 +80,7 @@ func (a *App) HTTPRoutes() []framework.Route {
 		// so we leave Method empty for this one.
 		{Method: "", Path: "/messages", Handler: a.wrap(a.handlers.messages)},
 		{Method: "GET", Path: "/stream", Handler: a.wrap(a.handlers.stream)},
+		{Method: "GET", Path: "/unread-summary", Handler: a.wrap(a.handlers.unreadSummary)},
 	}
 }
 

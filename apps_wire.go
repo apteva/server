@@ -224,6 +224,21 @@ func (r *serverResolver) LookupUserID(req *http.Request) int64 {
 	return getUserID(req)
 }
 
+// InstanceIDsForUser fans across every project the user owns. Used by
+// channel-chat's notifications-tray endpoints to scope global SSE +
+// unread-summary to "this user's chats".
+func (r *serverResolver) InstanceIDsForUser(userID int64) ([]int64, error) {
+	insts, err := r.srv.store.ListInstances(userID, "")
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]int64, 0, len(insts))
+	for _, inst := range insts {
+		ids = append(ids, inst.ID)
+	}
+	return ids, nil
+}
+
 // ForwardEvent pushes a text event into the instance's core /event
 // endpoint. Uses the same makeSendEvent helper the slack path uses so
 // there's one canonical way text events reach the agent.
