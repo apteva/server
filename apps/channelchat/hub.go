@@ -102,6 +102,14 @@ func (h *hub) publish(m Message) {
 	}
 }
 
+// subscriberCounts returns (per-chat sub count, per-user sub count)
+// for debugging visibility of who's listening when a message fires.
+func (h *hub) subscriberCounts(chatID string, userID int64) (int, int) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.subs[chatID]), len(h.userSubs[userID])
+}
+
 // subscribeUser attaches a wildcard listener for one user. Every
 // message published via publishToUser(userID, m) is fanned out to it.
 // Used by the dashboard's global notifications tray.

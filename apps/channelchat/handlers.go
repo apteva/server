@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -313,6 +314,8 @@ func (h *handlers) streamUser(w http.ResponseWriter, r *http.Request) {
 
 	ch, _, cancel := h.hub.subscribeUser(userID)
 	defer cancel()
+	log.Printf("[CHAT-DEBUG] streamUser SUBSCRIBED user=%d", userID)
+	defer log.Printf("[CHAT-DEBUG] streamUser CLOSED user=%d", userID)
 
 	ping := time.NewTicker(15 * time.Second)
 	defer ping.Stop()
@@ -338,6 +341,8 @@ func (h *handlers) streamUser(w http.ResponseWriter, r *http.Request) {
 			if m.Role == "system" {
 				continue
 			}
+			log.Printf("[CHAT-DEBUG] streamUser DELIVERING user=%d msgID=%d role=%s chat=%s",
+				userID, m.ID, m.Role, m.ChatID)
 			writeSSE(w, m)
 			flusher.Flush()
 		}
@@ -357,15 +362,58 @@ func (h *handlers) unreadSummary(w http.ResponseWriter, r *http.Request, _ *fram
 	}
 	ids, err := h.instances.InstanceIDsForUser(userID)
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		log.Printf("[CHAT] unread-summary: list instances for user=%d: %v", userID, err)
+		http.Error(w, "internal error: list instances: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	rows, err := h.store.LatestForOwner(ids)
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		log.Printf("[CHAT] unread-summary: LatestForOwner user=%d ids=%v: %v", userID, ids, err)
+		http.Error(w, "internal error: latest-for-owner: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, rows)
+}
+
+// POST /api/apps/channel-chat/seen { chat_id, last_seen_id }
+//
+// Advances the per-chat read watermark. Idempotent + monotonic: lower
+// last_seen_id values are dropped, so a slow tab can't un-read a more
+// recent ack from another device. Returns { last_seen_id } as accepted.
+func (h *handlers) markSeen(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
+	var body struct {
+		ChatID     string `json:"chat_id"`
+		LastSeenID int64  `json:"last_seen_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if body.ChatID == "" {
+		http.Error(w, "chat_id required", http.StatusBadRequest)
+		return
+	}
+	chat, err := h.store.GetChat(body.ChatID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			http.Error(w, "chat not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	userID := h.instances.LookupUserID(r)
+	if _, err := h.instances.OwnedInstance(userID, chat.InstanceID); err != nil {
+		http.Error(w, "chat not found", http.StatusNotFound)
+		return
+	}
+	current, err := h.store.MarkSeen(body.ChatID, body.LastSeenID)
+	if err != nil {
+		log.Printf("[CHAT] mark-seen chat=%s id=%d: %v", body.ChatID, body.LastSeenID, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]int64{"last_seen_id": current})
 }
 
 // --- Helpers ----------------------------------------------------------

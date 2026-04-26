@@ -38,6 +38,9 @@ func (c *chatChannel) Send(text string) error {
 		log.Printf("[CHAT] Send DB append failed chatID=%s err=%v", c.chatID, err)
 		return err
 	}
+	chatSubs, userSubs := c.hub.subscriberCounts(c.chatID, c.userID)
+	log.Printf("[CHAT-DEBUG] Send chat=%s user=%d msgID=%d chatSubs=%d userSubs=%d",
+		c.chatID, c.userID, m.ID, chatSubs, userSubs)
 	c.hub.publish(*m)
 	c.hub.publishToUser(c.userID, *m)
 	if c.bus != nil {
