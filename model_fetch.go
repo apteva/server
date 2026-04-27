@@ -58,6 +58,11 @@ func FetchModels(providerType, apiKey string) ([]ModelInfo, error) {
 		models, err = fetchGoogleModels(apiKey)
 	case "nvidia":
 		models, err = fetchOpenAICompatModels("https://integrate.api.nvidia.com/v1/models", apiKey)
+	case "opencode-go":
+		// OpenCode Go's plan exposes a fixed curated list — there's no
+		// /v1/models endpoint to discover from. Return the published
+		// catalog directly so the dashboard's model picker has options.
+		models = openCodeGoModels()
 	default:
 		return nil, fmt.Errorf("unknown provider type: %s", providerType)
 	}
@@ -99,6 +104,38 @@ func apiGet(url string, headers map[string]string) ([]byte, error) {
 }
 
 // ── Fireworks ──
+
+// openCodeGoModels returns the fixed curated catalog OpenCode Go's
+// flat-rate plan exposes. There is no /v1/models endpoint to query
+// (the plan defines the catalog), so we hardcode it from
+// https://opencode.ai/docs/go/. Update this list when OpenCode Go's
+// docs change.
+//
+// All prices are zero — OpenCode Go is subscription-priced, not
+// per-token, so per-call $ figures don't apply. The dashboard's model
+// picker still gets the IDs it needs.
+func openCodeGoModels() []ModelInfo {
+	return []ModelInfo{
+		// OpenAI-compat endpoint variants
+		{ID: "kimi-k2.6", Name: "Kimi K2.6", ContextSize: 256_000},
+		{ID: "kimi-k2.5", Name: "Kimi K2.5", ContextSize: 256_000},
+		{ID: "qwen3.6-plus", Name: "Qwen3.6 Plus", ContextSize: 128_000},
+		{ID: "qwen3.5-plus", Name: "Qwen3.5 Plus", ContextSize: 128_000},
+		{ID: "glm-5.1", Name: "GLM-5.1", ContextSize: 128_000},
+		{ID: "glm-5", Name: "GLM-5", ContextSize: 128_000},
+		{ID: "mimo-v2.5-pro", Name: "MiMo V2.5 Pro", ContextSize: 256_000},
+		{ID: "mimo-v2.5", Name: "MiMo V2.5", ContextSize: 256_000},
+		{ID: "mimo-v2-pro", Name: "MiMo V2 Pro", ContextSize: 256_000},
+		{ID: "mimo-v2-omni", Name: "MiMo V2 Omni", ContextSize: 256_000},
+		// Anthropic-style endpoint variants — exposed in the picker
+		// for completeness; using them requires routing the request
+		// through provider_anthropic.go's path (separate work to wire).
+		{ID: "minimax-m2.7", Name: "MiniMax M2.7", ContextSize: 196_608},
+		{ID: "minimax-m2.5", Name: "MiniMax M2.5", ContextSize: 196_608},
+		{ID: "deepseek-v4-pro", Name: "DeepSeek V4 Pro", ContextSize: 128_000},
+		{ID: "deepseek-v4-flash", Name: "DeepSeek V4 Flash", ContextSize: 128_000},
+	}
+}
 
 // fetchFireworksModels uses the native /v1/accounts/fireworks/models
 // endpoint instead of /inference/v1/models. The OpenAI-compat endpoint
@@ -322,6 +359,28 @@ var modelPricingTable = map[string]modelPricing{
 	"accounts/fireworks/routers/kimi-k2p5-turbo": {0.99, 0.16, 4.94},
 	"accounts/fireworks/models/minimax-m2p7":     {0.30, 0.06, 1.20},
 	"accounts/fireworks/models/minimax-m2p5":     {0.30, 0.03, 1.20},
+
+	// OpenCode Go (https://opencode.ai/docs/go/) — flat-rate
+	// subscription, NOT per-token. Costs left at 0/0/0 so the
+	// dashboard's per-call $ figure stays blank for these requests
+	// rather than pretending each call has a tiny per-token cost
+	// (the real cost is the monthly subscription divided by usage).
+	// If we later want to surface "% of monthly cap consumed" we'd
+	// add a separate gauge keyed by provider name, not pricing.
+	"kimi-k2.6":         {0, 0, 0},
+	"kimi-k2.5":         {0, 0, 0},
+	"qwen3.6-plus":      {0, 0, 0},
+	"qwen3.5-plus":      {0, 0, 0},
+	"glm-5.1":           {0, 0, 0},
+	"glm-5":             {0, 0, 0},
+	"mimo-v2.5-pro":     {0, 0, 0},
+	"mimo-v2.5":         {0, 0, 0},
+	"mimo-v2-pro":       {0, 0, 0},
+	"mimo-v2-omni":      {0, 0, 0},
+	"minimax-m2.7":      {0, 0, 0},
+	"minimax-m2.5":      {0, 0, 0},
+	"deepseek-v4-pro":   {0, 0, 0},
+	"deepseek-v4-flash": {0, 0, 0},
 }
 
 // LookupModelPricing returns the per-1M pricing for a model, derived

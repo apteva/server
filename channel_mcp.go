@@ -224,14 +224,16 @@ func buildRespondDescription(channelIDs []string) string {
 	}
 
 	return fmt.Sprintf(
-		"Send a message to a user on a channel. Every user message MUST get a response via this tool — text written in your thoughts is INVISIBLE to the user; only this tool delivers messages. "+
-			"After completing any user request (including after spawn/exec/other tool calls), your FINAL action MUST be a respond call confirming the result — if you write \"Done\" or \"Here's what I did\" as plain thought text without calling respond, the user never sees it. "+
-			"IMPORTANT: Send ONE complete response per user message. Include ALL information in a single call — do NOT split across multiple calls or follow up with a second message repeating the same content. "+
-			"KNOWN CHANNELS (valid values for the `channel` parameter): [%s]. "+
-			"Liveness is checked at call time — if no user is currently connected to the targeted channel, this tool returns a clear error telling you the channel is not active and you should stay silent. "+
-			"Do NOT guess channel names from past conversations and do NOT default to \"cli\" just because training data mentions it. "+
-			"Routing — match the event prefix to the channel: %s. "+
-			"DIRECTIVES vs MESSAGES: events whose tag does NOT correspond to a known channel above — e.g. [admin], [system], [inject], or a bare untagged event — are DIRECTIVES from an operator, not user messages. Act on them (run tools, update state) but do NOT call respond for them.",
+		"Send a message to a user on a channel. Text in your thoughts is INVISIBLE — only this tool delivers messages.\n\n"+
+			"REPLY CONTRACT (every user message must satisfy this):\n"+
+			"- Acknowledging early (\"on it\", \"checking\") is OPTIONAL.\n"+
+			"- The FINAL respond before you go idle (pace/done/wait) MUST contain the actual outcome — what you did, what you found, the answer. \"Done\" alone is not enough; include the substance.\n"+
+			"- The early acknowledge does NOT satisfy the contract. If you sent \"on it\" and then completed the work, you owe a SECOND respond with the result. The \"don't repeat yourself\" rule applies to the SAME content — not to acknowledge vs. result, which are different content.\n"+
+			"- If the work spans multiple iterations, the final iteration must include a respond before any pace/done.\n\n"+
+			"KNOWN CHANNELS (valid values for the `channel` parameter): [%s].\n"+
+			"Routing — match the event prefix to the channel: %s.\n\n"+
+			"If the gate rejects your channel as unknown, the right move is to retry with a channel from the list above — NOT to fall silent. Do NOT default to \"cli\" from training-data prior; use exactly the names listed.\n\n"+
+			"DIRECTIVES vs MESSAGES: events whose tag does NOT correspond to a known channel above — e.g. [admin], [system], [inject], or a bare untagged event — are DIRECTIVES from an operator, not user messages. Act on them but do NOT call respond.",
 		connectedList, examplesLine,
 	)
 }
@@ -297,12 +299,25 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		}
 		normalized := normalizeChannelID(channel)
 		if channel == "" || !channelInList(normalized, connected) {
-			msg := fmt.Sprintf(
-				"channel %q is not in the currently connected channels %v. "+
-					"Use ONLY a channel from that list. If the list is empty, no user is reachable — "+
-					"do NOT call respond; treat the event as a directive and act silently.",
-				rawChannel, connected,
-			)
+			// "Stay silent" only applies when the connected list is
+			// EMPTY (no user reachable on any surface). When the list
+			// has channels but the agent picked the wrong name, the
+			// fix is to retry with a valid name — silence here would
+			// strand the user with a question that never gets answered.
+			var msg string
+			if len(connected) == 0 {
+				msg = fmt.Sprintf(
+					"channel %q is invalid and no channel is currently connected — no user is reachable. "+
+						"Treat the originating event as a directive and act silently for now.",
+					rawChannel,
+				)
+			} else {
+				msg = fmt.Sprintf(
+					"channel %q is not in the currently connected channels %v. "+
+						"Retry with a name from that list. Do NOT fall silent — the user is waiting for your reply.",
+					rawChannel, connected,
+				)
+			}
 			return nil, &mcpRPCError{Code: -32602, Message: msg}
 		}
 		if err := s.registry.Send(normalized, text); err != nil {

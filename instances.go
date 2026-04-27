@@ -16,6 +16,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/apteva/server/apps/framework"
 )
 
 type runningInstance struct {
@@ -551,7 +553,7 @@ func (s *Server) getBrowserConfig(userID int64, providerName string, projectID .
 		return nil
 	}
 	for _, p := range providers {
-		if p.Type != "browserbase" && p.Type != "browser" && p.Type != "steel" {
+		if p.Type != "browserbase" && p.Type != "browser" && p.Type != "steel" && p.Type != "browser-engine" {
 			continue
 		}
 		_, encData, err := s.store.GetProvider(userID, p.ID)
@@ -591,6 +593,51 @@ func (s *Server) getBrowserConfig(userID int64, providerName string, projectID .
 			if cdpURL := data["CDP_URL"]; cdpURL != "" {
 				cfg["type"] = "service"
 				cfg["url"] = cdpURL
+			}
+			return cfg
+		}
+
+		if p.Type == "browser-engine" {
+			apiKey := data["BROWSER_API_KEY"]
+			if apiKey == "" {
+				continue
+			}
+			cfg := map[string]any{
+				"type":    "browser-engine",
+				"api_key": apiKey,
+				"width":   width,
+				"height":  height,
+			}
+			// Extended Browser Engine options — all optional. Each
+			// maps to a POST /sessions field on the hosted API.
+			if v := data["BROWSER_API_URL"]; v != "" {
+				cfg["url"] = v
+			}
+			if v := data["BROWSER_INITIAL_URL"]; v != "" {
+				cfg["initial_url"] = v
+			}
+			if v := data["BROWSER_USER_AGENT"]; v != "" {
+				cfg["user_agent"] = v
+			}
+			if v := data["BROWSER_PROXY_ENABLED"]; v == "1" || v == "true" {
+				cfg["proxy_enabled"] = true
+			}
+			if v := data["BROWSER_PROXY_COUNTRY"]; v != "" {
+				cfg["proxy_country"] = v
+			}
+			if v := data["BROWSER_TIMEOUT"]; v != "" {
+				var t int
+				fmt.Sscanf(v, "%d", &t)
+				if t > 0 {
+					cfg["timeout"] = t
+				}
+			}
+			if v := data["BROWSER_PROJECT_ID"]; v != "" {
+				var id int
+				fmt.Sscanf(v, "%d", &id)
+				if id > 0 {
+					cfg["browser_project_id"] = id
+				}
 			}
 			return cfg
 		}
@@ -994,8 +1041,48 @@ func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		log.Printf("[LIFECYCLE] DELETE %s instance=%d remote=%s ua=%q referer=%q",
 			r.URL.Path, inst.ID, r.RemoteAddr, r.UserAgent(), r.Referer())
+
+		// 1. Capture the InstanceInfo snapshot BEFORE we tear anything
+		// down — the apps registry needs it to clean up its per-
+		// instance state (channelchat chats, future helpdesk tickets,
+		// etc.) and we won't be able to rebuild it once the row is
+		// gone. nil-safe: if the apps registry hasn't booted, skip.
+		var detachInfo *framework.InstanceInfo
+		if s.apps != nil {
+			detachInfo = s.buildInstanceInfo(inst.ID)
+		}
+
+		// 2. Stop the running core process (kills child + per-instance
+		// channels MCP + Slack/email/telegram listeners).
 		s.instances.Stop(inst.ID)
-		s.store.DeleteInstance(userID, instanceID)
+
+		// 3. Notify apps so each one drops its instance-scoped rows
+		// (channelchat: chats + messages). Done AFTER Stop so the apps
+		// don't race with a still-running core writing more data into
+		// the tables they're about to drop.
+		if s.apps != nil && detachInfo != nil {
+			s.apps.NotifyInstanceDetach(*detachInfo)
+		}
+
+		// 4. Cascade-delete server DB rows
+		// (instances + telemetry + channels + subscriptions +
+		// app_instance_bindings).
+		if err := s.store.DeleteInstance(userID, instanceID); err != nil {
+			log.Printf("[LIFECYCLE] DB cascade delete failed instance=%d err=%v", inst.ID, err)
+			http.Error(w, "delete failed", http.StatusInternalServerError)
+			return
+		}
+
+		// 5. Remove on-disk state: config.json, apteva-core.log,
+		// history/*.jsonl, workspace/. Done last so the DB row is
+		// already gone — if RemoveAll fails we have an orphan dir
+		// but the user-visible state matches "deleted". Logged so
+		// operators can scrub manually.
+		dir := s.instances.instanceDir(inst.ID)
+		if err := os.RemoveAll(dir); err != nil {
+			log.Printf("[LIFECYCLE] dir cleanup failed instance=%d dir=%s err=%v", inst.ID, dir, err)
+		}
+
 		writeJSON(w, map[string]string{"status": "deleted"})
 
 	default:
@@ -1250,7 +1337,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(bodyBytes, &rawBody); err == nil && rawBody != nil {
 		if compRaw, ok := rawBody["computer"].(map[string]any); ok {
 			compType, _ := compRaw["type"].(string)
-			needsEnrich := (compType == "browserbase" || compType == "steel" || compType == "service") &&
+			needsEnrich := (compType == "browserbase" || compType == "steel" || compType == "browser-engine" || compType == "service") &&
 				compRaw["api_key"] == nil && compRaw["url"] == nil
 			if needsEnrich {
 				if browserCfg := s.getBrowserConfig(userID, defaultProviderForInstance(inst), inst.ProjectID); browserCfg != nil {

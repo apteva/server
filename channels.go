@@ -172,9 +172,19 @@ func (ic *InstanceChannels) AvailableChannels() []string {
 // comes back for dead channels.
 func (ic *InstanceChannels) RegisteredChannels() []string {
 	var ids []string
-	if ic.cli != nil {
-		ids = append(ids, "cli")
-	}
+	// cli is intentionally NOT advertised in the tool description,
+	// even when the bridge object exists. The bridge is created
+	// unconditionally for backward-compat with the apteva TUI, but
+	// the channel-chat app has replaced cli as the default agent
+	// surface. Leaving "cli" in the description caused every model
+	// to default to channels_respond(channel="cli") because (a) the
+	// MCP description is cached at boot so the agent saw "cli" even
+	// for dashboard-only instances, and (b) the training prior for
+	// kimi/llama strongly biases toward "cli". The call-time gate
+	// in AvailableChannels still recognizes cli when a CLI client
+	// actually connects, so a TUI user can still address the
+	// channel — they just need to do it via an explicit cli prompt
+	// rather than relying on auto-routing.
 	if ic.telegram != nil {
 		ids = append(ids, "telegram (bot @"+ic.telegram.BotName()+")")
 	}

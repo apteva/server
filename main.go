@@ -334,6 +334,7 @@ func main() {
 	apiMux.HandleFunc("/telemetry/stats", s.authMiddleware(s.handleTelemetryStats))
 	apiMux.HandleFunc("/telemetry/project-stats", s.authMiddleware(s.handleTelemetryProjectStats))
 	apiMux.HandleFunc("/telemetry/project-timeline", s.authMiddleware(s.handleTelemetryProjectTimeline))
+	apiMux.HandleFunc("/telemetry/project-tools", s.authMiddleware(s.handleTelemetryProjectTools))
 	apiMux.HandleFunc("/telemetry/stream", s.authMiddleware(s.handleTelemetryStream)) // SSE — cookie or API key auth
 	apiMux.HandleFunc("/telemetry/live", s.handleLiveTelemetry)     // broadcast-only ingest for chunks
 	apiMux.HandleFunc("/telemetry", func(w http.ResponseWriter, r *http.Request) {

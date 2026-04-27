@@ -1128,6 +1128,127 @@ func (s *Server) handleTelemetryProjectStats(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, stats)
 }
 
+// ProjectToolStat is one row of the project-wide tool breakdown.
+// Aggregated from tool.call + tool.result events; success/failure
+// split is derived from tool.result.is_error so it survives core
+// rewrites that change the error-event names.
+type ProjectToolStat struct {
+	Name     string `json:"name"`
+	Calls    int    `json:"calls"`
+	Errors   int    `json:"errors"`
+	Agents   int    `json:"agents"` // distinct instances that called it
+}
+
+// GET /telemetry/project-tools?project_id=X&period=24h
+//
+// Top-N tool names by call count across every instance in the
+// project, with success/error split. Used by the dashboard's
+// ToolsUsageCard to surface "what's the system doing right now"
+// and which tools are failing.
+func (s *Server) handleTelemetryProjectTools(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	q := r.URL.Query()
+	projectID := q.Get("project_id")
+	since := parsePeriod(q.Get("period"))
+
+	insts, err := s.store.ListInstances(userID, projectID)
+	if err != nil {
+		http.Error(w, "list instances failed", http.StatusInternalServerError)
+		return
+	}
+	if len(insts) == 0 {
+		writeJSON(w, []ProjectToolStat{})
+		return
+	}
+	ids := make([]any, 0, len(insts))
+	placeholders := make([]string, 0, len(insts))
+	for i := range insts {
+		ids = append(ids, insts[i].ID)
+		placeholders = append(placeholders, "?")
+	}
+	args := append([]any{}, ids...)
+	args = append(args, since.UTC().Format(time.RFC3339))
+
+	rows, err := s.store.db.Query(
+		fmt.Sprintf(
+			"SELECT instance_id, type, data FROM telemetry "+
+				"WHERE instance_id IN (%s) AND time >= ? "+
+				"AND type IN ('tool.call','tool.result')",
+			strings.Join(placeholders, ","),
+		),
+		args...,
+	)
+	if err != nil {
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	type agg struct {
+		calls   int
+		errors  int
+		agents  map[int64]struct{}
+	}
+	byTool := map[string]*agg{}
+	bump := func(name string, instanceID int64) *agg {
+		a, ok := byTool[name]
+		if !ok {
+			a = &agg{agents: map[int64]struct{}{}}
+			byTool[name] = a
+		}
+		a.agents[instanceID] = struct{}{}
+		return a
+	}
+	for rows.Next() {
+		var instanceID int64
+		var evType, dataStr string
+		if err := rows.Scan(&instanceID, &evType, &dataStr); err != nil {
+			continue
+		}
+		var d map[string]any
+		if json.Unmarshal([]byte(dataStr), &d) != nil {
+			continue
+		}
+		name, _ := d["name"].(string)
+		if name == "" {
+			name, _ = d["tool"].(string)
+		}
+		if name == "" {
+			continue
+		}
+		a := bump(name, instanceID)
+		switch evType {
+		case "tool.call":
+			a.calls++
+		case "tool.result":
+			if isErr, _ := d["is_error"].(bool); isErr {
+				a.errors++
+			}
+		}
+	}
+
+	out := make([]ProjectToolStat, 0, len(byTool))
+	for name, a := range byTool {
+		out = append(out, ProjectToolStat{
+			Name:   name,
+			Calls:  a.calls,
+			Errors: a.errors,
+			Agents: len(a.agents),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Calls != out[j].Calls {
+			return out[i].Calls > out[j].Calls
+		}
+		return out[i].Name < out[j].Name
+	})
+	writeJSON(w, out)
+}
+
 // GET /telemetry/project-timeline?project_id=X&period=24h
 func (s *Server) handleTelemetryProjectTimeline(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

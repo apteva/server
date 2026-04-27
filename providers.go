@@ -257,6 +257,50 @@ func (s *Store) GetAllProviderEnvVars(userID int64, secret []byte, projectID ...
 	return envVars, nil
 }
 
+// providerKeyFromName converts a display-pretty provider name into the
+// kebab-case lookup key the rest of the stack uses ("OpenCode Go" →
+// "opencode-go"). createProviderByName, FetchModels, isLLMKey, and the
+// core's case-by-name dispatch all expect this normalized form.
+func providerKeyFromName(name string) string {
+	s := strings.ToLower(strings.TrimSpace(name))
+	s = strings.ReplaceAll(s, " ", "-")
+	return s
+}
+
+// staleModelIDs is the per-provider set of model strings that older
+// dashboards (or earlier core seeds) saved into provider_data and which
+// no longer point to a model we want to use by default. When the read
+// path encounters one of these, we treat it as if no override was set
+// — the core's provider factory default takes over.
+//
+// We don't rewrite the DB row: that would silently change a value the
+// user might have explicitly chosen. We just stop *honoring* the value
+// at boot. Users who actually want one of these can re-pick it in
+// the dashboard provider settings, which writes a fresh model_large
+// the next time and bypasses this list.
+var staleModelIDs = map[string]map[string]bool{
+	"fireworks": {
+		// kimi-k2p5-turbo was the prior default routing target before
+		// kimi-k2p6 shipped. Saved in many existing user provider rows
+		// from when it was the core factory default. Resurfaces as an
+		// instance config.json value every time the agent reboots.
+		"accounts/fireworks/routers/kimi-k2p5-turbo": true,
+	},
+}
+
+// normalizeStaleModel returns "" when the saved model string is a
+// known-deprecated default that should fall back to the provider
+// factory; otherwise returns the input verbatim.
+func normalizeStaleModel(providerKey, model string) string {
+	if model == "" {
+		return ""
+	}
+	if set, ok := staleModelIDs[providerKey]; ok && set[model] {
+		return ""
+	}
+	return model
+}
+
 // isEnvVar returns true if the key looks like an env var (UPPER_CASE_WITH_UNDERSCORES).
 func isEnvVar(s string) bool {
 	if s == "" {
@@ -511,7 +555,7 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 
 	isLLMKey := func(k string) bool {
 		switch k {
-		case "fireworks", "openai", "anthropic", "google", "ollama", "nvidia":
+		case "fireworks", "openai", "anthropic", "google", "ollama", "nvidia", "opencode-go":
 			return true
 		}
 		return false
@@ -524,7 +568,7 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 		// Otherwise we treat type as the key (legacy format).
 		providerKey := strings.ToLower(p.Type)
 		if providerKey == "llm" {
-			providerKey = strings.ToLower(p.Name)
+			providerKey = providerKeyFromName(p.Name)
 		}
 		if !isLLMKey(providerKey) {
 			continue
@@ -550,9 +594,9 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 
 		pool = append(pool, ProviderInfo{
 			Type:         providerKey,
-			ModelLarge:   data["model_large"],
-			ModelMedium:  data["model_medium"],
-			ModelSmall:   data["model_small"],
+			ModelLarge:   normalizeStaleModel(providerKey, data["model_large"]),
+			ModelMedium:  normalizeStaleModel(providerKey, data["model_medium"]),
+			ModelSmall:   normalizeStaleModel(providerKey, data["model_small"]),
 			BuiltinTools: builtinTools,
 		})
 	}
@@ -603,10 +647,12 @@ func (s *Server) handleProviderModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Normalize provider type: "llm" rows use the name as the key
+	// Normalize provider type: "llm" rows use the name as the key.
+	// Names may be display-pretty (e.g. "OpenCode Go") — collapse to
+	// the kebab form FetchModels / createProviderByName expect.
 	providerKey := strings.ToLower(provider.Type)
 	if providerKey == "llm" {
-		providerKey = strings.ToLower(provider.Name)
+		providerKey = providerKeyFromName(provider.Name)
 	}
 
 	models, err := FetchModels(providerKey, apiKey)

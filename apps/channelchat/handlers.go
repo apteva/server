@@ -184,14 +184,26 @@ func (h *handlers) postMessage(w http.ResponseWriter, r *http.Request, _ *framew
 	// (channels_respond(channel="chat", ...)). We use a stable
 	// "[chat]" prefix so existing channel-routing logic in core works
 	// without per-chat-id knowledge for the single-default case.
-	go func(inst framework.InstanceInfo, text string) {
+	//
+	// Failure used to be silent — the DB row persisted but the agent
+	// never saw the message, and the user had no way to know. Now we
+	// log loudly AND drop a system row into the chat so the user sees
+	// "agent unreachable, will see the message when it's running again"
+	// instead of an indefinite quiet.
+	go func(inst framework.InstanceInfo, text string, chatID string) {
 		evText := fmt.Sprintf("[chat] %s", text)
 		if err := h.instances.ForwardEvent(inst, evText, "main"); err != nil {
-			// Non-fatal — the DB row persists; the agent will see
-			// it on the next /event that goes through (or can be
-			// re-nudged from the inject panel).
+			log.Printf("[CHAT] ForwardEvent FAILED chat=%s instance=%d: %v",
+				chatID, inst.ID, err)
+			// Surface the failure to the user inline. The system row
+			// goes through the same hub/SSE path as a regular message
+			// so the chat panel renders it next to the user's input.
+			notice := fmt.Sprintf("(could not reach agent — your message is saved and will be delivered when the agent is running. err: %v)", err)
+			if sm, sErr := h.store.Append(chatID, "system", notice, nil, "", "final"); sErr == nil {
+				h.hub.publish(*sm)
+			}
 		}
-	}(inst, body.Content)
+	}(inst, body.Content, chatID)
 
 	writeJSON(w, m)
 }

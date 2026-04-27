@@ -327,6 +327,12 @@ func (s *Store) migrate() error {
 		(11, 'browser', 'Local Browser', 'Local Chromium via chromedp (requires Chromium in the runtime image)', '[]', 0, 41)`)
 	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
 		(12, 'browser', 'Remote CDP', 'Connect to an existing Chrome over CDP (ws:// or http://)', '["CDP_URL"]', 1, 42)`)
+	// Name is the user-visible label shown in the "Add provider" dropdown.
+	// Lookup keys (createProviderByName / FetchModels) normalize the name
+	// via providerKeyFromName below — lowercase + spaces→hyphens — so
+	// pretty display names work without a separate column.
+	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
+		(13, 'llm', 'OpenCode Go', 'Flat-rate gateway ($10/mo) for Kimi K2.6, Qwen, GLM, MiMo, DeepSeek and more (opencode.ai/go)', '["OPENCODE_GO_API_KEY"]', 1, 15)`)
 
 	// Fix historical row 8: it was seeded with type='browser' but its
 	// fields / name describe Browserbase. getBrowserConfig treats
@@ -778,9 +784,52 @@ func (s *Store) ListInstancesByStatus(status string) ([]Instance, error) {
 	return instances, nil
 }
 
+// DeleteInstance removes an instance row plus every per-instance row
+// in the server's own DB. Tables here lack ON DELETE CASCADE, so a
+// naive `DELETE FROM instances` left telemetry/channels/subscriptions/
+// bindings behind — we found ~100 orphan instance_ids in telemetry
+// alone in production. Each child delete is its own statement
+// (rather than a single CTE) because the server's sqlite driver
+// doesn't run multi-statement Execs reliably across versions.
+//
+// App-side state (channel-chat chats/messages, future helpdesk
+// tickets, etc.) is NOT touched here — that's the apps registry's
+// job via NotifyInstanceDetach. The caller in instances.go fires
+// that hook before invoking us.
 func (s *Store) DeleteInstance(userID, instanceID int64) error {
-	_, err := s.db.Exec("DELETE FROM instances WHERE id = ? AND user_id = ?", instanceID, userID)
-	return err
+	// Verify ownership first — the deletes below are unscoped by
+	// user_id, so a missing ownership check would let any caller
+	// blow away another tenant's data if they knew the id.
+	var owner int64
+	if err := s.db.QueryRow("SELECT user_id FROM instances WHERE id = ?", instanceID).Scan(&owner); err != nil {
+		if err == sql.ErrNoRows {
+			return nil // already gone — idempotent
+		}
+		return err
+	}
+	if owner != userID {
+		return fmt.Errorf("instance %d not owned by user %d", instanceID, userID)
+	}
+
+	stmts := []string{
+		"DELETE FROM telemetry             WHERE instance_id = ?",
+		"DELETE FROM channels              WHERE instance_id = ?",
+		"DELETE FROM subscriptions         WHERE instance_id = ?",
+		"DELETE FROM app_instance_bindings WHERE instance_id = ?",
+		"DELETE FROM instances             WHERE id = ? AND user_id = ?",
+	}
+	for i, q := range stmts {
+		var err error
+		if i == len(stmts)-1 {
+			_, err = s.db.Exec(q, instanceID, userID)
+		} else {
+			_, err = s.db.Exec(q, instanceID)
+		}
+		if err != nil {
+			return fmt.Errorf("delete instance %d: %s: %w", instanceID, q, err)
+		}
+	}
+	return nil
 }
 
 // --- Projects ---
