@@ -32,6 +32,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -291,6 +292,44 @@ func freePort() (int, error) {
 // the result into app_installs. Returns nil on success; on failure the
 // row is left in 'error' status with the message stored.
 func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID string, decryptedConfig map[string]string) error {
+	// Static apps: no sidecar, no port, no spawn. Persist the asset
+	// directory under sidecar_url_override using a `static://<abs>`
+	// scheme so LoadInstalledApps can recognise the install at boot
+	// and mount it on the HTTP mux. Reuses the existing column to
+	// avoid a schema migration; the URL never gets dialled, only
+	// parsed. See apps_static.go for the serving side.
+	//
+	// Resolution rules for static_dir (in priority order):
+	//   1. Absolute path on disk → used as-is (built-in apps shipped
+	//      inside the apteva-server image with the bundle pre-baked).
+	//   2. Relative path + runtime.source set → clone the source repo
+	//      into the apps cache, resolve static_dir relative to the
+	//      clone. Same flow kind:source uses, minus the `go build`.
+	//      Lets remote-installable static apps ship dist/ in their
+	//      git repo and have apteva-server pick it up at install time.
+	//   3. Relative path + no source → error (not enough info to find
+	//      the bundle).
+	if m.Runtime.Kind == "static" {
+		dir, err := s.resolveStaticInstallDir(m)
+		if err != nil {
+			s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, err.Error(), installID)
+			return err
+		}
+		s.store.db.Exec(
+			`UPDATE app_installs SET
+				status='running',
+				local_pid=0,
+				local_bin_path='',
+				local_port=0,
+				sidecar_url_override=?,
+				error_message=''
+			 WHERE id=?`,
+			"static://"+dir, installID)
+		s.LoadInstalledApps()
+		s.RemountStaticApps()
+		return nil
+	}
+
 	cfgJSON, _ := json.Marshal(decryptedConfig)
 	env := map[string]string{
 		"APTEVA_GATEWAY_URL": s.localGatewayURL(),
@@ -320,6 +359,49 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 		pid, binPath, port, url, installID)
 	s.LoadInstalledApps()
 	return nil
+}
+
+// resolveStaticInstallDir derives the absolute on-disk path for a
+// static app's asset directory at install time. It implements the
+// three-rule lookup described at the call site: absolute path → use
+// as-is; relative + source → clone and join; relative + no source →
+// error.
+//
+// Side effects: when cloning, the repo lands under
+// $cacheDir/<name>/<version>/src — same convention installFromSource
+// uses, so subsequent installs / restarts of the same version are a
+// no-op fetch.
+func (s *Server) resolveStaticInstallDir(m *sdk.Manifest) (string, error) {
+	d := strings.TrimSpace(m.Runtime.StaticDir)
+	if d == "" {
+		return "", fmt.Errorf("kind=static requires runtime.static_dir")
+	}
+	// Rule 1 — absolute path. Built-in apps the Dockerfile pre-baked
+	// land here; we just stat it and return.
+	if filepath.IsAbs(d) {
+		if _, err := os.Stat(d); err != nil {
+			return "", fmt.Errorf("static_dir does not exist or is unreadable: %s (%v)", d, err)
+		}
+		return d, nil
+	}
+	// Rule 2 — relative + source set. Clone the repo (cache hit on
+	// repeat installs of the same version), then join.
+	if m.Runtime.Source != nil && m.Runtime.Source.Repo != "" {
+		dir := filepath.Join(s.localApps.cacheDir, m.Name, m.Version, "src")
+		if err := cloneOrUpdate(dir, m.Runtime.Source.Repo, m.Runtime.Source.Ref); err != nil {
+			return "", fmt.Errorf("clone %s@%s: %w", m.Runtime.Source.Repo, m.Runtime.Source.Ref, err)
+		}
+		full := filepath.Join(dir, d)
+		if _, err := os.Stat(full); err != nil {
+			return "", fmt.Errorf("static_dir %q not found inside cloned repo at %s (%v)", d, dir, err)
+		}
+		return full, nil
+	}
+	// Rule 3 — relative + no source. We don't know where to look.
+	return "", fmt.Errorf(
+		"kind=static with relative static_dir %q requires runtime.source.repo so the bundle can be fetched",
+		d,
+	)
 }
 
 // localGatewayURL is what the spawned sidecar uses to call back into

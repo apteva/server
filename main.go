@@ -91,6 +91,12 @@ type Server struct {
 	// laptop installs; coexists with the orchestrator path for prod
 	// multi-worker deployments.
 	localApps *LocalSupervisor
+	// staticMounts holds the live URL-prefix → handler table for every
+	// kind=static app install. Rebuilt on every (un)install via
+	// RemountStaticApps. Read on the request hot path through a
+	// catch-all handler that delegates to the dashboard SPA when no
+	// static prefix matches.
+	staticMounts *staticAppMounts
 }
 
 // appsRegistry is a thin alias over framework.Registry so main.go
@@ -765,30 +771,35 @@ func main() {
 	mux.Handle("/api/", http.StripPrefix("/api", corsCfg.middleware(apiMux)))
 
 	// Dashboard — served from disk (always up-to-date, copied by CLI on startup)
-	// Falls back to embedded dashboard if disk copy not found
+	// Falls back to embedded dashboard if disk copy not found.
+	//
+	// Static apps (kind=static installs) are layered ABOVE the
+	// dashboard: requests first run through s.staticAppHandler, which
+	// matches the longest registered mount prefix. Anything that
+	// doesn't match a static-app prefix falls through to the dashboard
+	// SPA below. RemountStaticApps() rebuilds the prefix table on
+	// every install / uninstall.
 	appDashDir := filepath.Join(dataDir, "dashboard")
+	var dashboardSPA http.Handler
 	if _, err := os.Stat(filepath.Join(appDashDir, "index.html")); err == nil {
 		appFS := http.FileServer(http.Dir(appDashDir))
-		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			// Let API routes handle their paths (registered before this)
+		dashboardSPA = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			relPath := r.URL.Path
 			if relPath == "/" {
 				http.ServeFile(w, r, filepath.Join(appDashDir, "index.html"))
 				return
 			}
-			// Try static file
 			filePath := filepath.Join(appDashDir, relPath)
 			if _, err := os.Stat(filePath); err == nil {
 				appFS.ServeHTTP(w, r)
 				return
 			}
-			// SPA fallback
 			http.ServeFile(w, r, filepath.Join(appDashDir, "index.html"))
 		})
 	} else {
-		// Fallback: embedded dashboard (stale but better than nothing)
-		mux.Handle("/", dashboardHandler())
+		dashboardSPA = dashboardHandler()
 	}
+	mux.Handle("/", s.staticAppHandler(dashboardSPA))
 
 	// Boot-time recovery: any instance left in `status='running'` from a
 	// previous server process had its core subprocess die with that
@@ -846,8 +857,10 @@ func main() {
 		cacheBase = cb
 	}
 	s.localApps = NewLocalSupervisor(cacheBase)
+	s.RegisterBuiltinApps()
 	s.ResumeLocalInstalls()
 	s.LoadInstalledApps()
+	s.RemountStaticApps()
 
 	go func() {
 		sig := <-sigCh

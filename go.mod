@@ -22,3 +22,11 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+// Local sibling — the monorepo carries app-sdk one directory up.
+// build-local.sh runs `go build` inside server/ so ../app-sdk
+// resolves naturally; the Docker build copies app-sdk next to server/
+// before `go build` for the same reason. Drop this replace once we
+// cut a tagged SDK release that includes the new `kind: static`
+// runtime variant + UIApp.MountPath.
+replace github.com/apteva/app-sdk => ../app-sdk

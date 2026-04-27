@@ -42,7 +42,10 @@ type InstalledApp struct {
 	AppName      string
 	ProjectID    string
 	Manifest     sdk.Manifest
-	SidecarURL   string // http://<worker-ip>:<port> from orchestrator
+	SidecarURL   string // http://<worker-ip>:<port> from orchestrator (sidecar apps only)
+	StaticDir    string // absolute path on disk (kind=static apps only)
+	MountPath    string // URL prefix this app is served at (kind=static apps only, e.g. "/client")
+	Config       map[string]string // decrypted config_json — used for branding / kiosk-key injection
 	Permissions  []sdk.Permission
 	Token        string // platform-issued APTEVA_APP_TOKEN for callbacks
 }
@@ -110,6 +113,7 @@ func (s *Server) LoadInstalledApps() {
 	rows, err := s.store.db.Query(
 		`SELECT i.id, i.app_id, COALESCE(i.project_id, ''), i.service_name,
 			COALESCE(i.sidecar_url_override, ''),
+			COALESCE(i.config_encrypted, ''),
 			i.permissions_json, i.version, a.name, a.manifest_json
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.status = 'running'`)
@@ -122,11 +126,11 @@ func (s *Server) LoadInstalledApps() {
 	for rows.Next() {
 		var (
 			id, appID                                                            int64
-			projectID, serviceName, sidecarOverride, permsJSON, version          string
+			projectID, serviceName, sidecarOverride, configEnc, permsJSON, version string
 			appName, manifestJSON                                                string
 		)
 		if err := rows.Scan(&id, &appID, &projectID, &serviceName, &sidecarOverride,
-			&permsJSON, &version, &appName, &manifestJSON); err != nil {
+			&configEnc, &permsJSON, &version, &appName, &manifestJSON); err != nil {
 			log.Printf("[APPS] scan: %v", err)
 			continue
 		}
@@ -138,6 +142,42 @@ func (s *Server) LoadInstalledApps() {
 		var perms []sdk.Permission
 		_ = json.Unmarshal([]byte(permsJSON), &perms)
 
+		// Decrypt the install's config so static apps can inject branding
+		// + the kiosk api key into their served index.html. Sidecar apps
+		// don't read this here (the env-var pass-through happens at
+		// spawn time), but loading it once is cheap and keeps the
+		// runtime single-source-of-truth.
+		var cfg map[string]string
+		if configEnc != "" {
+			if plain, derr := Decrypt(s.secret, configEnc); derr == nil {
+				_ = json.Unmarshal([]byte(plain), &cfg)
+			}
+		}
+
+		// Static-app detection. The install-time path stores
+		// "static://<absolute-disk-path>" in the same column normally
+		// used for a sidecar URL. Recognising this short-circuits the
+		// orchestrator lookup and tells the mount loop to wire a
+		// path-mounted file server instead of a reverse proxy.
+		entry := &InstalledApp{
+			InstallID:   id,
+			AppName:     appName,
+			ProjectID:   projectID,
+			Manifest:    manifest,
+			Config:      cfg,
+			Permissions: perms,
+			Token:       "", // minted on demand
+		}
+		if strings.HasPrefix(sidecarOverride, "static://") {
+			entry.StaticDir = strings.TrimPrefix(sidecarOverride, "static://")
+			entry.MountPath = resolveMountPath(&manifest, cfg)
+			s.installedApps.Add(entry)
+			count++
+			log.Printf("[APPS] mounted %s (install=%d project=%q static_dir=%s mount=%s)",
+				appName, id, projectID, entry.StaticDir, entry.MountPath)
+			continue
+		}
+
 		// URL precedence: explicit override (local dev) > orchestrator
 		// service lookup. Override is the cheap escape hatch — paste a
 		// literal http://host:port at install time and you don't need
@@ -146,16 +186,7 @@ func (s *Server) LoadInstalledApps() {
 		if sidecarURL == "" {
 			sidecarURL = s.resolveSidecarURL(serviceName)
 		}
-
-		entry := &InstalledApp{
-			InstallID:   id,
-			AppName:     appName,
-			ProjectID:   projectID,
-			Manifest:    manifest,
-			SidecarURL:  sidecarURL,
-			Permissions: perms,
-			Token:       "", // minted on demand
-		}
+		entry.SidecarURL = sidecarURL
 		s.installedApps.Add(entry)
 		count++
 		log.Printf("[APPS] mounted %s (install=%d project=%q sidecar=%s)",

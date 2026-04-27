@@ -364,11 +364,37 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		userID, manifest.Name, installID, body.ProjectID, manifest.Version)
 
 	// Local-spawn path: pick the best delivery mode the manifest
-	// declares — source (clone+build, works on any host with Go),
-	// then per-platform binaries, then fall back. Failures flip the
-	// install row to 'error' with the message stored.
+	// declares — static (no sidecar, just assets), source (clone+build,
+	// works on any host with Go), then per-platform binaries, then fall
+	// back. Failures flip the install row to 'error' with the message
+	// stored.
 	preferLocal := os.Getenv("APTEVA_APPS_REMOTE") == "" // default: local mode
 	if preferLocal {
+		if manifest.Runtime.Kind == "static" {
+			// Static apps don't fork a process — installLocally
+			// handles them inline (validates static_dir, persists the
+			// `static://` marker, remounts the HTTP table). Returning
+			// synchronously is fine because there's nothing to wait
+			// for. Errors bubble back as the JSON status field.
+			if err := s.installLocally(installID, manifest, body.ProjectID, body.Config); err != nil {
+				log.Printf("[APPS-STATIC] install %d failed: %v", installID, err)
+				writeJSON(w, map[string]any{
+					"install_id": installID,
+					"app_id":     appID,
+					"status":     "error",
+					"error":      err.Error(),
+				})
+				return
+			}
+			writeJSON(w, map[string]any{
+				"install_id": installID,
+				"app_id":     appID,
+				"status":     "running",
+				"mount_path": resolveMountPath(manifest, body.Config),
+				"next_step":  "Static UI app mounted. Open the URL prefix shown in `mount_path` to view it.",
+			})
+			return
+		}
 		if manifest.Runtime.Kind == "source" || manifest.Runtime.Source != nil {
 			go func() {
 				if err := s.installFromSource(installID, manifest, body.ProjectID, body.Config); err != nil {
@@ -418,6 +444,10 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 	}
 	// Detach in-memory mount first so further proxy calls 404 immediately.
 	s.installedApps.Remove(installID)
+	// Refresh the static-app prefix table so a kind=static install
+	// stops being served immediately. No-op when this install was a
+	// sidecar app (the rebuilt table is identical).
+	s.RemountStaticApps()
 	// Stop the local subprocess if any.
 	if s.localApps != nil {
 		_ = s.localApps.Stop(installID)
