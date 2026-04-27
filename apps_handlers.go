@@ -17,6 +17,8 @@ import (
 	"time"
 
 	sdk "github.com/apteva/app-sdk"
+
+	"github.com/apteva/server/apps/framework"
 )
 
 // AppRow — what /api/apps returns for the dashboard's Installed view.
@@ -37,17 +39,30 @@ type AppRow struct {
 	UIPanels      []sdk.UIPanel    `json:"ui_panels,omitempty"`
 }
 
-// AppSurfaces — flattened booleans the dashboard uses to render the
-// row's icons (has tools? has UI? etc.) without re-parsing the manifest.
+// AppSurfaces summarises a manifest's `provides` block for the
+// dashboard. Counts where the count is meaningful (tools, routes,
+// panels), the actual identifying strings where they fit cheaply
+// (route prefixes, tool names, channel names), and a kind string
+// pulled from runtime.kind so the UI can colour-code "static UI app"
+// vs. "service sidecar" vs. "source build". Keep this in sync with
+// the dashboard's AppDetailPanel — additions here flow through to
+// the side panel automatically.
 type AppSurfaces struct {
-	MCPTools        bool `json:"mcp_tools"`
-	HTTPRoutes      bool `json:"http_routes"`
-	UIPanel         bool `json:"ui_panel"`
-	UIPage          bool `json:"ui_page"`
-	UIApp           bool `json:"ui_app"`
-	Channels        bool `json:"channels"`
-	Workers         bool `json:"workers"`
-	PromptFragments bool `json:"prompt_fragments"`
+	Kind            string   `json:"kind"`              // service | source | static
+	MCPToolCount    int      `json:"mcp_tool_count"`
+	MCPToolNames    []string `json:"mcp_tool_names,omitempty"`
+	HTTPRouteCount  int      `json:"http_route_count"`
+	HTTPRoutes      []string `json:"http_routes,omitempty"`
+	UIPanelCount    int      `json:"ui_panel_count"`
+	UIPageCount     int      `json:"ui_page_count"`
+	UIApp           bool     `json:"ui_app"`
+	UIAppMount      string   `json:"ui_app_mount,omitempty"`
+	ChannelCount    int      `json:"channel_count"`
+	ChannelNames    []string `json:"channel_names,omitempty"`
+	WorkerCount     int      `json:"worker_count"`
+	PromptFragments int      `json:"prompt_fragment_count"`
+	Permissions     []string `json:"permissions,omitempty"`
+	ConfigKeys      []string `json:"config_keys,omitempty"`
 }
 
 // RegistryEntry — one row in the marketplace registry.json.
@@ -141,15 +156,73 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 	}
 	type entryWithStatus struct {
 		RegistryEntry
-		Installed bool `json:"installed"`
-		Builtin   bool `json:"builtin"`
+		Installed bool        `json:"installed"`
+		Builtin   bool        `json:"builtin"`
+		Surfaces  AppSurfaces `json:"surfaces"`
 	}
+	// Built-in detection — registry entries whose normalized name
+	// matches an in-process framework app (channel-chat etc.) are
+	// flagged as built-ins. We also remember the framework app handle
+	// so we can derive surfaces directly from it (some built-ins
+	// don't have a fetchable manifest_url because they ship inside
+	// apteva-server itself).
 	builtin := map[string]bool{}
+	builtinSurfaces := map[string]AppSurfaces{}
 	if s.apps != nil {
 		for _, a := range s.apps.Loaded() {
 			m := a.Manifest()
-			builtin[normalizeAppName(m.Slug)] = true
-			builtin[normalizeAppName(m.Name)] = true
+			surf := surfacesFromFrameworkApp(a)
+			for _, k := range []string{m.Slug, m.Name} {
+				key := normalizeAppName(k)
+				if key == "" {
+					continue
+				}
+				builtin[key] = true
+				builtinSurfaces[key] = surf
+			}
+		}
+	}
+	// Resolve manifest URLs in parallel (with cache) so the surfaces
+	// block on each entry reflects the actual provides/requires/runtime
+	// the manifest declares. Built-ins skip the network — their
+	// surfaces come from the framework app handle. Failures are
+	// non-fatal — the entry just goes out with a zero-value Surfaces
+	// struct, and the dashboard degrades gracefully (no badges).
+	surfacesByName := map[string]AppSurfaces{}
+	for k, v := range builtinSurfaces {
+		surfacesByName[k] = v
+	}
+	{
+		type result struct {
+			name string
+			surf AppSurfaces
+		}
+		ch := make(chan result, len(reg.Apps))
+		dispatched := 0
+		for _, e := range reg.Apps {
+			key := normalizeAppName(e.Name)
+			if _, isBuiltin := builtinSurfaces[key]; isBuiltin {
+				continue
+			}
+			if e.ManifestURL == "" {
+				continue
+			}
+			dispatched++
+			go func(name, url string) {
+				m, _ := s.fetchAndCacheManifest(url)
+				if m == nil {
+					ch <- result{name: name}
+					return
+				}
+				ch <- result{name: name, surf: surfacesFromManifest(m)}
+			}(e.Name, e.ManifestURL)
+		}
+		for i := 0; i < dispatched; i++ {
+			r := <-ch
+			if _, hasBuiltin := surfacesByName[normalizeAppName(r.name)]; hasBuiltin {
+				continue
+			}
+			surfacesByName[normalizeAppName(r.name)] = r.surf
 		}
 	}
 	out := make([]entryWithStatus, 0, len(reg.Apps))
@@ -159,6 +232,7 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 			RegistryEntry: e,
 			Installed:     installed[key],
 			Builtin:       builtin[key],
+			Surfaces:      surfacesByName[key],
 		})
 	}
 	writeJSON(w, map[string]any{
@@ -220,17 +294,74 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
-func surfacesFromManifest(m *sdk.Manifest) AppSurfaces {
-	return AppSurfaces{
-		MCPTools:        len(m.Provides.MCPTools) > 0,
-		HTTPRoutes:      len(m.Provides.HTTPRoutes) > 0,
-		UIPanel:         len(m.Provides.UIPanels) > 0,
-		UIPage:          len(m.Provides.UIPages) > 0,
-		UIApp:           m.Provides.UIApp != nil,
-		Channels:        len(m.Provides.Channels) > 0,
-		Workers:         len(m.Provides.Workers) > 0,
-		PromptFragments: len(m.Provides.PromptFragments) > 0,
+// surfacesFromFrameworkApp computes a surfaces summary for an app
+// that lives in-process via the apps/framework package (rather than
+// being declared in an external apteva.yaml). Used so built-in apps
+// like channel-chat can show real counts in the marketplace side
+// panel even though they have no fetchable manifest URL.
+func surfacesFromFrameworkApp(a framework.App) AppSurfaces {
+	s := AppSurfaces{
+		Kind:           "service",
+		MCPToolCount:   len(a.MCPTools()),
+		HTTPRouteCount: len(a.HTTPRoutes()),
+		ChannelCount:   len(a.Channels()),
+		WorkerCount:    len(a.Workers()),
 	}
+	for _, t := range a.MCPTools() {
+		s.MCPToolNames = append(s.MCPToolNames, t.Name)
+	}
+	for _, rt := range a.HTTPRoutes() {
+		s.HTTPRoutes = append(s.HTTPRoutes, rt.Method+" "+rt.Path)
+	}
+	for _, c := range a.Channels() {
+		// ChannelFactory has no plain "name" — use its Go type's
+		// short name as a stable, human-readable hint. Empty fallback
+		// avoids an empty entry.
+		t := fmt.Sprintf("%T", c)
+		if i := strings.LastIndex(t, "."); i >= 0 {
+			t = t[i+1:]
+		}
+		if t != "" {
+			s.ChannelNames = append(s.ChannelNames, t)
+		}
+	}
+	if len(a.Manifest().UISlots) > 0 {
+		s.UIPanelCount = len(a.Manifest().UISlots)
+	}
+	return s
+}
+
+func surfacesFromManifest(m *sdk.Manifest) AppSurfaces {
+	s := AppSurfaces{
+		Kind:            m.Runtime.Kind,
+		MCPToolCount:    len(m.Provides.MCPTools),
+		HTTPRouteCount:  len(m.Provides.HTTPRoutes),
+		UIPanelCount:    len(m.Provides.UIPanels),
+		UIPageCount:     len(m.Provides.UIPages),
+		UIApp:           m.Provides.UIApp != nil,
+		ChannelCount:    len(m.Provides.Channels),
+		WorkerCount:     len(m.Provides.Workers),
+		PromptFragments: len(m.Provides.PromptFragments),
+	}
+	for _, t := range m.Provides.MCPTools {
+		s.MCPToolNames = append(s.MCPToolNames, t.Name)
+	}
+	for _, rt := range m.Provides.HTTPRoutes {
+		s.HTTPRoutes = append(s.HTTPRoutes, rt.Prefix)
+	}
+	for _, c := range m.Provides.Channels {
+		s.ChannelNames = append(s.ChannelNames, c.Name)
+	}
+	if m.Provides.UIApp != nil {
+		s.UIAppMount = m.Provides.UIApp.MountPath
+	}
+	for _, p := range m.Requires.Permissions {
+		s.Permissions = append(s.Permissions, string(p))
+	}
+	for _, c := range m.ConfigSchema {
+		s.ConfigKeys = append(s.ConfigKeys, c.Name)
+	}
+	return s
 }
 
 // POST /api/apps/preview
