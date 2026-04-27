@@ -113,6 +113,14 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 	// so the registry's "channelchat" matches the bundled slug
 	// "channel-chat", and built-ins are pre-seeded so they always show
 	// as installed even though they have no apps row.
+	// "installed" means there's an actual app_installs row — i.e.
+	// the operator clicked Install. A row in `apps` alone is just a
+	// cached manifest (preview / built-in scan / leftover from an
+	// uninstall) and must NOT mark the marketplace entry as installed.
+	// Same goes for the framework's loaded built-in apps: those are
+	// the in-process apps (channel-chat etc.) — they're "always on"
+	// platform components, distinct from the user-installable kind
+	// shown in the marketplace.
 	installed := map[string]bool{}
 	addInstalled := func(name string) {
 		if name == "" {
@@ -120,7 +128,9 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 		}
 		installed[normalizeAppName(name)] = true
 	}
-	if rows, err := s.store.db.Query(`SELECT name FROM apps`); err == nil {
+	if rows, err := s.store.db.Query(
+		`SELECT a.name FROM apps a JOIN app_installs i ON i.app_id = a.id`,
+	); err == nil {
 		for rows.Next() {
 			var n string
 			if rows.Scan(&n) == nil {
@@ -128,13 +138,6 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		rows.Close()
-	}
-	if s.apps != nil {
-		for _, a := range s.apps.Loaded() {
-			m := a.Manifest()
-			addInstalled(m.Slug)
-			addInstalled(m.Name)
-		}
 	}
 	type entryWithStatus struct {
 		RegistryEntry
