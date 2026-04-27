@@ -120,7 +120,7 @@ func (s *Server) RemountStaticApps() {
 		if !strings.HasSuffix(mount, "/") {
 			mount = mount + "/"
 		}
-		routes[mount] = newStaticAppFileHandler(e)
+		routes[mount] = newStaticAppFileHandler(s, e)
 	}
 	s.staticMounts.replace(routes)
 	log.Printf("[APPS-STATIC] remounted %d static app(s)", len(routes))
@@ -132,9 +132,14 @@ func (s *Server) RemountStaticApps() {
 // router URLs work on hard refresh). The handler also injects a
 // `<script>window.__APTEVA_APP__={…}</script>` block before
 // `</head>` on every served HTML response — that's how the bundle
-// receives its mount path, kiosk key, default project, and branding
+// receives its mount path, kiosk key, default project, branding,
+// and the live list of installed_apps (for soft-dep gating)
 // without a build-time substitution.
-func newStaticAppFileHandler(e *InstalledApp) http.Handler {
+//
+// Note: takes a *Server so the handler can recompute installed_apps
+// per-request from the live registry — keeps soft-dep UI accurate
+// after another app is installed/uninstalled without a page reload.
+func newStaticAppFileHandler(s *Server, e *InstalledApp) http.Handler {
 	root := e.StaticDir
 	indexPath := filepath.Join(root, "index.html")
 	mountPath := e.MountPath
@@ -151,7 +156,11 @@ func newStaticAppFileHandler(e *InstalledApp) http.Handler {
 		branding["logo"] = e.Manifest.Provides.UIApp.Branding.Logo
 		branding["theme_css"] = e.Manifest.Provides.UIApp.Branding.ThemeCSS
 	}
-	injectionPayload := map[string]any{
+	// Build the part of the injection payload that's static for the
+	// install's lifetime once. The dynamic piece (installed_apps —
+	// changes when the operator installs / uninstalls another app)
+	// gets layered in per-request below.
+	stableInjection := map[string]any{
 		"base":             mountPath,
 		"api_base":         "/api",
 		"app_name":         e.AppName,
@@ -160,19 +169,42 @@ func newStaticAppFileHandler(e *InstalledApp) http.Handler {
 		"kiosk_api_key":    cfg["kiosk_api_key"],
 		"branding":         branding,
 	}
-	injectionJSON, _ := json.Marshal(injectionPayload)
-	// We also export the legacy globals __API_BASE__ and
-	// __DEFAULT_PROJECT__ so bundles that haven't migrated to the
-	// __APTEVA_APP__ object still pick up runtime config. JSON-encode
-	// the strings to keep escaping honest.
-	apiBase, _ := json.Marshal("/api")
-	defProj, _ := json.Marshal(cfg["default_project"])
-	injection := []byte(fmt.Sprintf(
-		"<script>window.__APTEVA_APP__=%s;window.__API_BASE__=%s;window.__DEFAULT_PROJECT__=%s;</script>",
-		string(injectionJSON), string(apiBase), string(defProj),
-	))
 
 	fileServer := http.FileServer(http.Dir(root))
+
+	buildInjection := func() []byte {
+		// Snapshot the live install registry on every request so
+		// soft-dep gating in the bundle (e.g. "show Tasks tab only
+		// if tasks is installed") reflects the current state without
+		// requiring a page reload.
+		installed := map[string]bool{}
+		for _, ent := range s.installedApps.List() {
+			installed[ent.AppName] = true
+		}
+		if s.apps != nil {
+			for _, a := range s.apps.Loaded() {
+				installed[a.Manifest().Slug] = true
+			}
+		}
+		names := make([]string, 0, len(installed))
+		for n := range installed {
+			names = append(names, n)
+		}
+		payload := make(map[string]any, len(stableInjection)+1)
+		for k, v := range stableInjection {
+			payload[k] = v
+		}
+		payload["installed_apps"] = names
+		injectionJSON, _ := json.Marshal(payload)
+		apiBase, _ := json.Marshal("/api")
+		defProj, _ := json.Marshal(cfg["default_project"])
+		// Legacy globals __API_BASE__ and __DEFAULT_PROJECT__ stay
+		// for bundles that haven't migrated to __APTEVA_APP__.
+		return []byte(fmt.Sprintf(
+			"<script>window.__APTEVA_APP__=%s;window.__API_BASE__=%s;window.__DEFAULT_PROJECT__=%s;</script>",
+			string(injectionJSON), string(apiBase), string(defProj),
+		))
+	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Resolve the requested file. Empty / trailing-slash paths
@@ -181,6 +213,7 @@ func newStaticAppFileHandler(e *InstalledApp) http.Handler {
 		// to index.html (SPA fallback). Directory traversal is
 		// blocked by http.FileServer's standard Clean+filepath.Join
 		// safeties.
+		injection := buildInjection()
 		clean := strings.TrimPrefix(r.URL.Path, "/")
 		if clean == "" {
 			serveInjectedHTML(w, indexPath, injection)

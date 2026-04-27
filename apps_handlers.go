@@ -63,6 +63,29 @@ type AppSurfaces struct {
 	PromptFragments int      `json:"prompt_fragment_count"`
 	Permissions     []string `json:"permissions,omitempty"`
 	ConfigKeys      []string `json:"config_keys,omitempty"`
+	// RequiredApps lists this app's `requires.apps` entries — other
+	// Apteva apps that must be installed alongside this one. The
+	// dashboard shows them in the side panel and the install handler
+	// cascade-installs them automatically when the operator clicks
+	// Install on the dependent app.
+	RequiredApps    []AppDependency `json:"required_apps,omitempty"`
+}
+
+// AppDependency mirrors sdk.RequiredAppRef + a server-side resolution
+// hint: the install handler walks the registry once at request time
+// to fill ManifestURL so the cascade install knows where to fetch
+// each dep's manifest. The dashboard uses Optional + Reason for the
+// "Dependencies" section in the side panel.
+type AppDependency struct {
+	Name        string `json:"name"`
+	Version     string `json:"version,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+	Optional    bool   `json:"optional,omitempty"`
+	ManifestURL string `json:"manifest_url,omitempty"`
+	// Installed: filled in by the marketplace handler once it knows
+	// what's currently in app_installs. The dashboard renders this
+	// as a per-dep ✓/✗/~ next to the name.
+	Installed bool `json:"installed,omitempty"`
 }
 
 // RegistryEntry — one row in the marketplace registry.json.
@@ -225,6 +248,28 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 			surfacesByName[normalizeAppName(r.name)] = r.surf
 		}
 	}
+	// Resolve each dep's ManifestURL from the registry + Installed
+	// flag from the live install set, so the dashboard can render a
+	// "Tasks ✓ installed / Status ✗ missing" Dependencies section
+	// without doing any extra round-trips.
+	manifestByAppName := map[string]string{}
+	for _, e := range reg.Apps {
+		manifestByAppName[normalizeAppName(e.Name)] = e.ManifestURL
+	}
+	for k, surf := range surfacesByName {
+		if len(surf.RequiredApps) == 0 {
+			continue
+		}
+		for i := range surf.RequiredApps {
+			depKey := normalizeAppName(surf.RequiredApps[i].Name)
+			surf.RequiredApps[i].Installed = installed[depKey] || builtin[depKey]
+			if u, ok := manifestByAppName[depKey]; ok {
+				surf.RequiredApps[i].ManifestURL = u
+			}
+		}
+		surfacesByName[k] = surf
+	}
+
 	out := make([]entryWithStatus, 0, len(reg.Apps))
 	for _, e := range reg.Apps {
 		key := normalizeAppName(e.Name)
@@ -361,6 +406,14 @@ func surfacesFromManifest(m *sdk.Manifest) AppSurfaces {
 	for _, c := range m.ConfigSchema {
 		s.ConfigKeys = append(s.ConfigKeys, c.Name)
 	}
+	for _, dep := range m.Requires.Apps {
+		s.RequiredApps = append(s.RequiredApps, AppDependency{
+			Name:     dep.Name,
+			Version:  dep.Version,
+			Reason:   dep.Reason,
+			Optional: dep.Optional,
+		})
+	}
 	return s
 }
 
@@ -438,6 +491,19 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	if !manifestAllowsScope(manifest, scope) {
 		http.Error(w, fmt.Sprintf("app does not support scope %q", scope), http.StatusBadRequest)
 		return
+	}
+
+	// Cascade-install dependencies declared in requires.apps. Walks
+	// the dep graph in topo order (deps before the dependent),
+	// detects cycles, skips already-installed apps. Optional deps
+	// install too — operator can uninstall any of them later.
+	// Failures of optional deps are logged but don't block the
+	// requesting app; failures of required deps abort the install.
+	if len(manifest.Requires.Apps) > 0 {
+		if err := s.installDependencies(userID, manifest, body.ProjectID); err != nil {
+			http.Error(w, "dependency install: "+err.Error(), http.StatusBadGateway)
+			return
+		}
 	}
 	upgradePolicy := body.UpgradePolicy
 	if upgradePolicy == "" {
@@ -575,6 +641,22 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
+	}
+	// Reverse-dependency check: refuse if uninstalling this app would
+	// orphan another running install whose manifest hard-requires it.
+	// Operators can override with ?force=1 (CLI / scripted uninstalls);
+	// the dashboard never sets force, so the check is the user-facing
+	// safety net.
+	force := r.URL.Query().Get("force") == "1"
+	if !force {
+		if blockers, err := s.dependentsBlockingUninstall(installID); err == nil && len(blockers) > 0 {
+			writeJSONStatus(w, http.StatusConflict, map[string]any{
+				"error":      "uninstall blocked — other apps require this one",
+				"dependents": blockers,
+				"hint":       "uninstall the dependents first, or pass ?force=1 to override.",
+			})
+			return
+		}
 	}
 	// Detach in-memory mount first so further proxy calls 404 immediately.
 	s.installedApps.Remove(installID)
