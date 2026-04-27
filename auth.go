@@ -69,7 +69,33 @@ func generateToken(n int) string {
 	return hex.EncodeToString(b)
 }
 
-func setSessionCookie(w http.ResponseWriter, token string) {
+// requestIsTLS reports whether the request came in over a TLS
+// connection — either directly (r.TLS != nil) or through a reverse
+// proxy that set X-Forwarded-Proto. Used to decide whether the
+// session cookie can carry Secure.
+func requestIsTLS(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil {
+		return true
+	}
+	if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		return true
+	}
+	return false
+}
+
+// setSessionCookie picks SameSite + Secure based on (1) the cross-
+// origin policy and (2) the actual scheme the request came in on.
+//
+// The Secure attribute on a cookie is rejected by browsers over plain
+// HTTP unless the host is localhost — so a LAN/hostname access over
+// HTTP would silently lose the cookie if we always set Secure. Cross-
+// origin policy still requires SameSite=None+Secure on HTTPS, but
+// over HTTP we degrade to SameSite=Lax (same-origin only — which is
+// the actual deployment shape for HTTP-only setups anyway).
+func setSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
 	c := &http.Cookie{
 		Name:     cookieName,
 		Value:    token,
@@ -78,18 +104,14 @@ func setSessionCookie(w http.ResponseWriter, token string) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionDuration.Seconds()),
 	}
-	if crossOriginCookies {
-		// Browsers require Secure whenever SameSite=None, which in turn
-		// is required for cross-origin credentialed requests. The cost
-		// is that dev must be over HTTPS (or localhost, which browsers
-		// exempt).
+	if crossOriginCookies && requestIsTLS(r) {
 		c.SameSite = http.SameSiteNoneMode
 		c.Secure = true
 	}
 	http.SetCookie(w, c)
 }
 
-func clearSessionCookie(w http.ResponseWriter) {
+func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	c := &http.Cookie{
 		Name:     cookieName,
 		Value:    "",
@@ -97,7 +119,7 @@ func clearSessionCookie(w http.ResponseWriter) {
 		HttpOnly: true,
 		MaxAge:   -1,
 	}
-	if crossOriginCookies {
+	if crossOriginCookies && requestIsTLS(r) {
 		c.SameSite = http.SameSiteNoneMode
 		c.Secure = true
 	}
@@ -290,7 +312,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookie(w, token)
+	setSessionCookie(w, r, token)
 	writeJSON(w, map[string]any{
 		"user_id": user.ID,
 		"email":   user.Email,
@@ -303,7 +325,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
-	clearSessionCookie(w)
+	clearSessionCookie(w, r)
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
@@ -323,7 +345,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		} else {
 			// Expired or invalid cookie — clear it so the browser stops
 			// sending a bad one on every request.
-			clearSessionCookie(w)
+			clearSessionCookie(w, r)
 		}
 	}
 	if userID == 0 {
