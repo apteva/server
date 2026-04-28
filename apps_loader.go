@@ -159,6 +159,11 @@ func (s *Server) LoadInstalledApps() {
 		// used for a sidecar URL. Recognising this short-circuits the
 		// orchestrator lookup and tells the mount loop to wire a
 		// path-mounted file server instead of a reverse proxy.
+		// Token must match what apps_source.installFromSource and
+		// apps_local.installLocally set as APTEVA_APP_TOKEN at spawn:
+		// `dev-<install_id>`. Without this, handleAppProxy sends no
+		// Authorization header to the sidecar and every dashboard
+		// iframe request comes back 401 from withTokenAuth.
 		entry := &InstalledApp{
 			InstallID:   id,
 			AppName:     appName,
@@ -166,7 +171,7 @@ func (s *Server) LoadInstalledApps() {
 			Manifest:    manifest,
 			Config:      cfg,
 			Permissions: perms,
-			Token:       "", // minted on demand
+			Token:       fmt.Sprintf("dev-%d", id),
 		}
 		if strings.HasPrefix(sidecarOverride, "static://") {
 			entry.StaticDir = strings.TrimPrefix(sidecarOverride, "static://")
