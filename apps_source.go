@@ -169,9 +169,21 @@ func goBuild(srcDir, entry, binPath, cacheDir string) error {
 	if err != nil {
 		return err
 	}
+	// `go build` treats a bare path like `mcp/crm` as an import path
+	// rooted at GOROOT/std. For monorepos that put apps in subfolders
+	// (the apteva/apps layout) we need the relative-package form
+	// `./mcp/crm`. Pass through paths that already look relative or
+	// absolute, or that are a single-segment Go package selector.
+	buildTarget := entry
+	if entry != "" && entry != "." &&
+		!strings.HasPrefix(entry, "./") &&
+		!strings.HasPrefix(entry, "../") &&
+		!strings.HasPrefix(entry, "/") {
+		buildTarget = "./" + entry
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, goBin, "build", "-o", binPath, entry)
+	cmd := exec.CommandContext(ctx, goBin, "build", "-o", binPath, buildTarget)
 	cmd.Dir = srcDir
 	envv := os.Environ()
 	envv = append(envv,
