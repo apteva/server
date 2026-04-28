@@ -333,6 +333,8 @@ func (s *Store) migrate() error {
 	// pretty display names work without a separate column.
 	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
 		(13, 'llm', 'OpenCode Go', 'Flat-rate gateway ($10/mo) for Kimi K2.6, Qwen, GLM, MiMo, DeepSeek and more (opencode.ai/go)', '["OPENCODE_GO_API_KEY"]', 1, 15)`)
+	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
+		(14, 'llm', 'Venice', 'Privacy-focused inference gateway — Llama, Qwen, GLM, Mistral plus Claude / Grok / Gemini reseller variants (venice.ai)', '["VENICE_API_KEY"]', 1, 16)`)
 
 	// Fix historical row 8: it was seeded with type='browser' but its
 	// fields / name describe Browserbase. getBrowserConfig treats
@@ -422,6 +424,10 @@ func (s *Store) migrate() error {
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN local_bin_path TEXT NOT NULL DEFAULT ''`)
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN local_port INTEGER NOT NULL DEFAULT 0`)
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN error_message TEXT NOT NULL DEFAULT ''`)
+	// Live phase string written by the source/local supervisor while
+	// status='pending' so the dashboard can show "Cloning…", "Building…",
+	// "Starting sidecar…" instead of an opaque pending pill.
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN status_message TEXT NOT NULL DEFAULT ''`)
 	s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS app_instance_bindings (
 			install_id   INTEGER NOT NULL REFERENCES app_installs(id),

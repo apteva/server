@@ -30,8 +30,13 @@ import (
 // BuildFromSource clones the app repo at the requested ref, runs
 // `go build`, then hands off to the existing spawn + healthcheck flow.
 // Returns the spawned port + binary path so the caller can persist
-// them in app_installs.
-func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, env map[string]string) (port int, binPath string, err error) {
+// them in app_installs. progress is invoked at each phase so the
+// caller can persist a human-readable status message — passing nil
+// is fine.
+func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, env map[string]string, progress func(string)) (port int, binPath string, err error) {
+	if progress == nil {
+		progress = func(string) {}
+	}
 	src := m.Runtime.Source
 	if src == nil || src.Repo == "" {
 		return 0, "", fmt.Errorf("manifest has no source.repo")
@@ -52,9 +57,11 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 		return 0, "", err
 	}
 
+	progress(fmt.Sprintf("Cloning %s@%s…", src.Repo, ref))
 	if err := cloneOrUpdate(srcDir, src.Repo, ref); err != nil {
 		return 0, "", fmt.Errorf("clone %s@%s: %w", src.Repo, ref, err)
 	}
+	progress("Building (downloading Go modules on first run)…")
 	if err := goBuild(srcDir, entry, binPath, dir); err != nil {
 		return 0, "", fmt.Errorf("go build: %w", err)
 	}
@@ -63,6 +70,7 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 	if err != nil {
 		return 0, "", err
 	}
+	progress("Starting sidecar…")
 	if err := sup.spawn(installID, m.Name, binPath, port, env); err != nil {
 		return 0, "", err
 	}
@@ -70,6 +78,7 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 	if healthPath == "" {
 		healthPath = "/health"
 	}
+	progress("Waiting for health check…")
 	if err := sup.waitHealthy(installID, port, healthPath, 60*time.Second); err != nil {
 		_ = sup.Stop(installID)
 		return 0, "", err
@@ -225,10 +234,15 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 		"APTEVA_PROJECT_ID":  projectID,
 		"APTEVA_APP_CONFIG":  string(cfgJSON),
 	}
-	port, binPath, err := s.localApps.BuildFromSource(installID, m, env)
+	progress := func(msg string) {
+		s.store.db.Exec(
+			`UPDATE app_installs SET status_message=? WHERE id=?`,
+			msg, installID)
+	}
+	port, binPath, err := s.localApps.BuildFromSource(installID, m, env, progress)
 	if err != nil {
 		s.store.db.Exec(
-			`UPDATE app_installs SET status='error', error_message=? WHERE id=?`,
+			`UPDATE app_installs SET status='error', status_message='', error_message=? WHERE id=?`,
 			err.Error(), installID)
 		return err
 	}
@@ -241,6 +255,7 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 			local_bin_path=?,
 			local_port=?,
 			sidecar_url_override=?,
+			status_message='',
 			error_message=''
 		 WHERE id=?`,
 		pid, binPath, port, url, installID)

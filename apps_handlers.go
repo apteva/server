@@ -32,6 +32,8 @@ type AppRow struct {
 	Icon          string           `json:"icon"`
 	ProjectID     string           `json:"project_id"`
 	Status        string           `json:"status"`
+	StatusMessage string           `json:"status_message,omitempty"`
+	ErrorMessage  string           `json:"error_message,omitempty"`
 	Source        string           `json:"source"`
 	UpgradePolicy string           `json:"upgrade_policy"`
 	Permissions   []sdk.Permission `json:"permissions"`
@@ -298,8 +300,8 @@ func getRegistryURLFromEnv() string {
 func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 	projectID := r.URL.Query().Get("project_id")
 	q := `
-		SELECT i.id, i.app_id, i.project_id, i.status, i.upgrade_policy,
-			i.version, i.permissions_json, a.name, a.source, a.manifest_json
+		SELECT i.id, i.app_id, i.project_id, i.status, i.status_message, i.error_message,
+			i.upgrade_policy, i.version, i.permissions_json, a.name, a.source, a.manifest_json
 		FROM app_installs i JOIN apps a ON a.id = i.app_id`
 	args := []any{}
 	if projectID != "" {
@@ -316,12 +318,13 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 	out := []AppRow{}
 	for rows.Next() {
 		var (
-			installID, appID                                                int64
-			projID, status, upgradePolicy, version, permsJSON               string
-			name, source, manifestJSON                                      string
+			installID, appID                                  int64
+			projID, status, statusMsg, errMsg                 string
+			upgradePolicy, version, permsJSON                 string
+			name, source, manifestJSON                        string
 		)
-		if err := rows.Scan(&installID, &appID, &projID, &status, &upgradePolicy,
-			&version, &permsJSON, &name, &source, &manifestJSON); err != nil {
+		if err := rows.Scan(&installID, &appID, &projID, &status, &statusMsg, &errMsg,
+			&upgradePolicy, &version, &permsJSON, &name, &source, &manifestJSON); err != nil {
 			continue
 		}
 		var manifest sdk.Manifest
@@ -331,7 +334,8 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 		out = append(out, AppRow{
 			InstallID: installID, AppID: appID, Name: name, DisplayName: manifest.DisplayName,
 			Version: version, Description: manifest.Description, Icon: manifest.Icon,
-			ProjectID: projID, Status: status, Source: source, UpgradePolicy: upgradePolicy,
+			ProjectID: projID, Status: status, StatusMessage: statusMsg, ErrorMessage: errMsg,
+			Source: source, UpgradePolicy: upgradePolicy,
 			Permissions: perms, Surfaces: surfacesFromManifest(&manifest),
 			UIPanels: manifest.Provides.UIPanels,
 		})
