@@ -943,21 +943,25 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	)
 
 	// installFromSource clones + builds + respawns + flips the install
-	// row to running. Run synchronously so the dashboard's POST gets
-	// a definitive status code — operators clicking Update want to see
-	// success or failure inline, not a fire-and-forget 202.
-	if err := s.installFromSource(installID, live, projectID, cfg); err != nil {
-		http.Error(w, "rebuild: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if _, err := s.store.db.Exec(
-		`UPDATE app_installs SET version = ? WHERE id = ?`,
-		live.Version, installID,
-	); err != nil {
-		http.Error(w, "version bump: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	writeJSON(w, map[string]string{"status": "upgraded", "version": live.Version})
+	// row to running. Runs in a goroutine so the dashboard's POST
+	// returns immediately — operators see the AppCard switch to the
+	// pending state with live status_message ("Cloning…", "Building…")
+	// driven by the existing pending-poll loop, instead of staring at
+	// a frozen "Update → …" button for 10–60s while go build runs.
+	go func() {
+		if err := s.installFromSource(installID, live, projectID, cfg); err != nil {
+			// installFromSource already wrote status='error' + error_message.
+			return
+		}
+		s.store.db.Exec(
+			`UPDATE app_installs SET version = ? WHERE id = ?`,
+			live.Version, installID,
+		)
+	}()
+	writeJSONStatus(w, http.StatusAccepted, map[string]string{
+		"status":  "pending",
+		"version": live.Version,
+	})
 }
 
 func errString(err error) string {
