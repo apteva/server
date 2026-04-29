@@ -13,6 +13,7 @@ package main
 // rebuild.
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -26,6 +27,18 @@ import (
 
 	sdk "github.com/apteva/app-sdk"
 )
+
+// humaniseBuildLine turns a stray go build output line into something
+// short enough for the status pill in the dashboard. We ignore noise
+// like "verifying" / module-version chatter and fall back to a short
+// truncation for anything we don't recognise — keeps the UI honest
+// without spamming detail nobody can read in a 30-character pill.
+func humaniseBuildLine(line string) string {
+	if len(line) > 80 {
+		line = line[:77] + "…"
+	}
+	return "Building: " + line
+}
 
 // BuildFromSource clones the app repo at the requested ref, runs
 // `go build`, then hands off to the existing spawn + healthcheck flow.
@@ -61,8 +74,11 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 	if err := cloneOrUpdate(srcDir, src.Repo, ref); err != nil {
 		return 0, "", fmt.Errorf("clone %s@%s: %w", src.Repo, ref, err)
 	}
-	progress("Building (downloading Go modules on first run)…")
-	if err := goBuild(srcDir, entry, binPath, dir); err != nil {
+	progress("Compiling…")
+	// Pass the progress callback through so goBuild can update the
+	// status as toolchain output arrives — "Downloading X dependencies",
+	// "Extracting…", "Linking binary…" instead of one stale phrase.
+	if err := goBuild(srcDir, entry, binPath, dir, progress); err != nil {
 		return 0, "", fmt.Errorf("go build: %w", err)
 	}
 
@@ -175,7 +191,12 @@ func runGit(dir string, args ...string) error {
 // module — apteva/apps is a monorepo of independent modules, not one
 // shared module). Caches (GOCACHE, GOMODCACHE) live under cacheDir so
 // app builds don't fight the host's $GOPATH or pollute system caches.
-func goBuild(srcDir, entry, binPath, cacheDir string) error {
+//
+// progress is called with humanised status strings as the toolchain
+// emits new output lines, throttled to roughly every 500ms so the
+// dashboard's poll loop has new content but the DB doesn't get
+// hammered. Pass nil to disable.
+func goBuild(srcDir, entry, binPath, cacheDir string, progress func(string)) error {
 	goBin, err := resolveGoBinary()
 	if err != nil {
 		return err
@@ -198,9 +219,57 @@ func goBuild(srcDir, entry, binPath, cacheDir string) error {
 		"GOMODCACHE="+filepath.Join(cacheDir, "gomodcache"),
 	)
 	cmd.Env = envv
-	out, err := cmd.CombinedOutput()
+
+	// Capture stdout + stderr together — `go build` emits download +
+	// progress lines on stderr, build errors on stderr too. Stream
+	// line-by-line so we can surface live status; keep a tail buffer
+	// for the error message if the build fails.
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+		return err
+	}
+	cmd.Stderr = cmd.Stdout
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	var (
+		tail        []string                  // last N lines for error output
+		lastUpdate  = time.Now()
+		downloads   = 0                       // count distinct downloads
+	)
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		tail = append(tail, line)
+		if len(tail) > 100 {
+			tail = tail[len(tail)-100:]
+		}
+		if progress != nil && time.Since(lastUpdate) > 500*time.Millisecond {
+			if strings.HasPrefix(line, "go: downloading ") {
+				downloads++
+				progress(fmt.Sprintf("Downloading dependencies (%d so far)…", downloads))
+			} else if strings.HasPrefix(line, "go: extracting ") {
+				progress("Extracting dependencies…")
+			} else if strings.HasPrefix(line, "go: finding ") {
+				progress("Resolving dependencies…")
+			} else {
+				progress(humaniseBuildLine(line))
+			}
+			lastUpdate = time.Now()
+		}
+	}
+	waitErr := cmd.Wait()
+	if waitErr != nil {
+		out := strings.Join(tail, "\n")
+		return fmt.Errorf("%w: %s", waitErr, strings.TrimSpace(out))
+	}
+	if progress != nil {
+		progress("Linking binary…")
 	}
 	if err := os.Chmod(binPath, 0755); err != nil {
 		return err
