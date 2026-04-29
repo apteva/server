@@ -87,6 +87,20 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 		return 0, "", err
 	}
 	progress("Starting sidecar…")
+	// Tell the SDK where to find the panel + iframe UI bundle.
+	// The spawned binary's cwd is <cacheDir>/data, but the panel
+	// bundle the source-tree has is at <srcDir>/<entry>/ui — point
+	// APTEVA_UI_DIR there so the SDK's static handler serves the
+	// real .mjs files instead of an empty data/ui/ dir.
+	uiSrcDir := srcDir
+	if entry != "" && entry != "." {
+		uiSrcDir = filepath.Join(srcDir, entry)
+	}
+	uiSrcDir = filepath.Join(uiSrcDir, "ui")
+	if env == nil {
+		env = map[string]string{}
+	}
+	env["APTEVA_UI_DIR"] = uiSrcDir
 	if err := sup.spawn(installID, m.Name, binPath, port, env); err != nil {
 		return 0, "", err
 	}
