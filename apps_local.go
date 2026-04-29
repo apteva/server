@@ -222,6 +222,15 @@ func (sup *LocalSupervisor) spawn(installID int64, appName, bin string, port int
 	_ = os.MkdirAll(dataDir, 0755)
 	uiDir := filepath.Join(dir, "ui") // empty unless the app populated it; SDK no-ops if missing
 	_ = os.MkdirAll(uiDir, 0755)
+	// Per-install persistent DB dir, kept OUTSIDE the version dir so
+	// an upgrade rebuild lands in a fresh <version>/ folder without
+	// nuking the app's data. Layout:
+	//   <appsRoot>/<name>/data/<install-id>/app.db
+	// The double-parent walk turns <appsRoot>/<name>/<version>/ into
+	// <appsRoot>/<name>/.
+	persistentRoot := filepath.Join(filepath.Dir(dir), "data", strconv.FormatInt(installID, 10))
+	_ = os.MkdirAll(persistentRoot, 0755)
+	dbPath := filepath.Join(persistentRoot, "app.db")
 	logPath := filepath.Join(dir, "stderr.log")
 	logf, err := os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
@@ -229,8 +238,12 @@ func (sup *LocalSupervisor) spawn(installID int64, appName, bin string, port int
 	}
 	cmd := exec.CommandContext(context.Background(), bin)
 	cmd.Dir = dataDir
-	envv := os.Environ()
+	// Strip the parent's DB_PATH so the sidecar doesn't accidentally
+	// open apteva-server's own sqlite file (the SDK respects DB_PATH
+	// over the manifest's path, and os.Environ() inherits it).
+	envv := envWithout(os.Environ(), "DB_PATH")
 	envv = append(envv, fmt.Sprintf("APTEVA_APP_PORT=%d", port))
+	envv = append(envv, "DB_PATH="+dbPath)
 	for k, v := range env {
 		envv = append(envv, k+"="+v)
 	}
@@ -258,6 +271,21 @@ func (sup *LocalSupervisor) spawn(installID int64, appName, bin string, port int
 		_ = logf.Close()
 	}()
 	return nil
+}
+
+// envWithout returns env with any KEY=… entry stripped. Used to
+// scrub inherited APTEVA-server env vars (DB_PATH especially) so the
+// spawned sidecar doesn't accidentally open the platform's sqlite file.
+func envWithout(env []string, key string) []string {
+	prefix := key + "="
+	out := env[:0]
+	for _, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 func (sup *LocalSupervisor) waitHealthy(installID int64, port int, healthPath string, deadline time.Duration) error {
