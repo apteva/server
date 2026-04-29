@@ -68,6 +68,29 @@ func (s *Server) anyGroupMember(groupID string) *AppTemplate {
 	return s.catalog.Get(g.Members[0])
 }
 
+// decryptMasterCreds returns the master's plaintext credentials JSON
+// plus the parsed map. The map preserves reserved keys ("_*") so the
+// caller can read or write metadata like credKeyAPILookupID; pair with
+// stripReservedCreds when forwarding to upstream calls.
+func (s *Server) decryptMasterCreds(masterID int64) (string, string, map[string]string, error) {
+	var encCreds string
+	err := s.store.db.QueryRow(
+		"SELECT encrypted_credentials FROM connections WHERE id = ?", masterID,
+	).Scan(&encCreds)
+	if err != nil {
+		return "", "", nil, err
+	}
+	plain, err := Decrypt(s.secret, encCreds)
+	if err != nil {
+		return "", encCreds, nil, err
+	}
+	var creds map[string]string
+	if err := json.Unmarshal([]byte(plain), &creds); err != nil {
+		return plain, encCreds, nil, err
+	}
+	return plain, encCreds, creds, nil
+}
+
 // POST /integrations/groups/{id}/master
 // Body: { "credentials": { "api_key": "..." }, "project_id": "optional-apteva-project", "name": "..." }
 // Runs discovery, creates or updates the master row, stores the cache
@@ -446,6 +469,48 @@ func (s *Server) handleEnableGroupApps(w http.ResponseWriter, r *http.Request) {
 		existing[key] = c.ID
 	}
 
+	// Decrypt the master once so the inner loop can either read scope
+	// metadata, mint child keys via provision_project_key, or both.
+	masterPlain, _, masterCreds, masterErr := s.decryptMasterCreds(master.ID)
+	if masterErr != nil {
+		log.Printf("[SUITE] decrypt master conn=%d for fan-out: %v", master.ID, masterErr)
+	}
+	_ = masterPlain // reserved for future need
+
+	// Resolve the api_lookup id once per fan-out and (if it changed)
+	// persist on the master so subsequent enables don't repeat the
+	// upstream call. Cheap to call again — the cache check below skips
+	// the network when the value is fresh.
+	apiLookupID := masterCreds[credKeyAPILookupID]
+	if g.Meta.Discovery != nil && g.Meta.Discovery.ApiLookup != nil && masterCreds != nil {
+		needLookup := apiLookupID == ""
+		if needLookup {
+			// Use any catalog member's BaseURL — they all share it
+			// inside a credential_group.
+			var sampleApp *AppTemplate
+			for _, slug := range g.Members {
+				if a := s.catalog.Get(slug); a != nil {
+					sampleApp = a
+					break
+				}
+			}
+			if sampleApp != nil {
+				if id, lerr := runApiLookup(sampleApp, &g.Meta, stripReservedCreds(masterCreds)); lerr == nil && id != "" {
+					apiLookupID = id
+					masterCreds[credKeyAPILookupID] = id
+					if mc, _ := json.Marshal(masterCreds); mc != nil {
+						if encNew, eErr := Encrypt(s.secret, string(mc)); eErr == nil {
+							s.store.UpdateConnectionCredentials(master.ID, string(encNew))
+							_ = userID // store helper is user-agnostic; userID unused here
+						}
+					}
+				} else if lerr != nil {
+					log.Printf("[SUITE] api_lookup for group=%s failed (continuing without): %v", g.Meta.ID, lerr)
+				}
+			}
+		}
+	}
+
 	// Create missing child rows.
 	created := []map[string]any{}
 	wantKeys := map[string]bool{}
@@ -459,10 +524,35 @@ func (s *Server) handleEnableGroupApps(w http.ResponseWriter, r *http.Request) {
 		if app == nil {
 			continue
 		}
+		// Connection blob. Default = master pointer (legacy share),
+		// upgraded below to a self-contained minted-key blob when the
+		// suite declares provision_project_key + master decrypt
+		// succeeded. Keeping _master_id even on minted children means
+		// the existing "list children of master" queries continue to
+		// work, and a future revoke flow can find the master to delete
+		// the upstream key.
 		blob := map[string]string{
 			credKeyType:      "child",
 			credKeyMasterID:  strconv.FormatInt(master.ID, 10),
 			credKeyProjectID: sel.ExternalProjectID,
+		}
+		if g.Meta.Discovery != nil && g.Meta.Discovery.ProvisionProjectKey != nil && masterCreds != nil {
+			realCreds := stripReservedCreds(masterCreds)
+			label := sel.Label
+			if label == "" {
+				label = sel.ExternalProjectID
+			}
+			mintedKey, mintedID, perr := provisionProjectKey(app, &g.Meta, realCreds, apiLookupID, sel.ExternalProjectID, label)
+			if perr != nil {
+				log.Printf("[SUITE] provision_project_key FAILED slug=%s ext=%s: %v — falling back to master share", sel.AppSlug, sel.ExternalProjectID, perr)
+			} else {
+				field := g.Meta.Discovery.ProvisionProjectKey.CredentialField
+				blob[field] = mintedKey
+				if mintedID != "" {
+					blob[credKeyMintedKeyID] = mintedID
+				}
+				log.Printf("[SUITE] provision_project_key OK slug=%s ext=%s key_id=%s", sel.AppSlug, sel.ExternalProjectID, mintedID)
+			}
 		}
 		encoded, _ := json.Marshal(blob)
 		enc, err := Encrypt(s.secret, string(encoded))

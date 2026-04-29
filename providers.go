@@ -555,7 +555,7 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 
 	isLLMKey := func(k string) bool {
 		switch k {
-		case "fireworks", "openai", "anthropic", "google", "ollama", "nvidia", "opencode-go":
+		case "fireworks", "openai", "anthropic", "google", "ollama", "nvidia", "opencode-go", "venice":
 			return true
 		}
 		return false

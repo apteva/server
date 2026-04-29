@@ -41,6 +41,17 @@ type CredentialGroup struct {
 
 type GroupDiscoveryConfig struct {
 	ListProjects DiscoveryCall `json:"list_projects"`
+	// ApiLookup — optional, run once before ProvisionProjectKey to
+	// resolve a fact about the upstream account that the provision
+	// body needs (e.g. the OmniKit API UUID matching base_path=omnikit).
+	// Result is cached on the master under credKeyAPILookupID.
+	ApiLookup *LookupCall `json:"api_lookup,omitempty"`
+	// ProvisionProjectKey — when set, the suite-enable flow uses the
+	// master credentials to MINT a project-scoped key and stores it on
+	// the child connection. Without this, children fall back to the
+	// classic master+project_binding share. See server/suites.go:
+	// provisionProjectKey for the runtime.
+	ProvisionProjectKey *ProvisionKeyCall `json:"provision_project_key,omitempty"`
 }
 
 type DiscoveryCall struct {
@@ -50,6 +61,41 @@ type DiscoveryCall struct {
 	ResponsePath string `json:"response_path,omitempty"`
 	IDField      string `json:"id_field"`
 	LabelField   string `json:"label_field"`
+}
+
+// LookupCall — like DiscoveryCall but resolves to a single id rather
+// than a list. Walks ResponsePath to an array, finds the first entry
+// where MatchField == MatchValue, returns IDField. Used for upstream
+// "find me the api/workspace/account record matching X" queries that
+// have to run before ProvisionProjectKey can build its body.
+type LookupCall struct {
+	Method       string `json:"method"`
+	Path         string `json:"path"`
+	BaseURL      string `json:"base_url,omitempty"`
+	ResponsePath string `json:"response_path,omitempty"`
+	MatchField   string `json:"match_field,omitempty"`
+	MatchValue   string `json:"match_value,omitempty"`
+	IDField      string `json:"id_field"`
+}
+
+// ProvisionKeyCall — declarative spec for "mint a project-scoped key
+// using the master's credentials". Body values may include {{label}},
+// {{external_project_id}}, and {{api_lookup_id}} placeholders; the
+// server templates them at request time. ResponseKeyPath points at
+// the minted plaintext key (returned once); IDResponsePath points at
+// the upstream id of the new key so we can revoke it on disconnect.
+type ProvisionKeyCall struct {
+	Method          string         `json:"method"`
+	Path            string         `json:"path"`
+	BaseURL         string         `json:"base_url,omitempty"`
+	Body            map[string]any `json:"body,omitempty"`
+	ResponseKeyPath string         `json:"response_key_path"`
+	IDResponsePath  string         `json:"id_response_path,omitempty"`
+	// CredentialField — the connection-credential key under which the
+	// minted plaintext key is stored on the child (e.g. "api_key" so
+	// the existing AuthHeaders template `X-API-Key: {{api_key}}` keeps
+	// working without further wiring).
+	CredentialField string `json:"credential_field"`
 }
 
 type AppScopes struct {

@@ -46,7 +46,7 @@ func GroupIDFromMasterSlug(slug string) string {
 
 // Reserved keys inside `encrypted_credentials` JSON. The prefix `_`
 // was chosen because no known integration uses it as a credential
-// field name. If any future template does, rename all six keys.
+// field name. If any future template does, rename all keys.
 const (
 	credKeyType          = "_type"            // "master" | "child"
 	credKeyGroup         = "_group"           // "omnikit" (master only)
@@ -54,6 +54,12 @@ const (
 	credKeyProjectsCache = "_projects_cache"  // discovery snapshot (master only)
 	credKeyMasterID      = "_master_id"       // child → master row id
 	credKeyProjectID     = "_project_id"      // child → external project id
+	// ApiLookup result cached on the master after first provisioning,
+	// so subsequent fan-outs don't repeat the lookup call.
+	credKeyAPILookupID = "_api_lookup_id" // master only — e.g. omnikit api UUID
+	// Upstream id of the minted child key, kept so a future disconnect
+	// can revoke it cleanly. Only present on minted children.
+	credKeyMintedKeyID = "_minted_key_id" // child only — minted key's upstream id
 )
 
 // CachedProject is the shape stored in _projects_cache on masters and
@@ -116,6 +122,20 @@ func resolveConnectionContextRaw(store *Store, secret []byte, userID int64, app 
 	// --- child path ---
 	masterIDStr := credentials[credKeyMasterID]
 	projectID := credentials[credKeyProjectID]
+
+	// Self-contained child: a minted, project-scoped key was stored on
+	// the row at enable time (see provisionProjectKey). Tool calls use
+	// the child's own credentials directly — no master lookup, no
+	// X-Project-Id binding. The upstream key already encodes the
+	// project, so endpoints that previously complained about a missing
+	// project_id resolve cleanly. Detection: any non-reserved cred
+	// field is present (api_key, client_secret, …).
+	if hasOwnCredentials(credentials) {
+		ctx.Credentials = stripReservedCreds(credentials)
+		ctx.ExternalProjectID = projectID
+		return ctx, nil
+	}
+
 	if masterIDStr == "" || projectID == "" {
 		return nil, fmt.Errorf("child credential missing _master_id or _project_id")
 	}
@@ -261,6 +281,25 @@ func stripReservedCreds(c map[string]string) map[string]string {
 	return out
 }
 
+// hasOwnCredentials reports whether the blob carries any non-reserved
+// credential field — i.e. the connection can authenticate on its own
+// without resolving a master pointer. True for legacy single-app
+// connections, true for minted suite children; false for legacy
+// master-bound suite children whose only fields are _type / _master_id
+// / _project_id.
+func hasOwnCredentials(c map[string]string) bool {
+	for k, v := range c {
+		if strings.HasPrefix(k, "_") {
+			continue
+		}
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 // --- Discovery ---------------------------------------------------------------
 
 // discoverProjects calls the group's list_projects endpoint with the
@@ -353,6 +392,193 @@ func groupIDSafe(g *CredentialGroup) string {
 		return ""
 	}
 	return g.ID
+}
+
+// runApiLookup executes an ApiLookup call and returns the resolved id
+// (e.g. the OmniKit API UUID matching base_path=omnikit). Empty id +
+// nil error means "no matching record found".
+func runApiLookup(app *AppTemplate, group *CredentialGroup, credentials map[string]string) (string, error) {
+	if group == nil || group.Discovery == nil || group.Discovery.ApiLookup == nil {
+		return "", nil
+	}
+	call := group.Discovery.ApiLookup
+	if call.Method == "" || call.Path == "" || call.IDField == "" {
+		return "", fmt.Errorf("api_lookup config incomplete (need method, path, id_field)")
+	}
+	baseURL := call.BaseURL
+	if baseURL == "" {
+		baseURL = app.BaseURL
+	}
+	url := strings.TrimRight(baseURL, "/") + call.Path
+
+	req, err := http.NewRequest(call.Method, url, nil)
+	if err != nil {
+		return "", err
+	}
+	authHeaders := pickAccountAuthHeaders(app)
+	for k, v := range buildHeaders(authHeaders, credentials) {
+		req.Header.Set(k, v)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2_000_000))
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("api_lookup %s %s returned %d: %s", call.Method, url, resp.StatusCode, truncateStr(string(body), 200))
+	}
+	var raw any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return "", fmt.Errorf("api_lookup response not JSON: %v", err)
+	}
+	if call.ResponsePath != "" {
+		if m, ok := raw.(map[string]any); ok {
+			raw = extractPath(m, call.ResponsePath)
+		}
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		// ResponsePath resolved to a single record — accept that too.
+		if m, ok2 := raw.(map[string]any); ok2 {
+			return stringFromAny(m[call.IDField]), nil
+		}
+		return "", fmt.Errorf("api_lookup response_path %q did not resolve to an array or object", call.ResponsePath)
+	}
+	for _, item := range arr {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if call.MatchField != "" && stringFromAny(m[call.MatchField]) != call.MatchValue {
+			continue
+		}
+		id := stringFromAny(m[call.IDField])
+		if id != "" {
+			return id, nil
+		}
+	}
+	return "", nil
+}
+
+// provisionProjectKey mints a project-scoped key on the upstream using
+// the master credentials. Caller is `handleEnableGroupApps` (one mint
+// per child connection). Returns (plaintext key, upstream key id) so
+// the child blob can store both — the plaintext for runtime auth, the
+// id for revocation on disconnect.
+//
+// `apiLookupID` is the cached ApiLookup result (may be ""); `extID`
+// is the external project id this child binds to; `label` is the
+// project's human label, used to name the minted key upstream so the
+// operator can identify it in OmniKit's own dashboard.
+func provisionProjectKey(app *AppTemplate, group *CredentialGroup, credentials map[string]string, apiLookupID, extID, label string) (string, string, error) {
+	if group == nil || group.Discovery == nil || group.Discovery.ProvisionProjectKey == nil {
+		return "", "", fmt.Errorf("provision_project_key not configured for group %q", groupIDSafe(group))
+	}
+	call := group.Discovery.ProvisionProjectKey
+	if call.Method == "" || call.Path == "" || call.ResponseKeyPath == "" || call.CredentialField == "" {
+		return "", "", fmt.Errorf("provision_project_key incomplete (need method, path, response_key_path, credential_field)")
+	}
+	baseURL := call.BaseURL
+	if baseURL == "" {
+		baseURL = app.BaseURL
+	}
+	url := strings.TrimRight(baseURL, "/") + call.Path
+
+	// Template the body. Walk the declared body, substituting strings
+	// that reference {{label}}, {{external_project_id}}, {{api_lookup_id}}.
+	bodyVals := map[string]string{
+		"label":               label,
+		"external_project_id": extID,
+		"api_lookup_id":       apiLookupID,
+	}
+	resolved := templateAny(call.Body, bodyVals)
+	bodyBytes, err := json.Marshal(resolved)
+	if err != nil {
+		return "", "", fmt.Errorf("encode provision body: %v", err)
+	}
+
+	req, err := http.NewRequest(call.Method, url, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return "", "", err
+	}
+	authHeaders := pickAccountAuthHeaders(app)
+	for k, v := range buildHeaders(authHeaders, credentials) {
+		req.Header.Set(k, v)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2_000_000))
+	if resp.StatusCode >= 400 {
+		return "", "", fmt.Errorf("provision_project_key %s %s returned %d: %s",
+			call.Method, url, resp.StatusCode, truncateStr(string(body), 300))
+	}
+	var raw any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return "", "", fmt.Errorf("provision response not JSON: %v", err)
+	}
+	rootMap, ok := raw.(map[string]any)
+	if !ok {
+		return "", "", fmt.Errorf("provision response root is not an object")
+	}
+	keyVal := stringFromAny(extractPath(rootMap, call.ResponseKeyPath))
+	if keyVal == "" {
+		return "", "", fmt.Errorf("provision response_key_path %q resolved to empty", call.ResponseKeyPath)
+	}
+	idVal := ""
+	if call.IDResponsePath != "" {
+		idVal = stringFromAny(extractPath(rootMap, call.IDResponsePath))
+	}
+	return keyVal, idVal, nil
+}
+
+// pickAccountAuthHeaders centralizes the "use scope.account.auth_headers
+// if set, else fall back to legacy app.Auth.Headers" logic that both
+// discovery and provisioning rely on.
+func pickAccountAuthHeaders(app *AppTemplate) map[string]string {
+	if app.Scopes != nil && app.Scopes.Account != nil && app.Scopes.Account.AuthHeaders != nil {
+		return app.Scopes.Account.AuthHeaders
+	}
+	return app.Auth.Headers
+}
+
+// templateAny walks an arbitrary JSON-decoded structure and replaces
+// {{name}} placeholders inside string leaves using the provided
+// substitution map. Maps and arrays are walked recursively; scalars
+// other than strings pass through.
+func templateAny(v any, subs map[string]string) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, vv := range x {
+			out[k] = templateAny(vv, subs)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, vv := range x {
+			out[i] = templateAny(vv, subs)
+		}
+		return out
+	case string:
+		s := x
+		for k, val := range subs {
+			s = strings.ReplaceAll(s, "{{"+k+"}}", val)
+		}
+		return s
+	default:
+		return v
+	}
 }
 
 func stringFromAny(v any) string {

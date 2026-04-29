@@ -63,6 +63,11 @@ func FetchModels(providerType, apiKey string) ([]ModelInfo, error) {
 		// /v1/models endpoint to discover from. Return the published
 		// catalog directly so the dashboard's model picker has options.
 		models = openCodeGoModels()
+	case "venice":
+		// Venice's /api/v1/models returns rich metadata (display name,
+		// context_length, capabilities). Use the dedicated fetcher so
+		// the picker can show "GLM 5.1 (200K)" rather than a bare slug.
+		models, err = fetchVeniceModels(apiKey)
 	default:
 		return nil, fmt.Errorf("unknown provider type: %s", providerType)
 	}
@@ -311,6 +316,62 @@ func fetchGoogleModels(apiKey string) ([]ModelInfo, error) {
 			ID:          id,
 			Name:        m.DisplayName,
 			ContextSize: m.InputTokenLimit,
+		})
+	}
+	return models, nil
+}
+
+// ── Venice ──
+
+// fetchVeniceModels queries Venice's /api/v1/models. The response is
+// OpenAI-shaped at the top level (`data: [{id, ...}]`) but each entry
+// carries a `model_spec` block with display name, context length, and
+// capability flags. We surface the friendly display name so the picker
+// reads "GLM 5.1" instead of "zai-org-glm-5-1", and limit to text
+// models (Venice ships TTS, image, embeddings on the same endpoint).
+func fetchVeniceModels(apiKey string) ([]ModelInfo, error) {
+	data, err := apiGet("https://api.venice.ai/api/v1/models", map[string]string{
+		"Authorization": "Bearer " + apiKey,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Data []struct {
+			ID            string `json:"id"`
+			Type          string `json:"type"`
+			ContextLength int    `json:"context_length"`
+			ModelSpec     struct {
+				Name    string `json:"name"`
+				Pricing struct {
+					Input struct {
+						USD float64 `json:"usd"`
+					} `json:"input"`
+					Output struct {
+						USD float64 `json:"usd"`
+					} `json:"output"`
+				} `json:"pricing"`
+			} `json:"model_spec"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	var models []ModelInfo
+	for _, m := range resp.Data {
+		if m.Type != "" && m.Type != "text" {
+			continue
+		}
+		name := m.ModelSpec.Name
+		if name == "" {
+			name = m.ID
+		}
+		models = append(models, ModelInfo{
+			ID:          m.ID,
+			Name:        name,
+			ContextSize: m.ContextLength,
+			InputCost:   m.ModelSpec.Pricing.Input.USD,
+			OutputCost:  m.ModelSpec.Pricing.Output.USD,
 		})
 	}
 	return models, nil

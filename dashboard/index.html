@@ -9,9 +9,21 @@
     <link rel="preload" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=block" as="style" />
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=block" rel="stylesheet" />
     <link rel="stylesheet" href="/style.css" />
+    <!-- Importmap so dynamically-loaded panel modules import React from the host -->
+    <script type="importmap">
+      {
+        "imports": {
+          "react": "/vendor/react.mjs",
+          "react/jsx-runtime": "/vendor/react-jsx-runtime.mjs",
+          "react/jsx-dev-runtime": "/vendor/react-jsx-runtime.mjs",
+          "react-dom": "/vendor/react-dom.mjs",
+          "react-dom/client": "/vendor/react-dom-client.mjs"
+        }
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/main-97ef70v9.js"></script>
+    <script type="module" src="/main-hth85n0x.js"></script>
   </body>
 </html>

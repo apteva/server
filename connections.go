@@ -208,13 +208,18 @@ func (s *Store) CreateMCPServerFromConnectionWithSlug(userID int64, conn *Connec
 	}
 	mcpName := s.uniqueMCPName(userID, conn.ProjectID, base, conn.ID)
 	// Description is what the dashboard renders as the row's headline.
-	// Use the user-chosen connection name so two connections of the same
-	// app are visually distinguishable (e.g. "SocialCast work" vs
-	// "SocialCast personal"). Fall back to the app's display name for
-	// legacy callers that didn't set a connection name.
+	// We want the suite + service context to read at a glance — e.g.
+	// "OmniKit Messaging M" rather than bare "M" — so prepend the
+	// app's display name when the connection name doesn't already
+	// carry it. Suite fan-outs save the connection as just the project
+	// label (sel.Label), which is the case this branch fixes; legacy
+	// single-app connections where the user typed "OmniKit Messaging
+	// work" stay as-is because HasPrefix catches the duplication.
 	description := conn.Name
 	if description == "" {
 		description = conn.AppName
+	} else if conn.AppName != "" && !strings.HasPrefix(description, conn.AppName) {
+		description = conn.AppName + " " + description
 	}
 	result, err := s.db.Exec(
 		"INSERT INTO mcp_servers (user_id, name, description, status, tool_count, source, connection_id, project_id, allowed_tools) VALUES (?, ?, ?, 'running', ?, 'local', ?, ?, ?)",

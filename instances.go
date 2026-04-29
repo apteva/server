@@ -594,6 +594,21 @@ func (s *Server) getBrowserConfig(userID int64, providerName string, projectID .
 				cfg["type"] = "service"
 				cfg["url"] = cdpURL
 			}
+			// Optional residential / corporate proxy for the local
+			// backend. When set, the agent's
+			// browser_session(open, proxy=true) routes that session
+			// through this URL (Chrome relaunches with --proxy-server
+			// applied; auth is honored via CDP). Per-provider value
+			// wins; APTEVA_LOCAL_PROXY_URL is a server-wide fallback
+			// for ops who'd rather wire it once at the deployment
+			// layer instead of in every dashboard provider record.
+			proxyURL := data["LOCAL_PROXY_URL"]
+			if proxyURL == "" {
+				proxyURL = os.Getenv("APTEVA_LOCAL_PROXY_URL")
+			}
+			if proxyURL != "" {
+				cfg["proxy_url"] = proxyURL
+			}
 			return cfg
 		}
 
