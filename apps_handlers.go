@@ -835,16 +835,23 @@ func (s *Server) handleSetInstallStatus(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, map[string]string{"status": body.Status})
 }
 
-// POST /api/apps/installs/:id/upgrade — apply the available version.
+// POST /api/apps/installs/:id/upgrade — re-run the install at the
+// upstream manifest's current version.
 //
-// For built-in apps the new code is already running (it's part of the
-// server binary); this just bumps app_installs.version to the bundled
-// manifest's version, which clears the dashboard's "update available"
-// badge.
+// Built-in apps: the new code already ships inside apteva-server, so
+// "upgrade" just bumps app_installs.version to the bundled manifest's
+// version — that clears the dashboard's "update available" badge.
 //
-// For source/registry installs (not yet wired) this would re-run the
-// install pipeline at the configured ref. The handler returns 501 in
-// that case so the caller knows to fall back to uninstall + reinstall.
+// Source/git apps: re-fetch the upstream apteva.yaml, run the same
+// BuildFromSource → spawn → swap sidecar pipeline as the original
+// install. The cached binary lives at $cacheDir/<name>/<old-version>
+// so the previous version stays on disk if the new build fails. The
+// install row's bin path / port / version are flipped atomically by
+// installFromSource on success.
+//
+// Manual installs (no source.repo / kind != source) can't be upgraded
+// in-place; the handler returns 501 with a message asking the operator
+// to uninstall + reinstall.
 func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/apps/installs/")
 	parts := strings.SplitN(rest, "/", 2)
@@ -858,48 +865,106 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var (
-		source, manifestJSON, currentVersion string
+		source, manifestJSON, currentVersion, projectID, configEnc string
 	)
 	err = s.store.db.QueryRow(
-		`SELECT a.source, a.manifest_json, i.version
+		`SELECT a.source, a.manifest_json, i.version, i.project_id, COALESCE(i.config_encrypted,'')
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.id = ?`, installID,
-	).Scan(&source, &manifestJSON, &currentVersion)
+	).Scan(&source, &manifestJSON, &currentVersion, &projectID, &configEnc)
 	if err != nil {
 		http.Error(w, "install not found", http.StatusNotFound)
 		return
 	}
-	var manifest sdk.Manifest
-	if err := json.Unmarshal([]byte(manifestJSON), &manifest); err != nil {
+	var stored sdk.Manifest
+	if err := json.Unmarshal([]byte(manifestJSON), &stored); err != nil {
 		http.Error(w, "manifest parse: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if source != "builtin" {
-		http.Error(w, "upgrade for non-builtin apps not implemented — uninstall + reinstall at the new ref", http.StatusNotImplemented)
+
+	// Built-in: just bump the version — the running binary already
+	// has whatever was bundled at server-build time.
+	if source == "builtin" {
+		if stored.Version == "" {
+			http.Error(w, "no available version in manifest", http.StatusInternalServerError)
+			return
+		}
+		if stored.Version == currentVersion {
+			writeJSON(w, map[string]string{"status": "up-to-date", "version": currentVersion})
+			return
+		}
+		if _, err := s.store.db.Exec(
+			`UPDATE app_installs SET version = ? WHERE id = ?`,
+			stored.Version, installID,
+		); err != nil {
+			http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]string{"status": "upgraded", "version": stored.Version})
 		return
 	}
-	if manifest.Version == "" {
-		http.Error(w, "no available version in manifest", http.StatusInternalServerError)
+
+	// Source apps: re-fetch the upstream apteva.yaml so the install
+	// gets the version the user actually wants, not the snapshot in
+	// apps.manifest_json (which may itself be stale if the cache hasn't
+	// rolled over).
+	url := deriveManifestURL(&stored)
+	if url == "" {
+		http.Error(w, "manifest has no github source — uninstall + reinstall at the desired ref", http.StatusNotImplemented)
 		return
 	}
-	if manifest.Version == currentVersion {
-		writeJSON(w, map[string]string{
-			"status":  "up-to-date",
-			"version": currentVersion,
-		})
+	live, err := s.fetchAndCacheManifest(url)
+	if err != nil || live == nil {
+		http.Error(w, "fetch upstream manifest: "+errString(err), http.StatusBadGateway)
+		return
+	}
+	if live.Version == "" {
+		http.Error(w, "upstream manifest has no version", http.StatusBadGateway)
+		return
+	}
+
+	// Decrypt the config_encrypted blob so the rebuild gets the same
+	// env that was passed at install time.
+	var cfg map[string]string
+	if configEnc != "" {
+		if plain, derr := Decrypt(s.secret, configEnc); derr == nil {
+			_ = json.Unmarshal([]byte(plain), &cfg)
+		}
+	}
+
+	// Persist the new manifest immediately so the next list call
+	// reflects the in-flight version even before the build completes.
+	if body, mErr := json.Marshal(live); mErr == nil {
+		s.store.db.Exec(`UPDATE apps SET manifest_json = ? WHERE name = ?`, string(body), live.Name)
+	}
+	s.store.db.Exec(
+		`UPDATE app_installs SET status='pending', status_message='Upgrading…', error_message='' WHERE id=?`,
+		installID,
+	)
+
+	// installFromSource clones + builds + respawns + flips the install
+	// row to running. Run synchronously so the dashboard's POST gets
+	// a definitive status code — operators clicking Update want to see
+	// success or failure inline, not a fire-and-forget 202.
+	if err := s.installFromSource(installID, live, projectID, cfg); err != nil {
+		http.Error(w, "rebuild: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if _, err := s.store.db.Exec(
 		`UPDATE app_installs SET version = ? WHERE id = ?`,
-		manifest.Version, installID,
+		live.Version, installID,
 	); err != nil {
-		http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "version bump: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]string{
-		"status":  "upgraded",
-		"version": manifest.Version,
-	})
+	writeJSON(w, map[string]string{"status": "upgraded", "version": live.Version})
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // PUT /api/apps/installs/:id/instances — set the binding list.
