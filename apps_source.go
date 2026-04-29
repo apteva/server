@@ -92,15 +92,27 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 	// bundle the source-tree has is at <srcDir>/<entry>/ui — point
 	// APTEVA_UI_DIR there so the SDK's static handler serves the
 	// real .mjs files instead of an empty data/ui/ dir.
-	uiSrcDir := srcDir
+	entryDir := srcDir
 	if entry != "" && entry != "." {
-		uiSrcDir = filepath.Join(srcDir, entry)
+		entryDir = filepath.Join(srcDir, entry)
 	}
-	uiSrcDir = filepath.Join(uiSrcDir, "ui")
 	if env == nil {
 		env = map[string]string{}
 	}
-	env["APTEVA_UI_DIR"] = uiSrcDir
+	env["APTEVA_UI_DIR"] = filepath.Join(entryDir, "ui")
+	// Resolve the manifest's relative migrations path to an absolute
+	// directory inside the cloned source tree. The SDK respects
+	// APTEVA_MIGRATIONS_DIR over the manifest field — without this,
+	// a sidecar spawned with cmd.Dir = <bin>/data would look up
+	// "migrations/" in the wrong place and apps would start with no
+	// schema (the "no such table: files" failure).
+	if m.DB != nil && m.DB.Migrations != "" {
+		migrations := m.DB.Migrations
+		if !filepath.IsAbs(migrations) {
+			migrations = filepath.Join(entryDir, migrations)
+		}
+		env["APTEVA_MIGRATIONS_DIR"] = migrations
+	}
 	if err := sup.spawn(installID, m.Name, binPath, port, env); err != nil {
 		return 0, "", err
 	}
