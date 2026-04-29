@@ -214,13 +214,15 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 	// non-fatal — the entry just goes out with a zero-value Surfaces
 	// struct, and the dashboard degrades gracefully (no badges).
 	surfacesByName := map[string]AppSurfaces{}
+	versionByName := map[string]string{}
 	for k, v := range builtinSurfaces {
 		surfacesByName[k] = v
 	}
 	{
 		type result struct {
-			name string
-			surf AppSurfaces
+			name    string
+			surf    AppSurfaces
+			version string
 		}
 		ch := make(chan result, len(reg.Apps))
 		dispatched := 0
@@ -239,15 +241,18 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 					ch <- result{name: name}
 					return
 				}
-				ch <- result{name: name, surf: surfacesFromManifest(m)}
+				ch <- result{name: name, surf: surfacesFromManifest(m), version: m.Version}
 			}(e.Name, e.ManifestURL)
 		}
 		for i := 0; i < dispatched; i++ {
 			r := <-ch
-			if _, hasBuiltin := surfacesByName[normalizeAppName(r.name)]; hasBuiltin {
-				continue
+			key := normalizeAppName(r.name)
+			if _, hasBuiltin := surfacesByName[key]; !hasBuiltin {
+				surfacesByName[key] = r.surf
 			}
-			surfacesByName[normalizeAppName(r.name)] = r.surf
+			if r.version != "" {
+				versionByName[key] = r.version
+			}
 		}
 	}
 	// Resolve each dep's ManifestURL from the registry + Installed
@@ -275,6 +280,14 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 	out := make([]entryWithStatus, 0, len(reg.Apps))
 	for _, e := range reg.Apps {
 		key := normalizeAppName(e.Name)
+		// Override the registry's hardcoded version with the live
+		// manifest's version when we successfully fetched it. The
+		// registry tends to drift behind real releases — showing the
+		// stale value confuses operators ("I just bumped storage to
+		// 0.1.1, why does the marketplace still say 0.1.0?").
+		if v, ok := versionByName[key]; ok && v != "" {
+			e.Version = v
+		}
 		out = append(out, entryWithStatus{
 			RegistryEntry: e,
 			Installed:     installed[key],
