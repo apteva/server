@@ -164,6 +164,34 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
+		// App-install token. Sidecars call back into the platform —
+		// either /api/apps/<other>/* (cross-app) or /api/apps/callback/*
+		// (PlatformClient) — using their APTEVA_APP_TOKEN, currently
+		// formatted "dev-<install_id>". Resolve it to the install row's
+		// installed_by user so downstream handlers see a normal user
+		// id; the proxy then swaps the header to the destination
+		// install's token before forwarding.
+		if token != "" && strings.HasPrefix(token, "dev-") {
+			if id, perr := atoi64(strings.TrimPrefix(token, "dev-")); perr == nil && id > 0 {
+				var (
+					installedBy int64
+					status      string
+				)
+				err := s.store.db.QueryRow(
+					`SELECT installed_by, status FROM app_installs WHERE id = ?`, id,
+				).Scan(&installedBy, &status)
+				if err == nil && status == "running" {
+					if installedBy == 0 {
+						installedBy = 1 // global / built-in installs default to admin
+					}
+					r.Header.Set("X-User-ID", itoa(installedBy))
+					r.Header.Set("X-Apteva-App-Install-ID", itoa(id))
+					next(w, r)
+					return
+				}
+			}
+		}
+
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	}
 }

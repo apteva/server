@@ -56,7 +56,6 @@ type AppSurfaces struct {
 	HTTPRouteCount  int      `json:"http_route_count"`
 	HTTPRoutes      []string `json:"http_routes,omitempty"`
 	UIPanelCount    int      `json:"ui_panel_count"`
-	UIPageCount     int      `json:"ui_page_count"`
 	UIApp           bool     `json:"ui_app"`
 	UIAppMount      string   `json:"ui_app_mount,omitempty"`
 	ChannelCount    int      `json:"channel_count"`
@@ -386,7 +385,6 @@ func surfacesFromManifest(m *sdk.Manifest) AppSurfaces {
 		MCPToolCount:    len(m.Provides.MCPTools),
 		HTTPRouteCount:  len(m.Provides.HTTPRoutes),
 		UIPanelCount:    len(m.Provides.UIPanels),
-		UIPageCount:     len(m.Provides.UIPages),
 		UIApp:           m.Provides.UIApp != nil,
 		ChannelCount:    len(m.Provides.Channels),
 		WorkerCount:     len(m.Provides.Workers),
