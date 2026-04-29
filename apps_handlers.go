@@ -305,33 +305,67 @@ func getRegistryURLFromEnv() string {
 	return os.Getenv("APTEVA_APP_REGISTRY_URL")
 }
 
-// refreshManifestFromSidecar pulls the live manifest from a running
-// sidecar's /manifest endpoint and overwrites apps.manifest_json so the
-// dashboard's "update available" detector sees the version the sidecar
-// itself reports rather than the snapshot taken at install time.
+// deriveManifestURL converts a manifest's runtime.source (github
+// owner/repo + ref + entry path) into the raw URL of the upstream
+// apteva.yaml. Returns "" when the source isn't github-shaped — the
+// caller falls back to the stored snapshot.
+func deriveManifestURL(m *sdk.Manifest) string {
+	if m == nil {
+		return ""
+	}
+	s := m.Runtime.Source
+	if s == nil || s.Repo == "" {
+		return ""
+	}
+	repo := strings.TrimPrefix(s.Repo, "https://")
+	repo = strings.TrimPrefix(repo, "http://")
+	repo = strings.TrimSuffix(repo, ".git")
+	if !strings.HasPrefix(repo, "github.com/") {
+		return ""
+	}
+	ownerAndRepo := strings.TrimPrefix(repo, "github.com/")
+	ref := s.Ref
+	if ref == "" {
+		ref = "main"
+	}
+	entry := s.Entry
+	if entry == "" || entry == "." {
+		return fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/apteva.yaml", ownerAndRepo, ref)
+	}
+	return fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/apteva.yaml", ownerAndRepo, ref, strings.Trim(entry, "/"))
+}
+
+// refreshManifestFromUpstream re-fetches the live apteva.yaml from
+// the install's source (github raw URL derived from the stored
+// manifest's runtime.source) and writes it back into apps.manifest_json
+// so the dashboard's "update available" detector compares the
+// installed version against what's actually upstream — not against
+// the snapshot taken at install time, and not against the running
+// sidecar (which always reports its own embedded version, so an
+// install can never lag itself).
 //
-// Best-effort: any error (sidecar down, no /manifest, parse failure)
-// leaves the DB row untouched so the listing falls back to the stored
-// snapshot. Logs are quiet because mass-failures (e.g. orchestrator
-// unreachable) would flood with no signal.
-func (s *Server) refreshManifestFromSidecar(appName, sidecarURL string) {
-	if sidecarURL == "" || appName == "" {
+// Best-effort: cache-backed fetch, errors leave the row untouched.
+func (s *Server) refreshManifestFromUpstream(appName, manifestJSON string) {
+	if appName == "" || manifestJSON == "" {
 		return
 	}
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(sidecarURL + "/manifest")
-	if err != nil || resp.StatusCode != http.StatusOK {
-		if resp != nil {
-			resp.Body.Close()
-		}
+	var current sdk.Manifest
+	if err := json.Unmarshal([]byte(manifestJSON), &current); err != nil {
 		return
 	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	url := deriveManifestURL(&current)
+	if url == "" {
+		return
+	}
+	live, err := s.fetchAndCacheManifest(url)
+	if err != nil || live == nil {
+		return
+	}
+	if live.Version == "" || live.Version == current.Version {
+		return
+	}
+	body, err := json.Marshal(live)
 	if err != nil {
-		return
-	}
-	if !json.Valid(body) {
 		return
 	}
 	s.store.db.Exec(
@@ -357,12 +391,24 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 		args = append(args, projectID)
 	}
 	q += ` ORDER BY a.name`
-	// Refresh manifest_json from running sidecars before reading.
-	// Best-effort and bounded: only non-builtin running installs we
-	// already have a SidecarURL for (in-memory registry). Built-ins
-	// are kept fresh by RegisterBuiltinApps on every boot.
-	for _, e := range s.installedApps.List() {
-		s.refreshManifestFromSidecar(e.AppName, e.SidecarURL)
+	// Refresh manifest_json from upstream before reading. For each
+	// non-builtin install whose runtime.source points at a github
+	// repo, fetch the raw apteva.yaml (cached 1h) and overwrite
+	// the stored snapshot so available_version reflects what's
+	// actually published — not the version captured at install time.
+	type appPair struct{ name, manifestJSON string }
+	var pairs []appPair
+	if rs, err := s.store.db.Query(`SELECT name, manifest_json FROM apps WHERE source != 'builtin'`); err == nil {
+		for rs.Next() {
+			var p appPair
+			if rs.Scan(&p.name, &p.manifestJSON) == nil {
+				pairs = append(pairs, p)
+			}
+		}
+		rs.Close()
+	}
+	for _, p := range pairs {
+		s.refreshManifestFromUpstream(p.name, p.manifestJSON)
 	}
 	rows, err := s.store.db.Query(q, args...)
 	if err != nil {
