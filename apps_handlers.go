@@ -27,8 +27,9 @@ type AppRow struct {
 	AppID         int64            `json:"app_id"`
 	Name          string           `json:"name"`
 	DisplayName   string           `json:"display_name"`
-	Version       string           `json:"version"`
-	Description   string           `json:"description"`
+	Version          string `json:"version"`
+	AvailableVersion string `json:"available_version,omitempty"`
+	Description      string `json:"description"`
 	Icon          string           `json:"icon"`
 	ProjectID     string           `json:"project_id"`
 	Status        string           `json:"status"`
@@ -291,6 +292,41 @@ func getRegistryURLFromEnv() string {
 	return os.Getenv("APTEVA_APP_REGISTRY_URL")
 }
 
+// refreshManifestFromSidecar pulls the live manifest from a running
+// sidecar's /manifest endpoint and overwrites apps.manifest_json so the
+// dashboard's "update available" detector sees the version the sidecar
+// itself reports rather than the snapshot taken at install time.
+//
+// Best-effort: any error (sidecar down, no /manifest, parse failure)
+// leaves the DB row untouched so the listing falls back to the stored
+// snapshot. Logs are quiet because mass-failures (e.g. orchestrator
+// unreachable) would flood with no signal.
+func (s *Server) refreshManifestFromSidecar(appName, sidecarURL string) {
+	if sidecarURL == "" || appName == "" {
+		return
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(sidecarURL + "/manifest")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+	if !json.Valid(body) {
+		return
+	}
+	s.store.db.Exec(
+		`UPDATE apps SET manifest_json = ? WHERE name = ? AND source != 'builtin'`,
+		string(body), appName,
+	)
+}
+
 // GET /api/apps[?project_id=X]
 //
 // Returns one row per install visible to the caller — project installs
@@ -308,6 +344,13 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 		args = append(args, projectID)
 	}
 	q += ` ORDER BY a.name`
+	// Refresh manifest_json from running sidecars before reading.
+	// Best-effort and bounded: only non-builtin running installs we
+	// already have a SidecarURL for (in-memory registry). Built-ins
+	// are kept fresh by RegisterBuiltinApps on every boot.
+	for _, e := range s.installedApps.List() {
+		s.refreshManifestFromSidecar(e.AppName, e.SidecarURL)
+	}
 	rows, err := s.store.db.Query(q, args...)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -332,7 +375,9 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal([]byte(permsJSON), &perms)
 		out = append(out, AppRow{
 			InstallID: installID, AppID: appID, Name: name, DisplayName: manifest.DisplayName,
-			Version: version, Description: manifest.Description, Icon: manifest.Icon,
+			Version:          version,
+			AvailableVersion: manifest.Version,
+			Description:      manifest.Description, Icon: manifest.Icon,
 			ProjectID: projID, Status: status, StatusMessage: statusMsg, ErrorMessage: errMsg,
 			Source: source, UpgradePolicy: upgradePolicy,
 			Permissions: perms, Surfaces: surfacesFromManifest(&manifest),
@@ -729,6 +774,73 @@ func (s *Server) handleSetInstallStatus(w http.ResponseWriter, r *http.Request) 
 		s.LoadInstalledApps()
 	}
 	writeJSON(w, map[string]string{"status": body.Status})
+}
+
+// POST /api/apps/installs/:id/upgrade — apply the available version.
+//
+// For built-in apps the new code is already running (it's part of the
+// server binary); this just bumps app_installs.version to the bundled
+// manifest's version, which clears the dashboard's "update available"
+// badge.
+//
+// For source/registry installs (not yet wired) this would re-run the
+// install pipeline at the configured ref. The handler returns 501 in
+// that case so the caller knows to fall back to uninstall + reinstall.
+func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/apps/installs/")
+	parts := strings.SplitN(rest, "/", 2)
+	if len(parts) != 2 || parts[1] != "upgrade" {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	installID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	var (
+		source, manifestJSON, currentVersion string
+	)
+	err = s.store.db.QueryRow(
+		`SELECT a.source, a.manifest_json, i.version
+		 FROM app_installs i JOIN apps a ON a.id = i.app_id
+		 WHERE i.id = ?`, installID,
+	).Scan(&source, &manifestJSON, &currentVersion)
+	if err != nil {
+		http.Error(w, "install not found", http.StatusNotFound)
+		return
+	}
+	var manifest sdk.Manifest
+	if err := json.Unmarshal([]byte(manifestJSON), &manifest); err != nil {
+		http.Error(w, "manifest parse: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if source != "builtin" {
+		http.Error(w, "upgrade for non-builtin apps not implemented — uninstall + reinstall at the new ref", http.StatusNotImplemented)
+		return
+	}
+	if manifest.Version == "" {
+		http.Error(w, "no available version in manifest", http.StatusInternalServerError)
+		return
+	}
+	if manifest.Version == currentVersion {
+		writeJSON(w, map[string]string{
+			"status":  "up-to-date",
+			"version": currentVersion,
+		})
+		return
+	}
+	if _, err := s.store.db.Exec(
+		`UPDATE app_installs SET version = ? WHERE id = ?`,
+		manifest.Version, installID,
+	); err != nil {
+		http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]string{
+		"status":  "upgraded",
+		"version": manifest.Version,
+	})
 }
 
 // PUT /api/apps/installs/:id/instances — set the binding list.

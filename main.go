@@ -577,6 +577,8 @@ func main() {
 			s.handleSetInstallStatus(w, r)
 		case strings.HasSuffix(path, "/instances") && r.Method == http.MethodPut:
 			s.handleSetInstallBindings(w, r)
+		case strings.HasSuffix(path, "/upgrade") && r.Method == http.MethodPost:
+			s.handleUpgradeApp(w, r)
 		case !strings.Contains(path, "/") && r.Method == http.MethodDelete:
 			s.handleUninstallApp(w, r)
 		default:

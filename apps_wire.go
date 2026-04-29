@@ -329,9 +329,14 @@ func (s *Server) seedBuiltinInstalls(reg *framework.Registry) {
 			log.Printf("[APPS] seed builtin %s: insert install: %v", fm.Slug, err)
 			continue
 		}
+		// Don't touch `version` on every boot — that pegs installed
+		// to bundled and makes "update available" detection impossible
+		// for built-ins. Version flips on explicit upgrade only
+		// (POST /api/apps/installs/{id}/upgrade). The seed INSERT above
+		// sets the initial version when the row is first created.
 		s.store.db.Exec(
-			`UPDATE app_installs SET status='running', version=? WHERE app_id=? AND project_id=''`,
-			fm.Version, appID,
+			`UPDATE app_installs SET status='running' WHERE app_id=? AND project_id=''`,
+			appID,
 		)
 	}
 }
