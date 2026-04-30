@@ -1084,6 +1084,20 @@ func (s *Server) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, map[string]any{"success": true, "status": 200, "data": json.RawMessage(result)})
+	case "app":
+		// Apps-bridge: same shape as remote — call the bridge URL via
+		// the same callRemoteMCPTool helper. The URL already carries
+		// ?api_key=dev-<install_id> so the auth middleware accepts it.
+		if record.URL == "" {
+			http.Error(w, "app mcp row has no URL — install may have failed", http.StatusInternalServerError)
+			return
+		}
+		result, err := callRemoteMCPTool(record.URL, body.Tool, body.Args, env)
+		if err != nil {
+			writeJSON(w, map[string]any{"success": false, "status": 0, "data": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"success": true, "status": 200, "data": json.RawMessage(result)})
 	case "custom":
 		proc, ok := s.mcpManager.processByID(serverID)
 		if !ok {
