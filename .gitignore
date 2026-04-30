@@ -1,7 +1,8 @@
 .env
-server
-server.db
+.env.*
+*.db
 *.db-shm
 *.db-wal
 data/
+server
 apteva-server
