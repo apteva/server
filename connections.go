@@ -240,6 +240,165 @@ func (s *Store) CreateMCPServerFromConnectionWithSlug(userID int64, conn *Connec
 	return result.LastInsertId()
 }
 
+// createRemoteMcpFromConnection writes the mcp_servers row for a
+// kind=remote_mcp app connection. Mirrors CreateMCPServerFromConnection
+// for legacy REST integrations, but instead of pointing the row at the
+// per-server proxy URL, it points at the vendor's hosted MCP and stores
+// the resolved auth header in encrypted_env so MCPManager.Start can
+// supply it on every probe + forwarded call (probeRemoteMCP reads
+// env["AUTHORIZATION"] / env["API_KEY"]).
+//
+// `encCreds` is the same encrypted credentials blob GetConnection
+// returns — kept as the parameter shape so callers don't have to
+// re-fetch from the DB. The function decrypts, resolves the
+// auth-header template ({{token}} / {{api_key}}), and re-encrypts the
+// derived env JSON. Returns the new mcp_servers row id.
+func (s *Server) createRemoteMcpFromConnection(userID int64, conn *Connection, app *AppTemplate, encCreds string) (int64, error) {
+	if app == nil || app.Kind != "remote_mcp" {
+		return 0, fmt.Errorf("createRemoteMcpFromConnection requires kind=remote_mcp, got %q", app.Kind)
+	}
+	if app.MCP == nil || app.MCP.URL == "" {
+		return 0, fmt.Errorf("app %s missing mcp.url", app.Slug)
+	}
+
+	// Default header pattern matches the TS generator: Authorization:
+	// Bearer {{token}}. Templates can override per-app for vendors that
+	// expect a different header (e.g. X-Auth-Token) or value layout.
+	headerName := "Authorization"
+	headerValue := "Bearer {{token}}"
+	if app.MCP.AuthHeader != nil {
+		if app.MCP.AuthHeader.Name != "" {
+			headerName = app.MCP.AuthHeader.Name
+		}
+		if app.MCP.AuthHeader.Value != "" {
+			headerValue = app.MCP.AuthHeader.Value
+		}
+	}
+
+	plain, err := Decrypt(s.secret, encCreds)
+	if err != nil {
+		return 0, fmt.Errorf("decrypt creds: %w", err)
+	}
+	var credentials map[string]string
+	if uerr := json.Unmarshal([]byte(plain), &credentials); uerr != nil {
+		return 0, fmt.Errorf("parse creds: %w", uerr)
+	}
+	resolved, ok := resolveRemoteMcpCredTemplate(headerValue, credentials)
+	if !ok {
+		// At least one {{name}} placeholder did not resolve to a real
+		// credential value. Fail loud — the upstream MCP would reject
+		// the call anyway, and a silent "this connection is broken"
+		// row is worse than a startup error operators can see.
+		return 0, fmt.Errorf("could not resolve auth header %q from connection credentials", headerValue)
+	}
+
+	// probeRemoteMCP / MCPManager.Start read env keys case-sensitively
+	// for "AUTHORIZATION" and "API_KEY". Normalize standard headers to
+	// those keys; pass through any other header verbatim under its
+	// upper-cased name so the proxy can apply it generically.
+	envKey := strings.ToUpper(headerName)
+	if envKey == "AUTHORIZATION" || envKey == "API_KEY" || envKey == "X-API-KEY" {
+		// X-Api-Key ends up under API_KEY for the existing branch.
+		if envKey == "X-API-KEY" {
+			envKey = "API_KEY"
+		}
+	}
+	envMap := map[string]string{envKey: resolved}
+	envJSON, _ := json.Marshal(envMap)
+	encEnv, err := Encrypt(s.secret, string(envJSON))
+	if err != nil {
+		return 0, fmt.Errorf("encrypt env: %w", err)
+	}
+
+	// Stable upstream_id keyed on the connection so a retry / re-OAuth
+	// updates the same row instead of multiplying entries (matches
+	// Composio's discipline).
+	upstreamID := fmt.Sprintf("remote_mcp:%d", conn.ID)
+
+	// Dedup against the connection_id — if this is a re-run after
+	// re-OAuth, drop the prior row first so the insert below produces a
+	// single, fresh entry with the new env.
+	s.store.DeleteMCPServerByConnection(conn.ID)
+
+	base := slugify(conn.Name)
+	if base == "" {
+		base = conn.AppSlug
+	}
+	mcpName := s.store.uniqueMCPName(userID, conn.ProjectID, base, conn.ID)
+
+	description := conn.Name
+	if description == "" {
+		description = conn.AppName
+	} else if conn.AppName != "" && !strings.HasPrefix(description, conn.AppName) {
+		description = conn.AppName + " " + description
+	}
+
+	rec, err := s.store.CreateMCPServerExt(MCPServerInput{
+		UserID:       userID,
+		Name:         mcpName,
+		Description:  description,
+		ProjectID:    conn.ProjectID,
+		Source:       "remote",
+		Transport:    "http",
+		URL:          app.MCP.URL,
+		ConnectionID: conn.ID,
+		EncryptedEnv: encEnv,
+		UpstreamID:   upstreamID,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return rec.ID, nil
+}
+
+// resolveRemoteMcpCredTemplate substitutes {{name}} placeholders in an
+// auth-header template against a flat credential map. Mirrors the
+// alias logic in @apteva/integrations/src/mcp-generator.ts so an app
+// declaring `Bearer {{token}}` works whether the connection stored
+// the OAuth result under `token`, `access_token`, or `bearer_token`.
+//
+// Returns (resolvedString, allPlaceholdersMatched). The boolean is
+// false if ANY placeholder resolved to an empty string — the caller
+// should reject the connection rather than persist a half-substituted
+// header (which the upstream would 401 anyway, with no clue why).
+func resolveRemoteMcpCredTemplate(template string, creds map[string]string) (string, bool) {
+	pick := func(names ...string) string {
+		for _, n := range names {
+			if v, ok := creds[n]; ok && v != "" {
+				return v
+			}
+		}
+		return ""
+	}
+	allOK := true
+	out := template
+	for {
+		i := strings.Index(out, "{{")
+		if i < 0 {
+			break
+		}
+		j := strings.Index(out[i:], "}}")
+		if j < 0 {
+			break
+		}
+		key := out[i+2 : i+j]
+		var val string
+		switch key {
+		case "token":
+			val = pick("token", "access_token", "bearer_token", "api_key")
+		case "api_key":
+			val = pick("api_key", "token")
+		default:
+			val = creds[key]
+		}
+		if val == "" {
+			allOK = false
+		}
+		out = out[:i] + val + out[i+j+2:]
+	}
+	return out, allOK
+}
+
 // CanonicalMCPNameForConnection returns the canonical MCP server name used
 // as the tool-name prefix for a connection. It prefers the default (non-
 // scoped) mcp_servers row bound to that connection; if none is found (e.g.
@@ -1043,7 +1202,21 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 	// caller, not every agent in the project. Operators can
 	// "Expose to agents" later from the connection card.
 	if body.CreatedVia != "app_install" {
-		if mcpID, merr := s.store.CreateMCPServerFromConnection(userID, conn, len(app.Tools)); merr != nil {
+		if app.Kind == "remote_mcp" {
+			// Hosted-MCP apps go through the vendor's MCP server, not a
+			// generated local stdio. Re-fetch the encrypted creds blob
+			// the connection just persisted so we can resolve the auth
+			// header template once and stash the upstream URL + creds in
+			// mcp_servers as source=remote.
+			_, encCreds, gerr := s.store.GetConnection(userID, conn.ID)
+			if gerr != nil {
+				log.Printf("[CONN] remote-mcp auto-mcp FAILED (load creds) conn=%d: %v", conn.ID, gerr)
+			} else if mcpID, merr := s.createRemoteMcpFromConnection(userID, conn, app, encCreds); merr != nil {
+				log.Printf("[CONN] remote-mcp auto-mcp FAILED conn=%d (%s/%s): %v", conn.ID, conn.AppSlug, conn.Name, merr)
+			} else {
+				log.Printf("[CONN] remote-mcp auto-mcp created mcp_id=%d conn=%d slug=%s url=%s", mcpID, conn.ID, conn.AppSlug, app.MCP.URL)
+			}
+		} else if mcpID, merr := s.store.CreateMCPServerFromConnection(userID, conn, len(app.Tools)); merr != nil {
 			log.Printf("[CONN] local auto-mcp FAILED conn=%d (%s/%s): %v", conn.ID, conn.AppSlug, conn.Name, merr)
 		} else {
 			log.Printf("[CONN] local auto-mcp created mcp_id=%d conn=%d slug=%s tools=%d", mcpID, conn.ID, conn.AppSlug, len(app.Tools))

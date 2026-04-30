@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -473,11 +474,19 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 	}
 	s.store.UpdateConnectionStatus(row.ConnectionID, "active")
 
-	// Auto-create local mcp_servers shim row (mirrors the non-OAuth path in
-	// handleCreateConnection).
-	conn, _, err := s.store.GetConnection(row.UserID, row.ConnectionID)
+	// Auto-create the mcp_servers row (mirrors the non-OAuth path in
+	// handleCreateConnection). For kind=remote_mcp apps the row points
+	// at the vendor's hosted MCP with the freshly-issued OAuth token
+	// stored in encrypted_env; legacy REST apps get the local shim.
+	conn, encCreds, err := s.store.GetConnection(row.UserID, row.ConnectionID)
 	if err == nil {
-		s.store.CreateMCPServerFromConnection(row.UserID, conn, len(app.Tools))
+		if app.Kind == "remote_mcp" {
+			if _, merr := s.createRemoteMcpFromConnection(row.UserID, conn, app, encCreds); merr != nil {
+				log.Printf("[OAUTH] remote-mcp auto-mcp failed conn=%d slug=%s: %v", conn.ID, conn.AppSlug, merr)
+			}
+		} else {
+			s.store.CreateMCPServerFromConnection(row.UserID, conn, len(app.Tools))
+		}
 	}
 
 	renderOAuthResult(w, true, "Connection authorized. You can close this tab.")

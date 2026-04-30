@@ -27,6 +27,27 @@ type AppTemplate struct {
 	// apps leave both nil. See types.ts for the canonical description.
 	CredentialGroup *CredentialGroup `json:"credential_group,omitempty"`
 	Scopes          *AppScopes       `json:"scopes,omitempty"`
+	// Integration kind. Empty / "rest" = legacy default (tools defined
+	// in `Tools` and proxied via the per-connection generated stdio
+	// MCP). "remote_mcp" = vendor hosts the MCP server; we proxy tool
+	// calls through to the URL declared in `MCP`. Tools is allowed to
+	// be empty for remote_mcp templates because the upstream's
+	// tools/list response is the source of truth.
+	Kind string           `json:"kind,omitempty"`
+	MCP  *RemoteMcpConfig `json:"mcp,omitempty"`
+}
+
+// RemoteMcpConfig describes how to reach a vendor-hosted MCP server.
+// Mirrors @apteva/integrations/src/types.ts RemoteMcpConfig.
+type RemoteMcpConfig struct {
+	Transport  string             `json:"transport"` // "http" | "sse"
+	URL        string             `json:"url"`
+	AuthHeader *McpAuthHeaderTmpl `json:"auth_header,omitempty"`
+}
+
+type McpAuthHeaderTmpl struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 // --- Credential groups (suites) ---
@@ -230,6 +251,11 @@ type AppSummary struct {
 	ToolCount      int      `json:"tool_count"`
 	HasWebhooks    bool              `json:"has_webhooks"`
 	WebhookEvents  []AppWebhookEvent `json:"webhook_events,omitempty"`
+	// Kind = "rest" (default) or "remote_mcp". Surfaced so the catalog
+	// UI can render a "hosted MCP" badge alongside a REST entry with
+	// the same brand (e.g. `hubspot` and `hubspot-mcp`). Empty for
+	// legacy entries — UI should treat empty as "rest".
+	Kind string `json:"kind,omitempty"`
 }
 
 // --- App Catalog ---
@@ -425,6 +451,7 @@ func (c *AppCatalog) List() []AppSummary {
 			Categories:  app.Categories,
 			AuthTypes:   app.Auth.Types,
 			ToolCount:   len(app.Tools),
+			Kind:        app.Kind,
 		}
 		// Webhook capability comes from the app's webhooks config
 		if app.Webhooks != nil && len(app.Webhooks.Events) > 0 {

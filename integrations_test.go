@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -400,5 +401,256 @@ func TestMCPServerAutoCreatedFromConnection(t *testing.T) {
 	servers2, _ := s.store.ListMCPServers(1)
 	if len(servers2) != 0 {
 		t.Errorf("expected 0 after delete, got %d", len(servers2))
+	}
+}
+
+// TestRemoteMcpAppLoad verifies the catalog parses kind=remote_mcp +
+// the embedded mcp{} block. Without these the new HubSpot hosted-MCP
+// entry (and any future Notion / Linear hosted MCPs) would silently
+// load as legacy REST apps with empty Tools.
+func TestRemoteMcpAppLoad(t *testing.T) {
+	dir := t.TempDir()
+
+	hubspotMcp := `{
+		"slug": "hubspot-mcp",
+		"name": "HubSpot (hosted MCP)",
+		"description": "Vendor-hosted MCP",
+		"categories": ["crm", "mcp"],
+		"kind": "remote_mcp",
+		"base_url": "https://mcp-eu1.hubspot.com",
+		"mcp": {
+			"transport": "http",
+			"url": "https://mcp-eu1.hubspot.com/mcp",
+			"auth_header": {
+				"name": "Authorization",
+				"value": "Bearer {{token}}"
+			}
+		},
+		"auth": {
+			"types": ["oauth2"],
+			"oauth2": {
+				"authorize_url": "https://mcp-eu1.hubspot.com/oauth/authorize/user",
+				"token_url": "https://mcp-eu1.hubspot.com/oauth/token",
+				"scopes": [],
+				"client_id_required": true,
+				"pkce": true
+			}
+		},
+		"tools": []
+	}`
+
+	if err := os.WriteFile(filepath.Join(dir, "hubspot-mcp.json"), []byte(hubspotMcp), 0644); err != nil {
+		t.Fatalf("write hubspot-mcp.json: %v", err)
+	}
+
+	catalog := NewAppCatalog()
+	if err := catalog.LoadFromDir(dir); err != nil {
+		t.Fatalf("LoadFromDir: %v", err)
+	}
+
+	app := catalog.Get("hubspot-mcp")
+	if app == nil {
+		t.Fatal("expected hubspot-mcp in catalog")
+	}
+	if app.Kind != "remote_mcp" {
+		t.Errorf("kind: expected remote_mcp, got %q", app.Kind)
+	}
+	if app.MCP == nil {
+		t.Fatal("MCP config missing")
+	}
+	if app.MCP.Transport != "http" {
+		t.Errorf("transport: expected http, got %q", app.MCP.Transport)
+	}
+	if app.MCP.URL != "https://mcp-eu1.hubspot.com/mcp" {
+		t.Errorf("url: %q", app.MCP.URL)
+	}
+	if app.MCP.AuthHeader == nil || app.MCP.AuthHeader.Name != "Authorization" {
+		t.Errorf("auth_header missing or wrong: %+v", app.MCP.AuthHeader)
+	}
+	if app.MCP.AuthHeader.Value != "Bearer {{token}}" {
+		t.Errorf("auth_header value: %q", app.MCP.AuthHeader.Value)
+	}
+	// remote_mcp templates legitimately have empty tools — the upstream
+	// is the source of truth via tools/list.
+	if len(app.Tools) != 0 {
+		t.Errorf("remote_mcp tools should be empty, got %d", len(app.Tools))
+	}
+
+	// AppSummary must surface kind so the catalog UI can render the
+	// "hosted MCP" badge alongside the REST entry with the same brand.
+	list := catalog.List()
+	if len(list) != 1 {
+		t.Fatalf("expected 1 summary, got %d", len(list))
+	}
+	if list[0].Kind != "remote_mcp" {
+		t.Errorf("summary.Kind: expected remote_mcp, got %q", list[0].Kind)
+	}
+}
+
+// TestRemoteMcpAutoCreatedFromConnection drives the full server seam:
+// load a kind=remote_mcp template into the catalog, decrypt creds, and
+// verify createRemoteMcpFromConnection writes a single mcp_servers row
+// pointing at the vendor's hosted URL with the OAuth token resolved
+// into encrypted_env. This is what handleCreateConnection +
+// handleOAuthCallback both call after a successful connect.
+func TestRemoteMcpAutoCreatedFromConnection(t *testing.T) {
+	s := newTestServer(t)
+	s.secret = testSecret()
+	s.catalog = NewAppCatalog()
+
+	// Inject a remote_mcp app directly into the catalog.
+	tok := "Bearer {{token}}"
+	s.catalog.Register(&AppTemplate{
+		Slug:        "hubspot-mcp",
+		Name:        "HubSpot (hosted MCP)",
+		Description: "test",
+		BaseURL:     "https://mcp-eu1.hubspot.com",
+		Kind:        "remote_mcp",
+		MCP: &RemoteMcpConfig{
+			Transport: "http",
+			URL:       "https://mcp-eu1.hubspot.com/mcp",
+			AuthHeader: &McpAuthHeaderTmpl{
+				Name:  "Authorization",
+				Value: tok,
+			},
+		},
+		Auth: AppAuthConfig{Types: []string{"oauth2"}},
+	})
+
+	// Persist a connection as if OAuth had just completed.
+	credsJSON, _ := json.Marshal(map[string]string{
+		"access_token": "ya29.fakeTokenAbc",
+	})
+	encCreds, err := Encrypt(s.secret, string(credsJSON))
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	conn, err := s.store.CreateConnectionExt(ConnectionInput{
+		UserID:    1,
+		AppSlug:   "hubspot-mcp",
+		AppName:   "HubSpot (hosted MCP)",
+		Name:      "Demo Portal",
+		AuthType:  "oauth2",
+		EncryptedCreds: encCreds,
+		ProjectID: "demo",
+		Source:    "local",
+		Status:    "active",
+	})
+	if err != nil {
+		t.Fatalf("create conn: %v", err)
+	}
+
+	mcpID, err := s.createRemoteMcpFromConnection(1, conn, s.catalog.Get("hubspot-mcp"), encCreds)
+	if err != nil {
+		t.Fatalf("createRemoteMcpFromConnection: %v", err)
+	}
+	if mcpID == 0 {
+		t.Fatal("expected non-zero mcp id")
+	}
+
+	// Row should be source=remote, transport=http, url=upstream.
+	rec, encEnv, err := s.store.GetMCPServer(1, mcpID)
+	if err != nil {
+		t.Fatalf("GetMCPServer: %v", err)
+	}
+	if rec.Source != "remote" {
+		t.Errorf("source: expected remote, got %q", rec.Source)
+	}
+	if rec.Transport != "http" {
+		t.Errorf("transport: expected http, got %q", rec.Transport)
+	}
+	if rec.URL != "https://mcp-eu1.hubspot.com/mcp" {
+		t.Errorf("url: %q", rec.URL)
+	}
+	if rec.ConnectionID != conn.ID {
+		t.Errorf("connection_id: expected %d, got %d", conn.ID, rec.ConnectionID)
+	}
+
+	// encrypted_env should decrypt into {"AUTHORIZATION": "Bearer ya29.fakeTokenAbc"}.
+	plain, derr := Decrypt(s.secret, encEnv)
+	if derr != nil {
+		t.Fatalf("decrypt env: %v", derr)
+	}
+	var env map[string]string
+	if uerr := json.Unmarshal([]byte(plain), &env); uerr != nil {
+		t.Fatalf("unmarshal env: %v", uerr)
+	}
+	want := "Bearer ya29.fakeTokenAbc"
+	if env["AUTHORIZATION"] != want {
+		t.Errorf("env[AUTHORIZATION]: expected %q, got %q", want, env["AUTHORIZATION"])
+	}
+
+	// Re-running createRemoteMcpFromConnection should leave a SINGLE row,
+	// not multiply (this is what re-OAuth after token expiry does).
+	if _, err := s.createRemoteMcpFromConnection(1, conn, s.catalog.Get("hubspot-mcp"), encCreds); err != nil {
+		t.Fatalf("re-create: %v", err)
+	}
+	rows, _ := s.store.ListMCPServers(1, "demo")
+	count := 0
+	for _, r := range rows {
+		if r.ConnectionID == conn.ID {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected 1 row after re-create, got %d", count)
+	}
+}
+
+// TestRemoteMcpRejectsUnresolvedTemplate guards against a silent
+// "broken connection" — if the template references a credential field
+// that doesn't exist on the connection, we fail loud so operators can
+// see the misconfiguration before the agent tries to call upstream.
+func TestRemoteMcpRejectsUnresolvedTemplate(t *testing.T) {
+	s := newTestServer(t)
+	s.secret = testSecret()
+	s.catalog = NewAppCatalog()
+
+	s.catalog.Register(&AppTemplate{
+		Slug:    "broken-mcp",
+		Name:    "Broken",
+		BaseURL: "https://x.example.com",
+		Kind:    "remote_mcp",
+		MCP: &RemoteMcpConfig{
+			Transport: "http",
+			URL:       "https://x.example.com/mcp",
+			AuthHeader: &McpAuthHeaderTmpl{
+				Name:  "Authorization",
+				Value: "Bearer {{nonexistent}}",
+			},
+		},
+		Auth: AppAuthConfig{Types: []string{"oauth2"}},
+	})
+
+	credsJSON, _ := json.Marshal(map[string]string{"access_token": "abc"})
+	encCreds, _ := Encrypt(s.secret, string(credsJSON))
+	conn, _ := s.store.CreateConnectionExt(ConnectionInput{
+		UserID: 1, AppSlug: "broken-mcp", Name: "x", AuthType: "oauth2",
+		EncryptedCreds: encCreds, Source: "local", Status: "active",
+	})
+
+	_, err := s.createRemoteMcpFromConnection(1, conn, s.catalog.Get("broken-mcp"), encCreds)
+	if err == nil {
+		t.Fatal("expected error for unresolved {{nonexistent}}")
+	}
+	if !strings.Contains(err.Error(), "could not resolve") {
+		t.Errorf("expected 'could not resolve' error, got %v", err)
+	}
+}
+
+// TestLegacyAppKindEmpty makes sure existing REST templates still load
+// with an empty Kind (so older entries don't need to be rewritten and
+// the UI's empty-means-rest convention holds).
+func TestLegacyAppKindEmpty(t *testing.T) {
+	catalog := createTestCatalog(t)
+	app := catalog.Get("pushover")
+	if app == nil {
+		t.Fatal("expected pushover")
+	}
+	if app.Kind != "" {
+		t.Errorf("legacy app should have empty Kind, got %q", app.Kind)
+	}
+	if app.MCP != nil {
+		t.Errorf("legacy app should have nil MCP, got %+v", app.MCP)
 	}
 }
