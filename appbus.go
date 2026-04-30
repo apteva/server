@@ -24,6 +24,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -124,13 +125,21 @@ func (b *AppEventBus) Publish(app, projectID string, installID int64, topic stri
 		subs = append(subs, s)
 	}
 	lane.mu.Unlock()
+	delivered := 0
+	dropped := 0
 	for _, s := range subs {
 		select {
 		case s.ch <- ev:
+			delivered++
 		default:
 			// drop — subscriber will replay via since= on reconnect.
+			dropped++
 		}
 	}
+	// Visibility log: the user asked to be sure the bus is wired up.
+	// One line per published event with the lane key + fanout count.
+	log.Printf("[APPBUS] publish app=%s project=%s topic=%s seq=%d install=%d subs=%d delivered=%d dropped=%d",
+		app, projectID, topic, ev.Seq, installID, len(subs), delivered, dropped)
 	return ev
 }
 
@@ -161,13 +170,18 @@ func (b *AppEventBus) Subscribe(app, projectID string, since uint64) (chan AppEv
 		}
 	}
 	lane.mu.Unlock()
+	log.Printf("[APPBUS] subscribe app=%s project=%s since=%d sub_id=%d replay=%d total_subs=%d",
+		app, projectID, since, id, len(replay), len(lane.subs))
 	cancel := func() {
 		lane.mu.Lock()
 		if existing, ok := lane.subs[id]; ok && existing == sub {
 			delete(lane.subs, id)
 			close(sub.ch)
 		}
+		remaining := len(lane.subs)
 		lane.mu.Unlock()
+		log.Printf("[APPBUS] unsubscribe app=%s project=%s sub_id=%d remaining=%d",
+			app, projectID, id, remaining)
 	}
 	return sub.ch, replay, cancel
 }
