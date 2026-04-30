@@ -313,6 +313,20 @@ func (s *Store) migrate() error {
 		expires_at DATETIME NOT NULL,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
+	// App-initiated OAuth: when a sidecar app starts the dance via
+	// platform.oauth.start, we record the install id + the URL to redirect
+	// the browser to once the callback completes. Without these the
+	// callback always lands on the dashboard's HTML success page; with
+	// them set, we 302 the browser back into the app's panel so it can
+	// pick up the dangling pending_account row by conn_id.
+	s.db.Exec(`ALTER TABLE oauth_states ADD COLUMN app_install_id INTEGER NOT NULL DEFAULT 0`)
+	s.db.Exec(`ALTER TABLE oauth_states ADD COLUMN return_url TEXT NOT NULL DEFAULT ''`)
+	// Connections gain owner_app_install_id so the platform can scope
+	// list/disconnect operations and so the operator's Integrations admin
+	// can hide app-owned connections (the app exposes them through its
+	// own UI). Pre-existing rows have created_via='integration' and
+	// owner_app_install_id=0 — the legacy meaning.
+	s.db.Exec(`ALTER TABLE connections ADD COLUMN owner_app_install_id INTEGER NOT NULL DEFAULT 0`)
 
 	// Seed new provider types on existing DBs (idempotent). The initial
 	// CREATE-TABLE seed above only fires on fresh schemas; this block

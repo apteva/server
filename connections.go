@@ -64,6 +64,13 @@ type ConnectionInput struct {
 	// ('app_install', no auto-MCP — the app is the only intended
 	// consumer). Empty defaults to 'integration' for back-compat.
 	CreatedVia string
+	// OwnerAppInstallID identifies which app install owns this
+	// connection when CreatedVia='app_install'. Used by the platform
+	// to scope DisconnectConnection callbacks (an app can only manage
+	// connections it owns) and by the admin UI to filter app-owned
+	// rows out of the operator's Integrations list. Zero for legacy /
+	// operator-managed rows.
+	OwnerAppInstallID int64
 }
 
 // --- Store methods ---
@@ -88,8 +95,8 @@ func (s *Store) CreateConnectionExt(in ConnectionInput) (*Connection, error) {
 		in.CreatedVia = "integration"
 	}
 	result, err := s.db.Exec(
-		"INSERT INTO connections (user_id, app_slug, app_name, name, auth_type, encrypted_credentials, status, project_id, source, provider_id, external_id, created_via) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		in.UserID, in.AppSlug, in.AppName, in.Name, in.AuthType, in.EncryptedCreds, in.Status, in.ProjectID, in.Source, in.ProviderID, in.ExternalID, in.CreatedVia,
+		"INSERT INTO connections (user_id, app_slug, app_name, name, auth_type, encrypted_credentials, status, project_id, source, provider_id, external_id, created_via, owner_app_install_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		in.UserID, in.AppSlug, in.AppName, in.Name, in.AuthType, in.EncryptedCreds, in.Status, in.ProjectID, in.Source, in.ProviderID, in.ExternalID, in.CreatedVia, in.OwnerAppInstallID,
 	)
 	if err != nil {
 		return nil, err
@@ -1154,7 +1161,7 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 
 	// Local OAuth2 — two-phase: start flow, return authorize URL, finish in callback.
 	if body.AuthType == "oauth2" {
-		conn, authURL, err := s.startLocalOAuth(userID, app, body.Name, body.ProjectID, body.ClientID, body.ClientSecret)
+		conn, authURL, err := s.startLocalOAuth(userID, app, body.Name, body.ProjectID, body.ClientID, body.ClientSecret, 0, "")
 		if err != nil {
 			http.Error(w, "oauth start: "+err.Error(), http.StatusInternalServerError)
 			return

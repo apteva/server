@@ -247,16 +247,20 @@ func (s *Server) publicBaseURL() string {
 
 // mintState generates a cryptographically random state token and persists it
 // alongside the pending connection id so the callback can look it up.
-func (s *Store) mintOAuthState(userID, connID int64, appSlug, pkceVerifier string, ttl time.Duration) (string, error) {
+//
+// appInstallID + returnURL are populated only when the OAuth dance is
+// initiated by an app sidecar via platform.oauth.start. Zero / empty
+// means a regular operator-initiated dance from the Integrations admin.
+func (s *Store) mintOAuthState(userID, connID int64, appSlug, pkceVerifier string, ttl time.Duration, appInstallID int64, returnURL string) (string, error) {
 	buf := make([]byte, 24)
 	if _, err := io.ReadFull(rand.Reader, buf); err != nil {
 		return "", err
 	}
 	state := "st_" + hex.EncodeToString(buf)
 	_, err := s.db.Exec(
-		`INSERT INTO oauth_states (state, user_id, connection_id, app_slug, pkce_verifier, expires_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		state, userID, connID, appSlug, pkceVerifier, time.Now().Add(ttl).UTC(),
+		`INSERT INTO oauth_states (state, user_id, connection_id, app_slug, pkce_verifier, expires_at, app_install_id, return_url)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		state, userID, connID, appSlug, pkceVerifier, time.Now().Add(ttl).UTC(), appInstallID, returnURL,
 	)
 	if err != nil {
 		return "", err
@@ -265,20 +269,24 @@ func (s *Store) mintOAuthState(userID, connID int64, appSlug, pkceVerifier strin
 }
 
 type oauthStateRow struct {
-	UserID       int64
-	ConnectionID int64
-	AppSlug      string
-	PKCEVerifier string
-	Expired      bool
+	UserID        int64
+	ConnectionID  int64
+	AppSlug       string
+	PKCEVerifier  string
+	AppInstallID  int64
+	ReturnURL     string
+	Expired       bool
 }
 
 func (s *Store) consumeOAuthState(state string) (*oauthStateRow, error) {
 	var row oauthStateRow
 	var expiresAt string
 	err := s.db.QueryRow(
-		`SELECT user_id, connection_id, app_slug, COALESCE(pkce_verifier,''), expires_at FROM oauth_states WHERE state = ?`,
+		`SELECT user_id, connection_id, app_slug, COALESCE(pkce_verifier,''), expires_at,
+		        COALESCE(app_install_id,0), COALESCE(return_url,'')
+		 FROM oauth_states WHERE state = ?`,
 		state,
-	).Scan(&row.UserID, &row.ConnectionID, &row.AppSlug, &row.PKCEVerifier, &expiresAt)
+	).Scan(&row.UserID, &row.ConnectionID, &row.AppSlug, &row.PKCEVerifier, &expiresAt, &row.AppInstallID, &row.ReturnURL)
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +315,12 @@ func pkcePair() (verifier, challenge string, err error) {
 // startLocalOAuth creates a pending connection and returns the authorize URL
 // to redirect the user to. The caller is responsible for returning that URL to
 // the dashboard, which opens it in a popup.
-func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, projectID, explicitClientID, explicitClientSecret string) (*Connection, string, error) {
+//
+// When ownerAppInstallID > 0, the connection is marked as owned by that
+// install (created_via=app_install) and returnURL is recorded on the state
+// token so the callback can 302 the browser back into the app's panel
+// instead of rendering the dashboard's auto-close page.
+func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, projectID, explicitClientID, explicitClientSecret string, ownerAppInstallID int64, returnURL string) (*Connection, string, error) {
 	if app.Auth.OAuth2 == nil {
 		return nil, "", fmt.Errorf("app %s has no oauth2 config", app.Slug)
 	}
@@ -336,7 +349,7 @@ func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, proje
 		initialBlob = enc
 	}
 
-	conn, err := s.store.CreateConnectionExt(ConnectionInput{
+	connInput := ConnectionInput{
 		UserID:         userID,
 		AppSlug:        app.Slug,
 		AppName:        app.Name,
@@ -346,7 +359,15 @@ func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, proje
 		Source:         "local",
 		Status:         "pending",
 		EncryptedCreds: initialBlob,
-	})
+	}
+	if ownerAppInstallID > 0 {
+		// App-initiated: tag the connection so it doesn't auto-create an
+		// MCP server (the app is the only intended consumer) and so the
+		// operator's Integrations admin can filter it out of its list.
+		connInput.CreatedVia = "app_install"
+		connInput.OwnerAppInstallID = ownerAppInstallID
+	}
+	conn, err := s.store.CreateConnectionExt(connInput)
 	if err != nil {
 		return nil, "", err
 	}
@@ -359,7 +380,7 @@ func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, proje
 		}
 	}
 
-	state, err := s.store.mintOAuthState(userID, conn.ID, app.Slug, verifier, 10*time.Minute)
+	state, err := s.store.mintOAuthState(userID, conn.ID, app.Slug, verifier, 10*time.Minute, ownerAppInstallID, returnURL)
 	if err != nil {
 		return nil, "", err
 	}
@@ -478,17 +499,37 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 	// handleCreateConnection). For kind=remote_mcp apps the row points
 	// at the vendor's hosted MCP with the freshly-issued OAuth token
 	// stored in encrypted_env; legacy REST apps get the local shim.
-	conn, encCreds, err := s.store.GetConnection(row.UserID, row.ConnectionID)
-	if err == nil {
-		if app.Kind == "remote_mcp" {
-			if _, merr := s.createRemoteMcpFromConnection(row.UserID, conn, app, encCreds); merr != nil {
-				log.Printf("[OAUTH] remote-mcp auto-mcp failed conn=%d slug=%s: %v", conn.ID, conn.AppSlug, merr)
+	//
+	// SKIP this entirely when an app owns the connection. The whole point
+	// of created_via=app_install is that the app is the only intended
+	// consumer — auto-MCP would expose tools to every agent in the project,
+	// which is the leak the app was designed to avoid.
+	if row.AppInstallID == 0 {
+		conn, encCreds, err := s.store.GetConnection(row.UserID, row.ConnectionID)
+		if err == nil {
+			if app.Kind == "remote_mcp" {
+				if _, merr := s.createRemoteMcpFromConnection(row.UserID, conn, app, encCreds); merr != nil {
+					log.Printf("[OAUTH] remote-mcp auto-mcp failed conn=%d slug=%s: %v", conn.ID, conn.AppSlug, merr)
+				}
+			} else {
+				s.store.CreateMCPServerFromConnection(row.UserID, conn, len(app.Tools))
 			}
-		} else {
-			s.store.CreateMCPServerFromConnection(row.UserID, conn, len(app.Tools))
 		}
 	}
 
+	// App-initiated dance: 302 the browser back into the app's panel,
+	// where it can read the conn_id and run the next step (page picker,
+	// finalize, etc). Operator-initiated dance: render the auto-close
+	// HTML page as before so the popup goes away.
+	if row.ReturnURL != "" {
+		sep := "?"
+		if strings.Contains(row.ReturnURL, "?") {
+			sep = "&"
+		}
+		dest := fmt.Sprintf("%s%sconn_id=%d&status=ok", row.ReturnURL, sep, row.ConnectionID)
+		http.Redirect(w, r, dest, http.StatusFound)
+		return
+	}
 	renderOAuthResult(w, true, "Connection authorized. You can close this tab.")
 }
 

@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	sdk "github.com/apteva/app-sdk"
 )
@@ -64,6 +65,8 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		s.handleCallbackIntegrations(w, r, parts[1:])
 	case "apps":
 		s.handleCallbackApps(w, r, parts[1:])
+	case "oauth":
+		s.handleCallbackOAuth(w, r, parts[1:])
 	default:
 		http.Error(w, "unknown callback: "+parts[0], http.StatusNotFound)
 	}
@@ -99,12 +102,21 @@ func (s *Server) handleCallbackWhoami(w http.ResponseWriter, r *http.Request) {
 
 // ─── /connections ──────────────────────────────────────────────────
 
-// GET /connections/:id  or  GET /connections?project_id=&app_slug=
+// GET  /connections/:id            — fetch one
+// GET  /connections?project_id=…   — list. ?owned=true filters to only
+//                                    rows the calling install owns.
+// POST /connections/:id/disconnect — revoke. Permission-gated: caller
+//                                    must own the row.
 //
-// Returns metadata only — never credentials. Apps that need to
-// actually call an integration must go through /integrations/:id/execute
-// where the platform decrypts + injects auth headers server-side.
+// Returns metadata only — never credentials. Apps that need to actually
+// call an integration go through /integrations/:id/execute where the
+// platform decrypts + injects auth headers server-side.
 func (s *Server) handleCallbackConnections(w http.ResponseWriter, r *http.Request, parts []string) {
+	// POST /connections/:id/disconnect
+	if r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "disconnect" {
+		s.handleCallbackConnectionDisconnect(w, r, parts[0])
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
@@ -130,6 +142,8 @@ func (s *Server) handleCallbackConnections(w http.ResponseWriter, r *http.Reques
 	// list
 	pid := r.URL.Query().Get("project_id")
 	slug := r.URL.Query().Get("app_slug")
+	ownedOnly := r.URL.Query().Get("owned") == "true"
+	installID, _ := requireInstallID(r) // fine to be 0 when not owned-only
 	conns, err := s.store.ListConnections(userID, pid)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -140,12 +154,60 @@ func (s *Server) handleCallbackConnections(w http.ResponseWriter, r *http.Reques
 		if slug != "" && c.AppSlug != slug {
 			continue
 		}
+		if ownedOnly {
+			ownerID := connectionOwnerInstallID(s, c.ID)
+			if ownerID != installID {
+				continue
+			}
+		}
 		out = append(out, sdk.PlatformConnection{
 			ID: c.ID, AppSlug: c.AppSlug, Name: c.Name,
 			Status: c.Status, ProjectID: c.ProjectID,
 		})
 	}
 	writeJSON(w, out)
+}
+
+// handleCallbackConnectionDisconnect revokes a connection an app
+// previously created via platform.oauth.start. Apps may only disconnect
+// rows they own (owner_app_install_id matches the calling install).
+// Operator-managed connections are off-limits.
+func (s *Server) handleCallbackConnectionDisconnect(w http.ResponseWriter, r *http.Request, idStr string) {
+	installID, err := requireInstallID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if !installHasPermission(s, installID, sdk.PermConnectionsManage) {
+		http.Error(w, "missing permission platform.connections.manage", http.StatusForbidden)
+		return
+	}
+	connID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || connID <= 0 {
+		http.Error(w, "invalid connection id", http.StatusBadRequest)
+		return
+	}
+	if connectionOwnerInstallID(s, connID) != installID {
+		http.Error(w, "not owned by this app", http.StatusForbidden)
+		return
+	}
+	userID := getUserID(r)
+	if err := s.store.DeleteConnection(userID, connID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"deleted": connID})
+}
+
+// connectionOwnerInstallID reads owner_app_install_id from the
+// connections row. Returns 0 for legacy / operator-managed rows.
+func connectionOwnerInstallID(s *Server, connID int64) int64 {
+	var ownerID int64
+	_ = s.store.db.QueryRow(
+		`SELECT COALESCE(owner_app_install_id, 0) FROM connections WHERE id=?`,
+		connID,
+	).Scan(&ownerID)
+	return ownerID
 }
 
 // ─── /instances ────────────────────────────────────────────────────
@@ -481,6 +543,85 @@ func bindingsForInstall(s *Server, installID int64) map[string]any {
 		return map[string]any{}
 	}
 	return out
+}
+
+// ─── /oauth/start ──────────────────────────────────────────────────
+
+// POST /oauth/start
+//
+// Body: {integration_slug, return_url, name?, project_id?}
+//
+// Creates a pending connection owned by the calling install, returns
+// the upstream authorize URL. After the user completes the dance, the
+// callback at /oauth/local/callback 302s the browser to return_url
+// with ?conn_id=<id>&status=ok so the app can pick up.
+//
+// Authorization: install must declare platform.oauth.start.
+func (s *Server) handleCallbackOAuth(w http.ResponseWriter, r *http.Request, parts []string) {
+	if len(parts) != 1 || parts[0] != "start" || r.Method != http.MethodPost {
+		http.Error(w, "POST /oauth/start only", http.StatusMethodNotAllowed)
+		return
+	}
+	installID, err := requireInstallID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if !installHasPermission(s, installID, sdk.PermOAuthStart) {
+		http.Error(w, "missing permission platform.oauth.start", http.StatusForbidden)
+		return
+	}
+	var body struct {
+		IntegrationSlug string `json:"integration_slug"`
+		ReturnURL       string `json:"return_url"`
+		Name            string `json:"name"`
+		ProjectID       string `json:"project_id"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<19)).Decode(&body); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if body.IntegrationSlug == "" {
+		http.Error(w, "integration_slug required", http.StatusBadRequest)
+		return
+	}
+	if body.ReturnURL == "" {
+		http.Error(w, "return_url required", http.StatusBadRequest)
+		return
+	}
+	app := s.catalog.Get(body.IntegrationSlug)
+	if app == nil {
+		http.Error(w, "unknown integration: "+body.IntegrationSlug, http.StatusNotFound)
+		return
+	}
+	if app.Auth.OAuth2 == nil {
+		http.Error(w, body.IntegrationSlug+" has no OAuth2 config — cannot use platform.oauth.start", http.StatusBadRequest)
+		return
+	}
+	// Default name + project from the install if the caller didn't
+	// supply them. The install's project is the natural default scope.
+	name := body.Name
+	if name == "" {
+		name = app.Name
+	}
+	pid := body.ProjectID
+	if pid == "" {
+		_ = s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&pid)
+	}
+	userID := getUserID(r)
+
+	conn, authURL, err := s.startLocalOAuth(userID, app, name, pid, "", "", installID, body.ReturnURL)
+	if err != nil {
+		http.Error(w, "oauth start: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// 10-minute window matches mintOAuthState's TTL.
+	expiresAt := time.Now().Add(10 * time.Minute).UTC().Format(time.RFC3339)
+	writeJSON(w, map[string]any{
+		"connection_id": conn.ID,
+		"authorize_url": authURL,
+		"expires_at":    expiresAt,
+	})
 }
 
 // installHasPermission checks the install's manifest's requires.permissions.

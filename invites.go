@@ -334,7 +334,7 @@ func (s *Server) fulfillLocalInvite(w http.ResponseWriter, p *InvitePayload, bod
 		// startLocalOAuth uses the operator's saved OAuth client creds
 		// (resolveOAuthClient walks DB → env). The client never sees the
 		// client_id/secret. Standard callback creates the connection.
-		conn, authURL, err := s.startLocalOAuth(p.Op, app, connName, p.Proj, "", "")
+		conn, authURL, err := s.startLocalOAuth(p.Op, app, connName, p.Proj, "", "", 0, "")
 		if err != nil {
 			http.Error(w, "oauth start: "+err.Error(), http.StatusInternalServerError)
 			return
