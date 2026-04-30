@@ -31,9 +31,15 @@ type manifestCacheEntry struct {
 }
 
 var (
-	manifestCacheMu  sync.RWMutex
-	manifestCache    = map[string]manifestCacheEntry{}
-	manifestCacheTTL = time.Hour
+	manifestCacheMu sync.RWMutex
+	manifestCache   = map[string]manifestCacheEntry{}
+	// 1 minute keeps "Update available" detection responsive without
+	// hammering raw.githubusercontent.com — for a handful of installed
+	// apps that's <10 fetches/min worst case. The marketplace handler
+	// already amortizes the read by building one parallel batch per
+	// page load, so the cache mostly serves to coalesce within that
+	// batch + handle SSE-driven re-renders, not to span minutes.
+	manifestCacheTTL = time.Minute
 )
 
 // fetchAndCacheManifest returns the parsed manifest for url, hitting
