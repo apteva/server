@@ -58,6 +58,12 @@ type ConnectionInput struct {
 	Status         string // '' → 'active'
 	ProviderID     int64
 	ExternalID     string
+	// CreatedVia distinguishes operator-driven integration installs
+	// ('integration', auto-creates an MCP server row exposing the
+	// integration's tools to agents) from app-driven creations
+	// ('app_install', no auto-MCP — the app is the only intended
+	// consumer). Empty defaults to 'integration' for back-compat.
+	CreatedVia string
 }
 
 // --- Store methods ---
@@ -78,9 +84,12 @@ func (s *Store) CreateConnectionExt(in ConnectionInput) (*Connection, error) {
 	if in.Status == "" {
 		in.Status = "active"
 	}
+	if in.CreatedVia == "" {
+		in.CreatedVia = "integration"
+	}
 	result, err := s.db.Exec(
-		"INSERT INTO connections (user_id, app_slug, app_name, name, auth_type, encrypted_credentials, status, project_id, source, provider_id, external_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		in.UserID, in.AppSlug, in.AppName, in.Name, in.AuthType, in.EncryptedCreds, in.Status, in.ProjectID, in.Source, in.ProviderID, in.ExternalID,
+		"INSERT INTO connections (user_id, app_slug, app_name, name, auth_type, encrypted_credentials, status, project_id, source, provider_id, external_id, created_via) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		in.UserID, in.AppSlug, in.AppName, in.Name, in.AuthType, in.EncryptedCreds, in.Status, in.ProjectID, in.Source, in.ProviderID, in.ExternalID, in.CreatedVia,
 	)
 	if err != nil {
 		return nil, err
@@ -798,6 +807,14 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		ComposioAuthMode    string            `json:"composio_auth_mode"`
 		ComposioConfigCreds map[string]string `json:"composio_config_creds"`
 		ComposioInitCreds   map[string]string `json:"composio_init_creds"`
+		// CreatedVia: 'integration' (default — top-level install via the
+		// Integrations page; auto-creates an mcp_servers row exposing the
+		// integration's tools to agents) or 'app_install' (created inside
+		// an app's dependency picker; no auto-MCP — the consuming app is
+		// the only intended caller). The dashboard's app-install modal
+		// passes 'app_install' when minting a new connection through the
+		// integration picker.
+		CreatedVia string `json:"created_via"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -1003,6 +1020,7 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		ProjectID:      body.ProjectID,
 		Source:         "local",
 		Status:         "active",
+		CreatedVia:     body.CreatedVia,
 	})
 	if err != nil {
 		log.Printf("[CONN] local CreateConnectionExt failed slug=%s name=%s project=%s: %v",
@@ -1010,12 +1028,24 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "failed to create connection: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	log.Printf("[CONN] local connection row id=%d slug=%s status=active", conn.ID, conn.AppSlug)
-	if mcpID, merr := s.store.CreateMCPServerFromConnection(userID, conn, len(app.Tools)); merr != nil {
-		log.Printf("[CONN] local auto-mcp FAILED conn=%d (%s/%s): %v", conn.ID, conn.AppSlug, conn.Name, merr)
+	log.Printf("[CONN] local connection row id=%d slug=%s status=active created_via=%s",
+		conn.ID, conn.AppSlug, body.CreatedVia)
+	// Auto-create an mcp_servers row only when the connection was
+	// born at the top-level Integrations page. App-install minted
+	// connections skip this — the consuming app is the intended
+	// caller, not every agent in the project. Operators can
+	// "Expose to agents" later from the connection card.
+	if body.CreatedVia != "app_install" {
+		if mcpID, merr := s.store.CreateMCPServerFromConnection(userID, conn, len(app.Tools)); merr != nil {
+			log.Printf("[CONN] local auto-mcp FAILED conn=%d (%s/%s): %v", conn.ID, conn.AppSlug, conn.Name, merr)
+		} else {
+			log.Printf("[CONN] local auto-mcp created mcp_id=%d conn=%d slug=%s tools=%d", mcpID, conn.ID, conn.AppSlug, len(app.Tools))
+		}
 	} else {
-		log.Printf("[CONN] local auto-mcp created mcp_id=%d conn=%d slug=%s tools=%d", mcpID, conn.ID, conn.AppSlug, len(app.Tools))
+		log.Printf("[CONN] skipping auto-mcp for app_install conn=%d", conn.ID)
 	}
+	// New connection may unblock optional dep prompts on existing installs.
+	s.recomputePendingOptions()
 	writeJSON(w, conn)
 }
 
@@ -1197,6 +1227,25 @@ func (s *Server) handleDeleteConnection(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Cascade-protect: refuse to delete when one or more app installs
+	// have this connection bound. The operator must unbind the apps
+	// first (uninstall, or rebind to a different connection). 409
+	// ships the dependents list so the dashboard can render a useful
+	// error. ?force=1 overrides — for power users who know what
+	// they're doing; the dependent apps will quietly degrade on
+	// their next ExecuteIntegrationTool call.
+	if r.URL.Query().Get("force") != "1" {
+		if deps, derr := s.dependentsOfConnection(connID); derr == nil && len(deps) > 0 {
+			writeJSONStatus(w, http.StatusConflict, map[string]any{
+				"error":      "connection has dependents",
+				"message":    formatDependents(deps),
+				"dependents": deps,
+				"hint":       "Unbind the dependent apps first, or pass ?force=1 to override (apps will degrade).",
+			})
+			return
+		}
+	}
+
 	// Suite master rows cascade-delete their children. We route
 	// straight to the suite handler so the cleanup path is shared
 	// between the UI's "Disconnect all" button and a plain DELETE
@@ -1243,6 +1292,11 @@ func (s *Server) handleDeleteConnection(w http.ResponseWriter, r *http.Request) 
 		s.store.DeleteMCPServerByConnection(connID)
 		s.store.DeleteConnection(userID, connID)
 	}
+
+	// A connection just disappeared — installs that had it bound
+	// could now be eligible for an opt-in nudge if their manifest
+	// includes the same role and another candidate exists.
+	s.recomputePendingOptions()
 
 	writeJSON(w, map[string]string{"status": "deleted"})
 }

@@ -428,6 +428,21 @@ func (s *Store) migrate() error {
 	// status='pending' so the dashboard can show "Cloning…", "Building…",
 	// "Starting sidecar…" instead of an opaque pending pill.
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN status_message TEXT NOT NULL DEFAULT ''`)
+	// integration_bindings: JSON {role: connection_id|install_id|null}
+	// Populated at install time from the manifest's requires.integrations.
+	// null distinguishes "operator declined optional dep" from "manifest
+	// added the role in a later version, never asked the operator".
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN integration_bindings TEXT NOT NULL DEFAULT '{}'`)
+	// has_pending_options flag: set when a previously-unbinded optional
+	// dep now has a compatible target available (e.g. user installed
+	// the storage app after image-studio). Dashboard surfaces a
+	// "configure" banner on the install detail page.
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN has_pending_options INTEGER NOT NULL DEFAULT 0`)
+	// created_via on connections: 'integration' (default — top-level
+	// install via the Integrations page, auto-creates an mcp_servers
+	// row) vs 'app_install' (created inside an app's dependency flow,
+	// no auto-MCP).
+	s.db.Exec(`ALTER TABLE connections ADD COLUMN created_via TEXT NOT NULL DEFAULT 'integration'`)
 	s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS app_instance_bindings (
 			install_id   INTEGER NOT NULL REFERENCES app_installs(id),

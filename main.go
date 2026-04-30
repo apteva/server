@@ -575,6 +575,7 @@ func main() {
 		}
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 	}))
+	apiMux.HandleFunc("/apps/callback/", s.authMiddleware(s.handleAppCallback))
 	apiMux.HandleFunc("/apps/preview", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			s.handlePreviewApp(w, r)
@@ -589,6 +590,7 @@ func main() {
 		}
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 	}))
+	apiMux.HandleFunc("/apps/install/preflight", s.authMiddleware(s.handlePreflightApp))
 	apiMux.HandleFunc("/apps/installs/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/apps/installs/")
 		switch {
@@ -598,6 +600,8 @@ func main() {
 			s.handleSetInstallBindings(w, r)
 		case strings.HasSuffix(path, "/upgrade") && r.Method == http.MethodPost:
 			s.handleUpgradeApp(w, r)
+		case strings.HasSuffix(path, "/bindings") && r.Method == http.MethodPut:
+			s.handleSetInstallBindings2(w, r)
 		case !strings.Contains(path, "/") && r.Method == http.MethodDelete:
 			s.handleUninstallApp(w, r)
 		default:
@@ -616,7 +620,7 @@ func main() {
 			first = path[:i]
 		}
 		switch first {
-		case "preview", "install", "installs", "marketplace":
+		case "preview", "install", "installs", "marketplace", "callback":
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
@@ -884,6 +888,7 @@ func main() {
 	s.LoadInstalledApps()
 	s.RemountStaticApps()
 	s.backfillAppMCPs()
+	s.recomputePendingOptions()
 
 	go func() {
 		sig := <-sigCh

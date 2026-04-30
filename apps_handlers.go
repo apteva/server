@@ -40,6 +40,13 @@ type AppRow struct {
 	Permissions   []sdk.Permission `json:"permissions"`
 	Surfaces      AppSurfaces      `json:"surfaces"`
 	UIPanels      []sdk.UIPanel    `json:"ui_panels,omitempty"`
+	// Bindings: role → connection_id | install_id | null. Empty when
+	// the install's manifest declares no requires.integrations.
+	Bindings map[string]any `json:"bindings,omitempty"`
+	// HasPendingOptions: true when an optional integration role is
+	// currently unbound but a compatible target now exists in the
+	// project. Drives the "configure" banner in the install detail.
+	HasPendingOptions bool `json:"has_pending_options,omitempty"`
 }
 
 // AppSurfaces summarises a manifest's `provides` block for the
@@ -383,7 +390,8 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 	projectID := r.URL.Query().Get("project_id")
 	q := `
 		SELECT i.id, i.app_id, i.project_id, i.status, i.status_message, i.error_message,
-			i.upgrade_policy, i.version, i.permissions_json, a.name, a.source, a.manifest_json
+			i.upgrade_policy, i.version, i.permissions_json, a.name, a.source, a.manifest_json,
+			COALESCE(i.integration_bindings, '{}'), COALESCE(i.has_pending_options, 0)
 		FROM app_installs i JOIN apps a ON a.id = i.app_id`
 	args := []any{}
 	if projectID != "" {
@@ -422,18 +430,24 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			installID, appID                                  int64
 			projID, status, statusMsg, errMsg                 string
 			upgradePolicy, version, permsJSON                 string
-			name, source, manifestJSON                        string
+			name, source, manifestJSON, bindingsJSON          string
+			hasPendingOptions                                 int
 		)
 		if err := rows.Scan(&installID, &appID, &projID, &status, &statusMsg, &errMsg,
-			&upgradePolicy, &version, &permsJSON, &name, &source, &manifestJSON); err != nil {
+			&upgradePolicy, &version, &permsJSON, &name, &source, &manifestJSON,
+			&bindingsJSON, &hasPendingOptions); err != nil {
 			continue
 		}
 		var manifest sdk.Manifest
 		_ = json.Unmarshal([]byte(manifestJSON), &manifest)
 		var perms []sdk.Permission
 		_ = json.Unmarshal([]byte(permsJSON), &perms)
+		var bindings map[string]any
+		_ = json.Unmarshal([]byte(bindingsJSON), &bindings)
 		out = append(out, AppRow{
 			InstallID: installID, AppID: appID, Name: name, DisplayName: manifest.DisplayName,
+			Bindings:          bindings,
+			HasPendingOptions: hasPendingOptions != 0,
 			Version:          version,
 			AvailableVersion: manifest.Version,
 			Description:      manifest.Description, Icon: manifest.Icon,
@@ -574,6 +588,13 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		ProjectID     string            `json:"project_id"`
 		Config        map[string]string `json:"config"`
 		UpgradePolicy string            `json:"upgrade_policy"`
+		// Bindings: role → connection_id (kind=integration) or
+		// install_id (kind=app) | null. Sent by the dashboard's
+		// install modal after the operator picks targets for each
+		// requires.integrations role. Required roles MUST have a
+		// non-null binding; the install handler validates this
+		// after parsing the manifest.
+		Bindings map[string]any `json:"bindings"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -655,12 +676,40 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 			string(manifestJSON), body.Ref, appID)
 	}
 
+	// Validate bindings against requires.integrations: required roles
+	// must have a non-null target; unknown role names are rejected.
+	if body.Bindings == nil {
+		body.Bindings = map[string]any{}
+	}
+	for _, dep := range manifest.Requires.Integrations {
+		raw, present := body.Bindings[dep.Role]
+		isNull := !present || raw == nil
+		if dep.Required && isNull {
+			http.Error(w,
+				fmt.Sprintf("required integration role %q is unbound", dep.Role),
+				http.StatusBadRequest,
+			)
+			return
+		}
+	}
+	// Strip unknown role keys to keep the bindings JSON tidy.
+	roleSet := make(map[string]bool, len(manifest.Requires.Integrations))
+	for _, dep := range manifest.Requires.Integrations {
+		roleSet[dep.Role] = true
+	}
+	for k := range body.Bindings {
+		if !roleSet[k] {
+			delete(body.Bindings, k)
+		}
+	}
+	bindingsJSON, _ := json.Marshal(body.Bindings)
+
 	// Install row.
 	permsJSON, _ := json.Marshal(manifest.Requires.Permissions)
 	res, err := s.store.db.Exec(
-		`INSERT INTO app_installs (app_id, project_id, config_encrypted, status, upgrade_policy, version, permissions_json, installed_by)
-		 VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)`,
-		appID, body.ProjectID, configEncrypted, upgradePolicy, manifest.Version, string(permsJSON), userID)
+		`INSERT INTO app_installs (app_id, project_id, config_encrypted, status, upgrade_policy, version, permissions_json, installed_by, integration_bindings)
+		 VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+		appID, body.ProjectID, configEncrypted, upgradePolicy, manifest.Version, string(permsJSON), userID, string(bindingsJSON))
 	if err != nil {
 		http.Error(w, "create install: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -777,6 +826,19 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.store.db.Exec(`DELETE FROM app_instance_bindings WHERE install_id = ?`, installID); err != nil {
 		log.Printf("[APPS] delete bindings: %v", err)
 	}
+	// Cascade-protect: refuse uninstall if other installs depend on
+	// this app via a kind=app integration binding. ?force=1 overrides.
+	if r.URL.Query().Get("force") != "1" {
+		if deps, derr := s.dependentsOfApp(installID); derr == nil && len(deps) > 0 {
+			writeJSONStatus(w, http.StatusConflict, map[string]any{
+				"error":      "app has dependents",
+				"message":    formatDependents(deps),
+				"dependents": deps,
+				"hint":       "Unbind dependent apps first, or pass ?force=1 to override (apps will degrade).",
+			})
+			return
+		}
+	}
 	// Remove the bridge row in mcp_servers BEFORE deleting the install
 	// so a half-finished uninstall (DB error mid-way) leaves the bridge
 	// gone — agents stop seeing the tool first, server cleanup follows.
@@ -787,6 +849,9 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "delete install: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Removed install may both eliminate options AND newly satisfy
+	// other installs' optional deps if it was bound somewhere.
+	s.recomputePendingOptions()
 	writeJSON(w, map[string]string{"status": "uninstalled"})
 }
 
@@ -839,6 +904,211 @@ func (s *Server) handleSetInstallStatus(w http.ResponseWriter, r *http.Request) 
 		s.LoadInstalledApps()
 	}
 	writeJSON(w, map[string]string{"status": body.Status})
+}
+
+// PUT /api/apps/installs/:id/bindings
+//
+// Body: {role: connection_id|install_id|null, ...}
+//
+// Updates the install's integration_bindings in place. Used by the
+// "App dependencies" section in the install detail page when the
+// operator wants to bind a previously-skipped optional dep, swap a
+// connection, or null one out. Validates required roles stay bound;
+// rejects unknown role names.
+func (s *Server) handleSetInstallBindings2(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/apps/installs/")
+	parts := strings.SplitN(rest, "/", 2)
+	if len(parts) != 2 || parts[1] != "bindings" {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	installID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	var body map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	manifest, err := installManifest(s, installID)
+	if err != nil || manifest == nil {
+		http.Error(w, "install not found", http.StatusNotFound)
+		return
+	}
+	// Validate against manifest's roles.
+	roleSet := make(map[string]bool, len(manifest.Requires.Integrations))
+	for _, dep := range manifest.Requires.Integrations {
+		roleSet[dep.Role] = true
+	}
+	for k := range body {
+		if !roleSet[k] {
+			http.Error(w, "unknown role: "+k, http.StatusBadRequest)
+			return
+		}
+	}
+	for _, dep := range manifest.Requires.Integrations {
+		if !dep.Required {
+			continue
+		}
+		raw, present := body[dep.Role]
+		if !present || raw == nil {
+			http.Error(w, "required role unbound: "+dep.Role, http.StatusBadRequest)
+			return
+		}
+	}
+	bj, _ := json.Marshal(body)
+	if _, err := s.store.db.Exec(
+		`UPDATE app_installs SET integration_bindings = ?, has_pending_options = 0 WHERE id = ?`,
+		string(bj), installID,
+	); err != nil {
+		http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.recomputePendingOptions()
+	writeJSON(w, map[string]any{"ok": true, "bindings": body})
+}
+
+// POST /api/apps/install/preflight
+//
+// Body: same shape as /api/apps/install (manifest_url | manifest_yaml,
+// project_id) but does NOT write anything. Returns:
+//
+//	{
+//	  "manifest": {...},
+//	  "roles": [
+//	    {
+//	      "role": "provider",
+//	      "kind": "integration",
+//	      "label": "Image-generation provider",
+//	      "required": true,
+//	      "hint": "...",
+//	      "capabilities": ["image.generate"],
+//	      "compatible": ["openai-api", "replicate"],
+//	      "candidates": [{"connection_id": 42, "app_slug": "openai-api", "name": "My OpenAI"}],
+//	      "can_create_new": true
+//	    },
+//	    {
+//	      "role": "storage",
+//	      "kind": "app",
+//	      "required": false,
+//	      "candidates": [{"install_id": 17, "app_name": "storage", "display_name": "Storage"}]
+//	    }
+//	  ]
+//	}
+//
+// Dashboard renders a step in the install modal per role. When the
+// user submits, the resulting bindings JSON is passed to /install.
+func (s *Server) handlePreflightApp(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	var body struct {
+		ManifestURL  string `json:"manifest_url"`
+		ManifestYAML string `json:"manifest_yaml"`
+		ProjectID    string `json:"project_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	yamlBytes, err := s.fetchManifestBytes(body.ManifestURL, body.ManifestYAML)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	manifest, err := sdk.ParseManifest(yamlBytes)
+	if err != nil {
+		http.Error(w, "invalid manifest: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	type integrationCandidate struct {
+		ConnectionID int64  `json:"connection_id"`
+		AppSlug      string `json:"app_slug"`
+		Name         string `json:"name"`
+		Status       string `json:"status"`
+	}
+	type appCandidate struct {
+		InstallID   int64  `json:"install_id"`
+		AppName     string `json:"app_name"`
+		DisplayName string `json:"display_name"`
+	}
+	type roleSummary struct {
+		Role               string                 `json:"role"`
+		Kind               string                 `json:"kind"`
+		Label              string                 `json:"label,omitempty"`
+		Required           bool                   `json:"required"`
+		Hint               string                 `json:"hint,omitempty"`
+		Capabilities       []string               `json:"capabilities,omitempty"`
+		Compatible         []string               `json:"compatible,omitempty"`
+		IntegrationCands   []integrationCandidate `json:"integration_candidates,omitempty"`
+		AppCands           []appCandidate         `json:"app_candidates,omitempty"`
+		CanCreateNew       bool                   `json:"can_create_new"`
+	}
+	roles := make([]roleSummary, 0, len(manifest.Requires.Integrations))
+	for _, dep := range manifest.Requires.Integrations {
+		kind := dep.Kind
+		if kind == "" {
+			kind = "integration"
+		}
+		row := roleSummary{
+			Role:         dep.Role,
+			Kind:         kind,
+			Label:        dep.Label,
+			Required:     dep.Required,
+			Hint:         dep.Hint,
+			Capabilities: dep.Capabilities,
+		}
+		if kind == "integration" {
+			row.Compatible = dep.CompatibleSlugs
+			row.CanCreateNew = true
+			// Existing connections in this project whose app_slug ∈ compatible_slugs.
+			conns, _ := s.store.ListConnections(userID, body.ProjectID)
+			for _, c := range conns {
+				if !contains(dep.CompatibleSlugs, c.AppSlug) {
+					continue
+				}
+				row.IntegrationCands = append(row.IntegrationCands, integrationCandidate{
+					ConnectionID: c.ID, AppSlug: c.AppSlug, Name: c.Name, Status: c.Status,
+				})
+			}
+		} else if kind == "app" {
+			row.Compatible = dep.CompatibleAppNames
+			row.CanCreateNew = false
+			// Running app installs in this project (or global) whose
+			// app name is in compatible_app_names.
+			rs, err := s.store.db.Query(
+				`SELECT i.id, a.name, COALESCE(json_extract(a.manifest_json,'$.display_name'), a.name)
+				 FROM app_installs i JOIN apps a ON a.id=i.app_id
+				 WHERE i.status='running' AND (i.project_id = ? OR i.project_id = '')`,
+				body.ProjectID,
+			)
+			if err == nil {
+				for rs.Next() {
+					var (
+						instID int64
+						aName, displayName string
+					)
+					if rs.Scan(&instID, &aName, &displayName) == nil && contains(dep.CompatibleAppNames, aName) {
+						row.AppCands = append(row.AppCands, appCandidate{
+							InstallID: instID, AppName: aName, DisplayName: displayName,
+						})
+					}
+				}
+				rs.Close()
+			}
+		}
+		roles = append(roles, row)
+	}
+
+	writeJSON(w, map[string]any{
+		"manifest": manifest,
+		"roles":    roles,
+	})
 }
 
 // POST /api/apps/installs/:id/upgrade — re-run the install at the
