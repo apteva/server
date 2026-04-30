@@ -386,6 +386,9 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 		 WHERE id=?`,
 		pid, binPath, port, url, installID)
 	s.LoadInstalledApps()
+	if err := s.registerAppMCP(installID); err != nil {
+		log.Printf("[APPS] register MCP install=%d: %v", installID, err)
+	}
 	return nil
 }
 

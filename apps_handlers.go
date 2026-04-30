@@ -777,6 +777,12 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.store.db.Exec(`DELETE FROM app_instance_bindings WHERE install_id = ?`, installID); err != nil {
 		log.Printf("[APPS] delete bindings: %v", err)
 	}
+	// Remove the bridge row in mcp_servers BEFORE deleting the install
+	// so a half-finished uninstall (DB error mid-way) leaves the bridge
+	// gone — agents stop seeing the tool first, server cleanup follows.
+	if err := s.unregisterAppMCP(installID); err != nil {
+		log.Printf("[APPS] unregister MCP install=%d: %v", installID, err)
+	}
 	if _, err := s.store.db.Exec(`DELETE FROM app_installs WHERE id = ?`, installID); err != nil {
 		http.Error(w, "delete install: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -957,6 +963,13 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 			`UPDATE app_installs SET version = ? WHERE id = ?`,
 			live.Version, installID,
 		)
+		// Refresh the bridge row so a manifest that adds new tools
+		// across versions surfaces them in mcp_servers.allowed_tools.
+		// installFromSource already calls registerAppMCP on the success
+		// path, but we call it again here to make the contract obvious
+		// (upgrade => MCP refreshed) and pick up the post-version-bump
+		// state in case the manifest_json was stamped later.
+		_ = s.registerAppMCP(installID)
 	}()
 	writeJSONStatus(w, http.StatusAccepted, map[string]string{
 		"status":  "pending",

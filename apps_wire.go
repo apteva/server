@@ -338,5 +338,16 @@ func (s *Server) seedBuiltinInstalls(reg *framework.Registry) {
 			`UPDATE app_installs SET status='running' WHERE app_id=? AND project_id=''`,
 			appID,
 		)
+		// Look up the install id we just seeded + bridge into mcp_servers
+		// so the built-in's tools are visible to agents alongside
+		// sidecar-installed apps.
+		var installID int64
+		if err := s.store.db.QueryRow(
+			`SELECT id FROM app_installs WHERE app_id=? AND project_id=''`, appID,
+		).Scan(&installID); err == nil && installID > 0 {
+			if err := s.registerAppMCP(installID); err != nil {
+				log.Printf("[APPS-BUILTIN] register MCP %s: %v", fm.Slug, err)
+			}
+		}
 	}
 }

@@ -355,5 +355,10 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 		 WHERE id=?`,
 		pid, binPath, port, url, installID)
 	s.LoadInstalledApps()
+	// Bridge the app's manifest tools into the platform's mcp_servers
+	// table so [[list_mcp_servers]] surfaces them and agents can connect.
+	if err := s.registerAppMCP(installID); err != nil {
+		log.Printf("[APPS] register MCP install=%d: %v", installID, err)
+	}
 	return nil
 }

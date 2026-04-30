@@ -883,6 +883,7 @@ func main() {
 	s.ResumeLocalInstalls()
 	s.LoadInstalledApps()
 	s.RemountStaticApps()
+	s.backfillAppMCPs()
 
 	go func() {
 		sig := <-sigCh
