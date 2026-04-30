@@ -483,7 +483,30 @@ func (s *Server) ResumeLocalInstalls() {
 			"APTEVA_PROJECT_ID":  projectID,
 			"APTEVA_APP_CONFIG":  string(cfgJSON),
 		}
-		log.Printf("[APPS-LOCAL] resuming install=%d (pid=%d was dead)", id, pid)
+		// Re-derive APTEVA_UI_DIR + APTEVA_MIGRATIONS_DIR from the
+		// cached clone so the resumed sidecar can serve /ui/*Panel.mjs
+		// and re-run any pending migrations. Without these, dashboard
+		// requests for /api/apps/<name>/ui/<Panel>.mjs come back 404
+		// after every server restart and the operator has to fully
+		// reinstall — see installFromSource for the install-time
+		// counterpart that sets the same env.
+		if m.Runtime.Source != nil && m.Runtime.Source.Repo != "" {
+			srcDir := filepath.Join(s.localApps.cacheDir, m.Name, m.Version, "src")
+			entryDir := srcDir
+			if e := strings.TrimSpace(m.Runtime.Source.Entry); e != "" && e != "." {
+				entryDir = filepath.Join(srcDir, e)
+			}
+			env["APTEVA_UI_DIR"] = filepath.Join(entryDir, "ui")
+			if m.DB != nil && m.DB.Migrations != "" {
+				migrations := m.DB.Migrations
+				if !filepath.IsAbs(migrations) {
+					migrations = filepath.Join(entryDir, migrations)
+				}
+				env["APTEVA_MIGRATIONS_DIR"] = migrations
+			}
+		}
+		log.Printf("[APPS-LOCAL] resuming install=%d (pid=%d was dead) ui=%s",
+			id, pid, env["APTEVA_UI_DIR"])
 		if err := s.localApps.Restart(id, &m, int(port), binPath, env); err != nil {
 			log.Printf("[APPS-LOCAL] resume failed install=%d: %v", id, err)
 			s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, err.Error(), id)
