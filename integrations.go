@@ -209,6 +209,14 @@ type AppToolDef struct {
 	//   "results.channels[].alternatives[].words"
 	//   "results.utterances"
 	ResponseOmit []string `json:"response_omit,omitempty"`
+
+	// TimeoutMS overrides the default 30s HTTP client timeout for this
+	// tool's upstream call. Set on tools that legitimately take longer
+	// than 30s on the wire — image generation (gpt-image-2 medium ~30–60s,
+	// hd ~90s+), video generation, transcription of long audio, etc.
+	// Capped at 600s server-side to keep a single tool call from holding
+	// a connection open indefinitely. Zero / unset → 30s default.
+	TimeoutMS int `json:"timeout_ms,omitempty"`
 }
 
 // AppSummary is a lightweight version for catalog listing

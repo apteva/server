@@ -651,7 +651,14 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		req.Header.Set(k, v)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	timeout := 30 * time.Second
+	if tool.TimeoutMS > 0 {
+		timeout = time.Duration(tool.TimeoutMS) * time.Millisecond
+		if timeout > 10*time.Minute {
+			timeout = 10 * time.Minute
+		}
+	}
+	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
