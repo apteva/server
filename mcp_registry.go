@@ -649,6 +649,12 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 		if servers[i].Source == "local" {
 			// Local integration servers are always "running" — no subprocess needed
 			servers[i].Status = "running"
+		} else if servers[i].Source == "app" {
+			// Apps-bridge rows mirror the install state. The bridge is
+			// only present while the install is running (registerAppMCP
+			// is called at the running flip; unregisterAppMCP at uninstall).
+			// So the existence of the row implies running.
+			servers[i].Status = "running"
 		} else if servers[i].Source == "remote" {
 			// Remote MCP endpoints live outside our process; status is
 			// "reachable" once we've probed tools/list successfully.
@@ -682,6 +688,15 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 		if srv.Source == "remote" && srv.URL != "" {
 			// Hosted MCP endpoint (Composio, Pipedream, ...). Cores connect
 			// directly to the upstream URL — we do not proxy.
+			es.ProxyConfig = &map[string]any{
+				"name":      srv.Name,
+				"transport": "http",
+				"url":       srv.URL,
+			}
+		} else if srv.Source == "app" && srv.URL != "" {
+			// Apps-bridge: the URL points at our own /api/apps/<name>/mcp
+			// proxy with the install's APTEVA_APP_TOKEN as ?api_key=.
+			// Cores connect directly to it — same shape as remote.
 			es.ProxyConfig = &map[string]any{
 				"name":      srv.Name,
 				"transport": "http",
@@ -841,6 +856,19 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 						InputSchema: t.InputSchema,
 					})
 				}
+			}
+		}
+	}
+	// Apps-bridge rows: fetch tools/list directly from the sidecar via
+	// our own proxy URL. The URL already carries ?api_key=dev-<id> so
+	// the auth middleware accepts it; the proxy injects APTEVA_APP_TOKEN
+	// before forwarding to the sidecar's /mcp.
+	if len(tools) == 0 && record != nil && record.Source == "app" && record.URL != "" {
+		appTools, err := probeRemoteMCP(record.URL, nil)
+		if err == nil {
+			tools = append(tools, appTools...)
+			if len(tools) > 0 && len(tools) != record.ToolCount {
+				s.store.UpdateMCPServerStatus(record.ID, "running", len(tools), record.Pid)
 			}
 		}
 	}

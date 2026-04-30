@@ -122,9 +122,13 @@ func (s *Server) registerAppMCP(installID int64) error {
 	}
 
 	upstream := appMCPUpstreamID(installID)
-	desc := strings.TrimSpace(manifest.Description)
+	// Use DisplayName (short, e.g. "Storage") over Description (long
+	// prose, multiple sentences). The dashboard's MCP list renders
+	// the description as the row's primary label, so a long one would
+	// take over the whole UI line.
+	desc := strings.TrimSpace(manifest.DisplayName)
 	if desc == "" {
-		desc = "Apps-installed MCP server (" + appName + ")"
+		desc = appName
 	}
 
 	// Existing row? Update in place. Otherwise insert. We don't use

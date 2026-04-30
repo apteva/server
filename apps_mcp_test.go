@@ -171,11 +171,12 @@ func TestRegisterAppMCP_IsIdempotentAndRefreshes(t *testing.T) {
 	firstRow := readMCPRow(t, s, installID)
 
 	// Simulate an app upgrade that added a new tool: rewrite the apps
-	// row's manifest_json with three tools.
+	// row's manifest_json with three tools and a new display name.
 	updatedManifest := sdk.Manifest{
-		Schema:   sdk.SchemaCurrent,
-		Name:     "storage",
-		Version:  "0.2.0",
+		Schema:      sdk.SchemaCurrent,
+		Name:        "storage",
+		DisplayName: "Storage v2",
+		Version:     "0.2.0",
 		Description: "After upgrade",
 		Provides: sdk.Provides{MCPTools: []sdk.MCPToolSpec{
 			{Name: "files_upload"},
@@ -203,8 +204,10 @@ func TestRegisterAppMCP_IsIdempotentAndRefreshes(t *testing.T) {
 	if !strings.Contains(secondRow["allowed_tools"].(string), "files_delete") {
 		t.Errorf("allowed_tools didn't pick up new tool: %v", secondRow["allowed_tools"])
 	}
-	if secondRow["description"] != "After upgrade" {
-		t.Errorf("description didn't refresh: %v", secondRow["description"])
+	// Bridge row's `description` column is the dashboard's primary
+	// label — must be short. We map to DisplayName, not Description.
+	if secondRow["description"] != "Storage v2" {
+		t.Errorf("description (display label) didn't refresh: %v", secondRow["description"])
 	}
 
 	// Exactly one row should exist for this install.
@@ -215,6 +218,47 @@ func TestRegisterAppMCP_IsIdempotentAndRefreshes(t *testing.T) {
 	).Scan(&count)
 	if count != 1 {
 		t.Fatalf("expected 1 row, got %d", count)
+	}
+}
+
+func TestRegisterAppMCP_UsesDisplayNameNotDescription(t *testing.T) {
+	// Description is multi-paragraph prose; the dashboard would render
+	// it as the row's primary label. Make sure we map to the manifest's
+	// short DisplayName instead, leaving the long blurb in apps.manifest_json
+	// for detail views to surface separately.
+	s := newTestServer(t)
+	manifest := sdk.Manifest{
+		Schema:      sdk.SchemaCurrent,
+		Name:        "storage",
+		DisplayName: "Storage",
+		Description: "File storage. Long. Multi-sentence. " + strings.Repeat("blah ", 50),
+		Provides:    sdk.Provides{MCPTools: []sdk.MCPToolSpec{{Name: "files_upload"}}},
+	}
+	mj, _ := json.Marshal(manifest)
+	if _, err := s.store.db.Exec(
+		`INSERT INTO apps (name, source, repo, ref, manifest_json) VALUES (?, 'git', '', '', ?)`,
+		"storage", string(mj),
+	); err != nil {
+		t.Fatal(err)
+	}
+	var appID int64
+	s.store.db.QueryRow(`SELECT id FROM apps WHERE name='storage'`).Scan(&appID)
+	res, _ := s.store.db.Exec(
+		`INSERT INTO app_installs (app_id, project_id, status, installed_by) VALUES (?, '', 'running', 1)`,
+		appID,
+	)
+	id, _ := res.LastInsertId()
+	s.store.db.Exec(`INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (1, 'a@b.c', 'x')`)
+
+	if err := s.registerAppMCP(id); err != nil {
+		t.Fatal(err)
+	}
+	row := readMCPRow(t, s, id)
+	if row["description"] != "Storage" {
+		t.Fatalf("expected DisplayName 'Storage' as description; got %q", row["description"])
+	}
+	if strings.Contains(row["description"].(string), "blah") {
+		t.Fatalf("the long manifest description leaked into mcp_servers.description")
 	}
 }
 
