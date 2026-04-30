@@ -85,6 +85,7 @@ type Server struct {
 	// now; the long-term plan is for built-ins to graduate to this
 	// registry too.
 	installedApps   *InstalledAppsRegistry
+	appBus          *AppEventBus
 	orchestratorURL string
 	// localApps supervises app sidecars run as native subprocesses on
 	// this host (binary spawn — no Docker). Used in single-host /
@@ -556,6 +557,24 @@ func main() {
 		}
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 	}))
+	// App event bus — generic SDK-level pub/sub for app→dashboard live UI.
+	// Sidecars POST emits via APTEVA_APP_TOKEN; browsers SSE-subscribe via
+	// cookie/API-key auth. Mounted under /api/app-events/ to sidestep the
+	// catch-all /api/apps/<name>/... proxy further down.
+	apiMux.HandleFunc("/app-events/internal/emit", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			s.handleAppEventEmit(w, r)
+			return
+		}
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+	}))
+	apiMux.HandleFunc("/app-events/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			s.handleAppEventStream(w, r)
+			return
+		}
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+	}))
 	apiMux.HandleFunc("/apps/preview", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			s.handlePreviewApp(w, r)
@@ -848,6 +867,7 @@ func main() {
 	// every installed app on boot. Failures don't block boot; broken
 	// installs surface in the dashboard's Apps tab.
 	s.installedApps = NewInstalledAppsRegistry()
+	s.appBus = NewAppEventBus()
 	s.orchestratorURL = os.Getenv("ORCHESTRATOR_URL")
 	if s.orchestratorURL == "" {
 		s.orchestratorURL = "http://46.224.26.45:8099"
