@@ -20,8 +20,28 @@ type channelMCPServer struct {
 	registry *ChannelRegistry
 	ic       *InstanceChannels // parent — for listing available channels
 
+	// componentCatalog returns the UI components installed apps in
+	// this instance's project declare. Used to enumerate them in the
+	// `respond` tool description (so the agent learns what's
+	// renderable without a separate discovery call) and to back the
+	// `components_list` tool. Optional — when nil the description
+	// degrades to a generic "available components depend on installed
+	// apps" line, same as v1.
+	componentCatalog func() []componentEntry
+
 	mu     sync.Mutex
 	closed bool
+}
+
+// componentEntry is the flat (app, name, slots, description) row
+// the chat MCP advertises to the agent. Decoupled from sdk.UIComponent
+// so we can also expose human-readable display_name/description from
+// the surrounding manifest without leaking the whole manifest type.
+type componentEntry struct {
+	App         string   `json:"app"`
+	Name        string   `json:"name"`
+	Slots       []string `json:"slots"`
+	Description string   `json:"description,omitempty"`
 }
 
 func newChannelMCPServer(registry *ChannelRegistry) (*channelMCPServer, error) {
@@ -148,11 +168,16 @@ func (s *channelMCPServer) toolsList() map[string]any {
 		channelList = "none — no channels configured"
 	}
 
+	var components []componentEntry
+	if s.componentCatalog != nil {
+		components = s.componentCatalog()
+	}
+
 	return map[string]any{
 		"tools": []map[string]any{
 			{
 				"name": "respond",
-				"description": buildRespondDescription(channelIDs),
+				"description": buildRespondDescription(channelIDs, components),
 				"inputSchema": map[string]any{
 					"type":     "object",
 					"required": []string{"text", "channel"},
@@ -161,7 +186,7 @@ func (s *channelMCPServer) toolsList() map[string]any {
 						"channel": map[string]any{"type": "string", "description": "Target channel ID, e.g. \"cli\", \"telegram:12345\""},
 						"components": map[string]any{
 							"type": "array",
-							"description": "Optional rich attachments — components installed apps declare in their manifest's ui_components. Use ONLY when the user needs to see something visual (a file, a scheduled post, a media tile) — not for plain status. Each entry is {app, name, props}. Channels that don't support rich rendering (cli, slack, email, telegram) deliver text only and ignore this field. Available components depend on installed apps; e.g. with storage installed: {app:\"storage\", name:\"file-card\", props:{file_id:12}}.",
+							"description": "Optional rich attachments — see the AVAILABLE COMPONENTS list in the main description above for the exact catalog. Each entry is {app, name, props}. Non-chat channels (cli, slack, email, telegram) ignore this field; only chat renders attachments.",
 							"items": map[string]any{
 								"type": "object",
 								"required": []string{"app", "name"},
@@ -206,7 +231,7 @@ func (s *channelMCPServer) toolsList() map[string]any {
 // channel, because "cli" appeared right there in the tool doc.
 // Dynamic examples kill that failure mode: if the agent sees only
 // [chat] as a valid channel in the docs, it calls channel="chat".
-func buildRespondDescription(channelIDs []string) string {
+func buildRespondDescription(channelIDs []string, components []componentEntry) string {
 	var examples []string
 	for _, id := range channelIDs {
 		// Strip cosmetic telegram suffixes for the example.
@@ -238,6 +263,37 @@ func buildRespondDescription(channelIDs []string) string {
 		examplesLine = "(none — no channels currently accept responses; see DIRECTIVES rule below)"
 	}
 
+	// AVAILABLE COMPONENTS — surfaced to the agent the same way
+	// channel routing is. Each turn the description is regenerated
+	// with the live catalog, so the agent never has to call a
+	// separate discovery tool. Filtered to components that include
+	// chat.message_attachment in their slot allowlist (the only
+	// slot `respond` can render into).
+	var componentLines []string
+	for _, c := range components {
+		allowed := false
+		for _, slot := range c.Slots {
+			if slot == "chat.message_attachment" {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			continue
+		}
+		line := fmt.Sprintf("  - {app:%q, name:%q}", c.App, c.Name)
+		if c.Description != "" {
+			line += " — " + c.Description
+		}
+		componentLines = append(componentLines, line)
+	}
+	componentsBlock := ""
+	if len(componentLines) > 0 {
+		componentsBlock = "\n\nAVAILABLE COMPONENTS for the optional `components` arg (only on chat — other channels strip them):\n" +
+			strings.Join(componentLines, "\n") +
+			"\nUse them to attach a visual tile to your reply when the user needs to *see* something (a file, a scheduled post, a media preview) — not for plain status. Each entry is {app, name, props}; props are component-specific."
+	}
+
 	return fmt.Sprintf(
 		"Send a message to a user on a channel. Text in your thoughts is INVISIBLE — only this tool delivers messages.\n\n"+
 			"REPLY CONTRACT (every user message must satisfy this):\n"+
@@ -248,8 +304,8 @@ func buildRespondDescription(channelIDs []string) string {
 			"KNOWN CHANNELS (valid values for the `channel` parameter): [%s].\n"+
 			"Routing — match the event prefix to the channel: %s.\n\n"+
 			"If the gate rejects your channel as unknown, the right move is to retry with a channel from the list above — NOT to fall silent. Do NOT default to \"cli\" from training-data prior; use exactly the names listed.\n\n"+
-			"DIRECTIVES vs MESSAGES: events whose tag does NOT correspond to a known channel above — e.g. [admin], [system], [inject], or a bare untagged event — are DIRECTIVES from an operator, not user messages. Act on them but do NOT call respond.",
-		connectedList, examplesLine,
+			"DIRECTIVES vs MESSAGES: events whose tag does NOT correspond to a known channel above — e.g. [admin], [system], [inject], or a bare untagged event — are DIRECTIVES from an operator, not user messages. Act on them but do NOT call respond.%s",
+		connectedList, examplesLine, componentsBlock,
 	)
 }
 

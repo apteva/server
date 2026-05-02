@@ -65,6 +65,14 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 		s.attachAppChannelsDuringStart(reg, inst, ic)
 	}
 
+	// ComponentCatalog feeds the channel MCP server so the agent's
+	// `respond` tool description carries a live list of UI components
+	// installed apps declare. Each turn the description regenerates
+	// from this; no separate discovery tool needed.
+	s.instances.ComponentCatalog = func(projectID string) []componentEntry {
+		return s.componentCatalogForProject(projectID)
+	}
+
 	// Fan NotifyInstanceAttach for every instance that's already
 	// running (server restart case — instances persist across
 	// restarts in our model, apps need to see them). This also
@@ -73,6 +81,32 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 	s.notifyAppsAboutExistingInstances(reg)
 
 	return reg, nil
+}
+
+// componentCatalogForProject walks every installed app visible to the
+// project (own + globals) and flattens their manifest's
+// ui_components into the (app, name, slots, description) shape the
+// channel MCP advertises. Slot allowlisting is deferred to the
+// MCP layer — we return everything; it filters per-tool.
+func (s *Server) componentCatalogForProject(projectID string) []componentEntry {
+	if s.installedApps == nil {
+		return nil
+	}
+	apps := s.installedApps.ListForProject(projectID)
+	out := make([]componentEntry, 0, 4*len(apps))
+	for _, a := range apps {
+		for _, c := range a.Manifest.Provides.UIComponents {
+			if c.Name == "" || c.Entry == "" {
+				continue
+			}
+			out = append(out, componentEntry{
+				App:   a.AppName,
+				Name:  c.Name,
+				Slots: append([]string{}, c.Slots...),
+			})
+		}
+	}
+	return out
 }
 
 // attachAppChannelsDuringStart runs INSIDE InstanceManager.Start while

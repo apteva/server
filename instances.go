@@ -49,6 +49,14 @@ type InstanceManager struct {
 	// Leave nil in tests or single-instance bring-up paths that
 	// don't have an apps registry yet.
 	PostChannelsInit func(inst *Instance, ic *InstanceChannels)
+
+	// ComponentCatalog returns the chat-attachment components
+	// available to the agent in a given project. The channel MCP
+	// server bakes this list into the `respond` tool's description
+	// each turn so the agent learns what's renderable without a
+	// separate discovery call. Closes over the platform-wide
+	// InstalledAppsRegistry; left nil in tests.
+	ComponentCatalog func(projectID string) []componentEntry
 }
 
 func NewInstanceManager(dataDir, coreCmd string) *InstanceManager {
@@ -251,6 +259,16 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 	channelsMCP, err := newChannelMCPServer(ic.registry)
 	if err == nil {
 		channelsMCP.ic = ic
+		// Close over the project so the channel MCP can enumerate
+		// apps installed in this instance's project. Without this
+		// the `respond` tool description shows no AVAILABLE
+		// COMPONENTS section and the agent has to guess.
+		if im.ComponentCatalog != nil {
+			pid := inst.ProjectID
+			channelsMCP.componentCatalog = func() []componentEntry {
+				return im.ComponentCatalog(pid)
+			}
+		}
 	}
 	if err != nil {
 		return fmt.Errorf("failed to start channels MCP: %w", err)
