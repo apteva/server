@@ -100,9 +100,10 @@ func (s *Server) componentCatalogForProject(projectID string) []componentEntry {
 				continue
 			}
 			out = append(out, componentEntry{
-				App:   a.AppName,
-				Name:  c.Name,
-				Slots: append([]string{}, c.Slots...),
+				App:         a.AppName,
+				Name:        c.Name,
+				Slots:       append([]string{}, c.Slots...),
+				PropsSchema: c.PropsSchema,
 			})
 		}
 	}

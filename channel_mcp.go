@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 
@@ -38,10 +39,11 @@ type channelMCPServer struct {
 // so we can also expose human-readable display_name/description from
 // the surrounding manifest without leaking the whole manifest type.
 type componentEntry struct {
-	App         string   `json:"app"`
-	Name        string   `json:"name"`
-	Slots       []string `json:"slots"`
-	Description string   `json:"description,omitempty"`
+	App         string         `json:"app"`
+	Name        string         `json:"name"`
+	Slots       []string       `json:"slots"`
+	Description string         `json:"description,omitempty"`
+	PropsSchema map[string]any `json:"props_schema,omitempty"`
 }
 
 func newChannelMCPServer(registry *ChannelRegistry) (*channelMCPServer, error) {
@@ -231,6 +233,54 @@ func (s *channelMCPServer) toolsList() map[string]any {
 // channel, because "cli" appeared right there in the tool doc.
 // Dynamic examples kill that failure mode: if the agent sees only
 // [chat] as a valid channel in the docs, it calls channel="chat".
+// propsSchemaHint renders a component's props_schema as a compact
+// inline string the agent can read at a glance, e.g.
+// "{file_id*: integer, compact?: boolean}". Required keys get a `*`,
+// optional keys get a `?`. Returns "" when the schema is empty or
+// shaped unexpectedly — degrades gracefully so a malformed schema
+// just hides the hint instead of polluting the description.
+func propsSchemaHint(schema map[string]any) string {
+	if schema == nil {
+		return ""
+	}
+	props, _ := schema["properties"].(map[string]any)
+	if len(props) == 0 {
+		return ""
+	}
+	required := map[string]bool{}
+	if reqArr, ok := schema["required"].([]any); ok {
+		for _, r := range reqArr {
+			if s, ok := r.(string); ok {
+				required[s] = true
+			}
+		}
+	}
+	keys := make([]string, 0, len(props))
+	for k := range props {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		typ := ""
+		if def, ok := props[k].(map[string]any); ok {
+			if t, ok := def["type"].(string); ok {
+				typ = t
+			}
+		}
+		marker := "?"
+		if required[k] {
+			marker = "*"
+		}
+		entry := k + marker
+		if typ != "" {
+			entry += ": " + typ
+		}
+		parts = append(parts, entry)
+	}
+	return "{" + strings.Join(parts, ", ") + "}"
+}
+
 func buildRespondDescription(channelIDs []string, components []componentEntry) string {
 	var examples []string
 	for _, id := range channelIDs {
@@ -282,6 +332,9 @@ func buildRespondDescription(channelIDs []string, components []componentEntry) s
 			continue
 		}
 		line := fmt.Sprintf("  - {app:%q, name:%q}", c.App, c.Name)
+		if propsHint := propsSchemaHint(c.PropsSchema); propsHint != "" {
+			line += " props=" + propsHint
+		}
 		if c.Description != "" {
 			line += " — " + c.Description
 		}
