@@ -289,9 +289,14 @@ func buildRespondDescription(channelIDs []string, components []componentEntry) s
 	}
 	componentsBlock := ""
 	if len(componentLines) > 0 {
-		componentsBlock = "\n\nAVAILABLE COMPONENTS for the optional `components` arg (only on chat — other channels strip them):\n" +
+		componentsBlock = "\n\nAVAILABLE COMPONENTS for the optional `components` arg (chat only — other channels strip them):\n" +
 			strings.Join(componentLines, "\n") +
-			"\nUse them to attach a visual tile to your reply when the user needs to *see* something (a file, a scheduled post, a media preview) — not for plain status. Each entry is {app, name, props}; props are component-specific."
+			"\nWHEN TO ATTACH (default ON for these cases — do NOT wait to be asked):\n" +
+			"  - The reply is about a specific file, image, video, or media item the user can view → attach the matching card with the item's id in props.\n" +
+			"  - You looked up an entity (file, post, document) and are reporting metadata about it → attach the card alongside or instead of a text dump.\n" +
+			"  - The user said \"show\", \"display\", \"preview\", \"render\" — always attach.\n" +
+			"Plain status updates, error messages, and pure conversation do NOT need a component.\n" +
+			"Format: components=[{app:\"<app>\", name:\"<component-name>\", props:{<props>}}]. Send the text AND components in the same respond call — never a respond-only-text followed by a respond-only-component (that double-pings the user)."
 	}
 
 	return fmt.Sprintf(
