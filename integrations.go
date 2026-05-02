@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -35,6 +37,24 @@ type AppTemplate struct {
 	// tools/list response is the source of truth.
 	Kind string           `json:"kind,omitempty"`
 	MCP  *RemoteMcpConfig `json:"mcp,omitempty"`
+	// UIComponents — optional React cards the agent can attach to chat
+	// replies via respond(components=[…]). Same shape as apps'
+	// provides.ui_components. Each entry's Entry path resolves under
+	// /api/integrations/<slug>/<entry> at runtime.
+	UIComponents []IntegrationUIComponent `json:"ui_components,omitempty"`
+}
+
+// IntegrationUIComponent mirrors @apteva/integrations/src/types.ts
+// UIComponent. We keep the Go side as map[string]any for the schema
+// because we never inspect the schema server-side beyond rendering it
+// in the agent-facing description — the dashboard's runtime is the
+// authority for prop validation.
+type IntegrationUIComponent struct {
+	Name        string         `json:"name"`
+	Entry       string         `json:"entry"`
+	Slots       []string       `json:"slots,omitempty"`
+	PropsSchema map[string]any `json:"props_schema,omitempty"`
+	PreviewProps map[string]any `json:"preview_props,omitempty"`
 }
 
 // RemoteMcpConfig describes how to reach a vendor-hosted MCP server.
@@ -705,7 +725,38 @@ func normalizeCredentials(c map[string]string) map[string]string {
 			}
 		}
 	}
+	// Derived credentials. basic_auth is base64(username:password) for
+	// HTTP Basic auth — Twilio uses (account_sid, auth_token); generic
+	// Basic users put (username, password) in their connection.
+	// Computed once here so auth.headers can declare a clean
+	// "Basic {{basic_auth}}" template without runner-internal hooks.
+	if out["basic_auth"] == "" {
+		user, pass := basicAuthPair(out)
+		if user != "" && pass != "" {
+			out["basic_auth"] = base64.StdEncoding.EncodeToString([]byte(user + ":" + pass))
+		}
+	}
 	return out
+}
+
+// basicAuthPair picks the (username, password) pair for HTTP Basic
+// auth from a credential map. Recognises the conventional pairings
+// used by the catalog today; integrations that need a different
+// pairing can declare them in their credential field names.
+func basicAuthPair(c map[string]string) (user, pass string) {
+	pairs := [][2]string{
+		{"username", "password"},
+		{"account_sid", "auth_token"},
+		{"api_key", "api_secret"},
+	}
+	for _, p := range pairs {
+		u := c[p[0]]
+		v := c[p[1]]
+		if u != "" && v != "" {
+			return u, v
+		}
+	}
+	return "", ""
 }
 
 func resolveTemplate(template string, credentials map[string]string) string {
@@ -715,6 +766,28 @@ func resolveTemplate(template string, credentials map[string]string) string {
 		result = strings.ReplaceAll(result, "{{"+key+"}}", val)
 	}
 	return result
+}
+
+// formEncode marshals body fields as application/x-www-form-urlencoded.
+// Used when an integration declares Content-Type:
+// application/x-www-form-urlencoded in auth.headers (Twilio, Stripe,
+// etc.). Arrays of primitives become repeated key=value pairs, which
+// is what Twilio expects for things like Tags / MediaUrl.
+func formEncode(body map[string]any) string {
+	values := url.Values{}
+	for k, v := range body {
+		switch x := v.(type) {
+		case nil:
+			// skip
+		case []any:
+			for _, item := range x {
+				values.Add(k, fmt.Sprintf("%v", item))
+			}
+		default:
+			values.Set(k, fmt.Sprintf("%v", v))
+		}
+	}
+	return values.Encode()
 }
 
 func buildURL(baseURL, path string, input map[string]any) string {

@@ -864,13 +864,14 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	}
 
 	// Build URL with credential templating + path param interpolation.
-	// The base_url may contain {{X}} placeholders (e.g. SES uses
-	// "https://email.{{region}}.amazonaws.com" so a single catalog
-	// entry serves every region). Resolve those before path-param
-	// interpolation so a missing credential surfaces as a parse error
-	// at the URL layer rather than as a silent string concat.
+	// Both base_url and tool.path may contain {{X}} placeholders that
+	// resolve against credentials (SES uses {{region}} on base_url;
+	// Twilio uses {{account_sid}} on tool.path). Resolve both before
+	// path-param interpolation so a missing credential surfaces as a
+	// URL parse error rather than as a silent string concat.
 	resolvedBase := resolveTemplate(app.BaseURL, credentials)
-	url := buildURL(resolvedBase, tool.Path, input)
+	resolvedPath := resolveTemplate(tool.Path, credentials)
+	url := buildURL(resolvedBase, resolvedPath, input)
 
 	// Add auth query params
 	url += buildAuthQuery(app.Auth.QueryParams, credentials)
@@ -945,9 +946,18 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			bodyMap[k] = v
 		}
 		if len(bodyMap) > 0 {
-			data, _ := json.Marshal(bodyMap)
-			bodyReader = strings.NewReader(string(data))
-			headers["Content-Type"] = "application/json"
+			// Default JSON body. If the integration declared
+			// application/x-www-form-urlencoded in auth.headers,
+			// marshal the body as form fields instead — Twilio,
+			// Stripe, and a handful of others want this.
+			ct := headers["Content-Type"]
+			if strings.Contains(strings.ToLower(ct), "x-www-form-urlencoded") {
+				bodyReader = strings.NewReader(formEncode(bodyMap))
+			} else {
+				data, _ := json.Marshal(bodyMap)
+				bodyReader = strings.NewReader(string(data))
+				headers["Content-Type"] = "application/json"
+			}
 		}
 	} else {
 		// GET/DELETE: add remaining params as query string. Skip
