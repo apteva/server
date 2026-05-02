@@ -71,6 +71,15 @@ type ConnectionInput struct {
 	// rows out of the operator's Integrations list. Zero for legacy /
 	// operator-managed rows.
 	OwnerAppInstallID int64
+	// AutoMCP — when true (the default), an mcp_servers row is
+	// auto-created on connect so agents in the project can call the
+	// integration's tools globally. When false, the connection is
+	// created but no MCP server materialises — the operator wants
+	// the connection to exist (e.g. so the Social app can bind it)
+	// without exposing all the integration's tools to every agent.
+	// Pointer so the absent / default-true distinction is explicit
+	// at the API boundary; nil means "use the default of true".
+	AutoMCP *bool
 }
 
 // --- Store methods ---
@@ -94,9 +103,13 @@ func (s *Store) CreateConnectionExt(in ConnectionInput) (*Connection, error) {
 	if in.CreatedVia == "" {
 		in.CreatedVia = "integration"
 	}
+	autoMCP := 1 // default: expose tools to agents
+	if in.AutoMCP != nil && !*in.AutoMCP {
+		autoMCP = 0
+	}
 	result, err := s.db.Exec(
-		"INSERT INTO connections (user_id, app_slug, app_name, name, auth_type, encrypted_credentials, status, project_id, source, provider_id, external_id, created_via, owner_app_install_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		in.UserID, in.AppSlug, in.AppName, in.Name, in.AuthType, in.EncryptedCreds, in.Status, in.ProjectID, in.Source, in.ProviderID, in.ExternalID, in.CreatedVia, in.OwnerAppInstallID,
+		"INSERT INTO connections (user_id, app_slug, app_name, name, auth_type, encrypted_credentials, status, project_id, source, provider_id, external_id, created_via, owner_app_install_id, auto_mcp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		in.UserID, in.AppSlug, in.AppName, in.Name, in.AuthType, in.EncryptedCreds, in.Status, in.ProjectID, in.Source, in.ProviderID, in.ExternalID, in.CreatedVia, in.OwnerAppInstallID, autoMCP,
 	)
 	if err != nil {
 		return nil, err
@@ -164,6 +177,18 @@ func (s *Store) UpdateConnectionStatus(connID int64, status string) error {
 // local OAuth token exchange and on refresh).
 func (s *Store) UpdateConnectionCredentials(connID int64, encryptedCreds string) error {
 	_, err := s.db.Exec("UPDATE connections SET encrypted_credentials = ? WHERE id = ?", encryptedCreds, connID)
+	return err
+}
+
+// UpdateMCPServerEnv replaces the encrypted_env blob for a single
+// mcp_servers row. Used by the OAuth refresh path: when an upstream
+// hosted MCP returns 401 because the access token expired, we
+// refresh the token on the source connection AND need to reflect it
+// in the mcp_servers row that probeRemoteMCP / callRemoteMCPTool
+// read at call time. Without this, the row's frozen env would keep
+// failing every call until the user manually disconnect/reconnects.
+func (s *Store) UpdateMCPServerEnv(serverID int64, encryptedEnv string) error {
+	_, err := s.db.Exec("UPDATE mcp_servers SET encrypted_env = ? WHERE id = ?", encryptedEnv, serverID)
 	return err
 }
 
@@ -261,12 +286,14 @@ func (s *Store) CreateMCPServerFromConnectionWithSlug(userID int64, conn *Connec
 // auth-header template ({{token}} / {{api_key}}), and re-encrypts the
 // derived env JSON. Returns the new mcp_servers row id.
 func (s *Server) createRemoteMcpFromConnection(userID int64, conn *Connection, app *AppTemplate, encCreds string) (int64, error) {
+	log.Printf("[REMOTE-MCP] enter conn=%d slug=%s user=%d project=%q name=%q", conn.ID, conn.AppSlug, userID, conn.ProjectID, conn.Name)
 	if app == nil || app.Kind != "remote_mcp" {
 		return 0, fmt.Errorf("createRemoteMcpFromConnection requires kind=remote_mcp, got %q", app.Kind)
 	}
 	if app.MCP == nil || app.MCP.URL == "" {
 		return 0, fmt.Errorf("app %s missing mcp.url", app.Slug)
 	}
+	log.Printf("[REMOTE-MCP] app config: url=%s transport=%s auth_header_set=%t", app.MCP.URL, app.MCP.Transport, app.MCP.AuthHeader != nil)
 
 	// Default header pattern matches the TS generator: Authorization:
 	// Bearer {{token}}. Templates can override per-app for vendors that
@@ -281,23 +308,35 @@ func (s *Server) createRemoteMcpFromConnection(userID int64, conn *Connection, a
 			headerValue = app.MCP.AuthHeader.Value
 		}
 	}
+	log.Printf("[REMOTE-MCP] header template: %s = %q", headerName, headerValue)
 
 	plain, err := Decrypt(s.secret, encCreds)
 	if err != nil {
+		log.Printf("[REMOTE-MCP] decrypt creds FAILED conn=%d: %v", conn.ID, err)
 		return 0, fmt.Errorf("decrypt creds: %w", err)
 	}
 	var credentials map[string]string
 	if uerr := json.Unmarshal([]byte(plain), &credentials); uerr != nil {
+		log.Printf("[REMOTE-MCP] parse creds FAILED conn=%d: %v", conn.ID, uerr)
 		return 0, fmt.Errorf("parse creds: %w", uerr)
 	}
+	credKeys := make([]string, 0, len(credentials))
+	for k := range credentials {
+		credKeys = append(credKeys, k)
+	}
+	log.Printf("[REMOTE-MCP] cred keys available: %v", credKeys)
+
 	resolved, ok := resolveRemoteMcpCredTemplate(headerValue, credentials)
 	if !ok {
+		log.Printf("[REMOTE-MCP] template resolve FAILED — placeholder unresolved in %q against keys %v", headerValue, credKeys)
 		// At least one {{name}} placeholder did not resolve to a real
 		// credential value. Fail loud — the upstream MCP would reject
 		// the call anyway, and a silent "this connection is broken"
 		// row is worse than a startup error operators can see.
 		return 0, fmt.Errorf("could not resolve auth header %q from connection credentials", headerValue)
 	}
+	// Show length only — never log the resolved bearer value itself.
+	log.Printf("[REMOTE-MCP] template resolved OK len=%d prefix=%s", len(resolved), shortPrefix(resolved, 12))
 
 	// probeRemoteMCP / MCPManager.Start read env keys case-sensitively
 	// for "AUTHORIZATION" and "API_KEY". Normalize standard headers to
@@ -314,8 +353,10 @@ func (s *Server) createRemoteMcpFromConnection(userID int64, conn *Connection, a
 	envJSON, _ := json.Marshal(envMap)
 	encEnv, err := Encrypt(s.secret, string(envJSON))
 	if err != nil {
+		log.Printf("[REMOTE-MCP] encrypt env FAILED conn=%d: %v", conn.ID, err)
 		return 0, fmt.Errorf("encrypt env: %w", err)
 	}
+	log.Printf("[REMOTE-MCP] env prepared envKey=%s encrypted_len=%d", envKey, len(encEnv))
 
 	// Stable upstream_id keyed on the connection so a retry / re-OAuth
 	// updates the same row instead of multiplying entries (matches
@@ -326,6 +367,7 @@ func (s *Server) createRemoteMcpFromConnection(userID int64, conn *Connection, a
 	// re-OAuth, drop the prior row first so the insert below produces a
 	// single, fresh entry with the new env.
 	s.store.DeleteMCPServerByConnection(conn.ID)
+	log.Printf("[REMOTE-MCP] cleared any prior mcp_servers row for conn=%d", conn.ID)
 
 	base := slugify(conn.Name)
 	if base == "" {
@@ -339,6 +381,7 @@ func (s *Server) createRemoteMcpFromConnection(userID int64, conn *Connection, a
 	} else if conn.AppName != "" && !strings.HasPrefix(description, conn.AppName) {
 		description = conn.AppName + " " + description
 	}
+	log.Printf("[REMOTE-MCP] inserting mcp_servers row name=%s desc=%q upstream_id=%s url=%s", mcpName, description, upstreamID, app.MCP.URL)
 
 	rec, err := s.store.CreateMCPServerExt(MCPServerInput{
 		UserID:       userID,
@@ -353,9 +396,123 @@ func (s *Server) createRemoteMcpFromConnection(userID int64, conn *Connection, a
 		UpstreamID:   upstreamID,
 	})
 	if err != nil {
+		log.Printf("[REMOTE-MCP] CreateMCPServerExt FAILED conn=%d: %v", conn.ID, err)
 		return 0, err
 	}
+	log.Printf("[REMOTE-MCP] mcp_servers row created id=%d conn=%d slug=%s", rec.ID, conn.ID, conn.AppSlug)
 	return rec.ID, nil
+}
+
+// refreshRemoteMcpAuth runs the OAuth refresh-token flow for the
+// connection backing a kind=remote_mcp mcp_servers row, persists the
+// new tokens on the connection, AND rewrites the mcp_servers row's
+// encrypted_env so the next callRemoteMCPTool / probeRemoteMCP picks
+// up the fresh access token. Mutates the in-memory env map in place
+// so the caller can retry the upstream call without a re-fetch.
+//
+// Triggered by the 401-retry branch in handleCallMCPTool. HubSpot's
+// access tokens expire after 30 minutes; without this, every demo
+// session breaks the moment the user steps away long enough.
+func (s *Server) refreshRemoteMcpAuth(serverID int64, connectionID int64, env map[string]string) error {
+	if connectionID == 0 {
+		return fmt.Errorf("no connection_id on mcp_servers row %d", serverID)
+	}
+	// Need both the connection (for user_id, app_slug, encrypted creds)
+	// and the catalog entry (for token_url + auth_header template).
+	var userID int64
+	var appSlug string
+	if err := s.store.db.QueryRow(
+		"SELECT user_id, app_slug FROM connections WHERE id = ?", connectionID,
+	).Scan(&userID, &appSlug); err != nil {
+		return fmt.Errorf("load connection %d: %w", connectionID, err)
+	}
+	conn, encCreds, err := s.store.GetConnection(userID, connectionID)
+	if err != nil {
+		return fmt.Errorf("get connection %d: %w", connectionID, err)
+	}
+	app := s.catalog.Get(appSlug)
+	if app == nil {
+		return fmt.Errorf("app %s missing from catalog", appSlug)
+	}
+	if app.Kind != "remote_mcp" || app.MCP == nil {
+		return fmt.Errorf("app %s is not kind=remote_mcp", appSlug)
+	}
+
+	plain, err := Decrypt(s.secret, encCreds)
+	if err != nil {
+		return fmt.Errorf("decrypt creds: %w", err)
+	}
+	var credentials map[string]string
+	if uerr := json.Unmarshal([]byte(plain), &credentials); uerr != nil {
+		return fmt.Errorf("parse creds: %w", uerr)
+	}
+	log.Printf("[REMOTE-MCP-REFRESH] conn=%d slug=%s — running token refresh", connectionID, appSlug)
+	if rerr := refreshOAuthAccessToken(app, credentials); rerr != nil {
+		return fmt.Errorf("refresh token: %w", rerr)
+	}
+
+	// Persist new tokens on the connection so they survive restarts.
+	newCredsJSON, _ := json.Marshal(credentials)
+	newEncCreds, err := Encrypt(s.secret, string(newCredsJSON))
+	if err != nil {
+		return fmt.Errorf("encrypt new creds: %w", err)
+	}
+	if err := s.store.UpdateConnectionCredentials(connectionID, newEncCreds); err != nil {
+		return fmt.Errorf("persist refreshed conn creds: %w", err)
+	}
+
+	// Re-resolve the auth header template against the refreshed
+	// credentials and rewrite the mcp_servers row's env so the next
+	// upstream call picks up the new access token.
+	headerName := "Authorization"
+	headerValue := "Bearer {{token}}"
+	if app.MCP.AuthHeader != nil {
+		if app.MCP.AuthHeader.Name != "" {
+			headerName = app.MCP.AuthHeader.Name
+		}
+		if app.MCP.AuthHeader.Value != "" {
+			headerValue = app.MCP.AuthHeader.Value
+		}
+	}
+	resolved, ok := resolveRemoteMcpCredTemplate(headerValue, credentials)
+	if !ok {
+		return fmt.Errorf("template resolve failed after refresh: %q", headerValue)
+	}
+	envKey := strings.ToUpper(headerName)
+	if envKey == "X-API-KEY" {
+		envKey = "API_KEY"
+	}
+	newEnvMap := map[string]string{envKey: resolved}
+	envJSON, _ := json.Marshal(newEnvMap)
+	encEnv, err := Encrypt(s.secret, string(envJSON))
+	if err != nil {
+		return fmt.Errorf("encrypt new env: %w", err)
+	}
+	if err := s.store.UpdateMCPServerEnv(serverID, encEnv); err != nil {
+		return fmt.Errorf("persist refreshed mcp env: %w", err)
+	}
+
+	// Mutate the caller's env map so the immediate retry uses the
+	// refreshed value without going back through the DB.
+	for k := range env {
+		delete(env, k)
+	}
+	for k, v := range newEnvMap {
+		env[k] = v
+	}
+	log.Printf("[REMOTE-MCP-REFRESH] OK conn=%d server=%d — new bearer length=%d", connectionID, serverID, len(resolved))
+	_ = conn // silence unused var; conn fields not needed for refresh itself
+	return nil
+}
+
+// shortPrefix returns up to `n` characters from the start of s with a
+// length stamp. Used in debug logs to give a sanity check that a
+// resolved bearer header looks plausible without leaking the token.
+func shortPrefix(s string, n int) string {
+	if len(s) <= n {
+		return fmt.Sprintf("%q(len=%d)", s, len(s))
+	}
+	return fmt.Sprintf("%q…(len=%d)", s[:n], len(s))
 }
 
 // resolveRemoteMcpCredTemplate substitutes {{name}} placeholders in an
@@ -706,8 +863,14 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		}
 	}
 
-	// Build URL with path param interpolation
-	url := buildURL(app.BaseURL, tool.Path, input)
+	// Build URL with credential templating + path param interpolation.
+	// The base_url may contain {{X}} placeholders (e.g. SES uses
+	// "https://email.{{region}}.amazonaws.com" so a single catalog
+	// entry serves every region). Resolve those before path-param
+	// interpolation so a missing credential surfaces as a parse error
+	// at the URL layer rather than as a silent string concat.
+	resolvedBase := resolveTemplate(app.BaseURL, credentials)
+	url := buildURL(resolvedBase, tool.Path, input)
 
 	// Add auth query params
 	url += buildAuthQuery(app.Auth.QueryParams, credentials)
@@ -988,6 +1151,14 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		// passes 'app_install' when minting a new connection through the
 		// integration picker.
 		CreatedVia string `json:"created_via"`
+		// AutoMCP: when omitted or true, an mcp_servers row is created
+		// on connect so agents in the project can call the integration's
+		// tools globally. When false, the connection exists but no MCP
+		// server materialises — useful when the operator wants the
+		// connection bound to a specific app (e.g. Facebook for Social)
+		// rather than exposed to every agent. Pointer so the dashboard
+		// can omit the field for back-compat with the auto-MCP default.
+		AutoMCP *bool `json:"auto_mcp"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -1161,7 +1332,7 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 
 	// Local OAuth2 — two-phase: start flow, return authorize URL, finish in callback.
 	if body.AuthType == "oauth2" {
-		conn, authURL, err := s.startLocalOAuth(userID, app, body.Name, body.ProjectID, body.ClientID, body.ClientSecret, 0, "")
+		conn, authURL, err := s.startLocalOAuth(userID, app, body.Name, body.ProjectID, body.ClientID, body.ClientSecret, 0, "", body.AutoMCP)
 		if err != nil {
 			http.Error(w, "oauth start: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -1194,6 +1365,7 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		Source:         "local",
 		Status:         "active",
 		CreatedVia:     body.CreatedVia,
+		AutoMCP:        body.AutoMCP,
 	})
 	if err != nil {
 		log.Printf("[CONN] local CreateConnectionExt failed slug=%s name=%s project=%s: %v",
@@ -1203,12 +1375,16 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 	}
 	log.Printf("[CONN] local connection row id=%d slug=%s status=active created_via=%s",
 		conn.ID, conn.AppSlug, body.CreatedVia)
-	// Auto-create an mcp_servers row only when the connection was
-	// born at the top-level Integrations page. App-install minted
-	// connections skip this — the consuming app is the intended
-	// caller, not every agent in the project. Operators can
-	// "Expose to agents" later from the connection card.
-	if body.CreatedVia != "app_install" {
+	// Auto-create an mcp_servers row only when:
+	//   1. the connection was born at the top-level Integrations
+	//      page (app-install minted connections always skip — the
+	//      consuming app is the intended caller, not every agent
+	//      in the project), AND
+	//   2. the operator hasn't opted out via auto_mcp=false.
+	// Operators can flip the auto_mcp flag later via PATCH
+	// /connections/:id/expose if they change their mind.
+	autoMCP := connectionAutoMCPFlag(s, conn.ID)
+	if body.CreatedVia != "app_install" && autoMCP {
 		if app.Kind == "remote_mcp" {
 			// Hosted-MCP apps go through the vendor's MCP server, not a
 			// generated local stdio. Re-fetch the encrypted creds blob
@@ -1229,11 +1405,29 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 			log.Printf("[CONN] local auto-mcp created mcp_id=%d conn=%d slug=%s tools=%d", mcpID, conn.ID, conn.AppSlug, len(app.Tools))
 		}
 	} else {
-		log.Printf("[CONN] skipping auto-mcp for app_install conn=%d", conn.ID)
+		if body.CreatedVia == "app_install" {
+			log.Printf("[CONN] skipping auto-mcp for app_install conn=%d", conn.ID)
+		} else {
+			log.Printf("[CONN] skipping auto-mcp (operator opted out via auto_mcp=false) conn=%d", conn.ID)
+		}
 	}
 	// New connection may unblock optional dep prompts on existing installs.
 	s.recomputePendingOptions()
 	writeJSON(w, conn)
+}
+
+// connectionAutoMCPFlag reads the auto_mcp boolean off the row.
+// Returns true on lookup failure so we don't silently skip auto-MCP
+// when the column is missing on a freshly-migrated DB.
+func connectionAutoMCPFlag(s *Server, connID int64) bool {
+	var v int
+	if err := s.store.db.QueryRow(
+		`SELECT COALESCE(auto_mcp, 1) FROM connections WHERE id=?`,
+		connID,
+	).Scan(&v); err != nil {
+		return true
+	}
+	return v != 0
 }
 
 // GET /connections/:id — single connection (used by dashboard to poll pending
