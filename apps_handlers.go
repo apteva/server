@@ -40,6 +40,11 @@ type AppRow struct {
 	Permissions   []sdk.Permission `json:"permissions"`
 	Surfaces      AppSurfaces      `json:"surfaces"`
 	UIPanels      []sdk.UIPanel    `json:"ui_panels,omitempty"`
+	// UIComponents — chat-attachment + sidebar-widget components
+	// declared in the install's manifest. The dashboard reads this
+	// to know which {app, name} pairs the agent's respond(components)
+	// call can target. Empty / omitted for apps that don't declare any.
+	UIComponents  []sdk.UIComponent `json:"ui_components,omitempty"`
 	// Bindings: role → connection_id | install_id | null. Empty when
 	// the install's manifest declares no requires.integrations.
 	Bindings map[string]any `json:"bindings,omitempty"`
@@ -454,7 +459,8 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			ProjectID: projID, Status: status, StatusMessage: statusMsg, ErrorMessage: errMsg,
 			Source: source, UpgradePolicy: upgradePolicy,
 			Permissions: perms, Surfaces: surfacesFromManifest(&manifest),
-			UIPanels: manifest.Provides.UIPanels,
+			UIPanels:    manifest.Provides.UIPanels,
+			UIComponents: manifest.Provides.UIComponents,
 		})
 	}
 	writeJSON(w, out)
