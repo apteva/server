@@ -972,12 +972,43 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		}
 	}
 
+	// Snapshot the body bytes before we wrap them as an io.Reader so
+	// SigV4 (below) can hash them. Cheap; bodies for these calls are
+	// kilobytes at most.
+	var bodyBytes []byte
+	if bodyReader != nil {
+		buf, _ := io.ReadAll(bodyReader)
+		bodyBytes = buf
+		bodyReader = strings.NewReader(string(buf))
+	}
+
 	req, err := http.NewRequest(tool.Method, url, bodyReader)
 	if err != nil {
 		return nil, err
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
+	}
+
+	// AWS SigV4 signing — only when the template's auth.types include
+	// "aws_sigv4". Other auth types (Bearer, api_key) are already
+	// handled via the headers + query maps above.
+	if hasAuthType(app.Auth.Types, "aws_sigv4") {
+		service := ""
+		if app.Auth.AwsSigV4 != nil {
+			service = app.Auth.AwsSigV4.Service
+		}
+		if err := signAWSSigV4(
+			req,
+			credentials["access_key_id"],
+			credentials["secret_access_key"],
+			credentials["session_token"],
+			credentials["region"],
+			service,
+			bodyBytes,
+		); err != nil {
+			return nil, fmt.Errorf("aws_sigv4 sign: %w", err)
+		}
 	}
 
 	timeout := 30 * time.Second

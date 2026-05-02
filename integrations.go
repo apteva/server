@@ -167,6 +167,17 @@ type AppAuthConfig struct {
 	QueryParams     map[string]string   `json:"query_params,omitempty"`
 	CredentialFields []CredentialField  `json:"credential_fields,omitempty"`
 	OAuth2          *OAuthConfig        `json:"oauth2,omitempty"`
+	// AwsSigV4 configures AWS Signature V4 request signing (SES, S3,
+	// anything else that lives behind aws_sigv4). Service is required
+	// when types includes "aws_sigv4" — region comes from the
+	// connection's credentials. Credentials must include
+	// access_key_id + secret_access_key + region (and optionally
+	// session_token for STS-issued temporary creds).
+	AwsSigV4 *AwsSigV4Config `json:"aws_sigv4,omitempty"`
+}
+
+type AwsSigV4Config struct {
+	Service string `json:"service"`
 }
 
 type CredentialField struct {
