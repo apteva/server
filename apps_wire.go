@@ -84,29 +84,74 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 }
 
 // componentCatalogForProject walks every installed app visible to the
-// project (own + globals) and flattens their manifest's
-// ui_components into the (app, name, slots, description) shape the
-// channel MCP advertises. Slot allowlisting is deferred to the
-// MCP layer — we return everything; it filters per-tool.
+// project (own + globals) AND every integration the project has a
+// live connection for, flattening their declared ui_components into
+// the catalog the channel MCP advertises to the agent. App slug and
+// integration slug share a namespace — the dashboard's
+// ChatComponentMount looks them up the same way regardless of source.
 func (s *Server) componentCatalogForProject(projectID string) []componentEntry {
-	if s.installedApps == nil {
-		return nil
-	}
-	apps := s.installedApps.ListForProject(projectID)
-	out := make([]componentEntry, 0, 4*len(apps))
-	for _, a := range apps {
-		for _, c := range a.Manifest.Provides.UIComponents {
-			if c.Name == "" || c.Entry == "" {
-				continue
+	out := make([]componentEntry, 0, 8)
+
+	// Apps: from the in-memory installed-apps registry, scoped to
+	// project + globals.
+	if s.installedApps != nil {
+		for _, a := range s.installedApps.ListForProject(projectID) {
+			for _, c := range a.Manifest.Provides.UIComponents {
+				if c.Name == "" || c.Entry == "" {
+					continue
+				}
+				out = append(out, componentEntry{
+					App:         a.AppName,
+					Name:        c.Name,
+					Slots:       append([]string{}, c.Slots...),
+					PropsSchema: c.PropsSchema,
+				})
 			}
-			out = append(out, componentEntry{
-				App:         a.AppName,
-				Name:        c.Name,
-				Slots:       append([]string{}, c.Slots...),
-				PropsSchema: c.PropsSchema,
-			})
 		}
 	}
+
+	// Integrations: every connected integration in this project
+	// contributes the components declared in its catalog entry. We
+	// match by app_slug → AppTemplate, then iterate UIComponents.
+	// `seen` dedups when the project has multiple connections to the
+	// same integration (e.g. two GitHub orgs); the agent picks the
+	// connection at tool-call time, the component itself is invariant.
+	if s.catalog != nil && s.store != nil && projectID != "" {
+		seen := map[string]bool{}
+		rows, err := s.store.db.Query(
+			`SELECT DISTINCT app_slug FROM connections WHERE project_id = ? AND status != 'disabled'`,
+			projectID,
+		)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var slug string
+				if err := rows.Scan(&slug); err != nil {
+					continue
+				}
+				if seen[slug] {
+					continue
+				}
+				seen[slug] = true
+				tmpl := s.catalog.Get(slug)
+				if tmpl == nil {
+					continue
+				}
+				for _, c := range tmpl.UIComponents {
+					if c.Name == "" || c.Entry == "" {
+						continue
+					}
+					out = append(out, componentEntry{
+						App:         slug,
+						Name:        c.Name,
+						Slots:       append([]string{}, c.Slots...),
+						PropsSchema: c.PropsSchema,
+					})
+				}
+			}
+		}
+	}
+
 	return out
 }
 

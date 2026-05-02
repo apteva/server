@@ -69,6 +69,7 @@ type Server struct {
 	port        string  // server port for telemetry callback
 	dataDir     string  // data directory for downloads, etc.
 	appsDir     string  // path to integration app definitions
+	integrationsUIDir string // path to built integration UI bundles (dist/ui/<slug>/<file>.mjs)
 	publicURL   string  // public base URL for webhooks (e.g. "https://agents.example.com")
 	broadcaster *TelemetryBroadcaster
 	setupToken     string  // one-time token for first registration (empty after use)
@@ -213,6 +214,23 @@ func main() {
 		fmt.Fprintf(os.Stderr, "loaded %d integrations from catalog\n", catalog.Count())
 	}
 
+	// Resolve the integrations UI bundle dir — built by
+	// integrations/scripts/build-ui.ts and served by
+	// handleIntegrationStatic. Same dev/prod fallback shape as appsDir.
+	integrationsUIDir := os.Getenv("APTEVA_INTEGRATIONS_UI_DIR")
+	if integrationsUIDir == "" {
+		devUIPath := filepath.Join(dataDir, "..", "..", "integrations", "dist", "ui")
+		downloadedUIPath := filepath.Join(dataDir, "integrations-ui")
+		if info, err := os.Stat(devUIPath); err == nil && info.IsDir() {
+			integrationsUIDir = devUIPath
+		} else if info, err := os.Stat(downloadedUIPath); err == nil && info.IsDir() {
+			integrationsUIDir = downloadedUIPath
+		}
+	}
+	if integrationsUIDir != "" {
+		fmt.Fprintf(os.Stderr, "integrations UI bundles: %s\n", integrationsUIDir)
+	}
+
 	publicURL := os.Getenv("PUBLIC_URL") // e.g. "https://agents.example.com"
 
 	// Determine registration mode
@@ -239,6 +257,7 @@ func main() {
 		mcpManager:  NewMCPManager(),
 		catalog:     catalog,
 		appsDir:     appsDir,
+		integrationsUIDir: integrationsUIDir,
 		secret:      secret,
 		port:        port,
 		dataDir:     dataDir,
@@ -431,6 +450,13 @@ func main() {
 	apiMux.HandleFunc("/projects/", s.authMiddleware(s.handleProject))
 
 	// Integration catalog routes
+	// Integration UI bundles. Serves /api/integrations/<slug>/ui/<file>
+	// from the integrations dist tree the dashboard picked up at build
+	// time. Public — no auth — same as /vendor/*.mjs, since bundles are
+	// not credential-scoped. The components fetch credential-scoped
+	// data through separate authenticated endpoints.
+	apiMux.HandleFunc("/integrations/", s.handleIntegrationStatic)
+
 	apiMux.HandleFunc("/integrations/catalog/reload", s.authMiddleware(s.handleCatalogReload))
 	apiMux.HandleFunc("/integrations/catalog/status", s.authMiddleware(s.handleCatalogStatus))
 	apiMux.HandleFunc("/integrations/catalog/download", s.authMiddleware(s.handleCatalogDownload))

@@ -463,6 +463,67 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			UIComponents: manifest.Provides.UIComponents,
 		})
 	}
+
+	// Append integration rows: every connection in this project whose
+	// integration declares ui_components surfaces here as a synthetic
+	// AppRow so the dashboard's chat-component lookup finds it via
+	// the same `apps[]` array. Source flips to "integration" so the
+	// UI can distinguish (badges, settings link) without a new endpoint.
+	if projectID != "" && s.catalog != nil {
+		seen := map[string]bool{}
+		// Track app names already in `out` so app/integration slugs
+		// don't shadow each other (highly unusual but defensive).
+		for _, r := range out {
+			seen[r.Name] = true
+		}
+		connRows, err := s.store.db.Query(
+			`SELECT DISTINCT app_slug FROM connections WHERE project_id = ? AND status != 'disabled'`,
+			projectID,
+		)
+		if err == nil {
+			defer connRows.Close()
+			for connRows.Next() {
+				var slug string
+				if connRows.Scan(&slug) != nil || seen[slug] {
+					continue
+				}
+				seen[slug] = true
+				tmpl := s.catalog.Get(slug)
+				if tmpl == nil || len(tmpl.UIComponents) == 0 {
+					continue
+				}
+				// Translate IntegrationUIComponent → sdk.UIComponent
+				// shape so the dashboard can stay agnostic about
+				// the source.
+				uiComps := make([]sdk.UIComponent, 0, len(tmpl.UIComponents))
+				for _, c := range tmpl.UIComponents {
+					uiComps = append(uiComps, sdk.UIComponent{
+						Name:         c.Name,
+						Entry:        c.Entry,
+						Slots:        c.Slots,
+						PropsSchema:  c.PropsSchema,
+						PreviewProps: c.PreviewProps,
+					})
+				}
+				icon := ""
+				if tmpl.Logo != nil {
+					icon = *tmpl.Logo
+				}
+				out = append(out, AppRow{
+					Name:         slug,
+					DisplayName:  tmpl.Name,
+					Description:  tmpl.Description,
+					Icon:         icon,
+					Status:       "running",
+					Source:       "integration",
+					Version:      "1.0.0",
+					ProjectID:    projectID,
+					UIComponents: uiComps,
+				})
+			}
+		}
+	}
+
 	writeJSON(w, out)
 }
 

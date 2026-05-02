@@ -4,10 +4,35 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Apteva</title>
+
+    <!-- Theme bootstrap — runs synchronously before any render so the
+         first paint already has the right data-theme/data-mode set.
+         Without this, every cold load flashes the default theme for
+         one frame before the React tree picks up localStorage. -->
+    <script>
+    (function() {
+      try {
+        var saved = JSON.parse(localStorage.getItem('apteva.appearance') || '{}');
+        var theme = (saved.theme === 'clean' || saved.theme === 'terminal') ? saved.theme : 'terminal';
+        var mode  = (saved.mode === 'light' || saved.mode === 'dark') ? saved.mode :
+                    (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.setAttribute('data-mode', mode);
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'terminal');
+        document.documentElement.setAttribute('data-mode', 'dark');
+      }
+    })();
+    </script>
+
+    <!-- Webfonts — JetBrains Mono drives the Terminal theme, Inter
+         drives Clean. Both come from the same Google Fonts request;
+         display=swap means we render with the system fallback first
+         and re-flow when the network catches up rather than blocking
+         on font load. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="preload" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=block" as="style" />
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=block" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/style.css" />
     <!-- Importmap so dynamically-loaded panel modules import React from the host -->
     <script type="importmap">
@@ -17,13 +42,14 @@
           "react/jsx-runtime": "/vendor/react-jsx-runtime.mjs",
           "react/jsx-dev-runtime": "/vendor/react-jsx-runtime.mjs",
           "react-dom": "/vendor/react-dom.mjs",
-          "react-dom/client": "/vendor/react-dom-client.mjs"
+          "react-dom/client": "/vendor/react-dom-client.mjs",
+          "@apteva/ui-kit": "/vendor/ui-kit.mjs"
         }
       }
     </script>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/main-x512tjx5.js"></script>
+    <script type="module" src="/main-9d5ttb2a.js"></script>
   </body>
 </html>
