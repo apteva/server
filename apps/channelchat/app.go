@@ -22,6 +22,9 @@ var migration002 string
 //go:embed migrations/003_clamp_seen.sql
 var migration003 string
 
+//go:embed migrations/004_components.sql
+var migration004 string
+
 // New constructs the app, ready to be loaded into a framework.Registry.
 // The InstanceResolver lets the HTTP handlers authorize per-chat and
 // forward user messages into the instance's core /event endpoint —
@@ -58,6 +61,7 @@ func (a *App) Migrations() []framework.Migration {
 		{Version: 1, Name: "create channel_chat tables", SQL: migration001},
 		{Version: 2, Name: "add last_seen_id watermark", SQL: migration002},
 		{Version: 3, Name: "clamp inflated last_seen_id", SQL: migration003},
+		{Version: 4, Name: "add components_json column", SQL: migration004},
 	}
 }
 

@@ -168,7 +168,7 @@ func (h *handlers) postMessage(w http.ResponseWriter, r *http.Request, _ *framew
 
 	userID := h.instances.LookupUserID(r)
 	uid := userID
-	m, err := h.store.Append(chatID, "user", body.Content, &uid, "", "final")
+	m, err := h.store.Append(chatID, "user", body.Content, &uid, "", "final", nil)
 	if err != nil {
 		http.Error(w, "insert failed", http.StatusInternalServerError)
 		return
@@ -199,7 +199,7 @@ func (h *handlers) postMessage(w http.ResponseWriter, r *http.Request, _ *framew
 			// goes through the same hub/SSE path as a regular message
 			// so the chat panel renders it next to the user's input.
 			notice := fmt.Sprintf("(could not reach agent — your message is saved and will be delivered when the agent is running. err: %v)", err)
-			if sm, sErr := h.store.Append(chatID, "system", notice, nil, "", "final"); sErr == nil {
+			if sm, sErr := h.store.Append(chatID, "system", notice, nil, "", "final", nil); sErr == nil {
 				h.hub.publish(*sm)
 			}
 		}

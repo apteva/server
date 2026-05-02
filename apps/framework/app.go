@@ -114,6 +114,28 @@ type Channel interface {
 	Close()
 }
 
+// ChatComponent is a render hint the agent attaches to a chat message
+// via the `respond` tool's optional `components` arg. The chat panel
+// resolves (App, Name) to a UIComponent declared by the named app's
+// manifest and mounts it under the message bubble with the supplied
+// props. Decoupled from tool responses by design — apps declare what
+// they can render; the agent decides when to render.
+type ChatComponent struct {
+	App   string         `json:"app"`             // app slug, e.g. "storage"
+	Name  string         `json:"name"`            // component name, e.g. "file-card"
+	Props map[string]any `json:"props,omitempty"` // forwarded to the component
+}
+
+// RichSender is the optional capability a Channel can implement to
+// receive ChatComponents alongside text. Channels that implement it
+// (channelchat does) get rich attachments; channels that don't (cli,
+// slack, email, telegram) ignore the components and just deliver
+// text — graceful degradation keeps the agent's `respond` call
+// working everywhere.
+type RichSender interface {
+	SendWithComponents(text string, components []ChatComponent) error
+}
+
 // MCPTool is one tool exposed through the instance's channel MCP.
 // Handlers have full access to the app's DB + the calling instance.
 type MCPTool struct {

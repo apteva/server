@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+
+	"github.com/apteva/server/apps/framework"
 )
 
 // channelMCPServer is an HTTP MCP server exposing unified channel tools for core.
@@ -157,6 +159,19 @@ func (s *channelMCPServer) toolsList() map[string]any {
 					"properties": map[string]any{
 						"text":    map[string]any{"type": "string", "description": "The message to send"},
 						"channel": map[string]any{"type": "string", "description": "Target channel ID, e.g. \"cli\", \"telegram:12345\""},
+						"components": map[string]any{
+							"type": "array",
+							"description": "Optional rich attachments — components installed apps declare in their manifest's ui_components. Use ONLY when the user needs to see something visual (a file, a scheduled post, a media tile) — not for plain status. Each entry is {app, name, props}. Channels that don't support rich rendering (cli, slack, email, telegram) deliver text only and ignore this field. Available components depend on installed apps; e.g. with storage installed: {app:\"storage\", name:\"file-card\", props:{file_id:12}}.",
+							"items": map[string]any{
+								"type": "object",
+								"required": []string{"app", "name"},
+								"properties": map[string]any{
+									"app":   map[string]any{"type": "string", "description": "Installed app's slug, e.g. \"storage\"."},
+									"name":  map[string]any{"type": "string", "description": "Component name from that app's manifest, e.g. \"file-card\"."},
+									"props": map[string]any{"type": "object", "description": "Forwarded to the component verbatim."},
+								},
+							},
+						},
 					},
 				},
 			},
@@ -236,6 +251,37 @@ func buildRespondDescription(channelIDs []string) string {
 			"DIRECTIVES vs MESSAGES: events whose tag does NOT correspond to a known channel above — e.g. [admin], [system], [inject], or a bare untagged event — are DIRECTIVES from an operator, not user messages. Act on them but do NOT call respond.",
 		connectedList, examplesLine,
 	)
+}
+
+// extractComponents pulls a []ChatComponent out of the agent's
+// `respond` arguments. Tolerant of missing / wrong shapes — any
+// entry that doesn't have both `app` and `name` is silently
+// dropped so a malformed component doesn't tank the whole
+// respond call (the text still goes through).
+func extractComponents(raw any) []framework.ChatComponent {
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]framework.ChatComponent, 0, len(arr))
+	for _, v := range arr {
+		obj, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		app, _ := obj["app"].(string)
+		name, _ := obj["name"].(string)
+		if app == "" || name == "" {
+			continue
+		}
+		props, _ := obj["props"].(map[string]any)
+		out = append(out, framework.ChatComponent{
+			App:   app,
+			Name:  name,
+			Props: props,
+		})
+	}
+	return out
 }
 
 // channelInList reports whether `channel` (normalized) matches any
@@ -320,8 +366,24 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 			}
 			return nil, &mcpRPCError{Code: -32602, Message: msg}
 		}
-		if err := s.registry.Send(normalized, text); err != nil {
-			return nil, &mcpRPCError{Code: -32602, Message: err.Error()}
+		// Extract components if the agent attached any. When present
+		// AND the channel implements framework.RichSender (channelchat
+		// does; cli/slack/email/telegram don't), deliver them
+		// alongside the text. Otherwise fall back to plain Send so
+		// channels without rich rendering still get the text.
+		components := extractComponents(call.Arguments["components"])
+		ch := s.registry.Get(normalized)
+		if ch == nil {
+			return nil, &mcpRPCError{Code: -32602, Message: fmt.Sprintf("channel %q not found", normalized)}
+		}
+		if rich, ok := ch.(framework.RichSender); ok && len(components) > 0 {
+			if err := rich.SendWithComponents(text, components); err != nil {
+				return nil, &mcpRPCError{Code: -32602, Message: err.Error()}
+			}
+		} else {
+			if err := ch.Send(text); err != nil {
+				return nil, &mcpRPCError{Code: -32602, Message: err.Error()}
+			}
 		}
 		return textResult("delivered — do NOT send another respond for this same user message"), nil
 

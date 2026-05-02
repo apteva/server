@@ -2,23 +2,30 @@ package channelchat
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/apteva/server/apps/framework"
 )
 
 // Message mirrors one row of channel_chat_messages. All wire shapes
 // (REST, SSE) marshal from this.
 type Message struct {
-	ID        int64     `json:"id"`
-	ChatID    string    `json:"chat_id"`
-	Role      string    `json:"role"` // user | agent | system
-	Content   string    `json:"content"`
-	UserID    *int64    `json:"user_id,omitempty"`
-	ThreadID  string    `json:"thread_id,omitempty"`
-	Status    string    `json:"status"` // streaming | final
-	CreatedAt time.Time `json:"created_at"`
+	ID         int64                    `json:"id"`
+	ChatID     string                   `json:"chat_id"`
+	Role       string                   `json:"role"` // user | agent | system
+	Content    string                   `json:"content"`
+	UserID     *int64                   `json:"user_id,omitempty"`
+	ThreadID   string                   `json:"thread_id,omitempty"`
+	Status     string                   `json:"status"` // streaming | final
+	CreatedAt  time.Time                `json:"created_at"`
+	// Components — rich attachments the agent put on this message
+	// via respond(components=…). Empty array when none. Always emitted
+	// (not omitempty) so the dashboard can rely on the field existing.
+	Components []framework.ChatComponent `json:"components"`
 }
 
 // Chat is one conversation — today typically one per instance.
@@ -101,17 +108,28 @@ func (s *store) ListChatsForInstance(instanceID int64) ([]Chat, error) {
 // Append inserts a new message and returns it (with the assigned id
 // + created_at). Also bumps the parent chat's updated_at so client
 // lists stay sorted by most-recent-activity.
-func (s *store) Append(chatID, role, content string, userID *int64, threadID, status string) (*Message, error) {
+//
+// components is optional — pass nil for plain text messages.
+// Persisted as JSON in components_json; the dashboard reads it back
+// on stream/list and mounts each entry as a rich attachment.
+func (s *store) Append(chatID, role, content string, userID *int64, threadID, status string, components []framework.ChatComponent) (*Message, error) {
 	if role != "user" && role != "agent" && role != "system" {
 		return nil, fmt.Errorf("invalid role %q", role)
 	}
 	if status == "" {
 		status = "final"
 	}
+	if components == nil {
+		components = []framework.ChatComponent{}
+	}
+	componentsJSON, err := json.Marshal(components)
+	if err != nil {
+		return nil, fmt.Errorf("marshal components: %w", err)
+	}
 	res, err := s.db.Exec(
-		`INSERT INTO channel_chat_messages (chat_id, role, content, user_id, thread_id, status)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		chatID, role, content, userID, threadID, status,
+		`INSERT INTO channel_chat_messages (chat_id, role, content, user_id, thread_id, status, components_json)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		chatID, role, content, userID, threadID, status, string(componentsJSON),
 	)
 	if err != nil {
 		return nil, err
@@ -128,10 +146,12 @@ func (s *store) GetMessage(id int64) (*Message, error) {
 	var m Message
 	var userID sql.NullInt64
 	var threadID sql.NullString
+	var componentsJSON sql.NullString
 	err := s.db.QueryRow(
-		`SELECT id, chat_id, role, content, user_id, thread_id, status, created_at
+		`SELECT id, chat_id, role, content, user_id, thread_id, status, created_at,
+		        COALESCE(components_json, '[]')
 		 FROM channel_chat_messages WHERE id = ?`, id,
-	).Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &userID, &threadID, &m.Status, &m.CreatedAt)
+	).Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &userID, &threadID, &m.Status, &m.CreatedAt, &componentsJSON)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -145,7 +165,22 @@ func (s *store) GetMessage(id int64) (*Message, error) {
 	if threadID.Valid {
 		m.ThreadID = threadID.String
 	}
+	m.Components = decodeComponents(componentsJSON.String)
 	return &m, nil
+}
+
+// decodeComponents tolerates legacy rows (NULL or empty string) and
+// always returns a non-nil slice so the JSON marshaler emits [] rather
+// than null. The dashboard relies on the field always existing.
+func decodeComponents(raw string) []framework.ChatComponent {
+	if raw == "" {
+		return []framework.ChatComponent{}
+	}
+	var out []framework.ChatComponent
+	if err := json.Unmarshal([]byte(raw), &out); err != nil || out == nil {
+		return []framework.ChatComponent{}
+	}
+	return out
 }
 
 // ListMessages returns rows for a chat with id > since, ordered by id
@@ -155,7 +190,8 @@ func (s *store) ListMessages(chatID string, since int64, limit int) ([]Message, 
 		limit = 500
 	}
 	rows, err := s.db.Query(
-		`SELECT id, chat_id, role, content, user_id, thread_id, status, created_at
+		`SELECT id, chat_id, role, content, user_id, thread_id, status, created_at,
+		        COALESCE(components_json, '[]')
 		 FROM channel_chat_messages
 		 WHERE chat_id = ? AND id > ?
 		 ORDER BY id ASC
@@ -171,7 +207,8 @@ func (s *store) ListMessages(chatID string, since int64, limit int) ([]Message, 
 		var m Message
 		var userID sql.NullInt64
 		var threadID sql.NullString
-		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &userID, &threadID, &m.Status, &m.CreatedAt); err != nil {
+		var componentsJSON sql.NullString
+		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &userID, &threadID, &m.Status, &m.CreatedAt, &componentsJSON); err != nil {
 			return nil, err
 		}
 		if userID.Valid {
@@ -181,6 +218,7 @@ func (s *store) ListMessages(chatID string, since int64, limit int) ([]Message, 
 		if threadID.Valid {
 			m.ThreadID = threadID.String
 		}
+		m.Components = decodeComponents(componentsJSON.String)
 		out = append(out, m)
 	}
 	return out, rows.Err()

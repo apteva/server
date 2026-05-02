@@ -104,7 +104,12 @@ func TestChannelChatApp_EndToEnd(t *testing.T) {
 		t.Fatalf("posted row wrong: %v", posted)
 	}
 
-	// 4. GET messages back.
+	// 4. GET messages back. handlers.go writes a system "agent
+	//    unreachable" row when ForwardEvent fails — which it does
+	//    in this test because no real instance is running. So the
+	//    list may contain a system message alongside the user one.
+	//    We assert on the user row specifically rather than total
+	//    count.
 	r = authed("GET", "/apps/channel-chat/messages?chat_id="+chatID, "")
 	if r.StatusCode != 200 {
 		t.Fatalf("get status %d", r.StatusCode)
@@ -112,8 +117,14 @@ func TestChannelChatApp_EndToEnd(t *testing.T) {
 	var messages []map[string]any
 	json.NewDecoder(r.Body).Decode(&messages)
 	r.Body.Close()
-	if len(messages) != 1 {
-		t.Fatalf("expected 1 message, got %d", len(messages))
+	var userRows int
+	for _, msg := range messages {
+		if msg["role"] == "user" {
+			userRows++
+		}
+	}
+	if userRows != 1 {
+		t.Fatalf("expected 1 user message, got %d (rows=%v)", userRows, messages)
 	}
 
 	// 5. Agent-side Send writes an agent row. Need the chat channel
@@ -138,13 +149,21 @@ func TestChannelChatApp_EndToEnd(t *testing.T) {
 		t.Fatalf("channel.Send: %v", err)
 	}
 
-	// 6. GET messages now shows both rows, ordered by id.
+	// 6. GET messages now shows the user + agent rows. A system
+	//    "agent unreachable" row from step 4 may also be present;
+	//    we filter to non-system to assert ordering.
 	r = authed("GET", "/apps/channel-chat/messages?chat_id="+chatID, "")
-	var both []map[string]any
-	json.NewDecoder(r.Body).Decode(&both)
+	var allRows []map[string]any
+	json.NewDecoder(r.Body).Decode(&allRows)
 	r.Body.Close()
+	var both []map[string]any
+	for _, m := range allRows {
+		if m["role"] != "system" {
+			both = append(both, m)
+		}
+	}
 	if len(both) != 2 {
-		t.Fatalf("expected 2 messages, got %d", len(both))
+		t.Fatalf("expected 2 user/agent messages, got %d (rows=%v)", len(both), allRows)
 	}
 	if both[0]["role"] != "user" || both[1]["role"] != "agent" {
 		t.Fatalf("order wrong: %v", both)

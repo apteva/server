@@ -30,17 +30,25 @@ func (c *chatChannel) ID() string { return "chat" }
 
 // Send inserts a final agent message and fans it out.
 func (c *chatChannel) Send(text string) error {
+	return c.SendWithComponents(text, nil)
+}
+
+// SendWithComponents writes the agent's reply with optional rich
+// attachments. Implements framework.RichSender — the channels MCP
+// looks for this method when the agent's respond call carries a
+// `components` arg.
+func (c *chatChannel) SendWithComponents(text string, components []framework.ChatComponent) error {
 	if c.store == nil {
 		return fmt.Errorf("channel-chat: store not initialised")
 	}
-	m, err := c.store.Append(c.chatID, "agent", text, nil, c.threadID, "final")
+	m, err := c.store.Append(c.chatID, "agent", text, nil, c.threadID, "final", components)
 	if err != nil {
 		log.Printf("[CHAT] Send DB append failed chatID=%s err=%v", c.chatID, err)
 		return err
 	}
 	chatSubs, userSubs := c.hub.subscriberCounts(c.chatID, c.userID)
-	log.Printf("[CHAT-DEBUG] Send chat=%s user=%d msgID=%d chatSubs=%d userSubs=%d",
-		c.chatID, c.userID, m.ID, chatSubs, userSubs)
+	log.Printf("[CHAT-DEBUG] Send chat=%s user=%d msgID=%d components=%d chatSubs=%d userSubs=%d",
+		c.chatID, c.userID, m.ID, len(components), chatSubs, userSubs)
 	c.hub.publish(*m)
 	c.hub.publishToUser(c.userID, *m)
 	if c.bus != nil {
@@ -60,7 +68,7 @@ func (c *chatChannel) Status(text, level string) error {
 		level = "info"
 	}
 	body := "[" + level + "] " + text
-	m, err := c.store.Append(c.chatID, "system", body, nil, c.threadID, "final")
+	m, err := c.store.Append(c.chatID, "system", body, nil, c.threadID, "final", nil)
 	if err != nil {
 		return err
 	}
