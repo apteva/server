@@ -268,6 +268,15 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 			channelsMCP.componentCatalog = func() []componentEntry {
 				return im.ComponentCatalog(pid)
 			}
+			// One-time diagnostic: log the catalog the agent will
+			// see in its respond tool description. Helps confirm the
+			// pipeline is wired correctly without having to dig
+			// through truncated MCP-HTTP logs.
+			cat := im.ComponentCatalog(pid)
+			log.Printf("[CHAT-MCP] instance=%d project=%s catalog=%d entries", inst.ID, pid, len(cat))
+			for _, c := range cat {
+				log.Printf("[CHAT-MCP]   {app:%q, name:%q, slots:%v}", c.App, c.Name, c.Slots)
+			}
 		}
 	}
 	if err != nil {
