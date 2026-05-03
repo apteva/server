@@ -140,23 +140,52 @@ func (s *Server) handleAppEventStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// checkProjectAccess returns nil if the requesting user is a member
-// of the given project. Best-effort for now: any logged-in user is
-// allowed (the dashboard already enforces project switching on the
-// client; tightening this is a follow-up once project membership is
-// formally modelled). The token-auth-only path (X-User-ID set from
-// app token) is rejected — only browser sessions can subscribe.
+// checkProjectAccess returns nil if the requesting principal is
+// allowed to subscribe to the given project's app-event stream.
+//
+// Two principal kinds:
+//
+//   - Browser session (X-User-ID set, no install header). Any
+//     logged-in user is permitted — the dashboard enforces project
+//     switching on the client side. Membership refinement is a
+//     follow-up once project membership is formally modelled.
+//
+//   - Sidecar (X-Apteva-App-Install-ID set, X-User-ID also set).
+//     Permitted when the install belongs to the same project being
+//     subscribed to OR is global-scope (project_id=''). This lets
+//     apps like media subscribe to storage's file.deleted events
+//     for instant cascade cleanup without polling.
 func (s *Server) checkProjectAccess(r *http.Request, projectID string) error {
-	// Sidecars carry X-Apteva-App-Install-ID in addition to X-User-ID;
-	// streams are user-facing only.
-	if r.Header.Get("X-Apteva-App-Install-ID") != "" {
-		return errors.New("sidecars cannot subscribe")
-	}
-	if r.Header.Get("X-User-ID") == "" {
-		return errors.New("login required")
-	}
 	if projectID == "" {
 		return errors.New("project_id required")
+	}
+
+	// Sidecar path: install token. Verify the install's project
+	// matches the requested project_id (or is global). This keeps
+	// project A's media app from reading project B's storage events.
+	if installStr := r.Header.Get("X-Apteva-App-Install-ID"); installStr != "" {
+		installID, err := strconv.ParseInt(installStr, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid install id")
+		}
+		var installProject string
+		if err := s.store.db.QueryRow(
+			`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID,
+		).Scan(&installProject); err != nil {
+			return fmt.Errorf("install not found")
+		}
+		// Global install (no project) can subscribe to any project's
+		// events (it serves them all). Project-scoped install can
+		// only subscribe to its own project.
+		if installProject != "" && installProject != projectID {
+			return fmt.Errorf("sidecar's install project (%s) doesn't match requested project (%s)",
+				installProject, projectID)
+		}
+		return nil
+	}
+
+	if r.Header.Get("X-User-ID") == "" {
+		return errors.New("login required")
 	}
 	// Verify the project actually exists. Membership refinement is a
 	// follow-up — for now any authenticated user can attach.
