@@ -628,6 +628,10 @@ func main() {
 			s.handleUpgradeApp(w, r)
 		case strings.HasSuffix(path, "/bindings") && r.Method == http.MethodPut:
 			s.handleSetInstallBindings2(w, r)
+		case strings.HasSuffix(path, "/config") && r.Method == http.MethodGet:
+			s.handleGetInstallConfig(w, r)
+		case strings.HasSuffix(path, "/config") && r.Method == http.MethodPut:
+			s.handleSetInstallConfig(w, r)
 		case !strings.Contains(path, "/") && r.Method == http.MethodDelete:
 			s.handleUninstallApp(w, r)
 		default:
