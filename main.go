@@ -62,6 +62,7 @@ func loadOrMintInstanceSecret(store *Store) string {
 
 type Server struct {
 	store       *Store
+	dbPath      string  // path to apteva-server.db on disk (needed for staged restore)
 	instances   *InstanceManager
 	mcpManager  *MCPManager
 	catalog     *AppCatalog
@@ -183,6 +184,11 @@ func main() {
 		dataDir = "data"
 	}
 
+	// If a snapshot was uploaded via /api/platform/restore, the server DB
+	// it shipped sits next to dbPath as <dbPath>.restored with a marker.
+	// Swap it in before opening the store. No-op when no restore is pending.
+	applyPendingRestore(dbPath)
+
 	store, err := NewStore(dbPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to open database: %v\n", err)
@@ -253,6 +259,7 @@ func main() {
 
 	s := &Server{
 		store:       store,
+		dbPath:      dbPath,
 		instances:   NewInstanceManager(dataDir, coreCmd),
 		mcpManager:  NewMCPManager(),
 		catalog:     catalog,
@@ -338,6 +345,16 @@ func main() {
 	// next to the code they apply to.
 	apiMux.HandleFunc("/users", s.authMiddleware(s.handleUsers))
 	apiMux.HandleFunc("/users/", s.authMiddleware(s.handleUserByID))
+
+	// Platform-level operations. /platform/snapshot streams a tar.gz of
+	// every SQLite DB the server owns (its own + each running install's),
+	// captured via VACUUM INTO so dumps are consistent without stopping
+	// any sidecar. Admin-only; the handler enforces the role.
+	apiMux.HandleFunc("/platform/snapshot", s.authMiddleware(s.handlePlatformSnapshot))
+	// /platform/restore consumes a tar.gz produced by /platform/snapshot.
+	// App DBs are swapped live; the platform DB itself is staged and
+	// applied on the next server boot. Requires X-Confirm-Restore: yes.
+	apiMux.HandleFunc("/platform/restore", s.authMiddleware(s.handlePlatformRestore))
 
 	// Authenticated routes
 	apiMux.HandleFunc("/auth/keys", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -617,6 +634,34 @@ func main() {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 	}))
 	apiMux.HandleFunc("/apps/install/preflight", s.authMiddleware(s.handlePreflightApp))
+
+	// Skills — app-shipped + user-authored playbooks. v1 stores +
+	// serves them; the agent runtime integration is a follow-up.
+	apiMux.HandleFunc("/skills", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.handleListSkills(w, r)
+		case http.MethodPost:
+			s.handleCreateSkill(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	apiMux.HandleFunc("/skills/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case strings.HasSuffix(path, "/enabled") && r.Method == http.MethodPut:
+			s.handleSetSkillEnabled(w, r)
+		case r.Method == http.MethodGet:
+			s.handleGetSkill(w, r)
+		case r.Method == http.MethodPut:
+			s.handleUpdateSkill(w, r)
+		case r.Method == http.MethodDelete:
+			s.handleDeleteSkill(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
 	apiMux.HandleFunc("/apps/installs/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/apps/installs/")
 		switch {

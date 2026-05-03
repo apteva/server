@@ -327,6 +327,16 @@ func (s *Store) migrate() error {
 	// own UI). Pre-existing rows have created_via='integration' and
 	// owner_app_install_id=0 — the legacy meaning.
 	s.db.Exec(`ALTER TABLE connections ADD COLUMN owner_app_install_id INTEGER NOT NULL DEFAULT 0`)
+	// auto_mcp: when 1 (default), creating a connection via the
+	// Integrations admin auto-spawns an mcp_servers row that exposes
+	// every tool the integration declares to all agents in the
+	// project. When 0, the connection exists but no MCP server is
+	// created — the operator can still bind it to an app's
+	// `requires.integrations` role, but agents won't see the tools
+	// globally. Useful for "I want Facebook for the Social app, not
+	// for every agent in the project." Operator can flip the flag
+	// later via PATCH /connections/:id/expose.
+	s.db.Exec(`ALTER TABLE connections ADD COLUMN auto_mcp INTEGER NOT NULL DEFAULT 1`)
 
 	// Seed new provider types on existing DBs (idempotent). The initial
 	// CREATE-TABLE seed above only fires on fresh schemas; this block
@@ -465,6 +475,41 @@ func (s *Store) migrate() error {
 			PRIMARY KEY (install_id, instance_id)
 		)
 	`)
+
+	// Skills — markdown-bodied playbooks the agent will load on
+	// demand. v1 stores + serves them; agent integration is a
+	// separate task. Three sources:
+	//   'app'     — shipped by an installed app via provides.skills
+	//   'user'    — operator-authored in the dashboard
+	//   'builtin' — registered at server boot (none yet, slot reserved)
+	// install_id ties app-shipped skills to their install for cascade
+	// delete; user/builtin rows leave it NULL. UNIQUE(project_id, slug)
+	// enforces one logical row per project; UNIQUE(project_id, command)
+	// where command != '' keeps slash commands collision-free.
+	s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS skills (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			slug            TEXT NOT NULL,
+			name            TEXT NOT NULL,
+			description     TEXT NOT NULL,
+			body            TEXT NOT NULL DEFAULT '',
+			source          TEXT NOT NULL,
+			install_id      INTEGER REFERENCES app_installs(id) ON DELETE CASCADE,
+			project_id      TEXT NOT NULL DEFAULT '',
+			command         TEXT NOT NULL DEFAULT '',
+			metadata_json   TEXT NOT NULL DEFAULT '{}',
+			enabled         INTEGER NOT NULL DEFAULT 1,
+			version         TEXT NOT NULL DEFAULT '1.0.0',
+			created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE (project_id, slug)
+		)
+	`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_skills_project ON skills(project_id)`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_skills_install ON skills(install_id) WHERE install_id IS NOT NULL`)
+	// Partial unique index — only enforces uniqueness when command is
+	// set, so the empty-string default doesn't conflict across rows.
+	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_command ON skills(project_id, command) WHERE command != ''`)
 
 	return nil
 }

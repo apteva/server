@@ -1,9 +1,12 @@
 package main
 
 import (
+	"io"
+	"io/fs"
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // handleIntegrationStatic serves UI bundles for a given integration:
@@ -37,29 +40,79 @@ func (s *Server) handleIntegrationStatic(w http.ResponseWriter, r *http.Request)
 		http.NotFound(w, r)
 		return
 	}
-	if s.integrationsUIDir == "" {
-		http.Error(w, "integrations UI bundles not configured", http.StatusNotFound)
-		return
-	}
-	full := filepath.Join(s.integrationsUIDir, slug, file)
-	// filepath.Join already canonicalises and would happily resolve
-	// "../" sequences; guard explicitly that the resolved path
-	// stays under the configured root.
-	if !strings.HasPrefix(filepath.Clean(full), filepath.Clean(s.integrationsUIDir)+string(filepath.Separator)) {
-		http.NotFound(w, r)
-		return
-	}
-	if strings.HasSuffix(file, ".mjs") {
-		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-	} else if strings.HasSuffix(file, ".css") {
-		w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	} else if strings.HasSuffix(file, ".map") {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	}
+	setIntegrationContentType(w, file)
 	// Long-cache + cache-bust via the ?v=<integration version> the
 	// dashboard adds to the import URL — same pattern as apps.
 	if r.URL.Query().Get("v") != "" {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	}
-	http.ServeFile(w, r, full)
+
+	// On-disk first (dev workflow + ops-pushed updates), embed second
+	// (the npx-apteva install path with no source tree). Either layer
+	// can be missing in any given install — embed is empty when the
+	// build skipped the integrations-ui sync, and integrationsUIDir
+	// is empty when neither the env var nor the dev / prod fallback
+	// resolved to a real directory.
+	if s.integrationsUIDir != "" {
+		full := filepath.Join(s.integrationsUIDir, slug, file)
+		// Guard: filepath.Join collapses "..", so make sure the cleaned
+		// path stays under the configured root.
+		if strings.HasPrefix(filepath.Clean(full), filepath.Clean(s.integrationsUIDir)+string(filepath.Separator)) {
+			if _, err := http.Dir(s.integrationsUIDir).Open(slug + "/" + file); err == nil {
+				http.ServeFile(w, r, full)
+				return
+			}
+		}
+	}
+	if serveIntegrationFromEmbed(w, r, slug, file) {
+		return
+	}
+	http.NotFound(w, r)
 }
+
+// setIntegrationContentType maps file extension → MIME header so
+// the browser executes .mjs as JavaScript, etc. Shared between the
+// disk and embed paths.
+func setIntegrationContentType(w http.ResponseWriter, file string) {
+	switch {
+	case strings.HasSuffix(file, ".mjs"):
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	case strings.HasSuffix(file, ".css"):
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	case strings.HasSuffix(file, ".map"):
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	}
+}
+
+// serveIntegrationFromEmbed pulls the bundle out of the binary's
+// integrations-ui embed and writes it to the response. Returns true
+// when it served (or attempted to and failed mid-stream); false when
+// the file simply doesn't exist in the embed so the caller can fall
+// through to a 404.
+func serveIntegrationFromEmbed(w http.ResponseWriter, r *http.Request, slug, file string) bool {
+	f, err := integrationsUIEmbeddedFS.Open(slug + "/" + file)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	rs, ok := f.(io.ReadSeeker)
+	if !ok {
+		// Embedded fs.File implementations are seekable in modern Go,
+		// but guard anyway — falls back to copying the body without
+		// Range support.
+		_, _ = io.Copy(w, f)
+		return true
+	}
+	// Use ServeContent so Range / If-Modified-Since headers behave.
+	// modTime=zero is fine — the embed has no real mtime; clients
+	// cache via the ?v= cache-bust the dashboard adds anyway.
+	modTime := time.Time{}
+	http.ServeContent(w, r, file, modTime, rs)
+	return true
+}
+
+// silence unused import warning when the FS is empty — fs.WalkDir
+// is not used here but keeping the import slot reserved for future
+// "list available integrations" debug endpoints. (No-op in current
+// build.)
+var _ = fs.WalkDir

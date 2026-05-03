@@ -785,6 +785,19 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[APPS] install user=%d app=%s install=%d project=%q version=%s",
 		userID, manifest.Name, installID, body.ProjectID, manifest.Version)
 
+	// Skills shipped by this manifest. Best-effort — a body_file
+	// fetch failure logs but doesn't fail the install (the rest of
+	// the app still works without its skills, and the operator can
+	// re-run from /apps to re-register).
+	if len(manifest.Provides.Skills) > 0 {
+		fetcher := s.makeSkillBodyFileFetcher(body.ManifestURL)
+		if err := s.registerAppSkills(installID, manifest.Name, body.ProjectID, manifest.Provides.Skills, fetcher); err != nil {
+			log.Printf("[APPS-SKILLS] register install=%d failed: %v", installID, err)
+		} else {
+			log.Printf("[APPS-SKILLS] registered %d skill(s) for install=%d", len(manifest.Provides.Skills), installID)
+		}
+	}
+
 	// Local-spawn path: pick the best delivery mode the manifest
 	// declares — static (no sidecar, just assets), source (clone+build,
 	// works on any host with Go), then per-platform binaries, then fall
@@ -911,6 +924,13 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 	// gone — agents stop seeing the tool first, server cleanup follows.
 	if err := s.unregisterAppMCP(installID); err != nil {
 		log.Printf("[APPS] unregister MCP install=%d: %v", installID, err)
+	}
+	// Skills shipped by this install are explicitly cleaned up — the
+	// schema declares ON DELETE CASCADE but we don't enable
+	// PRAGMA foreign_keys, so do it manually before the install row
+	// goes. Cheap (handful of rows per install).
+	if _, err := s.store.db.Exec(`DELETE FROM skills WHERE install_id = ?`, installID); err != nil {
+		log.Printf("[APPS] delete skills for install=%d: %v", installID, err)
 	}
 	if _, err := s.store.db.Exec(`DELETE FROM app_installs WHERE id = ?`, installID); err != nil {
 		http.Error(w, "delete install: "+err.Error(), http.StatusInternalServerError)
@@ -1280,6 +1300,22 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	if body, mErr := json.Marshal(live); mErr == nil {
 		s.store.db.Exec(`UPDATE apps SET manifest_json = ? WHERE name = ?`, string(body), live.Name)
 	}
+
+	// Refresh the install's app-shipped skills against the upgraded
+	// manifest. Best-effort — failure here doesn't fail the upgrade
+	// itself; the next install will retry. Re-fetches body_file
+	// against the (possibly rewritten) manifest URL.
+	if len(live.Provides.Skills) > 0 {
+		fetcher := s.makeSkillBodyFileFetcher(deriveManifestURL(live))
+		if err := s.registerAppSkills(installID, live.Name, projectID, live.Provides.Skills, fetcher); err != nil {
+			log.Printf("[APPS-SKILLS] upgrade refresh install=%d failed: %v", installID, err)
+		} else {
+			log.Printf("[APPS-SKILLS] refreshed %d skill(s) on upgrade install=%d", len(live.Provides.Skills), installID)
+		}
+	} else {
+		// Manifest dropped its skills — clear the rows.
+		s.store.db.Exec(`DELETE FROM skills WHERE install_id = ?`, installID)
+	}
 	s.store.db.Exec(
 		`UPDATE app_installs SET status='pending', status_message='Upgrading…', error_message='' WHERE id=?`,
 		installID,
@@ -1367,6 +1403,47 @@ func (s *Server) handleSetInstallBindings(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, map[string]any{"status": "ok", "bound": body.InstanceIDs})
+}
+
+// makeSkillBodyFileFetcher returns a closure that resolves a Skill's
+// body_file path against the install's manifest URL. body_file is
+// resolved as a path RELATIVE to the manifest's directory — e.g. a
+// manifest at https://raw.githubusercontent.com/apteva/apps/main/mcp/storage/apteva.yaml
+// with body_file: skills/how-to-use-storage.md fetches
+// https://raw.githubusercontent.com/apteva/apps/main/mcp/storage/skills/how-to-use-storage.md.
+//
+// When manifestURL is empty (inline / manual install), the closure
+// errors out — apps using inline manifests must inline their skill
+// bodies too. We could add a "local checkout" lookup later for the
+// dev workflow but it's deliberately omitted from v1 to keep the
+// fetch surface narrow + auditable.
+func (s *Server) makeSkillBodyFileFetcher(manifestURL string) func(string) (string, error) {
+	return func(bodyFile string) (string, error) {
+		if manifestURL == "" {
+			return "", fmt.Errorf("body_file requires a manifest_url install — inline manifests must use inline body")
+		}
+		// Strip the manifest filename, keep the directory.
+		base := manifestURL
+		if i := strings.LastIndex(base, "/"); i >= 0 {
+			base = base[:i+1]
+		}
+		fullURL := base + strings.TrimPrefix(bodyFile, "/")
+		client := &http.Client{Timeout: 30 * time.Second}
+		resp, err := client.Get(fullURL)
+		if err != nil {
+			return "", fmt.Errorf("fetch %s: %w", fullURL, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			return "", fmt.Errorf("fetch %s: http %d", fullURL, resp.StatusCode)
+		}
+		const maxSkillBody = 256 * 1024 // 256 KiB ceiling — Anthropic recommends <500 lines
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, maxSkillBody))
+		if err != nil {
+			return "", fmt.Errorf("read %s: %w", fullURL, err)
+		}
+		return string(raw), nil
+	}
 }
 
 // fetchManifestBytes — pulls the YAML from a URL OR returns the inline
