@@ -244,22 +244,33 @@ func main() {
 
 	publicURL := os.Getenv("PUBLIC_URL") // e.g. "https://agents.example.com"
 
-	// Determine registration mode
-	regMode := os.Getenv("APTEVA_REGISTRATION") // "open", "locked", or empty
-	setupToken := ""
+	// Determine registration mode.
+	regMode := os.Getenv("APTEVA_REGISTRATION") // "open", "locked", "setup", or empty
+	setupToken := os.Getenv("APTEVA_SETUP_TOKEN")
 	if regMode == "" {
-		// Check if any users exist
-		hasUsers := store.HasUsers()
-		if hasUsers {
+		// Auto-derive: empty DB → setup, otherwise locked.
+		if store.HasUsers() {
 			regMode = "locked"
 		} else {
 			regMode = "setup"
-			setupToken = "apt_" + generateToken(16)
-			fmt.Fprintf(os.Stderr, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-			fmt.Fprintf(os.Stderr, "  Setup token: %s\n", setupToken)
-			fmt.Fprintf(os.Stderr, "  Use this to create the first admin account.\n")
-			fmt.Fprintf(os.Stderr, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 		}
+	}
+	// In setup mode the /auth/register handler requires a matching
+	// X-Setup-Token header. Make sure we always have one. Two sources:
+	//   1. APTEVA_SETUP_TOKEN env — when our parent (apteva CLI) spawned
+	//      us, it minted a token, passed it down, and surfaces it in its
+	//      own terminal banner. Skipping the stderr-print here keeps the
+	//      CLI's banner clean and avoids leaking the token to the
+	//      captured server.log.
+	//   2. Otherwise (standalone invocation) — mint one and print to
+	//      stderr so the operator running apteva-server directly can
+	//      copy it into the dashboard.
+	if regMode == "setup" && setupToken == "" {
+		setupToken = "apt_" + generateToken(16)
+		fmt.Fprintf(os.Stderr, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+		fmt.Fprintf(os.Stderr, "  Setup token: %s\n", setupToken)
+		fmt.Fprintf(os.Stderr, "  Use this to create the first admin account.\n")
+		fmt.Fprintf(os.Stderr, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	}
 
 	s := &Server{
