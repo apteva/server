@@ -87,6 +87,11 @@ type Server struct {
 	// now; the long-term plan is for built-ins to graduate to this
 	// registry too.
 	installedApps   *InstalledAppsRegistry
+
+	// platformStatus polls the published version manifest and exposes
+	// "update available" info to the dashboard. The actual update
+	// action lives in the `apteva update` CLI subcommand.
+	platformStatus *platformStatusPoller
 	appBus          *AppEventBus
 	orchestratorURL string
 	// localApps supervises app sidecars run as native subprocesses on
@@ -280,6 +285,7 @@ func main() {
 		// and hit 401 forever until re-spawned), so we persist it in
 		// server_settings and only mint a fresh one on first boot.
 		instanceSecret: loadOrMintInstanceSecret(store),
+		platformStatus: newPlatformStatusPoller(dataDir),
 	}
 
 	// Start console telemetry logger
@@ -287,6 +293,11 @@ func main() {
 		console := NewConsoleLogger(s.broadcaster, store)
 		go console.Run()
 	}
+
+	// Start the platform-update poller in the background. First poll
+	// fires immediately so /api/platform-status has data on the very
+	// first dashboard render after boot.
+	go s.platformStatus.Run()
 
 	s.initSlack()
 	s.initEmail()
@@ -331,6 +342,13 @@ func main() {
 	apiMux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, versionInfo())
 	})
+
+	// Platform self-update status — read-only view of the latest
+	// published bundle vs. our own baked-in versions. The dashboard
+	// reads this to render the "update available" pill; the action
+	// itself lives in the `apteva update` CLI subcommand.
+	apiMux.HandleFunc("/platform-status", s.handlePlatformStatus)
+	apiMux.HandleFunc("/platform-status/refresh", s.handlePlatformStatusRefresh)
 
 	apiMux.HandleFunc("/auth/status", s.handleAuthStatus)
 	apiMux.HandleFunc("/auth/register", s.handleRegister)
