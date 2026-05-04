@@ -67,10 +67,18 @@ func TestCallback_IntegrationExecute_RejectsUnboundConnection(t *testing.T) {
 			},
 		},
 	}
-	// Bound to connection 99, NOT 42.
+	// Bound to connection 99, NOT the conn we'll request.
 	installID := seedInstallWithBindings(t, s, "image-studio", manifest, map[string]any{"provider": 99})
-
-	req := httptest.NewRequest("POST", "/apps/callback/integrations/42/execute",
+	// A different conn that's app_install-owned by a different install
+	// (so neither bound, nor owned by us, nor operator-installed).
+	conn, err := s.store.CreateConnectionExt(ConnectionInput{
+		UserID: 1, AppSlug: "openai-api", AppName: "OpenAI", Name: "x",
+		ProjectID: "proj-1", CreatedVia: "app_install", OwnerAppInstallID: 999,
+	})
+	if err != nil {
+		t.Fatalf("seed conn: %v", err)
+	}
+	req := httptest.NewRequest("POST", "/apps/callback/integrations/"+itoa(conn.ID)+"/execute",
 		strings.NewReader(`{"tool":"generate_image","input":{}}`))
 	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
 	req.Header.Set("X-User-ID", "1")
@@ -78,6 +86,115 @@ func TestCallback_IntegrationExecute_RejectsUnboundConnection(t *testing.T) {
 	s.handleAppCallback(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 for unbound conn, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "not reachable") {
+		t.Errorf("expected 'not reachable' message, got: %s", rec.Body.String())
+	}
+}
+
+// Operator-installed connections (created_via='integration') are
+// reachable by ANY install with platform.connections.execute
+// permission. This is the path Social uses to call list_pages on a
+// Facebook integration the operator installed in Settings →
+// Integrations — without it, the page picker would 403 and disappear.
+func TestCallback_IntegrationExecute_AllowsOperatorInstalledConnection(t *testing.T) {
+	s := newTestServer(t)
+	// Stub the catalog so the handler can find the upstream tool.
+	s.catalog = NewAppCatalog()
+	s.catalog.Register(&AppTemplate{
+		Slug: "facebook-api", Name: "Facebook",
+		Tools: []AppToolDef{{Name: "list_pages"}},
+	})
+	manifest := sdk.Manifest{
+		Schema:   sdk.SchemaCurrent,
+		Name:     "social",
+		Requires: sdk.Requires{Permissions: []sdk.Permission{sdk.PermConnectionsExecute}},
+	}
+	// No bindings — social doesn't pre-declare facebook-api.
+	installID := seedInstallWithBindings(t, s, "social", manifest, map[string]any{})
+	// Operator-installed integration connection.
+	conn, err := s.store.CreateConnectionExt(ConnectionInput{
+		UserID: 1, AppSlug: "facebook-api", AppName: "Facebook", Name: "Facebook Pages",
+		ProjectID: "proj-1", CreatedVia: "integration",
+	})
+	if err != nil {
+		t.Fatalf("seed conn: %v", err)
+	}
+	req := httptest.NewRequest("POST", "/apps/callback/integrations/"+itoa(conn.ID)+"/execute",
+		strings.NewReader(`{"tool":"list_pages","input":{}}`))
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	// We don't have a real Facebook to call out to — the auth check
+	// should pass and we'll fail later in resolveConnectionContext or
+	// the actual upstream HTTP. Anything other than 403/404 means the
+	// auth gate let us through, which is what this test asserts.
+	if rec.Code == http.StatusForbidden {
+		t.Fatalf("operator connection rejected by auth: %s", rec.Body.String())
+	}
+}
+
+// App-owned connections (owner_app_install_id == calling install) are
+// reachable by their owner. Mirrors social's "I created this via
+// platform.oauth.start" flow.
+func TestCallback_IntegrationExecute_AllowsOwnedConnection(t *testing.T) {
+	s := newTestServer(t)
+	s.catalog = NewAppCatalog()
+	s.catalog.Register(&AppTemplate{
+		Slug: "facebook-api", Tools: []AppToolDef{{Name: "list_pages"}},
+	})
+	manifest := sdk.Manifest{
+		Schema:   sdk.SchemaCurrent,
+		Name:     "social",
+		Requires: sdk.Requires{Permissions: []sdk.Permission{sdk.PermConnectionsExecute}},
+	}
+	installID := seedInstallWithBindings(t, s, "social", manifest, map[string]any{})
+	conn, err := s.store.CreateConnectionExt(ConnectionInput{
+		UserID: 1, AppSlug: "facebook-api", Name: "fb",
+		ProjectID: "proj-1", CreatedVia: "app_install", OwnerAppInstallID: installID,
+	})
+	if err != nil {
+		t.Fatalf("seed conn: %v", err)
+	}
+	req := httptest.NewRequest("POST", "/apps/callback/integrations/"+itoa(conn.ID)+"/execute",
+		strings.NewReader(`{"tool":"list_pages","input":{}}`))
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code == http.StatusForbidden {
+		t.Fatalf("owned connection rejected: %s", rec.Body.String())
+	}
+}
+
+// App-owned connection but owner is a DIFFERENT install — must be
+// rejected (otherwise apps could read each other's private OAuth
+// tokens just by knowing the connection id).
+func TestCallback_IntegrationExecute_RejectsCrossAppOwnedConnection(t *testing.T) {
+	s := newTestServer(t)
+	manifest := sdk.Manifest{
+		Schema:   sdk.SchemaCurrent,
+		Name:     "social",
+		Requires: sdk.Requires{Permissions: []sdk.Permission{sdk.PermConnectionsExecute}},
+	}
+	installID := seedInstallWithBindings(t, s, "social", manifest, map[string]any{})
+	// Owned by a DIFFERENT install (id 999).
+	conn, err := s.store.CreateConnectionExt(ConnectionInput{
+		UserID: 1, AppSlug: "facebook-api", Name: "fb",
+		ProjectID: "proj-1", CreatedVia: "app_install", OwnerAppInstallID: 999,
+	})
+	if err != nil {
+		t.Fatalf("seed conn: %v", err)
+	}
+	req := httptest.NewRequest("POST", "/apps/callback/integrations/"+itoa(conn.ID)+"/execute",
+		strings.NewReader(`{"tool":"list_pages","input":{}}`))
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for cross-app owned conn, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

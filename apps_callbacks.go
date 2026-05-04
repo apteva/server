@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -199,6 +200,19 @@ func (s *Server) handleCallbackConnectionDisconnect(w http.ResponseWriter, r *ht
 	writeJSON(w, map[string]any{"deleted": connID})
 }
 
+// connectionCreatedVia reads the created_via column on connections —
+// 'integration' (operator-installed via Settings → Integrations),
+// 'app_install' (created by an app via platform.oauth.start), or '' /
+// other for legacy rows. Returns "" on lookup error.
+func connectionCreatedVia(s *Server, connID int64) string {
+	var v string
+	_ = s.store.db.QueryRow(
+		`SELECT COALESCE(created_via,'') FROM connections WHERE id=?`,
+		connID,
+	).Scan(&v)
+	return v
+}
+
 // connectionOwnerInstallID reads owner_app_install_id from the
 // connections row. Returns 0 for legacy / operator-managed rows.
 func connectionOwnerInstallID(s *Server, connID int64) int64 {
@@ -288,13 +302,21 @@ func (s *Server) handleCallbackChannels(w http.ResponseWriter, r *http.Request, 
 //   1. Caller is a sidecar (X-Apteva-App-Install-ID set by middleware).
 //   2. Install's manifest declares the platform.connections.execute
 //      permission.
-//   3. connID appears as a value in the install's integration_bindings.
-//   4. The connection's app_slug is in the manifest's compatible_slugs
-//      for the role that bound this connID.
+//   3. The connection is reachable by this install — one of:
+//        a. connID appears in the install's integration_bindings, OR
+//        b. owner_app_install_id == installID (the app created this
+//           connection itself via platform.oauth.start), OR
+//        c. created_via='integration' (operator-installed in Settings
+//           → Integrations) — any permitted install in the same user's
+//           scope may call it. Operator connections are explicitly
+//           shared resources; gating them behind a separate role-bind
+//           ceremony defeats their purpose.
+//   4. When the role is bound (3a), the connection's app_slug must be
+//      in the role's compatible_slugs. Skipped for 3b/3c which have
+//      no role-dep to validate against.
 //
-// All four checks are required. Without them an installed app could
-// enumerate every connection in its owner's account or call ones it
-// was never bound to — defeats the binding model.
+// Without these checks an installed app could enumerate every
+// connection in its owner's account.
 //
 // On success, dispatches through executeIntegrationToolWithRefresh —
 // the same code path /connections/:id/execute uses, including OAuth
@@ -336,14 +358,8 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// 3. Binding check.
-	role, ok := installBoundConnection(s, installID, connID)
-	if !ok {
-		http.Error(w, "connection not bound to this install", http.StatusForbidden)
-		return
-	}
-
-	// Look up connection + manifest dep for slug check.
+	// Look up connection up-front so the access decision can read
+	// owner_app_install_id and created_via.
 	userID := getUserID(r)
 	conn, encCreds, err := s.store.GetConnection(userID, connID)
 	if err != nil || conn == nil {
@@ -351,14 +367,37 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// 4. Slug-compatibility check.
-	dep, err := installRoleDep(s, installID, role)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if dep != nil && dep.Kind != "app" && len(dep.CompatibleSlugs) > 0 && !contains(dep.CompatibleSlugs, conn.AppSlug) {
-		http.Error(w, fmt.Sprintf("connection slug %q not in role %q compatible_slugs", conn.AppSlug, role), http.StatusForbidden)
+	// 3. Reachability — accept any of:
+	//    a. role-bound via integration_bindings,
+	//    b. owned by this install (created itself via oauth.start),
+	//    c. operator-installed integration (created_via='integration').
+	role, bound := installBoundConnection(s, installID, connID)
+	ownerID := connectionOwnerInstallID(s, connID)
+	createdVia := connectionCreatedVia(s, connID)
+	log.Printf("[INTEGRATIONS-EXEC] install=%d conn=%d slug=%s tool=%s bound=%t role=%q owner=%d created_via=%q",
+		installID, connID, conn.AppSlug, body.Tool, bound, role, ownerID, createdVia)
+	switch {
+	case bound:
+		// 4. Slug-compatibility — only meaningful for role-bound (3a).
+		// Owner / operator paths have no role-dep to validate against
+		// and the caller already passed the permission check.
+		dep, err := installRoleDep(s, installID, role)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if dep != nil && dep.Kind != "app" && len(dep.CompatibleSlugs) > 0 && !contains(dep.CompatibleSlugs, conn.AppSlug) {
+			http.Error(w, fmt.Sprintf("connection slug %q not in role %q compatible_slugs", conn.AppSlug, role), http.StatusForbidden)
+			return
+		}
+	case ownerID == installID:
+		log.Printf("[INTEGRATIONS-EXEC] grant=owner install=%d conn=%d", installID, connID)
+	case createdVia == "integration":
+		log.Printf("[INTEGRATIONS-EXEC] grant=operator install=%d conn=%d slug=%s", installID, connID, conn.AppSlug)
+	default:
+		log.Printf("[INTEGRATIONS-EXEC] DENY install=%d conn=%d slug=%s reason=not-bound-not-owned-not-operator owner=%d created_via=%q",
+			installID, connID, conn.AppSlug, ownerID, createdVia)
+		http.Error(w, "connection not reachable by this install (not bound, not owned, not operator-installed)", http.StatusForbidden)
 		return
 	}
 
@@ -610,7 +649,9 @@ func (s *Server) handleCallbackOAuth(w http.ResponseWriter, r *http.Request, par
 	}
 	userID := getUserID(r)
 
-	conn, authURL, err := s.startLocalOAuth(userID, app, name, pid, "", "", installID, body.ReturnURL)
+	// nil autoMCP — app-install connections always skip auto-MCP via the
+	// owner_app_install_id check; the per-row flag isn't relevant here.
+	conn, authURL, err := s.startLocalOAuth(userID, app, name, pid, "", "", installID, body.ReturnURL, nil)
 	if err != nil {
 		http.Error(w, "oauth start: "+err.Error(), http.StatusInternalServerError)
 		return

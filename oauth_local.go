@@ -320,7 +320,7 @@ func pkcePair() (verifier, challenge string, err error) {
 // install (created_via=app_install) and returnURL is recorded on the state
 // token so the callback can 302 the browser back into the app's panel
 // instead of rendering the dashboard's auto-close page.
-func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, projectID, explicitClientID, explicitClientSecret string, ownerAppInstallID int64, returnURL string) (*Connection, string, error) {
+func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, projectID, explicitClientID, explicitClientSecret string, ownerAppInstallID int64, returnURL string, autoMCP *bool) (*Connection, string, error) {
 	if app.Auth.OAuth2 == nil {
 		return nil, "", fmt.Errorf("app %s has no oauth2 config", app.Slug)
 	}
@@ -359,6 +359,7 @@ func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, proje
 		Source:         "local",
 		Status:         "pending",
 		EncryptedCreds: initialBlob,
+		AutoMCP:        autoMCP,
 	}
 	if ownerAppInstallID > 0 {
 		// App-initiated: tag the connection so it doesn't auto-create an
@@ -426,22 +427,31 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 	code := r.URL.Query().Get("code")
 	errParam := r.URL.Query().Get("error")
 
+	log.Printf("[OAUTH-CB] received state=%s code=%s err=%s", maskMiddle(state, 6, 4), maskMiddle(code, 6, 4), errParam)
+
 	row, err := s.store.consumeOAuthState(state)
 	if err != nil {
+		log.Printf("[OAUTH-CB] consumeOAuthState FAILED state=%s: %v", maskMiddle(state, 6, 4), err)
 		http.Error(w, "unknown or expired state", http.StatusBadRequest)
 		return
 	}
+	log.Printf("[OAUTH-CB] state→pending row: conn=%d user=%d slug=%s app_install=%d return_url=%q has_pkce=%t expired=%t",
+		row.ConnectionID, row.UserID, row.AppSlug, row.AppInstallID, row.ReturnURL, row.PKCEVerifier != "", row.Expired)
+
 	if row.Expired {
+		log.Printf("[OAUTH-CB] state expired conn=%d", row.ConnectionID)
 		s.store.UpdateConnectionStatus(row.ConnectionID, "failed")
 		http.Error(w, "state expired — re-initiate the connection", http.StatusBadRequest)
 		return
 	}
 	if errParam != "" {
+		log.Printf("[OAUTH-CB] provider returned error conn=%d: %s", row.ConnectionID, errParam)
 		s.store.UpdateConnectionStatus(row.ConnectionID, "failed")
 		renderOAuthResult(w, false, "provider returned error: "+errParam)
 		return
 	}
 	if code == "" {
+		log.Printf("[OAUTH-CB] missing code conn=%d", row.ConnectionID)
 		s.store.UpdateConnectionStatus(row.ConnectionID, "failed")
 		http.Error(w, "missing code", http.StatusBadRequest)
 		return
@@ -449,9 +459,12 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 
 	app := s.catalog.Get(row.AppSlug)
 	if app == nil || app.Auth.OAuth2 == nil {
+		log.Printf("[OAUTH-CB] app missing from catalog or no oauth2 config slug=%s app_present=%t", row.AppSlug, app != nil)
 		http.Error(w, "app missing from catalog", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("[OAUTH-CB] catalog hit slug=%s kind=%q has_mcp=%t authorize_url=%s token_url=%s pkce=%t",
+		app.Slug, app.Kind, app.MCP != nil, app.Auth.OAuth2.AuthorizeURL, app.Auth.OAuth2.TokenURL, app.Auth.OAuth2.PKCE)
 
 	// Recover any client_id/client_secret the user supplied at start. They
 	// were stored on the pending connection's encrypted blob by
@@ -465,13 +478,22 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 	}
 	preClientID, _ := preBlobCreds["client_id"]
 	preClientSecret, _ := preBlobCreds["client_secret"]
+	log.Printf("[OAUTH-CB] pre-blob: client_id_present=%t client_secret_present=%t other_keys=%v",
+		preClientID != "", preClientSecret != "", filterKeys(preBlobCreds, "client_id", "client_secret"))
 
 	tokens, err := s.exchangeOAuthCode(app, code, row.PKCEVerifier, row.UserID, preClientID, preClientSecret)
 	if err != nil {
+		log.Printf("[OAUTH-CB] token exchange FAILED conn=%d slug=%s: %v", row.ConnectionID, app.Slug, err)
 		s.store.UpdateConnectionStatus(row.ConnectionID, "failed")
 		renderOAuthResult(w, false, "token exchange failed: "+err.Error())
 		return
 	}
+	tokKeys := make([]string, 0, len(tokens))
+	for k := range tokens {
+		tokKeys = append(tokKeys, k)
+	}
+	log.Printf("[OAUTH-CB] token exchange OK conn=%d slug=%s keys=%v access_token=%s",
+		row.ConnectionID, app.Slug, tokKeys, maskMiddle(tokens["access_token"], 6, 4))
 
 	// Merge the token bundle back onto the existing blob so we KEEP the
 	// client credentials in the row. This is what lets the next "Connect
@@ -486,34 +508,56 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 	encJSON, _ := json.Marshal(merged)
 	enc, err := Encrypt(s.secret, string(encJSON))
 	if err != nil {
+		log.Printf("[OAUTH-CB] encryption FAILED conn=%d: %v", row.ConnectionID, err)
 		http.Error(w, "encryption failed", http.StatusInternalServerError)
 		return
 	}
 	if err := s.store.UpdateConnectionCredentials(row.ConnectionID, enc); err != nil {
+		log.Printf("[OAUTH-CB] UpdateConnectionCredentials FAILED conn=%d: %v", row.ConnectionID, err)
 		http.Error(w, "db update failed", http.StatusInternalServerError)
 		return
 	}
-	s.store.UpdateConnectionStatus(row.ConnectionID, "active")
+	if err := s.store.UpdateConnectionStatus(row.ConnectionID, "active"); err != nil {
+		log.Printf("[OAUTH-CB] UpdateConnectionStatus(active) FAILED conn=%d: %v", row.ConnectionID, err)
+	}
+	log.Printf("[OAUTH-CB] credentials saved + status=active conn=%d slug=%s merged_keys=%d", row.ConnectionID, app.Slug, len(merged))
 
 	// Auto-create the mcp_servers row (mirrors the non-OAuth path in
 	// handleCreateConnection). For kind=remote_mcp apps the row points
 	// at the vendor's hosted MCP with the freshly-issued OAuth token
 	// stored in encrypted_env; legacy REST apps get the local shim.
 	//
-	// SKIP this entirely when an app owns the connection. The whole point
-	// of created_via=app_install is that the app is the only intended
-	// consumer — auto-MCP would expose tools to every agent in the project,
-	// which is the leak the app was designed to avoid.
-	if row.AppInstallID == 0 {
+	// SKIP this entirely when:
+	//   - an app owns the connection (created_via=app_install) — the
+	//     app is the only intended consumer, exposing tools globally
+	//     would defeat the binding model.
+	//   - the operator opted out at connect time (auto_mcp=0 on the
+	//     connection row).
+	if row.AppInstallID == 0 && connectionAutoMCPFlag(s, row.ConnectionID) {
 		conn, encCreds, err := s.store.GetConnection(row.UserID, row.ConnectionID)
-		if err == nil {
+		if err != nil {
+			log.Printf("[OAUTH-CB] GetConnection FAILED conn=%d: %v", row.ConnectionID, err)
+		} else {
+			log.Printf("[OAUTH-CB] dispatch auto-mcp conn=%d slug=%s kind=%q", conn.ID, conn.AppSlug, app.Kind)
 			if app.Kind == "remote_mcp" {
-				if _, merr := s.createRemoteMcpFromConnection(row.UserID, conn, app, encCreds); merr != nil {
-					log.Printf("[OAUTH] remote-mcp auto-mcp failed conn=%d slug=%s: %v", conn.ID, conn.AppSlug, merr)
+				if mcpID, merr := s.createRemoteMcpFromConnection(row.UserID, conn, app, encCreds); merr != nil {
+					log.Printf("[OAUTH-CB] remote-mcp auto-mcp FAILED conn=%d slug=%s: %v", conn.ID, conn.AppSlug, merr)
+				} else {
+					log.Printf("[OAUTH-CB] remote-mcp auto-mcp OK conn=%d slug=%s mcp_id=%d", conn.ID, conn.AppSlug, mcpID)
 				}
 			} else {
-				s.store.CreateMCPServerFromConnection(row.UserID, conn, len(app.Tools))
+				if mcpID, merr := s.store.CreateMCPServerFromConnection(row.UserID, conn, len(app.Tools)); merr != nil {
+					log.Printf("[OAUTH-CB] rest auto-mcp FAILED conn=%d slug=%s: %v", conn.ID, conn.AppSlug, merr)
+				} else {
+					log.Printf("[OAUTH-CB] rest auto-mcp OK conn=%d slug=%s mcp_id=%d tools=%d", conn.ID, conn.AppSlug, mcpID, len(app.Tools))
+				}
 			}
+		}
+	} else {
+		if row.AppInstallID > 0 {
+			log.Printf("[OAUTH-CB] skipping auto-mcp conn=%d (app_install_id=%d owns the connection)", row.ConnectionID, row.AppInstallID)
+		} else {
+			log.Printf("[OAUTH-CB] skipping auto-mcp conn=%d (operator opted out via auto_mcp=false)", row.ConnectionID)
 		}
 	}
 
@@ -623,4 +667,37 @@ h1{margin:0 0 8px 0;font-size:20px}p{margin:0;color:#94a3b8;font-size:14px}</sty
 <div class="card"><h1>%s</h1><p>%s</p></div>
 <script>setTimeout(function(){window.close()},2500);</script>
 </body></html>`, title, color, title, msg)
+}
+
+// maskMiddle returns a redacted view of a secret-ish value for log
+// lines: first `head` chars, an ellipsis, then last `tail` chars.
+// Empty input renders as "(empty)" so the absence is visible. Short
+// inputs that wouldn't have a useful middle to hide are stamped as
+// "<short:N>" instead of leaking the whole value.
+func maskMiddle(s string, head, tail int) string {
+	if s == "" {
+		return "(empty)"
+	}
+	if len(s) <= head+tail+2 {
+		return fmt.Sprintf("<short:%d>", len(s))
+	}
+	return s[:head] + "…" + s[len(s)-tail:] + fmt.Sprintf("(%d)", len(s))
+}
+
+// filterKeys returns the keys of `m` minus any listed in `drop`.
+// Used in OAuth-callback logs to enumerate which non-credential
+// fields were on a pre-existing connection blob without leaking
+// values.
+func filterKeys(m map[string]string, drop ...string) []string {
+	skip := map[string]bool{}
+	for _, d := range drop {
+		skip[d] = true
+	}
+	out := make([]string, 0, len(m))
+	for k := range m {
+		if !skip[k] {
+			out = append(out, k)
+		}
+	}
+	return out
 }

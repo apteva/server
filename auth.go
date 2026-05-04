@@ -129,6 +129,22 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 // authMiddleware extracts user from session cookie or API key.
 func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Signed-URL passthrough for app routes. Storage (and any
+		// future app) mints time-limited URLs with `?sig=…&exp=…`
+		// for cases where the consumer can't carry session/API auth
+		// (Facebook's CDN fetching a posted image, a public link
+		// shared by the user, etc.). The app's own handler verifies
+		// the signature; the platform proxy just needs to let the
+		// request reach it. We require BOTH params and an app-route
+		// prefix so this can't be used to bypass auth on management
+		// routes (which never need signing).
+		if strings.HasPrefix(r.URL.Path, "/api/apps/") || strings.HasPrefix(r.URL.Path, "/apps/") {
+			q := r.URL.Query()
+			if q.Get("sig") != "" && q.Get("exp") != "" {
+				next(w, r)
+				return
+			}
+		}
 		// Try session cookie first
 		if cookie, err := r.Cookie(cookieName); err == nil && cookie.Value != "" {
 			if userID, err := s.store.GetSession(cookie.Value); err == nil {

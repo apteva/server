@@ -324,6 +324,7 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 	cfgJSON, _ := json.Marshal(decryptedConfig)
 	env := map[string]string{
 		"APTEVA_GATEWAY_URL": s.localGatewayURL(),
+		"APTEVA_PUBLIC_URL":  s.publicBaseURL(),
 		"APTEVA_APP_TOKEN":   "dev-" + strconv.FormatInt(installID, 10), // TODO: real per-install token
 		"APTEVA_INSTALL_ID":  strconv.FormatInt(installID, 10),
 		"APTEVA_PROJECT_ID":  projectID,

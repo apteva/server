@@ -831,7 +831,7 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify ownership + get record
-	record, _, err := s.store.GetMCPServer(userID, serverID)
+	record, encEnv, err := s.store.GetMCPServer(userID, serverID)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -875,7 +875,16 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 	// Composio remote rows: fetch the toolkit action list so the picker has
 	// something to render. One row = one toolkit, so we use the row Name as
 	// the slug (matches how reconcileComposioMCPServer stores it).
-	if len(tools) == 0 && record != nil && record.Source == "remote" {
+	//
+	// Discriminator: ProviderID > 0. Composio rows always carry a provider
+	// foreign-key (the Composio account they were minted against). Our
+	// kind=remote_mcp rows leave provider_id at zero — without this guard,
+	// they fall through to ListToolkitActions(record.Name) and surface
+	// Composio's HubSpot/Linear/Notion toolkit catalog instead of the real
+	// upstream's tools/list result. Confusing because Composio's HubSpot
+	// catalog happens to have ~230 actions, the same order of magnitude as
+	// HubSpot's hosted MCP — picker shows the wrong tool names.
+	if len(tools) == 0 && record != nil && record.Source == "remote" && record.ProviderID > 0 {
 		if client := s.newComposioClient(userID); client != nil {
 			if actions, err := client.ListToolkitActions(record.Name); err == nil {
 				for _, a := range actions {
@@ -892,6 +901,31 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 					s.store.UpdateMCPServerStatus(record.ID, record.Status, len(tools), record.Pid)
 				}
 			}
+		}
+	}
+
+	// Vendor-hosted MCP rows (kind=remote_mcp connections, NOT Composio):
+	// re-probe the upstream now to get the live tool list. probeRemoteMCP
+	// runs the full session-id + notifications/initialized handshake, so
+	// the result reflects the user's OAuth scope. We DON'T rely on
+	// MCPManager.GetTools alone because the row may not be "started" yet
+	// when the picker first opens (a fresh connection's row sits in
+	// status=stopped until something asks for it). Each call here costs
+	// one round-trip to the vendor — acceptable for an interactive picker.
+	if len(tools) == 0 && record != nil && record.Source == "remote" && record.ProviderID == 0 && record.URL != "" {
+		env := map[string]string{}
+		if encEnv != "" {
+			if plain, derr := Decrypt(s.secret, encEnv); derr == nil {
+				_ = json.Unmarshal([]byte(plain), &env)
+			}
+		}
+		if probed, perr := probeRemoteMCP(record.URL, env); perr == nil {
+			tools = append(tools, probed...)
+			if len(tools) > 0 && len(tools) != record.ToolCount {
+				s.store.UpdateMCPServerStatus(record.ID, "reachable", len(tools), record.Pid)
+			}
+		} else {
+			log.Printf("[TOOLS] remote_mcp probe failed server=%d url=%s: %v", record.ID, record.URL, perr)
 		}
 	}
 	// Fall back to MCP manager for process-based servers
@@ -1079,6 +1113,22 @@ func (s *Server) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		result, err := callRemoteMCPTool(record.URL, body.Tool, body.Args, env)
+		if err != nil && isRemoteMcpAuthError(err) && record.ConnectionID != 0 {
+			// Access token most likely expired (HubSpot OAuth tokens
+			// die after 30 min). Refresh against the source connection
+			// + retry once before giving up. If the refresh itself
+			// fails (no refresh_token, revoked, network), surface the
+			// ORIGINAL 401 rather than the refresh error so the user
+			// knows to re-auth at the connection level.
+			log.Printf("[CALL-TOOL] upstream 401 server=%d conn=%d — attempting auto-refresh", serverID, record.ConnectionID)
+			if rerr := s.refreshRemoteMcpAuth(serverID, record.ConnectionID, env); rerr != nil {
+				log.Printf("[CALL-TOOL] auto-refresh FAILED server=%d: %v", serverID, rerr)
+				writeJSON(w, map[string]any{"success": false, "status": 401, "data": "upstream returned 401 and refresh failed: " + rerr.Error() + " — disconnect + reconnect this integration"})
+				return
+			}
+			log.Printf("[CALL-TOOL] auto-refresh OK server=%d — retrying tools/call", serverID)
+			result, err = callRemoteMCPTool(record.URL, body.Tool, body.Args, env)
+		}
 		if err != nil {
 			writeJSON(w, map[string]any{"success": false, "status": 0, "data": err.Error()})
 			return
@@ -1189,6 +1239,23 @@ func (s *Server) handleDeleteMCPServer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"status": "deleted"})
 }
 
+// isRemoteMcpAuthError detects whether an error returned by
+// callRemoteMCPTool / probeRemoteMCP looks like an upstream auth
+// failure that's worth retrying after an OAuth refresh. The errors
+// surface as wrapped strings ("initialize: http 401: ...",
+// "tools/call: http 401: ...") because the underlying call helper
+// formats them with fmt.Errorf("http %d: %s", ...). We match on the
+// 401 status substring rather than wrapping every layer in a typed
+// error — keeps the change small and works through the existing
+// fmt.Errorf chain.
+func isRemoteMcpAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "http 401") || strings.Contains(msg, "HTTP 401")
+}
+
 // callRemoteMCPTool invokes a single tool on a Streamable-HTTP MCP server
 // (tools/call method) and returns the raw result payload as JSON. It uses
 // the same redirect / SSE-parsing path as probeRemoteMCP and is safe for
@@ -1216,9 +1283,19 @@ func callRemoteMCPTool(rawURL, toolName string, args map[string]any, env map[str
 		},
 	}
 
+	// MCP Streamable HTTP spec: the server's initialize response MAY
+	// return a Mcp-Session-Id header that the client MUST echo on every
+	// subsequent request. Without this, some servers (HubSpot's hosted
+	// MCP being one) reject tools/call with a generic "Unknown tool:
+	// invalid_tool_name" error because the call can't be tied back to a
+	// session. We capture the header from the initialize response and
+	// inject it into headers for the next call.
+	var capturedSessionID string
+
 	call := func(id int64, method string, params any, targetURL string) (json.RawMessage, string, error) {
 		req := jsonRPCRequest{JSONRPC: "2.0", ID: id, Method: method, Params: params}
 		body, _ := json.Marshal(req)
+		log.Printf("[CALL-RPC] → POST %s method=%s body_len=%d", targetURL, method, len(body))
 		currentURL := targetURL
 		for attempt := 0; attempt < 4; attempt++ {
 			httpReq, err := http.NewRequest("POST", currentURL, strings.NewReader(string(body)))
@@ -1241,8 +1318,17 @@ func callRemoteMCPTool(rawURL, toolName string, args map[string]any, env map[str
 				currentURL = loc
 				continue
 			}
+			// Persist a session id whenever the server returns one. The
+			// MCP spec uses the literal header name "Mcp-Session-Id"
+			// (case-insensitive in HTTP/1.1 but exact-cased in HTTP/2).
+			if sid := resp.Header.Get("Mcp-Session-Id"); sid != "" {
+				capturedSessionID = sid
+				headers["Mcp-Session-Id"] = sid
+				log.Printf("[CALL-RPC] captured Mcp-Session-Id len=%d", len(sid))
+			}
 			defer resp.Body.Close()
 			respBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 10_000_000))
+			log.Printf("[CALL-RPC] ← %d ct=%s body_len=%d preview=%s", resp.StatusCode, resp.Header.Get("Content-Type"), len(respBytes), truncateProbeErr(string(respBytes), 300))
 			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 				return nil, "", fmt.Errorf("http %d: %s", resp.StatusCode, string(respBytes))
 			}
@@ -1265,7 +1351,7 @@ func callRemoteMCPTool(rawURL, toolName string, args map[string]any, env map[str
 	// Initialize first to land on the post-redirect URL, then issue the tool
 	// call on that URL so we don't redirect twice.
 	_, resolvedURL, err := call(1, "initialize", map[string]any{
-		"protocolVersion": "2024-11-05",
+		"protocolVersion": "2025-06-18",
 		"capabilities":    map[string]any{},
 		"clientInfo":      map[string]string{"name": "apteva-server", "version": "1.0.0"},
 	}, rawURL)
@@ -1273,6 +1359,25 @@ func callRemoteMCPTool(rawURL, toolName string, args map[string]any, env map[str
 		return nil, fmt.Errorf("initialize: %w", err)
 	}
 
+	// MCP spec: after initialize, the client MUST send a
+	// notifications/initialized notification before any other request.
+	// Some servers tolerate skipping it; HubSpot's MCP enforces it and
+	// rejects subsequent calls if you don't. Notification = no `id`
+	// field, no response expected.
+	notifReq := jsonRPCNotification{JSONRPC: "2.0", Method: "notifications/initialized"}
+	notifBody, _ := json.Marshal(notifReq)
+	notifHTTP, _ := http.NewRequest("POST", resolvedURL, strings.NewReader(string(notifBody)))
+	for k, v := range headers {
+		notifHTTP.Header.Set(k, v)
+	}
+	if notifResp, nerr := client.Do(notifHTTP); nerr == nil {
+		log.Printf("[CALL-RPC] notifications/initialized → %d", notifResp.StatusCode)
+		notifResp.Body.Close()
+	} else {
+		log.Printf("[CALL-RPC] notifications/initialized FAILED: %v", nerr)
+	}
+
+	log.Printf("[CALL-RPC] tools/call name=%s args_keys=%d session_id_present=%t", toolName, len(args), capturedSessionID != "")
 	result, _, err := call(2, "tools/call", map[string]any{
 		"name":      toolName,
 		"arguments": args,
@@ -1281,6 +1386,16 @@ func callRemoteMCPTool(rawURL, toolName string, args map[string]any, env map[str
 		return nil, fmt.Errorf("tools/call: %w", err)
 	}
 	return result, nil
+}
+
+// jsonRPCNotification is an MCP notification (no `id` field — the
+// server does not respond to it). Used for the post-initialize
+// `notifications/initialized` handshake step that HubSpot's hosted
+// MCP requires.
+type jsonRPCNotification struct {
+	JSONRPC string `json:"jsonrpc"`
+	Method  string `json:"method"`
+	Params  any    `json:"params,omitempty"`
 }
 
 // probeRemoteMCP issues a minimal MCP handshake + tools/list against a

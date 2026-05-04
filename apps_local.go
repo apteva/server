@@ -238,12 +238,19 @@ func (sup *LocalSupervisor) spawn(installID int64, appName, bin string, port int
 	}
 	cmd := exec.CommandContext(context.Background(), bin)
 	cmd.Dir = dataDir
-	// Strip the parent's DB_PATH so the sidecar doesn't accidentally
-	// open apteva-server's own sqlite file (the SDK respects DB_PATH
-	// over the manifest's path, and os.Environ() inherits it).
-	envv := envWithout(os.Environ(), "DB_PATH")
+	// Strip the parent's DB_PATH and APTEVA_DATA_DIR so the sidecar
+	// doesn't accidentally inherit apteva-server's own paths (the SDK
+	// respects these env vars over manifest defaults, and os.Environ()
+	// would otherwise leak them through).
+	envv := envWithout(os.Environ(), "DB_PATH", "APTEVA_DATA_DIR")
 	envv = append(envv, fmt.Sprintf("APTEVA_APP_PORT=%d", port))
 	envv = append(envv, "DB_PATH="+dbPath)
+	// Writable per-install dir for any persistent file the app needs
+	// outside its DB (blobs, cloned repos, generated artifacts, …) —
+	// same dir AppDB lives in. The SDK surfaces this via ctx.DataDir()
+	// so apps stop hardcoding paths like "/data/foo" that only exist
+	// inside container deployments.
+	envv = append(envv, "APTEVA_DATA_DIR="+persistentRoot)
 	for k, v := range env {
 		envv = append(envv, k+"="+v)
 	}
@@ -273,15 +280,19 @@ func (sup *LocalSupervisor) spawn(installID int64, appName, bin string, port int
 	return nil
 }
 
-// envWithout returns env with any KEY=… entry stripped. Used to
-// scrub inherited APTEVA-server env vars (DB_PATH especially) so the
-// spawned sidecar doesn't accidentally open the platform's sqlite file.
-func envWithout(env []string, key string) []string {
-	prefix := key + "="
+// envWithout returns env with any KEY=… entries for the given keys
+// stripped. Used to scrub inherited APTEVA-server env vars (DB_PATH,
+// APTEVA_DATA_DIR, …) so the spawned sidecar doesn't accidentally
+// open the platform's sqlite file or write into the platform's data
+// dir.
+func envWithout(env []string, keys ...string) []string {
 	out := env[:0]
+outer:
 	for _, e := range env {
-		if strings.HasPrefix(e, prefix) {
-			continue
+		for _, k := range keys {
+			if strings.HasPrefix(e, k+"=") {
+				continue outer
+			}
 		}
 		out = append(out, e)
 	}
@@ -361,6 +372,7 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 	cfgJSON, _ := json.Marshal(decryptedConfig)
 	env := map[string]string{
 		"APTEVA_GATEWAY_URL": s.localGatewayURL(),
+		"APTEVA_PUBLIC_URL":  s.publicBaseURL(),
 		"APTEVA_APP_TOKEN":   "dev-" + strconv.FormatInt(installID, 10), // TODO: real per-install token
 		"APTEVA_INSTALL_ID":  strconv.FormatInt(installID, 10),
 		"APTEVA_PROJECT_ID":  projectID,
@@ -481,6 +493,7 @@ func (s *Server) ResumeLocalInstalls() {
 		cfgJSON, _ := json.Marshal(cfg)
 		env := map[string]string{
 			"APTEVA_GATEWAY_URL": s.localGatewayURL(),
+			"APTEVA_PUBLIC_URL":  s.publicBaseURL(),
 			"APTEVA_APP_TOKEN":   "dev-" + strconv.FormatInt(id, 10),
 			"APTEVA_INSTALL_ID":  strconv.FormatInt(id, 10),
 			"APTEVA_PROJECT_ID":  projectID,

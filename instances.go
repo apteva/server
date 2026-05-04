@@ -236,9 +236,17 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 		}
 	}
 
-	// Inject browser/computer config if provider exists
+	// Browser/computer config tracks the provider list authoritatively:
+	// a saved browser/browserbase/steel/browser-engine provider drives
+	// what core gets, and the absence of one strips any stale entry off
+	// disk. Without the delete, a `computer` block written by an earlier
+	// run (or carried over after the provider was removed) would survive
+	// forever and cause core to spawn a local Chrome on every boot even
+	// though the user has no provider configured.
 	if browserConfig != nil {
 		config["computer"] = browserConfig
+	} else {
+		delete(config, "computer")
 	}
 
 	// Create channels infrastructure for this instance

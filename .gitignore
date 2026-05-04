@@ -6,3 +6,8 @@
 data/
 server
 apteva-server
+# CLI / core binaries occasionally land here when the local build
+# script copies them as siblings during dev — keep the server repo
+# free of cross-component build artifacts.
+apteva
+apteva-core
