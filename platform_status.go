@@ -153,7 +153,6 @@ func (p *platformStatusPoller) poll() {
 		{"apteva-integrations", "apteva-integrations", "integrations"},
 	}
 
-	anyUpdate := false
 	for _, e := range pairs {
 		curStr, _ := current[e.localKey].(string)
 		latest := m.Components[e.manifestKey]
@@ -161,9 +160,6 @@ func (p *platformStatusPoller) poll() {
 		// build-local.sh) — those installs aren't update candidates,
 		// don't claim an update is available.
 		updateAvail := latest != "" && curStr != "" && curStr != "dev" && curStr != latest
-		if updateAvail {
-			anyUpdate = true
-		}
 		view.Components = append(view.Components, platformComponentStatus{
 			Name:            e.display,
 			Current:         curStr,
@@ -171,7 +167,15 @@ func (p *platformStatusPoller) poll() {
 			UpdateAvailable: updateAvail,
 		})
 	}
-	view.UpdateAvailable = anyUpdate
+	// Whether to fire the pill is decided by the BUNDLE version only —
+	// release tarballs ship cli + server + core atomically, so the
+	// umbrella version is the canonical "what's installed". Per-component
+	// flags above stay informational; aggregating them into the pill
+	// turns a stale-by-one-key manifest into a false positive (which is
+	// how this very check first fired even though the user was on the
+	// latest published bundle).
+	cliCurrent, _ := current["cli"].(string)
+	view.UpdateAvailable = m.Version != "" && cliCurrent != "" && cliCurrent != "dev" && cliCurrent != m.Version
 
 	p.mu.Lock()
 	p.view = view
