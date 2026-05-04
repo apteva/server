@@ -405,15 +405,26 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 }
 
 // resolveStaticInstallDir derives the absolute on-disk path for a
-// static app's asset directory at install time. It implements the
-// three-rule lookup described at the call site: absolute path → use
-// as-is; relative + source → clone and join; relative + no source →
-// error.
+// static app's asset directory at install time. Lookup rules, in
+// priority order:
 //
-// Side effects: when cloning, the repo lands under
-// $cacheDir/<name>/<version>/src — same convention installFromSource
-// uses, so subsequent installs / restarts of the same version are a
-// no-op fetch.
+//   1. Absolute static_dir → built-in apps the Dockerfile pre-baked.
+//      Stat and return.
+//   2. runtime.bundle set → prebuilt tarball delivery. Download,
+//      verify sha256, extract under <cacheDir>/<name>/<version>/dist.
+//      Browser code is platform-agnostic, so one tarball works on
+//      every install host (no <os>-<arch> matrix). This is the
+//      preferred path: install hosts don't need a JS toolchain.
+//   3. runtime.source set → clone-on-install (no build). Useful for
+//      authoring / dev loops where the repo already commits dist/.
+//      Will *not* run `bun run build` for you — if dist/ isn't in
+//      the cloned tree, install fails with the same error the bundle
+//      path would have caught.
+//   4. None of the above → error.
+//
+// Side effects: cache layout under <cacheDir>/<name>/<version>/ —
+// "src" for clones, "dist" for bundles. Repeat installs of the same
+// version short-circuit (cache hit).
 func (s *Server) resolveStaticInstallDir(m *sdk.Manifest) (string, error) {
 	d := strings.TrimSpace(m.Runtime.StaticDir)
 	if d == "" {
@@ -427,8 +438,25 @@ func (s *Server) resolveStaticInstallDir(m *sdk.Manifest) (string, error) {
 		}
 		return d, nil
 	}
-	// Rule 2 — relative + source set. Clone the repo (cache hit on
-	// repeat installs of the same version), then join.
+	// Rule 2 — bundle declared. Download the prebuilt tarball, verify
+	// its sha256, extract under the apps cache. Preferred path.
+	if m.Runtime.Bundle != nil && m.Runtime.Bundle.URL != "" {
+		extractDir := filepath.Join(s.localApps.cacheDir, m.Name, m.Version, "dist")
+		if err := fetchAndExtractBundle(m.Runtime.Bundle.URL, m.Runtime.Bundle.SHA256, extractDir); err != nil {
+			return "", fmt.Errorf("install bundle %s@%s: %w", m.Name, m.Version, err)
+		}
+		// static_dir is the path *inside* the extracted tree. Common
+		// values: "." (tarball was packed with `tar -C dist .`) or
+		// "dist" (tarball preserved the dist/ prefix).
+		full := filepath.Join(extractDir, d)
+		if _, err := os.Stat(full); err != nil {
+			return "", fmt.Errorf("static_dir %q not found inside extracted bundle at %s (%v)", d, extractDir, err)
+		}
+		return full, nil
+	}
+	// Rule 3 — relative + source set. Clone the repo (cache hit on
+	// repeat installs of the same version), then join. No build step
+	// — the cloned tree is expected to already contain static_dir.
 	if m.Runtime.Source != nil && m.Runtime.Source.Repo != "" {
 		dir := filepath.Join(s.localApps.cacheDir, m.Name, m.Version, "src")
 		if err := cloneOrUpdate(dir, m.Runtime.Source.Repo, m.Runtime.Source.Ref); err != nil {
@@ -436,13 +464,13 @@ func (s *Server) resolveStaticInstallDir(m *sdk.Manifest) (string, error) {
 		}
 		full := filepath.Join(dir, d)
 		if _, err := os.Stat(full); err != nil {
-			return "", fmt.Errorf("static_dir %q not found inside cloned repo at %s (%v)", d, dir, err)
+			return "", fmt.Errorf("static_dir %q not found inside cloned repo at %s (%v) — repo doesn't ship a prebuilt bundle; switch the manifest to runtime.bundle (prebuilt tarball) or commit %s/ to the source tree", d, dir, err, d)
 		}
 		return full, nil
 	}
-	// Rule 3 — relative + no source. We don't know where to look.
+	// Rule 4 — no way to find the bundle.
 	return "", fmt.Errorf(
-		"kind=static with relative static_dir %q requires runtime.source.repo so the bundle can be fetched",
+		"kind=static with relative static_dir %q requires runtime.bundle (prebuilt tarball) or runtime.source.repo so the bundle can be fetched",
 		d,
 	)
 }
