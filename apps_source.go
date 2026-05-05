@@ -320,7 +320,21 @@ func resolveGoBinary() (string, error) {
 // On success the install row flips to status='running' with the cached
 // bin path + port; on failure the row is left in 'error' status with
 // the message stored.
+//
+// Concurrency mirrors installLocally — see LocalSupervisor's docstring
+// for what the three primitives do. Source mode is the heavy path
+// (clone + go build + spawn), so the build slot is what actually
+// prevents the OOM-on-bulk-install crashes the operator hits.
 func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID string, decryptedConfig map[string]string) error {
+	if !s.localApps.acquireInstall(installID) {
+		log.Printf("[APPS-SOURCE] install %d already in flight — skipping duplicate goroutine", installID)
+		return nil
+	}
+	defer s.localApps.releaseInstall(installID)
+
+	releaseAppLock := s.localApps.lockApp(m.Name, m.Version)
+	defer releaseAppLock()
+
 	cfgJSON, _ := json.Marshal(decryptedConfig)
 	env := map[string]string{
 		"APTEVA_GATEWAY_URL": s.localGatewayURL(),
@@ -335,6 +349,13 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 			`UPDATE app_installs SET status_message=? WHERE id=?`,
 			msg, installID)
 	}
+
+	// Note: the global build-slot semaphore is acquired by the
+	// outermost goroutine in handleInstallApp / handleUpgradeApp, NOT
+	// here. Dep-resolution recursion (apps_dependencies.go calls into
+	// installFromSource/installLocally synchronously while the parent
+	// already holds a slot) would deadlock if we tried to re-acquire.
+
 	port, binPath, err := s.localApps.BuildFromSource(installID, m, env, progress)
 	if err != nil {
 		s.store.db.Exec(

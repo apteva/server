@@ -42,10 +42,36 @@ import (
 
 // LocalSupervisor tracks running app subprocesses keyed by install id.
 // One instance per Server, created in startup before LoadInstalledApps.
+//
+// Three concurrency primitives govern the install pipeline:
+//
+//   - buildMu — per-(app,version) lock. Held across clone + build +
+//     spawn so two installs of the SAME app+version (e.g. one project
+//     install + one global install of the same app) serialize cleanly
+//     instead of racing on shared cache-dir paths (src/, bin, the
+//     two gocache/gomodcache dirs).
+//   - installSem — global concurrency cap. Buffered channel sized by
+//     APTEVA_INSTALL_CONCURRENCY (default 2 on a typical laptop).
+//     Acquired AFTER the per-app lock so the FIFO queue is fair
+//     across apps. Different apps still serialize through this layer
+//     — that's the point: each `go build` peaks ~1.0–1.5 GB RSS, so
+//     uncapped fan-out OOMs the host.
+//   - inflight — per-install_id "already running" guard. Stops a
+//     second goroutine for the same install row from racing with the
+//     first (retry-on-error, dep recursion, accidental double-call).
 type LocalSupervisor struct {
 	cacheDir string
-	mu       sync.Mutex
-	procs    map[int64]*localProc
+
+	mu    sync.Mutex
+	procs map[int64]*localProc
+
+	buildMuG sync.Mutex
+	buildMu  map[string]*sync.Mutex
+
+	inflightG sync.Mutex
+	inflight  map[int64]struct{}
+
+	installSem chan struct{}
 }
 
 type localProc struct {
@@ -56,10 +82,84 @@ type localProc struct {
 }
 
 // NewLocalSupervisor returns a supervisor whose binary cache lives at
-// cacheDir (typically ~/.apteva/apps).
+// cacheDir (typically ~/.apteva/apps). Concurrency cap reads from
+// APTEVA_INSTALL_CONCURRENCY (default 2).
 func NewLocalSupervisor(cacheDir string) *LocalSupervisor {
 	_ = os.MkdirAll(cacheDir, 0755)
-	return &LocalSupervisor{cacheDir: cacheDir, procs: map[int64]*localProc{}}
+	n := envInstallConcurrency()
+	return &LocalSupervisor{
+		cacheDir:   cacheDir,
+		procs:      map[int64]*localProc{},
+		buildMu:    map[string]*sync.Mutex{},
+		inflight:   map[int64]struct{}{},
+		installSem: make(chan struct{}, n),
+	}
+}
+
+// envInstallConcurrency returns APTEVA_INSTALL_CONCURRENCY parsed as
+// an int, clamped to [1, 16]. Default 2 — a Mac laptop comfortably
+// handles two concurrent `go build`s; Pi/low-RAM users can drop it
+// to 1 if a single build is already pegging memory.
+func envInstallConcurrency() int {
+	const dflt = 2
+	v := os.Getenv("APTEVA_INSTALL_CONCURRENCY")
+	if v == "" {
+		return dflt
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		log.Printf("[APPS-LOCAL] APTEVA_INSTALL_CONCURRENCY=%q invalid; using default %d", v, dflt)
+		return dflt
+	}
+	if n > 16 {
+		n = 16
+	}
+	return n
+}
+
+// lockApp returns a release function for the per-(app,version) mutex.
+// Held across the install pipeline (clone → build → spawn). Two
+// installs of the same app+version serialize; different apps don't
+// share keys so they don't block each other here.
+func (sup *LocalSupervisor) lockApp(name, version string) func() {
+	key := name + "@" + version
+	sup.buildMuG.Lock()
+	m, ok := sup.buildMu[key]
+	if !ok {
+		m = &sync.Mutex{}
+		sup.buildMu[key] = m
+	}
+	sup.buildMuG.Unlock()
+	m.Lock()
+	return m.Unlock
+}
+
+// acquireInstall reserves the install_id slot. Returns false if the
+// id is already in flight — caller should bail without touching the
+// row, since the in-flight goroutine will finish and update the
+// install state.
+func (sup *LocalSupervisor) acquireInstall(id int64) bool {
+	sup.inflightG.Lock()
+	defer sup.inflightG.Unlock()
+	if _, busy := sup.inflight[id]; busy {
+		return false
+	}
+	sup.inflight[id] = struct{}{}
+	return true
+}
+
+func (sup *LocalSupervisor) releaseInstall(id int64) {
+	sup.inflightG.Lock()
+	delete(sup.inflight, id)
+	sup.inflightG.Unlock()
+}
+
+// acquireBuildSlot blocks until a global build slot is available,
+// returning a release function. Used to cap concurrent go-build
+// processes (memory governor).
+func (sup *LocalSupervisor) acquireBuildSlot() func() {
+	sup.installSem <- struct{}{}
+	return func() { <-sup.installSem }
 }
 
 // localPlatform returns the manifest binaries[] key for this host:
@@ -330,7 +430,30 @@ func freePort() (int, error) {
 // installLocally runs the full local-mode install pipeline + persists
 // the result into app_installs. Returns nil on success; on failure the
 // row is left in 'error' status with the message stored.
+//
+// Concurrency: gated by three primitives (LocalSupervisor.lockApp,
+// acquireInstall, acquireBuildSlot — see the type's docstring).
+// inflight + per-app lock are taken UNCONDITIONALLY. The build slot
+// is taken only on the heavy-pipeline path (download binary +
+// spawn); static apps and dependency-resolution recursion don't pay
+// its cost.
 func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID string, decryptedConfig map[string]string) error {
+	// Drop a duplicate goroutine for the same install_id on the
+	// floor. Returning nil (not error) means: the in-flight call
+	// will write the final state to the DB; we don't need to.
+	if !s.localApps.acquireInstall(installID) {
+		log.Printf("[APPS-LOCAL] install %d already in flight — skipping duplicate goroutine", installID)
+		return nil
+	}
+	defer s.localApps.releaseInstall(installID)
+
+	// Per-(app,version) lock: serialise two installs of the same
+	// app+version (e.g. one global + one project install) so they
+	// don't race on the shared cache-dir paths (src/, bin, gocache).
+	// Different apps have different keys → no contention here.
+	releaseAppLock := s.localApps.lockApp(m.Name, m.Version)
+	defer releaseAppLock()
+
 	// Static apps: no sidecar, no port, no spawn. Persist the asset
 	// directory under sidecar_url_override using a `static://<abs>`
 	// scheme so LoadInstalledApps can recognise the install at boot
@@ -378,6 +501,14 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 		"APTEVA_PROJECT_ID":  projectID,
 		"APTEVA_APP_CONFIG":  string(cfgJSON),
 	}
+
+	// Note: the global build-slot semaphore is acquired by the
+	// outermost goroutine in handleInstallApp / handleUpgradeApp, NOT
+	// here. Dep-resolution recursion (apps_dependencies.go calls into
+	// installFromSource/installLocally synchronously while the parent
+	// already holds a slot) would deadlock if we tried to re-acquire.
+	// Outermost-only acquisition keeps the cap honest without nesting.
+
 	port, binPath, err := s.localApps.Install(installID, m, env)
 	if err != nil {
 		s.store.db.Exec(
@@ -489,9 +620,17 @@ func (s *Server) localGatewayURL() string {
 // but whose pid is no longer alive. Called from LoadInstalledApps at
 // boot. Failures are logged + the install flips to 'error'.
 func (s *Server) ResumeLocalInstalls() {
+	// We pull `i.version` (what was actually installed) separately from
+	// `a.manifest_json` (the upstream-refreshed snapshot) — they
+	// diverge as soon as marketplace polling sees a newer published
+	// version. The cached binary + source live under the INSTALLED
+	// version's directory, so respawn paths must derive from
+	// installedVersion, not from m.Version. Otherwise APTEVA_UI_DIR
+	// points at a not-yet-cached version and every dashboard request
+	// for /api/apps/<name>/ui/<Panel>.mjs returns 404.
 	rows, err := s.store.db.Query(
 		`SELECT i.id, i.local_pid, i.local_bin_path, i.local_port,
-			COALESCE(i.project_id,''), i.config_encrypted, a.manifest_json
+			COALESCE(i.project_id,''), i.config_encrypted, i.version, a.manifest_json
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.status='running' AND i.local_bin_path != ''`)
 	if err != nil {
@@ -500,8 +639,8 @@ func (s *Server) ResumeLocalInstalls() {
 	defer rows.Close()
 	for rows.Next() {
 		var id, pid, port int64
-		var binPath, projectID, cfgEnc, manifestJSON string
-		if err := rows.Scan(&id, &pid, &binPath, &port, &projectID, &cfgEnc, &manifestJSON); err != nil {
+		var binPath, projectID, cfgEnc, installedVersion, manifestJSON string
+		if err := rows.Scan(&id, &pid, &binPath, &port, &projectID, &cfgEnc, &installedVersion, &manifestJSON); err != nil {
 			continue
 		}
 		// Already alive? Nothing to do.
@@ -534,8 +673,19 @@ func (s *Server) ResumeLocalInstalls() {
 		// after every server restart and the operator has to fully
 		// reinstall — see installFromSource for the install-time
 		// counterpart that sets the same env.
+		//
+		// Use the INSTALLED version, not m.Version. The two diverge
+		// once upstream publishes a newer release: the marketplace
+		// poller refreshes a.manifest_json (so m.Version becomes
+		// upstream's latest), but the cached binary + source still
+		// live under the installed version. m.Version-driven paths
+		// would point at a not-yet-cached version dir.
+		cacheVersion := installedVersion
+		if cacheVersion == "" {
+			cacheVersion = m.Version
+		}
 		if m.Runtime.Source != nil && m.Runtime.Source.Repo != "" {
-			srcDir := filepath.Join(s.localApps.cacheDir, m.Name, m.Version, "src")
+			srcDir := filepath.Join(s.localApps.cacheDir, m.Name, cacheVersion, "src")
 			entryDir := srcDir
 			if e := strings.TrimSpace(m.Runtime.Source.Entry); e != "" && e != "." {
 				entryDir = filepath.Join(srcDir, e)

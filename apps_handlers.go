@@ -365,7 +365,15 @@ func (s *Server) refreshManifestFromUpstream(appName, manifestJSON string) {
 	if err := json.Unmarshal([]byte(manifestJSON), &current); err != nil {
 		return
 	}
+	// Try runtime.source first (github raw URL derived from the
+	// manifest itself). When that's not declared — true for any app
+	// that ships via runtime.bundle — fall back to the curated
+	// registry's manifest_url. Both paths land at the same kind of
+	// URL; they just differ in who declares it.
 	url := deriveManifestURL(&current)
+	if url == "" {
+		url = s.lookupRegistryManifestURL(appName)
+	}
 	if url == "" {
 		return
 	}
@@ -384,6 +392,30 @@ func (s *Server) refreshManifestFromUpstream(appName, manifestJSON string) {
 		`UPDATE apps SET manifest_json = ? WHERE name = ? AND source != 'builtin'`,
 		string(body), appName,
 	)
+}
+
+// lookupRegistryManifestURL returns the manifest_url declared in the
+// curated registry for appName, or "" if the registry can't be
+// reached or doesn't list the app. Used as a fallback when the
+// installed manifest doesn't declare runtime.source (e.g. apps that
+// install from a runtime.bundle and never had a clone-from-source
+// path). Registry payload is cached in fetchAndCacheRegistry to keep
+// this cheap on every list call.
+func (s *Server) lookupRegistryManifestURL(appName string) string {
+	if appName == "" {
+		return ""
+	}
+	reg, err := s.fetchAndCacheRegistry()
+	if err != nil || reg == nil {
+		return ""
+	}
+	target := normalizeAppName(appName)
+	for _, e := range reg.Apps {
+		if normalizeAppName(e.Name) == target {
+			return e.ManifestURL
+		}
+	}
+	return ""
 }
 
 // GET /api/apps[?project_id=X]
@@ -449,6 +481,19 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal([]byte(permsJSON), &perms)
 		var bindings map[string]any
 		_ = json.Unmarshal([]byte(bindingsJSON), &bindings)
+		surfaces := surfacesFromManifest(&manifest)
+		// For static UI apps, swap the manifest-default mount path for
+		// the per-install resolved one (config.mount_path overrides the
+		// manifest default). The live registry already computed this at
+		// boot/install time, so we just read it back here. Without this
+		// the dashboard's "Open" link would point at the manifest
+		// default even after the operator changed URL prefix in the
+		// install config.
+		if surfaces.UIApp {
+			if entry := s.installedApps.Get(installID); entry != nil && entry.MountPath != "" {
+				surfaces.UIAppMount = entry.MountPath
+			}
+		}
 		out = append(out, AppRow{
 			InstallID: installID, AppID: appID, Name: name, DisplayName: manifest.DisplayName,
 			Bindings:          bindings,
@@ -458,7 +503,7 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			Description:      manifest.Description, Icon: manifest.Icon,
 			ProjectID: projID, Status: status, StatusMessage: statusMsg, ErrorMessage: errMsg,
 			Source: source, UpgradePolicy: upgradePolicy,
-			Permissions: perms, Surfaces: surfacesFromManifest(&manifest),
+			Permissions: perms, Surfaces: surfaces,
 			UIPanels:    manifest.Provides.UIPanels,
 			UIComponents: manifest.Provides.UIComponents,
 		})
@@ -831,7 +876,15 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if manifest.Runtime.Kind == "source" || manifest.Runtime.Source != nil {
+			// Outermost slot acquisition — gates concurrent top-level
+			// installs across the host. Dep-recursion inside
+			// installFromSource doesn't re-acquire (would deadlock).
+			// "Queued" status surfaced before the slot blocks so the
+			// dashboard pill reads coherently while the user waits.
+			s.store.db.Exec(`UPDATE app_installs SET status_message='Queued — waiting for a build slot' WHERE id=?`, installID)
 			go func() {
+				release := s.localApps.acquireBuildSlot()
+				defer release()
 				if err := s.installFromSource(installID, manifest, body.ProjectID, body.Config); err != nil {
 					log.Printf("[APPS-SOURCE] install %d failed: %v", installID, err)
 				}
@@ -845,7 +898,10 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, ok := manifest.Runtime.Binaries[localPlatform()]; ok {
+			s.store.db.Exec(`UPDATE app_installs SET status_message='Queued — waiting for a build slot' WHERE id=?`, installID)
 			go func() {
+				release := s.localApps.acquireBuildSlot()
+				defer release()
 				if err := s.installLocally(installID, manifest, body.ProjectID, body.Config); err != nil {
 					log.Printf("[APPS-LOCAL] install %d failed: %v", installID, err)
 				}
@@ -1327,7 +1383,14 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	// pending state with live status_message ("Cloning…", "Building…")
 	// driven by the existing pending-poll loop, instead of staring at
 	// a frozen "Update → …" button for 10–60s while go build runs.
+	//
+	// Acquires the global build slot here (outermost goroutine) so
+	// concurrent upgrade-all clicks queue cleanly instead of OOM-ing
+	// the host with N parallel `go build` processes.
+	s.store.db.Exec(`UPDATE app_installs SET status_message='Queued — waiting for a build slot' WHERE id=?`, installID)
 	go func() {
+		release := s.localApps.acquireBuildSlot()
+		defer release()
 		if err := s.installFromSource(installID, live, projectID, cfg); err != nil {
 			// installFromSource already wrote status='error' + error_message.
 			return
