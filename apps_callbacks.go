@@ -68,6 +68,8 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		s.handleCallbackApps(w, r, parts[1:])
 	case "oauth":
 		s.handleCallbackOAuth(w, r, parts[1:])
+	case "grants":
+		s.handleCallbackGrants(w, r, parts[1:])
 	default:
 		http.Error(w, "unknown callback: "+parts[0], http.StatusNotFound)
 	}

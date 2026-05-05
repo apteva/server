@@ -706,6 +706,10 @@ func main() {
 			s.handleGetInstallConfig(w, r)
 		case strings.HasSuffix(path, "/config") && r.Method == http.MethodPut:
 			s.handleSetInstallConfig(w, r)
+		case strings.HasSuffix(path, "/permissions"),
+			strings.HasSuffix(path, "/default-effect"),
+			strings.Contains(path, "/grants"):
+			s.handleInstallGrants(w, r)
 		case !strings.Contains(path, "/") && r.Method == http.MethodDelete:
 			s.handleUninstallApp(w, r)
 		default:

@@ -511,6 +511,34 @@ func (s *Store) migrate() error {
 	// set, so the empty-string default doesn't conflict across rows.
 	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_command ON skills(project_id, command) WHERE command != ''`)
 
+	// Per-(install, instance) authorization grants. Apps that opt in
+	// via provides.permissions get scoped per-agent access; apps that
+	// don't keep their pre-permissions full-access behavior because
+	// default_effect defaults to 'allow' and the SDK's gate only
+	// fires when manifest's mcp_tools[].requires is set.
+	//
+	// effect: 'allow' | 'deny'
+	// resource: matcher-specific pattern (glob, id_set, ...) — '*' is
+	//           always-match regardless of matcher.
+	s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS app_grants (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			install_id   INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE,
+			instance_id  INTEGER NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+			effect       TEXT NOT NULL CHECK (effect IN ('allow','deny')),
+			permission   TEXT NOT NULL,
+			resource     TEXT NOT NULL DEFAULT '*',
+			created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_by   TEXT NOT NULL DEFAULT '',
+			UNIQUE(install_id, instance_id, effect, permission, resource)
+		)
+	`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_app_grants_lookup ON app_grants(install_id, instance_id)`)
+	// default_effect — 'allow' (default, full back-compat) or 'deny'
+	// for fail-closed installs. Per-install knob; the dashboard's
+	// "Access" tab flips it.
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN default_effect TEXT NOT NULL DEFAULT 'allow'`)
+
 	return nil
 }
 
