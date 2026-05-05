@@ -357,6 +357,16 @@ func (sup *LocalSupervisor) spawn(installID int64, appName, bin string, port int
 	cmd.Env = envv
 	cmd.Stdout = logf
 	cmd.Stderr = logf
+	// Setpgid puts the child into a new process group with itself as
+	// the leader. Two reasons:
+	//   1. Lets us kill the entire subtree (sidecar + any chromedp
+	//      Chrome / external helpers it spawns) with one signal —
+	//      `syscall.Kill(-pgid, SIGTERM)` — at shutdown time.
+	//   2. Detaches the child's pgid from apteva-server's, so a
+	//      Ctrl+C in the parent's terminal doesn't get delivered to
+	//      every sidecar before our own shutdown handler runs (we
+	//      want to stop apps cleanly, not have them die mid-flush).
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		logf.Close()
 		return fmt.Errorf("spawn %s: %w", appName, err)
@@ -643,9 +653,21 @@ func (s *Server) ResumeLocalInstalls() {
 		if err := rows.Scan(&id, &pid, &binPath, &port, &projectID, &cfgEnc, &installedVersion, &manifestJSON); err != nil {
 			continue
 		}
-		// Already alive? Nothing to do.
+		// If the recorded pid is still alive, it's an orphan from a
+		// previous apteva-server (we just started — nothing we spawned
+		// has had time to exist yet). The orphan still holds its port
+		// + log file and would race with our respawn for the cached
+		// `bin`, so kill it cleanly before proceeding. SIGTERM first,
+		// SIGKILL after a short grace.
+		//
+		// Pre-fix behaviour: this branch did `continue` ("already
+		// alive, nothing to do"), which left the orphan running and
+		// our supervisor never knowing about it — server thought the
+		// install was healthy, but the actual process was unsupervised
+		// and would survive every server restart untouched.
 		if pid > 0 && processAlive(int(pid)) {
-			continue
+			log.Printf("[APPS-LOCAL] orphan install=%d pid=%d from previous server — killing before respawn", id, pid)
+			killOrphan(int(pid))
 		}
 		var m sdk.Manifest
 		if err := json.Unmarshal([]byte(manifestJSON), &m); err != nil {
@@ -724,4 +746,63 @@ func processAlive(pid int) bool {
 		return false
 	}
 	return p.Signal(syscall.Signal(0)) == nil
+}
+
+// killOrphan terminates a sidecar pid this server didn't spawn.
+// Tries to kill the entire process group (sidecars are spawned with
+// Setpgid, so any chromedp Chrome / sub-helpers go too); falls back
+// to a single-pid kill if the group call fails. SIGTERM with a
+// short grace, then SIGKILL.
+func killOrphan(pid int) {
+	pgid, err := syscall.Getpgid(pid)
+	if err != nil {
+		pgid = 0
+	}
+	signal := func(target int, sig syscall.Signal) {
+		if pgid > 0 && target == pid {
+			_ = syscall.Kill(-pgid, sig)
+		} else {
+			_ = syscall.Kill(target, sig)
+		}
+	}
+	signal(pid, syscall.SIGTERM)
+	for i := 0; i < 20; i++ { // ~2s grace
+		if !processAlive(pid) {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	signal(pid, syscall.SIGKILL)
+}
+
+// StopAll terminates every sidecar this supervisor is currently
+// tracking. Called by apteva-server's shutdown handler so a clean
+// exit doesn't leave orphans that the next boot will have to mop
+// up. Concurrent — sidecars stop in parallel rather than serially.
+func (sup *LocalSupervisor) StopAll(grace time.Duration) {
+	sup.mu.Lock()
+	ids := make([]int64, 0, len(sup.procs))
+	for id := range sup.procs {
+		ids = append(ids, id)
+	}
+	sup.mu.Unlock()
+	if len(ids) == 0 {
+		return
+	}
+	log.Printf("[APPS-LOCAL] StopAll: terminating %d sidecar(s)", len(ids))
+	var wg sync.WaitGroup
+	for _, id := range ids {
+		wg.Add(1)
+		go func(id int64) {
+			defer wg.Done()
+			_ = sup.Stop(id)
+		}(id)
+	}
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(grace):
+		log.Printf("[APPS-LOCAL] StopAll: %s grace expired, leaving any stragglers to the OS", grace)
+	}
 }

@@ -1003,12 +1003,52 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\napteva-server received %s — stopping children\n", sig)
 		s.stopApps(appsReg)
 		s.instances.StopAll(5 * time.Second)
+		// Sidecars are spawned with Setpgid; StopAll fans out SIGTERM
+		// and falls back to SIGKILL after the grace window. Without
+		// this, every clean apteva-server exit leaves the running
+		// app sidecars (code, deploy, storage, …) as orphans for
+		// the next boot's cleanup pass to mop up — works, but noisy.
+		if s.localApps != nil {
+			s.localApps.StopAll(5 * time.Second)
+		}
 		os.Exit(0)
 	}()
 
 	fmt.Fprintf(os.Stderr, "apteva-server v%s (core=%s cli=%s dashboard=%s integrations=%s build=%s) running on :%s\n",
 		Version, CoreVersion, CLIVersion, DashboardVersion, IntegrationsVersion, BuildTime, port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+
+	// Host-header dispatch: when a request's Host matches a domain
+	// the deploy app reports as live, reverse-proxy to that release's
+	// loopback port instead of falling through to the API mux. On a
+	// miss we serve the existing mux unchanged, so this is additive.
+	hostRouter := NewHostRouter(s, mux)
+	hostRouter.Start(5 * time.Second)
+
+	// Optional TLS listener. Off unless APTEVA_TLS_LISTEN_ADDR is set
+	// (e.g. ":5443"). When on, it shares the same handler stack as
+	// plain HTTP via the host router and serves SNI certs from the
+	// certs app.
+	if tlsAddr := strings.TrimSpace(os.Getenv("APTEVA_TLS_LISTEN_ADDR")); tlsAddr != "" {
+		certCache := NewCertCache(s)
+		certCache.Start(60 * time.Second)
+		startTLSListener(tlsAddr, hostRouter, certCache)
+	}
+
+	// Bind address. Default 127.0.0.1 (loopback only) — the server's
+	// HTTP API has internal-trust auth (session cookies, install
+	// tokens of the form dev-<install_id>) that's not safe against a
+	// network attacker. Operators who genuinely want LAN / public
+	// access opt in by setting APTEVA_BIND=0.0.0.0 (front it with a
+	// reverse proxy or Cloudflare Tunnel). Existing same-machine
+	// dashboard usage is unaffected — `localhost:5280` works either
+	// way.
+	bindAddr := strings.TrimSpace(os.Getenv("APTEVA_BIND"))
+	if bindAddr == "" {
+		bindAddr = "127.0.0.1"
+	}
+	listenAddr := bindAddr + ":" + port
+	fmt.Fprintf(os.Stderr, "apteva-server listening on %s\n", listenAddr)
+	if err := http.ListenAndServe(listenAddr, hostRouter); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)
 	}
