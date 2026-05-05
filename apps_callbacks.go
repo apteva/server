@@ -730,31 +730,57 @@ func installBoundConnection(s *Server, installID, connID int64) (string, bool) {
 }
 
 // installBoundApp returns true if the named app name appears as a
-// kind=app binding for the install.
+// dependency of the install. Two manifest shapes are recognised:
+//
+//   * Modern: requires.apps[].name (RequiredAppRef). Bindings are
+//     keyed by the dep's app name.
+//   * Legacy: requires.integrations[].kind="app" (IntegrationDep).
+//     Bindings are keyed by the integration's role.
+//
+// The bound install must be running and its registered AppName must
+// match the requested name.
 func installBoundApp(s *Server, installID int64, appName string) bool {
 	m, err := installManifest(s, installID)
 	if err != nil || m == nil {
 		return false
 	}
 	bindings := bindingsForInstall(s, installID)
+	check := func(key string) bool {
+		raw, ok := bindings[key]
+		if !ok || raw == nil {
+			return false
+		}
+		boundInstallID := int64(0)
+		switch n := raw.(type) {
+		case float64:
+			boundInstallID = int64(n)
+		case int64:
+			boundInstallID = n
+		}
+		if boundInstallID == 0 {
+			return false
+		}
+		e := s.installedApps.Get(boundInstallID)
+		return e != nil && e.AppName == appName
+	}
+	// Modern requires.apps shape.
+	for _, dep := range m.Requires.Apps {
+		if dep.Name != appName {
+			continue
+		}
+		if check(dep.Name) {
+			return true
+		}
+	}
+	// Legacy requires.integrations[kind=app] shape.
 	for _, dep := range m.Requires.Integrations {
 		if dep.Kind != "app" {
 			continue
 		}
-		raw, ok := bindings[dep.Role]
-		if !ok || raw == nil {
-			continue
-		}
-		// kind=app bindings store the target install_id; resolve to
-		// the running app name via installedApps.
-		boundInstallID := int64(0)
-		if n, ok := raw.(float64); ok {
-			boundInstallID = int64(n)
-		}
-		if boundInstallID == 0 {
-			continue
-		}
-		if e := s.installedApps.Get(boundInstallID); e != nil && e.AppName == appName {
+		if check(dep.Role) {
+			// Verify the bound install actually serves the requested
+			// app name (Role is integration-side; the bound install
+			// is what we trust for AppName).
 			return true
 		}
 	}
