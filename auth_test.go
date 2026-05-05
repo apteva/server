@@ -173,6 +173,84 @@ func TestAuthMiddleware_NoToken(t *testing.T) {
 	}
 }
 
+// Anonymous GET on an app route falls through — the app handler
+// decides whether the resource needs auth. Storage's visibility=
+// public depends on this carve-out. apiMux is wrapped in
+// StripPrefix("/api"), so the prefix here is /apps/<name>/... not
+// /api/apps/<name>/...; matching the wrong form was the bug that
+// kept public files returning 401.
+func TestAuthMiddleware_AnonymousAppGET_FallsThrough(t *testing.T) {
+	s := newTestServer(t)
+	called := false
+	var sawUserID string
+	handler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		sawUserID = r.Header.Get("X-User-ID")
+		w.WriteHeader(200)
+	})
+	// Path as the inner mux sees it: /apps/storage/files/6/content/...
+	req := httptest.NewRequest("GET", "/apps/storage/files/6/content/x.mp4", nil)
+	w := httptest.NewRecorder()
+	handler(w, req)
+	if !called {
+		t.Fatalf("anonymous GET to app route should fall through; got %d", w.Code)
+	}
+	if sawUserID != "" {
+		t.Errorf("anonymous request leaked X-User-ID = %q (must stay empty so the app can tell it's anonymous)", sawUserID)
+	}
+}
+
+// Same fallthrough must work for the legacy /api/apps/ form too —
+// in case some routing change ever removes the StripPrefix.
+func TestAuthMiddleware_AnonymousAppGET_AcceptsBothPrefixes(t *testing.T) {
+	s := newTestServer(t)
+	called := false
+	handler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(200)
+	})
+	req := httptest.NewRequest("GET", "/api/apps/storage/files/6/content", nil)
+	w := httptest.NewRecorder()
+	handler(w, req)
+	if !called {
+		t.Fatalf("anonymous GET via /api/apps prefix should fall through; got %d", w.Code)
+	}
+}
+
+// Management surfaces always require auth, never fall through —
+// even on GET. Without this an unauthed user could enumerate the
+// install list, the marketplace, etc.
+func TestAuthMiddleware_AnonymousManagementGET_StillRefused(t *testing.T) {
+	s := newTestServer(t)
+	for _, sub := range []string{"installs", "callback", "preview", "install", "marketplace"} {
+		req := httptest.NewRequest("GET", "/apps/"+sub+"/anything", nil)
+		w := httptest.NewRecorder()
+		s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(200)
+		})(w, req)
+		if w.Code != 401 {
+			t.Errorf("management route %q let an anonymous GET through (status %d)", sub, w.Code)
+		}
+	}
+}
+
+// POST/PUT/DELETE on an app route does NOT fall through — even
+// public files are read-only via the anonymous path. Mutations
+// always require auth.
+func TestAuthMiddleware_AnonymousAppMutation_Refused(t *testing.T) {
+	s := newTestServer(t)
+	for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
+		req := httptest.NewRequest(method, "/apps/storage/files/6", nil)
+		w := httptest.NewRecorder()
+		s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(200)
+		})(w, req)
+		if w.Code != 401 {
+			t.Errorf("%s on app route should require auth (status %d)", method, w.Code)
+		}
+	}
+}
+
 func TestAuthMiddleware_SessionCookie(t *testing.T) {
 	s := newTestServer(t)
 

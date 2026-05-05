@@ -218,9 +218,19 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// Scoped to GET (and HEAD) on /api/apps/<name>/...; never the
 		// management surfaces under /api/apps/installs, /api/apps/
 		// callback, /api/apps/preview etc., which always require auth.
+		//
+		// Note: apiMux is wrapped in http.StripPrefix("/api"), so the
+		// path here is /apps/<name>/... not /api/apps/<name>/.... We
+		// match either form for safety in case of routing changes.
 		if r.Method == http.MethodGet || r.Method == http.MethodHead {
-			path := strings.TrimPrefix(r.URL.Path, "/api/apps/")
-			if path != r.URL.Path && path != "" {
+			path := ""
+			switch {
+			case strings.HasPrefix(r.URL.Path, "/api/apps/"):
+				path = strings.TrimPrefix(r.URL.Path, "/api/apps/")
+			case strings.HasPrefix(r.URL.Path, "/apps/"):
+				path = strings.TrimPrefix(r.URL.Path, "/apps/")
+			}
+			if path != "" {
 				first := path
 				if i := strings.Index(path, "/"); i >= 0 {
 					first = path[:i]
