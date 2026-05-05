@@ -208,6 +208,33 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
+		// Anonymous app-route fall-through. Apps decide for themselves
+		// whether GET requests need auth. Storage's visibility=public
+		// uses this — the file's URL is the same as for authenticated
+		// requests, the app handler just doesn't require credentials.
+		// X-User-ID is intentionally NOT set so the app can tell this
+		// is an anonymous request and refuse private resources.
+		//
+		// Scoped to GET (and HEAD) on /api/apps/<name>/...; never the
+		// management surfaces under /api/apps/installs, /api/apps/
+		// callback, /api/apps/preview etc., which always require auth.
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			path := strings.TrimPrefix(r.URL.Path, "/api/apps/")
+			if path != r.URL.Path && path != "" {
+				first := path
+				if i := strings.Index(path, "/"); i >= 0 {
+					first = path[:i]
+				}
+				switch first {
+				case "installs", "callback", "preview", "install", "marketplace":
+					// management routes — fall through to 401
+				default:
+					next(w, r)
+					return
+				}
+			}
+		}
+
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	}
 }

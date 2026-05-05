@@ -276,6 +276,51 @@ func TestCallback_AppCall_RejectsMissingPermission(t *testing.T) {
 	}
 }
 
+// /whoami carries the platform's public_url so apps mint shareable
+// URLs without re-reading APTEVA_PUBLIC_URL env (which is frozen at
+// sidecar spawn time). Setting changes propagate via the SDK's
+// sub-second WhoAmI cache.
+func TestCallback_Whoami_ReturnsPublicURL(t *testing.T) {
+	s := newTestServer(t)
+	if err := s.store.SetSetting("public_url", "https://agents.example.com"); err != nil {
+		t.Fatalf("seed setting: %v", err)
+	}
+	manifest := sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "x"}
+	installID := seedInstallWithBindings(t, s, "x", manifest, nil)
+	req := httptest.NewRequest("GET", "/apps/callback/whoami", nil)
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var out sdk.InstallIdentity
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.PublicURL != "https://agents.example.com" {
+		t.Errorf("public_url = %q, want https://agents.example.com", out.PublicURL)
+	}
+
+	// Live-fresh: change the setting, next whoami call reflects it.
+	if err := s.store.SetSetting("public_url", "https://updated.example.com"); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	req2 := httptest.NewRequest("GET", "/apps/callback/whoami", nil)
+	req2.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	req2.Header.Set("X-User-ID", "1")
+	rec2 := httptest.NewRecorder()
+	s.handleAppCallback(rec2, req2)
+	var out2 sdk.InstallIdentity
+	if err := json.Unmarshal(rec2.Body.Bytes(), &out2); err != nil {
+		t.Fatalf("decode2: %v", err)
+	}
+	if out2.PublicURL != "https://updated.example.com" {
+		t.Errorf("after setting change: public_url = %q, want updated", out2.PublicURL)
+	}
+}
+
 // --- /whoami includes bindings -------------------------------------
 
 func TestCallback_Whoami_ReturnsBindings(t *testing.T) {

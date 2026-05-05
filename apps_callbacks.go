@@ -100,6 +100,11 @@ func (s *Server) handleCallbackWhoami(w http.ResponseWriter, r *http.Request) {
 		"project_id": projectID,
 		"version":    version,
 		"bindings":   bindingsForInstall(s, installID),
+		// Live-fresh: read on every whoami call so a setting change
+		// in Settings → Server propagates to apps within the SDK's
+		// sub-second WhoAmI cache. The env-var-only path requires a
+		// sidecar restart; this doesn't.
+		"public_url": s.publicBaseURL(),
 	})
 }
 
