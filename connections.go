@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,40 @@ import (
 	"strings"
 	"time"
 )
+
+// binaryMIMEPrefixes — kept in sync with integrations/src/http-executor.ts
+// so the Go integration runner classifies the same response bodies as
+// binary that the TS one does. Binary responses are base64-wrapped in
+// the {_binary, base64, mimeType, size} envelope; everything else falls
+// through to JSON parsing or stringification.
+var binaryMIMEPrefixes = []string{
+	"audio/",
+	"video/",
+	"image/",
+	"application/octet-stream",
+	"application/pdf",
+	"application/zip",
+	"application/gzip",
+	"application/x-gzip",
+	"application/x-tar",
+	"application/vnd.openxmlformats",
+	"application/vnd.ms-",
+	"application/msword",
+	"font/",
+}
+
+func isBinaryContentType(ct string) bool {
+	ct = strings.ToLower(strings.TrimSpace(ct))
+	if i := strings.Index(ct, ";"); i >= 0 {
+		ct = strings.TrimSpace(ct[:i])
+	}
+	for _, p := range binaryMIMEPrefixes {
+		if strings.HasPrefix(ct, p) {
+			return true
+		}
+	}
+	return false
+}
 
 // --- DB Model ---
 
@@ -1035,13 +1070,63 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 10_000_000))
+	// Response cap: small for JSON/text (10 MB — anything bigger from
+	// these is almost certainly a runaway, not a real tool result).
+	// Big for binary (200 MB) so apps that legitimately stream tarballs
+	// / images / audio (Code's repos_import_github, Cloudinary uploads,
+	// Deepgram audio responses, …) can complete. The size split mirrors
+	// the TS executor's `maxBinaryBytes` knob; we don't expose a per-tool
+	// override yet because no template needs one.
+	ct := resp.Header.Get("Content-Type")
+	binary := isBinaryContentType(ct)
+	maxBytes := int64(10_000_000)
+	if binary {
+		maxBytes = 200_000_000
+	}
+	if cl := resp.ContentLength; cl > 0 && cl > maxBytes {
+		return &ExecuteResult{
+			Success: false,
+			Status:  resp.StatusCode,
+			Data: map[string]any{
+				"error": "response too large",
+				"size":  cl,
+				"max":   maxBytes,
+			},
+		}, nil
+	}
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if int64(len(respBody)) > maxBytes {
+		return &ExecuteResult{
+			Success: false,
+			Status:  resp.StatusCode,
+			Data: map[string]any{
+				"error": "response too large",
+				"size":  len(respBody),
+				"max":   maxBytes,
+			},
+		}, nil
+	}
 
 	var data any
-	ct := resp.Header.Get("Content-Type")
-	if strings.Contains(ct, "json") {
+	switch {
+	case binary:
+		// Binary responses get wrapped in the same envelope shape the
+		// TS executor produces, so apps decoding ExecuteResult.Data
+		// see one consistent shape regardless of which runner served
+		// the call.
+		mime := ct
+		if i := strings.Index(mime, ";"); i >= 0 {
+			mime = strings.TrimSpace(mime[:i])
+		}
+		data = map[string]any{
+			"_binary":  true,
+			"base64":   base64.StdEncoding.EncodeToString(respBody),
+			"mimeType": mime,
+			"size":     len(respBody),
+		}
+	case strings.Contains(ct, "json"):
 		json.Unmarshal(respBody, &data)
-	} else {
+	default:
 		data = string(respBody)
 	}
 

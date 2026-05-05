@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -652,5 +653,108 @@ func TestLegacyAppKindEmpty(t *testing.T) {
 	}
 	if app.MCP != nil {
 		t.Errorf("legacy app should have nil MCP, got %+v", app.MCP)
+	}
+}
+
+// ─── binary response handling (path A: Code app's GitHub import) ──
+
+// TestIsBinaryContentType pins the prefix list. Order doesn't matter
+// (it's a HasPrefix-any check) but each MIME type a real catalog
+// integration will return must classify as binary, otherwise the
+// executor stringifies the bytes and breaks decoding on the app side.
+func TestIsBinaryContentType(t *testing.T) {
+	binary := []string{
+		"application/x-gzip",
+		"application/x-gzip; charset=binary",
+		"application/gzip",
+		"application/zip",
+		"application/x-tar",
+		"application/octet-stream",
+		"application/pdf",
+		"image/png",
+		"image/jpeg",
+		"audio/mpeg",
+		"video/mp4",
+		"font/woff2",
+		"  APPLICATION/X-GZIP  ",
+	}
+	for _, ct := range binary {
+		if !isBinaryContentType(ct) {
+			t.Errorf("expected %q to be binary", ct)
+		}
+	}
+	text := []string{
+		"application/json",
+		"application/json; charset=utf-8",
+		"text/plain",
+		"text/html",
+		"application/xml",
+		"",
+	}
+	for _, ct := range text {
+		if isBinaryContentType(ct) {
+			t.Errorf("expected %q NOT to be binary", ct)
+		}
+	}
+}
+
+// TestExecuteIntegrationTool_BinaryResponse spins up a tiny upstream
+// server returning a gzip tarball, runs it through executeIntegrationTool,
+// and asserts the response lands in the {_binary, base64, mimeType, size}
+// envelope shape (matching integrations/src/http-executor.ts).
+//
+// Before path A, this test would fail: respBody got coerced to string
+// and the bytes lost on JSON-encoding round-trips. The Code app's
+// GitHub import flow depends on this envelope.
+func TestExecuteIntegrationTool_BinaryResponse(t *testing.T) {
+	payload := []byte{0x1f, 0x8b, 0x08, 0x00, 0xde, 0xad, 0xbe, 0xef, 'a', 'b', 'c'}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-gzip")
+		w.WriteHeader(200)
+		w.Write(payload)
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "fake-gh",
+		BaseURL: srv.URL,
+		Auth:    AppAuthConfig{Types: []string{"oauth2"}},
+	}
+	tool := &AppToolDef{
+		Name:   "get_archive",
+		Method: "GET",
+		Path:   "/x",
+	}
+	res, err := executeIntegrationTool(app, tool, map[string]string{"access_token": "tok"}, map[string]any{})
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if !res.Success || res.Status != 200 {
+		t.Fatalf("status=%d success=%v", res.Status, res.Success)
+	}
+	env, ok := res.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("Data not a map: %T = %v", res.Data, res.Data)
+	}
+	if env["_binary"] != true {
+		t.Errorf("_binary=%v, want true", env["_binary"])
+	}
+	if env["mimeType"] != "application/x-gzip" {
+		t.Errorf("mimeType=%v, want application/x-gzip", env["mimeType"])
+	}
+	if got := env["size"]; got != len(payload) {
+		t.Errorf("size=%v, want %d", got, len(payload))
+	}
+	b64, _ := env["base64"].(string)
+	if b64 == "" {
+		t.Fatal("base64 empty")
+	}
+	dec, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		t.Fatalf("decode b64: %v", err)
+	}
+	if !bytes.Equal(dec, payload) {
+		t.Fatalf("decoded bytes mismatch: %x vs %x", dec, payload)
 	}
 }
