@@ -229,13 +229,24 @@ func (sup *LocalSupervisor) Stop(installID int64) error {
 	if p == nil || p.cmd == nil || p.cmd.Process == nil {
 		return nil
 	}
-	_ = p.cmd.Process.Signal(syscall.SIGTERM)
+	// Signal the whole process group, not just the leader. Sidecars
+	// spawn with Setpgid=true so each runs in its own group; signalling
+	// only `p.cmd.Process.Pid` reaches the sidecar but leaves any
+	// helpers it spawned (chromedp Chrome, ffmpeg subprocesses, exec
+	// children of MCP tool calls, …) running as orphans. Negative pid
+	// is the kill(2) syntax for "deliver to every process in this group".
+	pid := p.cmd.Process.Pid
+	pgid, err := syscall.Getpgid(pid)
+	if err != nil {
+		pgid = pid // fallback: leader-only kill if the group lookup fails
+	}
+	_ = syscall.Kill(-pgid, syscall.SIGTERM)
 	done := make(chan error, 1)
 	go func() { done <- p.cmd.Wait() }()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		_ = p.cmd.Process.Kill()
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
 		<-done
 	}
 	if p.logfile != nil {
@@ -317,6 +328,25 @@ func (sup *LocalSupervisor) fetchBinary(name, version, url string) (string, erro
 }
 
 func (sup *LocalSupervisor) spawn(installID int64, appName, bin string, port int, env map[string]string) error {
+	// Re-entry: if there's a live process already tracked for this
+	// install_id, stop it cleanly before overwriting the procs map
+	// entry with the new cmd. The upgrade flow always re-enters this
+	// path (BuildFromSource → spawn with a fresh bin); without the
+	// pre-stop, the OLD sidecar keeps running on its OLD port — no
+	// longer tracked by the supervisor, no longer reverse-proxied,
+	// just a zombie that survives until the next server-boot orphan
+	// sweep. Stop() is a no-op when the process isn't alive, so the
+	// fresh-install case pays no real cost.
+	sup.mu.Lock()
+	prev := sup.procs[installID]
+	sup.mu.Unlock()
+	if prev != nil && prev.cmd != nil && prev.cmd.Process != nil &&
+		processAlive(prev.cmd.Process.Pid) {
+		log.Printf("[APPS-LOCAL] respawning install=%d — stopping previous pid=%d first",
+			installID, prev.cmd.Process.Pid)
+		_ = sup.Stop(installID) // SIGTERM-then-SIGKILL the whole process group
+	}
+
 	dir := filepath.Dir(bin)
 	dataDir := filepath.Join(dir, "data")
 	_ = os.MkdirAll(dataDir, 0755)
