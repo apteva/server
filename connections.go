@@ -697,9 +697,45 @@ func (s *Store) DeleteMCPServerByConnection(connID int64) {
 // --- HTTP Executor ---
 
 type ExecuteResult struct {
-	Success bool   `json:"success"`
-	Status  int    `json:"status"`
-	Data    any    `json:"data"`
+	Success bool              `json:"success"`
+	Status  int               `json:"status"`
+	Data    any               `json:"data"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+// forwardableHeaders is the allowlist of upstream response headers we
+// surface to apps via ExecuteResult.Headers. Kept deliberately small —
+// most apps only need this to pick up redirect-style metadata from
+// flows like YouTube's resumable-upload init (which returns the session
+// URL only via Location). Add headers here when a real use case shows
+// up; do not blanket-forward, since arbitrary headers can include
+// Set-Cookie, X-API-Key echoes, debug info, etc. that apps shouldn't
+// see.
+var forwardableHeaders = []string{
+	"Location",
+	"Content-Type",
+	"Etag",
+	"Last-Modified",
+	"Content-Length",
+}
+
+// pickForwardableHeaders extracts the allowlisted header values from a
+// response. Lower-cased keys (HTTP/2 normalises to lowercase, http.Header
+// canonicalises on access) — we use the canonical form on output.
+func pickForwardableHeaders(h http.Header) map[string]string {
+	if len(h) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(forwardableHeaders))
+	for _, name := range forwardableHeaders {
+		if v := h.Get(name); v != "" {
+			out[name] = v
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // onCredsRefresh is the optional callback executeIntegrationTool invokes
@@ -1083,6 +1119,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	if binary {
 		maxBytes = 200_000_000
 	}
+	hdrs := pickForwardableHeaders(resp.Header)
 	if cl := resp.ContentLength; cl > 0 && cl > maxBytes {
 		return &ExecuteResult{
 			Success: false,
@@ -1092,6 +1129,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 				"size":  cl,
 				"max":   maxBytes,
 			},
+			Headers: hdrs,
 		}, nil
 	}
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
@@ -1104,6 +1142,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 				"size":  len(respBody),
 				"max":   maxBytes,
 			},
+			Headers: hdrs,
 		}, nil
 	}
 
@@ -1151,6 +1190,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		Success: resp.StatusCode >= 200 && resp.StatusCode < 300,
 		Status:  resp.StatusCode,
 		Data:    data,
+		Headers: hdrs,
 	}, nil
 }
 

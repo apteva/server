@@ -798,6 +798,16 @@ func buildURL(baseURL, path string, input map[string]any) string {
 			resolved = strings.ReplaceAll(resolved, placeholder, fmt.Sprintf("%v", val))
 		}
 	}
+	// If the resolved path is itself absolute, treat it as the full URL
+	// and skip baseURL concatenation. Used by tools whose endpoint lives
+	// on a different host than the integration's primary base_url —
+	// YouTube's resumable-upload init at googleapis.com/upload/youtube/v3
+	// (vs the read API at googleapis.com/youtube/v3), Pinecone's per-
+	// index data plane at {index_host}, etc. Detected post-substitution
+	// so {{credential.host}}-style hostname injection still works.
+	if strings.HasPrefix(resolved, "http://") || strings.HasPrefix(resolved, "https://") {
+		return resolved
+	}
 	return baseURL + resolved
 }
 
