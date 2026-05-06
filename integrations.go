@@ -222,6 +222,14 @@ type OAuthConfig struct {
 	// Set per-integration in the catalog when an upstream diverges from
 	// the spec; leave empty for the 99% case.
 	ClientIDParamName string `json:"client_id_param_name,omitempty"`
+	// ScopeSeparator overrides the character used to join the scopes
+	// list in the authorize URL's `scope` query param. Defaults to a
+	// single space (the OAuth 2.0 standard, RFC 6749 §3.3). TikTok
+	// diverges and demands a comma; their docs are explicit ("A comma
+	// (,) separated string of authorization scope(s)"). Set this to
+	// "," in the catalog when an upstream rejects space-joined scopes
+	// with invalid_scope / error_type=scope.
+	ScopeSeparator string `json:"scope_separator,omitempty"`
 	// Extra static query parameters merged into the authorize URL after
 	// the standard ones (response_type, client_id, redirect_uri, scope,
 	// state, code_challenge). Required by some providers to actually

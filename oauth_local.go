@@ -394,12 +394,18 @@ func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, proje
 	if clientIDParam == "" {
 		clientIDParam = "client_id"
 	}
+	// Most providers accept space-joined scopes per RFC 6749 §3.3.
+	// TikTok wants commas; let the catalog override the separator.
+	scopeSep := cfg.ScopeSeparator
+	if scopeSep == "" {
+		scopeSep = " "
+	}
 	q := url.Values{}
 	q.Set("response_type", "code")
 	q.Set(clientIDParam, clientID)
 	q.Set("redirect_uri", s.localOAuthRedirectURI())
 	if len(cfg.Scopes) > 0 {
-		q.Set("scope", strings.Join(cfg.Scopes, " "))
+		q.Set("scope", strings.Join(cfg.Scopes, scopeSep))
 	}
 	q.Set("state", state)
 	if cfg.PKCE {
