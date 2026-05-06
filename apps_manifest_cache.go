@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -83,4 +84,70 @@ func (s *Server) fetchAndCacheManifest(url string) (*sdk.Manifest, error) {
 	manifestCache[url] = manifestCacheEntry{manifest: m, fetched: time.Now()}
 	manifestCacheMu.Unlock()
 	return m, nil
+}
+
+// CuratedRegistry is the parsed payload of registry.json — same
+// schema the dashboard renders in the marketplace tab. Cached
+// in-memory so refreshManifestFromUpstream's per-app lookup doesn't
+// re-fetch the registry once per call.
+type CuratedRegistry struct {
+	Schema string          `json:"schema"`
+	Apps   []RegistryEntry `json:"apps"`
+}
+
+type registryCacheEntry struct {
+	registry *CuratedRegistry
+	fetched  time.Time
+}
+
+var (
+	registryCacheMu sync.RWMutex
+	registryCache   registryCacheEntry
+	// Same 1-minute TTL as the manifest cache. Registry edits are
+	// rare and "update available" doesn't need to be sub-second.
+	registryCacheTTL = time.Minute
+)
+
+// fetchAndCacheRegistry returns the parsed curated registry, using
+// the configured registry URL (env override → defaultRegistryURL).
+// Cached for registryCacheTTL; failures aren't cached.
+func (s *Server) fetchAndCacheRegistry() (*CuratedRegistry, error) {
+	registryCacheMu.RLock()
+	if registryCache.registry != nil && time.Since(registryCache.fetched) < registryCacheTTL {
+		reg := registryCache.registry
+		registryCacheMu.RUnlock()
+		return reg, nil
+	}
+	registryCacheMu.RUnlock()
+
+	url := getRegistryURLFromEnv()
+	if url == "" {
+		url = defaultRegistryURL
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("%s returned http %d", url, resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+	if err != nil {
+		return nil, err
+	}
+	var reg CuratedRegistry
+	if err := json.Unmarshal(body, &reg); err != nil {
+		return nil, fmt.Errorf("parse registry %s: %w", url, err)
+	}
+	registryCacheMu.Lock()
+	registryCache = registryCacheEntry{registry: &reg, fetched: time.Now()}
+	registryCacheMu.Unlock()
+	return &reg, nil
 }

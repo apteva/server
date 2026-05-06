@@ -46,13 +46,19 @@ func newStaticAppMounts() *staticAppMounts {
 // (i.e. an app installed at the server root) is intentionally rejected
 // because it'd shadow the dashboard and the entire /api/* surface —
 // the install API rejects that case before persisting.
+//
+// Also matches when reqPath equals the prefix without its trailing
+// slash (e.g. reqPath="/demo", prefix="/demo/") so the caller's
+// redirect-to-trailing-slash branch can fire. Without this match,
+// /demo would fall through to the dashboard SPA instead of redirecting
+// to /demo/.
 func (m *staticAppMounts) match(reqPath string) (string, http.Handler) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var bestPrefix string
 	var bestHandler http.Handler
 	for prefix, h := range m.routes {
-		if !strings.HasPrefix(reqPath, prefix) {
+		if !strings.HasPrefix(reqPath, prefix) && reqPath != strings.TrimRight(prefix, "/") {
 			continue
 		}
 		if len(prefix) > len(bestPrefix) {
