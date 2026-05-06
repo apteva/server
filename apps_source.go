@@ -122,7 +122,14 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 	}
 	progress("Waiting for health check…")
 	if err := sup.waitHealthy(installID, port, healthPath, 60*time.Second); err != nil {
+		// NEW failed health → kill it and (if there was a prior
+		// version parked by spawn's blue-green capture) restore
+		// OLD to the procs map. After rollback, sup.PID(installID)
+		// reports OLD's pid, which installFromSource checks to
+		// decide whether the install stays 'running' on its
+		// previous version or flips to 'error' (fresh installs).
 		_ = sup.Stop(installID)
+		sup.rollbackToOld(installID)
 		return 0, "", err
 	}
 	return port, binPath, nil
@@ -358,9 +365,24 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 
 	port, binPath, err := s.localApps.BuildFromSource(installID, m, env, progress)
 	if err != nil {
-		s.store.db.Exec(
-			`UPDATE app_installs SET status='error', status_message='', error_message=? WHERE id=?`,
-			err.Error(), installID)
+		// Blue-green failure handling. If BuildFromSource rolled
+		// back to a previous version (PID > 0 means OLD is back in
+		// procs), the install is still serving on its old binary
+		// + old port — surface the upgrade failure as an
+		// error_message but keep status='running' so the registry
+		// doesn't evict the entry on the next LoadInstalledApps()
+		// and agent MCP traffic keeps flowing through the proxy.
+		// Fresh-install failures (no OLD to roll back to) flip the
+		// row to 'error' as before.
+		if s.localApps.PID(installID) > 0 {
+			s.store.db.Exec(
+				`UPDATE app_installs SET status_message='upgrade failed; previous version still running', error_message=? WHERE id=?`,
+				err.Error(), installID)
+		} else {
+			s.store.db.Exec(
+				`UPDATE app_installs SET status='error', status_message='', error_message=? WHERE id=?`,
+				err.Error(), installID)
+		}
 		return err
 	}
 	pid := s.localApps.PID(installID)
@@ -382,5 +404,10 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 	if err := s.registerAppMCP(installID); err != nil {
 		log.Printf("[APPS] register MCP install=%d: %v", installID, err)
 	}
+	// Blue-green handoff complete: DB now points at NEW's port, the
+	// in-memory registry is refreshed, and the mcp_servers row is
+	// up to date. Anything still parked from the previous version
+	// can be terminated. No-op on fresh installs (nothing pending).
+	s.localApps.RetireOld(installID, 5*time.Second)
 	return nil
 }

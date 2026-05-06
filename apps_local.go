@@ -40,6 +40,33 @@ import (
 	sdk "github.com/apteva/app-sdk"
 )
 
+// terminateProc kills a captured proc handle without touching any
+// supervisor map. Used by both Stop() (after deleting from procs) and
+// RetireOld() (after deleting from pending). Group-signal — see Stop()
+// for the rationale on -pgid vs single-pid.
+func terminateProc(p *localProc, grace time.Duration) {
+	if p == nil || p.cmd == nil || p.cmd.Process == nil {
+		return
+	}
+	pid := p.cmd.Process.Pid
+	pgid, err := syscall.Getpgid(pid)
+	if err != nil {
+		pgid = pid
+	}
+	_ = syscall.Kill(-pgid, syscall.SIGTERM)
+	done := make(chan error, 1)
+	go func() { done <- p.cmd.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(grace):
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		<-done
+	}
+	if p.logfile != nil {
+		_ = p.logfile.Close()
+	}
+}
+
 // LocalSupervisor tracks running app subprocesses keyed by install id.
 // One instance per Server, created in startup before LoadInstalledApps.
 //
@@ -72,6 +99,13 @@ type LocalSupervisor struct {
 	inflight  map[int64]struct{}
 
 	installSem chan struct{}
+
+	// pending — old proc handles captured during a blue-green spawn,
+	// awaiting RetireOld() from the caller after it has updated the
+	// DB + refreshed the in-memory registry. Old keeps serving until
+	// retire fires; this is what gives us zero-downtime upgrades.
+	pendingMu sync.Mutex
+	pending   map[int64]*localProc
 }
 
 type localProc struct {
@@ -93,6 +127,7 @@ func NewLocalSupervisor(cacheDir string) *LocalSupervisor {
 		buildMu:    map[string]*sync.Mutex{},
 		inflight:   map[int64]struct{}{},
 		installSem: make(chan struct{}, n),
+		pending:    map[int64]*localProc{},
 	}
 }
 
@@ -194,7 +229,14 @@ func (sup *LocalSupervisor) Install(installID int64, m *sdk.Manifest, env map[st
 		healthPath = "/health"
 	}
 	if err := sup.waitHealthy(installID, port, healthPath, 30*time.Second); err != nil {
+		// NEW failed health → kill it and (if there was a prior
+		// version parked by spawn's blue-green capture) restore OLD
+		// to the procs map. After rollback, sup.PID(installID)
+		// reports OLD's pid, which the caller checks to decide
+		// whether to leave the install row 'running' on its
+		// previous version or flip it to 'error' (fresh installs).
 		_ = sup.Stop(installID)
+		sup.rollbackToOld(installID)
 		return 0, "", err
 	}
 	return port, binPath, nil
@@ -226,33 +268,47 @@ func (sup *LocalSupervisor) Stop(installID int64) error {
 	p := sup.procs[installID]
 	delete(sup.procs, installID)
 	sup.mu.Unlock()
-	if p == nil || p.cmd == nil || p.cmd.Process == nil {
-		return nil
-	}
-	// Signal the whole process group, not just the leader. Sidecars
-	// spawn with Setpgid=true so each runs in its own group; signalling
-	// only `p.cmd.Process.Pid` reaches the sidecar but leaves any
-	// helpers it spawned (chromedp Chrome, ffmpeg subprocesses, exec
-	// children of MCP tool calls, …) running as orphans. Negative pid
-	// is the kill(2) syntax for "deliver to every process in this group".
-	pid := p.cmd.Process.Pid
-	pgid, err := syscall.Getpgid(pid)
-	if err != nil {
-		pgid = pid // fallback: leader-only kill if the group lookup fails
-	}
-	_ = syscall.Kill(-pgid, syscall.SIGTERM)
-	done := make(chan error, 1)
-	go func() { done <- p.cmd.Wait() }()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
-		<-done
-	}
-	if p.logfile != nil {
-		_ = p.logfile.Close()
-	}
+	terminateProc(p, 5*time.Second)
 	return nil
+}
+
+// RetireOld terminates the previous-version sidecar that spawn()
+// captured during a blue-green upgrade. Caller invokes this AFTER
+// updating the DB + refreshing the in-memory registry, so by the
+// time old dies no traffic is going to it. Safe no-op when there's
+// no pending retire (every fresh-install path).
+func (sup *LocalSupervisor) RetireOld(installID int64, grace time.Duration) {
+	sup.pendingMu.Lock()
+	p := sup.pending[installID]
+	delete(sup.pending, installID)
+	sup.pendingMu.Unlock()
+	if p != nil {
+		log.Printf("[APPS-LOCAL] retiring old sidecar install=%d pid=%d (blue-green handoff complete)",
+			installID, p.cmd.Process.Pid)
+	}
+	terminateProc(p, grace)
+}
+
+// rollbackToOld is the failure-path counterpart to a successful
+// blue-green spawn: when waitHealthy on the new sidecar fails, the
+// caller has already Stop()'d the new (it was in procs[installID]).
+// We then move the captured old back into procs so it remains the
+// supervisor's tracked process for this install — old is still
+// alive (we never killed it) and the DB still points at its port,
+// so traffic keeps flowing as if the upgrade had never been attempted.
+func (sup *LocalSupervisor) rollbackToOld(installID int64) {
+	sup.pendingMu.Lock()
+	p := sup.pending[installID]
+	delete(sup.pending, installID)
+	sup.pendingMu.Unlock()
+	if p == nil {
+		return
+	}
+	sup.mu.Lock()
+	sup.procs[installID] = p
+	sup.mu.Unlock()
+	log.Printf("[APPS-LOCAL] rolled back to previous sidecar install=%d pid=%d (new failed health)",
+		installID, p.cmd.Process.Pid)
 }
 
 // PID returns the OS pid of the running child for this install, or 0.
@@ -328,25 +384,12 @@ func (sup *LocalSupervisor) fetchBinary(name, version, url string) (string, erro
 }
 
 func (sup *LocalSupervisor) spawn(installID int64, appName, bin string, port int, env map[string]string) error {
-	// Re-entry: if there's a live process already tracked for this
-	// install_id, stop it cleanly before overwriting the procs map
-	// entry with the new cmd. The upgrade flow always re-enters this
-	// path (BuildFromSource → spawn with a fresh bin); without the
-	// pre-stop, the OLD sidecar keeps running on its OLD port — no
-	// longer tracked by the supervisor, no longer reverse-proxied,
-	// just a zombie that survives until the next server-boot orphan
-	// sweep. Stop() is a no-op when the process isn't alive, so the
-	// fresh-install case pays no real cost.
-	sup.mu.Lock()
-	prev := sup.procs[installID]
-	sup.mu.Unlock()
-	if prev != nil && prev.cmd != nil && prev.cmd.Process != nil &&
-		processAlive(prev.cmd.Process.Pid) {
-		log.Printf("[APPS-LOCAL] respawning install=%d — stopping previous pid=%d first",
-			installID, prev.cmd.Process.Pid)
-		_ = sup.Stop(installID) // SIGTERM-then-SIGKILL the whole process group
-	}
-
+	// Blue-green: if there's a live process already tracked for this
+	// install_id (always true on the upgrade path — BuildFromSource
+	// re-enters spawn with a fresh bin), DON'T stop it here. We
+	// capture it into `pending` AFTER cmd.Start() succeeds (below),
+	// so a Start failure doesn't pollute pending and we don't lose
+	// OLD on a doomed exec.
 	dir := filepath.Dir(bin)
 	dataDir := filepath.Join(dir, "data")
 	_ = os.MkdirAll(dataDir, 0755)
@@ -402,9 +445,34 @@ func (sup *LocalSupervisor) spawn(installID int64, appName, bin string, port int
 		return fmt.Errorf("spawn %s: %w", appName, err)
 	}
 	log.Printf("[APPS-LOCAL] spawned %s install=%d pid=%d port=%d", appName, installID, cmd.Process.Pid, port)
+	// Atomic swap: install NEW into procs, capture the prior occupant
+	// (if any, alive) for blue-green retirement. Doing this under one
+	// lock means a concurrent Stop / lookup never sees an empty slot
+	// during the upgrade. Anything we displace is the caller's OLD —
+	// the caller will fire RetireOld(installID) after the DB +
+	// in-memory registry have been swung over to NEW, or
+	// rollbackToOld(installID) if NEW fails health.
 	sup.mu.Lock()
+	prev := sup.procs[installID]
 	sup.procs[installID] = &localProc{cmd: cmd, port: port, logfile: logf}
 	sup.mu.Unlock()
+	if prev != nil && prev.cmd != nil && prev.cmd.Process != nil &&
+		processAlive(prev.cmd.Process.Pid) {
+		sup.pendingMu.Lock()
+		// If there's already a pending retire (an earlier upgrade
+		// whose RetireOld never fired — e.g. installFromSource
+		// crashed mid-flight), terminate it now. We can't carry
+		// two pending olds; the older-old has been superseded by
+		// the just-displaced prev anyway.
+		if older := sup.pending[installID]; older != nil {
+			delete(sup.pending, installID)
+			go terminateProc(older, 5*time.Second)
+		}
+		sup.pending[installID] = prev
+		sup.pendingMu.Unlock()
+		log.Printf("[APPS-LOCAL] blue-green: parked previous pid=%d for install=%d (will retire after handoff)",
+			prev.cmd.Process.Pid, installID)
+	}
 	// Reaper goroutine — log when the child exits unexpectedly.
 	go func() {
 		err := cmd.Wait()
@@ -551,9 +619,20 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 
 	port, binPath, err := s.localApps.Install(installID, m, env)
 	if err != nil {
-		s.store.db.Exec(
-			`UPDATE app_installs SET status='error', error_message=? WHERE id=?`,
-			err.Error(), installID)
+		// Same blue-green failure shape as installFromSource: if
+		// the supervisor rolled back to a previous version, keep
+		// status='running' so the install keeps serving on OLD
+		// and agents' MCP URLs (via the loopback proxy) still
+		// resolve. Only fresh-install failures flip to 'error'.
+		if s.localApps.PID(installID) > 0 {
+			s.store.db.Exec(
+				`UPDATE app_installs SET status_message='upgrade failed; previous version still running', error_message=? WHERE id=?`,
+				err.Error(), installID)
+		} else {
+			s.store.db.Exec(
+				`UPDATE app_installs SET status='error', error_message=? WHERE id=?`,
+				err.Error(), installID)
+		}
 		return err
 	}
 	pid := s.localApps.PID(installID)
@@ -572,6 +651,10 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 	if err := s.registerAppMCP(installID); err != nil {
 		log.Printf("[APPS] register MCP install=%d: %v", installID, err)
 	}
+	// Blue-green handoff complete: DB + registry + mcp_servers all
+	// point at NEW. Terminate whatever spawn parked. No-op on fresh
+	// installs.
+	s.localApps.RetireOld(installID, 5*time.Second)
 	return nil
 }
 

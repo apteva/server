@@ -115,8 +115,19 @@ func (s *Server) installDepsRecursive(
 }
 
 // isAppInstalled reports whether an app with the given name is
-// already installed (an app_installs row exists for this project or
-// globally) OR is a built-in framework app.
+// already installed in a scope that satisfies the caller, OR is a
+// built-in framework app.
+//
+// Scope rules:
+//   - projectID == "" (a GLOBAL parent resolving its dep): any
+//     existing install of the dep satisfies — sidecar proxies are
+//     keyed on app name (apps_mcp.go: /api/apps/<name>/mcp), so we
+//     never need two sidecars of the same app just because the
+//     parents have different scopes. Without this, installing a
+//     global app whose deps already exist project-scoped spawns a
+//     second sidecar per dep.
+//   - projectID != "" (a PROJECT parent): only a global install or
+//     a same-project install of the dep counts.
 func (s *Server) isAppInstalled(name, projectID string) bool {
 	target := normalizeAppName(name)
 	if s.apps != nil {
@@ -127,9 +138,14 @@ func (s *Server) isAppInstalled(name, projectID string) bool {
 			}
 		}
 	}
-	rows, err := s.store.db.Query(
-		`SELECT a.name FROM apps a JOIN app_installs i ON i.app_id = a.id
-		 WHERE i.project_id = '' OR i.project_id = ?`, projectID)
+	query := `SELECT a.name FROM apps a JOIN app_installs i ON i.app_id = a.id
+			  WHERE i.project_id = '' OR i.project_id = ?`
+	args := []any{projectID}
+	if projectID == "" {
+		query = `SELECT a.name FROM apps a JOIN app_installs i ON i.app_id = a.id`
+		args = nil
+	}
+	rows, err := s.store.db.Query(query, args...)
 	if err != nil {
 		return false
 	}
