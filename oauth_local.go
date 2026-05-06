@@ -386,9 +386,17 @@ func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, proje
 		return nil, "", err
 	}
 
+	// Most providers use the OAuth 2.0 standard parameter name "client_id".
+	// TikTok is the notable outlier — it demands "client_key" and rejects
+	// "client_id" with errCode=10003. Catalog entries can override per-
+	// integration via auth.oauth2.client_id_param_name.
+	clientIDParam := cfg.ClientIDParamName
+	if clientIDParam == "" {
+		clientIDParam = "client_id"
+	}
 	q := url.Values{}
 	q.Set("response_type", "code")
-	q.Set("client_id", clientID)
+	q.Set(clientIDParam, clientID)
 	q.Set("redirect_uri", s.localOAuthRedirectURI())
 	if len(cfg.Scopes) > 0 {
 		q.Set("scope", strings.Join(cfg.Scopes, " "))
@@ -590,11 +598,17 @@ func (s *Server) exchangeOAuthCode(app *AppTemplate, code, pkceVerifier string, 
 	cfg := app.Auth.OAuth2
 	clientID, clientSecret := s.resolveOAuthClient(userID, "", app.Slug, explicitClientID, explicitClientSecret)
 
+	// Same client-id-param override as the authorize step — TikTok wants
+	// "client_key" for the token exchange too, not just the authorize URL.
+	clientIDParam := cfg.ClientIDParamName
+	if clientIDParam == "" {
+		clientIDParam = "client_id"
+	}
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
 	form.Set("code", code)
 	form.Set("redirect_uri", s.localOAuthRedirectURI())
-	form.Set("client_id", clientID)
+	form.Set(clientIDParam, clientID)
 	if clientSecret != "" {
 		form.Set("client_secret", clientSecret)
 	}

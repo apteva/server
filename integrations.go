@@ -214,6 +214,14 @@ type OAuthConfig struct {
 	Scopes           []string `json:"scopes"`
 	ClientIDRequired bool     `json:"client_id_required"`
 	PKCE             bool     `json:"pkce"`
+	// ClientIDParamName overrides the parameter name carrying the client
+	// id on both the authorize-URL build and the token-exchange POST
+	// body. Defaults to "client_id" (the OAuth 2.0 standard). TikTok is
+	// the notable outlier here — it demands "client_key" instead, and
+	// rejects the standard name with errCode=10003 / error_type=client_key.
+	// Set per-integration in the catalog when an upstream diverges from
+	// the spec; leave empty for the 99% case.
+	ClientIDParamName string `json:"client_id_param_name,omitempty"`
 	// Extra static query parameters merged into the authorize URL after
 	// the standard ones (response_type, client_id, redirect_uri, scope,
 	// state, code_challenge). Required by some providers to actually

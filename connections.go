@@ -847,10 +847,16 @@ func refreshOAuthAccessToken(app *AppTemplate, credentials map[string]string) er
 		return fmt.Errorf("no client_id available for refresh")
 	}
 
+	// Same client-id-param override as the rest of the OAuth flow — see
+	// OAuthConfig.ClientIDParamName. TikTok needs "client_key" here too.
+	clientIDParam := cfg.ClientIDParamName
+	if clientIDParam == "" {
+		clientIDParam = "client_id"
+	}
 	form := neturl.Values{}
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", rt)
-	form.Set("client_id", clientID)
+	form.Set(clientIDParam, clientID)
 	if clientSecret != "" {
 		form.Set("client_secret", clientSecret)
 	}
