@@ -105,6 +105,13 @@ type Server struct {
 	// catch-all handler that delegates to the dashboard SPA when no
 	// static prefix matches.
 	staticMounts *staticAppMounts
+	// routeCache is the in-memory hostname → target map driven by the
+	// `routes` app. Hit on the request hot path through
+	// maybeRouteByHost; misses fall through to path-based routing.
+	// Hydrated from the routes app at boot, refreshed via SSE on
+	// routes.changed events. See routes_cache.go.
+	routeCache  *RouteCache
+	primaryHost string // APTEVA_PRIMARY_HOST — never matched by route cache (dashboard wins).
 }
 
 // appsRegistry is a thin alias over framework.Registry so main.go
@@ -297,6 +304,7 @@ func main() {
 		// server_settings and only mint a fresh one on first boot.
 		instanceSecret: loadOrMintInstanceSecret(store),
 		platformStatus: newPlatformStatusPoller(dataDir),
+		primaryHost:    strings.TrimSpace(os.Getenv("APTEVA_PRIMARY_HOST")),
 	}
 
 	// Start console telemetry logger
@@ -573,6 +581,10 @@ func main() {
 			s.handleConnectionTools(w, r)
 		} else if strings.HasSuffix(path, "/execute") {
 			s.handleExecuteTool(w, r)
+		} else if strings.HasSuffix(path, "/credentials") {
+			// GET /api/connections/:id/credentials — owner-only reveal.
+			// Decrypts the stored blob; logged for audit.
+			s.handleGetConnectionCredentials(w, r)
 		} else if strings.HasSuffix(path, "/mcp") {
 			// POST /api/connections/:id/mcp — create a scoped MCP server
 			// from an existing connection. Body: { name, allowed_tools }.
@@ -877,6 +889,13 @@ func main() {
 		// /instances/:id/channels — list connected channels (read-only, used by instance view)
 		if strings.HasSuffix(path, "/channels") && !strings.Contains(path, "/channels/") {
 			s.handleListChannels(w, r)
+			return
+		}
+
+		// /instances/:id/skills        — list assigned skills + drift status
+		// /instances/:id/skills/:skill — POST assign / DELETE unassign
+		if strings.HasSuffix(path, "/skills") || strings.Contains(path, "/skills/") {
+			s.handleInstanceSkills(w, r)
 			return
 		}
 

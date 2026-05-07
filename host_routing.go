@@ -9,163 +9,99 @@ import (
 	"log"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
 	"strings"
-	"sync/atomic"
 	"time"
 )
 
 // HostRouter wraps the server's main mux with a Host-header dispatch.
-// On a Host match, the request is reverse-proxied to the loopback
-// port the deploy app reports for that release. On a miss the request
-// falls through to the wrapped handler unchanged — existing path-based
-// routing (/api, /apps/<name>/) keeps working.
+// On a Host match, the request is reverse-proxied to the registered
+// target. On a miss the request falls through to the wrapped handler
+// unchanged — existing path-based routing (/api, /apps/<name>/) keeps
+// working.
 //
-// Routes are pulled from the deploy app's deploy_list_routes tool on
-// a 5-second tick. The pull is best-effort: a transient deploy outage
-// just means the table goes stale, not that the server stops serving.
-
-type routeEntry struct {
-	Slug   string
-	Port   int
-	Domain string
-	Status string
-}
+// Routes come from the RouteCache (routes_cache.go), which hydrates
+// from the `routes` app at boot and refreshes via SSE on
+// routes.changed events. Any app that wants a public hostname calls
+// routes_register on the routes app — deploy via attach_domain, code
+// via repos_dev_start with expose=true, manual entries from the
+// Routes panel.
+//
+// Pre-routes-app installs used a polling refresh against
+// deploy_list_routes; that data path was removed when the routes
+// app shipped (the deploy integration migrated to routes_register).
+// HostRouter now keeps its existing public surface (NewHostRouter,
+// Start, Stop) for compatibility with main.go's wiring, but the
+// refresh loop is gone — the cache pushes updates instead of HostRouter
+// pulling them.
 
 type HostRouter struct {
 	server *Server
 	next   http.Handler
-
-	current atomic.Pointer[map[string]routeEntry] // domain → entry
-
 	stopCh chan struct{}
 }
 
 func NewHostRouter(s *Server, next http.Handler) *HostRouter {
-	hr := &HostRouter{server: s, next: next, stopCh: make(chan struct{})}
-	empty := map[string]routeEntry{}
-	hr.current.Store(&empty)
-	return hr
+	return &HostRouter{server: s, next: next, stopCh: make(chan struct{})}
 }
 
-func (hr *HostRouter) Start(refresh time.Duration) {
-	go hr.refreshLoop(refresh)
+// Start kicks off the route cache's hydration + event subscription.
+// Refresh interval is unused now (the cache is event-driven) but kept
+// in the signature to avoid touching every caller in main.go.
+func (hr *HostRouter) Start(_ time.Duration) {
+	if hr.server != nil {
+		hr.server.startRouteCache()
+	}
 }
 
 func (hr *HostRouter) Stop() { close(hr.stopCh) }
 
-func (hr *HostRouter) refreshLoop(every time.Duration) {
-	t := time.NewTicker(every)
-	defer t.Stop()
-	hr.refreshOnce()
-	for {
-		select {
-		case <-hr.stopCh:
-			return
-		case <-t.C:
-			hr.refreshOnce()
-		}
-	}
-}
-
-func (hr *HostRouter) refreshOnce() {
-	if hr.server == nil || hr.server.installedApps == nil {
-		return
-	}
-	if hr.server.installedApps.GetByName("deploy") == nil {
-		// Deploy isn't installed — keep the table empty.
-		empty := map[string]routeEntry{}
-		hr.current.Store(&empty)
-		return
-	}
-	raw, err := callInstalledAppTool(hr.server, "deploy", "deploy_list_routes", map[string]any{})
-	if err != nil {
-		log.Printf("[host-router] refresh failed: %v", err)
-		return
-	}
-	var payload struct {
-		Result struct {
-			Content []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"result"`
-		Error *struct{ Message string } `json:"error"`
-	}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		log.Printf("[host-router] decode envelope: %v", err)
-		return
-	}
-	if payload.Error != nil {
-		log.Printf("[host-router] deploy_list_routes: %s", payload.Error.Message)
-		return
-	}
-	if len(payload.Result.Content) == 0 {
-		return
-	}
-	var inner struct {
-		Routes []struct {
-			Slug   string `json:"slug"`
-			Port   int    `json:"port"`
-			Domain string `json:"domain"`
-			Status string `json:"status"`
-		} `json:"routes"`
-	}
-	if err := json.Unmarshal([]byte(payload.Result.Content[0].Text), &inner); err != nil {
-		log.Printf("[host-router] decode routes: %v", err)
-		return
-	}
-	tab := make(map[string]routeEntry, len(inner.Routes))
-	for _, r := range inner.Routes {
-		if r.Domain == "" || r.Port == 0 || r.Status != "live" {
-			continue
-		}
-		tab[strings.ToLower(r.Domain)] = routeEntry{
-			Slug: r.Slug, Port: r.Port, Domain: r.Domain, Status: r.Status,
-		}
-	}
-	hr.current.Store(&tab)
-}
-
-func (hr *HostRouter) lookup(host string) (routeEntry, bool) {
+func (hr *HostRouter) lookup(host string) (RouteHit, bool) {
 	host = strings.ToLower(host)
-	// Strip port if any (e.g. "app.acme.com:8080").
 	if i := strings.IndexByte(host, ':'); i >= 0 {
 		host = host[:i]
 	}
-	tab := hr.current.Load()
-	if tab == nil {
-		return routeEntry{}, false
+	if hr.server == nil || hr.server.routeCache == nil {
+		return RouteHit{}, false
 	}
-	e, ok := (*tab)[host]
-	return e, ok
+	return hr.server.routeCache.LookupForRouter(host)
 }
 
 func (hr *HostRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	entry, ok := hr.lookup(r.Host)
+	host := r.Host
+	if hr.server != nil && hr.server.primaryHost != "" {
+		stripped := host
+		if i := strings.IndexByte(stripped, ':'); i >= 0 {
+			stripped = stripped[:i]
+		}
+		if strings.EqualFold(stripped, hr.server.primaryHost) {
+			hr.next.ServeHTTP(w, r)
+			return
+		}
+	}
+	hit, ok := hr.lookup(host)
 	if !ok {
 		hr.next.ServeHTTP(w, r)
 		return
 	}
-	target, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", entry.Port))
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	// Keep the original Host so the upstream app sees the public name.
+	if !hit.AllowHTTP && r.TLS == nil && r.Header.Get("X-Forwarded-Proto") != "https" {
+		http.Redirect(w, r, "https://"+r.Host+r.RequestURI, http.StatusMovedPermanently)
+		return
+	}
+	proxy := httputil.NewSingleHostReverseProxy(hit.Target)
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
 		req.Host = r.Host
 		req.Header.Set("X-Forwarded-Host", r.Host)
-		if r.TLS != nil {
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 			req.Header.Set("X-Forwarded-Proto", "https")
 		} else {
 			req.Header.Set("X-Forwarded-Proto", "http")
 		}
 	}
 	proxy.ErrorHandler = func(rw http.ResponseWriter, _ *http.Request, err error) {
-		// Most likely cause: the supervised process died between the
-		// last route refresh and this request. Map to 502 so the
-		// browser can retry.
-		http.Error(rw, "deployment unreachable: "+err.Error(), http.StatusBadGateway)
+		log.Printf("[host-router] proxy %s → %s: %v", hit.Hostname, hit.Target, err)
+		http.Error(rw, "backend unreachable: "+err.Error(), http.StatusBadGateway)
 	}
 	proxy.ServeHTTP(w, r)
 }
