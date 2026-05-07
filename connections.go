@@ -995,57 +995,99 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	// Build body for POST/PUT/PATCH
 	var bodyReader io.Reader
 	if tool.Method != "GET" && tool.Method != "DELETE" {
-		// Merge default credential fields into body
-		bodyMap := make(map[string]any)
-		for _, f := range app.Auth.CredentialFields {
-			if val, ok := credentials[f.Name]; ok {
-				// Map credential fields to common input names
-				if f.Name == "user_key" {
-					bodyMap["user"] = val
+		// Raw-body path: tool declared a single input field that
+		// carries the request body verbatim (S3 PutObject, R2
+		// PutObject, etc.). Skip the JSON map assembly entirely.
+		//
+		// Wire-format note: Go's encoding/json marshals []byte as a
+		// base64 string and there's no way to distinguish a
+		// "literal base64-shaped string" from "encoded binary" once
+		// it's deserialized into map[string]any. We try base64-decode
+		// first; if that fails (text body with spaces / non-base64
+		// characters), we send the raw string. App-side: pass []byte
+		// for binary, strings for text — this keeps the round-trip
+		// lossless for both.
+		if tool.BodyInput != "" {
+			if v, ok := input[tool.BodyInput]; ok && v != nil {
+				var bodyBytes []byte
+				switch raw := v.(type) {
+				case []byte:
+					bodyBytes = raw
+				case string:
+					if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil {
+						bodyBytes = decoded
+					} else {
+						bodyBytes = []byte(raw)
+					}
+				default:
+					bodyBytes = []byte(fmt.Sprintf("%v", raw))
+				}
+				bodyReader = strings.NewReader(string(bodyBytes))
+			}
+			// If the template didn't set a Content-Type, default to
+			// octet-stream — anything calling raw-body path is
+			// almost always sending binary.
+			if _, set := headers["Content-Type"]; !set {
+				headers["Content-Type"] = "application/octet-stream"
+			}
+		} else {
+			// Merge default credential fields into body
+			bodyMap := make(map[string]any)
+			for _, f := range app.Auth.CredentialFields {
+				if val, ok := credentials[f.Name]; ok {
+					// Map credential fields to common input names
+					if f.Name == "user_key" {
+						bodyMap["user"] = val
+					}
 				}
 			}
-		}
-		// Merge user input (overrides defaults, skip empty values)
-		for k, v := range input {
-			// Skip path params
-			if strings.Contains(tool.Path, "{"+k+"}") {
-				continue
+			// Merge user input (overrides defaults, skip empty values)
+			for k, v := range input {
+				// Skip path params
+				if strings.Contains(tool.Path, "{"+k+"}") {
+					continue
+				}
+				// Skip tool-declared query params — they were peeled out
+				// above and added to the URL.
+				if toolQuerySet[k] {
+					continue
+				}
+				// Don't override credential defaults with empty values
+				if str, ok := v.(string); ok && str == "" {
+					continue
+				}
+				bodyMap[k] = v
 			}
-			// Skip tool-declared query params — they were peeled out
-			// above and added to the URL.
-			if toolQuerySet[k] {
-				continue
-			}
-			// Don't override credential defaults with empty values
-			if str, ok := v.(string); ok && str == "" {
-				continue
-			}
-			bodyMap[k] = v
-		}
-		if len(bodyMap) > 0 {
-			// Default JSON body. If the integration declared
-			// application/x-www-form-urlencoded in auth.headers,
-			// marshal the body as form fields instead — Twilio,
-			// Stripe, and a handful of others want this.
-			ct := headers["Content-Type"]
-			if strings.Contains(strings.ToLower(ct), "x-www-form-urlencoded") {
-				bodyReader = strings.NewReader(formEncode(bodyMap))
-			} else {
-				data, _ := json.Marshal(bodyMap)
-				bodyReader = strings.NewReader(string(data))
-				headers["Content-Type"] = "application/json"
+			if len(bodyMap) > 0 {
+				// Default JSON body. If the integration declared
+				// application/x-www-form-urlencoded in auth.headers,
+				// marshal the body as form fields instead — Twilio,
+				// Stripe, and a handful of others want this.
+				ct := headers["Content-Type"]
+				if strings.Contains(strings.ToLower(ct), "x-www-form-urlencoded") {
+					bodyReader = strings.NewReader(formEncode(bodyMap))
+				} else {
+					data, _ := json.Marshal(bodyMap)
+					bodyReader = strings.NewReader(string(data))
+					headers["Content-Type"] = "application/json"
+				}
 			}
 		}
 	} else {
 		// GET/DELETE: add remaining params as query string. Skip
-		// path params and tool-declared query params (already added
-		// above) to avoid emitting them twice.
+		// path params, tool-declared query params (already added
+		// above), and body_input (which has nowhere to go on
+		// GET/DELETE — caller is misconfigured but don't leak it
+		// into the URL).
 		var qparts []string
 		for k, v := range input {
 			if strings.Contains(tool.Path, "{"+k+"}") {
 				continue
 			}
 			if toolQuerySet[k] {
+				continue
+			}
+			if k == tool.BodyInput {
 				continue
 			}
 			qparts = append(qparts, fmt.Sprintf("%s=%v", k, v))

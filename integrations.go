@@ -285,6 +285,25 @@ type AppToolDef struct {
 	// Capped at 600s server-side to keep a single tool call from holding
 	// a connection open indefinitely. Zero / unset → 30s default.
 	TimeoutMS int `json:"timeout_ms,omitempty"`
+
+	// BodyInput names a single input field whose value carries the raw
+	// request body. Required for endpoints that take binary content
+	// (S3 PutObject, Cloudinary upload, R2 PutObject, etc.) — without
+	// this the runner JSON-marshals every input into a single body map
+	// and the upstream rejects the request.
+	//
+	// When set, the named field's value is sent as the request body
+	// verbatim (string → bytes; []byte passed through; numbers/bool
+	// stringified). Other inputs follow the normal rules: path-template
+	// substitution for path fields, query string for tool-declared
+	// query_params, request headers via header_input (future). Any
+	// remaining inputs are silently dropped — they have nowhere to go
+	// once the body slot is taken by binary content.
+	//
+	// The integration JSON should also declare a Content-Type header
+	// (often application/octet-stream) since the runner's "default
+	// json" content-type assumption is bypassed.
+	BodyInput string `json:"body_input,omitempty"`
 }
 
 // AppSummary is a lightweight version for catalog listing
