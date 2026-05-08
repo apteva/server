@@ -241,6 +241,19 @@ func (s *Store) migrate() error {
 	s.db.Exec("ALTER TABLE instances ADD COLUMN mode TEXT DEFAULT 'autonomous'")
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN external_webhook_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN events TEXT DEFAULT ''")
+	// Source discriminator for the subscription. Default 'webhook'
+	// preserves existing rows: token-keyed external delivery via
+	// /webhooks/<token>. New value 'app_event' attaches the row to the
+	// in-process AppEventBus instead, where slug carries
+	// '<app_name>:<topic_pattern>' (e.g. 'tables:row.*'). Bridge
+	// dispatcher fans bus events into the same core /event delivery
+	// path webhooks already use.
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN source TEXT NOT NULL DEFAULT 'webhook'")
+	// Highest bus seq we successfully delivered to the agent. On
+	// apteva-server restart the dispatcher subscribes with
+	// since=last_seq_delivered so events emitted while we were down
+	// (within the bus's 256-event ring) replay automatically.
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN last_seq_delivered INTEGER NOT NULL DEFAULT 0")
 
 	// Provider webhook_token: per-provider-per-project opaque token used
 	// as the path component of /webhooks/<token>. The unified ingress

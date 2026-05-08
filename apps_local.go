@@ -761,91 +761,234 @@ func (s *Server) ResumeLocalInstalls() {
 	if err != nil {
 		return
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var id, pid, port int64
-		var binPath, projectID, cfgEnc, installedVersion, manifestJSON string
-		if err := rows.Scan(&id, &pid, &binPath, &port, &projectID, &cfgEnc, &installedVersion, &manifestJSON); err != nil {
-			continue
-		}
-		// If the recorded pid is still alive, it's an orphan from a
-		// previous apteva-server (we just started — nothing we spawned
-		// has had time to exist yet). The orphan still holds its port
-		// + log file and would race with our respawn for the cached
-		// `bin`, so kill it cleanly before proceeding. SIGTERM first,
-		// SIGKILL after a short grace.
-		//
-		// Pre-fix behaviour: this branch did `continue` ("already
-		// alive, nothing to do"), which left the orphan running and
-		// our supervisor never knowing about it — server thought the
-		// install was healthy, but the actual process was unsupervised
-		// and would survive every server restart untouched.
-		if pid > 0 && processAlive(int(pid)) {
-			log.Printf("[APPS-LOCAL] orphan install=%d pid=%d from previous server — killing before respawn", id, pid)
-			killOrphan(int(pid))
-		}
-		var m sdk.Manifest
-		if err := json.Unmarshal([]byte(manifestJSON), &m); err != nil {
-			continue
-		}
-		var cfg map[string]string
-		if cfgEnc != "" {
-			if plain, err := Decrypt(s.secret, cfgEnc); err == nil {
-				_ = json.Unmarshal([]byte(plain), &cfg)
-			}
-		}
-		cfgJSON, _ := json.Marshal(cfg)
-		env := map[string]string{
-			"APTEVA_GATEWAY_URL": s.localGatewayURL(),
-			"APTEVA_PUBLIC_URL":  s.publicBaseURL(),
-			"APTEVA_APP_TOKEN":   "dev-" + strconv.FormatInt(id, 10),
-			"APTEVA_INSTALL_ID":  strconv.FormatInt(id, 10),
-			"APTEVA_PROJECT_ID":  projectID,
-			"APTEVA_APP_CONFIG":  string(cfgJSON),
-		}
-		// Re-derive APTEVA_UI_DIR + APTEVA_MIGRATIONS_DIR from the
-		// cached clone so the resumed sidecar can serve /ui/*Panel.mjs
-		// and re-run any pending migrations. Without these, dashboard
-		// requests for /api/apps/<name>/ui/<Panel>.mjs come back 404
-		// after every server restart and the operator has to fully
-		// reinstall — see installFromSource for the install-time
-		// counterpart that sets the same env.
-		//
-		// Use the INSTALLED version, not m.Version. The two diverge
-		// once upstream publishes a newer release: the marketplace
-		// poller refreshes a.manifest_json (so m.Version becomes
-		// upstream's latest), but the cached binary + source still
-		// live under the installed version. m.Version-driven paths
-		// would point at a not-yet-cached version dir.
-		cacheVersion := installedVersion
-		if cacheVersion == "" {
-			cacheVersion = m.Version
-		}
-		if m.Runtime.Source != nil && m.Runtime.Source.Repo != "" {
-			srcDir := filepath.Join(s.localApps.cacheDir, m.Name, cacheVersion, "src")
-			entryDir := srcDir
-			if e := strings.TrimSpace(m.Runtime.Source.Entry); e != "" && e != "." {
-				entryDir = filepath.Join(srcDir, e)
-			}
-			env["APTEVA_UI_DIR"] = filepath.Join(entryDir, "ui")
-			if m.DB != nil && m.DB.Migrations != "" {
-				migrations := m.DB.Migrations
-				if !filepath.IsAbs(migrations) {
-					migrations = filepath.Join(entryDir, migrations)
-				}
-				env["APTEVA_MIGRATIONS_DIR"] = migrations
-			}
-		}
-		log.Printf("[APPS-LOCAL] resuming install=%d (pid=%d was dead) ui=%s",
-			id, pid, env["APTEVA_UI_DIR"])
-		if err := s.localApps.Restart(id, &m, int(port), binPath, env); err != nil {
-			log.Printf("[APPS-LOCAL] resume failed install=%d: %v", id, err)
-			s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, err.Error(), id)
-			continue
-		}
-		newPID := s.localApps.PID(id)
-		s.store.db.Exec(`UPDATE app_installs SET local_pid=? WHERE id=?`, newPID, id)
+	type resumeRow struct {
+		id, pid, port                                              int64
+		binPath, projectID, cfgEnc, installedVersion, manifestJSON string
 	}
+	var todo []resumeRow
+	for rows.Next() {
+		var r resumeRow
+		if err := rows.Scan(&r.id, &r.pid, &r.binPath, &r.port,
+			&r.projectID, &r.cfgEnc, &r.installedVersion, &r.manifestJSON); err == nil {
+			todo = append(todo, r)
+		}
+	}
+	rows.Close()
+	if len(todo) == 0 {
+		return
+	}
+
+	// Resume in parallel. Each install is independent (different
+	// port, different binary, different cache dir) — sequential resume
+	// adds up to ~300ms × N where the dominant cost is killOrphan's
+	// SIGTERM-grace + waitHealthy on /health. With N=20+ that's a
+	// painful 6-10s of stop-the-world boot. Parallelizing drops it to
+	// the slowest single sidecar's wall time.
+	//
+	// Concurrency cap protects hosts with hundreds of installs from
+	// flooding the process table all at once. Reuses
+	// APTEVA_INSTALL_CONCURRENCY but raised to a less stingy default
+	// (8) since resume doesn't run `go build` (no 1+ GB RSS spikes
+	// per worker — that's why install is capped at 2).
+	parallel := envResumeConcurrency()
+	if parallel > len(todo) {
+		parallel = len(todo)
+	}
+	sem := make(chan struct{}, parallel)
+	var wg sync.WaitGroup
+	for _, r := range todo {
+		r := r
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			s.resumeOneLocalInstall(r.id, r.pid, r.port, r.binPath, r.projectID, r.cfgEnc, r.installedVersion, r.manifestJSON)
+		}()
+	}
+	wg.Wait()
+}
+
+// resumeOneLocalInstall is the per-install body of ResumeLocalInstalls,
+// extracted so the parallel fanout can call it from a worker goroutine.
+// Logging keeps the install id in every line so interleaved output
+// stays attributable.
+func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, projectID, cfgEnc, installedVersion, manifestJSON string) {
+	// If the recorded pid is still alive, it's an orphan from a
+	// previous apteva-server (we just started — nothing we spawned
+	// has had time to exist yet). The orphan still holds its port
+	// + log file and would race with our respawn for the cached
+	// `bin`, so kill it cleanly before proceeding. SIGTERM first,
+	// SIGKILL after a short grace.
+	if pid > 0 && processAlive(int(pid)) {
+		log.Printf("[APPS-LOCAL] orphan install=%d pid=%d from previous server — killing before respawn", id, pid)
+		killOrphan(int(pid))
+	}
+	var m sdk.Manifest
+	if err := json.Unmarshal([]byte(manifestJSON), &m); err != nil {
+		return
+	}
+	var cfg map[string]string
+	if cfgEnc != "" {
+		if plain, err := Decrypt(s.secret, cfgEnc); err == nil {
+			_ = json.Unmarshal([]byte(plain), &cfg)
+		}
+	}
+	cfgJSON, _ := json.Marshal(cfg)
+	env := map[string]string{
+		"APTEVA_GATEWAY_URL": s.localGatewayURL(),
+		"APTEVA_PUBLIC_URL":  s.publicBaseURL(),
+		"APTEVA_APP_TOKEN":   "dev-" + strconv.FormatInt(id, 10),
+		"APTEVA_INSTALL_ID":  strconv.FormatInt(id, 10),
+		"APTEVA_PROJECT_ID":  projectID,
+		"APTEVA_APP_CONFIG":  string(cfgJSON),
+	}
+	// Re-derive APTEVA_UI_DIR + APTEVA_MIGRATIONS_DIR from the
+	// cached clone so the resumed sidecar can serve /ui/*Panel.mjs
+	// and re-run any pending migrations. Without these, dashboard
+	// requests for /api/apps/<name>/ui/<Panel>.mjs come back 404
+	// after every server restart and the operator has to fully
+	// reinstall — see installFromSource for the install-time
+	// counterpart that sets the same env.
+	//
+	// Use the INSTALLED version, not m.Version. The two diverge
+	// once upstream publishes a newer release: the marketplace
+	// poller refreshes a.manifest_json (so m.Version becomes
+	// upstream's latest), but the cached binary + source still
+	// live under the installed version. m.Version-driven paths
+	// would point at a not-yet-cached version dir.
+	cacheVersion := installedVersion
+	if cacheVersion == "" {
+		cacheVersion = m.Version
+	}
+	if m.Runtime.Source != nil && m.Runtime.Source.Repo != "" {
+		srcDir := filepath.Join(s.localApps.cacheDir, m.Name, cacheVersion, "src")
+		entryDir := srcDir
+		if e := strings.TrimSpace(m.Runtime.Source.Entry); e != "" && e != "." {
+			entryDir = filepath.Join(srcDir, e)
+		}
+		env["APTEVA_UI_DIR"] = filepath.Join(entryDir, "ui")
+		if m.DB != nil && m.DB.Migrations != "" {
+			migrations := m.DB.Migrations
+			if !filepath.IsAbs(migrations) {
+				migrations = filepath.Join(entryDir, migrations)
+			}
+			env["APTEVA_MIGRATIONS_DIR"] = migrations
+		}
+	}
+	log.Printf("[APPS-LOCAL] resuming install=%d (pid=%d was dead) ui=%s",
+		id, pid, env["APTEVA_UI_DIR"])
+	if err := s.localApps.Restart(id, &m, int(port), binPath, env); err != nil {
+		log.Printf("[APPS-LOCAL] resume failed install=%d: %v", id, err)
+		s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, err.Error(), id)
+		return
+	}
+	newPID := s.localApps.PID(id)
+	s.store.db.Exec(`UPDATE app_installs SET local_pid=? WHERE id=?`, newPID, id)
+}
+
+// envResumeConcurrency returns APTEVA_RESUME_CONCURRENCY parsed as
+// an int, clamped to [1, 64]. Default 8. Resume is cheap per worker
+// (no `go build`) so the cap is mostly defensive against pathological
+// hosts with hundreds of installs spawning all at once.
+func envResumeConcurrency() int {
+	const dflt = 8
+	v := os.Getenv("APTEVA_RESUME_CONCURRENCY")
+	if v == "" {
+		return dflt
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return dflt
+	}
+	if n > 64 {
+		n = 64
+	}
+	return n
+}
+
+// RespawnLocalInstall stops the running sidecar (if any) for the
+// given install_id and re-spawns it with fresh env (re-decrypted
+// config, current bindings, current public_url). Used after the
+// operator changes integration_bindings or config — the sidecar's
+// OnMount picks up the new state on next boot but doesn't re-read
+// it on its own, so we have to bounce the process.
+//
+// Returns nil on success, non-nil if the install isn't found, the
+// cached binary is missing, or the new process fails its health
+// check. Updates app_installs.local_pid + status on success/failure.
+func (s *Server) RespawnLocalInstall(installID int64) error {
+	row := s.store.db.QueryRow(
+		`SELECT i.local_pid, i.local_bin_path, i.local_port,
+			COALESCE(i.project_id,''), i.config_encrypted, i.version, a.manifest_json
+		 FROM app_installs i JOIN apps a ON a.id = i.app_id
+		 WHERE i.id = ?`, installID,
+	)
+	var pid, port int64
+	var binPath, projectID, cfgEnc, installedVersion, manifestJSON string
+	if err := row.Scan(&pid, &binPath, &port, &projectID, &cfgEnc, &installedVersion, &manifestJSON); err != nil {
+		return fmt.Errorf("install %d not found: %w", installID, err)
+	}
+	if binPath == "" {
+		return fmt.Errorf("install %d has no cached binary — re-install needed", installID)
+	}
+	var m sdk.Manifest
+	if err := json.Unmarshal([]byte(manifestJSON), &m); err != nil {
+		return fmt.Errorf("install %d: parse manifest: %w", installID, err)
+	}
+
+	// Stop the currently-tracked process. Stop is a no-op when the
+	// supervisor doesn't have a tracked pid, so we also kill the DB-
+	// recorded pid as an orphan if the supervisor lost track of it
+	// (server restart between spawn and respawn, etc).
+	_ = s.localApps.Stop(installID)
+	if pid > 0 && processAlive(int(pid)) {
+		killOrphan(int(pid))
+	}
+
+	var cfg map[string]string
+	if cfgEnc != "" {
+		if plain, err := Decrypt(s.secret, cfgEnc); err == nil {
+			_ = json.Unmarshal([]byte(plain), &cfg)
+		}
+	}
+	cfgJSON, _ := json.Marshal(cfg)
+	env := map[string]string{
+		"APTEVA_GATEWAY_URL": s.localGatewayURL(),
+		"APTEVA_PUBLIC_URL":  s.publicBaseURL(),
+		"APTEVA_APP_TOKEN":   "dev-" + strconv.FormatInt(installID, 10),
+		"APTEVA_INSTALL_ID":  strconv.FormatInt(installID, 10),
+		"APTEVA_PROJECT_ID":  projectID,
+		"APTEVA_APP_CONFIG":  string(cfgJSON),
+	}
+	cacheVersion := installedVersion
+	if cacheVersion == "" {
+		cacheVersion = m.Version
+	}
+	if m.Runtime.Source != nil && m.Runtime.Source.Repo != "" {
+		srcDir := filepath.Join(s.localApps.cacheDir, m.Name, cacheVersion, "src")
+		entryDir := srcDir
+		if e := strings.TrimSpace(m.Runtime.Source.Entry); e != "" && e != "." {
+			entryDir = filepath.Join(srcDir, e)
+		}
+		env["APTEVA_UI_DIR"] = filepath.Join(entryDir, "ui")
+		if m.DB != nil && m.DB.Migrations != "" {
+			migrations := m.DB.Migrations
+			if !filepath.IsAbs(migrations) {
+				migrations = filepath.Join(entryDir, migrations)
+			}
+			env["APTEVA_MIGRATIONS_DIR"] = migrations
+		}
+	}
+
+	log.Printf("[APPS-LOCAL] respawning install=%d after bindings/config change", installID)
+	if err := s.localApps.Restart(installID, &m, int(port), binPath, env); err != nil {
+		s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, err.Error(), installID)
+		return err
+	}
+	newPID := s.localApps.PID(installID)
+	s.store.db.Exec(`UPDATE app_installs SET local_pid=?, error_message='' WHERE id=?`, newPID, installID)
+	return nil
 }
 
 // processAlive — best-effort: kill -0 returns nil if the pid exists and

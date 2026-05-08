@@ -196,7 +196,17 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				err := s.store.db.QueryRow(
 					`SELECT installed_by, status FROM app_installs WHERE id = ?`, id,
 				).Scan(&installedBy, &status)
-				if err == nil && status == "running" {
+				// Accept "running" plus any pre-running state. The
+				// supervisor only flips status to "running" AFTER
+				// the health check passes, but the sidecar's OnMount
+				// (which has to run before it can be healthy) calls
+				// back into the platform for WhoAmI, integration
+				// bindings, and connection credentials. Gating this
+				// on status="running" would 401 every callback during
+				// boot — exactly when those callbacks are most
+				// needed. "disabled" / "error" are still rejected so
+				// a stopped install can't impersonate itself.
+				if err == nil && status != "disabled" && status != "error" {
 					if installedBy == 0 {
 						installedBy = 1 // global / built-in installs default to admin
 					}

@@ -94,12 +94,25 @@ func (s *Server) handleCallbackWhoami(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "install not found", http.StatusNotFound)
 		return
 	}
+	// Fetch project metadata so apps can use the operator-set name +
+	// description as context (e.g. media's describer prepends them
+	// to the LLM system prompt). Cheap — single indexed row read,
+	// silent fall-through if the project was deleted out from under
+	// the install.
+	var projectName, projectDescription string
+	if projectID != "" {
+		_ = s.store.db.QueryRow(
+			`SELECT COALESCE(name,''), COALESCE(description,'') FROM projects WHERE id=?`, projectID,
+		).Scan(&projectName, &projectDescription)
+	}
 	writeJSON(w, map[string]any{
-		"install_id": installID,
-		"app_name":   appName,
-		"project_id": projectID,
-		"version":    version,
-		"bindings":   bindingsForInstall(s, installID),
+		"install_id":          installID,
+		"app_name":            appName,
+		"project_id":          projectID,
+		"project_name":        projectName,
+		"project_description": projectDescription,
+		"version":             version,
+		"bindings":            bindingsForInstall(s, installID),
 		// Live-fresh: read on every whoami call so a setting change
 		// in Settings → Server propagates to apps within the SDK's
 		// sub-second WhoAmI cache. The env-var-only path requires a

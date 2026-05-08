@@ -53,6 +53,9 @@ func newStaticAppMounts() *staticAppMounts {
 // /demo would fall through to the dashboard SPA instead of redirecting
 // to /demo/.
 func (m *staticAppMounts) match(reqPath string) (string, http.Handler) {
+	if m == nil {
+		return "", nil
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var bestPrefix string

@@ -29,7 +29,52 @@ type Subscription struct {
 	ProjectID         string    `json:"project_id,omitempty"`
 	Events            []string  `json:"events"`
 	ExternalWebhookID string    `json:"external_webhook_id,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
+	// Source: 'webhook' (default — ingress via /webhooks/<token>) or
+	// 'app_event' (ingress via the in-process AppEventBus, slug
+	// carries '<app>:<topic_pattern>').
+	Source           string    `json:"source,omitempty"`
+	LastSeqDelivered uint64    `json:"last_seq_delivered,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+// ListAllAppEventSubscriptions returns every source='app_event' row
+// in the database, regardless of user. Used by AppEventDispatcher's
+// reconcile pass at boot + on subscription CRUD. Read-only,
+// short-lived — no need to scope by user since the dispatcher routes
+// by lane key, not by ownership.
+func (s *Store) ListAllAppEventSubscriptions() ([]*Subscription, error) {
+	rows, err := s.db.Query(
+		`SELECT id, user_id, instance_id, connection_id, name, slug, description,
+			webhook_path, enabled, COALESCE(thread_id,''), COALESCE(events,''),
+			COALESCE(project_id,''), COALESCE(source,'webhook'),
+			COALESCE(last_seq_delivered,0)
+		 FROM subscriptions
+		 WHERE source = 'app_event'`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Subscription
+	for rows.Next() {
+		sub := &Subscription{}
+		var enabled int
+		var eventsJSON string
+		if err := rows.Scan(
+			&sub.ID, &sub.UserID, &sub.InstanceID, &sub.ConnectionID,
+			&sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath,
+			&enabled, &sub.ThreadID, &eventsJSON, &sub.ProjectID,
+			&sub.Source, &sub.LastSeqDelivered,
+		); err != nil {
+			return nil, err
+		}
+		sub.Enabled = enabled != 0
+		if eventsJSON != "" {
+			_ = json.Unmarshal([]byte(eventsJSON), &sub.Events)
+		}
+		out = append(out, sub)
+	}
+	return out, nil
 }
 
 // ListSubscriptionsByConnection returns every subscription bound to a
@@ -73,7 +118,32 @@ func (s *Store) CreateSubscription(userID, instanceID, connectionID int64, name,
 	if err != nil {
 		return nil, err
 	}
-	return &Subscription{ID: id, UserID: userID, InstanceID: instanceID, ConnectionID: connectionID, Name: name, Slug: slug, Description: description, WebhookPath: webhookPath, Enabled: true, ThreadID: threadID, ProjectID: projectID, Events: events, CreatedAt: time.Now()}, nil
+	return &Subscription{ID: id, UserID: userID, InstanceID: instanceID, ConnectionID: connectionID, Name: name, Slug: slug, Description: description, WebhookPath: webhookPath, Enabled: true, ThreadID: threadID, ProjectID: projectID, Events: events, Source: "webhook", CreatedAt: time.Now()}, nil
+}
+
+// CreateAppEventSubscription is the source='app_event' counterpart
+// of CreateSubscription. No webhook_path / encrypted_secret /
+// connection_id — the bridge dispatcher routes events from the
+// in-process bus straight into the agent. The slug carries the
+// '<app>:<topic_pattern>' the dispatcher matches on.
+func (s *Store) CreateAppEventSubscription(userID, instanceID int64, name, slug, description, threadID, projectID string) (*Subscription, error) {
+	id := generateID()
+	_, err := s.db.Exec(
+		`INSERT INTO subscriptions
+			(id, user_id, instance_id, connection_id, name, slug, description,
+			 webhook_path, encrypted_hmac_secret, thread_id, project_id, events, source)
+		 VALUES (?, ?, 0, ?, ?, ?, '', '', ?, ?, '', 'app_event')`,
+		id, userID, instanceID, name, slug, description, threadID, projectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &Subscription{
+		ID: id, UserID: userID, InstanceID: instanceID,
+		Name: name, Slug: slug, Description: description,
+		Enabled: true, ThreadID: threadID, ProjectID: projectID,
+		Source: "app_event", CreatedAt: time.Now(),
+	}, nil
 }
 
 func (s *Store) ListSubscriptions(userID int64, projectID ...string) ([]Subscription, error) {
@@ -638,6 +708,10 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 		Events       []string       `json:"events"`
 		ThreadID     string         `json:"thread_id"`
 		ProjectID    string         `json:"project_id"`
+		// Source: 'webhook' (default) or 'app_event'. The two paths
+		// share this handler so the dashboard's create form can
+		// switch between them without learning two URLs.
+		Source string `json:"source"`
 		// Composio-source only: which Composio trigger template to
 		// instantiate and its per-trigger config (e.g. spreadsheet_id,
 		// range, channel_id). Ignored for local-source subscriptions.
@@ -650,6 +724,35 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 	}
 	if body.Name == "" {
 		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+
+	// app_event subscriptions: no webhook path, no HMAC, no upstream
+	// registration. The slug carries '<app>:<topic_pattern>' which
+	// the bridge dispatcher matches on. Reconcile fires after insert
+	// so the new lane (or existing lane's row set) is wired without
+	// waiting for a server restart.
+	if body.Source == "app_event" {
+		if body.Slug == "" || !strings.Contains(body.Slug, ":") {
+			http.Error(w, "slug must be '<app>:<topic_pattern>' for app_event subscriptions", http.StatusBadRequest)
+			return
+		}
+		sub, err := s.store.CreateAppEventSubscription(
+			userID, body.InstanceID, body.Name, body.Slug, body.Description,
+			body.ThreadID, body.ProjectID,
+		)
+		if err != nil {
+			http.Error(w, "failed to create: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		log.Printf("[SUB-CREATE] sub=%s source=app_event slug=%q instance=%d project=%q",
+			sub.ID, body.Slug, body.InstanceID, body.ProjectID)
+		if s.appEventDispatcher != nil {
+			if err := s.appEventDispatcher.Reconcile(); err != nil {
+				log.Printf("[SUB-CREATE] dispatcher reconcile after create: %v", err)
+			}
+		}
+		writeJSON(w, sub)
 		return
 	}
 
@@ -1001,6 +1104,14 @@ func (s *Server) handleDeleteSubscription(w http.ResponseWriter, r *http.Request
 	}
 
 	s.store.DeleteSubscription(userID, id)
+	// Reconcile the bus dispatcher: if the deleted row was the last
+	// subscriber of its (app, project) lane, the lane goroutine
+	// shuts down. No-op when the row was a webhook subscription.
+	if s.appEventDispatcher != nil {
+		if err := s.appEventDispatcher.Reconcile(); err != nil {
+			log.Printf("[SUB-DELETE] dispatcher reconcile after delete: %v", err)
+		}
+	}
 	writeJSON(w, map[string]string{"status": "deleted"})
 }
 
@@ -1073,6 +1184,15 @@ func (s *Server) handleToggleSubscription(w http.ResponseWriter, r *http.Request
 	}
 
 	s.store.SetSubscriptionEnabled(userID, id, enable)
+	// Reconcile the bridge dispatcher so flipping enabled/disabled on
+	// an app_event row immediately stops/starts delivery (or fully
+	// shuts down the lane when this was the last enabled row in it).
+	// No-op for webhook rows.
+	if s.appEventDispatcher != nil {
+		if err := s.appEventDispatcher.Reconcile(); err != nil {
+			log.Printf("[SUB-TOGGLE] dispatcher reconcile: %v", err)
+		}
+	}
 
 	// Mirror the enable/disable on Composio's side so polling and
 	// webhook delivery actually pause when the user disables the row.

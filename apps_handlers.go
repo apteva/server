@@ -543,6 +543,34 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Backfill Surfaces.RequiredApps[].Installed from the live install
+	// set so the install-detail panel shows the correct ✓/✗ badge.
+	// surfacesFromManifest only fills name/version/reason/optional —
+	// the "is this dep installed?" lookup needs the full visible
+	// install set, which we have right here. Without this, every
+	// requires.apps entry rendered as "missing" even when the dep
+	// was clearly installed in the same project.
+	installedNames := map[string]bool{}
+	for _, r := range out {
+		installedNames[normalizeAppName(r.Name)] = true
+	}
+	if s.apps != nil {
+		for _, a := range s.apps.Loaded() {
+			m := a.Manifest()
+			for _, k := range []string{m.Slug, m.Name} {
+				if k != "" {
+					installedNames[normalizeAppName(k)] = true
+				}
+			}
+		}
+	}
+	for i := range out {
+		for j := range out[i].Surfaces.RequiredApps {
+			depKey := normalizeAppName(out[i].Surfaces.RequiredApps[j].Name)
+			out[i].Surfaces.RequiredApps[j].Installed = installedNames[depKey]
+		}
+	}
+
 	// Append integration rows: every connection in this project whose
 	// integration declares ui_components surfaces here as a synthetic
 	// AppRow so the dashboard's chat-component lookup finds it via
@@ -1224,7 +1252,27 @@ func (s *Server) handleSetInstallBindings2(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.recomputePendingOptions()
-	writeJSON(w, map[string]any{"ok": true, "bindings": merged})
+
+	// Bounce the sidecar so OnMount re-runs with the new bindings.
+	// Without this, the binding change is recorded but the running
+	// process never re-reads it (storage's S3-vs-disk decision and
+	// every other bind-time resolution lives in OnMount). We still
+	// return 200 if the respawn fails — the binding write succeeded;
+	// the operator gets a status_message they can check.
+	respawnErr := s.RespawnLocalInstall(installID)
+	if respawnErr != nil {
+		log.Printf("[APPS] bindings updated but respawn failed install=%d: %v", installID, respawnErr)
+	}
+	respawnErrMsg := ""
+	if respawnErr != nil {
+		respawnErrMsg = respawnErr.Error()
+	}
+	writeJSON(w, map[string]any{
+		"ok":          true,
+		"bindings":    merged,
+		"respawned":   respawnErr == nil,
+		"respawn_err": respawnErrMsg,
+	})
 }
 
 // POST /api/apps/install/preflight
@@ -1282,37 +1330,77 @@ func (s *Server) handlePreflightApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid manifest: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	roles := s.buildPreflightRoles(manifest, body.ProjectID, userID)
+	writeJSON(w, map[string]any{
+		"manifest": manifest,
+		"roles":    roles,
+	})
+}
 
-	type integrationCandidate struct {
-		ConnectionID int64  `json:"connection_id"`
-		AppSlug      string `json:"app_slug"`
-		Name         string `json:"name"`
-		Status       string `json:"status"`
+// handlePreflightInstalled — GET /api/apps/installs/:id/preflight
+//
+// Returns the same role summary as POST /apps/install/preflight, but
+// derived from an installed app's stored manifest + project. Used by
+// the install detail panel's "Edit dependencies" section so the
+// operator can rebind roles without uninstalling.
+//
+// Also returns the install's current integration_bindings so the
+// dashboard can pre-select the existing choices.
+func (s *Server) handlePreflightInstalled(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
 	}
-	type appCandidate struct {
-		InstallID   int64  `json:"install_id"`
-		AppName     string `json:"app_name"`
-		DisplayName string `json:"display_name"`
+	rest := strings.TrimPrefix(r.URL.Path, "/apps/installs/")
+	parts := strings.SplitN(rest, "/", 2)
+	if len(parts) != 2 || parts[1] != "preflight" {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
 	}
-	type roleSummary struct {
-		Role               string                 `json:"role"`
-		Kind               string                 `json:"kind"`
-		Label              string                 `json:"label,omitempty"`
-		Required           bool                   `json:"required"`
-		Hint               string                 `json:"hint,omitempty"`
-		Capabilities       []string               `json:"capabilities,omitempty"`
-		Compatible         []string               `json:"compatible,omitempty"`
-		IntegrationCands   []integrationCandidate `json:"integration_candidates,omitempty"`
-		AppCands           []appCandidate         `json:"app_candidates,omitempty"`
-		CanCreateNew       bool                   `json:"can_create_new"`
+	installID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
 	}
-	roles := make([]roleSummary, 0, len(manifest.Requires.Integrations)+len(manifest.Requires.Apps))
+	userID := getUserID(r)
+	var (
+		projectID, manifestJSON string
+	)
+	if err := s.store.db.QueryRow(
+		`SELECT COALESCE(i.project_id,''), a.manifest_json
+		 FROM app_installs i JOIN apps a ON a.id = i.app_id
+		 WHERE i.id = ?`, installID,
+	).Scan(&projectID, &manifestJSON); err != nil {
+		http.Error(w, "install not found", http.StatusNotFound)
+		return
+	}
+	var manifest sdk.Manifest
+	if err := json.Unmarshal([]byte(manifestJSON), &manifest); err != nil {
+		http.Error(w, "manifest parse: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	roles := s.buildPreflightRoles(&manifest, projectID, userID)
+	writeJSON(w, map[string]any{
+		"manifest":         manifest,
+		"roles":            roles,
+		"current_bindings": bindingsForInstall(s, installID),
+	})
+}
+
+// buildPreflightRoles is the role-resolution core shared by the
+// marketplace preflight (POST /apps/install/preflight) and the
+// installed preflight (GET /apps/installs/:id/preflight). For each
+// requires.integrations entry it lists compatible connections in
+// the project; for each requires.apps entry it lists running app
+// installs that match. The dashboard renders one RolePicker per row.
+func (s *Server) buildPreflightRoles(manifest *sdk.Manifest, projectID string, userID int64) []preflightRole {
+	roles := make([]preflightRole, 0, len(manifest.Requires.Integrations)+len(manifest.Requires.Apps))
 	for _, dep := range manifest.Requires.Integrations {
 		kind := dep.Kind
 		if kind == "" {
 			kind = "integration"
 		}
-		row := roleSummary{
+		row := preflightRole{
 			Role:         dep.Role,
 			Kind:         kind,
 			Label:        dep.Label,
@@ -1323,35 +1411,32 @@ func (s *Server) handlePreflightApp(w http.ResponseWriter, r *http.Request) {
 		if kind == "integration" {
 			row.Compatible = dep.CompatibleSlugs
 			row.CanCreateNew = true
-			// Existing connections in this project whose app_slug ∈ compatible_slugs.
-			conns, _ := s.store.ListConnections(userID, body.ProjectID)
+			conns, _ := s.store.ListConnections(userID, projectID)
 			for _, c := range conns {
 				if !contains(dep.CompatibleSlugs, c.AppSlug) {
 					continue
 				}
-				row.IntegrationCands = append(row.IntegrationCands, integrationCandidate{
+				row.IntegrationCands = append(row.IntegrationCands, preflightIntegrationCandidate{
 					ConnectionID: c.ID, AppSlug: c.AppSlug, Name: c.Name, Status: c.Status,
 				})
 			}
 		} else if kind == "app" {
 			row.Compatible = dep.CompatibleAppNames
 			row.CanCreateNew = false
-			// Running app installs in this project (or global) whose
-			// app name is in compatible_app_names.
 			rs, err := s.store.db.Query(
 				`SELECT i.id, a.name, COALESCE(json_extract(a.manifest_json,'$.display_name'), a.name)
 				 FROM app_installs i JOIN apps a ON a.id=i.app_id
 				 WHERE i.status='running' AND (i.project_id = ? OR i.project_id = '')`,
-				body.ProjectID,
+				projectID,
 			)
 			if err == nil {
 				for rs.Next() {
 					var (
-						instID int64
+						instID             int64
 						aName, displayName string
 					)
 					if rs.Scan(&instID, &aName, &displayName) == nil && contains(dep.CompatibleAppNames, aName) {
-						row.AppCands = append(row.AppCands, appCandidate{
+						row.AppCands = append(row.AppCands, preflightAppCandidate{
 							InstallID: instID, AppName: aName, DisplayName: displayName,
 						})
 					}
@@ -1361,15 +1446,8 @@ func (s *Server) handlePreflightApp(w http.ResponseWriter, r *http.Request) {
 		}
 		roles = append(roles, row)
 	}
-	// requires.apps deps — modern shape. Surface them as kind=app
-	// rows so the dashboard's existing RolePicker (which already
-	// renders kind=app candidates from the legacy
-	// requires.integrations[kind=app] path) shows them too. The
-	// "role" field is reused as the dep name so the operator's
-	// submitted bindings JSON keys the install handler's allow-set
-	// directly.
 	for _, dep := range manifest.Requires.Apps {
-		row := roleSummary{
+		row := preflightRole{
 			Role:         dep.Name,
 			Kind:         "app",
 			Label:        dep.Name,
@@ -1382,7 +1460,7 @@ func (s *Server) handlePreflightApp(w http.ResponseWriter, r *http.Request) {
 			`SELECT i.id, a.name, COALESCE(json_extract(a.manifest_json,'$.display_name'), a.name)
 			 FROM app_installs i JOIN apps a ON a.id=i.app_id
 			 WHERE i.status='running' AND (i.project_id = ? OR i.project_id = '')`,
-			body.ProjectID,
+			projectID,
 		)
 		if err == nil {
 			for rs.Next() {
@@ -1391,7 +1469,7 @@ func (s *Server) handlePreflightApp(w http.ResponseWriter, r *http.Request) {
 					aName, displayName string
 				)
 				if rs.Scan(&instID, &aName, &displayName) == nil && normalizeAppName(aName) == normalizeAppName(dep.Name) {
-					row.AppCands = append(row.AppCands, appCandidate{
+					row.AppCands = append(row.AppCands, preflightAppCandidate{
 						InstallID: instID, AppName: aName, DisplayName: displayName,
 					})
 				}
@@ -1400,11 +1478,33 @@ func (s *Server) handlePreflightApp(w http.ResponseWriter, r *http.Request) {
 		}
 		roles = append(roles, row)
 	}
+	return roles
+}
 
-	writeJSON(w, map[string]any{
-		"manifest": manifest,
-		"roles":    roles,
-	})
+type preflightIntegrationCandidate struct {
+	ConnectionID int64  `json:"connection_id"`
+	AppSlug      string `json:"app_slug"`
+	Name         string `json:"name"`
+	Status       string `json:"status"`
+}
+
+type preflightAppCandidate struct {
+	InstallID   int64  `json:"install_id"`
+	AppName     string `json:"app_name"`
+	DisplayName string `json:"display_name"`
+}
+
+type preflightRole struct {
+	Role             string                          `json:"role"`
+	Kind             string                          `json:"kind"`
+	Label            string                          `json:"label,omitempty"`
+	Required         bool                            `json:"required"`
+	Hint             string                          `json:"hint,omitempty"`
+	Capabilities     []string                        `json:"capabilities,omitempty"`
+	Compatible       []string                        `json:"compatible,omitempty"`
+	IntegrationCands []preflightIntegrationCandidate `json:"integration_candidates,omitempty"`
+	AppCands         []preflightAppCandidate         `json:"app_candidates,omitempty"`
+	CanCreateNew     bool                            `json:"can_create_new"`
 }
 
 // POST /api/apps/installs/:id/upgrade — re-run the install at the

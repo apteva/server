@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -120,6 +121,13 @@ type Server struct {
 	// own N-fetch sweep — fine functionally (fetchAndCacheManifest
 	// is per-URL cached) but multiplicatively wasteful.
 	manifestRefreshInFlight atomic.Bool
+
+	// appEventDispatcher bridges AppEventBus → subscriptions of
+	// source='app_event'. One bus subscriber per (app, project)
+	// lane, fanning to all matching rows. Reconciled on subscription
+	// CRUD; gap-free across server restarts via per-row
+	// last_seq_delivered + bus since-cursor.
+	appEventDispatcher *AppEventDispatcher
 }
 
 // appsRegistry is a thin alias over framework.Registry so main.go
@@ -732,6 +740,8 @@ func main() {
 			s.handleUpgradeApp(w, r)
 		case strings.HasSuffix(path, "/bindings") && r.Method == http.MethodPut:
 			s.handleSetInstallBindings2(w, r)
+		case strings.HasSuffix(path, "/preflight") && r.Method == http.MethodGet:
+			s.handlePreflightInstalled(w, r)
 		case strings.HasSuffix(path, "/config") && r.Method == http.MethodGet:
 			s.handleGetInstallConfig(w, r)
 		case strings.HasSuffix(path, "/config") && r.Method == http.MethodPut:
@@ -1028,6 +1038,13 @@ func main() {
 	// installs surface in the dashboard's Apps tab.
 	s.installedApps = NewInstalledAppsRegistry()
 	s.appBus = NewAppEventBus()
+	// Bridge AppEventBus → subscriptions(source='app_event'). Started
+	// here so by the time the HTTP listener accepts requests every
+	// active app-event subscription is already wired to its lane and
+	// any events published during boot are picked up via the bus's
+	// since-cursor (replays from the ring up to last_seq_delivered).
+	s.appEventDispatcher = NewAppEventDispatcher(s)
+	s.appEventDispatcher.Start()
 	s.orchestratorURL = os.Getenv("ORCHESTRATOR_URL")
 	if s.orchestratorURL == "" {
 		s.orchestratorURL = "http://46.224.26.45:8099"
@@ -1040,6 +1057,50 @@ func main() {
 	}
 	s.localApps = NewLocalSupervisor(cacheBase)
 	s.RegisterBuiltinApps()
+
+	// Initialise the static-mount table NOW so the listener (started
+	// next) can serve requests safely before RemountStaticApps fills
+	// it in below. The handler dereferences s.staticMounts.match()
+	// unconditionally; a nil receiver panics — which is what
+	// happened on the first revision of this boot reorder.
+	if s.staticMounts == nil {
+		s.staticMounts = newStaticAppMounts()
+	}
+
+	// Bind the HTTP listener BEFORE spawning sidecars. Sidecars call
+	// back into the platform during their own OnMount (WhoAmI to
+	// resolve bindings, GetConnectionCredentials to read S3 keys,
+	// etc.). If the listener isn't bound yet, those callbacks get
+	// connection-refused; the SDK silently treats that as "no
+	// bindings" and the sidecar mounts on disk fallback even though
+	// the operator has wired up an integration. The
+	// storage-mounts-on-disk-after-server-restart bug came from
+	// this race.
+	hostRouter := NewHostRouter(s, mux)
+	hostRouter.Start(5 * time.Second)
+	bindAddr := strings.TrimSpace(os.Getenv("APTEVA_BIND"))
+	if bindAddr == "" {
+		bindAddr = "127.0.0.1"
+	}
+	listenAddr := bindAddr + ":" + port
+	listener, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "listen %s: %v\n", listenAddr, err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "apteva-server listening on %s\n", listenAddr)
+	go func() {
+		if err := http.Serve(listener, hostRouter); err != nil {
+			fmt.Fprintf(os.Stderr, "server error: %v\n", err)
+			os.Exit(1)
+		}
+	}()
+	if tlsAddr := strings.TrimSpace(os.Getenv("APTEVA_TLS_LISTEN_ADDR")); tlsAddr != "" {
+		certCache := NewCertCache(s)
+		certCache.Start(60 * time.Second)
+		startTLSListener(tlsAddr, hostRouter, certCache)
+	}
+
 	s.ResumeLocalInstalls()
 	s.LoadInstalledApps()
 	s.RemountStaticApps()
@@ -1075,41 +1136,9 @@ func main() {
 	fmt.Fprintf(os.Stderr, "apteva-server v%s (core=%s cli=%s dashboard=%s integrations=%s build=%s) running on :%s\n",
 		Version, CoreVersion, CLIVersion, DashboardVersion, IntegrationsVersion, BuildTime, port)
 
-	// Host-header dispatch: when a request's Host matches a domain
-	// the deploy app reports as live, reverse-proxy to that release's
-	// loopback port instead of falling through to the API mux. On a
-	// miss we serve the existing mux unchanged, so this is additive.
-	hostRouter := NewHostRouter(s, mux)
-	hostRouter.Start(5 * time.Second)
-
-	// Optional TLS listener. Off unless APTEVA_TLS_LISTEN_ADDR is set
-	// (e.g. ":5443"). When on, it shares the same handler stack as
-	// plain HTTP via the host router and serves SNI certs from the
-	// certs app.
-	if tlsAddr := strings.TrimSpace(os.Getenv("APTEVA_TLS_LISTEN_ADDR")); tlsAddr != "" {
-		certCache := NewCertCache(s)
-		certCache.Start(60 * time.Second)
-		startTLSListener(tlsAddr, hostRouter, certCache)
-	}
-
-	// Bind address. Default 127.0.0.1 (loopback only) — the server's
-	// HTTP API has internal-trust auth (session cookies, install
-	// tokens of the form dev-<install_id>) that's not safe against a
-	// network attacker. Operators who genuinely want LAN / public
-	// access opt in by setting APTEVA_BIND=0.0.0.0 (front it with a
-	// reverse proxy or Cloudflare Tunnel). Existing same-machine
-	// dashboard usage is unaffected — `localhost:5280` works either
-	// way.
-	bindAddr := strings.TrimSpace(os.Getenv("APTEVA_BIND"))
-	if bindAddr == "" {
-		bindAddr = "127.0.0.1"
-	}
-	listenAddr := bindAddr + ":" + port
-	fmt.Fprintf(os.Stderr, "apteva-server listening on %s\n", listenAddr)
-	if err := http.ListenAndServe(listenAddr, hostRouter); err != nil {
-		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
-		os.Exit(1)
-	}
+	// Listener was started earlier (before sidecar spawn) so apps can
+	// call back during their OnMount. Just block here until shutdown.
+	select {}
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
