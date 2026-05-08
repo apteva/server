@@ -60,10 +60,52 @@ func (r *InstalledAppsRegistry) Get(installID int64) *InstalledApp {
 	return r.entries[installID]
 }
 
+// GetByName returns *some* install with the given app name. Returns
+// the LAST-registered one when multiple exist (one per project).
+//
+// IMPORTANT: for apps that can be installed in more than one project
+// (storage, media, anything declaring scopes:[project,global] in its
+// manifest), prefer GetByNameAndProject — this method's last-wins
+// resolution silently misroutes requests across project boundaries.
+//
+// Safe for callers that target single-instance apps (routes, certs,
+// host-routing for static apps, the dashboard itself).
 func (r *InstalledAppsRegistry) GetByName(name string) *InstalledApp {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.byName[name]
+}
+
+// GetByNameAndProject returns the install of the given app name that
+// is reachable from a request scoped to projectID. Resolution order:
+//
+//  1. Exact match on (name, projectID).
+//  2. Global install for the name (project_id == "").
+//  3. nil.
+//
+// When projectID is "" only the global install is considered. This
+// matches the schema's UNIQUE(app_id, project_id) — exactly one
+// install per (app, project) combination, plus optionally one global.
+//
+// Used by handleAppProxy to dispatch /api/apps/<name>/...?project_id=...
+// requests to the correct install, instead of last-wins which leaks
+// requests across projects (the storage→media bug).
+func (r *InstalledAppsRegistry) GetByNameAndProject(name, projectID string) *InstalledApp {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var globalMatch *InstalledApp
+	for _, e := range r.entries {
+		if e.AppName != name {
+			continue
+		}
+		if e.ProjectID == projectID {
+			return e
+		}
+		if e.ProjectID == "" {
+			globalMatch = e
+		}
+	}
+	return globalMatch
 }
 
 func (r *InstalledAppsRegistry) List() []*InstalledApp {
@@ -282,7 +324,19 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	if len(parts) == 2 {
 		tail = "/" + parts[1]
 	}
-	entry := s.installedApps.GetByName(appName)
+	// Project-aware dispatch. /api/apps/<name>/...?project_id=<X>
+	// must route to the install of <name> in project X (or the
+	// global install if no project-X install exists). Without this,
+	// the last-wins byName map silently routes every storage call
+	// to one install, leaking writes across project boundaries when
+	// multiple project-scoped installs of the same app coexist.
+	projectID := r.URL.Query().Get("project_id")
+	var entry *InstalledApp
+	if projectID != "" {
+		entry = s.installedApps.GetByNameAndProject(appName, projectID)
+	} else {
+		entry = s.installedApps.GetByName(appName)
+	}
 	if entry == nil {
 		http.Error(w, "app not installed: "+appName, http.StatusNotFound)
 		return

@@ -621,12 +621,19 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		http.Error(w, "missing permission: "+string(sdk.PermAppsCall), http.StatusForbidden)
 		return
 	}
-	if !installBoundApp(s, installID, targetAppName) {
+	// Resolve the binding's target install_id. The binding is
+	// authoritative — last-wins GetByName(targetAppName) silently
+	// dispatches to whichever install was registered last in
+	// byName, which misroutes when multiple project-scoped installs
+	// of the target exist. Using the bound install_id directly
+	// keeps the call inside the project context the operator
+	// originally wired up.
+	targetInstallID := installBoundAppID(s, installID, targetAppName)
+	if targetInstallID == 0 {
 		http.Error(w, "app not bound: "+targetAppName, http.StatusForbidden)
 		return
 	}
-
-	target := s.installedApps.GetByName(targetAppName)
+	target := s.installedApps.Get(targetInstallID)
 	if target == nil {
 		http.Error(w, "target app not running: "+targetAppName, http.StatusBadGateway)
 		return
@@ -846,15 +853,25 @@ func installBoundConnection(s *Server, installID, connID int64) (string, bool) {
 // The bound install must be running and its registered AppName must
 // match the requested name.
 func installBoundApp(s *Server, installID int64, appName string) bool {
+	return installBoundAppID(s, installID, appName) != 0
+}
+
+// installBoundAppID is the binding-aware sister to installBoundApp:
+// returns the install_id of the target app the caller is bound to,
+// or 0 when no binding (or the bound install isn't running). Used by
+// handleCallbackApps to dispatch app→app calls to the EXACT bound
+// install — last-wins GetByName misroutes when multiple project-
+// scoped installs of the target exist.
+func installBoundAppID(s *Server, installID int64, appName string) int64 {
 	m, err := installManifest(s, installID)
 	if err != nil || m == nil {
-		return false
+		return 0
 	}
 	bindings := bindingsForInstall(s, installID)
-	check := func(key string) bool {
+	resolve := func(key string) int64 {
 		raw, ok := bindings[key]
 		if !ok || raw == nil {
-			return false
+			return 0
 		}
 		boundInstallID := int64(0)
 		switch n := raw.(type) {
@@ -864,33 +881,31 @@ func installBoundApp(s *Server, installID int64, appName string) bool {
 			boundInstallID = n
 		}
 		if boundInstallID == 0 {
-			return false
+			return 0
 		}
 		e := s.installedApps.Get(boundInstallID)
-		return e != nil && e.AppName == appName
+		if e == nil || e.AppName != appName {
+			return 0
+		}
+		return boundInstallID
 	}
-	// Modern requires.apps shape.
 	for _, dep := range m.Requires.Apps {
 		if dep.Name != appName {
 			continue
 		}
-		if check(dep.Name) {
-			return true
+		if id := resolve(dep.Name); id != 0 {
+			return id
 		}
 	}
-	// Legacy requires.integrations[kind=app] shape.
 	for _, dep := range m.Requires.Integrations {
 		if dep.Kind != "app" {
 			continue
 		}
-		if check(dep.Role) {
-			// Verify the bound install actually serves the requested
-			// app name (Role is integration-side; the bound install
-			// is what we trust for AppName).
-			return true
+		if id := resolve(dep.Role); id != 0 {
+			return id
 		}
 	}
-	return false
+	return 0
 }
 
 func contains(xs []string, v string) bool {

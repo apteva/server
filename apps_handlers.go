@@ -6,6 +6,7 @@ package main
 // /api/v1/services).
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -173,6 +174,13 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 	// the in-process apps (channel-chat etc.) — they're "always on"
 	// platform components, distinct from the user-installable kind
 	// shown in the marketplace.
+	// Scope the installed set to what's visible in the current
+	// project: own installs + globals. Without the project_id filter
+	// an install in Project A would mark the marketplace entry as
+	// "Installed" when viewing Project B, blocking the user from
+	// installing the app separately for B (which is the legitimate
+	// use case for project-scoped installs in the first place).
+	projectID := r.URL.Query().Get("project_id")
 	installed := map[string]bool{}
 	addInstalled := func(name string) {
 		if name == "" {
@@ -180,16 +188,26 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 		}
 		installed[normalizeAppName(name)] = true
 	}
-	if rows, err := s.store.db.Query(
-		`SELECT a.name FROM apps a JOIN app_installs i ON i.app_id = a.id`,
-	); err == nil {
-		for rows.Next() {
+	var installRows *sql.Rows
+	var qerr error
+	if projectID != "" {
+		installRows, qerr = s.store.db.Query(
+			`SELECT a.name FROM apps a JOIN app_installs i ON i.app_id = a.id
+			 WHERE i.project_id = '' OR i.project_id = ?`, projectID)
+	} else {
+		// No project context (rare — pre-project view, admin tools).
+		// Fall back to the unfiltered "any install anywhere" view.
+		installRows, qerr = s.store.db.Query(
+			`SELECT a.name FROM apps a JOIN app_installs i ON i.app_id = a.id`)
+	}
+	if qerr == nil {
+		for installRows.Next() {
 			var n string
-			if rows.Scan(&n) == nil {
+			if installRows.Scan(&n) == nil {
 				addInstalled(n)
 			}
 		}
-		rows.Close()
+		installRows.Close()
 	}
 	type entryWithStatus struct {
 		RegistryEntry

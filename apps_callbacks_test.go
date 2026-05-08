@@ -519,3 +519,71 @@ func TestInstallBoundConnection_Match(t *testing.T) {
 		t.Fatal("expected miss for unbound connection id")
 	}
 }
+
+// --- Project-aware app routing -------------------------------------
+
+func TestRegistry_GetByNameAndProject_PrefersProjectMatch(t *testing.T) {
+	r := NewInstalledAppsRegistry()
+	r.Add(&InstalledApp{InstallID: 1, AppName: "storage", ProjectID: "alpha"})
+	r.Add(&InstalledApp{InstallID: 2, AppName: "storage", ProjectID: "beta"})
+	r.Add(&InstalledApp{InstallID: 3, AppName: "storage", ProjectID: ""})
+
+	if got := r.GetByNameAndProject("storage", "alpha"); got == nil || got.InstallID != 1 {
+		t.Errorf("alpha → install_id=1, got %+v", got)
+	}
+	if got := r.GetByNameAndProject("storage", "beta"); got == nil || got.InstallID != 2 {
+		t.Errorf("beta → install_id=2, got %+v", got)
+	}
+	if got := r.GetByNameAndProject("storage", "gamma"); got == nil || got.InstallID != 3 {
+		t.Errorf("gamma (no match) → global install_id=3, got %+v", got)
+	}
+	if got := r.GetByNameAndProject("storage", ""); got == nil || got.InstallID != 3 {
+		t.Errorf("empty project → global install_id=3, got %+v", got)
+	}
+	if got := r.GetByNameAndProject("missing", "alpha"); got != nil {
+		t.Errorf("unknown app → nil, got %+v", got)
+	}
+}
+
+func TestRegistry_GetByNameAndProject_NoGlobalFallback(t *testing.T) {
+	r := NewInstalledAppsRegistry()
+	r.Add(&InstalledApp{InstallID: 1, AppName: "storage", ProjectID: "alpha"})
+	// No global install. A request scoped to "beta" must NOT silently
+	// route to alpha — that's the bug we're fixing.
+	if got := r.GetByNameAndProject("storage", "beta"); got != nil {
+		t.Errorf("beta with no global → nil, got install_id=%d", got.InstallID)
+	}
+}
+
+func TestInstallBoundAppID_ResolvesBoundTarget(t *testing.T) {
+	s := newTestServer(t)
+	s.installedApps = NewInstalledAppsRegistry()
+	// Seed a "storage" app + two installs under different projects.
+	s.store.db.Exec(`INSERT INTO apps (name, source, repo, ref, manifest_json) VALUES ('storage','git','','','{}')`)
+	var storageAppID int64
+	s.store.db.QueryRow(`SELECT id FROM apps WHERE name='storage'`).Scan(&storageAppID)
+	s.store.db.Exec(`INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (1,'a@b.c','x')`)
+	res1, _ := s.store.db.Exec(`INSERT INTO app_installs (app_id, project_id, status, installed_by) VALUES (?, 'proj-alpha', 'running', 1)`, storageAppID)
+	storageInstall1, _ := res1.LastInsertId()
+	res2, _ := s.store.db.Exec(`INSERT INTO app_installs (app_id, project_id, status, installed_by) VALUES (?, 'proj-beta', 'running', 1)`, storageAppID)
+	storageInstall2, _ := res2.LastInsertId()
+	s.installedApps.Add(&InstalledApp{InstallID: storageInstall1, AppName: "storage", ProjectID: "proj-alpha"})
+	s.installedApps.Add(&InstalledApp{InstallID: storageInstall2, AppName: "storage", ProjectID: "proj-beta"})
+
+	// Caller (media) bound to storageInstall2 specifically.
+	manifest := sdk.Manifest{
+		Schema: sdk.SchemaCurrent, Name: "media",
+		Requires: sdk.Requires{
+			Permissions: []sdk.Permission{sdk.PermAppsCall},
+			Apps:        []sdk.RequiredAppRef{{Name: "storage"}},
+		},
+	}
+	mediaInstallID := seedInstallWithBindings(t, s, "media", manifest, map[string]any{
+		"storage": float64(storageInstall2),
+	})
+
+	got := installBoundAppID(s, mediaInstallID, "storage")
+	if got != storageInstall2 {
+		t.Errorf("expected bound install_id=%d, got %d", storageInstall2, got)
+	}
+}
