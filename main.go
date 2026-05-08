@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -112,6 +113,13 @@ type Server struct {
 	// routes.changed events. See routes_cache.go.
 	routeCache  *RouteCache
 	primaryHost string // APTEVA_PRIMARY_HOST — never matched by route cache (dashboard wins).
+
+	// manifestRefreshInFlight gates the background goroutine launched
+	// by handleListApps that refreshes manifest_json from upstream.
+	// Without this, every dashboard poll on a cold cache spawns its
+	// own N-fetch sweep — fine functionally (fetchAndCacheManifest
+	// is per-URL cached) but multiplicatively wasteful.
+	manifestRefreshInFlight atomic.Bool
 }
 
 // appsRegistry is a thin alias over framework.Registry so main.go
@@ -227,7 +235,17 @@ func main() {
 		}
 	}
 	if err := catalog.LoadFromDir(appsDir); err != nil {
-		fmt.Fprintf(os.Stderr, "no integration catalog found (download via dashboard Settings)\n")
+		// First-boot fallback: catalog isn't on disk and we're not
+		// in the dev tree. Pull the latest tarball from
+		// apteva/integrations on github now so the dashboard's
+		// Integrations page has data to render. Fail-open: if
+		// github is unreachable we log + continue with an empty
+		// catalog (the dashboard surfaces a retry path elsewhere
+		// at /api/integrations/catalog/download for power users).
+		fmt.Fprintf(os.Stderr, "no integration catalog on disk — auto-downloading from %s\n", catalogRepo)
+		if _, _, derr := downloadIntegrationCatalog(catalog, dataDir); derr != nil {
+			fmt.Fprintf(os.Stderr, "catalog auto-download failed: %v (server starting with empty catalog)\n", derr)
+		}
 	} else {
 		fmt.Fprintf(os.Stderr, "loaded %d integrations from catalog\n", catalog.Count())
 	}
@@ -958,9 +976,20 @@ func main() {
 	// process group, so the DB state is stale. Walk those rows and
 	// re-spawn fresh cores + channels MCPs so restarts look like a
 	// brief pause rather than "all my instances silently vanished".
-	// Run async so a slow resume (many instances, slow provider probe)
-	// doesn't block the HTTP listener from accepting new requests.
-	go s.ResumeRunningInstances()
+	//
+	// IMPORTANT: deferred until AFTER ResumeLocalInstalls +
+	// LoadInstalledApps below. Agents bind to app MCP servers via
+	// the loopback proxy at /api/apps/<name>/mcp; the proxy resolves
+	// the install through the installedApps registry. If we resume
+	// instances first, the agent boots, calls initialize on the
+	// docs proxy, and the registry isn't populated yet — proxy
+	// returns "not found", the agent's connectAndRegisterMCP logs
+	// an error and silently drops docs from its connected list for
+	// the rest of the process lifetime. Symptom: "MCP server
+	// disconnected" on every page reload until manual reconnect.
+	resumeInstancesAfterApps := func() {
+		go s.ResumeRunningInstances()
+	}
 
 	// One-shot on boot: any local connection that's missing its
 	// auto-created mcp_servers row gets one. Covers suite-fan-out
@@ -1015,7 +1044,17 @@ func main() {
 	s.LoadInstalledApps()
 	s.RemountStaticApps()
 	s.backfillAppMCPs()
+	// Backfill any missing requires.apps[].name bindings on running
+	// installs. Catches parents installed before the cascade learned
+	// to write them and out-of-order installs (parent first, dep
+	// later). Idempotent — only writes when a key is genuinely
+	// missing, so re-runs on every boot are cheap.
+	s.reconcileAllAppDepBindings()
 	s.recomputePendingOptions()
+
+	// Apps are healthy and the installedApps registry is populated.
+	// Now safe to spawn agents — their MCP proxies will resolve.
+	resumeInstancesAfterApps()
 
 	go func() {
 		sig := <-sigCh

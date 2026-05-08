@@ -399,6 +399,11 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 		 WHERE id=?`,
 		pid, binPath, port, url, installID)
 	s.LoadInstalledApps()
+	// A new install becoming running may unblock requires.apps deps
+	// on parent installs that were waiting for it. Walk every running
+	// install and backfill any missing app-dep bindings — idempotent
+	// and only writes when a key is genuinely missing.
+	s.reconcileAllAppDepBindings()
 	// Bridge the app's manifest tools into the platform's mcp_servers
 	// table so [[list_mcp_servers]] surfaces them and agents can connect.
 	if err := s.registerAppMCP(installID); err != nil {

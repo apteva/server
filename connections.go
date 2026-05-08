@@ -106,14 +106,15 @@ type ConnectionInput struct {
 	// rows out of the operator's Integrations list. Zero for legacy /
 	// operator-managed rows.
 	OwnerAppInstallID int64
-	// AutoMCP — when true (the default), an mcp_servers row is
-	// auto-created on connect so agents in the project can call the
-	// integration's tools globally. When false, the connection is
-	// created but no MCP server materialises — the operator wants
-	// the connection to exist (e.g. so the Social app can bind it)
-	// without exposing all the integration's tools to every agent.
-	// Pointer so the absent / default-true distinction is explicit
-	// at the API boundary; nil means "use the default of true".
+	// AutoMCP — when explicitly true, an mcp_servers row is auto-
+	// created on connect so agents in the project can call the
+	// integration's tools globally. **Default is false** — apps
+	// creating connections via the SDK, composio backend, and other
+	// programmatic paths typically just want a credential, not a
+	// public tool surface. The dashboard's "Add integration" flow
+	// passes auto_mcp=true explicitly so its UX is unchanged.
+	// Pointer so absent vs. explicit-false is distinguishable at
+	// the API boundary; nil means "use the default of false".
 	AutoMCP *bool
 }
 
@@ -138,9 +139,14 @@ func (s *Store) CreateConnectionExt(in ConnectionInput) (*Connection, error) {
 	if in.CreatedVia == "" {
 		in.CreatedVia = "integration"
 	}
-	autoMCP := 1 // default: expose tools to agents
-	if in.AutoMCP != nil && !*in.AutoMCP {
-		autoMCP = 0
+	// Default OFF: callers that want tool exposure must opt in. The
+	// dashboard's connect form sets AutoMCP=true explicitly; SDK +
+	// composio + other programmatic paths leave it nil and get no
+	// auto-MCP. This stops "every connection an app creates leaks
+	// its tools as a global MCP server."
+	autoMCP := 0
+	if in.AutoMCP != nil && *in.AutoMCP {
+		autoMCP = 1
 	}
 	result, err := s.db.Exec(
 		"INSERT INTO connections (user_id, app_slug, app_name, name, auth_type, encrypted_credentials, status, project_id, source, provider_id, external_id, created_via, owner_app_install_id, auto_mcp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1684,6 +1690,48 @@ func (s *Server) handleGetConnection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, conn)
+}
+
+// GET /connections/:id/credentials — owner-only credential reveal.
+// Decrypts the stored blob and returns the credential map.
+//
+// Threat model: once exposed via this endpoint, a token is reachable
+// through the dashboard session cookie (the default storage model
+// requires DB access). Operator feature, owner-only — the dashboard
+// gates it behind an explicit "Reveal" click. Each call is logged so
+// post-hoc audit can see who viewed which connection.
+func (s *Server) handleGetConnectionCredentials(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	idStr := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/connections/"), "/credentials")
+	connID, err := atoi64(idStr)
+	if err != nil {
+		http.Error(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	conn, encCreds, err := s.store.GetConnection(userID, connID)
+	if err != nil || conn == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	creds := map[string]string{}
+	if encCreds != "" {
+		plain, derr := Decrypt(s.secret, encCreds)
+		if derr != nil {
+			http.Error(w, "decrypt failed", http.StatusInternalServerError)
+			return
+		}
+		if jerr := json.Unmarshal([]byte(plain), &creds); jerr != nil {
+			http.Error(w, "parse creds failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	log.Printf("[CONNECTIONS] credentials revealed: user=%d conn=%d app=%s name=%q",
+		userID, connID, conn.AppSlug, conn.Name)
+	writeJSON(w, map[string]any{"credentials": creds})
 }
 
 // PATCH /connections/:id — rename an existing connection.

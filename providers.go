@@ -327,10 +327,25 @@ func (s *Server) handleListProviderTypes(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if types == nil {
-		types = []ProviderType{}
+	// Filter out integration providers that don't require credentials.
+	// Today there's exactly one such row — "Apteva Local" — which used
+	// to gate access to the bundled integration catalog. The catalog
+	// is now always-on (auto-downloaded on first boot, baked into the
+	// dev tree, served unconditionally), so the row no longer
+	// represents anything the operator can meaningfully configure.
+	// Composio (type=integrations + requires_credentials=1) still
+	// shows up as a real activatable provider.
+	filtered := types[:0]
+	for _, t := range types {
+		if t.Type == "integrations" && !t.RequiresCredentials {
+			continue
+		}
+		filtered = append(filtered, t)
 	}
-	writeJSON(w, types)
+	if filtered == nil {
+		filtered = []ProviderType{}
+	}
+	writeJSON(w, filtered)
 }
 
 // POST /providers

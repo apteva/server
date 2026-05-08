@@ -125,6 +125,11 @@ func (s *Server) handleCallbackConnections(w http.ResponseWriter, r *http.Reques
 		s.handleCallbackConnectionDisconnect(w, r, parts[0])
 		return
 	}
+	// GET /connections/:id/credentials
+	if r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "credentials" {
+		s.handleCallbackConnectionCredentials(w, r, parts[0])
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
@@ -205,6 +210,107 @@ func (s *Server) handleCallbackConnectionDisconnect(w http.ResponseWriter, r *ht
 		return
 	}
 	writeJSON(w, map[string]any{"deleted": connID})
+}
+
+// handleCallbackConnectionCredentials returns the decrypted credential
+// fields for a bound connection. The most sensitive callback in this
+// surface — gated by three independent checks:
+//
+//  1. Install declared platform.connections.read_credentials in its
+//     manifest. This is opt-in per app and the dashboard install
+//     consent screen flags it specially.
+//  2. The connection's slug appears in some
+//     requires.integrations[].compatible_slugs entry on this install
+//     (can't read creds for an integration the manifest never asked
+//     about, even if a binding accidentally points there).
+//  3. The connection ID is in the install's integration_bindings —
+//     the operator actually bound this connection to a role.
+//
+// Owner-bypass and operator-bypass paths used by ExecuteIntegrationTool
+// are intentionally NOT honored here. Those bypasses are appropriate
+// for tool-call brokering (the runner sees the creds, the app
+// doesn't); for raw-credential reads we want every release to be
+// traceable to a manifest-declared role + operator binding.
+//
+// Each successful read appends a row to connection_credential_reads.
+func (s *Server) handleCallbackConnectionCredentials(w http.ResponseWriter, r *http.Request, idStr string) {
+	installID, err := requireInstallID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	connID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || connID <= 0 {
+		http.Error(w, "invalid connection id", http.StatusBadRequest)
+		return
+	}
+
+	// 1. Permission gate.
+	if !installHasPermission(s, installID, sdk.PermConnectionsReadCredentials) {
+		http.Error(w, "missing permission: "+string(sdk.PermConnectionsReadCredentials), http.StatusForbidden)
+		return
+	}
+
+	// 2. & 3. Binding + slug compatibility.
+	role, bound := installBoundConnection(s, installID, connID)
+	if !bound {
+		http.Error(w, "connection not bound to this install", http.StatusForbidden)
+		return
+	}
+	dep, derr := installRoleDep(s, installID, role)
+	if derr != nil {
+		http.Error(w, derr.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	userID := getUserID(r)
+	conn, encCreds, err := s.store.GetConnection(userID, connID)
+	if err != nil || conn == nil {
+		http.Error(w, "connection not found", http.StatusNotFound)
+		return
+	}
+	if dep != nil && dep.Kind != "app" && len(dep.CompatibleSlugs) > 0 && !contains(dep.CompatibleSlugs, conn.AppSlug) {
+		http.Error(w, fmt.Sprintf("connection slug %q not in role %q compatible_slugs", conn.AppSlug, role), http.StatusForbidden)
+		return
+	}
+
+	// Decrypt + parse.
+	fields := map[string]string{}
+	if encCreds != "" {
+		plain, derr := Decrypt(s.secret, encCreds)
+		if derr != nil {
+			http.Error(w, "decrypt failed", http.StatusInternalServerError)
+			return
+		}
+		// Catalog credentials are stored as a flat string-string map.
+		// Coerce non-string values (rare) to their JSON repr so the
+		// caller still gets something usable rather than a parse error.
+		raw := map[string]any{}
+		if jerr := json.Unmarshal([]byte(plain), &raw); jerr != nil {
+			http.Error(w, "parse creds failed", http.StatusInternalServerError)
+			return
+		}
+		for k, v := range raw {
+			switch tv := v.(type) {
+			case string:
+				fields[k] = tv
+			default:
+				if b, _ := json.Marshal(tv); b != nil {
+					fields[k] = string(b)
+				}
+			}
+		}
+	}
+
+	log.Printf("[CRED-READ] install=%d conn=%d slug=%s role=%s fields=%d",
+		installID, connID, conn.AppSlug, role, len(fields))
+
+	writeJSON(w, sdk.ConnectionCredentials{
+		ConnectionID: conn.ID,
+		Slug:         conn.AppSlug,
+		Fields:       fields,
+		FetchedAt:    time.Now().UTC(),
+	})
 }
 
 // connectionCreatedVia reads the created_via column on connections —

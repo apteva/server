@@ -265,8 +265,9 @@ func (s *Server) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	var src string
-	if err := s.store.db.QueryRow(`SELECT source FROM skills WHERE id = ?`, id).Scan(&src); err != nil {
+	var src, slug, projectID string
+	if err := s.store.db.QueryRow(`SELECT source, slug, COALESCE(project_id,'') FROM skills WHERE id = ?`, id).
+		Scan(&src, &slug, &projectID); err != nil {
 		http.Error(w, "skill not found", http.StatusNotFound)
 		return
 	}
@@ -274,6 +275,9 @@ func (s *Server) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("cannot delete skill with source=%q — uninstall the owning app instead", src), http.StatusForbidden)
 		return
 	}
+	// Sweep the soon-to-be-orphaned record from every assigned
+	// instance in the project before the catalog row goes. Best-effort.
+	s.sweepSkillFromProject(getUserID(r), projectID, id, slug, "user skill deleted")
 	if _, err := s.store.db.Exec(`DELETE FROM skills WHERE id = ?`, id); err != nil {
 		http.Error(w, "delete: "+err.Error(), http.StatusInternalServerError)
 		return

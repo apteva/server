@@ -57,58 +57,64 @@ func (s *Server) handleCatalogStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// POST /integrations/catalog/download
+// POST /integrations/catalog/download — kept as a curl-able power-user
+// endpoint. The Settings UI no longer surfaces it; auto-download on
+// first boot is now the primary path.
 func (s *Server) handleCatalogDownload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
+	count, dir, err := downloadIntegrationCatalog(s.catalog, s.dataDir)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"status":    "downloaded",
+		"count":     count,
+		"directory": dir,
+	})
+}
 
-	integrationsDir := filepath.Join(s.dataDir, "integrations")
-
-	// Download tarball from GitHub
+// downloadIntegrationCatalog fetches the latest integration catalog
+// tarball from the apteva/integrations github repo, extracts app
+// JSON files into <dataDir>/integrations/, and reloads the in-memory
+// catalog. Used by both the manual download endpoint and the boot-
+// time fallback when no catalog is found on disk. Free function so
+// it can be called before the Server struct is fully constructed.
+func downloadIntegrationCatalog(catalog *AppCatalog, dataDir string) (int, string, error) {
+	integrationsDir := filepath.Join(dataDir, "integrations")
 	fmt.Fprintf(os.Stderr, "downloading integration catalog from %s...\n", catalogRepo)
 
 	client := &http.Client{Timeout: 60 * time.Second}
 	req, err := http.NewRequest("GET", catalogTarball, nil)
 	if err != nil {
-		http.Error(w, "failed to create request", http.StatusInternalServerError)
-		return
+		return 0, integrationsDir, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("download failed: %v", err), http.StatusBadGateway)
-		return
+		return 0, integrationsDir, fmt.Errorf("download: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		http.Error(w, fmt.Sprintf("GitHub returned %d", resp.StatusCode), http.StatusBadGateway)
-		return
+		return 0, integrationsDir, fmt.Errorf("github returned http %d", resp.StatusCode)
 	}
 
-	// Clean and recreate target dir
 	os.RemoveAll(integrationsDir)
 	os.MkdirAll(integrationsDir, 0755)
 
-	// Extract .json files from tarball
 	count, err := extractAppsFromTarball(resp.Body, integrationsDir)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("extraction failed: %v", err), http.StatusInternalServerError)
-		return
+		return 0, integrationsDir, fmt.Errorf("extract: %w", err)
 	}
 
-	// Reload catalog
-	s.catalog.LoadFromDir(integrationsDir)
-	fmt.Fprintf(os.Stderr, "integration catalog updated: %d integrations\n", s.catalog.Count())
-
-	writeJSON(w, map[string]any{
-		"status":    "downloaded",
-		"count":     count,
-		"directory": integrationsDir,
-	})
+	catalog.LoadFromDir(integrationsDir)
+	fmt.Fprintf(os.Stderr, "integration catalog updated: %d integrations\n", catalog.Count())
+	return count, integrationsDir, nil
 }
 
 // extractAppsFromTarball reads a .tar.gz stream and extracts src/apps/*.json files

@@ -436,11 +436,16 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 		args = append(args, projectID)
 	}
 	q += ` ORDER BY a.name`
-	// Refresh manifest_json from upstream before reading. For each
-	// non-builtin install whose runtime.source points at a github
-	// repo, fetch the raw apteva.yaml (cached 1h) and overwrite
-	// the stored snapshot so available_version reflects what's
-	// actually published — not the version captured at install time.
+	// Refresh manifest_json from upstream IN THE BACKGROUND. The list
+	// returns whatever's already stored; the next poll picks up any
+	// upstream version bumps after the goroutine writes them back.
+	//
+	// Pre-fix: this loop ran synchronously inside the handler. With N
+	// non-builtin installs, the cold-cache path did up to N × 8s of
+	// sequential HTTP fetches to GitHub before the response was sent.
+	// The dashboard polls /api/apps every few seconds, so polls piled
+	// up faster than they could complete and the agent detail page
+	// (which depends on this endpoint loading) hung indefinitely.
 	type appPair struct{ name, manifestJSON string }
 	var pairs []appPair
 	if rs, err := s.store.db.Query(`SELECT name, manifest_json FROM apps WHERE source != 'builtin'`); err == nil {
@@ -452,8 +457,19 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 		}
 		rs.Close()
 	}
-	for _, p := range pairs {
-		s.refreshManifestFromUpstream(p.name, p.manifestJSON)
+	// Coalesce concurrent dashboard polls onto a single in-flight
+	// refresh. fetchAndCacheManifest is per-URL cached for a minute,
+	// but without this guard 10 simultaneous polls on a cold cache
+	// would each spawn a goroutine doing the same N fetches in
+	// parallel — cheap relative to blocking the response, but still
+	// 10× the upstream traffic.
+	if s.manifestRefreshInFlight.CompareAndSwap(false, true) {
+		go func(pairs []appPair) {
+			defer s.manifestRefreshInFlight.Store(false)
+			for _, p := range pairs {
+				s.refreshManifestFromUpstream(p.name, p.manifestJSON)
+			}
+		}(pairs)
 	}
 	rows, err := s.store.db.Query(q, args...)
 	if err != nil {
@@ -738,11 +754,19 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	// install too — operator can uninstall any of them later.
 	// Failures of optional deps are logged but don't block the
 	// requesting app; failures of required deps abort the install.
+	//
+	// Returns a map of dep_name → resolved install_id which we merge
+	// into body.Bindings below — that's what makes installBoundApp
+	// able to authorize backup→jobs (and every other requires.apps
+	// caller) without manual binding by the operator.
+	depBindings := map[string]int64{}
 	if len(manifest.Requires.Apps) > 0 {
-		if err := s.installDependencies(userID, manifest, body.ProjectID); err != nil {
+		out, err := s.installDependencies(userID, manifest, body.ProjectID)
+		if err != nil {
 			http.Error(w, "dependency install: "+err.Error(), http.StatusBadGateway)
 			return
 		}
+		depBindings = out
 	}
 	upgradePolicy := body.UpgradePolicy
 	if upgradePolicy == "" {
@@ -793,6 +817,17 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	if body.Bindings == nil {
 		body.Bindings = map[string]any{}
 	}
+	// Merge the cascade's resolved app-dep install_ids into the
+	// bindings map so installBoundApp can authorize app→app calls
+	// for requires.apps deps. Operator-supplied keys win — if the
+	// dashboard's preflight let the user pick a specific bound
+	// install (e.g. when two installs of the dep coexist), don't
+	// stomp it with the cascade's first match.
+	for name, id := range depBindings {
+		if _, present := body.Bindings[name]; !present {
+			body.Bindings[name] = id
+		}
+	}
 	for _, dep := range manifest.Requires.Integrations {
 		raw, present := body.Bindings[dep.Role]
 		isNull := !present || raw == nil
@@ -804,13 +839,19 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Strip unknown role keys to keep the bindings JSON tidy.
-	roleSet := make(map[string]bool, len(manifest.Requires.Integrations))
+	// Strip unknown keys to keep the bindings JSON tidy. Allow-set
+	// is the union of integration roles AND requires.apps[].name —
+	// without the latter, the cascade-written app-dep ids we just
+	// merged in would be deleted right back out.
+	allowed := make(map[string]bool, len(manifest.Requires.Integrations)+len(manifest.Requires.Apps))
 	for _, dep := range manifest.Requires.Integrations {
-		roleSet[dep.Role] = true
+		allowed[dep.Role] = true
+	}
+	for _, dep := range manifest.Requires.Apps {
+		allowed[dep.Name] = true
 	}
 	for k := range body.Bindings {
-		if !roleSet[k] {
+		if !allowed[k] {
 			delete(body.Bindings, k)
 		}
 	}
@@ -985,6 +1026,36 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 	// schema declares ON DELETE CASCADE but we don't enable
 	// PRAGMA foreign_keys, so do it manually before the install row
 	// goes. Cheap (handful of rows per install).
+	//
+	// Before the catalog rows go: sweep the soon-to-be-orphaned
+	// memory records from every instance in the install's project.
+	// Best-effort — a sweep failure on one instance shouldn't block
+	// the uninstall.
+	var sweepProjectID string
+	var sweepUserID int64
+	_ = s.store.db.QueryRow(`SELECT COALESCE(project_id,''), installed_by FROM app_installs WHERE id = ?`, installID).
+		Scan(&sweepProjectID, &sweepUserID)
+	skillRows, _ := s.store.db.Query(`SELECT id, slug FROM skills WHERE install_id = ?`, installID)
+	if skillRows != nil {
+		var pending []struct {
+			id   int64
+			slug string
+		}
+		for skillRows.Next() {
+			var rowID int64
+			var rowSlug string
+			if err := skillRows.Scan(&rowID, &rowSlug); err == nil {
+				pending = append(pending, struct {
+					id   int64
+					slug string
+				}{rowID, rowSlug})
+			}
+		}
+		skillRows.Close()
+		for _, p := range pending {
+			s.sweepSkillFromProject(sweepUserID, sweepProjectID, p.id, p.slug, "app uninstalled")
+		}
+	}
 	if _, err := s.store.db.Exec(`DELETE FROM skills WHERE install_id = ?`, installID); err != nil {
 		log.Printf("[APPS] delete skills for install=%d: %v", installID, err)
 	}
@@ -1080,28 +1151,53 @@ func (s *Server) handleSetInstallBindings2(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "install not found", http.StatusNotFound)
 		return
 	}
-	// Validate against manifest's roles.
-	roleSet := make(map[string]bool, len(manifest.Requires.Integrations))
+	// Validate against the manifest's known keys: integration roles
+	// AND requires.apps[].name (since installBoundApp reads bindings
+	// keyed by app name for app-deps).
+	allowed := make(map[string]bool, len(manifest.Requires.Integrations)+len(manifest.Requires.Apps))
 	for _, dep := range manifest.Requires.Integrations {
-		roleSet[dep.Role] = true
+		allowed[dep.Role] = true
+	}
+	for _, dep := range manifest.Requires.Apps {
+		allowed[dep.Name] = true
 	}
 	for k := range body {
-		if !roleSet[k] {
+		if !allowed[k] {
 			http.Error(w, "unknown role: "+k, http.StatusBadRequest)
 			return
 		}
+	}
+	// MERGE semantics: read the existing bindings JSON and overlay
+	// the supplied keys. Missing keys are preserved — this lets the
+	// dashboard's per-role panels (BackupPanel sends {cloud_storage}
+	// only, not the full bindings) update one role without wiping
+	// out cascade-written app-dep ids. Pass an explicit `null` to
+	// unbind a role.
+	merged := bindingsForInstall(s, installID)
+	for k, v := range body {
+		merged[k] = v
 	}
 	for _, dep := range manifest.Requires.Integrations {
 		if !dep.Required {
 			continue
 		}
-		raw, present := body[dep.Role]
+		raw, present := merged[dep.Role]
 		if !present || raw == nil {
 			http.Error(w, "required role unbound: "+dep.Role, http.StatusBadRequest)
 			return
 		}
 	}
-	bj, _ := json.Marshal(body)
+	for _, dep := range manifest.Requires.Apps {
+		if dep.Optional {
+			continue
+		}
+		raw, present := merged[dep.Name]
+		if !present || raw == nil {
+			http.Error(w, "required app dep unbound: "+dep.Name, http.StatusBadRequest)
+			return
+		}
+	}
+	bj, _ := json.Marshal(merged)
 	if _, err := s.store.db.Exec(
 		`UPDATE app_installs SET integration_bindings = ?, has_pending_options = 0 WHERE id = ?`,
 		string(bj), installID,
@@ -1110,7 +1206,7 @@ func (s *Server) handleSetInstallBindings2(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.recomputePendingOptions()
-	writeJSON(w, map[string]any{"ok": true, "bindings": body})
+	writeJSON(w, map[string]any{"ok": true, "bindings": merged})
 }
 
 // POST /api/apps/install/preflight
@@ -1192,7 +1288,7 @@ func (s *Server) handlePreflightApp(w http.ResponseWriter, r *http.Request) {
 		AppCands           []appCandidate         `json:"app_candidates,omitempty"`
 		CanCreateNew       bool                   `json:"can_create_new"`
 	}
-	roles := make([]roleSummary, 0, len(manifest.Requires.Integrations))
+	roles := make([]roleSummary, 0, len(manifest.Requires.Integrations)+len(manifest.Requires.Apps))
 	for _, dep := range manifest.Requires.Integrations {
 		kind := dep.Kind
 		if kind == "" {
@@ -1244,6 +1340,45 @@ func (s *Server) handlePreflightApp(w http.ResponseWriter, r *http.Request) {
 				}
 				rs.Close()
 			}
+		}
+		roles = append(roles, row)
+	}
+	// requires.apps deps — modern shape. Surface them as kind=app
+	// rows so the dashboard's existing RolePicker (which already
+	// renders kind=app candidates from the legacy
+	// requires.integrations[kind=app] path) shows them too. The
+	// "role" field is reused as the dep name so the operator's
+	// submitted bindings JSON keys the install handler's allow-set
+	// directly.
+	for _, dep := range manifest.Requires.Apps {
+		row := roleSummary{
+			Role:         dep.Name,
+			Kind:         "app",
+			Label:        dep.Name,
+			Required:     !dep.Optional,
+			Hint:         dep.Reason,
+			Compatible:   []string{dep.Name},
+			CanCreateNew: false,
+		}
+		rs, err := s.store.db.Query(
+			`SELECT i.id, a.name, COALESCE(json_extract(a.manifest_json,'$.display_name'), a.name)
+			 FROM app_installs i JOIN apps a ON a.id=i.app_id
+			 WHERE i.status='running' AND (i.project_id = ? OR i.project_id = '')`,
+			body.ProjectID,
+		)
+		if err == nil {
+			for rs.Next() {
+				var (
+					instID             int64
+					aName, displayName string
+				)
+				if rs.Scan(&instID, &aName, &displayName) == nil && normalizeAppName(aName) == normalizeAppName(dep.Name) {
+					row.AppCands = append(row.AppCands, appCandidate{
+						InstallID: instID, AppName: aName, DisplayName: displayName,
+					})
+				}
+			}
+			rs.Close()
 		}
 		roles = append(roles, row)
 	}
@@ -1406,6 +1541,16 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		// (upgrade => MCP refreshed) and pick up the post-version-bump
 		// state in case the manifest_json was stamped later.
 		_ = s.registerAppMCP(installID)
+		// Backfill missing requires.apps bindings — covers the case
+		// where the parent was installed before the cascade learned
+		// to write them, or a dep came online after the parent.
+		// Idempotent and only ever ADDS keys, so safe to run on
+		// every upgrade.
+		if changed, err := s.reconcileAppDepBindings(installID); err != nil {
+			log.Printf("[APPS-DEP] upgrade reconcile install=%d: %v", installID, err)
+		} else if changed {
+			s.recomputePendingOptions()
+		}
 	}()
 	writeJSONStatus(w, http.StatusAccepted, map[string]string{
 		"status":  "pending",

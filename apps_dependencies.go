@@ -24,19 +24,36 @@ import (
 
 // installDependencies installs everything `manifest.Requires.Apps`
 // asks for, recursively. Required deps that fail abort the cascade
-// with an error; optional deps that fail log and continue. Returns
-// nil if every required dep is installed (or was already).
-func (s *Server) installDependencies(userID int64, manifest *sdk.Manifest, projectID string) error {
+// with an error; optional deps that fail log and continue. Returns a
+// map keyed by the parent's TOP-LEVEL dep names (not transitive grand-
+// deps) → resolved install_id, so the caller can write
+// `parent.bindings[depName] = installID`. Built-ins are satisfied
+// without a binding entry (id=0); the caller skips writing those.
+func (s *Server) installDependencies(userID int64, manifest *sdk.Manifest, projectID string) (map[string]int64, error) {
 	if len(manifest.Requires.Apps) == 0 {
-		return nil
+		return nil, nil
 	}
 	registryName2URL, err := s.loadRegistryNameMap()
 	if err != nil {
-		return fmt.Errorf("load registry: %w", err)
+		return nil, fmt.Errorf("load registry: %w", err)
 	}
 	visiting := map[string]bool{} // cycle detection
 	visited := map[string]bool{}  // already-resolved (installed or in this run)
-	return s.installDepsRecursive(userID, projectID, manifest.Requires.Apps, registryName2URL, visiting, visited)
+	resolved := map[string]int64{}
+	if err := s.installDepsRecursive(userID, projectID, manifest.Requires.Apps, registryName2URL, visiting, visited, resolved); err != nil {
+		return nil, err
+	}
+	// Filter resolved down to the parent's top-level dep names — the
+	// caller only writes those, since requires.apps is what
+	// installBoundApp reads. Transitive grand-deps live on the dep's
+	// own bindings (set by its own cascade run).
+	out := map[string]int64{}
+	for _, d := range manifest.Requires.Apps {
+		if id, ok := resolved[normalizeAppName(d.Name)]; ok && id != 0 {
+			out[d.Name] = id
+		}
+	}
+	return out, nil
 }
 
 func (s *Server) installDepsRecursive(
@@ -45,6 +62,7 @@ func (s *Server) installDepsRecursive(
 	deps []sdk.RequiredAppRef,
 	registryName2URL map[string]string,
 	visiting, visited map[string]bool,
+	resolved map[string]int64,
 ) error {
 	for _, dep := range deps {
 		key := normalizeAppName(dep.Name)
@@ -55,8 +73,10 @@ func (s *Server) installDepsRecursive(
 			return fmt.Errorf("dependency cycle detected involving %q", dep.Name)
 		}
 
-		// Already installed (or built-in)? No-op.
-		if s.isAppInstalled(dep.Name, projectID) {
+		// Already installed (or built-in)? Record the existing
+		// install_id (0 for built-ins) and move on.
+		if id, ok := s.findInstalledApp(dep.Name, projectID); ok {
+			resolved[key] = id
 			visited[key] = true
 			continue
 		}
@@ -87,7 +107,7 @@ func (s *Server) installDepsRecursive(
 		// (topo order — leaves first).
 		if len(depManifest.Requires.Apps) > 0 {
 			visiting[key] = true
-			if err := s.installDepsRecursive(userID, projectID, depManifest.Requires.Apps, registryName2URL, visiting, visited); err != nil {
+			if err := s.installDepsRecursive(userID, projectID, depManifest.Requires.Apps, registryName2URL, visiting, visited, resolved); err != nil {
 				if dep.Optional {
 					log.Printf("[APPS-DEP] optional dep %q sub-deps failed: %v", dep.Name, err)
 					visiting[key] = false
@@ -100,7 +120,8 @@ func (s *Server) installDepsRecursive(
 		}
 
 		// Install the dep itself.
-		if err := s.installAppFromManifest(userID, depManifest, projectID); err != nil {
+		newID, err := s.installAppFromManifest(userID, depManifest, projectID)
+		if err != nil {
 			if dep.Optional {
 				log.Printf("[APPS-DEP] optional dep %q install failed: %v", dep.Name, err)
 				visited[key] = true
@@ -108,15 +129,17 @@ func (s *Server) installDepsRecursive(
 			}
 			return fmt.Errorf("install dep %q: %w", dep.Name, err)
 		}
-		log.Printf("[APPS-DEP] installed %q (required by parent)", dep.Name)
+		log.Printf("[APPS-DEP] installed %q (required by parent) install_id=%d", dep.Name, newID)
+		resolved[key] = newID
 		visited[key] = true
 	}
 	return nil
 }
 
-// isAppInstalled reports whether an app with the given name is
-// already installed in a scope that satisfies the caller, OR is a
-// built-in framework app.
+// findInstalledApp resolves an app dep by name to a concrete install_id
+// in a scope that satisfies the caller. Returns (0, true) for
+// built-in framework apps (no install row, but the dep is satisfied).
+// Returns (0, false) when nothing matches.
 //
 // Scope rules:
 //   - projectID == "" (a GLOBAL parent resolving its dep): any
@@ -126,37 +149,54 @@ func (s *Server) installDepsRecursive(
 //     parents have different scopes. Without this, installing a
 //     global app whose deps already exist project-scoped spawns a
 //     second sidecar per dep.
-//   - projectID != "" (a PROJECT parent): only a global install or
-//     a same-project install of the dep counts.
-func (s *Server) isAppInstalled(name, projectID string) bool {
+//   - projectID != "" (a PROJECT parent): prefer a same-project
+//     install of the dep, fall back to a global install.
+func (s *Server) findInstalledApp(name, projectID string) (int64, bool) {
 	target := normalizeAppName(name)
 	if s.apps != nil {
 		for _, a := range s.apps.Loaded() {
 			m := a.Manifest()
 			if normalizeAppName(m.Slug) == target || normalizeAppName(m.Name) == target {
-				return true
+				// Built-in: no install row to point at, but the dep
+				// is satisfied. The cascade treats id=0 as "satisfied
+				// without a binding to write" — built-ins aren't
+				// reachable via /api/apps/callback/apps so binding
+				// them is a no-op anyway.
+				return 0, true
 			}
 		}
 	}
-	query := `SELECT a.name FROM apps a JOIN app_installs i ON i.app_id = a.id
-			  WHERE i.project_id = '' OR i.project_id = ?`
+	// Same-project match preferred; global match accepted. ORDER BY
+	// project_id DESC pulls the project-scoped row first since the
+	// empty-string global rows sort lowest. status='running' so we
+	// don't bind to a half-installed or errored sibling. Name match
+	// happens in Go because normalizeAppName strips non-alphanumerics
+	// and SQLite collations don't replicate that for a SQL filter.
+	query := `SELECT i.id, a.name FROM apps a JOIN app_installs i ON i.app_id = a.id
+			  WHERE i.status = 'running' AND (i.project_id = '' OR i.project_id = ?)
+			  ORDER BY i.project_id DESC, i.id ASC`
 	args := []any{projectID}
 	if projectID == "" {
-		query = `SELECT a.name FROM apps a JOIN app_installs i ON i.app_id = a.id`
+		query = `SELECT i.id, a.name FROM apps a JOIN app_installs i ON i.app_id = a.id
+				 WHERE i.status = 'running'
+				 ORDER BY i.id ASC`
 		args = nil
 	}
 	rows, err := s.store.db.Query(query, args...)
 	if err != nil {
-		return false
+		return 0, false
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var n string
-		if rows.Scan(&n) == nil && normalizeAppName(n) == target {
-			return true
+		var (
+			id int64
+			n  string
+		)
+		if rows.Scan(&id, &n) == nil && normalizeAppName(n) == target {
+			return id, true
 		}
 	}
-	return false
+	return 0, false
 }
 
 // loadRegistryNameMap fetches the configured registry once and
@@ -261,7 +301,10 @@ func writeJSONStatus(w http.ResponseWriter, status int, v any) {
 // happy-path branches of handleInstallApp without the HTTP wrapping.
 // Used only by the dependency cascade — operator-driven installs
 // still go through handleInstallApp for full validation + responses.
-func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, projectID string) error {
+//
+// Returns the new install_id so the cascade can record it in the
+// parent's bindings JSON.
+func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, projectID string) (int64, error) {
 	manifestJSON, _ := json.Marshal(manifest)
 
 	var appID int64
@@ -271,7 +314,7 @@ func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, pr
 			`INSERT INTO apps (name, source, repo, ref, manifest_json) VALUES (?, 'registry', '', '', ?)`,
 			manifest.Name, string(manifestJSON))
 		if ierr != nil {
-			return fmt.Errorf("create app row: %w", ierr)
+			return 0, fmt.Errorf("create app row: %w", ierr)
 		}
 		appID, _ = res.LastInsertId()
 	} else {
@@ -285,7 +328,7 @@ func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, pr
 		 VALUES (?, ?, '', 'pending', 'manual', ?, ?, ?)`,
 		appID, projectID, manifest.Version, string(permsJSON), userID)
 	if err != nil {
-		return fmt.Errorf("create install row: %w", err)
+		return 0, fmt.Errorf("create install row: %w", err)
 	}
 	installID, _ := res.LastInsertId()
 
@@ -296,8 +339,97 @@ func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, pr
 	// installLocally reject it gracefully there.
 	switch manifest.Runtime.Kind {
 	case "source":
-		return s.installFromSource(installID, manifest, projectID, nil)
+		return installID, s.installFromSource(installID, manifest, projectID, nil)
 	default:
-		return s.installLocally(installID, manifest, projectID, nil)
+		return installID, s.installLocally(installID, manifest, projectID, nil)
+	}
+}
+
+// reconcileAppDepBindings backfills any missing requires.apps[].name
+// bindings on a single install — for parents installed before the
+// cascade learned to write them, or whose deps came online after the
+// parent (out-of-order installs).
+//
+// Idempotent: a key already present in integration_bindings is
+// preserved verbatim, even if it's nil. That matters for operators
+// who explicitly set a dep's binding to null to disable an optional
+// integration — a missing key is treated as "never set", a present
+// nil key is treated as "deliberately unbound".
+//
+// Returns true if any keys were written (so callers can decide
+// whether to recomputePendingOptions / log).
+func (s *Server) reconcileAppDepBindings(installID int64) (bool, error) {
+	m, err := installManifest(s, installID)
+	if err != nil || m == nil {
+		return false, err
+	}
+	if len(m.Requires.Apps) == 0 {
+		return false, nil
+	}
+	var (
+		bindingsRaw string
+		projectID   string
+	)
+	if err := s.store.db.QueryRow(
+		`SELECT COALESCE(integration_bindings, '{}'), COALESCE(project_id, '') FROM app_installs WHERE id = ?`,
+		installID,
+	).Scan(&bindingsRaw, &projectID); err != nil {
+		return false, err
+	}
+	bindings := map[string]any{}
+	_ = json.Unmarshal([]byte(bindingsRaw), &bindings)
+
+	changed := false
+	for _, dep := range m.Requires.Apps {
+		if _, present := bindings[dep.Name]; present {
+			continue // operator may have set null; respect it
+		}
+		id, ok := s.findInstalledApp(dep.Name, projectID)
+		if !ok || id == 0 {
+			continue // built-in or not yet installed; nothing to record
+		}
+		bindings[dep.Name] = id
+		changed = true
+	}
+	if !changed {
+		return false, nil
+	}
+	bj, _ := json.Marshal(bindings)
+	if _, err := s.store.db.Exec(
+		`UPDATE app_installs SET integration_bindings = ? WHERE id = ?`,
+		string(bj), installID,
+	); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// reconcileAllAppDepBindings walks every running install and runs
+// reconcileAppDepBindings against it. Called once at server boot,
+// after LoadInstalledApps so the in-memory registry is populated.
+func (s *Server) reconcileAllAppDepBindings() {
+	rows, err := s.store.db.Query(`SELECT id FROM app_installs WHERE status = 'running'`)
+	if err != nil {
+		log.Printf("[APPS-DEP] reconcile-all: %v", err)
+		return
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	healed := 0
+	for _, id := range ids {
+		if changed, err := s.reconcileAppDepBindings(id); err != nil {
+			log.Printf("[APPS-DEP] reconcile install=%d: %v", id, err)
+		} else if changed {
+			healed++
+		}
+	}
+	if healed > 0 {
+		log.Printf("[APPS-DEP] reconcile-all: backfilled bindings on %d install(s)", healed)
 	}
 }

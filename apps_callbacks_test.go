@@ -350,6 +350,157 @@ func TestCallback_Whoami_ReturnsBindings(t *testing.T) {
 	}
 }
 
+// --- /connections/:id/credentials auth + happy-path -----------------
+
+// seedCredsConnection creates a connection with encrypted credentials
+// and returns its id. The slug + creds shape are configurable so
+// tests can exercise R2 / S3 / generic.
+func seedCredsConnection(t *testing.T, s *Server, slug string, creds map[string]string) int64 {
+	t.Helper()
+	if len(s.secret) == 0 {
+		// Encrypt requires a 32-byte AES key. newTestServer doesn't
+		// populate s.secret, so seed a deterministic test key here
+		// rather than threading a secret through every callsite.
+		s.secret = []byte("0123456789abcdef0123456789abcdef")
+	}
+	credsJSON, _ := json.Marshal(creds)
+	enc, err := Encrypt(s.secret, string(credsJSON))
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	conn, err := s.store.CreateConnectionExt(ConnectionInput{
+		UserID: 1, AppSlug: slug, AppName: slug, Name: "test",
+		AuthType: "aws_sigv4", EncryptedCreds: enc,
+		ProjectID: "proj-1", CreatedVia: "integration",
+	})
+	if err != nil {
+		t.Fatalf("create conn: %v", err)
+	}
+	return conn.ID
+}
+
+func TestCallback_GetCredentials_RejectsMissingPermission(t *testing.T) {
+	s := newTestServer(t)
+	connID := seedCredsConnection(t, s, "cloudflare-r2", map[string]string{"access_key_id": "AKIA"})
+	// Manifest declares the role + binding but NOT the permission.
+	manifest := sdk.Manifest{
+		Schema: sdk.SchemaCurrent, Name: "storage",
+		Requires: sdk.Requires{
+			Integrations: []sdk.IntegrationDep{
+				{Role: "backend", Kind: "integration", CompatibleSlugs: []string{"cloudflare-r2"}},
+			},
+		},
+	}
+	installID := seedInstallWithBindings(t, s, "storage", manifest, map[string]any{"backend": float64(connID)})
+
+	req := httptest.NewRequest("GET", "/apps/callback/connections/"+itoa(connID)+"/credentials", nil)
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "platform.connections.read_credentials") {
+		t.Errorf("expected error to name missing permission, got: %s", rec.Body.String())
+	}
+}
+
+func TestCallback_GetCredentials_RejectsUnboundConnection(t *testing.T) {
+	s := newTestServer(t)
+	connID := seedCredsConnection(t, s, "cloudflare-r2", map[string]string{"access_key_id": "AKIA"})
+	manifest := sdk.Manifest{
+		Schema: sdk.SchemaCurrent, Name: "storage",
+		Requires: sdk.Requires{
+			Permissions: []sdk.Permission{sdk.PermConnectionsReadCredentials},
+			Integrations: []sdk.IntegrationDep{
+				{Role: "backend", Kind: "integration", CompatibleSlugs: []string{"cloudflare-r2"}},
+			},
+		},
+	}
+	// Bind to a DIFFERENT connection id than the one we'll request.
+	installID := seedInstallWithBindings(t, s, "storage", manifest, map[string]any{"backend": float64(99)})
+
+	req := httptest.NewRequest("GET", "/apps/callback/connections/"+itoa(connID)+"/credentials", nil)
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCallback_GetCredentials_RejectsIncompatibleSlug(t *testing.T) {
+	s := newTestServer(t)
+	// Slug stored on the connection is openai-api, manifest only allows cloudflare-r2.
+	connID := seedCredsConnection(t, s, "openai-api", map[string]string{"api_key": "sk-1"})
+	manifest := sdk.Manifest{
+		Schema: sdk.SchemaCurrent, Name: "storage",
+		Requires: sdk.Requires{
+			Permissions: []sdk.Permission{sdk.PermConnectionsReadCredentials},
+			Integrations: []sdk.IntegrationDep{
+				{Role: "backend", Kind: "integration", CompatibleSlugs: []string{"cloudflare-r2"}},
+			},
+		},
+	}
+	installID := seedInstallWithBindings(t, s, "storage", manifest, map[string]any{"backend": float64(connID)})
+
+	req := httptest.NewRequest("GET", "/apps/callback/connections/"+itoa(connID)+"/credentials", nil)
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "compatible_slugs") {
+		t.Errorf("expected error mentioning compatible_slugs, got: %s", rec.Body.String())
+	}
+}
+
+func TestCallback_GetCredentials_HappyPath(t *testing.T) {
+	s := newTestServer(t)
+	connID := seedCredsConnection(t, s, "cloudflare-r2", map[string]string{
+		"account_id":        "abc123",
+		"access_key_id":     "AKIATEST",
+		"secret_access_key": "shhh",
+		"region":            "auto",
+	})
+	manifest := sdk.Manifest{
+		Schema: sdk.SchemaCurrent, Name: "storage",
+		Requires: sdk.Requires{
+			Permissions: []sdk.Permission{sdk.PermConnectionsReadCredentials},
+			Integrations: []sdk.IntegrationDep{
+				{Role: "backend", Kind: "integration", CompatibleSlugs: []string{"cloudflare-r2"}},
+			},
+		},
+	}
+	installID := seedInstallWithBindings(t, s, "storage", manifest, map[string]any{"backend": float64(connID)})
+
+	req := httptest.NewRequest("GET", "/apps/callback/connections/"+itoa(connID)+"/credentials", nil)
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var out sdk.ConnectionCredentials
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.ConnectionID != connID {
+		t.Errorf("ConnectionID = %d, want %d", out.ConnectionID, connID)
+	}
+	if out.Slug != "cloudflare-r2" {
+		t.Errorf("Slug = %q, want cloudflare-r2", out.Slug)
+	}
+	if out.Fields["account_id"] != "abc123" || out.Fields["access_key_id"] != "AKIATEST" {
+		t.Errorf("Fields missing expected values: %+v", out.Fields)
+	}
+}
+
 // --- helpers --------------------------------------------------------
 
 // installBoundConnection / installBoundApp / etc. are exercised

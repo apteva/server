@@ -596,6 +596,7 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 			 WHERE id=?`,
 			"static://"+dir, installID)
 		s.LoadInstalledApps()
+		s.reconcileAllAppDepBindings()
 		s.RemountStaticApps()
 		return nil
 	}
@@ -648,6 +649,7 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 		 WHERE id=?`,
 		pid, binPath, port, url, installID)
 	s.LoadInstalledApps()
+	s.reconcileAllAppDepBindings()
 	if err := s.registerAppMCP(installID); err != nil {
 		log.Printf("[APPS] register MCP install=%d: %v", installID, err)
 	}
