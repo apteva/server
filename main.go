@@ -242,14 +242,19 @@ func main() {
 			appsDir = downloadedPath
 		}
 	}
-	if err := catalog.LoadFromDir(appsDir); err != nil {
-		// First-boot fallback: catalog isn't on disk and we're not
-		// in the dev tree. Pull the latest tarball from
-		// apteva/integrations on github now so the dashboard's
-		// Integrations page has data to render. Fail-open: if
-		// github is unreachable we log + continue with an empty
-		// catalog (the dashboard surfaces a retry path elsewhere
-		// at /api/integrations/catalog/download for power users).
+	loadErr := catalog.LoadFromDir(appsDir)
+	// First-boot fallback: catalog isn't on disk OR is empty. We
+	// have to check both because filepath.Glob (used inside
+	// LoadFromDir) returns (nil, nil) for a missing directory
+	// rather than an error, so a fresh install whose data dir has
+	// never been populated would silently pass the err-only check
+	// and the dashboard would show "No apps found" forever.
+	// Pull the latest tarball from apteva/integrations on github so
+	// the dashboard's Integrations page has data to render. Fail-
+	// open: if github is unreachable we log + continue with an
+	// empty catalog (the dashboard surfaces a retry path at
+	// /api/integrations/catalog/download for power users).
+	if loadErr != nil || catalog.Count() == 0 {
 		fmt.Fprintf(os.Stderr, "no integration catalog on disk — auto-downloading from %s\n", catalogRepo)
 		if _, _, derr := downloadIntegrationCatalog(catalog, dataDir); derr != nil {
 			fmt.Fprintf(os.Stderr, "catalog auto-download failed: %v (server starting with empty catalog)\n", derr)
