@@ -50,13 +50,43 @@ type InstanceManager struct {
 	// don't have an apps registry yet.
 	PostChannelsInit func(inst *Instance, ic *InstanceChannels)
 
-	// ComponentCatalog returns the chat-attachment components
-	// available to the agent in a given project. The channel MCP
+	// ComponentCatalog returns the chat-attachment components the
+	// channel MCP advertises to a specific instance. The channel MCP
 	// server bakes this list into the `respond` tool's description
 	// each turn so the agent learns what's renderable without a
 	// separate discovery call. Closes over the platform-wide
 	// InstalledAppsRegistry; left nil in tests.
-	ComponentCatalog func(projectID string) []componentEntry
+	//
+	// attachedMCPNames is the set of MCP server names the instance
+	// has in its user-configured mcp_servers list at start time. We
+	// filter the catalog by this set so an agent that only has the
+	// media MCP attached can't accidentally attach storage cards (or
+	// any other app's components) it has no tool access to.
+	ComponentCatalog func(projectID string, attachedMCPNames []string) []componentEntry
+}
+
+// extractMCPNames pulls the user-configured MCP server names off
+// a parsed instance config, in the order they appear. Used at
+// instance start to seed the channel MCP's component catalog
+// filter. System MCPs (`channels`, `apteva-server`) are added
+// later in Start and are never present at this point — which is
+// exactly what we want, since they don't ship UI components.
+func extractMCPNames(config map[string]any) []string {
+	raw, ok := config["mcp_servers"].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, e := range raw {
+		m, ok := e.(map[string]any)
+		if !ok {
+			continue
+		}
+		if name, _ := m["name"].(string); name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 func NewInstanceManager(dataDir, coreCmd string) *InstanceManager {
@@ -267,21 +297,34 @@ func (im *InstanceManager) Start(inst *Instance, providerEnv map[string]string, 
 	channelsMCP, err := newChannelMCPServer(ic.registry)
 	if err == nil {
 		channelsMCP.ic = ic
-		// Close over the project so the channel MCP can enumerate
-		// apps installed in this instance's project. Without this
-		// the `respond` tool description shows no AVAILABLE
-		// COMPONENTS section and the agent has to guess.
+		// Close over the project AND this instance's attached MCP
+		// servers so the channel MCP enumerates only the components
+		// belonging to apps the agent actually has access to. Pre-fix
+		// the catalog was project-wide — an agent with only the
+		// `media` MCP attached would still see `storage`'s file-card
+		// in its `respond` description and dutifully attach it,
+		// confusing the user (and the storage app, which the agent
+		// can't actually call).
+		//
+		// MCP names are extracted from the user-side mcp_servers
+		// list as it stood when the agent was started (system MCPs
+		// like `channels` and `apteva-server` aren't in this list
+		// yet at this point in Start — they get appended below).
+		// Frozen-at-start: changing the agent's MCP set requires a
+		// restart for the catalog to refresh.
 		if im.ComponentCatalog != nil {
 			pid := inst.ProjectID
+			attached := extractMCPNames(config)
 			channelsMCP.componentCatalog = func() []componentEntry {
-				return im.ComponentCatalog(pid)
+				return im.ComponentCatalog(pid, attached)
 			}
 			// One-time diagnostic: log the catalog the agent will
 			// see in its respond tool description. Helps confirm the
 			// pipeline is wired correctly without having to dig
 			// through truncated MCP-HTTP logs.
-			cat := im.ComponentCatalog(pid)
-			log.Printf("[CHAT-MCP] instance=%d project=%s catalog=%d entries", inst.ID, pid, len(cat))
+			cat := im.ComponentCatalog(pid, attached)
+			log.Printf("[CHAT-MCP] instance=%d project=%s attached_mcps=%v catalog=%d entries",
+				inst.ID, pid, attached, len(cat))
 			for _, c := range cat {
 				log.Printf("[CHAT-MCP]   {app:%q, name:%q, slots:%v}", c.App, c.Name, c.Slots)
 			}

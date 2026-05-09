@@ -69,8 +69,8 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 	// `respond` tool description carries a live list of UI components
 	// installed apps declare. Each turn the description regenerates
 	// from this; no separate discovery tool needed.
-	s.instances.ComponentCatalog = func(projectID string) []componentEntry {
-		return s.componentCatalogForProject(projectID)
+	s.instances.ComponentCatalog = func(projectID string, attachedMCPNames []string) []componentEntry {
+		return s.componentCatalogFor(projectID, attachedMCPNames)
 	}
 
 	// Fan NotifyInstanceAttach for every instance that's already
@@ -83,19 +83,45 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 	return reg, nil
 }
 
-// componentCatalogForProject walks every installed app visible to the
+// componentCatalogFor walks every installed app visible to the
 // project (own + globals) AND every integration the project has a
 // live connection for, flattening their declared ui_components into
 // the catalog the channel MCP advertises to the agent. App slug and
 // integration slug share a namespace — the dashboard's
 // ChatComponentMount looks them up the same way regardless of source.
-func (s *Server) componentCatalogForProject(projectID string) []componentEntry {
+//
+// attachedMCPNames filters the result to just the apps/integrations
+// the agent actually has MCP access to. When nil/empty the filter
+// is skipped (admin contexts, tests). For real instance starts the
+// caller passes the user-configured mcp_servers names so an agent
+// can only render cards for tools it can actually call.
+func (s *Server) componentCatalogFor(projectID string, attachedMCPNames []string) []componentEntry {
 	out := make([]componentEntry, 0, 8)
+
+	// Build the allowed-set lookup once per call. Empty/nil means
+	// "no filter" — preserves callers that want the full project
+	// catalog (none today, but tests + future admin views might).
+	var allowed map[string]bool
+	if len(attachedMCPNames) > 0 {
+		allowed = make(map[string]bool, len(attachedMCPNames))
+		for _, n := range attachedMCPNames {
+			allowed[n] = true
+		}
+	}
+	keep := func(app string) bool {
+		if allowed == nil {
+			return true
+		}
+		return allowed[app]
+	}
 
 	// Apps: from the in-memory installed-apps registry, scoped to
 	// project + globals.
 	if s.installedApps != nil {
 		for _, a := range s.installedApps.ListForProject(projectID) {
+			if !keep(a.AppName) {
+				continue
+			}
 			for _, c := range a.Manifest.Provides.UIComponents {
 				if c.Name == "" || c.Entry == "" {
 					continue
@@ -133,6 +159,9 @@ func (s *Server) componentCatalogForProject(projectID string) []componentEntry {
 					continue
 				}
 				seen[slug] = true
+				if !keep(slug) {
+					continue
+				}
 				tmpl := s.catalog.Get(slug)
 				if tmpl == nil {
 					continue

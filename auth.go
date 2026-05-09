@@ -466,11 +466,36 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "user not found", http.StatusNotFound)
 		return
 	}
-	writeJSON(w, map[string]any{
+	resp := map[string]any{
 		"user_id":    u.ID,
 		"email":      u.Email,
 		"created_at": u.CreatedAt.UTC().Format(time.RFC3339),
-	})
+		"onboarded":  u.OnboardedAt != nil,
+	}
+	if u.OnboardedAt != nil {
+		resp["onboarded_at"] = u.OnboardedAt.UTC().Format(time.RFC3339)
+	}
+	writeJSON(w, resp)
+}
+
+// POST /auth/onboarding/complete — flips users.onboarded_at to now for
+// the authenticated user. Idempotent at the store level (IS NULL guard
+// prevents overwriting the original timestamp on retry).
+func (s *Server) handleCompleteOnboarding(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	if userID == 0 {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := s.store.MarkUserOnboarded(userID); err != nil {
+		http.Error(w, "failed to mark onboarded", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
 }
 
 // POST /auth/password — change the logged-in user's password. Requires

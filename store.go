@@ -11,10 +11,11 @@ import (
 )
 
 type User struct {
-	ID           int64     `json:"id"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID           int64      `json:"id"`
+	Email        string     `json:"email"`
+	PasswordHash string     `json:"-"`
+	CreatedAt    time.Time  `json:"created_at"`
+	OnboardedAt  *time.Time `json:"onboarded_at,omitempty"`
 }
 
 type APIKey struct {
@@ -227,6 +228,17 @@ func (s *Store) migrate() error {
 	`)
 	if err != nil {
 		return err
+	}
+
+	// onboarded_at: NULL for users who haven't finished the welcome flow.
+	// First-time deploy of this column backfills pre-existing users from
+	// created_at so we don't trap them in onboarding on upgrade. The
+	// PRAGMA guard ensures the backfill runs exactly once — on every
+	// subsequent boot we mustn't overwrite NULLs of users who registered
+	// between boots and haven't completed onboarding yet.
+	if !columnExists(s.db, "users", "onboarded_at") {
+		s.db.Exec("ALTER TABLE users ADD COLUMN onboarded_at DATETIME")
+		s.db.Exec("UPDATE users SET onboarded_at = created_at WHERE onboarded_at IS NULL")
 	}
 
 	// Migrations for existing DBs — silently ignored if columns already exist
@@ -582,13 +594,19 @@ func (s *Store) HasUsers() bool {
 func (s *Store) GetUserByEmail(email string) (*User, error) {
 	var u User
 	var createdAt string
+	var onboardedAt sql.NullString
 	err := s.db.QueryRow(
-		"SELECT id, email, password_hash, created_at FROM users WHERE email = ?", email,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash, &createdAt)
+		"SELECT id, email, password_hash, created_at, onboarded_at FROM users WHERE email = ?", email,
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &createdAt, &onboardedAt)
 	if err != nil {
 		return nil, err
 	}
 	u.CreatedAt, _ = parseTime(createdAt)
+	if onboardedAt.Valid {
+		if t, err := parseTime(onboardedAt.String); err == nil {
+			u.OnboardedAt = &t
+		}
+	}
 	return &u, nil
 }
 
@@ -598,14 +616,31 @@ func (s *Store) GetUserByEmail(email string) (*User, error) {
 func (s *Store) GetUserByID(id int64) (*User, error) {
 	var u User
 	var createdAt string
+	var onboardedAt sql.NullString
 	err := s.db.QueryRow(
-		"SELECT id, email, password_hash, created_at FROM users WHERE id = ?", id,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash, &createdAt)
+		"SELECT id, email, password_hash, created_at, onboarded_at FROM users WHERE id = ?", id,
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &createdAt, &onboardedAt)
 	if err != nil {
 		return nil, err
 	}
 	u.CreatedAt, _ = parseTime(createdAt)
+	if onboardedAt.Valid {
+		if t, err := parseTime(onboardedAt.String); err == nil {
+			u.OnboardedAt = &t
+		}
+	}
 	return &u, nil
+}
+
+// MarkUserOnboarded stamps onboarded_at = now for a user that hasn't
+// finished the welcome flow yet. Idempotent: the IS NULL guard means a
+// re-call won't overwrite the original timestamp.
+func (s *Store) MarkUserOnboarded(userID int64) error {
+	_, err := s.db.Exec(
+		"UPDATE users SET onboarded_at = CURRENT_TIMESTAMP WHERE id = ? AND onboarded_at IS NULL",
+		userID,
+	)
+	return err
 }
 
 // UpdateUserPassword rewrites a user's bcrypt hash. The caller must
@@ -1069,6 +1104,30 @@ func parseTime(s string) (time.Time, error) {
 
 func (s *Store) DeleteExpiredSessions() {
 	s.db.Exec("DELETE FROM sessions WHERE expires_at < ?", time.Now().UTC().Format("2006-01-02 15:04:05"))
+}
+
+// columnExists checks whether `col` is present on `table`. Used by
+// migrations that need to distinguish "first deploy of this column"
+// from "subsequent boot" so that one-shot backfills don't repeat.
+func columnExists(db *sql.DB, table, col string) bool {
+	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			continue
+		}
+		if name == col {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Channels ---
