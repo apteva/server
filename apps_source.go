@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -69,6 +70,14 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return 0, "", err
 	}
+	// Share GOCACHE + GOMODCACHE across every app build instead of
+	// giving each (app × version) its own ~900 MB private cache. The
+	// shared dir lives under a hidden .gobuild/ sibling so it can't
+	// collide with an app called "gocache" or "gomodcache".
+	gobuildDir := filepath.Join(sup.cacheDir, ".gobuild")
+	if err := os.MkdirAll(gobuildDir, 0755); err != nil {
+		return 0, "", err
+	}
 
 	progress(fmt.Sprintf("Cloning %s@%s…", src.Repo, ref))
 	if err := cloneOrUpdate(srcDir, src.Repo, ref); err != nil {
@@ -78,7 +87,7 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 	// Pass the progress callback through so goBuild can update the
 	// status as toolchain output arrives — "Downloading X dependencies",
 	// "Extracting…", "Linking binary…" instead of one stale phrase.
-	if err := goBuild(srcDir, entry, binPath, dir, progress); err != nil {
+	if err := goBuild(srcDir, entry, binPath, gobuildDir, progress); err != nil {
 		return 0, "", fmt.Errorf("go build: %w", err)
 	}
 
@@ -414,5 +423,74 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 	// up to date. Anything still parked from the previous version
 	// can be terminated. No-op on fresh installs (nothing pending).
 	s.localApps.RetireOld(installID, 5*time.Second)
+	// Reclaim disk: every prior version of this app under
+	// <cacheDir>/<name>/<old-version>/ is dead weight now that NEW
+	// is healthy. We keep the just-installed version + one previous
+	// (most-recent by mtime) as a fallback if the user manually pins
+	// back, and rm -rf the rest. Best-effort: errors are logged but
+	// don't fail the install.
+	if removed := pruneOldAppVersions(s.localApps.cacheDir, m.Name, m.Version, 1); len(removed) > 0 {
+		log.Printf("[APPS-SOURCE] reclaimed %d stale version dir(s) for %s: %v", len(removed), m.Name, removed)
+	}
 	return nil
+}
+
+// pruneOldAppVersions deletes <cacheDir>/<appName>/<version>/ subdirs
+// other than `keepCurrent` and the `keepRecent` most-recently-modified
+// other versions. Returns the list of deleted version names. Safe to
+// call concurrently across apps; per-app calls are serialised by the
+// caller's lockApp lease.
+func pruneOldAppVersions(cacheDir, appName, keepCurrent string, keepRecent int) []string {
+	appDir := filepath.Join(cacheDir, appName)
+	entries, err := os.ReadDir(appDir)
+	if err != nil {
+		return nil
+	}
+	type verEntry struct {
+		name    string
+		modTime time.Time
+	}
+	var others []verEntry
+	for _, e := range entries {
+		if !e.IsDir() || e.Name() == keepCurrent {
+			continue
+		}
+		// Only touch dirs that look like a version (contain a dot or
+		// start with a digit) — never touch sibling files or the
+		// shared .gobuild/ cache (which lives one level up anyway).
+		n := e.Name()
+		if n == "" || strings.HasPrefix(n, ".") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		others = append(others, verEntry{name: n, modTime: info.ModTime()})
+	}
+	// Sort descending by mtime; keep the first keepRecent.
+	sort.Slice(others, func(i, j int) bool { return others[i].modTime.After(others[j].modTime) })
+	if keepRecent < 0 {
+		keepRecent = 0
+	}
+	if keepRecent >= len(others) {
+		return nil
+	}
+	var removed []string
+	for _, o := range others[keepRecent:] {
+		path := filepath.Join(appDir, o.name)
+		// Re-verify a data/ dir doesn't exist directly under the
+		// version path — the SDK keeps user data at <version>/data/
+		// for older app builds; we don't want to nuke that. Newer
+		// installs put data under a per-install dir elsewhere.
+		if _, err := os.Stat(filepath.Join(path, "data")); err == nil {
+			continue
+		}
+		if err := os.RemoveAll(path); err != nil {
+			log.Printf("[APPS-SOURCE] prune %s/%s: %v", appName, o.name, err)
+			continue
+		}
+		removed = append(removed, o.name)
+	}
+	return removed
 }
