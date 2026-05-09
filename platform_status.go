@@ -22,6 +22,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -174,8 +176,18 @@ func (p *platformStatusPoller) poll() {
 	// turns a stale-by-one-key manifest into a false positive (which is
 	// how this very check first fired even though the user was on the
 	// latest published bundle).
+	// Only fire the pill when the manifest is STRICTLY AHEAD of the
+	// running CLI. The previous string-inequality check fired any
+	// time the two diverged — including when the operator was running
+	// a build ahead of the published manifest (e.g. mid-release, or
+	// after the tag pushed but before someone bumped version.json on
+	// main). semverLess does a numeric component-wise compare so
+	// "0.11.0" < "0.11.1" but "0.11.0" >/= "0.10.2".
 	cliCurrent, _ := current["cli"].(string)
-	view.UpdateAvailable = m.Version != "" && cliCurrent != "" && cliCurrent != "dev" && cliCurrent != m.Version
+	view.UpdateAvailable = m.Version != "" &&
+		cliCurrent != "" &&
+		cliCurrent != "dev" &&
+		semverLess(cliCurrent, m.Version)
 
 	p.mu.Lock()
 	p.view = view
@@ -231,4 +243,51 @@ func (s *Server) handlePlatformStatusRefresh(w http.ResponseWriter, r *http.Requ
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(s.platformStatus.Refresh())
+}
+
+// semverLess returns true if a is strictly less than b under semver
+// numeric ordering. Components are compared as integers, so "0.10.0"
+// > "0.9.9" (the lexicographic compare would get this wrong). Pre-
+// release / build suffixes are ignored — anything past a "-" or "+"
+// is treated as equal at that component. Unparseable components
+// fall back to string compare for that one position. Good enough
+// for the only consumer (the dashboard's update-available pill);
+// don't grow this into a full semver lib unless a second consumer
+// shows up.
+func semverLess(a, b string) bool {
+	stripPre := func(s string) string {
+		for _, sep := range []string{"-", "+"} {
+			if i := strings.Index(s, sep); i >= 0 {
+				s = s[:i]
+			}
+		}
+		return s
+	}
+	ap := strings.Split(stripPre(a), ".")
+	bp := strings.Split(stripPre(b), ".")
+	n := len(ap)
+	if len(bp) > n {
+		n = len(bp)
+	}
+	for i := 0; i < n; i++ {
+		var av, bv string
+		if i < len(ap) {
+			av = ap[i]
+		}
+		if i < len(bp) {
+			bv = bp[i]
+		}
+		ai, aerr := strconv.Atoi(av)
+		bi, berr := strconv.Atoi(bv)
+		if aerr == nil && berr == nil {
+			if ai != bi {
+				return ai < bi
+			}
+			continue
+		}
+		if av != bv {
+			return av < bv
+		}
+	}
+	return false
 }
