@@ -136,6 +136,20 @@ type Server struct {
 type appsRegistry = framework.Registry
 
 func main() {
+	// --preflight is a fast-exit health gate the CLI runs against
+	// a freshly-extracted binary BEFORE flipping the load-bearing
+	// `bin/current` symlink. Loads config, opens the DB read-only,
+	// binds an ephemeral high port to confirm the new build is at
+	// least syntactically capable of booting on this host, then
+	// exits 0. Anything that fails here means "don't activate this
+	// version" — the CLI keeps the prior version active and reports
+	// the failure to the operator.
+	for _, arg := range os.Args[1:] {
+		if arg == "--preflight" {
+			os.Exit(runPreflight())
+		}
+	}
+
 	// Check for MCP server modes
 	for i, arg := range os.Args[1:] {
 		if arg == "--mcp-proxy" {
@@ -195,6 +209,17 @@ func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
+	}
+
+	// Auto-rollback safety net: bump the boot-attempts counter
+	// before we do anything that could panic. Once /health is
+	// stably 200 we'll zero it (see ScheduleHealthyMark below).
+	// The CLI's rollbackIfFailed checks this counter on its next
+	// invocation; ≥ rollbackThreshold while last-good differs
+	// from active means the supervisor's restart loop is thrashing
+	// on a broken binary, and the CLI flips bin/current back.
+	if n := BumpBootAttempts(); n > 1 {
+		fmt.Fprintf(os.Stderr, "boot attempt #%d (counter resets after a healthy /health)\n", n)
 	}
 
 	dbPath := os.Getenv("DB_PATH")
@@ -1141,6 +1166,14 @@ func main() {
 
 	fmt.Fprintf(os.Stderr, "apteva-server v%s (core=%s cli=%s dashboard=%s integrations=%s build=%s) running on :%s\n",
 		Version, CoreVersion, CLIVersion, DashboardVersion, IntegrationsVersion, BuildTime, port)
+
+	// Now that the listener is up, schedule the auto-rollback
+	// "this build is healthy" promotion. After healthyDuration of
+	// continuous /health success the goroutine writes
+	// last-good-version + zeros boot-attempts. See boot_status.go
+	// for the contract; the CLI side is rollbackIfFailed in
+	// apteva/layout.go.
+	ScheduleHealthyMark(port, Version)
 
 	// Listener was started earlier (before sidecar spawn) so apps can
 	// call back during their OnMount. Just block here until shutdown.

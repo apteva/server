@@ -1,7 +1,7 @@
 // IssueCard — chat-attachment card for a single GitHub issue.
 //
 // The agent calls
-//   respond(components=[{app:"github", name:"issue-card", props:{...}}])
+// respond(components=[{ app: "github", name: "issue-card", props:{...}}])
 // and this card mounts under the agent's message bubble.
 //
 // v1 renders from inline props — the agent passes what it just got
@@ -86,28 +86,28 @@ export default function IssueCard(props) {
     const url = issue.html_url;
     const repo = props.repo;
     return (<Card>
-      <CardHeader vendor={githubVendor} title={repo} subtitle={`#${issue.number} · ${issue.title}`} status={{ label: pill.label, variant: pill.variant === "info" ? "active" : pill.variant === "success" ? "live" : "muted" }} action={{ label: "View on GitHub", href: url }}/>
-      <div className="px-3 py-3 flex flex-col gap-3">
-        <div className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-          <Avatar src={issue.user.avatar_url} name={issue.user.login} size={16}/>
-          <span className="text-zinc-900 dark:text-zinc-100">{issue.user.login}</span>
-          <span className="text-zinc-500">opened this issue</span>
-          <span className="ml-auto inline-flex items-center gap-1">
-            <MessageCircle className="w-3.5 h-3.5 text-zinc-500"/>
-            <span className="text-zinc-600 dark:text-zinc-400">{issue.comments}</span>
-          </span>
-        </div>
-        <DataList items={[
+ <CardHeader vendor={githubVendor} title={repo} subtitle={`#${issue.number} · ${issue.title}`} status={{ label: pill.label, variant: pill.variant === "info" ? "active" : pill.variant === "success" ? "live" : "muted" }} action={{ label: "View on GitHub", href: url }}/>
+ <div className="px-3 py-3 flex flex-col gap-3">
+ <div className="flex items-center gap-2 text-xs text-text-muted">
+ <Avatar src={issue.user.avatar_url} name={issue.user.login} size={16}/>
+ <span className="text-text">{issue.user.login}</span>
+ <span className="text-text-dim">opened this issue</span>
+ <span className="ml-auto inline-flex items-center gap-1">
+ <MessageCircle className="w-3.5 h-3.5 text-text-dim"/>
+ <span className="text-text-muted">{issue.comments}</span>
+ </span>
+ </div>
+ <DataList items={[
             { label: "Status", value: <StatusPill variant={pill.variant}>{pill.label}</StatusPill> },
             ...(issue.labels && issue.labels.length > 0
                 ? [
                     {
                         label: "Labels",
                         value: (<span className="flex flex-wrap gap-1">
-                        {issue.labels.map((l) => (<span key={l.name} className="px-1.5 py-0.5 rounded text-[11px] font-medium" style={{ backgroundColor: `#${l.color}33`, color: `#${l.color}` }}>
-                            {l.name}
-                          </span>))}
-                      </span>),
+ {issue.labels.map((l) => (<span key={l.name} className="px-1.5 py-0.5 rounded text-[11px] font-medium" style={{ backgroundColor: `#${l.color}33`, color: `#${l.color}` }}>
+ {l.name}
+ </span>))}
+ </span>),
                     },
                 ]
                 : []),
@@ -116,16 +116,16 @@ export default function IssueCard(props) {
                     {
                         label: "Assignees",
                         value: (<span className="inline-flex items-center gap-1">
-                        {issue.assignees.map((a) => (<span key={a.login} className="inline-flex items-center gap-1 text-xs text-zinc-900 dark:text-zinc-100">
-                            <Avatar src={a.avatar_url} name={a.login} size={12}/>
-                            {a.login}
-                          </span>))}
-                      </span>),
+ {issue.assignees.map((a) => (<span key={a.login} className="inline-flex items-center gap-1 text-xs text-text">
+ <Avatar src={a.avatar_url} name={a.login} size={12}/>
+ {a.login}
+ </span>))}
+ </span>),
                     },
                 ]
                 : []),
         ]}/>
-      </div>
-    </Card>);
+ </div>
+ </Card>);
 }
 //# sourceMappingURL=IssueCard.js.map

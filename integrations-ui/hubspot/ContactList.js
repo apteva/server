@@ -17,15 +17,15 @@ export default function ContactList(props) {
     const visible = items.slice(0, max);
     const overflow = items.length - visible.length;
     return (<Card fullWidth>
-      <CardHeader vendor={hubspotVendor} title={props.title || "Contacts"} subtitle={props.subtitle || (items.length > 0 ? `${items.length} contact${items.length === 1 ? "" : "s"}` : "No contacts")}/>
-      {visible.length === 0 && (<div className="px-3 py-3 text-xs text-zinc-500">No contacts match.</div>)}
-      {visible.map((c, i) => {
+ <CardHeader vendor={hubspotVendor} title={props.title || "Contacts"} subtitle={props.subtitle || (items.length > 0 ? `${items.length} contact${items.length === 1 ? "" : "s"}` : "No contacts")}/>
+ {visible.length === 0 && (<div className="px-3 py-3 text-xs text-text-dim">No contacts match.</div>)}
+ {visible.map((c, i) => {
             const name = nameOf(c);
-            return (<Row key={c.contact_id} flush={i === 0} href={recordUrl("contact", c.contact_id, props.portal_id)} leading={<Avatar src="" name={name} size={20}/>} title={name} subtitle={[c.jobtitle, c.company_name].filter(Boolean).join(" · ")} trailing={c.last_engagement_at && (<span className="text-zinc-500 tabular-nums">{timeAgo(c.last_engagement_at)}</span>)}/>);
+            return (<Row key={c.contact_id} flush={i === 0} href={recordUrl("contact", c.contact_id, props.portal_id)} leading={<Avatar src="" name={name} size={20}/>} title={name} subtitle={[c.jobtitle, c.company_name].filter(Boolean).join(" ·")} trailing={c.last_engagement_at && (<span className="text-text-dim tabular-nums">{timeAgo(c.last_engagement_at)}</span>)}/>);
         })}
-      {overflow > 0 && (<div className="px-3 py-1.5 text-[11px] text-zinc-500 border-t border-zinc-200 dark:border-zinc-800">
-          +{overflow} more
-        </div>)}
-    </Card>);
+ {overflow > 0 && (<div className="px-3 py-1.5 text-[11px] text-text-dim border-t border-border">
+ +{overflow} more
+ </div>)}
+ </Card>);
 }
 //# sourceMappingURL=ContactList.js.map

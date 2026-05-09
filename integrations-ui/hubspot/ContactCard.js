@@ -32,31 +32,31 @@ export default function ContactCard(props) {
     const url = recordUrl("contact", p.contact_id, p.portal_id);
     const fullName = [p.firstname, p.lastname].filter(Boolean).join(" ") || p.email || `Contact ${p.contact_id}`;
     return (<Card>
-      <CardHeader vendor={hubspotVendor} title={fullName} subtitle={p.jobtitle || p.email} status={{ label: lifecycle.label, variant: pillToDot(lifecycle.variant) }} action={{ label: "View in HubSpot", href: url }}/>
-      <div className="px-3 py-3 flex flex-col gap-3">
-        <div className="flex items-center gap-3">
-          <Avatar src={gravatarFor(p.email)} name={fullName} size={32}/>
-          <div className="min-w-0 flex-1">
-            <div className="text-zinc-900 dark:text-zinc-100 font-medium truncate">{fullName}</div>
-            {p.jobtitle && p.company_name && (<div className="text-zinc-500 text-xs truncate">
-                {p.jobtitle} · {p.company_name}
-              </div>)}
-          </div>
-        </div>
+ <CardHeader vendor={hubspotVendor} title={fullName} subtitle={p.jobtitle || p.email} status={{ label: lifecycle.label, variant: pillToDot(lifecycle.variant) }} action={{ label: "View in HubSpot", href: url }}/>
+ <div className="px-3 py-3 flex flex-col gap-3">
+ <div className="flex items-center gap-3">
+ <Avatar src={gravatarFor(p.email)} name={fullName} size={32}/>
+ <div className="min-w-0 flex-1">
+ <div className="text-text font-medium truncate">{fullName}</div>
+ {p.jobtitle && p.company_name && (<div className="text-text-dim text-xs truncate">
+ {p.jobtitle} · {p.company_name}
+ </div>)}
+ </div>
+ </div>
 
-        <DataList items={[
-            ...(p.email ? [{ label: "Email", value: <a href={`mailto:${p.email}`} className="text-blue-500 hover:underline">{p.email}</a> }] : []),
+ <DataList items={[
+            ...(p.email ? [{ label: "Email", value: <a href={`mailto:${p.email}`} className="text-accent hover:underline">{p.email}</a> }] : []),
             ...(p.phone ? [{ label: "Phone", value: <span className="tabular-nums">{p.phone}</span> }] : []),
             { label: "Lifecycle", value: <StatusPill variant={lifecycle.variant}>{lifecycle.label}</StatusPill> },
             ...(p.last_engagement_at ? [{
                     label: "Last contact",
                     value: (<span>
-                  <span className="text-zinc-900 dark:text-zinc-100">{p.last_engagement_kind || "engagement"}</span>
-                  <span className="text-zinc-500"> · {timeAgo(p.last_engagement_at)}</span>
-                </span>),
+ <span className="text-text">{p.last_engagement_kind || "engagement"}</span>
+ <span className="text-text-dim"> · {timeAgo(p.last_engagement_at)}</span>
+ </span>),
                 }] : []),
         ]}/>
-      </div>
-    </Card>);
+ </div>
+ </Card>);
 }
 //# sourceMappingURL=ContactCard.js.map

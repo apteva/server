@@ -1,5 +1,5 @@
 interface Stage {
-    /** HubSpot internal stage id (e.g. "contractsent"). */
+    /** HubSpot internal stage id (e.g."contractsent"). */
     id: string;
     /** Optional human label override for custom pipelines. */
     label?: string;
@@ -8,7 +8,7 @@ interface Stage {
     total?: string | number;
 }
 interface Props {
-    /** Pipeline display name (e.g. "Sales pipeline"). */
+    /** Pipeline display name (e.g."Sales pipeline"). */
     pipeline_label?: string;
     /** Pipeline id — used for the canonical link. */
     pipeline?: string;

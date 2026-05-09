@@ -1,23 +1,24 @@
 // Shared helpers for every Notion UI component.
 //
-//   * notionVendor — CardHeader brand pill (logo + name + color)
-//   * URL builders — page, database, search, comment
-//   * formatters — relative time, page-icon resolver, property-value
-//     pretty-printer for typed Notion properties
+// * notionVendor — CardHeader brand pill (logo + name + color)
+// * URL builders — page, database, search, comment
+// * formatters — relative time, page-icon resolver, property-value
+// pretty-printer for typed Notion properties
 //
 // Mirrors the lib/hubspot.tsx / lib/github.tsx pattern: every vendor
 // lib has the same shape (logo + vendor + URLs + helpers).
 // ─── Brand mark ───────────────────────────────────────────────────
 //
-// Notion's mark is famously a stylized "N". currentColor so
+// Notion's mark is famously a stylized"N". currentColor so
 // CardHeader's vendor pill recolors it via inline `style.color`.
 export const notionLogo = (<svg viewBox="0 0 32 32" width="14" height="14" fill="currentColor" aria-hidden>
-    <path d="M5 4.7l3.4 2.3a1 1 0 00.8.2l16-1.6c.5-.1 1 .2 1 .7v18.4c0 .5-.4.9-.9.9L8 26.2c-.5 0-1-.3-1.2-.7l-1.7-3.4V4.7zm4 4.5v15l16-.9V8.3l-16 .9zm3.4 2.3v9.3l1.7.1V13l4.7 7.7 1.6.1v-9.4l-1.7-.1v6.6l-4.6-7.4-1.7.1z"/>
-  </svg>);
-// Notion's brand is monochrome — they use near-black `#191919` for
-// the wordmark on light surfaces. Works fine in both themes since
-// our vendor pill applies it as ink color on a low-alpha bg.
-export const NOTION_BRAND_COLOR = "#191919";
+ <path d="M5 4.7l3.4 2.3a1 1 0 00.8.2l16-1.6c.5-.1 1 .2 1 .7v18.4c0 .5-.4.9-.9.9L8 26.2c-.5 0-1-.3-1.2-.7l-1.7-3.4V4.7zm4 4.5v15l16-.9V8.3l-16 .9zm3.4 2.3v9.3l1.7.1V13l4.7 7.7 1.6.1v-9.4l-1.7-.1v6.6l-4.6-7.4-1.7.1z"/>
+ </svg>);
+// Notion's brand is famously monochrome — black on light surfaces,
+// white on dark. The single-color form would render unreadable on
+// a dark card (#191919 text on #1c1c1f bg), so we ship a {light,
+// dark} pair and CardHeader picks per active mode.
+export const NOTION_BRAND_COLOR = { light: "#191919", dark: "#e8e8e8" };
 export const notionVendor = {
     name: "Notion",
     logo: notionLogo,
@@ -27,7 +28,7 @@ export const notionVendor = {
 //
 // Notion pages are addressable by id with dashes stripped. A page or
 // database canonical URL is `https://www.notion.so/<id-no-dashes>`.
-// When a workspace slug is known (e.g. "apteva"), the URL becomes
+// When a workspace slug is known (e.g."apteva"), the URL becomes
 // `https://www.notion.so/apteva/<id>` — same target, prettier link.
 function bareId(id) {
     if (!id)
@@ -45,7 +46,7 @@ export function searchUrl(query) {
     return `https://www.notion.so/search?query=${encodeURIComponent(query)}`;
 }
 // ─── Formatters ───────────────────────────────────────────────────
-/** "3d ago" / "12m ago" / "just now". */
+/**"3d ago" /"12m ago" /"just now". */
 export function timeAgo(iso) {
     if (!iso)
         return "";
@@ -82,13 +83,13 @@ export function PageIcon({ icon, fallback, size = 18, className = "" }) {
     }
     if (isEmoji) {
         return (<span aria-hidden className={`flex-shrink-0 inline-flex items-center justify-center leading-none ${className}`} style={style}>
-        {icon}
-      </span>);
+ {icon}
+ </span>);
     }
     // Generic doc fallback — minimal page glyph, monochrome.
-    return (<span aria-hidden className={`flex-shrink-0 inline-flex items-center justify-center rounded-sm bg-zinc-100 dark:bg-zinc-800 text-zinc-500 font-medium ${className}`} style={style}>
-      {fallback ? fallback.charAt(0).toUpperCase() : "·"}
-    </span>);
+    return (<span aria-hidden className={`flex-shrink-0 inline-flex items-center justify-center rounded-sm bg-bg-hover text-text-dim font-medium ${className}`} style={style}>
+ {fallback ? fallback.charAt(0).toUpperCase() : "·"}
+ </span>);
 }
 export function parseSchema(raw) {
     if (!raw)
@@ -102,17 +103,17 @@ export function parseSchema(raw) {
 export function propTone(type) {
     switch (type) {
         case "select":
-        case "status": return "bg-blue-500/10 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400";
+        case "status": return "bg-accent/10 text-blue-700 dark:bg-accent/15 dark:text-blue-400";
         case "multi_select": return "bg-purple-500/10 text-purple-700 dark:bg-purple-500/15 dark:text-purple-400";
         case "person":
         case "created_by":
         case "last_edited_by": return "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400";
         case "date":
         case "created_time":
-        case "last_edited_time": return "bg-amber-500/10 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400";
-        case "checkbox": return "bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300";
+        case "last_edited_time": return "bg-warn/10 text-amber-700 dark:bg-warn/15 dark:text-amber-400";
+        case "checkbox": return "bg-bg-hover text-text dark:bg-bg-hover dark:text-zinc-300";
         case "number": return "bg-cyan-500/10 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-400";
-        default: return "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
+        default: return "bg-zinc-100 text-text dark:bg-bg-hover dark:text-zinc-300";
     }
 }
 //# sourceMappingURL=notion.js.map

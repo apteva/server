@@ -22,18 +22,18 @@ export default function PageList(props) {
         ? "No pages"
         : `${pages.length} page${pages.length === 1 ? "" : "s"}`;
     return (<Card fullWidth>
-      <CardHeader vendor={notionVendor} title={label} subtitle={subtitle} action={props.url ? { label: "Open in Notion", href: props.url } : undefined}/>
+ <CardHeader vendor={notionVendor} title={label} subtitle={subtitle} action={props.url ? { label: "Open in Notion", href: props.url } : undefined}/>
 
-      <div className="flex flex-col">
-        {visible.map((page, i) => (<Row key={page.page_id} flush={i === 0} href={pageUrl(page.page_id, props.workspace)} leading={<PageIcon icon={page.icon} fallback={page.title} size={18}/>} title={page.title} subtitle={page.parent_path} trailing={<span className="inline-flex items-center gap-1.5 text-zinc-500">
-                {page.last_edited_by && <span>{page.last_edited_by}</span>}
-                {page.last_edited_at && (<span className="tabular-nums">· {timeAgo(page.last_edited_at)}</span>)}
-              </span>}/>))}
-        {overflow > 0 && (<div className="px-4 py-2 text-xs text-zinc-500 border-t border-zinc-200 dark:border-zinc-800">
-            +{overflow} more
-          </div>)}
-      </div>
-    </Card>);
+ <div className="flex flex-col">
+ {visible.map((page, i) => (<Row key={page.page_id} flush={i === 0} href={pageUrl(page.page_id, props.workspace)} leading={<PageIcon icon={page.icon} fallback={page.title} size={18}/>} title={page.title} subtitle={page.parent_path} trailing={<span className="inline-flex items-center gap-1.5 text-text-dim">
+ {page.last_edited_by && <span>{page.last_edited_by}</span>}
+ {page.last_edited_at && (<span className="tabular-nums">· {timeAgo(page.last_edited_at)}</span>)}
+ </span>}/>))}
+ {overflow > 0 && (<div className="px-4 py-2 text-xs text-text-dim border-t border-border">
+ +{overflow} more
+ </div>)}
+ </div>
+ </Card>);
 }
 function parseList(raw) {
     if (!raw)

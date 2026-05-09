@@ -4,7 +4,7 @@ interface Props {
     content?: string;
     /** HubSpot internal priority id: LOW | MEDIUM | HIGH | URGENT. */
     hs_ticket_priority?: string;
-    /** Pipeline-stage id (per-pipeline; "1" is "New" in the default). */
+    /** Pipeline-stage id (per-pipeline;"1" is"New" in the default). */
     hs_pipeline_stage?: string;
     /** Optional human-friendly stage label override. */
     stage_label?: string;

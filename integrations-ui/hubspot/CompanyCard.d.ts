@@ -9,7 +9,7 @@ interface Props {
     country?: string;
     lifecyclestage?: string;
     /** Sum of open-deal amounts associated with this company. Caller
-     *  pre-computes (avoids an extra fetch on render). */
+    * pre-computes (avoids an extra fetch on render). */
     open_deal_total?: string;
     open_deal_count?: number;
     description?: string;

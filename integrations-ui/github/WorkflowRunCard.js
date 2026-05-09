@@ -58,55 +58,55 @@ export default function WorkflowRunCard(props) {
     const done = p.jobs.filter((j) => j.status === "completed").length;
     const tally = total > 0 ? `${done}/${total} jobs done` : null;
     return (<Card>
-      <CardHeader vendor={githubVendor} title={`${p.repo} · ${p.workflow_name}`} subtitle={<span>
-            Run #{p.run_number} · {p.event} · <span className="font-mono">{p.head_branch}</span>
-          </span>} status={{ label: overall.label, variant: overall.dot }} action={{ label: "View run", href: url }}/>
+ <CardHeader vendor={githubVendor} title={`${p.repo} · ${p.workflow_name}`} subtitle={<span>
+ Run #{p.run_number} · {p.event} · <span className="font-mono">{p.head_branch}</span>
+ </span>} status={{ label: overall.label, variant: overall.dot }} action={{ label: "View run", href: url }}/>
 
-      <div className="px-4 py-3 flex flex-col gap-3">
-        {/* actor + relative time + duration */}
-        <div className="flex items-center gap-2 text-xs">
-          <Avatar src={p.actor_avatar_url} name={p.actor_login} size={18}/>
-          <span className="text-zinc-900 dark:text-zinc-100 font-medium">{p.actor_login}</span>
-          <span className="text-zinc-500">triggered {timeAgo(p.started_at)}</span>
-          <span className="ml-auto text-zinc-500 tabular-nums">
-            {formatDuration(p.duration_ms)}
-          </span>
-        </div>
+ <div className="px-4 py-3 flex flex-col gap-3">
+ {/* actor + relative time + duration */}
+ <div className="flex items-center gap-2 text-xs">
+ <Avatar src={p.actor_avatar_url} name={p.actor_login} size={18}/>
+ <span className="text-text font-medium">{p.actor_login}</span>
+ <span className="text-text-dim">triggered {timeAgo(p.started_at)}</span>
+ <span className="ml-auto text-text-dim tabular-nums">
+ {formatDuration(p.duration_ms)}
+ </span>
+ </div>
 
-        <DataList items={[
+ <DataList items={[
             {
                 label: "Status",
                 value: (<span className="inline-flex items-center gap-2">
-                  <StatusPill variant={overall.variant}>{overall.label}</StatusPill>
-                  {tally && <span className="text-xs text-zinc-500">{tally}</span>}
-                </span>),
+ <StatusPill variant={overall.variant}>{overall.label}</StatusPill>
+ {tally && <span className="text-xs text-text-dim">{tally}</span>}
+ </span>),
             },
             ...(p.head_sha
                 ? [{
                         label: "Commit",
                         value: (<span className="font-mono text-xs">
-                      <span className="text-zinc-900 dark:text-zinc-100">{shortSha(p.head_sha)}</span>
-                      <span className="text-zinc-500"> · {p.head_branch}</span>
-                    </span>),
+ <span className="text-text">{shortSha(p.head_sha)}</span>
+ <span className="text-text-dim"> · {p.head_branch}</span>
+ </span>),
                     }]
                 : []),
         ]}/>
 
-        {/* Job list — small dot + name + duration. Most CI runs have
-            6–10 jobs so this stays compact. */}
-        {p.jobs.length > 0 && (<ul className="flex flex-col divide-y divide-zinc-100 dark:divide-zinc-800 border-t border-zinc-100 dark:border-zinc-800 -mx-4">
-            {p.jobs.map((j) => (<li key={j.name} className="flex items-center gap-3 px-4 py-1.5 text-xs">
-                <StatusDot variant={jobDot(j.conclusion, j.status)}>
-                  {j.status === "in_progress" ? "running" : j.status === "queued" ? "queued" : (j.conclusion || "—")}
-                </StatusDot>
-                <span className="text-zinc-900 dark:text-zinc-100 font-medium font-mono">{j.name}</span>
-                <span className="ml-auto text-zinc-500 tabular-nums">
-                  {j.status === "queued" ? "—" : formatDuration(j.duration_ms)}
-                </span>
-              </li>))}
-          </ul>)}
-      </div>
-    </Card>);
+ {/* Job list — small dot + name + duration. Most CI runs have
+        6–10 jobs so this stays compact. */}
+ {p.jobs.length > 0 && (<ul className="flex flex-col divide-y divide-border-subtle border-t border-border-subtle -mx-4">
+ {p.jobs.map((j) => (<li key={j.name} className="flex items-center gap-3 px-4 py-1.5 text-xs">
+ <StatusDot variant={jobDot(j.conclusion, j.status)}>
+ {j.status === "in_progress" ? "running" : j.status === "queued" ? "queued" : (j.conclusion || "—")}
+ </StatusDot>
+ <span className="text-text font-medium font-mono">{j.name}</span>
+ <span className="ml-auto text-text-dim tabular-nums">
+ {j.status === "queued" ? "—" : formatDuration(j.duration_ms)}
+ </span>
+ </li>))}
+ </ul>)}
+ </div>
+ </Card>);
 }
 function parseJobs(raw) {
     if (!raw)

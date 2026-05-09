@@ -2,7 +2,7 @@ interface Props {
     deal_id: string;
     dealname?: string;
     amount?: string;
-    /** Internal stage id (e.g. "contractsent"). */
+    /** Internal stage id (e.g."contractsent"). */
     dealstage?: string;
     /** Optional human label override for custom pipelines. */
     dealstage_label?: string;
@@ -13,7 +13,7 @@ interface Props {
     company_name?: string;
     company_domain?: string;
     /** HubSpot portal id — required to build the canonical record URL.
-     *  Absent → the link still resolves via HubSpot's portal redirect. */
+    * Absent → the link still resolves via HubSpot's portal redirect. */
     portal_id?: string;
     preview?: boolean;
     projectId?: string;

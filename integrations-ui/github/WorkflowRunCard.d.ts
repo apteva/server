@@ -12,7 +12,7 @@ interface Props {
     conclusion?: "success" | "failure" | "cancelled" | "skipped" | "neutral" | "timed_out";
     head_branch?: string;
     head_sha?: string;
-    /** What triggered the run — "push", "pull_request", "schedule", etc. */
+    /** What triggered the run —"push","pull_request","schedule", etc. */
     event?: string;
     run_number?: number;
     actor_login?: string;

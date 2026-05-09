@@ -12,7 +12,7 @@ const DEAL_STAGE = {
     appointmentscheduled: { label: "Appointment scheduled", variant: "info" },
     qualifiedtobuy: { label: "Qualified to buy", variant: "info" },
     presentationscheduled: { label: "Presentation scheduled", variant: "info" },
-    decisionmakerboughtin: { label: "Decision-maker bought in", variant: "info" },
+    decisionmakerboughtin: { label: "Decision-maker bought in ", variant: "info" },
     contractsent: { label: "Contract sent", variant: "warn" },
     closedwon: { label: "Closed (won)", variant: "success" },
     closedlost: { label: "Closed (lost)", variant: "error" },

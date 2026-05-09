@@ -57,7 +57,27 @@ type platformStatusView struct {
 	ReleaseNotesURL string                    `json:"release_notes_url,omitempty"`
 	Components      []platformComponentStatus `json:"components"`
 	UpdateAvailable bool                      `json:"update_available"` // true if any component says so
-	Error           string                    `json:"error,omitempty"`
+	// InstallMethod tells the dashboard which UPGRADE COPY to render
+	// in the update-available banner. Six flavors:
+	//   "foreground"      — running directly (no supervisor); banner
+	//                       offers a one-click `apteva update` button.
+	//   "systemd-user"    — service install, user scope; banner
+	//                       offers the same button (supervisor handles
+	//                       the restart through the symlink flip).
+	//   "systemd-system"  — service install, system scope; same.
+	//   "launchd-user"    — macOS LaunchAgent; same.
+	//   "launchd-system"  — macOS LaunchDaemon; same.
+	//   "docker"          — running inside a container; banner shows
+	//                       the `docker pull && docker compose up`
+	//                       snippet (no in-app button).
+	//   "source"          — sibling-monorepo build; banner shows
+	//                       `git pull && build-local.sh`.
+	//   "packaged"        — dpkg/rpm/pacman owns the binary; banner
+	//                       shows `apt upgrade apteva` etc.
+	// Detection happens server-side because the dashboard can't see
+	// the host filesystem; see install_method.go for the logic.
+	InstallMethod string `json:"install_method,omitempty"`
+	Error         string `json:"error,omitempty"`
 }
 
 type platformStatusPoller struct {
@@ -136,6 +156,7 @@ func (p *platformStatusPoller) poll() {
 		PolledAt:        now,
 		BundleVersion:   m.Version,
 		ReleaseNotesURL: m.ReleaseNotesURL,
+		InstallMethod:   detectInstallMethod(),
 	}
 
 	// versionInfo() (server/main.go) returns the locally-baked versions

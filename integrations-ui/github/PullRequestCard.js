@@ -73,71 +73,71 @@ export default function PullRequestCard(props) {
     const url = pullRequestUrl(p.repo, p.pr_number);
     const StateIcon = p.merged ? GitMerge : GitPullRequest;
     return (<Card>
-      <CardHeader vendor={githubVendor} title={p.repo} subtitle={<span className="inline-flex items-center gap-1.5">
-            <StateIcon className="w-3.5 h-3.5 inline-block"/>
-            <span>#{p.pr_number} · {p.title}</span>
-          </span>} status={{ label: status.label, variant: status.dot }} action={{ label: "View on GitHub", href: url }}/>
+ <CardHeader vendor={githubVendor} title={p.repo} subtitle={<span className="inline-flex items-center gap-1.5">
+ <StateIcon className="w-3.5 h-3.5 inline-block"/>
+ <span>#{p.pr_number} · {p.title}</span>
+ </span>} status={{ label: status.label, variant: status.dot }} action={{ label: "View on GitHub", href: url }}/>
 
-      <div className="px-4 py-3 flex flex-col gap-3">
-        {/* author + creation time + diff stats */}
-        <div className="flex items-center gap-2 text-xs">
-          <Avatar src={p.user.avatar_url} name={p.user.login} size={18}/>
-          <span className="text-zinc-900 dark:text-zinc-100 font-medium">{p.user.login}</span>
-          <span className="text-zinc-500">opened {timeAgo(p.created_at)}</span>
-          <span className="ml-auto inline-flex items-center gap-2 tabular-nums">
-            <span className="text-green-600 dark:text-green-500">+{p.additions}</span>
-            <span className="text-red-600 dark:text-red-500">−{p.deletions}</span>
-            <span className="text-zinc-500">in {p.changed_files} file{p.changed_files === 1 ? "" : "s"}</span>
-          </span>
-        </div>
+ <div className="px-4 py-3 flex flex-col gap-3">
+ {/* author + creation time + diff stats */}
+ <div className="flex items-center gap-2 text-xs">
+ <Avatar src={p.user.avatar_url} name={p.user.login} size={18}/>
+ <span className="text-text font-medium">{p.user.login}</span>
+ <span className="text-text-dim">opened {timeAgo(p.created_at)}</span>
+ <span className="ml-auto inline-flex items-center gap-2 tabular-nums">
+ <span className="text-green-600 dark:text-success">+{p.additions}</span>
+ <span className="text-red-600 dark:text-error">−{p.deletions}</span>
+ <span className="text-text-dim">in {p.changed_files} file{p.changed_files === 1 ? "" : "s"}</span>
+ </span>
+ </div>
 
-        <DataList items={[
+ <DataList items={[
             {
                 label: "Status",
                 value: (<span className="inline-flex items-center gap-2">
-                  <StatusPill variant={status.variant}>{status.label}</StatusPill>
-                  {p.mergeable === "conflicting" && (<StatusPill variant="warn">conflicts</StatusPill>)}
-                </span>),
+ <StatusPill variant={status.variant}>{status.label}</StatusPill>
+ {p.mergeable === "conflicting" && (<StatusPill variant="warn">conflicts</StatusPill>)}
+ </span>),
             },
             {
                 label: "Branch",
                 value: (<span className="font-mono text-xs">
-                  <span className="text-zinc-900 dark:text-zinc-100">{p.head_ref || "—"}</span>
-                  <span className="text-zinc-500 mx-1">→</span>
-                  <span className="text-zinc-500">{p.base_ref}</span>
-                </span>),
+ <span className="text-text">{p.head_ref || "—"}</span>
+ <span className="text-text-dim mx-1">→</span>
+ <span className="text-text-dim">{p.base_ref}</span>
+ </span>),
             },
             ...(p.reviewers.length > 0
                 ? [{
                         label: "Reviewers",
                         value: (<span className="inline-flex items-center gap-2">
-                      <AvatarStack users={p.reviewers} size={18} max={4}/>
-                      {reviewSummary && <span className="text-xs text-zinc-500">{reviewSummary}</span>}
-                    </span>),
+ <AvatarStack users={p.reviewers} size={18} max={4}/>
+ {reviewSummary && <span className="text-xs text-text-dim">{reviewSummary}</span>}
+ </span>),
                     }]
                 : []),
             ...(p.labels.length > 0
                 ? [{
                         label: "Labels",
                         value: (<span className="inline-flex flex-wrap gap-1">
-                      {p.labels.map((l) => (<span key={l.name} className="text-[11px] font-medium px-1.5 py-0.5 rounded-md" style={{
+ {p.labels.map((l) => (<span key={l.name} className="text-[11px] font-medium px-1.5 py-0.5 rounded-md" style={{
                                     color: `#${l.color}`,
                                     backgroundColor: `#${l.color}1F`,
                                 }}>
-                          {l.name}
-                        </span>))}
-                    </span>),
+ {l.name}
+ </span>))}
+ </span>),
                     }]
                 : []),
             {
                 label: "Activity",
-                value: (<span className="text-xs text-zinc-500 tabular-nums">
-                  {p.comments} comment{p.comments === 1 ? "" : "s"}
-                </span>),
+                value: (<span className="text-xs text-text-dim tabular-nums">
+ {p.comments} comment{p.comments === 1 ? "" : "s"}
+ </span>),
             },
         ]}/>
-      </div>
-    </Card>);
+ </div>
+ </Card>);
 }
 function reviewLine(approvals, changes, total) {
     if (total === 0)
@@ -149,7 +149,7 @@ function reviewLine(approvals, changes, total) {
         parts.push(`${changes} changes requested`);
     if (parts.length === 0)
         parts.push("no review yet");
-    return `· ${parts.join(", ")}`;
+    return `· ${parts.join(",")}`;
 }
 // Make sure shortSha stays imported when not used yet — guards
 // against linter pruning when other cards in the same lib reach

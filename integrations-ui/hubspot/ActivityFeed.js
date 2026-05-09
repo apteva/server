@@ -12,7 +12,7 @@ const previewEvents = [
     { id: "1", kind: "email", timestamp: minusHoursISO(2), title: "Inbound email from Sarah Chen", subtitle: "Acme · board review tomorrow", engagement_id: "30100" },
     { id: "2", kind: "task", timestamp: minusHoursISO(2), title: "Created task: Draft renewal response", subtitle: "Owner: marc-olivier", engagement_id: "30101" },
     { id: "3", kind: "note", timestamp: minusHoursISO(3), title: "Note added to Acme Q4 Renewal", subtitle: "Pricing locked at $48k", engagement_id: "30102" },
-    { id: "4", kind: "record_change", timestamp: minusHoursISO(28), title: "Deal stage → Contract sent", subtitle: "Acme Q4 Renewal · was Decision-maker bought in" },
+    { id: "4", kind: "record_change", timestamp: minusHoursISO(28), title: "Deal stage → Contract sent", subtitle: "Acme Q4 Renewal · was Decision-maker bought in " },
     { id: "5", kind: "call", timestamp: minusHoursISO(31), title: "Call logged with Lisa Rodriguez", subtitle: "Initech · 12 min", engagement_id: "30103" },
     { id: "6", kind: "email", timestamp: minusHoursISO(54), title: "Outbound email to David Park", subtitle: "Globex · pilot follow-up", engagement_id: "30104" },
 ];

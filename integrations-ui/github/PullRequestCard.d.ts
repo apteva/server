@@ -1,5 +1,5 @@
 interface Props {
-    /** "owner/name" — required. */
+    /**"owner/name" — required. */
     repo: string;
     /** Pull-request number, required. */
     pr_number: number;
@@ -7,7 +7,7 @@ interface Props {
     state?: "open" | "closed";
     /** GitHub returns merged separately on closed PRs. */
     merged?: boolean;
-    /** Draft PRs don't get the "open" treatment. */
+    /** Draft PRs don't get the"open" treatment. */
     draft?: boolean;
     user_login?: string;
     user_avatar_url?: string;

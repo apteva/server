@@ -9,7 +9,7 @@ interface Props {
     url?: string;
     /** Total rows in the database. */
     item_count?: number;
-    /** Comma-separated "Name:type" pairs. */
+    /** Comma-separated"Name:type" pairs. */
     schema?: string;
     /** Comma-separated view names. */
     views?: string;

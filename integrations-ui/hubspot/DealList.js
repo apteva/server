@@ -1,5 +1,5 @@
 // DealList — dense rows of deals. Same field shape as DealCard but
-// for the "show me my open deals" use case. Footer summarises count
+// for the"show me my open deals" use case. Footer summarises count
 // and total $ across all rows (not just the visible ones).
 import { Card, CardHeader, StatusPill, Row } from "@apteva/ui-kit";
 import { dealStageMeta, formatUSD, formatRelativeDate, recordUrl, addDaysISO, hubspotVendor } from "./lib/hubspot";
@@ -17,19 +17,19 @@ export default function DealList(props) {
     const overflow = items.length - visible.length;
     const total = items.reduce((acc, d) => acc + (Number(d.amount ?? 0) || 0), 0);
     return (<Card fullWidth>
-      <CardHeader vendor={hubspotVendor} title={props.title || "Deals"} subtitle={props.subtitle || (items.length > 0 ? `${items.length} deal${items.length === 1 ? "" : "s"} · ${formatUSD(total)} total` : "No deals")}/>
-      {visible.length === 0 && (<div className="px-3 py-3 text-xs text-zinc-500">No deals match.</div>)}
-      {visible.map((d, i) => {
+ <CardHeader vendor={hubspotVendor} title={props.title || "Deals"} subtitle={props.subtitle || (items.length > 0 ? `${items.length} deal${items.length === 1 ? "" : "s"} · ${formatUSD(total)} total` : "No deals")}/>
+ {visible.length === 0 && (<div className="px-3 py-3 text-xs text-text-dim">No deals match.</div>)}
+ {visible.map((d, i) => {
             const stage = dealStageMeta(d.dealstage, d.dealstage_label);
             return (<Row key={d.deal_id} flush={i === 0} href={recordUrl("deal", d.deal_id, props.portal_id)} title={d.dealname || `Deal ${d.deal_id}`} subtitle={d.company_name} trailing={<span className="inline-flex items-center gap-2">
-                <span className="tabular-nums text-zinc-900 dark:text-zinc-100">{formatUSD(d.amount)}</span>
-                <StatusPill variant={stage.variant}>{stage.label}</StatusPill>
-                {d.closedate && (<span className="text-zinc-500 hidden sm:inline tabular-nums">{formatRelativeDate(d.closedate)}</span>)}
-              </span>}/>);
+ <span className="tabular-nums text-text">{formatUSD(d.amount)}</span>
+ <StatusPill variant={stage.variant}>{stage.label}</StatusPill>
+ {d.closedate && (<span className="text-text-dim hidden sm:inline tabular-nums">{formatRelativeDate(d.closedate)}</span>)}
+ </span>}/>);
         })}
-      {overflow > 0 && (<div className="px-3 py-1.5 text-[11px] text-zinc-500 border-t border-zinc-200 dark:border-zinc-800">
-          +{overflow} more
-        </div>)}
-    </Card>);
+ {overflow > 0 && (<div className="px-3 py-1.5 text-[11px] text-text-dim border-t border-border">
+ +{overflow} more
+ </div>)}
+ </Card>);
 }
 //# sourceMappingURL=DealList.js.map

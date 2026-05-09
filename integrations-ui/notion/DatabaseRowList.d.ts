@@ -9,7 +9,7 @@ interface RowItem {
     /** Person property — first assignee's display name. */
     owner?: string;
     owner_avatar?: string;
-    /** Date property — pre-formatted like "May 11" or ISO. */
+    /** Date property — pre-formatted like"May 11" or ISO. */
     due?: string;
     /** Plain-text excerpt of the row's first content block. */
     excerpt?: string;
@@ -22,11 +22,11 @@ interface Props {
     database_icon?: string;
     workspace?: string;
     url?: string;
-    /** Optional view / filter label — "In progress", "This sprint", … */
+    /** Optional view / filter label —"In progress","This sprint", … */
     view_label?: string;
     /** Either an array (preferred) or JSON-encoded string. */
     rows?: RowItem[] | string;
-    /** Cap rendered rows; rest collapses into "+N more". Default 10. */
+    /** Cap rendered rows; rest collapses into"+N more". Default 10. */
     max?: number;
     preview?: boolean;
     projectId?: string;

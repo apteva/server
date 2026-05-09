@@ -16,8 +16,8 @@ interface Props {
     last_edited_by_avatar?: string;
     /** Plain-text excerpt of the first content block (≤ 240 chars). */
     excerpt?: string;
-    /** Comma-separated "label=value" pairs for database-row properties.
-     *  Example: "Status=In progress, Owner=ari, Due=May 11". */
+    /** Comma-separated"label=value" pairs for database-row properties.
+    * Example:"Status=In progress, Owner=ari, Due=May 11". */
     properties?: string;
     preview?: boolean;
     projectId?: string;

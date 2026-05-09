@@ -15,19 +15,19 @@ export default function TicketList(props) {
     const overflow = items.length - visible.length;
     const urgent = items.filter((t) => t.hs_ticket_priority === "HIGH" || t.hs_ticket_priority === "URGENT").length;
     return (<Card fullWidth>
-      <CardHeader vendor={hubspotVendor} title={props.title || "Tickets"} subtitle={props.subtitle || (items.length > 0 ? `${items.length} open${urgent > 0 ? ` · ${urgent} HIGH+` : ""}` : "Nothing open")}/>
-      {visible.length === 0 && (<div className="px-3 py-3 text-xs text-zinc-500">No tickets match.</div>)}
-      {visible.map((t, i) => {
+ <CardHeader vendor={hubspotVendor} title={props.title || "Tickets"} subtitle={props.subtitle || (items.length > 0 ? `${items.length} open${urgent > 0 ? ` · ${urgent} HIGH+` : ""}` : "Nothing open")}/>
+ {visible.length === 0 && (<div className="px-3 py-3 text-xs text-text-dim">No tickets match.</div>)}
+ {visible.map((t, i) => {
             const priority = ticketPriorityMeta(t.hs_ticket_priority);
             const stage = ticketStageMeta(t.hs_pipeline_stage, t.stage_label);
             return (<Row key={t.ticket_id} flush={i === 0} href={recordUrl("ticket", t.ticket_id, props.portal_id)} leading={<StatusPill variant={priority.variant}>{priority.label}</StatusPill>} title={t.subject || `Ticket ${t.ticket_id}`} subtitle={t.company_name} trailing={<span className="inline-flex items-center gap-2">
-                <StatusPill variant={stage.variant}>{stage.label}</StatusPill>
-                {t.createdate && (<span className="text-zinc-500 hidden sm:inline">{timeAgo(t.createdate)}</span>)}
-              </span>}/>);
+ <StatusPill variant={stage.variant}>{stage.label}</StatusPill>
+ {t.createdate && (<span className="text-text-dim hidden sm:inline">{timeAgo(t.createdate)}</span>)}
+ </span>}/>);
         })}
-      {overflow > 0 && (<div className="px-3 py-1.5 text-[11px] text-zinc-500 border-t border-zinc-200 dark:border-zinc-800">
-          +{overflow} more
-        </div>)}
-    </Card>);
+ {overflow > 0 && (<div className="px-3 py-1.5 text-[11px] text-text-dim border-t border-border">
+ +{overflow} more
+ </div>)}
+ </Card>);
 }
 //# sourceMappingURL=TicketList.js.map

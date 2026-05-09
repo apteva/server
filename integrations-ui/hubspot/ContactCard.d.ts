@@ -10,7 +10,7 @@ interface Props {
     company_name?: string;
     company_domain?: string;
     /** ISO timestamp of the most recent engagement (email open, call,
-     *  note, etc.) — surfaced as "emailed 3d ago" / "no contact in 14d". */
+    * note, etc.) — surfaced as"emailed 3d ago" /"no contact in 14d". */
     last_engagement_at?: string;
     last_engagement_kind?: string;
     portal_id?: string;

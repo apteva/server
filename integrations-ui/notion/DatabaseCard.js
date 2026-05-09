@@ -3,10 +3,10 @@
 // hasn't seen before.
 //
 // Surfaces:
-//   - icon + title + breadcrumb
-//   - optional description block
-//   - schema as small typed pills (Status: select · Owner: person · …)
-//   - item count + last-edited byline
+// - icon + title + breadcrumb
+// - optional description block
+// - schema as small typed pills (Status: select · Owner: person · …)
+// - item count + last-edited byline
 import { Avatar, Card, CardHeader, DataList } from "@apteva/ui-kit";
 import { databaseUrl, notionVendor, PageIcon, parseSchema, propTone, timeAgo, } from "./lib/notion";
 const previewSample = {
@@ -43,17 +43,17 @@ export default function DatabaseCard(props) {
     const url = props.url || databaseUrl(p.database_id, p.workspace);
     const schemaProps = parseSchema(p.schema);
     return (<Card>
-      <CardHeader vendor={notionVendor} title={<span className="inline-flex items-center gap-2">
-            <PageIcon icon={p.icon} fallback={p.title} size={16}/>
-            <span className="truncate">{p.title}</span>
-          </span>} subtitle={p.parent_path || undefined} action={{ label: "Open database", href: url }}/>
+ <CardHeader vendor={notionVendor} title={<span className="inline-flex items-center gap-2">
+ <PageIcon icon={p.icon} fallback={p.title} size={16}/>
+ <span className="truncate">{p.title}</span>
+ </span>} subtitle={p.parent_path || undefined} action={{ label: "Open database", href: url }}/>
 
-      <div className="px-4 py-3 flex flex-col gap-3">
-        {p.description && (<p className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed line-clamp-2">
-            {p.description}
-          </p>)}
+ <div className="px-4 py-3 flex flex-col gap-3">
+ {p.description && (<p className="text-sm text-text leading-relaxed line-clamp-2">
+ {p.description}
+ </p>)}
 
-        <DataList items={[
+ <DataList items={[
             {
                 label: "Items",
                 value: (<span className="tabular-nums">{p.item_count.toLocaleString()}</span>),
@@ -62,25 +62,25 @@ export default function DatabaseCard(props) {
                 ? [{
                         label: "Schema",
                         value: (<span className="inline-flex flex-wrap gap-1">
-                      {schemaProps.map((s) => (<span key={s.name} className={`text-[11px] font-medium px-1.5 py-0.5 rounded-md ${propTone(s.type)}`}>
-                          {s.name}
-                          <span className="opacity-60 ml-1">{s.type}</span>
-                        </span>))}
-                    </span>),
+ {schemaProps.map((s) => (<span key={s.name} className={`text-[11px] font-medium px-1.5 py-0.5 rounded-md ${propTone(s.type)}`}>
+ {s.name}
+ <span className="opacity-60 ml-1">{s.type}</span>
+ </span>))}
+ </span>),
                     }]
                 : []),
             ...(p.views
-                ? [{ label: "Views", value: <span className="text-sm text-zinc-700 dark:text-zinc-300">{p.views}</span> }]
+                ? [{ label: "Views", value: <span className="text-sm text-text">{p.views}</span> }]
                 : []),
         ]}/>
 
-        {/* last-edited byline */}
-        <div className="flex items-center gap-2 text-xs pt-1">
-          {p.last_edited_by && (<Avatar src={p.last_edited_by_avatar} name={p.last_edited_by} size={18}/>)}
-          {p.last_edited_by && (<span className="text-zinc-900 dark:text-zinc-100 font-medium">{p.last_edited_by}</span>)}
-          <span className="text-zinc-500">edited {timeAgo(p.last_edited_at)}</span>
-        </div>
-      </div>
-    </Card>);
+ {/* last-edited byline */}
+ <div className="flex items-center gap-2 text-xs pt-1">
+ {p.last_edited_by && (<Avatar src={p.last_edited_by_avatar} name={p.last_edited_by} size={18}/>)}
+ {p.last_edited_by && (<span className="text-text font-medium">{p.last_edited_by}</span>)}
+ <span className="text-text-dim">edited {timeAgo(p.last_edited_at)}</span>
+ </div>
+ </div>
+ </Card>);
 }
 //# sourceMappingURL=DatabaseCard.js.map

@@ -24,30 +24,30 @@ export default function TicketCard(props) {
     const stage = ticketStageMeta(p.hs_pipeline_stage, p.stage_label);
     const url = recordUrl("ticket", p.ticket_id, p.portal_id);
     return (<Card>
-      <CardHeader vendor={hubspotVendor} title={p.subject || `Ticket ${p.ticket_id}`} subtitle={p.company_name} status={{ label: priority.label, variant: pillToDot(priority.variant) }} action={{ label: "View in HubSpot", href: url }}/>
-      <div className="px-3 py-3 flex flex-col gap-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          <StatusPill variant={priority.variant}>{priority.label} priority</StatusPill>
-          <StatusPill variant={stage.variant}>{stage.label}</StatusPill>
-          {p.comment_count !== undefined && p.comment_count > 0 && (<span className="text-[11px] text-zinc-500 inline-flex items-center gap-1"><MessageCircle className="w-3 h-3"/>{p.comment_count}</span>)}
-        </div>
+ <CardHeader vendor={hubspotVendor} title={p.subject || `Ticket ${p.ticket_id}`} subtitle={p.company_name} status={{ label: priority.label, variant: pillToDot(priority.variant) }} action={{ label: "View in HubSpot", href: url }}/>
+ <div className="px-3 py-3 flex flex-col gap-3">
+ <div className="flex items-center gap-2 flex-wrap">
+ <StatusPill variant={priority.variant}>{priority.label} priority</StatusPill>
+ <StatusPill variant={stage.variant}>{stage.label}</StatusPill>
+ {p.comment_count !== undefined && p.comment_count > 0 && (<span className="text-[11px] text-text-dim inline-flex items-center gap-1"><MessageCircle className="w-3 h-3"/>{p.comment_count}</span>)}
+ </div>
 
-        {p.content && (<div className="text-xs text-zinc-600 dark:text-zinc-400 line-clamp-3 border-l-2 border-zinc-200 dark:border-zinc-800 pl-2">
-            {p.content}
-          </div>)}
+ {p.content && (<div className="text-xs text-text-muted line-clamp-3 border-l-2 border-border pl-2">
+ {p.content}
+ </div>)}
 
-        <DataList items={[
+ <DataList items={[
             ...(p.company_name ? [{
                     label: "Company",
                     value: (<span className="inline-flex items-center gap-1.5">
-                  {p.company_domain && (<img src={faviconFor(p.company_domain)} alt="" width={12} height={12} className="rounded-sm"/>)}
-                  <span className="text-zinc-900 dark:text-zinc-100">{p.company_name}</span>
-                </span>),
+ {p.company_domain && (<img src={faviconFor(p.company_domain)} alt="" width={12} height={12} className="rounded-sm"/>)}
+ <span className="text-text">{p.company_name}</span>
+ </span>),
                 }] : []),
             ...(p.createdate ? [{ label: "Opened", value: timeAgo(p.createdate) }] : []),
             ...(p.hs_lastmodifieddate ? [{ label: "Updated", value: timeAgo(p.hs_lastmodifieddate) }] : []),
         ]}/>
-      </div>
-    </Card>);
+ </div>
+ </Card>);
 }
 //# sourceMappingURL=TicketCard.js.map

@@ -1,12 +1,15 @@
 import type { ReactNode } from "react";
 import type { CardVendor } from "@apteva/ui-kit";
 export declare const notionLogo: ReactNode;
-export declare const NOTION_BRAND_COLOR = "#191919";
+export declare const NOTION_BRAND_COLOR: {
+    light: string;
+    dark: string;
+};
 export declare const notionVendor: CardVendor;
 export declare function pageUrl(id: string, workspace?: string): string;
 export declare function databaseUrl(id: string, workspace?: string): string;
 export declare function searchUrl(query: string): string;
-/** "3d ago" / "12m ago" / "just now". */
+/**"3d ago" /"12m ago" /"just now". */
 export declare function timeAgo(iso?: string): string;
 /** Test fixture helper — same shape as the other libs. */
 export declare function minusHoursISO(h: number): string;
@@ -14,7 +17,7 @@ interface PageIconProps {
     /** Emoji string OR https URL. Anything else is treated as nothing. */
     icon?: string | null;
     /** Optional: render this letter when there's no icon (page title's
-     *  initial usually). Falls back to a generic doc glyph if absent. */
+    * initial usually). Falls back to a generic doc glyph if absent. */
     fallback?: string;
     size?: number;
     className?: string;
