@@ -206,9 +206,30 @@ func main() {
 		}
 	}
 
+	// Path defaults derive from APTEVA_HOME when it's set. This is
+	// the single source of truth for the v0.12+ install layout
+	// (~/.apteva/), and `apteva service install` writes a unit
+	// that only sets APTEVA_HOME — every other env var the
+	// foreground CLI used to pass explicitly now gets its default
+	// from here. Pre-v0.12 the server's bare defaults (8080,
+	// apteva-server.db, data/) ran because the CLI always
+	// supplied the right values; the systemd unit didn't, and on
+	// v0.12.0 production users started serving on :8080 against a
+	// fresh apteva-server.db while their real apteva.db sat
+	// unread next to it. v0.12.1 ties everything to APTEVA_HOME.
+	//
+	// Docker / Compose / standalone server (no APTEVA_HOME) keep
+	// the legacy defaults, since those operators set the env
+	// vars themselves and rely on the prior defaults if not.
+	home := os.Getenv("APTEVA_HOME")
+
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		if home != "" {
+			port = "5280" // canonical apteva foreground port
+		} else {
+			port = "8080" // legacy / docker default
+		}
 	}
 
 	// Auto-rollback safety net: bump the boot-attempts counter
@@ -224,17 +245,62 @@ func main() {
 
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
-		dbPath = "apteva-server.db"
+		if home != "" {
+			// Canonical name. apteva.db matches what the foreground
+			// CLI has always passed in via DB_PATH, so v0.11 users
+			// upgrading to v0.12.1 with a service install pick up
+			// their existing data instead of starting fresh.
+			dbPath = filepath.Join(home, "apteva.db")
+		} else {
+			dbPath = "apteva-server.db"
+		}
+	}
+
+	// One-shot rescue for v0.12.0 → v0.12.1: that release's bare
+	// default created APTEVA_HOME/apteva-server.db right next to
+	// the real APTEVA_HOME/apteva.db. v0.12.1 standardises on
+	// apteva.db. If we're configured to read apteva.db AND it
+	// doesn't exist yet AND apteva-server.db DOES exist in the
+	// same dir, rename the legacy file (and its WAL/SHM siblings)
+	// so the v0.12.0 user's data isn't abandoned a second time.
+	// Idempotent: subsequent boots find apteva.db present and
+	// skip the rename. Conservative: never overwrites an existing
+	// apteva.db.
+	if home != "" && dbPath == filepath.Join(home, "apteva.db") {
+		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+			legacy := filepath.Join(home, "apteva-server.db")
+			if _, err := os.Stat(legacy); err == nil {
+				_ = os.Rename(legacy, dbPath)
+				_ = os.Rename(legacy+"-wal", dbPath+"-wal")
+				_ = os.Rename(legacy+"-shm", dbPath+"-shm")
+				fmt.Fprintf(os.Stderr, "migrated DB: apteva-server.db → apteva.db (v0.12.0 layout fix)\n")
+			}
+		}
 	}
 
 	coreCmd := os.Getenv("CORE_CMD")
 	if coreCmd == "" {
-		coreCmd = "apteva-core"
+		if home != "" {
+			// In the v0.12 install layout the core binary is a
+			// symlink at ~/.apteva/bin/apteva-core that resolves
+			// through ~/.apteva/bin/current/. Pointing at the
+			// symlink rather than a versioned path means
+			// `apteva update` flips and the running server's
+			// next core spawn picks up the new binary
+			// transparently.
+			coreCmd = filepath.Join(home, "bin", "apteva-core")
+		} else {
+			coreCmd = "apteva-core"
+		}
 	}
 
 	dataDir := os.Getenv("DATA_DIR")
 	if dataDir == "" {
-		dataDir = "data"
+		if home != "" {
+			dataDir = home
+		} else {
+			dataDir = "data"
+		}
 	}
 
 	// If a snapshot was uploaded via /api/platform/restore, the server DB
