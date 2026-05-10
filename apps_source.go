@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,6 +29,32 @@ import (
 
 	sdk "github.com/apteva/app-sdk"
 )
+
+// versionDirRE matches a strict semver-shaped directory name. Used by
+// pruneOldAppVersions to gate destructive RemoveAll calls — anything
+// not matching this is reserved for the platform (per-install
+// `data/` lives next to version dirs since the v0.9 layout) and MUST
+// NOT be reaped. Pre-v0.14.3 the reclaimer only filtered names
+// starting with `.` and the comment LIED ("only touch dirs that
+// look like a version"); the tracking ticket from prod showed
+// `data` getting added to the reap set and silently destroying every
+// per-install SQLite DB on a sidecar respawn.
+//
+// Accepts: "0.1.0", "0.1.15", "1.0.0-rc1", "0.2.0+build7".
+// Rejects: "data", "tmp", "nightly", ".gobuild", "" .
+var versionDirRE = regexp.MustCompile(`^\d+\.\d+\.\d+([.+-].*)?$`)
+
+// reservedAppSiblings is an explicit allowlist denylist for non-
+// version directory names that the platform creates next to version
+// dirs. Belt-and-suspenders alongside versionDirRE: even if a future
+// contributor weakens or replaces the regex, named entries here stay
+// protected. Add to this set when introducing any new sibling layout.
+var reservedAppSiblings = map[string]bool{
+	"data":     true, // per-install DB + APTEVA_DATA_DIR
+	"releases": true, // reserved for future tarball cache
+	"tmp":      true, // future scratch
+	".gobuild": true, // shared GOCACHE/GOMODCACHE (also caught by dot-prefix)
+}
 
 // humaniseBuildLine turns a stray go build output line into something
 // short enough for the status pill in the dashboard. We ignore noise
@@ -467,11 +494,18 @@ func pruneOldAppVersions(cacheDir, appName, keepCurrent string, keepRecent int) 
 		if !e.IsDir() || e.Name() == keepCurrent {
 			continue
 		}
-		// Only touch dirs that look like a version (contain a dot or
-		// start with a digit) — never touch sibling files or the
-		// shared .gobuild/ cache (which lives one level up anyway).
 		n := e.Name()
-		if n == "" || strings.HasPrefix(n, ".") {
+		// Two layered guards. The pattern guard does the heavy
+		// lifting — versionDirRE matches strict semver, so a
+		// sibling like `data/` (per-install DB store since the
+		// v0.9 layout) never enters the reap set. The reserved-
+		// names allowlist is defense in depth so a future regex
+		// weakening can't silently re-introduce the bug. Both must
+		// pass before the entry's even a candidate.
+		if reservedAppSiblings[n] {
+			continue
+		}
+		if !versionDirRE.MatchString(n) {
 			continue
 		}
 		info, err := e.Info()
