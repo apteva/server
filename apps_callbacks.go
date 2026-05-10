@@ -466,8 +466,14 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		Tool  string         `json:"tool"`
 		Input map[string]any `json:"input"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	// 50 MiB is generous enough for typical file-bearing tool calls
+	// (storage.files_upload with a base64 PDF, media uploads, etc.).
+	// 1 MiB was the prior cap and silently truncated mid-base64 for
+	// any input larger than ~700 KB raw → cryptic "invalid json"
+	// errors with no body info. The error includes err.Error() now
+	// so EOF mid-decode is distinguishable from real malformed JSON.
+	if err := json.NewDecoder(io.LimitReader(r.Body, 50<<20)).Decode(&body); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if body.Tool == "" {
@@ -622,8 +628,14 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		Tool  string         `json:"tool"`
 		Input map[string]any `json:"input"`
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	// 50 MiB is generous enough for typical file-bearing tool calls
+	// (storage.files_upload with a base64 PDF, media uploads, etc.).
+	// 1 MiB was the prior cap and silently truncated mid-base64 for
+	// any input larger than ~700 KB raw → cryptic "invalid json"
+	// errors with no body info. The error includes err.Error() now
+	// so EOF mid-decode is distinguishable from real malformed JSON.
+	if err := json.NewDecoder(io.LimitReader(r.Body, 50<<20)).Decode(&body); err != nil {
+		http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if body.Tool == "" {
