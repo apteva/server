@@ -1,0 +1,169 @@
+{
+  "slug": "ticktick",
+  "name": "TickTick",
+  "description": "TickTick task management platform. Create, update, complete, and find tasks across projects.",
+  "logo": "https://www.google.com/s2/favicons?domain=ticktick.com&sz=128",
+  "categories": [
+    "task-management",
+    "ticktick",
+    "tasks",
+    "productivity",
+    "to-do"
+  ],
+  "base_url": "https://api.ticktick.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "Access Token",
+        "description": "TickTick OAuth access token (via TickTick Open API OAuth flow)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "find_tasks",
+      "description": "Retrieve all tasks from a specific project in TickTick. Returns a list of task objects including their IDs, titles, content, due dates, priorities, and completion status. Use the projectId to scope results to a particular project.",
+      "method": "GET",
+      "path": "/open/v1/project/{{param.projectId}}/data",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "The ID of the project (list) to retrieve tasks from. Use the TickTick project endpoints to discover available project IDs."
+          }
+        },
+        "required": [
+          "projectId"
+        ]
+      }
+    },
+    {
+      "name": "create_task",
+      "description": "Create a new task in TickTick. Provide a title and optionally set content, due date, priority, project assignment, and more. Returns the created task object with its assigned ID.",
+      "method": "POST",
+      "path": "/open/v1/task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "The title of the task."
+          },
+          "content": {
+            "type": "string",
+            "description": "The text content or description of the task."
+          },
+          "projectId": {
+            "type": "string",
+            "description": "The ID of the project (list) to add the task to. If omitted, the task is added to the Inbox."
+          },
+          "startDate": {
+            "type": "string",
+            "description": "The start date of the task in ISO 8601 format (e.g. 2025-01-15T09:00:00+0000)."
+          },
+          "dueDate": {
+            "type": "string",
+            "description": "The due date of the task in ISO 8601 format (e.g. 2025-01-20T17:00:00+0000)."
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "The timezone for the task dates (e.g. America/New_York)."
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Task priority level. 0 = none, 1 = low, 3 = medium, 5 = high."
+          },
+          "isAllDay": {
+            "type": "boolean",
+            "description": "Whether the task is an all-day task. Defaults to false."
+          }
+        },
+        "required": [
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "update_task",
+      "description": "Update an existing task in TickTick. Modify the title, content, due date, priority, or other properties of a task. Both taskId and projectId are required to identify the task. Returns the updated task object.",
+      "method": "POST",
+      "path": "/open/v1/task/{{param.taskId}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "The unique ID of the task to update."
+          },
+          "projectId": {
+            "type": "string",
+            "description": "The ID of the project (list) the task belongs to."
+          },
+          "title": {
+            "type": "string",
+            "description": "Updated title of the task."
+          },
+          "content": {
+            "type": "string",
+            "description": "Updated text content or description of the task."
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Updated start date in ISO 8601 format (e.g. 2025-01-15T09:00:00+0000)."
+          },
+          "dueDate": {
+            "type": "string",
+            "description": "Updated due date in ISO 8601 format (e.g. 2025-01-20T17:00:00+0000)."
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "The timezone for the task dates (e.g. America/New_York)."
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Updated task priority level. 0 = none, 1 = low, 3 = medium, 5 = high."
+          },
+          "isAllDay": {
+            "type": "boolean",
+            "description": "Whether the task is an all-day task."
+          }
+        },
+        "required": [
+          "taskId",
+          "projectId"
+        ]
+      }
+    },
+    {
+      "name": "complete_task",
+      "description": "Mark a task as complete in TickTick. Requires both the projectId and taskId to identify the task. The task will be moved to the completed state.",
+      "method": "POST",
+      "path": "/open/v1/project/{{param.projectId}}/task/{{param.taskId}}/complete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "The ID of the project (list) the task belongs to."
+          },
+          "taskId": {
+            "type": "string",
+            "description": "The unique ID of the task to mark as complete."
+          }
+        },
+        "required": [
+          "projectId",
+          "taskId"
+        ]
+      }
+    }
+  ]
+}

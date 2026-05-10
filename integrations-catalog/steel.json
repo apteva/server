@@ -1,0 +1,239 @@
+{
+  "slug": "steel",
+  "name": "Steel",
+  "description": "Steel.dev open-source headless browser API for AI agents. Spin up cloud browser sessions, capture cookies/storage as reusable contexts, or hit one-shot scrape/screenshot/PDF endpoints without managing a session.",
+  "logo": "https://www.google.com/s2/favicons?domain=steel.dev&sz=128",
+  "categories": [
+    "browser-automation",
+    "scraping",
+    "ai-agents",
+    "headless-browser",
+    "screenshots",
+    "pdf"
+  ],
+  "base_url": "https://api.steel.dev",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "steel-api-key": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "description": "Steel API key from https://app.steel.dev (Settings > API Keys)."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_session",
+      "description": "Create a new cloud browser session. Returns a session ID and a websocket URL (wss://connect.steel.dev?apiKey=...&sessionId=...) that Playwright/Puppeteer can connect to. Sessions persist cookies, localStorage, and tabs until released.",
+      "method": "POST",
+      "path": "/v1/sessions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sessionTimeout": {
+            "type": "integer",
+            "description": "Maximum session duration in seconds before auto-release."
+          },
+          "useProxy": {
+            "type": "boolean",
+            "description": "Route session traffic through Steel's residential proxy."
+          },
+          "solveCaptcha": {
+            "type": "boolean",
+            "description": "Enable Steel's automatic CAPTCHA solver."
+          },
+          "userAgent": {
+            "type": "string",
+            "description": "Custom user-agent string."
+          },
+          "region": {
+            "type": "string",
+            "description": "Region for the browser instance (e.g. 'us-east-1', 'eu-west-1')."
+          },
+          "blockAds": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_sessions",
+      "description": "List recent browser sessions for the account.",
+      "method": "GET",
+      "path": "/v1/sessions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Filter by session status (e.g. 'live', 'released').",
+            "enum": [
+              "live",
+              "released",
+              "failed"
+            ]
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_session",
+      "description": "Retrieve details for a specific session: status, websocket URL, region, debug URL.",
+      "method": "GET",
+      "path": "/v1/sessions/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Session ID."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "release_session",
+      "description": "End a live session and free its resources. Released sessions can no longer be connected to but their context (cookies/storage) and recordings remain available.",
+      "method": "POST",
+      "path": "/v1/sessions/{id}/release",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Session ID."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_session_context",
+      "description": "Fetch the persisted browser context (cookies, localStorage, sessionStorage) for a session. Useful for extracting login state to reuse later.",
+      "method": "GET",
+      "path": "/v1/sessions/{id}/context",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Session ID."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "scrape",
+      "description": "One-shot scrape of a URL — Steel handles the browser, returns cleaned content. No session management needed. Returns text, HTML, markdown, or all three depending on format.",
+      "method": "POST",
+      "path": "/v1/scrape",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL to scrape."
+          },
+          "format": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "html",
+                "markdown",
+                "readability",
+                "cleaned_html"
+              ]
+            },
+            "description": "Output formats to return."
+          },
+          "waitFor": {
+            "type": "integer",
+            "description": "Milliseconds to wait after page load before capturing content."
+          },
+          "useProxy": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "screenshot",
+      "description": "One-shot screenshot of a URL. Returns a PNG image (binary or base64 depending on response handling).",
+      "method": "POST",
+      "path": "/v1/screenshot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL to screenshot."
+          },
+          "fullPage": {
+            "type": "boolean",
+            "description": "Capture the full scrollable page rather than just the viewport."
+          },
+          "viewport": {
+            "type": "object",
+            "description": "Viewport size, e.g. { width: 1280, height: 720 }."
+          },
+          "delay": {
+            "type": "integer",
+            "description": "Milliseconds to wait before capturing."
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "pdf",
+      "description": "One-shot render of a URL to PDF. Returns a PDF file.",
+      "method": "POST",
+      "path": "/v1/pdf",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL to render."
+          },
+          "format": {
+            "type": "string",
+            "description": "Paper format (e.g. 'A4', 'Letter')."
+          },
+          "landscape": {
+            "type": "boolean"
+          },
+          "printBackground": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    }
+  ]
+}

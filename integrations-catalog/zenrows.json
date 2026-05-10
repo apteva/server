@@ -1,0 +1,47 @@
+{
+  "slug": "zenrows",
+  "name": "ZenRows",
+  "description": "Web scraping API with rotating proxies, JS rendering, and anti-bot bypass. Lightweight alternative to Bright Data for general-purpose scraping. Also offers a Universal Scraper API with AI extraction.",
+  "logo": "https://www.google.com/s2/favicons?domain=zenrows.com&sz=128",
+  "categories": ["scraping", "proxy", "anti-bot"],
+  "base_url": "https://api.zenrows.com/v1",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "apikey": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "ZenRows API key from app.zenrows.com → Settings"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "scrape",
+      "description": "Scrape a URL through ZenRows. Returns HTML by default, or structured JSON/markdown when configured.",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" },
+          "js_render": { "type": "boolean", "default": false },
+          "premium_proxy": { "type": "boolean", "default": false },
+          "proxy_country": { "type": "string", "description": "ISO country code" },
+          "wait": { "type": "integer", "description": "Milliseconds to wait" },
+          "wait_for": { "type": "string", "description": "CSS selector" },
+          "session_id": { "type": "string", "description": "Sticky session id (max 10 minutes)" },
+          "json_response": { "type": "boolean", "default": false },
+          "css_extractor": { "type": "string", "description": "JSON CSS selector mapping for structured extraction" },
+          "autoparse": { "type": "boolean", "default": false, "description": "AI auto-extract structured data" },
+          "outputs": { "type": "string", "description": "Comma-separated outputs: 'phone_numbers,emails,markdown,..." },
+          "response_type": { "type": "string", "enum": ["plaintext", "markdown", "pdf", "html"] }
+        },
+        "required": ["url"]
+      }
+    }
+  ]
+}

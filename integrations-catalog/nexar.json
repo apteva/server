@@ -1,0 +1,289 @@
+{
+  "slug": "nexar",
+  "name": "Nexar (Octopart)",
+  "description": "Electronic component search, pricing, and availability data from 400+ distributors via Nexar/Octopart API",
+  "logo": "https://www.google.com/s2/favicons?domain=nexar.com&sz=128",
+  "categories": [
+    "electronics",
+    "components",
+    "pricing",
+    "bom",
+    "octopart",
+    "supply-chain"
+  ],
+  "base_url": "https://api.nexar.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "clientId",
+        "label": "Client Id",
+        "description": "Your Nexar application Client ID (from portal.nexar.com)"
+      },
+      {
+        "name": "clientSecret",
+        "label": "Client Secret",
+        "description": "Your Nexar application Client Secret"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search_mpn",
+      "description": "Search for electronic components by manufacturer part number (MPN). Returns pricing, availability, and specifications from 400+ distributors. Best for finding specific parts when you know the MPN.",
+      "method": "GET",
+      "path": "/search-mpn",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mpn": {
+            "type": "string",
+            "description": "Manufacturer part number to search for (e.g., 'SN74S74N', 'LM7805', 'ATmega328P')"
+          },
+          "country": {
+            "type": "string",
+            "default": "US",
+            "description": "ISO country code for availability (e.g., 'US', 'GB', 'DE')"
+          },
+          "currency": {
+            "type": "string",
+            "default": "USD",
+            "description": "ISO currency code for pricing (e.g., 'USD', 'EUR', 'GBP')"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum number of results to return"
+          },
+          "authorizedOnly": {
+            "type": "boolean",
+            "default": true,
+            "description": "Only show offers from authorized distributors"
+          },
+          "includeSpecs": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include technical specifications in results"
+          }
+        },
+        "required": [
+          "mpn"
+        ]
+      }
+    },
+    {
+      "name": "multi_match",
+      "description": "Search for multiple electronic components at once by MPN or SKU. Ideal for BOM (Bill of Materials) pricing. Returns pricing summary and availability for up to 20 parts in a single request.",
+      "method": "GET",
+      "path": "/multi-match",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "parts": {
+            "type": "array",
+            "description": "Array of parts to search for. Each part can have 'mpn', 'sku', or 'manufacturer' fields.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "mpn": {
+                  "type": "string",
+                  "description": "Manufacturer part number"
+                },
+                "sku": {
+                  "type": "string",
+                  "description": "Distributor SKU"
+                },
+                "manufacturer": {
+                  "type": "string",
+                  "description": "Manufacturer name to filter by"
+                }
+              }
+            },
+            "maxItems": 20
+          },
+          "country": {
+            "type": "string",
+            "default": "US",
+            "description": "ISO country code for availability"
+          },
+          "currency": {
+            "type": "string",
+            "default": "USD",
+            "description": "ISO currency code for pricing"
+          },
+          "authorizedOnly": {
+            "type": "boolean",
+            "default": true,
+            "description": "Only show offers from authorized distributors"
+          }
+        },
+        "required": [
+          "parts"
+        ]
+      }
+    },
+    {
+      "name": "search_parts",
+      "description": "Search for electronic components by description using natural language. More flexible than MPN search. Examples: '10k resistor 0805', '100uF capacitor', 'ARM Cortex-M4 microcontroller'.",
+      "method": "GET",
+      "path": "/search-parts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query describing the part (e.g., '10k resistor 0805', 'blue LED 5mm')"
+          },
+          "country": {
+            "type": "string",
+            "default": "US",
+            "description": "ISO country code for availability"
+          },
+          "currency": {
+            "type": "string",
+            "default": "USD",
+            "description": "ISO currency code for pricing"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum number of results"
+          },
+          "start": {
+            "type": "integer",
+            "default": 0,
+            "description": "Offset for pagination"
+          },
+          "inStockOnly": {
+            "type": "boolean",
+            "default": false,
+            "description": "Only return parts that are in stock"
+          },
+          "authorizedOnly": {
+            "type": "boolean",
+            "default": true,
+            "description": "Only show offers from authorized distributors"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "get_pricing",
+      "description": "Get detailed pricing with quantity breaks for a specific part. Shows prices at 1, 10, 100, 1000+ quantities from all sellers. Use this when you need to compare pricing across distributors.",
+      "method": "GET",
+      "path": "/get-pricing",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "partId": {
+            "type": "string",
+            "description": "Nexar part ID (from search results)"
+          },
+          "mpn": {
+            "type": "string",
+            "description": "Manufacturer part number (alternative to partId)"
+          },
+          "country": {
+            "type": "string",
+            "default": "US",
+            "description": "ISO country code for availability"
+          },
+          "currency": {
+            "type": "string",
+            "default": "USD",
+            "description": "ISO currency code for pricing"
+          },
+          "authorizedOnly": {
+            "type": "boolean",
+            "default": true,
+            "description": "Only show offers from authorized distributors"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_availability",
+      "description": "Get stock availability for a part across all distributors. Shows inventory levels, lead times, and stock status. Use this to check if parts are in stock before ordering.",
+      "method": "GET",
+      "path": "/get-availability",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mpn": {
+            "type": "string",
+            "description": "Manufacturer part number"
+          },
+          "partId": {
+            "type": "string",
+            "description": "Nexar part ID (alternative to mpn)"
+          },
+          "country": {
+            "type": "string",
+            "default": "US",
+            "description": "ISO country code for availability"
+          },
+          "currency": {
+            "type": "string",
+            "default": "USD",
+            "description": "ISO currency code"
+          },
+          "authorizedOnly": {
+            "type": "boolean",
+            "default": false,
+            "description": "Only show authorized distributors (false shows all including brokers)"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_categories",
+      "description": "Browse or search electronic component categories. Returns category hierarchy with part counts. Use this to explore available component types.",
+      "method": "GET",
+      "path": "/get-categories",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "categoryId": {
+            "type": "string",
+            "description": "Get specific category and its children by ID"
+          },
+          "path": {
+            "type": "string",
+            "description": "Get category by path (e.g., 'Passive Components/Resistors')"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_manufacturers",
+      "description": "Get manufacturer information by ID or search manufacturers by name. Returns manufacturer details including aliases and website.",
+      "method": "GET",
+      "path": "/get-manufacturers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "manufacturerId": {
+            "type": "string",
+            "description": "Manufacturer ID to look up"
+          },
+          "name": {
+            "type": "string",
+            "description": "Manufacturer name to search for"
+          }
+        }
+      }
+    }
+  ]
+}

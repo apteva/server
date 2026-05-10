@@ -1,0 +1,254 @@
+{
+  "slug": "paypal",
+  "name": "PayPal",
+  "description": "MCP server for PayPal operations - orders, payments, transactions, payouts, and subscriptions",
+  "logo": "https://www.google.com/s2/favicons?domain=paypal.com&sz=128",
+  "categories": [
+    "payments",
+    "paypal",
+    "checkout",
+    "transactions",
+    "commerce"
+  ],
+  "base_url": "https://api-m.paypal.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_order",
+      "description": "Create a PayPal order",
+      "method": "POST",
+      "path": "/create-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "intent": {
+            "type": "string",
+            "description": "Order intent (CAPTURE or AUTHORIZE)",
+            "default": "CAPTURE"
+          },
+          "purchase_units": {
+            "type": "array",
+            "description": "Purchase units with amounts"
+          },
+          "application_context": {
+            "type": "object",
+            "description": "Application context for checkout"
+          },
+          "sandbox": {
+            "type": "boolean",
+            "description": "Use sandbox environment",
+            "default": false
+          }
+        },
+        "required": [
+          "purchase_units"
+        ]
+      }
+    },
+    {
+      "name": "capture_order",
+      "description": "Capture payment for an order",
+      "method": "GET",
+      "path": "/capture-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "ID of the order to capture"
+          },
+          "sandbox": {
+            "type": "boolean",
+            "description": "Use sandbox environment",
+            "default": false
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get order details",
+      "method": "GET",
+      "path": "/get-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "ID of the order"
+          },
+          "sandbox": {
+            "type": "boolean",
+            "description": "Use sandbox environment",
+            "default": false
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "list_transactions",
+      "description": "List transactions within a date range",
+      "method": "GET",
+      "path": "/list-transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "description": "Start date (ISO 8601)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (ISO 8601)"
+          },
+          "transaction_id": {
+            "type": "string",
+            "description": "Filter by transaction ID"
+          },
+          "transaction_type": {
+            "type": "string",
+            "description": "Filter by type"
+          },
+          "transaction_status": {
+            "type": "string",
+            "description": "Filter by status"
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Results per page",
+            "default": 100
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "sandbox": {
+            "type": "boolean",
+            "description": "Use sandbox environment",
+            "default": false
+          }
+        },
+        "required": [
+          "start_date",
+          "end_date"
+        ]
+      }
+    },
+    {
+      "name": "create_payout",
+      "description": "Create a batch payout",
+      "method": "POST",
+      "path": "/create-payout",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sender_batch_header": {
+            "type": "object",
+            "description": "Batch header information"
+          },
+          "items": {
+            "type": "array",
+            "description": "Payout items"
+          },
+          "sandbox": {
+            "type": "boolean",
+            "description": "Use sandbox environment",
+            "default": false
+          }
+        },
+        "required": [
+          "sender_batch_header",
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "get_payout",
+      "description": "Get payout batch details",
+      "method": "GET",
+      "path": "/get-payout",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payout_batch_id": {
+            "type": "string",
+            "description": "ID of the payout batch"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Results per page",
+            "default": 100
+          },
+          "sandbox": {
+            "type": "boolean",
+            "description": "Use sandbox environment",
+            "default": false
+          }
+        },
+        "required": [
+          "payout_batch_id"
+        ]
+      }
+    },
+    {
+      "name": "list_subscriptions",
+      "description": "List subscriptions for a plan",
+      "method": "GET",
+      "path": "/list-subscriptions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "plan_id": {
+            "type": "string",
+            "description": "ID of the subscription plan"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "Start time filter"
+          },
+          "end_time": {
+            "type": "string",
+            "description": "End time filter"
+          },
+          "sandbox": {
+            "type": "boolean",
+            "description": "Use sandbox environment",
+            "default": false
+          }
+        },
+        "required": [
+          "plan_id"
+        ]
+      }
+    }
+  ]
+}

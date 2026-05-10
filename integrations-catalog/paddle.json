@@ -1,0 +1,170 @@
+{
+  "slug": "paddle",
+  "name": "Paddle",
+  "description": "MCP server for Paddle Billing - products, prices, subscriptions, customers, transactions",
+  "logo": "https://www.google.com/s2/favicons?domain=paddle.com&sz=128",
+  "categories": ["payments", "billing", "subscriptions", "merchant-of-record"],
+  "base_url": "https://api.paddle.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Key", "description": "Paddle API key (pdl_live_... or pdl_sdbx_...)" },
+      { "name": "webhookSecret", "label": "Webhook Secret" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_products",
+      "description": "List products",
+      "method": "GET",
+      "path": "/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" },
+          "per_page": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "create_product",
+      "description": "Create a product",
+      "method": "POST",
+      "path": "/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "tax_category": { "type": "string" },
+          "description": { "type": "string" }
+        },
+        "required": ["name", "tax_category"]
+      }
+    },
+    {
+      "name": "list_prices",
+      "description": "List prices",
+      "method": "GET",
+      "path": "/prices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": { "type": "array" },
+          "status": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "create_price",
+      "description": "Create a price for a product",
+      "method": "POST",
+      "path": "/prices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": { "type": "string" },
+          "description": { "type": "string" },
+          "unit_price": { "type": "object" },
+          "billing_cycle": { "type": "object" }
+        },
+        "required": ["product_id", "description", "unit_price"]
+      }
+    },
+    {
+      "name": "list_customers",
+      "description": "List customers",
+      "method": "GET",
+      "path": "/customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "array" },
+          "status": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "create_customer",
+      "description": "Create a customer",
+      "method": "POST",
+      "path": "/customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string" },
+          "name": { "type": "string" },
+          "locale": { "type": "string" }
+        },
+        "required": ["email"]
+      }
+    },
+    {
+      "name": "list_subscriptions",
+      "description": "List subscriptions",
+      "method": "GET",
+      "path": "/subscriptions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": { "type": "array" },
+          "status": { "type": "array" }
+        }
+      }
+    },
+    {
+      "name": "get_subscription",
+      "description": "Get a subscription",
+      "method": "GET",
+      "path": "/subscriptions/{subscription_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "subscription_id": { "type": "string" } },
+        "required": ["subscription_id"]
+      }
+    },
+    {
+      "name": "cancel_subscription",
+      "description": "Cancel a subscription",
+      "method": "POST",
+      "path": "/subscriptions/{subscription_id}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscription_id": { "type": "string" },
+          "effective_from": { "type": "string" }
+        },
+        "required": ["subscription_id"]
+      }
+    },
+    {
+      "name": "list_transactions",
+      "description": "List transactions",
+      "method": "GET",
+      "path": "/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": { "type": "array" },
+          "status": { "type": "array" }
+        }
+      }
+    },
+    {
+      "name": "create_transaction",
+      "description": "Create a transaction (e.g. for one-time charge)",
+      "method": "POST",
+      "path": "/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "items": { "type": "array" },
+          "customer_id": { "type": "string" },
+          "currency_code": { "type": "string" },
+          "collection_mode": { "type": "string" }
+        },
+        "required": ["items"]
+      }
+    }
+  ]
+}

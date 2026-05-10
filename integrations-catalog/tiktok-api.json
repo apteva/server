@@ -1,0 +1,516 @@
+{
+  "slug": "tiktok-api",
+  "name": "TikTok",
+  "description": "TikTok Content Posting API v2 \u2014 post videos & photos, manage content, get user info, video analytics, and creator settings via OAuth2",
+  "logo": "https://www.google.com/s2/favicons?domain=www.tiktok.com&sz=128",
+  "categories": [
+    "tiktok",
+    "social-media",
+    "video",
+    "short-form",
+    "content",
+    "creator"
+  ],
+  "base_url": "https://open.tiktokapis.com/v2",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "accessToken"
+      },
+      {
+        "name": "refreshToken",
+        "label": "refreshToken"
+      },
+      {
+        "name": "expiresIn",
+        "label": "expiresIn"
+      },
+      {
+        "name": "scope",
+        "label": "scope"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://www.tiktok.com/v2/auth/authorize",
+      "token_url": "https://open.tiktokapis.com/v2/oauth/token/",
+      "scopes": [
+        "user.info.basic",
+        "video.list",
+        "video.upload",
+        "video.publish",
+        "user.info.stats",
+        "user.info.profile"
+      ],
+      "client_id_required": true,
+      "pkce": false,
+      "client_id_param_name": "client_key",
+      "scope_separator": ","
+    }
+  },
+  "tools": [
+    {
+      "name": "post_video",
+      "description": "Post a video to TikTok by pulling from a URL. Returns publish_id \u2014 use get-publish-status to check completion.\n\nNOTE: TikTok has ONE text field ('title' in post_info) which serves as the caption. Include hashtags and @mentions there. There is no separate description field for videos.\n\nExample:\n{\n  \"post_info\": {\n    \"title\": \"Check this out! #fyp #trending\",\n    \"privacy_level\": \"PUBLIC_TO_EVERYONE\",\n    \"disable_comment\": false\n  },\n  \"source_info\": {\n    \"source\": \"PULL_FROM_URL\",\n    \"video_url\": \"https://example.com/video.mp4\"\n  }\n}",
+      "method": "POST",
+      "path": "/post/publish/video/init/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "post_info": {
+            "type": "object",
+            "description": "Post configuration",
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "Video caption text (max 2200 chars) \u2014 this is the ONLY text field. Include hashtags and @mentions here."
+              },
+              "privacy_level": {
+                "type": "string",
+                "description": "Who can see the video",
+                "enum": [
+                  "PUBLIC_TO_EVERYONE",
+                  "MUTUAL_FOLLOW_FRIENDS",
+                  "FOLLOWER_OF_CREATOR",
+                  "SELF_ONLY"
+                ],
+                "default": "PUBLIC_TO_EVERYONE"
+              },
+              "disable_comment": {
+                "type": "boolean",
+                "description": "Disable comments",
+                "default": false
+              },
+              "disable_duet": {
+                "type": "boolean",
+                "description": "Disable duets",
+                "default": false
+              },
+              "disable_stitch": {
+                "type": "boolean",
+                "description": "Disable stitches",
+                "default": false
+              },
+              "video_cover_timestamp_ms": {
+                "type": "integer",
+                "description": "Timestamp in ms for auto-generated cover image",
+                "default": 1000
+              },
+              "brand_content_toggle": {
+                "type": "boolean",
+                "description": "Whether this is branded/paid content",
+                "default": false
+              },
+              "brand_organic_toggle": {
+                "type": "boolean",
+                "description": "Whether this is organic branded content",
+                "default": false
+              },
+              "is_aigc": {
+                "type": "boolean",
+                "description": "Whether this is AI-generated content",
+                "default": false
+              }
+            },
+            "required": [
+              "privacy_level"
+            ]
+          },
+          "source_info": {
+            "type": "object",
+            "description": "Video source",
+            "properties": {
+              "source": {
+                "type": "string",
+                "description": "Source type",
+                "enum": [
+                  "PULL_FROM_URL",
+                  "FILE_UPLOAD"
+                ],
+                "default": "PULL_FROM_URL"
+              },
+              "video_url": {
+                "type": "string",
+                "description": "Publicly accessible video URL (required for PULL_FROM_URL)"
+              },
+              "video_size": {
+                "type": "integer",
+                "description": "Total video file size in bytes (required for FILE_UPLOAD)"
+              },
+              "chunk_size": {
+                "type": "integer",
+                "description": "Size of each chunk in bytes (required for FILE_UPLOAD)"
+              },
+              "total_chunk_count": {
+                "type": "integer",
+                "description": "Total number of chunks (required for FILE_UPLOAD)"
+              }
+            },
+            "required": [
+              "source"
+            ]
+          }
+        },
+        "required": [
+          "post_info",
+          "source_info"
+        ]
+      }
+    },
+    {
+      "name": "post_photo",
+      "description": "Post photos to TikTok (up to 35 images). Returns publish_id \u2014 use get-publish-status to check completion.\n\nExample:\n{\n  \"post_info\": {\n    \"title\": \"My photo carousel\",\n    \"privacy_level\": \"PUBLIC_TO_EVERYONE\"\n  },\n  \"source_info\": {\n    \"source\": \"PULL_FROM_URL\",\n    \"photo_images\": [\"https://example.com/img1.jpg\", \"https://example.com/img2.jpg\"],\n    \"photo_cover_index\": 0\n  },\n  \"post_mode\": \"DIRECT_POST\",\n  \"media_type\": \"PHOTO\"\n}",
+      "method": "POST",
+      "path": "/post/publish/content/init/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "post_info": {
+            "type": "object",
+            "description": "Post configuration",
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "Photo post title (max 90 characters)"
+              },
+              "description": {
+                "type": "string",
+                "description": "Photo post description (max 4000 characters)"
+              },
+              "privacy_level": {
+                "type": "string",
+                "description": "Privacy level",
+                "enum": [
+                  "PUBLIC_TO_EVERYONE",
+                  "MUTUAL_FOLLOW_FRIENDS",
+                  "FOLLOWER_OF_CREATOR",
+                  "SELF_ONLY"
+                ],
+                "default": "SELF_ONLY"
+              },
+              "disable_comment": {
+                "type": "boolean",
+                "description": "Disable comments",
+                "default": false
+              },
+              "auto_add_music": {
+                "type": "boolean",
+                "description": "Auto add music to photo post",
+                "default": false
+              },
+              "brand_content_toggle": {
+                "type": "boolean",
+                "description": "Whether this is branded/paid content",
+                "default": false
+              },
+              "brand_organic_toggle": {
+                "type": "boolean",
+                "description": "Whether this is organic branded content",
+                "default": false
+              }
+            },
+            "required": [
+              "privacy_level",
+              "brand_content_toggle",
+              "brand_organic_toggle"
+            ]
+          },
+          "source_info": {
+            "type": "object",
+            "description": "Photo source",
+            "properties": {
+              "source": {
+                "type": "string",
+                "description": "Source type",
+                "enum": [
+                  "PULL_FROM_URL"
+                ],
+                "default": "PULL_FROM_URL"
+              },
+              "photo_images": {
+                "type": "array",
+                "description": "Array of publicly accessible image URLs (max 35)",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 35
+              },
+              "photo_cover_index": {
+                "type": "integer",
+                "description": "Index of photo to use as cover (0-based)",
+                "default": 0
+              }
+            },
+            "required": [
+              "source",
+              "photo_images",
+              "photo_cover_index"
+            ]
+          },
+          "post_mode": {
+            "type": "string",
+            "description": "Posting mode",
+            "enum": [
+              "DIRECT_POST",
+              "MEDIA_UPLOAD"
+            ],
+            "default": "DIRECT_POST"
+          },
+          "media_type": {
+            "type": "string",
+            "description": "Must be PHOTO",
+            "enum": [
+              "PHOTO"
+            ],
+            "default": "PHOTO"
+          }
+        },
+        "required": [
+          "post_info",
+          "source_info",
+          "media_type"
+        ]
+      }
+    },
+    {
+      "name": "upload_to_inbox",
+      "description": "Upload video to TikTok user's inbox for later editing and posting in the TikTok app.\n\nPull from URL example:\n{\n  \"source_info\": {\n    \"source\": \"PULL_FROM_URL\",\n    \"video_url\": \"https://example.com/video.mp4\"\n  }\n}\n\nFile upload init example:\n{\n  \"source_info\": {\n    \"source\": \"FILE_UPLOAD\",\n    \"video_size\": 50000000,\n    \"chunk_size\": 10000000,\n    \"total_chunk_count\": 5\n  }\n}",
+      "method": "POST",
+      "path": "/post/publish/inbox/video/init/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source_info": {
+            "type": "object",
+            "description": "Video source configuration",
+            "properties": {
+              "source": {
+                "type": "string",
+                "description": "Upload method",
+                "enum": [
+                  "PULL_FROM_URL",
+                  "FILE_UPLOAD"
+                ]
+              },
+              "video_url": {
+                "type": "string",
+                "description": "Video URL (required for PULL_FROM_URL)"
+              },
+              "video_size": {
+                "type": "integer",
+                "description": "Total video file size in bytes (required for FILE_UPLOAD)"
+              },
+              "chunk_size": {
+                "type": "integer",
+                "description": "Size of each chunk in bytes (required for FILE_UPLOAD)"
+              },
+              "total_chunk_count": {
+                "type": "integer",
+                "description": "Total number of chunks (required for FILE_UPLOAD)"
+              }
+            },
+            "required": [
+              "source"
+            ]
+          }
+        },
+        "required": [
+          "source_info"
+        ]
+      }
+    },
+    {
+      "name": "get_publish_status",
+      "description": "Check the status of a TikTok content post or upload. Returns current status (PROCESSING_UPLOAD, PROCESSING_DOWNLOAD, SEND_TO_USER_INBOX, PUBLISH_COMPLETE, FAILED), fail reason if applicable, and the published item ID when complete.",
+      "method": "POST",
+      "path": "/post/publish/status/fetch/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publish_id": {
+            "type": "string",
+            "description": "Publish ID returned from post-video, post-photo, or upload-to-inbox"
+          }
+        },
+        "required": [
+          "publish_id"
+        ]
+      }
+    },
+    {
+      "name": "query_creator_info",
+      "description": "Query the authenticated TikTok creator's information before posting content. Returns creator settings including available privacy levels, whether comments/duet/stitch are allowed, and maximum video duration. Call this before posting to know what options are available.",
+      "method": "POST",
+      "path": "/post/publish/creator_info/query/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_user_info",
+      "description": "Get the authenticated TikTok user's profile information including display name, avatar, bio, follower/following/likes counts, and video count.\n\nAvailable fields: open_id, union_id, avatar_url, avatar_url_100, avatar_large_url, display_name, bio_description, profile_deep_link, is_verified, username, follower_count, following_count, likes_count, video_count",
+      "method": "GET",
+      "path": "/user/info/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated list of fields to retrieve (e.g. 'open_id,display_name,avatar_url,follower_count,video_count')",
+            "default": "open_id,display_name,avatar_url,username,follower_count,following_count,likes_count,video_count"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_videos",
+      "description": "List the authenticated user's public TikTok videos, sorted by create_time descending. Returns video metadata including views, likes, comments, and share counts.\n\nAvailable fields: id, title, create_time, cover_image_url, share_url, duration, like_count, comment_count, share_count, view_count, video_description, height, width, embed_html, embed_link",
+      "method": "POST",
+      "path": "/video/list/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated list of video fields to return",
+            "default": "id,title,create_time,cover_image_url,share_url,duration,like_count,comment_count,share_count,view_count"
+          },
+          "max_count": {
+            "type": "integer",
+            "description": "Maximum videos per page (max 20)",
+            "default": 20
+          },
+          "cursor": {
+            "type": "integer",
+            "description": "Pagination cursor from previous response"
+          }
+        }
+      }
+    },
+    {
+      "name": "query_videos",
+      "description": "Query specific TikTok videos by their IDs. Returns detailed video info and metrics. Use this to get analytics for specific videos.\n\nAvailable fields: id, title, create_time, cover_image_url, share_url, video_description, duration, like_count, comment_count, share_count, view_count, height, width, embed_html, embed_link\n\nExample:\n{\n  \"filters\": {\n    \"video_ids\": [\"7123456789\", \"7234567890\"]\n  }\n}",
+      "method": "POST",
+      "path": "/video/query/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated list of video fields to return",
+            "default": "id,title,create_time,cover_image_url,share_url,duration,like_count,comment_count,share_count,view_count"
+          },
+          "filters": {
+            "type": "object",
+            "description": "Filter criteria",
+            "properties": {
+              "video_ids": {
+                "type": "array",
+                "description": "Array of TikTok video IDs (max 20)",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20
+              }
+            },
+            "required": [
+              "video_ids"
+            ]
+          }
+        },
+        "required": [
+          "filters"
+        ]
+      }
+    },
+    {
+      "name": "list_comments",
+      "description": "Get a paginated list of comments on a TikTok video. Returns comment text, like count, reply count, and creation time. Supports sorting by create_time_desc or like_count_desc.\n\nRequires scope: comment.list or comment.list.manage\n\nExample:\n{\n  \"video_id\": \"7123456789\",\n  \"max_count\": 20,\n  \"sort_order\": \"create_time_desc\"\n}",
+      "method": "GET",
+      "path": "/list-comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string",
+            "description": "TikTok video ID to get comments for"
+          },
+          "max_count": {
+            "type": "integer",
+            "description": "Maximum comments per page (max 50)",
+            "default": 20
+          },
+          "cursor": {
+            "type": "integer",
+            "description": "Pagination cursor from previous response"
+          },
+          "sort_order": {
+            "type": "string",
+            "description": "Sort order for comments",
+            "enum": [
+              "create_time_desc",
+              "like_count_desc"
+            ],
+            "default": "create_time_desc"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated list of comment fields",
+            "default": "id,text,create_time,like_count,reply_count,parent_comment_id,video_id"
+          }
+        },
+        "required": [
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "list_comment_replies",
+      "description": "Get a paginated list of replies to a specific comment on a TikTok video. Returns reply text, like count, and creation time.\n\nRequires scope: comment.list or comment.list.manage\n\nExample:\n{\n  \"video_id\": \"7123456789\",\n  \"comment_id\": \"7234567890\",\n  \"max_count\": 20\n}",
+      "method": "GET",
+      "path": "/list-comment-replies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string",
+            "description": "TikTok video ID the comment belongs to"
+          },
+          "comment_id": {
+            "type": "string",
+            "description": "Parent comment ID to get replies for"
+          },
+          "max_count": {
+            "type": "integer",
+            "description": "Maximum replies per page (max 50)",
+            "default": 20
+          },
+          "cursor": {
+            "type": "integer",
+            "description": "Pagination cursor from previous response"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated list of reply fields",
+            "default": "id,text,create_time,like_count,parent_comment_id,video_id"
+          }
+        },
+        "required": [
+          "video_id",
+          "comment_id"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_user_info"
+  }
+}

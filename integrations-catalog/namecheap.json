@@ -1,0 +1,460 @@
+{
+  "slug": "namecheap",
+  "name": "Namecheap",
+  "description": "Namecheap domain registrar — register and manage domains, check availability, manage DNS host records, contacts, nameservers, and account balance. Uses the legacy XML/Query API; responses are auto-parsed from XML to JSON.",
+  "logo": "https://www.namecheap.com/assets/img/nc-icon/favicon.ico",
+  "categories": [
+    "dns",
+    "domains",
+    "registrar",
+    "namecheap"
+  ],
+  "base_url": "https://api.namecheap.com/xml.response",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "query_params": {
+      "ApiUser": "{{api_user}}",
+      "ApiKey": "{{api_key}}",
+      "UserName": "{{username}}",
+      "ClientIp": "{{client_ip}}"
+    },
+    "headers": {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    "credential_fields": [
+      {
+        "name": "api_user",
+        "label": "API User",
+        "description": "Your Namecheap account username (used as the API user identifier)",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "API key generated at Namecheap → Profile → Tools → Business & Dev Tools → Manage Namecheap API Access",
+        "required": true,
+        "type": "password"
+      },
+      {
+        "name": "username",
+        "label": "Username",
+        "description": "Namecheap account username on whose behalf the request is made (typically the same as API User)",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "client_ip",
+        "label": "Client IP",
+        "description": "IPv4 address making the request. MUST be whitelisted in your Namecheap API settings — non-whitelisted IPs return error code 1011102. Only IPv4 addresses are accepted.",
+        "required": true,
+        "type": "text"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_domains",
+      "description": "List domains in the account with optional filtering. Returns DomainGetListResult with paginated Domain entries (Name, Created, Expires, IsExpired, IsLocked, AutoRenew, WhoisGuard, IsPremium).",
+      "method": "GET",
+      "path": "/?Command=namecheap.domains.getList",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ListType": {
+            "type": "string",
+            "enum": ["ALL", "EXPIRING", "EXPIRED"],
+            "default": "ALL"
+          },
+          "SearchTerm": {
+            "type": "string",
+            "description": "Substring filter on domain name"
+          },
+          "Page": {
+            "type": "integer",
+            "description": "Page number (1-based)",
+            "default": 1
+          },
+          "PageSize": {
+            "type": "integer",
+            "description": "Page size (10-100)",
+            "default": 20
+          },
+          "SortBy": {
+            "type": "string",
+            "enum": ["NAME", "NAME_DESC", "EXPIREDATE", "EXPIREDATE_DESC", "CREATEDATE", "CREATEDATE_DESC"]
+          }
+        }
+      }
+    },
+    {
+      "name": "check_availability",
+      "description": "Check whether one or more domains are available for registration. DomainList is comma-separated and accepts up to 50 domains. Returns DomainCheckResult per domain with Available, IsPremiumName, PremiumRegistrationPrice, IcannFee.",
+      "method": "GET",
+      "path": "/?Command=namecheap.domains.check",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "DomainList": {
+            "type": "string",
+            "description": "Comma-separated list of fully-qualified domain names (max 50), e.g. 'example.com,example.net,example.org'"
+          }
+        },
+        "required": ["DomainList"]
+      }
+    },
+    {
+      "name": "get_domain_info",
+      "description": "Get full details for a single domain: status, dates, nameservers, modification rights, premium info, WhoisGuard.",
+      "method": "GET",
+      "path": "/?Command=namecheap.domains.getInfo",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "DomainName": {
+            "type": "string",
+            "description": "Fully-qualified domain name"
+          }
+        },
+        "required": ["DomainName"]
+      }
+    },
+    {
+      "name": "register_domain",
+      "description": "Register a new domain. ⚠️ This SPENDS REAL MONEY against your account balance. Requires complete WHOIS contact data for Registrant, Tech, Admin, and AuxBilling (Namecheap requires all four; reuse the same contact for all if appropriate).",
+      "method": "POST",
+      "path": "/?Command=namecheap.domains.create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "DomainName": { "type": "string" },
+          "Years": {
+            "type": "integer",
+            "description": "Number of years (1-10)",
+            "default": 1
+          },
+          "PromotionCode": { "type": "string" },
+          "Nameservers": {
+            "type": "string",
+            "description": "Comma-separated list of custom nameservers; omit to use Namecheap defaults"
+          },
+          "AddFreeWhoisguard": {
+            "type": "string",
+            "enum": ["yes", "no"],
+            "default": "yes"
+          },
+          "WGEnabled": {
+            "type": "string",
+            "enum": ["yes", "no"],
+            "default": "yes"
+          },
+          "RegistrantFirstName": { "type": "string" },
+          "RegistrantLastName": { "type": "string" },
+          "RegistrantAddress1": { "type": "string" },
+          "RegistrantCity": { "type": "string" },
+          "RegistrantStateProvince": { "type": "string" },
+          "RegistrantPostalCode": { "type": "string" },
+          "RegistrantCountry": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code"
+          },
+          "RegistrantPhone": {
+            "type": "string",
+            "description": "Format: +CC.NNNNNNNNNN (e.g. +1.5551234567)"
+          },
+          "RegistrantEmailAddress": { "type": "string" },
+          "TechFirstName": { "type": "string" },
+          "TechLastName": { "type": "string" },
+          "TechAddress1": { "type": "string" },
+          "TechCity": { "type": "string" },
+          "TechStateProvince": { "type": "string" },
+          "TechPostalCode": { "type": "string" },
+          "TechCountry": { "type": "string" },
+          "TechPhone": { "type": "string" },
+          "TechEmailAddress": { "type": "string" },
+          "AdminFirstName": { "type": "string" },
+          "AdminLastName": { "type": "string" },
+          "AdminAddress1": { "type": "string" },
+          "AdminCity": { "type": "string" },
+          "AdminStateProvince": { "type": "string" },
+          "AdminPostalCode": { "type": "string" },
+          "AdminCountry": { "type": "string" },
+          "AdminPhone": { "type": "string" },
+          "AdminEmailAddress": { "type": "string" },
+          "AuxBillingFirstName": { "type": "string" },
+          "AuxBillingLastName": { "type": "string" },
+          "AuxBillingAddress1": { "type": "string" },
+          "AuxBillingCity": { "type": "string" },
+          "AuxBillingStateProvince": { "type": "string" },
+          "AuxBillingPostalCode": { "type": "string" },
+          "AuxBillingCountry": { "type": "string" },
+          "AuxBillingPhone": { "type": "string" },
+          "AuxBillingEmailAddress": { "type": "string" }
+        },
+        "required": [
+          "DomainName",
+          "Years",
+          "RegistrantFirstName", "RegistrantLastName", "RegistrantAddress1",
+          "RegistrantCity", "RegistrantStateProvince", "RegistrantPostalCode",
+          "RegistrantCountry", "RegistrantPhone", "RegistrantEmailAddress",
+          "TechFirstName", "TechLastName", "TechAddress1",
+          "TechCity", "TechStateProvince", "TechPostalCode",
+          "TechCountry", "TechPhone", "TechEmailAddress",
+          "AdminFirstName", "AdminLastName", "AdminAddress1",
+          "AdminCity", "AdminStateProvince", "AdminPostalCode",
+          "AdminCountry", "AdminPhone", "AdminEmailAddress",
+          "AuxBillingFirstName", "AuxBillingLastName", "AuxBillingAddress1",
+          "AuxBillingCity", "AuxBillingStateProvince", "AuxBillingPostalCode",
+          "AuxBillingCountry", "AuxBillingPhone", "AuxBillingEmailAddress"
+        ]
+      }
+    },
+    {
+      "name": "renew_domain",
+      "description": "Renew a domain for the specified number of years. ⚠️ Spends account balance.",
+      "method": "POST",
+      "path": "/?Command=namecheap.domains.renew",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "DomainName": { "type": "string" },
+          "Years": { "type": "integer", "default": 1 },
+          "PromotionCode": { "type": "string" }
+        },
+        "required": ["DomainName", "Years"]
+      }
+    },
+    {
+      "name": "reactivate_domain",
+      "description": "Reactivate an expired domain (within the redemption grace period). ⚠️ Spends account balance, redemption fees may apply.",
+      "method": "POST",
+      "path": "/?Command=namecheap.domains.reactivate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "DomainName": { "type": "string" },
+          "PromotionCode": { "type": "string" },
+          "YearsToAdd": { "type": "integer" }
+        },
+        "required": ["DomainName"]
+      }
+    },
+    {
+      "name": "get_contacts",
+      "description": "Get the four WHOIS contact sets (Registrant, Tech, Admin, AuxBilling) currently associated with a domain.",
+      "method": "GET",
+      "path": "/?Command=namecheap.domains.getContacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "DomainName": { "type": "string" }
+        },
+        "required": ["DomainName"]
+      }
+    },
+    {
+      "name": "set_contacts",
+      "description": "Update the WHOIS contact sets for a domain. ⚠️ Replaces ALL four contact sets (Registrant, Tech, Admin, AuxBilling). Required fields per contact: FirstName, LastName, Address1, City, StateProvince, PostalCode, Country, Phone (format +CC.NNNNNNNNNN), EmailAddress.",
+      "method": "POST",
+      "path": "/?Command=namecheap.domains.setContacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "DomainName": { "type": "string" },
+          "RegistrantFirstName": { "type": "string" },
+          "RegistrantLastName": { "type": "string" },
+          "RegistrantAddress1": { "type": "string" },
+          "RegistrantCity": { "type": "string" },
+          "RegistrantStateProvince": { "type": "string" },
+          "RegistrantPostalCode": { "type": "string" },
+          "RegistrantCountry": { "type": "string" },
+          "RegistrantPhone": { "type": "string" },
+          "RegistrantEmailAddress": { "type": "string" },
+          "TechFirstName": { "type": "string" },
+          "TechLastName": { "type": "string" },
+          "TechAddress1": { "type": "string" },
+          "TechCity": { "type": "string" },
+          "TechStateProvince": { "type": "string" },
+          "TechPostalCode": { "type": "string" },
+          "TechCountry": { "type": "string" },
+          "TechPhone": { "type": "string" },
+          "TechEmailAddress": { "type": "string" },
+          "AdminFirstName": { "type": "string" },
+          "AdminLastName": { "type": "string" },
+          "AdminAddress1": { "type": "string" },
+          "AdminCity": { "type": "string" },
+          "AdminStateProvince": { "type": "string" },
+          "AdminPostalCode": { "type": "string" },
+          "AdminCountry": { "type": "string" },
+          "AdminPhone": { "type": "string" },
+          "AdminEmailAddress": { "type": "string" },
+          "AuxBillingFirstName": { "type": "string" },
+          "AuxBillingLastName": { "type": "string" },
+          "AuxBillingAddress1": { "type": "string" },
+          "AuxBillingCity": { "type": "string" },
+          "AuxBillingStateProvince": { "type": "string" },
+          "AuxBillingPostalCode": { "type": "string" },
+          "AuxBillingCountry": { "type": "string" },
+          "AuxBillingPhone": { "type": "string" },
+          "AuxBillingEmailAddress": { "type": "string" }
+        },
+        "required": ["DomainName"]
+      }
+    },
+    {
+      "name": "get_tld_list",
+      "description": "List every TLD Namecheap supports for registration along with metadata: type, category, IsApiRegisterable/Renewable/Transferable, MinRegisterYears, MaxRegisterYears, etc.",
+      "method": "GET",
+      "path": "/?Command=namecheap.domains.getTldList",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_dns_hosts",
+      "description": "Get all DNS host records for a domain that uses Namecheap DNS. SLD = second-level (e.g. 'example'), TLD = top-level (e.g. 'com'). Returns DomainDNSGetHostsResult with host entries (HostId, Name, Type, Address, MXPref, TTL).",
+      "method": "GET",
+      "path": "/?Command=namecheap.domains.dns.getHosts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SLD": {
+            "type": "string",
+            "description": "Second-level domain (the part before the dot, e.g. 'example' for example.com)"
+          },
+          "TLD": {
+            "type": "string",
+            "description": "Top-level domain (the part after the dot, e.g. 'com'). For multi-part TLDs like co.uk, pass 'co.uk'."
+          }
+        },
+        "required": ["SLD", "TLD"]
+      }
+    },
+    {
+      "name": "set_dns_hosts",
+      "description": "⚠️ DESTRUCTIVE OVERWRITE: this call replaces ALL DNS host records for the domain with exactly the set you supply — anything you omit is DELETED. Safe pattern: call get_dns_hosts first, merge in your changes, then send back the FULL list. Records are numbered: HostName1/RecordType1/Address1/MXPref1/TTL1, HostName2/..., up to as many as needed. Use POST (the URL-encoded body easily fits 50+ records).",
+      "method": "POST",
+      "path": "/?Command=namecheap.domains.dns.setHosts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SLD": { "type": "string" },
+          "TLD": { "type": "string" },
+          "HostName1": { "type": "string", "description": "Host record name (subdomain only, '@' for apex)" },
+          "RecordType1": { "type": "string", "enum": ["A", "AAAA", "CNAME", "MX", "MXE", "TXT", "URL", "URL301", "FRAME", "NS", "CAA", "ALIAS"] },
+          "Address1": { "type": "string", "description": "Record value" },
+          "MXPref1": { "type": "string", "description": "MX preference (required for MX records)" },
+          "TTL1": { "type": "string", "default": "1800" },
+          "HostName2": { "type": "string" },
+          "RecordType2": { "type": "string" },
+          "Address2": { "type": "string" },
+          "MXPref2": { "type": "string" },
+          "TTL2": { "type": "string" },
+          "HostName3": { "type": "string" },
+          "RecordType3": { "type": "string" },
+          "Address3": { "type": "string" },
+          "MXPref3": { "type": "string" },
+          "TTL3": { "type": "string" },
+          "HostName4": { "type": "string" },
+          "RecordType4": { "type": "string" },
+          "Address4": { "type": "string" },
+          "MXPref4": { "type": "string" },
+          "TTL4": { "type": "string" },
+          "HostName5": { "type": "string" },
+          "RecordType5": { "type": "string" },
+          "Address5": { "type": "string" },
+          "MXPref5": { "type": "string" },
+          "TTL5": { "type": "string" }
+        },
+        "required": ["SLD", "TLD"]
+      }
+    },
+    {
+      "name": "set_dns_default",
+      "description": "Reset a domain's nameservers to Namecheap's default DNS (registrar-default DNS). Use this to switch back from custom DNS to Namecheap-hosted DNS.",
+      "method": "POST",
+      "path": "/?Command=namecheap.domains.dns.setDefault",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SLD": { "type": "string" },
+          "TLD": { "type": "string" }
+        },
+        "required": ["SLD", "TLD"]
+      }
+    },
+    {
+      "name": "set_dns_custom",
+      "description": "Set custom external nameservers for a domain (1-13 nameservers, comma-separated). Once set, DNS hosts must be managed at the external provider — Namecheap's host-record API stops applying.",
+      "method": "POST",
+      "path": "/?Command=namecheap.domains.dns.setCustom",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SLD": { "type": "string" },
+          "TLD": { "type": "string" },
+          "Nameservers": {
+            "type": "string",
+            "description": "Comma-separated nameserver hostnames (e.g. 'ns1.cloudflare.com,ns2.cloudflare.com')"
+          }
+        },
+        "required": ["SLD", "TLD", "Nameservers"]
+      }
+    },
+    {
+      "name": "get_nameservers",
+      "description": "Get the nameservers currently set on a domain (whether default Namecheap or custom).",
+      "method": "GET",
+      "path": "/?Command=namecheap.domains.dns.getList",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SLD": { "type": "string" },
+          "TLD": { "type": "string" }
+        },
+        "required": ["SLD", "TLD"]
+      }
+    },
+    {
+      "name": "get_balance",
+      "description": "Get the current account balance — AvailableBalance (spendable), AccountBalance (total including funds in transit), EarnedAmount, WithdrawableAmount.",
+      "method": "GET",
+      "path": "/?Command=namecheap.users.getBalances",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_pricing",
+      "description": "Look up retail pricing for a product type (DOMAIN, SSLCERTIFICATE, WHOISGUARD). For domains, optionally filter by category (REGISTER, RENEW, TRANSFER) and a specific TLD.",
+      "method": "GET",
+      "path": "/?Command=namecheap.users.getPricing",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ProductType": {
+            "type": "string",
+            "enum": ["DOMAIN", "SSLCERTIFICATE", "WHOISGUARD"]
+          },
+          "ProductCategory": {
+            "type": "string",
+            "enum": ["REGISTER", "RENEW", "TRANSFER", "REACTIVATE"]
+          },
+          "ProductName": {
+            "type": "string",
+            "description": "Specific product (e.g. for DOMAIN this is the TLD: 'com', 'net')"
+          },
+          "ActionName": {
+            "type": "string",
+            "enum": ["REGISTER", "RENEW", "TRANSFER", "REACTIVATE"]
+          }
+        },
+        "required": ["ProductType"]
+      }
+    }
+  ]
+}

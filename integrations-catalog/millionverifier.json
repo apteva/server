@@ -1,0 +1,85 @@
+{
+  "slug": "millionverifier",
+  "name": "MillionVerifier",
+  "description": "Cheapest-per-email bulk verifier on the market. Use for high-volume list cleaning where unit cost matters more than premium scoring features.",
+  "logo": "https://www.google.com/s2/favicons?domain=millionverifier.com&sz=128",
+  "categories": ["email", "verification", "deliverability", "bulk"],
+  "base_url": "https://api.millionverifier.com",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "api": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "MillionVerifier API key from app.millionverifier.com → API"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "verify",
+      "description": "Verify a single email synchronously.",
+      "method": "GET",
+      "path": "/api/v3/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string" },
+          "timeout": { "type": "integer", "description": "Seconds to wait (default 20, max 60)" }
+        },
+        "required": ["email"]
+      }
+    },
+    {
+      "name": "credits",
+      "description": "Get remaining credit balance.",
+      "method": "GET",
+      "path": "/api/v3/credits",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "bulk_upload",
+      "description": "Upload a list (URL or file) for bulk verification. Returns a file_id — poll bulk_status.",
+      "method": "POST",
+      "path": "/bulkapi/v2/upload",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_url": { "type": "string", "description": "Public URL of CSV/TXT" },
+          "name": { "type": "string", "description": "Optional list name" }
+        },
+        "required": ["file_url"]
+      }
+    },
+    {
+      "name": "bulk_status",
+      "description": "Check bulk-verification job status by file_id.",
+      "method": "GET",
+      "path": "/bulkapi/v2/fileinfo",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": { "type": "integer" }
+        },
+        "required": ["file_id"]
+      }
+    },
+    {
+      "name": "bulk_download",
+      "description": "Download bulk results once status='finished'. Returns a CSV-style download URL.",
+      "method": "GET",
+      "path": "/bulkapi/v2/download",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": { "type": "integer" },
+          "filter": { "type": "string", "enum": ["all", "ok", "catch_all", "unknown", "error", "disposable", "invalid"], "default": "all" }
+        },
+        "required": ["file_id"]
+      }
+    }
+  ]
+}

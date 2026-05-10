@@ -1,0 +1,660 @@
+{
+  "slug": "socialcast",
+  "name": "SocialCast",
+  "description": "Unified social media posting platform — connect accounts across 9 platforms and publish everywhere at once",
+  "logo": "https://socialcast.dev/favicon-192.png",
+  "categories": [
+    "social-media",
+    "cross-posting",
+    "twitter",
+    "instagram",
+    "facebook",
+    "linkedin",
+    "tiktok",
+    "youtube",
+    "reddit",
+    "pinterest",
+    "telegram"
+  ],
+  "base_url": "https://api.socialcast.dev",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "SocialCast API Key (from your SocialCast dashboard under API Keys)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_accounts",
+      "description": "List all connected social media accounts for the project. Optionally filter by platform or status. Accounts with status 'active' are fully configured and ready to post — do NOT suggest setup steps for active accounts. The platform_metadata field contains internal IDs used by the system (pageId, instagramAccountId, etc.) and should not be interpreted as incomplete setup.",
+      "method": "GET",
+      "path": "/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "twitter",
+              "instagram",
+              "facebook",
+              "linkedin",
+              "tiktok",
+              "youtube",
+              "reddit",
+              "pinterest",
+              "telegram"
+            ],
+            "description": "Filter by platform"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "pending",
+              "inactive",
+              "expired",
+              "error",
+              "needs_selection"
+            ],
+            "description": "Filter by account status"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results to return",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "get_account",
+      "description": "Get details of a specific connected social media account by ID.",
+      "method": "GET",
+      "path": "/accounts/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Account ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "create_post",
+      "description": "Create and publish a post to one or more connected social media platforms simultaneously. Supports text, images, videos, and links.\n\nMedia capabilities per platform:\n- Instagram: Single image, single video (Reel), STORY (single image or video), or CAROUSEL (2-10 images/videos mixed). Pass multiple items in media_urls for carousel.\n- Facebook: Text, single image, MULTI-PHOTO (2+ images posted as album), single video, STORY (photo or video), or link post.\n- Twitter/X: Text with up to 4 media attachments (images, GIFs, or 1 video). Media is uploaded automatically.\n- TikTok: Single video or PHOTO CAROUSEL (up to 35 images). Use overrides for privacy, comments, music.\n- YouTube: Single video upload with title, description, tags, privacy.\n- Pinterest: Single image with title, description, board, and link.\n- Reddit: Text (self) or link post to a subreddit.\n- LinkedIn: Text post with optional visibility setting.\n- Telegram: Text or single image with optional parse mode.\n\nStories: To publish as a Story (24h ephemeral), set platform_overrides.instagram.post_format='story' and/or platform_overrides.facebook.post_format='story'. Stories require a single image or video media item — captions are ignored by Meta. Instagram story video must be 9:16, 3-60s. Facebook story video must be 9:16, 1080x1920 recommended, 3-90s. Stories CAN be scheduled — our jobs engine fires the publish at the scheduled time (Meta itself doesn't accept scheduled_publish_time for stories, but external schedulers work fine).\n\nTo schedule a post for later, set scheduled_for to an ISO 8601 timestamp and optionally timezone (e.g., 'America/New_York'). IMPORTANT: Each call only accepts a single scheduled_for time that applies to ALL account_ids in that call. To schedule the same content at different times for different platforms (e.g., Instagram at 9am and Twitter at 12pm), you MUST make separate create_post calls — one per unique scheduled time, each with only the account_ids for that time slot.",
+      "method": "POST",
+      "path": "/posts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Post text content / caption"
+          },
+          "media_urls": {
+            "type": "array",
+            "description": "Media attachments. Pass multiple images for carousel/album posts (Instagram up to 10, Facebook unlimited, TikTok up to 35). Each item needs url, type (image/video), and optional alt_text.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "description": "Public URL of the media file"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "image",
+                    "video"
+                  ],
+                  "description": "Media type"
+                },
+                "alt_text": {
+                  "type": "string",
+                  "description": "Alt text for accessibility"
+                }
+              },
+              "required": [
+                "url",
+                "type"
+              ]
+            }
+          },
+          "link_url": {
+            "type": "string",
+            "description": "External link to include in the post"
+          },
+          "account_ids": {
+            "type": "array",
+            "description": "Array of connected account IDs to publish to (at least 1 required)",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 1
+          },
+          "scheduled_for": {
+            "type": "string",
+            "description": "ISO 8601 timestamp to schedule the post for future publishing (e.g., '2025-12-25T10:00:00Z'). If omitted, the post is published immediately."
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone for the scheduled time (e.g., 'America/New_York', 'Europe/London'). Defaults to UTC if omitted. Only used when scheduled_for is set."
+          },
+          "platform_overrides": {
+            "type": "object",
+            "description": "Per-platform overrides keyed by platform name. Only include platforms you want to customize. Available fields per platform: youtube: {title, description, tags (array), privacyStatus (public/unlisted/private), categoryId}. reddit: {title, subreddit, text, nsfw}. pinterest: {title, description, board_id}. tiktok: {title (photo posts only, max 90 chars), text (caption/description, falls back to main post text), privacyLevel (PUBLIC_TO_EVERYONE/MUTUAL_FOLLOW_FRIENDS/FOLLOWER_OF_CREATOR/SELF_ONLY), disableComment (bool), autoAddMusic (bool, photo posts only)}. linkedin: {text, visibility}. facebook: {text, title (video only), post_format (feed/story — 'story' publishes as a 24h Page story, requires single photo or video)}. twitter: {text}. instagram: {text, post_format (feed/story — 'story' publishes as a 24h Story, requires single image (JPEG) or video (9:16, 3-60s); caption is ignored by Meta)}. telegram: {text, chatId, parseMode}. All fields are optional — omitted fields fall back to the main post text.",
+            "properties": {
+              "twitter": {
+                "type": "object"
+              },
+              "instagram": {
+                "type": "object",
+                "properties": {
+                  "text": { "type": "string", "description": "Override caption for Instagram (ignored when post_format=story)" },
+                  "post_format": {
+                    "type": "string",
+                    "enum": ["feed", "story"],
+                    "description": "Post format. 'feed' (default) = standard Feed/Reel post. 'story' = 24h Story (single image/video, 9:16; caption ignored by Meta)."
+                  }
+                }
+              },
+              "facebook": {
+                "type": "object",
+                "properties": {
+                  "text": { "type": "string", "description": "Override message for Facebook" },
+                  "title": { "type": "string", "description": "Title for video posts" },
+                  "post_format": {
+                    "type": "string",
+                    "enum": ["feed", "story"],
+                    "description": "Post format. 'feed' (default) = standard Page feed post. 'story' = 24h Page Story (single photo or 9:16 video, 3-90s)."
+                  }
+                }
+              },
+              "linkedin": {
+                "type": "object"
+              },
+              "tiktok": {
+                "type": "object"
+              },
+              "youtube": {
+                "type": "object"
+              },
+              "reddit": {
+                "type": "object"
+              },
+              "pinterest": {
+                "type": "object"
+              },
+              "telegram": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "required": [
+          "account_ids"
+        ]
+      }
+    },
+    {
+      "name": "list_posts",
+      "description": "List published social posts with filtering and pagination. Returns post content, status, and per-platform results.",
+      "method": "GET",
+      "path": "/posts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "scheduled",
+              "publishing",
+              "published",
+              "partial",
+              "failed"
+            ],
+            "description": "Filter by post status"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results to return",
+            "default": 20
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field and direction",
+            "default": "created_at:desc"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_post",
+      "description": "Get a specific post with full per-platform results including platform post URLs, statuses, and errors.",
+      "method": "GET",
+      "path": "/posts/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Post ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_post",
+      "description": "Update a post's text and platform-specific settings, then sync changes to platforms that support editing (Facebook, YouTube, Telegram). For YouTube: pass platform_overrides.youtube with title, description, tags, privacyStatus. For scheduled/failed posts: updates are saved locally for the next publish attempt. Other platforms will be skipped.",
+      "method": "PUT",
+      "path": "/posts/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Post ID to update"
+          },
+          "text": {
+            "type": "string",
+            "description": "New post text"
+          },
+          "platform_overrides": {
+            "type": "object",
+            "description": "Per-platform overrides. youtube: {title, description, tags (array), privacyStatus, categoryId}. tiktok: {title, text, privacyLevel, disableComment, autoAddMusic}. Other platforms use the main text field."
+          }
+        },
+        "required": [
+          "id",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "delete_post",
+      "description": "Delete a post record and attempt to remove it from platforms that support deletion (Facebook, YouTube, Pinterest, Telegram). Other platforms' posts will remain live.",
+      "method": "DELETE",
+      "path": "/posts/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Post ID to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "reschedule_post",
+      "description": "Reschedule a previously scheduled post to a new date/time. The post must be in 'scheduled' status. Updates the scheduled job and post record.",
+      "method": "POST",
+      "path": "/posts/{id}/reschedule",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Post ID to reschedule"
+          },
+          "scheduled_for": {
+            "type": "string",
+            "description": "New ISO 8601 timestamp for the post (e.g., '2025-12-25T10:00:00Z')"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone for the scheduled time (e.g., 'America/New_York'). Defaults to UTC if omitted."
+          }
+        },
+        "required": [
+          "id",
+          "scheduled_for"
+        ]
+      }
+    },
+    {
+      "name": "cancel_scheduled_post",
+      "description": "Cancel a scheduled post. The post must be in 'scheduled' status. The post will be moved back to 'draft' status and the scheduled job will be removed.",
+      "method": "POST",
+      "path": "/posts/{id}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Post ID to cancel"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "retry_post",
+      "description": "Retry publishing a failed or partially failed post. Re-publishes only to the platforms that failed, keeping existing successful results intact. The post must be in 'failed' or 'partial' status.",
+      "method": "POST",
+      "path": "/posts/{id}/retry",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Post ID to retry"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_post_analytics",
+      "description": "Fetch analytics and engagement metrics for a published post across all platforms. Returns impressions, reach, likes, comments, shares, views, saves, clicks, quotes, and bookmarks where available. For Instagram Stories specifically (post_format=story) returns the story metric set instead: views, reach, replies (DM replies to the story), profile_visits, follows, shares, navigation (taps forward/back/exit), and total_interactions. Supported: Instagram, Facebook, YouTube, TikTok, Pinterest, Twitter/X. No analytics API: LinkedIn, Reddit, Telegram.",
+      "method": "GET",
+      "path": "/posts/{id}/analytics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Post ID to get analytics for"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "account_insights",
+      "description": "Get page-level insights and historical stats for a connected social account. Returns follower growth, reach, impressions, engagement metrics, and top content over a date range. Supported: Instagram (reach, followers, engagement, interactions), Facebook (page impressions, reach, engagement, fans, plus Content Monetization earnings when the page is enrolled — total + breakdown by Videos/Reels/Photos-Text-Stories/Extra Bonus), YouTube (subscribers, views, watch time), TikTok (followers, views, likes, shares), Twitter/X (followers, following, tweet count + recent tweet engagement), Pinterest (impressions, engagement, pin clicks, outbound clicks, saves + top pins). Unsupported: LinkedIn, Reddit, Telegram. The response includes a `monetization` field for Facebook accounts when applicable (null otherwise).",
+      "method": "GET",
+      "path": "/accounts/{id}/insights",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Social account ID to get insights for"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date in YYYY-MM-DD format (defaults to 7 days ago)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date in YYYY-MM-DD format (defaults to today)"
+          },
+          "period": {
+            "type": "string",
+            "enum": [
+              "day",
+              "week",
+              "days_28"
+            ],
+            "description": "Aggregation period (Instagram/Facebook only)",
+            "default": "day"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_inbox",
+      "description": "List social inbox items — comments, replies, and DMs received on your connected accounts. Filter by platform, account, status, or type. Returns items sorted by most recent first with unread count.",
+      "method": "GET",
+      "path": "/inbox",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "social_account_id": {
+            "type": "integer",
+            "description": "Filter by social account ID"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "facebook",
+              "instagram"
+            ],
+            "description": "Filter by platform"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "unread",
+              "read",
+              "replied",
+              "archived"
+            ],
+            "description": "Filter by status"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "comment",
+              "reply",
+              "message",
+              "story_reply"
+            ],
+            "description": "Filter by item type. 'comment' = top-level comment on a feed post. 'reply' = reply to a comment. 'message' = DM. 'story_reply' = DM that references one of your Stories (Instagram only — appears when a viewer replies to or @-mentions a story)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results to return",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "reply_inbox",
+      "description": "Reply to a comment on a social post, or send a private DM to the commenter via Messenger. Set private_reply=true to send as a DM instead of a public comment reply. Private replies use the Messenger Platform and are delivered to the commenter's inbox.",
+      "method": "POST",
+      "path": "/inbox/reply",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "social_account_id": {
+            "type": "integer",
+            "description": "Social account ID to reply from"
+          },
+          "message": {
+            "type": "string",
+            "description": "Reply message text (max 5000 chars)"
+          },
+          "comment_id": {
+            "type": "string",
+            "description": "Comment ID to reply to (for public reply or private DM to commenter)"
+          },
+          "post_id": {
+            "type": "string",
+            "description": "Post ID for new top-level comment (if no comment_id)"
+          },
+          "platform_post_id": {
+            "type": "string",
+            "description": "Alias for post_id"
+          },
+          "inbox_item_id": {
+            "type": "integer",
+            "description": "Optional: inbox record ID to mark as replied"
+          },
+          "private_reply": {
+            "type": "boolean",
+            "description": "If true, send as a private DM via Messenger instead of a public comment reply",
+            "default": false
+          }
+        },
+        "required": [
+          "social_account_id",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "update_inbox",
+      "description": "Update the status of inbox items — mark as read, replied, or archived. Supports single item, bulk IDs, or mark-all-read for an account.",
+      "method": "PUT",
+      "path": "/inbox",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Single inbox item ID to update"
+          },
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Array of inbox item IDs to bulk update"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "unread",
+              "read",
+              "replied",
+              "archived"
+            ],
+            "description": "New status to set"
+          },
+          "mark_all_read": {
+            "type": "boolean",
+            "description": "If true, mark all items as read (optionally filtered by social_account_id)"
+          },
+          "social_account_id": {
+            "type": "integer",
+            "description": "Filter for mark_all_read — only mark items from this account"
+          }
+        }
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-webhook-signature",
+    "registration": {
+      "method": "POST",
+      "path": "/webhooks-register",
+      "url_field": "endpoint_url",
+      "events_field": "event_types",
+      "secret_field": "secret_key",
+      "id_field": "webhook_id",
+      "delete_path": "/webhooks/{id}",
+      "delete_method": "DELETE",
+      "list_path": "/webhooks",
+      "list_field": "data"
+    },
+    "events": [
+      {
+        "name": "social.comment.received",
+        "description": "New comment received on a post"
+      },
+      {
+        "name": "social.reply.received",
+        "description": "Reply received on a comment"
+      },
+      {
+        "name": "social.message.received",
+        "description": "Direct message received via Messenger"
+      },
+      {
+        "name": "social.comment.edited",
+        "description": "An existing comment was edited"
+      },
+      {
+        "name": "social.comment.deleted",
+        "description": "A comment was removed from a post"
+      }
+    ]
+  },
+  "credential_group": {
+    "id": "socialcast",
+    "name": "SocialCast",
+    "logo": "https://www.google.com/s2/favicons?domain=socialcast.dev&sz=128",
+    "description": "One key, many workspaces. Account keys list every workspace you own; workspace keys are scoped to one.",
+    "discovery": {
+      "list_projects": {
+        "method": "GET",
+        "path": "/workspaces",
+        "response_path": "data",
+        "id_field": "id",
+        "label_field": "name"
+      }
+    }
+  },
+  "scopes": {
+    "account": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Account API Key",
+          "description": "Lists every workspace. SocialCast issues these under Dashboard → API Keys → Account.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      },
+      "project_binding": {
+        "type": "header",
+        "name": "X-Workspace-Id",
+        "value": "{{project_id}}"
+      }
+    },
+    "project": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Workspace API Key",
+          "description": "Scoped to a single workspace.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      }
+    }
+  }
+}

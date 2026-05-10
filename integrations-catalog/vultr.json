@@ -1,0 +1,225 @@
+{
+  "slug": "vultr",
+  "name": "Vultr",
+  "description": "MCP server for Vultr Cloud - instances, snapshots, regions, plans",
+  "logo": "https://www.google.com/s2/favicons?domain=vultr.com&sz=128",
+  "categories": [
+    "cloud",
+    "servers",
+    "vps",
+    "infrastructure"
+  ],
+  "base_url": "https://api.vultr.com/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_instances",
+      "description": "List all instances",
+      "method": "GET",
+      "path": "/list-instances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "per_page": {
+            "type": "number"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_instance",
+      "description": "Get instance details",
+      "method": "GET",
+      "path": "/get-instance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instance_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instance_id"
+        ]
+      }
+    },
+    {
+      "name": "create_instance",
+      "description": "Create a new instance",
+      "method": "POST",
+      "path": "/create-instance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "os_id": {
+            "type": "number"
+          },
+          "label": {
+            "type": "string"
+          },
+          "sshkey_id": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "region",
+          "plan"
+        ]
+      }
+    },
+    {
+      "name": "delete_instance",
+      "description": "Delete an instance",
+      "method": "DELETE",
+      "path": "/delete-instance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instance_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instance_id"
+        ]
+      }
+    },
+    {
+      "name": "start_instance",
+      "description": "Start an instance",
+      "method": "GET",
+      "path": "/start-instance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instance_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instance_id"
+        ]
+      }
+    },
+    {
+      "name": "stop_instance",
+      "description": "Stop an instance",
+      "method": "GET",
+      "path": "/stop-instance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instance_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instance_id"
+        ]
+      }
+    },
+    {
+      "name": "restart_instance",
+      "description": "Restart an instance",
+      "method": "GET",
+      "path": "/restart-instance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instance_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instance_id"
+        ]
+      }
+    },
+    {
+      "name": "list_regions",
+      "description": "List available regions",
+      "method": "GET",
+      "path": "/list-regions",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_plans",
+      "description": "List available plans",
+      "method": "GET",
+      "path": "/list-plans",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_os",
+      "description": "List available OS options",
+      "method": "GET",
+      "path": "/list-os",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_snapshots",
+      "description": "List snapshots",
+      "method": "GET",
+      "path": "/list-snapshots",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_snapshot",
+      "description": "Create a snapshot",
+      "method": "POST",
+      "path": "/create-snapshot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instance_id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instance_id"
+        ]
+      }
+    }
+  ]
+}

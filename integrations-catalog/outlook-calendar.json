@@ -1,0 +1,350 @@
+{
+  "slug": "outlook-calendar",
+  "name": "Outlook Calendar",
+  "description": "Microsoft 365 / Outlook calendar — read events, create/update meetings, find free time via Microsoft Graph",
+  "logo": "https://www.google.com/s2/favicons?domain=outlook.live.com&sz=128",
+  "categories": [
+    "calendar",
+    "scheduling",
+    "microsoft",
+    "office365",
+    "outlook"
+  ],
+  "base_url": "https://graph.microsoft.com/v1.0",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "token_type",
+        "label": "token_type"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+      "scopes": [
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+        "User.Read",
+        "Calendars.Read",
+        "Calendars.ReadWrite",
+        "Calendars.Read.Shared",
+        "MailboxSettings.Read"
+      ],
+      "client_id_required": true,
+      "pkce": true,
+      "extra_authorize_params": {
+        "prompt": "consent"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "list_events",
+      "description": "List calendar events. Use $filter for date ranges, $orderby for sorting.",
+      "method": "GET",
+      "path": "/me/events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "$top": {
+            "type": "integer",
+            "default": 25
+          },
+          "$skip": {
+            "type": "integer"
+          },
+          "$filter": {
+            "type": "string",
+            "description": "OData filter, e.g. \"start/dateTime ge '2026-04-01T00:00:00'\""
+          },
+          "$select": {
+            "type": "string",
+            "description": "e.g. \"id,subject,start,end,attendees,organizer,isCancelled,responseStatus\""
+          },
+          "$orderby": {
+            "type": "string",
+            "description": "e.g. \"start/dateTime desc\""
+          }
+        }
+      }
+    },
+    {
+      "name": "calendar_view",
+      "description": "Get events expanded across recurrences in a date range — best for 'meetings between X and Y'.",
+      "method": "GET",
+      "path": "/me/calendarView",
+      "query_params": [
+        "startDateTime",
+        "endDateTime",
+        "$top",
+        "$select",
+        "$orderby"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "startDateTime": {
+            "type": "string",
+            "description": "ISO 8601, e.g. 2026-04-01T00:00:00Z"
+          },
+          "endDateTime": {
+            "type": "string",
+            "description": "ISO 8601, e.g. 2026-05-01T00:00:00Z"
+          },
+          "$top": {
+            "type": "integer",
+            "default": 100
+          },
+          "$select": {
+            "type": "string"
+          },
+          "$orderby": {
+            "type": "string",
+            "default": "start/dateTime asc"
+          }
+        },
+        "required": [
+          "startDateTime",
+          "endDateTime"
+        ]
+      }
+    },
+    {
+      "name": "get_event",
+      "description": "Get a single event by id (full body, attendees, response status).",
+      "method": "GET",
+      "path": "/me/events/{eventId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string"
+          },
+          "$select": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "eventId"
+        ]
+      }
+    },
+    {
+      "name": "create_event",
+      "description": "Create a calendar event / meeting invite.",
+      "method": "POST",
+      "path": "/me/events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object",
+            "description": "{ contentType: 'HTML'|'Text', content }"
+          },
+          "start": {
+            "type": "object",
+            "description": "{ dateTime: '2026-05-15T10:00:00', timeZone: 'UTC' }"
+          },
+          "end": {
+            "type": "object",
+            "description": "{ dateTime, timeZone }"
+          },
+          "attendees": {
+            "type": "array",
+            "description": "[{ emailAddress: { address, name }, type: 'required'|'optional' }, ...]"
+          },
+          "location": {
+            "type": "object",
+            "description": "{ displayName }"
+          },
+          "isOnlineMeeting": {
+            "type": "boolean",
+            "description": "Auto-create a Teams meeting link"
+          },
+          "onlineMeetingProvider": {
+            "type": "string",
+            "enum": [
+              "teamsForBusiness",
+              "skypeForBusiness",
+              "skypeForConsumer"
+            ]
+          }
+        },
+        "required": [
+          "subject",
+          "start",
+          "end"
+        ]
+      }
+    },
+    {
+      "name": "update_event",
+      "description": "Update an existing event (reschedule, change attendees, body).",
+      "method": "PATCH",
+      "path": "/me/events/{eventId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object"
+          },
+          "start": {
+            "type": "object"
+          },
+          "end": {
+            "type": "object"
+          },
+          "attendees": {
+            "type": "array"
+          },
+          "location": {
+            "type": "object"
+          },
+          "isCancelled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "eventId"
+        ]
+      }
+    },
+    {
+      "name": "delete_event",
+      "description": "Cancel/delete a calendar event.",
+      "method": "DELETE",
+      "path": "/me/events/{eventId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "eventId"
+        ]
+      }
+    },
+    {
+      "name": "find_meeting_times",
+      "description": "Suggest meeting times that work for a list of attendees.",
+      "method": "POST",
+      "path": "/me/findMeetingTimes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "attendees": {
+            "type": "array",
+            "description": "[{ emailAddress: { address }, type: 'required'|'optional' }, ...]"
+          },
+          "timeConstraint": {
+            "type": "object",
+            "description": "{ timeslots: [{ start: { dateTime, timeZone }, end: { dateTime, timeZone } }] }"
+          },
+          "meetingDuration": {
+            "type": "string",
+            "description": "ISO 8601 duration, e.g. PT30M"
+          },
+          "maxCandidates": {
+            "type": "integer",
+            "default": 10
+          }
+        },
+        "required": [
+          "attendees",
+          "meetingDuration"
+        ]
+      }
+    },
+    {
+      "name": "get_schedule",
+      "description": "Get free/busy availability for one or more users in a time window.",
+      "method": "POST",
+      "path": "/me/calendar/getSchedule",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "schedules": {
+            "type": "array",
+            "description": "Array of email addresses to check"
+          },
+          "startTime": {
+            "type": "object",
+            "description": "{ dateTime, timeZone }"
+          },
+          "endTime": {
+            "type": "object"
+          },
+          "availabilityViewInterval": {
+            "type": "integer",
+            "description": "Granularity in minutes (default 30)",
+            "default": 30
+          }
+        },
+        "required": [
+          "schedules",
+          "startTime",
+          "endTime"
+        ]
+      }
+    },
+    {
+      "name": "list_calendars",
+      "description": "List all calendars the user has access to (primary + shared).",
+      "method": "GET",
+      "path": "/me/calendars",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-ms-signature",
+    "events": [
+      {
+        "name": "event.created",
+        "description": "New event added to calendar"
+      },
+      {
+        "name": "event.updated",
+        "description": "Event updated (reschedule, attendee change, cancellation)"
+      },
+      {
+        "name": "event.deleted",
+        "description": "Event removed"
+      }
+    ]
+  }
+}

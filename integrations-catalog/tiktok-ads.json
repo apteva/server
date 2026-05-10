@@ -1,0 +1,295 @@
+{
+  "slug": "tiktok-ads",
+  "name": "TikTok Ads",
+  "description": "TikTok Marketing API v1.3 — manage advertiser accounts, campaigns, ad groups, ads, audiences, and pull performance reports for TikTok Ads Manager",
+  "logo": "https://www.google.com/s2/favicons?domain=ads.tiktok.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "social-ads",
+    "tiktok",
+    "video-ads"
+  ],
+  "base_url": "https://business-api.tiktok.com/open_api/v1.3",
+  "auth": {
+    "types": [
+      "oauth2"
+    ],
+    "headers": {
+      "Access-Token": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token",
+        "description": "TikTok Marketing API access_token (long-lived)",
+        "type": "password"
+      },
+      {
+        "name": "advertiser_id",
+        "label": "Advertiser ID",
+        "description": "Default advertiser_id used when a tool input omits one. Find via list_advertisers."
+      },
+      {
+        "name": "app_id",
+        "label": "App ID",
+        "description": "TikTok Business app_id (required for OAuth token exchange)"
+      },
+      {
+        "name": "secret",
+        "label": "App Secret",
+        "description": "TikTok Business app secret (required for OAuth token exchange)",
+        "type": "password"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://business-api.tiktok.com/portal/auth",
+      "token_url": "https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/",
+      "scopes": [],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "rid": "ads"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "list_advertisers",
+      "description": "List advertiser accounts the authorized user has access to. Returns advertiser_id values needed for every other tool. Required query params (app_id, secret) are read from credentials.",
+      "method": "GET",
+      "path": "/oauth2/advertiser/get/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "TikTok Business app_id (defaults to credential)"
+          },
+          "secret": {
+            "type": "string",
+            "description": "TikTok Business app secret (defaults to credential)"
+          }
+        }
+      }
+    },
+    {
+      "name": "advertiser_info",
+      "description": "Get advertiser account details — timezone, currency, balance, status, industry.",
+      "method": "GET",
+      "path": "/advertiser/info/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Array of advertiser_id strings (max 100). Pass as JSON-encoded array string in the URL."
+          },
+          "fields": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional fields to return; defaults to all"
+          }
+        },
+        "required": ["advertiser_ids"]
+      }
+    },
+    {
+      "name": "campaign_list",
+      "description": "List campaigns for an advertiser. Filtering supports status, objective_type, campaign_ids, date range. Use page/page_size for pagination.",
+      "method": "GET",
+      "path": "/campaign/get/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": { "type": "string", "description": "Advertiser ID" },
+          "filtering": {
+            "type": "object",
+            "description": "Filter object, e.g. {\"campaign_ids\": [\"1234\"], \"primary_status\": \"STATUS_ALL\", \"objective_type\": \"TRAFFIC\"}"
+          },
+          "fields": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Fields to return (campaign_id, campaign_name, status, objective_type, budget, etc.)"
+          },
+          "page": { "type": "integer", "default": 1 },
+          "page_size": { "type": "integer", "default": 10, "description": "Max 1000" }
+        },
+        "required": ["advertiser_id"]
+      }
+    },
+    {
+      "name": "campaign_create",
+      "description": "Create a campaign. Common objective_type values: TRAFFIC, CONVERSIONS, APP_PROMOTION, REACH, VIDEO_VIEWS, LEAD_GENERATION, ENGAGEMENT, PRODUCT_SALES. budget_mode: BUDGET_MODE_DAY, BUDGET_MODE_TOTAL, BUDGET_MODE_INFINITE. Use BUDGET_MODE_INFINITE to defer budget to ad-group level.",
+      "method": "POST",
+      "path": "/campaign/create/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": { "type": "string" },
+          "campaign_name": { "type": "string" },
+          "objective_type": {
+            "type": "string",
+            "enum": ["TRAFFIC", "CONVERSIONS", "APP_PROMOTION", "REACH", "VIDEO_VIEWS", "LEAD_GENERATION", "ENGAGEMENT", "PRODUCT_SALES", "WEB_CONVERSIONS"]
+          },
+          "budget_mode": {
+            "type": "string",
+            "enum": ["BUDGET_MODE_DAY", "BUDGET_MODE_TOTAL", "BUDGET_MODE_INFINITE"]
+          },
+          "budget": { "type": "number", "description": "Required unless budget_mode = BUDGET_MODE_INFINITE" },
+          "operation_status": { "type": "string", "enum": ["ENABLE", "DISABLE"], "default": "DISABLE" },
+          "special_industries": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Required for regulated verticals (e.g. HOUSING, EMPLOYMENT, CREDIT)"
+          }
+        },
+        "required": ["advertiser_id", "campaign_name", "objective_type", "budget_mode"]
+      }
+    },
+    {
+      "name": "campaign_update",
+      "description": "Update a campaign — name, status, budget, or special_industries.",
+      "method": "POST",
+      "path": "/campaign/update/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": { "type": "string" },
+          "campaign_id": { "type": "string" },
+          "campaign_name": { "type": "string" },
+          "budget": { "type": "number" },
+          "operation_status": { "type": "string", "enum": ["ENABLE", "DISABLE", "DELETE"] }
+        },
+        "required": ["advertiser_id", "campaign_id"]
+      }
+    },
+    {
+      "name": "adgroup_list",
+      "description": "List ad groups for an advertiser, optionally filtered by campaign_id.",
+      "method": "GET",
+      "path": "/adgroup/get/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": { "type": "string" },
+          "filtering": { "type": "object", "description": "e.g. {\"campaign_ids\": [\"123\"], \"primary_status\": \"STATUS_ALL\"}" },
+          "fields": { "type": "array", "items": { "type": "string" } },
+          "page": { "type": "integer", "default": 1 },
+          "page_size": { "type": "integer", "default": 10 }
+        },
+        "required": ["advertiser_id"]
+      }
+    },
+    {
+      "name": "adgroup_create",
+      "description": "Create an ad group (placement, targeting, budget, schedule, optimization goal). Required: advertiser_id, campaign_id, adgroup_name, placement_type, billing_event, optimization_goal, budget_mode, budget, schedule_type, pacing.",
+      "method": "POST",
+      "path": "/adgroup/create/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": { "type": "string" },
+          "campaign_id": { "type": "string" },
+          "adgroup_name": { "type": "string" },
+          "placement_type": { "type": "string", "enum": ["PLACEMENT_TYPE_AUTOMATIC", "PLACEMENT_TYPE_NORMAL"] },
+          "placements": { "type": "array", "items": { "type": "string" }, "description": "e.g. [\"PLACEMENT_TIKTOK\"]" },
+          "promotion_type": { "type": "string", "enum": ["WEBSITE", "APP_ANDROID", "APP_IOS", "LEAD_GENERATION"] },
+          "optimization_goal": { "type": "string", "description": "e.g. CLICK, CONVERT, REACH, INSTALL, IMPRESSION" },
+          "billing_event": { "type": "string", "enum": ["CPC", "CPM", "OCPM", "CPV"] },
+          "bid_type": { "type": "string", "enum": ["BID_TYPE_NO_BID", "BID_TYPE_CUSTOM", "BID_TYPE_MAX_CONVERSION"] },
+          "bid_price": { "type": "number" },
+          "budget_mode": { "type": "string", "enum": ["BUDGET_MODE_DAY", "BUDGET_MODE_TOTAL"] },
+          "budget": { "type": "number" },
+          "schedule_type": { "type": "string", "enum": ["SCHEDULE_FROM_NOW", "SCHEDULE_START_END"] },
+          "schedule_start_time": { "type": "string", "description": "yyyy-MM-dd HH:mm:ss" },
+          "schedule_end_time": { "type": "string" },
+          "pacing": { "type": "string", "enum": ["PACING_MODE_SMOOTH", "PACING_MODE_FAST"] },
+          "targeting_expansion": { "type": "object" },
+          "location_ids": { "type": "array", "items": { "type": "string" } },
+          "languages": { "type": "array", "items": { "type": "string" } },
+          "age_groups": { "type": "array", "items": { "type": "string" } },
+          "gender": { "type": "string", "enum": ["GENDER_MALE", "GENDER_FEMALE", "GENDER_UNLIMITED"] }
+        },
+        "required": ["advertiser_id", "campaign_id", "adgroup_name", "placement_type", "billing_event", "optimization_goal", "budget_mode", "budget", "schedule_type", "pacing"]
+      }
+    },
+    {
+      "name": "ad_list",
+      "description": "List ads for an advertiser, optionally filtered by campaign_id or adgroup_id.",
+      "method": "GET",
+      "path": "/ad/get/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": { "type": "string" },
+          "filtering": { "type": "object" },
+          "fields": { "type": "array", "items": { "type": "string" } },
+          "page": { "type": "integer", "default": 1 },
+          "page_size": { "type": "integer", "default": 10 }
+        },
+        "required": ["advertiser_id"]
+      }
+    },
+    {
+      "name": "ad_create",
+      "description": "Create one or more ads inside an ad group. creatives is an array of ad creative objects — each carries ad_format (SINGLE_VIDEO, SINGLE_IMAGE, CAROUSEL_ADS), ad_text, call_to_action, video_id or image_ids, identity_type, identity_id, landing_page_url.",
+      "method": "POST",
+      "path": "/ad/create/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": { "type": "string" },
+          "adgroup_id": { "type": "string" },
+          "creatives": {
+            "type": "array",
+            "items": { "type": "object" },
+            "description": "Array of creative objects"
+          }
+        },
+        "required": ["advertiser_id", "adgroup_id", "creatives"]
+      }
+    },
+    {
+      "name": "ad_update_status",
+      "description": "Enable, disable, or delete one or more ads.",
+      "method": "POST",
+      "path": "/ad/status/update/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": { "type": "string" },
+          "ad_ids": { "type": "array", "items": { "type": "string" } },
+          "operation_status": { "type": "string", "enum": ["ENABLE", "DISABLE", "DELETE"] }
+        },
+        "required": ["advertiser_id", "ad_ids", "operation_status"]
+      }
+    },
+    {
+      "name": "report_integrated",
+      "description": "Pull performance metrics. report_type: BASIC (campaign/adgroup/ad performance), AUDIENCE (demographic breakdowns), PLAYABLE_MATERIAL, RESERVATION. data_level: AUCTION_ADVERTISER, AUCTION_CAMPAIGN, AUCTION_ADGROUP, AUCTION_AD. Pass dimensions like [\"campaign_id\"] and metrics like [\"spend\",\"impressions\",\"clicks\",\"ctr\",\"cpc\",\"conversion\",\"cost_per_conversion\"].",
+      "method": "GET",
+      "path": "/report/integrated/get/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": { "type": "string" },
+          "report_type": { "type": "string", "enum": ["BASIC", "AUDIENCE", "PLAYABLE_MATERIAL", "RESERVATION"], "default": "BASIC" },
+          "data_level": { "type": "string", "enum": ["AUCTION_ADVERTISER", "AUCTION_CAMPAIGN", "AUCTION_ADGROUP", "AUCTION_AD"] },
+          "dimensions": { "type": "array", "items": { "type": "string" } },
+          "metrics": { "type": "array", "items": { "type": "string" } },
+          "start_date": { "type": "string", "description": "YYYY-MM-DD" },
+          "end_date": { "type": "string", "description": "YYYY-MM-DD" },
+          "filters": { "type": "array", "items": { "type": "object" } },
+          "order_field": { "type": "string" },
+          "order_type": { "type": "string", "enum": ["ASC", "DESC"] },
+          "page": { "type": "integer", "default": 1 },
+          "page_size": { "type": "integer", "default": 1000 }
+        },
+        "required": ["advertiser_id", "data_level", "dimensions", "start_date", "end_date"]
+      }
+    }
+  ]
+}

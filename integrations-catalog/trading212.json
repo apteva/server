@@ -1,0 +1,383 @@
+{
+  "slug": "trading212",
+  "name": "Trading 212",
+  "description": "Trading 212 Public API \u2014 trade stocks and ETFs, manage orders, view positions and history. For Invest and Stocks ISA accounts only.",
+  "logo": "https://www.google.com/s2/favicons?domain=trading212.com&sz=128",
+  "categories": [
+    "trading",
+    "stocks",
+    "investing",
+    "orders",
+    "portfolio",
+    "brokerage"
+  ],
+  "base_url": "https://live.trading212.com/api/v0",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "authToken",
+        "label": "Auth Token",
+        "description": "Base64-encoded API_KEY:API_SECRET (generate keys in Trading 212 app, then encode: echo -n 'KEY:SECRET' | base64)"
+      },
+      {
+        "name": "baseUrl",
+        "label": "Base Url",
+        "description": "API environment URL: https://live.trading212.com for real money, or https://demo.trading212.com for paper trading"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_account_summary",
+      "description": "Get account summary including cash balance, invested amount, and portfolio value. Returns values in the primary account currency.",
+      "method": "GET",
+      "path": "/get-account-summary",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_exchanges",
+      "description": "List all available exchanges with their trading hours and details.",
+      "method": "GET",
+      "path": "/list-exchanges",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_instruments",
+      "description": "List all tradeable instruments (stocks, ETFs) with their tickers, names, currencies, and ISINs. Use ticker values (e.g. AAPL_US_EQ) when placing orders.",
+      "method": "GET",
+      "path": "/list-instruments",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_pending_orders",
+      "description": "Get all currently active (pending) orders that are not yet filled, cancelled, or expired.",
+      "method": "GET",
+      "path": "/list-pending-orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get details of a specific pending order by its unique ID.",
+      "method": "GET",
+      "path": "/get-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "integer",
+            "description": "The unique order ID"
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      }
+    },
+    {
+      "name": "place_market_order",
+      "description": "Place a market order that executes immediately at the best available price. Use positive quantity to BUY, negative quantity to SELL. Set extendedHours=true to allow execution outside regular trading hours. WARNING: Market orders can be subject to price slippage.",
+      "method": "POST",
+      "path": "/place-market-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "description": "Instrument ticker (e.g. AAPL_US_EQ). Get from list-instruments endpoint."
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Number of shares. Positive to BUY, negative to SELL (e.g. -10.5 sells 10.5 shares)."
+          },
+          "extendedHours": {
+            "type": "boolean",
+            "description": "Allow execution outside regular trading hours",
+            "default": false
+          }
+        },
+        "required": [
+          "ticker",
+          "quantity"
+        ]
+      }
+    },
+    {
+      "name": "place_limit_order",
+      "description": "Place a limit order that executes at a specified price or better. Use positive quantity to BUY (fills at limitPrice or lower), negative quantity to SELL (fills at limitPrice or higher).",
+      "method": "POST",
+      "path": "/place-limit-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "description": "Instrument ticker (e.g. AAPL_US_EQ)"
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Number of shares. Positive to BUY, negative to SELL."
+          },
+          "limitPrice": {
+            "type": "number",
+            "description": "The limit price for the order"
+          },
+          "timeValidity": {
+            "type": "string",
+            "enum": [
+              "DAY",
+              "GOOD_TILL_CANCEL"
+            ],
+            "description": "DAY = expires at market close, GOOD_TILL_CANCEL = stays active until filled or cancelled"
+          }
+        },
+        "required": [
+          "ticker",
+          "quantity",
+          "limitPrice",
+          "timeValidity"
+        ]
+      }
+    },
+    {
+      "name": "place_stop_order",
+      "description": "Place a stop order that triggers a market order when the stop price is reached. Use positive quantity for buy stop, negative quantity for sell stop (stop-loss). Triggered by the instrument's Last Traded Price (LTP).",
+      "method": "POST",
+      "path": "/place-stop-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "description": "Instrument ticker (e.g. AAPL_US_EQ)"
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Number of shares. Positive to BUY, negative to SELL."
+          },
+          "stopPrice": {
+            "type": "number",
+            "description": "The stop trigger price"
+          },
+          "timeValidity": {
+            "type": "string",
+            "enum": [
+              "DAY",
+              "GOOD_TILL_CANCEL"
+            ],
+            "description": "DAY = expires at market close, GOOD_TILL_CANCEL = stays active until filled or cancelled"
+          }
+        },
+        "required": [
+          "ticker",
+          "quantity",
+          "stopPrice",
+          "timeValidity"
+        ]
+      }
+    },
+    {
+      "name": "place_stop_limit_order",
+      "description": "Place a stop-limit order combining stop and limit features. When the stop price is reached, a limit order is placed at the limit price. Protects against slippage. Use positive quantity for BUY, negative for SELL.",
+      "method": "POST",
+      "path": "/place-stop-limit-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "description": "Instrument ticker (e.g. AAPL_US_EQ)"
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Number of shares. Positive to BUY, negative to SELL."
+          },
+          "stopPrice": {
+            "type": "number",
+            "description": "The stop trigger price (triggers the limit order)"
+          },
+          "limitPrice": {
+            "type": "number",
+            "description": "The limit price for the order once triggered"
+          },
+          "timeValidity": {
+            "type": "string",
+            "enum": [
+              "DAY",
+              "GOOD_TILL_CANCEL"
+            ],
+            "description": "DAY = expires at market close, GOOD_TILL_CANCEL = stays active until filled or cancelled"
+          }
+        },
+        "required": [
+          "ticker",
+          "quantity",
+          "stopPrice",
+          "limitPrice",
+          "timeValidity"
+        ]
+      }
+    },
+    {
+      "name": "cancel_order",
+      "description": "Cancel a pending order by its ID. Cancellation is not guaranteed if the order is already being filled. A successful response means the cancellation request was accepted.",
+      "method": "DELETE",
+      "path": "/cancel-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "integer",
+            "description": "The unique order ID to cancel"
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      }
+    },
+    {
+      "name": "get_positions",
+      "description": "Get all open positions with current quantity, average price, current price, and profit/loss.",
+      "method": "GET",
+      "path": "/get-positions",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_order_history",
+      "description": "Get historical orders with cursor-based pagination. Returns filled, cancelled, and expired orders. Use nextPagePath from response to get next page.",
+      "method": "GET",
+      "path": "/get-order-history",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Max items per page (default 20, max 50)",
+            "default": 20
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response's nextPagePath"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_dividend_history",
+      "description": "Get historical dividend payments with cursor-based pagination. Use nextPagePath from response to get next page.",
+      "method": "GET",
+      "path": "/get-dividend-history",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Max items per page (default 20, max 50)",
+            "default": 20
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response's nextPagePath"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_transaction_history",
+      "description": "Get historical cash transactions (deposits, withdrawals, fees, etc.) with cursor-based pagination. Use nextPagePath from response to get next page.",
+      "method": "GET",
+      "path": "/get-transaction-history",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Max items per page (default 20, max 50)",
+            "default": 20
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response's nextPagePath"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_exports",
+      "description": "List all previously requested CSV data exports with their status and download links.",
+      "method": "GET",
+      "path": "/list-exports",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_export",
+      "description": "Request a new CSV export of your trading data. The export is processed asynchronously \u2014 use list-exports to check status and get download link.",
+      "method": "POST",
+      "path": "/create-export",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dataIncluded": {
+            "type": "object",
+            "description": "What data to include in the export",
+            "properties": {
+              "includeDividends": {
+                "type": "boolean",
+                "default": true
+              },
+              "includeInterest": {
+                "type": "boolean",
+                "default": true
+              },
+              "includeOrders": {
+                "type": "boolean",
+                "default": true
+              },
+              "includeTransactions": {
+                "type": "boolean",
+                "default": true
+              }
+            }
+          },
+          "timeFrom": {
+            "type": "string",
+            "description": "Start date in ISO 8601 format (e.g. 2024-01-01T00:00:00Z)"
+          },
+          "timeTo": {
+            "type": "string",
+            "description": "End date in ISO 8601 format (e.g. 2024-12-31T23:59:59Z)"
+          }
+        },
+        "required": [
+          "dataIncluded",
+          "timeFrom",
+          "timeTo"
+        ]
+      }
+    }
+  ]
+}

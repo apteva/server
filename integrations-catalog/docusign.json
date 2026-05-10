@@ -1,0 +1,226 @@
+{
+  "slug": "docusign",
+  "name": "DocuSign",
+  "description": "MCP server for DocuSign e-signatures - envelopes, templates, recipients",
+  "logo": "https://www.google.com/s2/favicons?domain=docusign.com&sz=128",
+  "categories": [
+    "e-signature",
+    "documents",
+    "contracts",
+    "legal"
+  ],
+  "base_url": "https://na4.docusign.net/restapi/v2.1",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "token_type",
+        "label": "token_type"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://account-d.docusign.com/oauth/auth",
+      "token_url": "https://account-d.docusign.com/oauth/token",
+      "scopes": [
+        "signature",
+        "extended",
+        "impersonation"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "send_envelope",
+      "description": "Create and send an envelope for signing",
+      "method": "POST",
+      "path": "/send-envelope",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email_subject": {
+            "type": "string",
+            "description": "Email subject line"
+          },
+          "documents": {
+            "type": "array",
+            "description": "Documents to sign"
+          },
+          "recipients": {
+            "type": "object",
+            "description": "Envelope recipients (signers, cc, etc.)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "created",
+              "sent"
+            ],
+            "description": "Envelope status (created=draft, sent=send immediately)"
+          }
+        },
+        "required": [
+          "email_subject",
+          "documents",
+          "recipients"
+        ]
+      }
+    },
+    {
+      "name": "get_status",
+      "description": "Get the status of an envelope",
+      "method": "GET",
+      "path": "/get-status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "envelope_id": {
+            "type": "string",
+            "description": "Envelope ID"
+          }
+        },
+        "required": [
+          "envelope_id"
+        ]
+      }
+    },
+    {
+      "name": "add_recipient",
+      "description": "Add a recipient to an envelope",
+      "method": "GET",
+      "path": "/add-recipient",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "envelope_id": {
+            "type": "string",
+            "description": "Envelope ID"
+          },
+          "recipient_type": {
+            "type": "string",
+            "enum": [
+              "signer",
+              "cc",
+              "certifiedDelivery",
+              "inPersonSigner"
+            ],
+            "description": "Type of recipient"
+          },
+          "email": {
+            "type": "string",
+            "description": "Recipient email"
+          },
+          "name": {
+            "type": "string",
+            "description": "Recipient name"
+          },
+          "routing_order": {
+            "type": "number",
+            "description": "Signing order"
+          }
+        },
+        "required": [
+          "envelope_id",
+          "recipient_type",
+          "email",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "create_template",
+      "description": "Create a reusable template",
+      "method": "POST",
+      "path": "/create-template",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Template name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Template description"
+          },
+          "documents": {
+            "type": "array",
+            "description": "Template documents"
+          },
+          "recipients": {
+            "type": "object",
+            "description": "Template recipients"
+          }
+        },
+        "required": [
+          "name",
+          "documents"
+        ]
+      }
+    },
+    {
+      "name": "download_document",
+      "description": "Download a signed document",
+      "method": "GET",
+      "path": "/download-document",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "envelope_id": {
+            "type": "string",
+            "description": "Envelope ID"
+          },
+          "document_id": {
+            "type": "string",
+            "description": "Document ID (or 'combined' for all)"
+          }
+        },
+        "required": [
+          "envelope_id"
+        ]
+      }
+    },
+    {
+      "name": "void_envelope",
+      "description": "Void an envelope",
+      "method": "GET",
+      "path": "/void-envelope",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "envelope_id": {
+            "type": "string",
+            "description": "Envelope ID"
+          },
+          "void_reason": {
+            "type": "string",
+            "description": "Reason for voiding"
+          }
+        },
+        "required": [
+          "envelope_id",
+          "void_reason"
+        ]
+      }
+    }
+  ]
+}

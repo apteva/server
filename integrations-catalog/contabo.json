@@ -1,0 +1,733 @@
+{
+  "slug": "contabo",
+  "name": "Contabo Cloud",
+  "description": "Manage Contabo VPS instances, snapshots, custom images, object storage, and private networks",
+  "logo": "https://www.google.com/s2/favicons?domain=contabo.com&sz=128",
+  "categories": [
+    "cloud",
+    "vps",
+    "hosting",
+    "infrastructure",
+    "storage"
+  ],
+  "base_url": "https://api.contabo.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "instance_list",
+      "description": "List all VPS/VDS instances in your Contabo account",
+      "method": "GET",
+      "path": "/instance-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number for pagination"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Number of items per page"
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by instance name"
+          },
+          "region": {
+            "type": "string",
+            "description": "Filter by region"
+          }
+        }
+      }
+    },
+    {
+      "name": "instance_get",
+      "description": "Get details of a specific Contabo instance by ID",
+      "method": "GET",
+      "path": "/instance-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "integer",
+            "description": "Instance ID"
+          }
+        },
+        "required": [
+          "instanceId"
+        ]
+      }
+    },
+    {
+      "name": "instance_create",
+      "description": "Create a new VPS/VDS instance on Contabo",
+      "method": "GET",
+      "path": "/instance-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "imageId": {
+            "type": "string",
+            "description": "Image ID (OS image)"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Product/plan ID"
+          },
+          "region": {
+            "type": "string",
+            "description": "Region (e.g., EU, US-central)"
+          },
+          "sshKeys": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "SSH key IDs"
+          },
+          "rootPassword": {
+            "type": "integer",
+            "description": "Root password secret ID"
+          },
+          "userData": {
+            "type": "string",
+            "description": "Cloud-init user data (base64)"
+          },
+          "displayName": {
+            "type": "string",
+            "description": "Display name for the instance"
+          },
+          "period": {
+            "type": "integer",
+            "description": "Contract period in months"
+          }
+        },
+        "required": [
+          "imageId",
+          "productId",
+          "region"
+        ]
+      }
+    },
+    {
+      "name": "instance_start",
+      "description": "Start a stopped Contabo instance",
+      "method": "GET",
+      "path": "/instance-start",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "integer",
+            "description": "Instance ID"
+          }
+        },
+        "required": [
+          "instanceId"
+        ]
+      }
+    },
+    {
+      "name": "instance_stop",
+      "description": "Stop a running Contabo instance",
+      "method": "GET",
+      "path": "/instance-stop",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "integer",
+            "description": "Instance ID"
+          }
+        },
+        "required": [
+          "instanceId"
+        ]
+      }
+    },
+    {
+      "name": "instance_restart",
+      "description": "Restart a Contabo instance",
+      "method": "GET",
+      "path": "/instance-restart",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "integer",
+            "description": "Instance ID"
+          }
+        },
+        "required": [
+          "instanceId"
+        ]
+      }
+    },
+    {
+      "name": "instance_reinstall",
+      "description": "Reinstall a Contabo instance with a new image (wipes data)",
+      "method": "GET",
+      "path": "/instance-reinstall",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "integer",
+            "description": "Instance ID"
+          },
+          "imageId": {
+            "type": "string",
+            "description": "New image ID"
+          },
+          "sshKeys": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "SSH key IDs"
+          },
+          "rootPassword": {
+            "type": "integer",
+            "description": "Root password secret ID"
+          },
+          "userData": {
+            "type": "string",
+            "description": "Cloud-init user data"
+          }
+        },
+        "required": [
+          "instanceId",
+          "imageId"
+        ]
+      }
+    },
+    {
+      "name": "instance_cancel",
+      "description": "Cancel/terminate a Contabo instance at the next possible date",
+      "method": "GET",
+      "path": "/instance-cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "integer",
+            "description": "Instance ID"
+          }
+        },
+        "required": [
+          "instanceId"
+        ]
+      }
+    },
+    {
+      "name": "snapshot_list",
+      "description": "List all snapshots for a Contabo instance",
+      "method": "GET",
+      "path": "/snapshot-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "integer",
+            "description": "Instance ID"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Items per page"
+          }
+        },
+        "required": [
+          "instanceId"
+        ]
+      }
+    },
+    {
+      "name": "snapshot_create",
+      "description": "Create a new snapshot of a Contabo instance",
+      "method": "GET",
+      "path": "/snapshot-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "integer",
+            "description": "Instance ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Snapshot name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Snapshot description"
+          }
+        },
+        "required": [
+          "instanceId",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "snapshot_get",
+      "description": "Get details of a specific snapshot",
+      "method": "GET",
+      "path": "/snapshot-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "integer",
+            "description": "Instance ID"
+          },
+          "snapshotId": {
+            "type": "string",
+            "description": "Snapshot ID"
+          }
+        },
+        "required": [
+          "instanceId",
+          "snapshotId"
+        ]
+      }
+    },
+    {
+      "name": "snapshot_delete",
+      "description": "Delete a Contabo snapshot",
+      "method": "GET",
+      "path": "/snapshot-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "integer",
+            "description": "Instance ID"
+          },
+          "snapshotId": {
+            "type": "string",
+            "description": "Snapshot ID"
+          }
+        },
+        "required": [
+          "instanceId",
+          "snapshotId"
+        ]
+      }
+    },
+    {
+      "name": "snapshot_rollback",
+      "description": "Rollback/restore a Contabo instance to a snapshot",
+      "method": "GET",
+      "path": "/snapshot-rollback",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instanceId": {
+            "type": "integer",
+            "description": "Instance ID"
+          },
+          "snapshotId": {
+            "type": "string",
+            "description": "Snapshot ID"
+          }
+        },
+        "required": [
+          "instanceId",
+          "snapshotId"
+        ]
+      }
+    },
+    {
+      "name": "image_list",
+      "description": "List available standard and custom images on Contabo",
+      "method": "GET",
+      "path": "/image-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Items per page"
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by name"
+          },
+          "standardImage": {
+            "type": "boolean",
+            "description": "Filter by standard (true) or custom (false) images"
+          }
+        }
+      }
+    },
+    {
+      "name": "image_get",
+      "description": "Get details of a specific Contabo image",
+      "method": "GET",
+      "path": "/image-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "imageId": {
+            "type": "string",
+            "description": "Image ID"
+          }
+        },
+        "required": [
+          "imageId"
+        ]
+      }
+    },
+    {
+      "name": "image_upload",
+      "description": "Upload a custom image to Contabo (qcow2 or iso format from URL)",
+      "method": "GET",
+      "path": "/image-upload",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Image name"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL to download image from (qcow2 or iso)"
+          },
+          "osType": {
+            "type": "string",
+            "description": "OS type (e.g., Linux, Windows)"
+          },
+          "version": {
+            "type": "string",
+            "description": "OS version"
+          },
+          "description": {
+            "type": "string",
+            "description": "Image description"
+          }
+        },
+        "required": [
+          "name",
+          "url",
+          "osType",
+          "version"
+        ]
+      }
+    },
+    {
+      "name": "image_update",
+      "description": "Update a custom Contabo image name",
+      "method": "GET",
+      "path": "/image-update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "imageId": {
+            "type": "string",
+            "description": "Image ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "New image name"
+          },
+          "description": {
+            "type": "string",
+            "description": "New description"
+          }
+        },
+        "required": [
+          "imageId",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "image_delete",
+      "description": "Delete a custom Contabo image",
+      "method": "GET",
+      "path": "/image-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "imageId": {
+            "type": "string",
+            "description": "Image ID"
+          }
+        },
+        "required": [
+          "imageId"
+        ]
+      }
+    },
+    {
+      "name": "storage_list",
+      "description": "List all S3-compatible Object Storages on Contabo",
+      "method": "GET",
+      "path": "/storage-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Items per page"
+          },
+          "region": {
+            "type": "string",
+            "description": "Filter by region"
+          }
+        }
+      }
+    },
+    {
+      "name": "storage_get",
+      "description": "Get details of a Contabo Object Storage",
+      "method": "GET",
+      "path": "/storage-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "objectStorageId": {
+            "type": "string",
+            "description": "Object Storage ID"
+          }
+        },
+        "required": [
+          "objectStorageId"
+        ]
+      }
+    },
+    {
+      "name": "storage_create",
+      "description": "Create a new S3-compatible Object Storage on Contabo",
+      "method": "GET",
+      "path": "/storage-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": {
+            "type": "string",
+            "description": "Region for the storage"
+          },
+          "totalPurchasedSpaceTB": {
+            "type": "number",
+            "description": "Storage size in TB"
+          },
+          "autoScaling": {
+            "type": "object",
+            "description": "Auto-scaling configuration"
+          }
+        },
+        "required": [
+          "region",
+          "totalPurchasedSpaceTB"
+        ]
+      }
+    },
+    {
+      "name": "storage_upgrade",
+      "description": "Upgrade Object Storage size or update autoscaling settings",
+      "method": "GET",
+      "path": "/storage-upgrade",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "objectStorageId": {
+            "type": "string",
+            "description": "Object Storage ID"
+          },
+          "totalPurchasedSpaceTB": {
+            "type": "number",
+            "description": "New storage size in TB"
+          },
+          "autoScaling": {
+            "type": "object",
+            "description": "Auto-scaling configuration"
+          }
+        },
+        "required": [
+          "objectStorageId"
+        ]
+      }
+    },
+    {
+      "name": "storage_cancel",
+      "description": "Cancel a Contabo Object Storage at the next possible date",
+      "method": "GET",
+      "path": "/storage-cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "objectStorageId": {
+            "type": "string",
+            "description": "Object Storage ID"
+          }
+        },
+        "required": [
+          "objectStorageId"
+        ]
+      }
+    },
+    {
+      "name": "network_list",
+      "description": "List all Private Networks (VPCs) on Contabo",
+      "method": "GET",
+      "path": "/network-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Items per page"
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by name"
+          },
+          "region": {
+            "type": "string",
+            "description": "Filter by region"
+          }
+        }
+      }
+    },
+    {
+      "name": "network_get",
+      "description": "Get details of a Contabo Private Network",
+      "method": "GET",
+      "path": "/network-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "privateNetworkId": {
+            "type": "integer",
+            "description": "Private Network ID"
+          }
+        },
+        "required": [
+          "privateNetworkId"
+        ]
+      }
+    },
+    {
+      "name": "network_create",
+      "description": "Create a new Private Network (VPC) on Contabo",
+      "method": "GET",
+      "path": "/network-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Network name"
+          },
+          "region": {
+            "type": "string",
+            "description": "Region"
+          },
+          "description": {
+            "type": "string",
+            "description": "Network description"
+          }
+        },
+        "required": [
+          "name",
+          "region"
+        ]
+      }
+    },
+    {
+      "name": "network_delete",
+      "description": "Delete a Contabo Private Network",
+      "method": "GET",
+      "path": "/network-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "privateNetworkId": {
+            "type": "integer",
+            "description": "Private Network ID"
+          }
+        },
+        "required": [
+          "privateNetworkId"
+        ]
+      }
+    },
+    {
+      "name": "network_add_instance",
+      "description": "Add an instance to a Contabo Private Network",
+      "method": "GET",
+      "path": "/network-add-instance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "privateNetworkId": {
+            "type": "integer",
+            "description": "Private Network ID"
+          },
+          "instanceId": {
+            "type": "integer",
+            "description": "Instance ID to add"
+          }
+        },
+        "required": [
+          "privateNetworkId",
+          "instanceId"
+        ]
+      }
+    },
+    {
+      "name": "network_remove_instance",
+      "description": "Remove an instance from a Contabo Private Network",
+      "method": "GET",
+      "path": "/network-remove-instance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "privateNetworkId": {
+            "type": "integer",
+            "description": "Private Network ID"
+          },
+          "instanceId": {
+            "type": "integer",
+            "description": "Instance ID to remove"
+          }
+        },
+        "required": [
+          "privateNetworkId",
+          "instanceId"
+        ]
+      }
+    }
+  ]
+}

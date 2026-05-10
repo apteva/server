@@ -1,0 +1,206 @@
+{
+  "slug": "kling-ai",
+  "name": "Kling AI",
+  "description": "AI video generation with text-to-video, image-to-video, and video extension capabilities",
+  "logo": "https://www.google.com/s2/favicons?domain=klingai.com&sz=128",
+  "categories": [
+    "ai",
+    "video",
+    "generation",
+    "text-to-video",
+    "image-to-video"
+  ],
+  "base_url": "https://api.klingai.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "x-api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "generate_video",
+      "description": "Generate video from text prompt (text-to-video). Returns a task_id to check status.",
+      "method": "GET",
+      "path": "/generate-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Video description (max 2500 chars)"
+          },
+          "negative_prompt": {
+            "type": "string",
+            "description": "Elements to exclude from video"
+          },
+          "duration": {
+            "type": "integer",
+            "description": "Video duration in seconds",
+            "enum": [
+              5,
+              10
+            ],
+            "default": 5
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "description": "Video aspect ratio",
+            "enum": [
+              "16:9",
+              "9:16",
+              "1:1"
+            ],
+            "default": "16:9"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Quality mode",
+            "enum": [
+              "std",
+              "pro"
+            ],
+            "default": "std"
+          },
+          "version": {
+            "type": "string",
+            "description": "Model version",
+            "enum": [
+              "1.5",
+              "1.6",
+              "2.1",
+              "2.5",
+              "2.6"
+            ],
+            "default": "2.1"
+          },
+          "enable_audio": {
+            "type": "boolean",
+            "description": "Generate audio track",
+            "default": false
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "image_to_video",
+      "description": "Generate video from an image. Returns a task_id to check status.",
+      "method": "GET",
+      "path": "/image-to-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image_url": {
+            "type": "string",
+            "description": "URL of the source image (<10MB, min 300px sides)"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Optional motion/action description"
+          },
+          "negative_prompt": {
+            "type": "string",
+            "description": "Elements to exclude from video"
+          },
+          "duration": {
+            "type": "integer",
+            "description": "Video duration in seconds",
+            "enum": [
+              5,
+              10
+            ],
+            "default": 5
+          },
+          "mode": {
+            "type": "string",
+            "description": "Quality mode",
+            "enum": [
+              "std",
+              "pro"
+            ],
+            "default": "std"
+          },
+          "version": {
+            "type": "string",
+            "description": "Model version",
+            "enum": [
+              "1.5",
+              "1.6",
+              "2.1",
+              "2.5",
+              "2.6"
+            ],
+            "default": "2.1"
+          },
+          "image_tail_url": {
+            "type": "string",
+            "description": "End frame image URL for guided generation"
+          },
+          "enable_audio": {
+            "type": "boolean",
+            "description": "Generate audio track",
+            "default": false
+          }
+        },
+        "required": [
+          "image_url"
+        ]
+      }
+    },
+    {
+      "name": "get_task",
+      "description": "Get the status and result of a video generation task",
+      "method": "GET",
+      "path": "/get-task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "Task ID from generate-video or image-to-video"
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      }
+    },
+    {
+      "name": "extend_video",
+      "description": "Extend an existing video by 4.5 seconds",
+      "method": "GET",
+      "path": "/extend-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "origin_task_id": {
+            "type": "string",
+            "description": "Task ID of the original video to extend"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Optional prompt for the extension"
+          },
+          "negative_prompt": {
+            "type": "string",
+            "description": "Elements to exclude"
+          }
+        },
+        "required": [
+          "origin_task_id"
+        ]
+      }
+    }
+  ]
+}

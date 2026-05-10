@@ -1,0 +1,1247 @@
+{
+  "slug": "twitter-api",
+  "name": "X / Twitter API",
+  "description": "X API v2 - post tweets, manage followers, search, timelines, likes, retweets, bookmarks, DMs, mutes, and blocks via OAuth2",
+  "logo": "https://www.google.com/s2/favicons?domain=x.com&sz=128",
+  "categories": [
+    "twitter",
+    "x",
+    "social-media",
+    "tweets",
+    "oauth2"
+  ],
+  "base_url": "https://api.x.com",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "scope",
+        "label": "scope"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://twitter.com/i/oauth2/authorize",
+      "token_url": "https://api.twitter.com/2/oauth2/token",
+      "scopes": [
+        "tweet.read",
+        "tweet.write",
+        "tweet.moderate.write",
+        "users.read",
+        "follows.read",
+        "follows.write",
+        "offline.access",
+        "space.read",
+        "mute.read",
+        "mute.write",
+        "like.read",
+        "like.write",
+        "list.read",
+        "list.write",
+        "block.read",
+        "block.write",
+        "bookmark.read",
+        "bookmark.write",
+        "media.write",
+        "dm.read",
+        "dm.write"
+      ],
+      "client_id_required": true,
+      "pkce": true
+    }
+  },
+  "tools": [
+    {
+      "name": "get_me",
+      "description": "Get the authenticated user's profile information including name, username, bio, follower counts, and verification status",
+      "method": "GET",
+      "path": "/2/users/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user.fields": {
+            "type": "string",
+            "description": "Comma-separated user fields to return",
+            "default": "id,name,username,description,profile_image_url,public_metrics,verified,created_at"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_user_by_username",
+      "description": "Look up an X user by their username (handle) to get their profile info and user ID",
+      "method": "GET",
+      "path": "/2/users/by/username/{username}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "X username without the @ symbol"
+          },
+          "user.fields": {
+            "type": "string",
+            "description": "Comma-separated user fields to return",
+            "default": "id,name,username,description,profile_image_url,public_metrics,verified,created_at"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "get_tweet",
+      "description": "Get a single post by its ID with full details including metrics, author info, and referenced posts",
+      "method": "GET",
+      "path": "/2/tweets/{tweet_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tweet_id": {
+            "type": "string",
+            "description": "The post ID to look up"
+          },
+          "tweet.fields": {
+            "type": "string",
+            "description": "Comma-separated tweet fields",
+            "default": "id,text,author_id,created_at,public_metrics,conversation_id,in_reply_to_user_id,referenced_tweets,entities"
+          },
+          "expansions": {
+            "type": "string",
+            "description": "Comma-separated expansions",
+            "default": "author_id,referenced_tweets.id"
+          },
+          "user.fields": {
+            "type": "string",
+            "description": "Comma-separated user fields for expanded users",
+            "default": "id,name,username,profile_image_url,verified"
+          }
+        },
+        "required": [
+          "tweet_id"
+        ]
+      }
+    },
+    {
+      "name": "post_tweet",
+      "description": "Post a new tweet. Can include text, reply to another tweet, or quote tweet. Max 280 characters.",
+      "method": "POST",
+      "path": "/2/tweets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "The text content of the tweet (max 280 characters)",
+            "maxLength": 280
+          },
+          "reply": {
+            "type": "object",
+            "description": "Reply settings - include to make this a reply",
+            "properties": {
+              "in_reply_to_tweet_id": {
+                "type": "string",
+                "description": "Tweet ID to reply to"
+              }
+            },
+            "required": [
+              "in_reply_to_tweet_id"
+            ]
+          },
+          "quote_tweet_id": {
+            "type": "string",
+            "description": "Tweet ID to quote"
+          },
+          "media": {
+            "type": "object",
+            "description": "Media attachments",
+            "properties": {
+              "media_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Array of media IDs to attach (1-4)"
+              }
+            }
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "delete_tweet",
+      "description": "Delete a tweet by its ID. Must be the authenticated user's own tweet.",
+      "method": "DELETE",
+      "path": "/2/tweets/{tweet_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tweet_id": {
+            "type": "string",
+            "description": "The tweet ID to delete"
+          }
+        },
+        "required": [
+          "tweet_id"
+        ]
+      }
+    },
+    {
+      "name": "search_recent",
+      "description": "Search for tweets from the last 7 days using X search operators. Supports advanced query syntax.",
+      "method": "GET",
+      "path": "/2/tweets/search/recent",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query (supports operators like from:, to:, #hashtag, @mention, lang:, is:retweet, etc.)"
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Number of results (10-100)",
+            "default": 10,
+            "minimum": 10,
+            "maximum": 100
+          },
+          "tweet.fields": {
+            "type": "string",
+            "description": "Comma-separated tweet fields",
+            "default": "id,text,author_id,created_at,public_metrics,entities"
+          },
+          "expansions": {
+            "type": "string",
+            "description": "Comma-separated expansions",
+            "default": "author_id"
+          },
+          "user.fields": {
+            "type": "string",
+            "description": "Comma-separated user fields for expanded users",
+            "default": "id,name,username,verified"
+          },
+          "next_token": {
+            "type": "string",
+            "description": "Pagination token for next page of results"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "ISO 8601 start time for search window (e.g., 2024-01-01T00:00:00Z)"
+          },
+          "end_time": {
+            "type": "string",
+            "description": "ISO 8601 end time for search window"
+          },
+          "sort_order": {
+            "type": "string",
+            "enum": [
+              "recency",
+              "relevancy"
+            ],
+            "description": "Sort order for results"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "get_user_tweets",
+      "description": "Get tweets posted by a specific user. Returns their timeline of original tweets and retweets.",
+      "method": "GET",
+      "path": "/2/users/{user_id}/tweets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The user ID whose tweets to retrieve"
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Number of results (5-100)",
+            "default": 10,
+            "minimum": 5,
+            "maximum": 100
+          },
+          "tweet.fields": {
+            "type": "string",
+            "description": "Comma-separated tweet fields",
+            "default": "id,text,created_at,public_metrics,entities,referenced_tweets"
+          },
+          "pagination_token": {
+            "type": "string",
+            "description": "Pagination token for next page"
+          },
+          "exclude": {
+            "type": "string",
+            "description": "Comma-separated types to exclude: retweets,replies"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "ISO 8601 start time filter"
+          },
+          "end_time": {
+            "type": "string",
+            "description": "ISO 8601 end time filter"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "get_user_mentions",
+      "description": "Get tweets that mention a specific user by their user ID",
+      "method": "GET",
+      "path": "/2/users/{user_id}/mentions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The user ID to get mentions for"
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Number of results (5-100)",
+            "default": 10,
+            "minimum": 5,
+            "maximum": 100
+          },
+          "tweet.fields": {
+            "type": "string",
+            "description": "Comma-separated tweet fields",
+            "default": "id,text,author_id,created_at,public_metrics"
+          },
+          "expansions": {
+            "type": "string",
+            "description": "Comma-separated expansions",
+            "default": "author_id"
+          },
+          "pagination_token": {
+            "type": "string",
+            "description": "Pagination token for next page"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "get_home_timeline",
+      "description": "Get the authenticated user's reverse-chronological home timeline (tweets from followed accounts)",
+      "method": "GET",
+      "path": "/2/users/{user_id}/timelines/reverse_chronological",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The authenticated user's ID"
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Number of results (1-100)",
+            "default": 20,
+            "minimum": 1,
+            "maximum": 100
+          },
+          "tweet.fields": {
+            "type": "string",
+            "description": "Comma-separated tweet fields",
+            "default": "id,text,author_id,created_at,public_metrics,entities"
+          },
+          "expansions": {
+            "type": "string",
+            "description": "Comma-separated expansions",
+            "default": "author_id"
+          },
+          "user.fields": {
+            "type": "string",
+            "description": "Comma-separated user fields",
+            "default": "id,name,username,profile_image_url,verified"
+          },
+          "pagination_token": {
+            "type": "string",
+            "description": "Pagination token for next page"
+          },
+          "exclude": {
+            "type": "string",
+            "description": "Comma-separated types to exclude: retweets,replies"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "get_followers",
+      "description": "Get a list of users who follow the specified user",
+      "method": "GET",
+      "path": "/2/users/{user_id}/followers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The user ID to get followers for"
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Number of results (1-1000)",
+            "default": 100,
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "user.fields": {
+            "type": "string",
+            "description": "Comma-separated user fields",
+            "default": "id,name,username,description,profile_image_url,public_metrics,verified"
+          },
+          "pagination_token": {
+            "type": "string",
+            "description": "Pagination token for next page"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "get_following",
+      "description": "Get a list of users that the specified user follows",
+      "method": "GET",
+      "path": "/2/users/{user_id}/following",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The user ID to get following list for"
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Number of results (1-1000)",
+            "default": 100,
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "user.fields": {
+            "type": "string",
+            "description": "Comma-separated user fields",
+            "default": "id,name,username,description,profile_image_url,public_metrics,verified"
+          },
+          "pagination_token": {
+            "type": "string",
+            "description": "Pagination token for next page"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "follow_user",
+      "description": "Follow a user. Requires the authenticated user's ID and the target user's ID.",
+      "method": "POST",
+      "path": "/2/users/{user_id}/following",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The authenticated user's ID (the one doing the following)"
+          },
+          "target_user_id": {
+            "type": "string",
+            "description": "The user ID to follow"
+          }
+        },
+        "required": [
+          "user_id",
+          "target_user_id"
+        ]
+      }
+    },
+    {
+      "name": "unfollow_user",
+      "description": "Unfollow a user. Requires the authenticated user's ID and the target user's ID.",
+      "method": "DELETE",
+      "path": "/2/users/{user_id}/following/{target_user_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The authenticated user's ID (the one unfollowing)"
+          },
+          "target_user_id": {
+            "type": "string",
+            "description": "The user ID to unfollow"
+          }
+        },
+        "required": [
+          "user_id",
+          "target_user_id"
+        ]
+      }
+    },
+    {
+      "name": "like_tweet",
+      "description": "Like a tweet. Requires the authenticated user's ID and the tweet ID.",
+      "method": "POST",
+      "path": "/2/users/{user_id}/likes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The authenticated user's ID"
+          },
+          "tweet_id": {
+            "type": "string",
+            "description": "The tweet ID to like"
+          }
+        },
+        "required": [
+          "user_id",
+          "tweet_id"
+        ]
+      }
+    },
+    {
+      "name": "unlike_tweet",
+      "description": "Remove a like from a tweet",
+      "method": "DELETE",
+      "path": "/2/users/{user_id}/likes/{tweet_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The authenticated user's ID"
+          },
+          "tweet_id": {
+            "type": "string",
+            "description": "The tweet ID to unlike"
+          }
+        },
+        "required": [
+          "user_id",
+          "tweet_id"
+        ]
+      }
+    },
+    {
+      "name": "retweet",
+      "description": "Retweet a tweet. Requires the authenticated user's ID and the tweet ID.",
+      "method": "POST",
+      "path": "/2/users/{user_id}/retweets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The authenticated user's ID"
+          },
+          "tweet_id": {
+            "type": "string",
+            "description": "The tweet ID to retweet"
+          }
+        },
+        "required": [
+          "user_id",
+          "tweet_id"
+        ]
+      }
+    },
+    {
+      "name": "undo_retweet",
+      "description": "Remove a retweet",
+      "method": "DELETE",
+      "path": "/2/users/{user_id}/retweets/{tweet_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The authenticated user's ID"
+          },
+          "tweet_id": {
+            "type": "string",
+            "description": "The tweet ID to un-retweet"
+          }
+        },
+        "required": [
+          "user_id",
+          "tweet_id"
+        ]
+      }
+    },
+    {
+      "name": "get_bookmarks",
+      "description": "Get the authenticated user's bookmarked tweets",
+      "method": "GET",
+      "path": "/2/users/{user_id}/bookmarks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The authenticated user's ID"
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Number of results (1-100)",
+            "default": 20,
+            "minimum": 1,
+            "maximum": 100
+          },
+          "tweet.fields": {
+            "type": "string",
+            "description": "Comma-separated tweet fields",
+            "default": "id,text,author_id,created_at,public_metrics"
+          },
+          "expansions": {
+            "type": "string",
+            "description": "Comma-separated expansions",
+            "default": "author_id"
+          },
+          "pagination_token": {
+            "type": "string",
+            "description": "Pagination token for next page"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "add_bookmark",
+      "description": "Add a tweet to the authenticated user's bookmarks",
+      "method": "POST",
+      "path": "/2/users/{user_id}/bookmarks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The authenticated user's ID"
+          },
+          "tweet_id": {
+            "type": "string",
+            "description": "The tweet ID to bookmark"
+          }
+        },
+        "required": [
+          "user_id",
+          "tweet_id"
+        ]
+      }
+    },
+    {
+      "name": "remove_bookmark",
+      "description": "Remove a tweet from the authenticated user's bookmarks",
+      "method": "DELETE",
+      "path": "/2/users/{user_id}/bookmarks/{tweet_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The authenticated user's ID"
+          },
+          "tweet_id": {
+            "type": "string",
+            "description": "The tweet ID to remove from bookmarks"
+          }
+        },
+        "required": [
+          "user_id",
+          "tweet_id"
+        ]
+      }
+    },
+    {
+      "name": "get_liked_tweets",
+      "description": "Get tweets liked by a specific user",
+      "method": "GET",
+      "path": "/2/users/{user_id}/liked_tweets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The user ID to get liked tweets for"
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Number of results (10-100)",
+            "default": 10,
+            "minimum": 10,
+            "maximum": 100
+          },
+          "tweet.fields": {
+            "type": "string",
+            "description": "Comma-separated tweet fields",
+            "default": "id,text,author_id,created_at,public_metrics"
+          },
+          "expansions": {
+            "type": "string",
+            "description": "Comma-separated expansions",
+            "default": "author_id"
+          },
+          "pagination_token": {
+            "type": "string",
+            "description": "Pagination token for next page"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "get_liking_users",
+      "description": "Get users who liked a specific tweet",
+      "method": "GET",
+      "path": "/2/tweets/{tweet_id}/liking_users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tweet_id": {
+            "type": "string",
+            "description": "The tweet ID to get liking users for"
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Number of results (1-100)",
+            "default": 100,
+            "minimum": 1,
+            "maximum": 100
+          },
+          "user.fields": {
+            "type": "string",
+            "description": "Comma-separated user fields",
+            "default": "id,name,username,profile_image_url,public_metrics,verified"
+          },
+          "pagination_token": {
+            "type": "string",
+            "description": "Pagination token for next page"
+          }
+        },
+        "required": [
+          "tweet_id"
+        ]
+      }
+    },
+    {
+      "name": "get_retweeters",
+      "description": "Get users who retweeted a specific tweet",
+      "method": "GET",
+      "path": "/2/tweets/{tweet_id}/retweeted_by",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tweet_id": {
+            "type": "string",
+            "description": "The tweet ID to get retweeters for"
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Number of results (1-100)",
+            "default": 100,
+            "minimum": 1,
+            "maximum": 100
+          },
+          "user.fields": {
+            "type": "string",
+            "description": "Comma-separated user fields",
+            "default": "id,name,username,profile_image_url,public_metrics,verified"
+          },
+          "pagination_token": {
+            "type": "string",
+            "description": "Pagination token for next page"
+          }
+        },
+        "required": [
+          "tweet_id"
+        ]
+      }
+    },
+    {
+      "name": "mute_user",
+      "description": "Mute a user. Muted users' posts will not appear in your timeline.",
+      "method": "POST",
+      "path": "/2/users/{user_id}/muting",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The authenticated user's ID"
+          },
+          "target_user_id": {
+            "type": "string",
+            "description": "The user ID to mute"
+          }
+        },
+        "required": [
+          "user_id",
+          "target_user_id"
+        ]
+      }
+    },
+    {
+      "name": "unmute_user",
+      "description": "Unmute a previously muted user",
+      "method": "DELETE",
+      "path": "/2/users/{user_id}/muting/{target_user_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The authenticated user's ID"
+          },
+          "target_user_id": {
+            "type": "string",
+            "description": "The user ID to unmute"
+          }
+        },
+        "required": [
+          "user_id",
+          "target_user_id"
+        ]
+      }
+    },
+    {
+      "name": "get_muted_users",
+      "description": "Get the list of users the authenticated user has muted",
+      "method": "GET",
+      "path": "/2/users/{user_id}/muting",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The authenticated user's ID"
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Number of results (1-1000)",
+            "default": 100,
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "user.fields": {
+            "type": "string",
+            "description": "Comma-separated user fields",
+            "default": "id,name,username,description,profile_image_url,public_metrics"
+          },
+          "pagination_token": {
+            "type": "string",
+            "description": "Pagination token for next page"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "block_user",
+      "description": "Block a user. Blocked users cannot follow you or view your posts.",
+      "method": "POST",
+      "path": "/2/users/{user_id}/blocking",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The authenticated user's ID"
+          },
+          "target_user_id": {
+            "type": "string",
+            "description": "The user ID to block"
+          }
+        },
+        "required": [
+          "user_id",
+          "target_user_id"
+        ]
+      }
+    },
+    {
+      "name": "unblock_user",
+      "description": "Unblock a previously blocked user",
+      "method": "DELETE",
+      "path": "/2/users/{user_id}/blocking/{target_user_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The authenticated user's ID"
+          },
+          "target_user_id": {
+            "type": "string",
+            "description": "The user ID to unblock"
+          }
+        },
+        "required": [
+          "user_id",
+          "target_user_id"
+        ]
+      }
+    },
+    {
+      "name": "get_blocked_users",
+      "description": "Get the list of users the authenticated user has blocked",
+      "method": "GET",
+      "path": "/2/users/{user_id}/blocking",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The authenticated user's ID"
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Number of results (1-1000)",
+            "default": 100,
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "user.fields": {
+            "type": "string",
+            "description": "Comma-separated user fields",
+            "default": "id,name,username,description,profile_image_url,public_metrics"
+          },
+          "pagination_token": {
+            "type": "string",
+            "description": "Pagination token for next page"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "send_dm",
+      "description": "Send a direct message to a specific user. Creates a one-on-one DM conversation if one doesn't exist.",
+      "method": "POST",
+      "path": "/2/dm_conversations/with/{participant_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "participant_id": {
+            "type": "string",
+            "description": "The user ID of the person to send the DM to"
+          },
+          "text": {
+            "type": "string",
+            "description": "The text content of the direct message"
+          }
+        },
+        "required": [
+          "participant_id",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "send_dm_to_conversation",
+      "description": "Send a direct message to an existing DM conversation (one-on-one or group). Use the conversation ID from a previous DM lookup.",
+      "method": "POST",
+      "path": "/2/dm_conversations/{dm_conversation_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dm_conversation_id": {
+            "type": "string",
+            "description": "The DM conversation ID (numeric string or pair like '123-456')"
+          },
+          "text": {
+            "type": "string",
+            "description": "The text content of the direct message"
+          }
+        },
+        "required": [
+          "dm_conversation_id",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "get_dm_events",
+      "description": "Get recent direct message events for the authenticated user, including messages from one-on-one and group conversations",
+      "method": "GET",
+      "path": "/2/dm_events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "max_results": {
+            "type": "integer",
+            "description": "Number of results (1-100)",
+            "default": 100,
+            "minimum": 1,
+            "maximum": 100
+          },
+          "pagination_token": {
+            "type": "string",
+            "description": "Pagination token for next page"
+          },
+          "event_types": {
+            "type": "string",
+            "description": "Comma-separated event types: MessageCreate,ParticipantsJoin,ParticipantsLeave",
+            "default": "MessageCreate"
+          },
+          "dm_event.fields": {
+            "type": "string",
+            "description": "Comma-separated DM event fields",
+            "default": "id,text,event_type,created_at,dm_conversation_id,sender_id"
+          },
+          "expansions": {
+            "type": "string",
+            "description": "Comma-separated expansions",
+            "default": "sender_id"
+          },
+          "user.fields": {
+            "type": "string",
+            "description": "Comma-separated user fields for expanded users",
+            "default": "id,name,username,profile_image_url"
+          }
+        }
+      }
+    },
+    {
+      "name": "upload_media",
+      "description": "Upload an image or subtitle file (up to 5MB) in a single request. Returns a media_id to use when posting a tweet with media. Supported: JPEG, PNG, WEBP, GIF (static), SRT, VTT.",
+      "method": "POST",
+      "path": "/2/media/upload",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "media": {
+            "type": "string",
+            "description": "Base64-encoded media file data"
+          },
+          "media_category": {
+            "type": "string",
+            "enum": [
+              "tweet_image",
+              "dm_image",
+              "subtitles"
+            ],
+            "description": "Media category determining upload constraints",
+            "default": "tweet_image"
+          },
+          "media_type": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp",
+              "image/gif",
+              "text/srt",
+              "text/vtt"
+            ],
+            "description": "MIME type of the media file"
+          },
+          "additional_owners": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "User IDs who can use this media"
+          }
+        },
+        "required": [
+          "media",
+          "media_category"
+        ]
+      }
+    },
+    {
+      "name": "upload_init",
+      "description": "Initialize a chunked media upload for videos, animated GIFs, or large files. Returns a media_id to use with append and finalize. Limits: images up to 5MB, GIFs up to 15MB, videos up to 512MB.",
+      "method": "POST",
+      "path": "/2/media/upload/initialize",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "total_bytes": {
+            "type": "integer",
+            "description": "Total file size in bytes"
+          },
+          "media_type": {
+            "type": "string",
+            "description": "MIME type (e.g., video/mp4, image/gif, video/quicktime)"
+          },
+          "media_category": {
+            "type": "string",
+            "enum": [
+              "tweet_image",
+              "tweet_gif",
+              "tweet_video",
+              "amplify_video",
+              "dm_gif",
+              "dm_image",
+              "dm_video"
+            ],
+            "description": "Media category"
+          },
+          "additional_owners": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "User IDs who can use this media"
+          },
+          "shared": {
+            "type": "boolean",
+            "description": "Whether media is shared",
+            "default": false
+          }
+        },
+        "required": [
+          "total_bytes",
+          "media_type",
+          "media_category"
+        ]
+      }
+    },
+    {
+      "name": "upload_append",
+      "description": "Append a chunk of data to an in-progress chunked upload. Call sequentially with incrementing segment_index (starting at 0) until all data is uploaded.",
+      "method": "POST",
+      "path": "/2/media/upload/{media_id}/append",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "media_id": {
+            "type": "string",
+            "description": "Media ID returned from the initialize step"
+          },
+          "segment_index": {
+            "type": "integer",
+            "description": "Chunk index (0-based, sequential)"
+          },
+          "media": {
+            "type": "string",
+            "description": "Base64-encoded chunk data"
+          }
+        },
+        "required": [
+          "media_id",
+          "segment_index",
+          "media"
+        ]
+      }
+    },
+    {
+      "name": "upload_finalize",
+      "description": "Finalize a chunked media upload after all chunks have been appended. If response includes processing_info with state 'pending' or 'in_progress', wait check_after_secs then check status again. Once state is 'succeeded', use the media_id to post a tweet.",
+      "method": "POST",
+      "path": "/2/media/upload/{media_id}/finalize",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "media_id": {
+            "type": "string",
+            "description": "Media ID from the initialize step"
+          }
+        },
+        "required": [
+          "media_id"
+        ]
+      }
+    },
+    {
+      "name": "get_tweet_analytics",
+      "description": "Get engagement metrics for a single tweet. Returns public_metrics (impression_count, like_count, retweet_count, reply_count, quote_count, bookmark_count) under data.public_metrics. Calls X API v2: GET /2/tweets/{id}?tweet.fields=public_metrics.",
+      "method": "GET",
+      "path": "/2/tweets/{tweet_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tweet_id": {
+            "type": "string",
+            "description": "The tweet ID to fetch metrics for"
+          },
+          "tweet.fields": {
+            "type": "string",
+            "description": "Comma-separated tweet field expansions; default 'public_metrics' covers the engagement counts. Pass 'public_metrics,non_public_metrics,organic_metrics' for owner-only metrics (requires tweet owner authentication).",
+            "default": "public_metrics"
+          }
+        },
+        "required": [
+          "tweet_id"
+        ]
+      }
+    },
+    {
+      "name": "get_account_analytics",
+      "description": "Get account-level analytics for an X/Twitter user. Returns profile public_metrics (followers, following, tweet count, listed count) and optionally aggregated engagement metrics from recent original tweets (total impressions, likes, retweets, replies, quotes, bookmarks, and average engagement rate).\n\nExample:\n{\n  \"userId\": \"1234567890\",\n  \"include_recent_tweets\": true,\n  \"recent_tweet_count\": 20\n}",
+      "method": "GET",
+      "path": "/get-account-analytics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "X/Twitter user ID"
+          },
+          "include_recent_tweets": {
+            "type": "boolean",
+            "description": "Include recent tweets and engagement summary",
+            "default": true
+          },
+          "recent_tweet_count": {
+            "type": "integer",
+            "description": "Number of recent tweets to analyze (max 100)",
+            "default": 10
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_me"
+  }
+}

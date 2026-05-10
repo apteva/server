@@ -1,0 +1,287 @@
+{
+  "slug": "dv360",
+  "name": "Display & Video 360",
+  "description": "Google Display & Video 360 (DV360) Display Video API v3 — manage advertisers, campaigns, insertion orders, line items, creatives, audiences, and inventory sources for programmatic display/video buying. Note: this is Google's DSP, separate from Google Ads.",
+  "logo": "https://www.google.com/s2/favicons?domain=displayvideo.google.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "google",
+    "dsp",
+    "programmatic",
+    "display-ads",
+    "video-ads"
+  ],
+  "base_url": "https://displayvideo.googleapis.com/v3",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token",
+        "type": "password"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token",
+        "type": "password"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "partner_id",
+        "label": "Default Partner ID",
+        "description": "DV360 Partner ID (the agency-tier resource above advertisers)"
+      },
+      {
+        "name": "advertiser_id",
+        "label": "Default Advertiser ID"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+      "token_url": "https://oauth2.googleapis.com/token",
+      "scopes": [
+        "https://www.googleapis.com/auth/display-video"
+      ],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "access_type": "offline",
+        "prompt": "consent",
+        "include_granted_scopes": "true"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "list_partners",
+      "description": "List partners the authenticated user can access. Each partner is the top-level container; advertisers live under partners.",
+      "method": "GET",
+      "path": "/partners",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageSize": { "type": "integer", "default": 100 },
+          "pageToken": { "type": "string" },
+          "filter": { "type": "string", "description": "e.g. entityStatus=ENTITY_STATUS_ACTIVE" },
+          "orderBy": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "list_advertisers",
+      "description": "List advertisers under a partner. partnerId is required as a query param.",
+      "method": "GET",
+      "path": "/advertisers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "partnerId": { "type": "string" },
+          "pageSize": { "type": "integer", "default": 100 },
+          "pageToken": { "type": "string" },
+          "filter": { "type": "string" },
+          "orderBy": { "type": "string", "description": "e.g. \"displayName desc\"" }
+        },
+        "required": ["partnerId"]
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List campaigns under an advertiser.",
+      "method": "GET",
+      "path": "/advertisers/{advertiserId}/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserId": { "type": "string" },
+          "pageSize": { "type": "integer", "default": 100 },
+          "pageToken": { "type": "string" },
+          "filter": { "type": "string", "description": "e.g. entityStatus=\"ENTITY_STATUS_ACTIVE\"" },
+          "orderBy": { "type": "string" }
+        },
+        "required": ["advertiserId"]
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create a campaign under an advertiser. Required: displayName, entityStatus, campaignGoal {campaignGoalType: CAMPAIGN_GOAL_TYPE_APP_INSTALL|CAMPAIGN_GOAL_TYPE_BRAND_AWARENESS|CAMPAIGN_GOAL_TYPE_OFFLINE_ACTION|CAMPAIGN_GOAL_TYPE_ONLINE_ACTION, performanceGoal}, campaignFlight {plannedDates}, frequencyCap.",
+      "method": "POST",
+      "path": "/advertisers/{advertiserId}/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserId": { "type": "string" },
+          "displayName": { "type": "string" },
+          "entityStatus": { "type": "string", "enum": ["ENTITY_STATUS_ACTIVE", "ENTITY_STATUS_ARCHIVED", "ENTITY_STATUS_DRAFT", "ENTITY_STATUS_PAUSED"] },
+          "campaignGoal": { "type": "object" },
+          "campaignFlight": { "type": "object" },
+          "frequencyCap": { "type": "object" },
+          "campaignBudgets": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["advertiserId", "displayName", "entityStatus", "campaignGoal", "campaignFlight", "frequencyCap"]
+      }
+    },
+    {
+      "name": "patch_campaign",
+      "description": "Update fields on a campaign. Only fields named in updateMask are mutated.",
+      "method": "PATCH",
+      "path": "/advertisers/{advertiserId}/campaigns/{campaignId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserId": { "type": "string" },
+          "campaignId": { "type": "string" },
+          "updateMask": { "type": "string", "description": "Comma-separated field paths" },
+          "displayName": { "type": "string" },
+          "entityStatus": { "type": "string" },
+          "campaignFlight": { "type": "object" },
+          "frequencyCap": { "type": "object" }
+        },
+        "required": ["advertiserId", "campaignId", "updateMask"]
+      }
+    },
+    {
+      "name": "list_insertion_orders",
+      "description": "List insertion orders (the budget/flight container under campaigns) for an advertiser.",
+      "method": "GET",
+      "path": "/advertisers/{advertiserId}/insertionOrders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserId": { "type": "string" },
+          "pageSize": { "type": "integer", "default": 100 },
+          "pageToken": { "type": "string" },
+          "filter": { "type": "string", "description": "e.g. campaignId=123 AND entityStatus=\"ENTITY_STATUS_ACTIVE\"" },
+          "orderBy": { "type": "string" }
+        },
+        "required": ["advertiserId"]
+      }
+    },
+    {
+      "name": "create_insertion_order",
+      "description": "Create an insertion order. Required: campaignId, displayName, entityStatus, pacing {pacingPeriod, pacingType, dailyMaxMicros|dailyMaxImpressions}, frequencyCap, performanceGoal, budget {budgetUnit, automationType, budgetSegments[]}, kpi.",
+      "method": "POST",
+      "path": "/advertisers/{advertiserId}/insertionOrders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserId": { "type": "string" },
+          "campaignId": { "type": "string" },
+          "displayName": { "type": "string" },
+          "entityStatus": { "type": "string" },
+          "pacing": { "type": "object" },
+          "frequencyCap": { "type": "object" },
+          "performanceGoal": { "type": "object" },
+          "budget": { "type": "object" },
+          "kpi": { "type": "object" }
+        },
+        "required": ["advertiserId", "campaignId", "displayName", "entityStatus", "pacing", "frequencyCap", "performanceGoal", "budget", "kpi"]
+      }
+    },
+    {
+      "name": "list_line_items",
+      "description": "List line items (the bidding/targeting unit) under an advertiser. Filter by insertionOrderId or campaignId.",
+      "method": "GET",
+      "path": "/advertisers/{advertiserId}/lineItems",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserId": { "type": "string" },
+          "pageSize": { "type": "integer", "default": 100 },
+          "pageToken": { "type": "string" },
+          "filter": { "type": "string" },
+          "orderBy": { "type": "string" }
+        },
+        "required": ["advertiserId"]
+      }
+    },
+    {
+      "name": "create_line_item",
+      "description": "Create a line item. Required: insertionOrderId, displayName, entityStatus, lineItemType (LINE_ITEM_TYPE_DISPLAY_DEFAULT|LINE_ITEM_TYPE_VIDEO_DEFAULT|LINE_ITEM_TYPE_DISPLAY_MOBILE_APP_INSTALL|...), flight {flightDateType, dateRange?}, budget, pacing, frequencyCap, partnerRevenueModel, bidStrategy.",
+      "method": "POST",
+      "path": "/advertisers/{advertiserId}/lineItems",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserId": { "type": "string" },
+          "insertionOrderId": { "type": "string" },
+          "displayName": { "type": "string" },
+          "entityStatus": { "type": "string" },
+          "lineItemType": { "type": "string" },
+          "flight": { "type": "object" },
+          "budget": { "type": "object" },
+          "pacing": { "type": "object" },
+          "frequencyCap": { "type": "object" },
+          "partnerRevenueModel": { "type": "object" },
+          "bidStrategy": { "type": "object" },
+          "creativeIds": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["advertiserId", "insertionOrderId", "displayName", "entityStatus", "lineItemType", "flight", "budget", "pacing", "frequencyCap", "partnerRevenueModel", "bidStrategy"]
+      }
+    },
+    {
+      "name": "patch_line_item",
+      "description": "Update fields on a line item. Only fields in updateMask are changed.",
+      "method": "PATCH",
+      "path": "/advertisers/{advertiserId}/lineItems/{lineItemId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserId": { "type": "string" },
+          "lineItemId": { "type": "string" },
+          "updateMask": { "type": "string" },
+          "displayName": { "type": "string" },
+          "entityStatus": { "type": "string" },
+          "flight": { "type": "object" },
+          "budget": { "type": "object" },
+          "pacing": { "type": "object" },
+          "bidStrategy": { "type": "object" }
+        },
+        "required": ["advertiserId", "lineItemId", "updateMask"]
+      }
+    },
+    {
+      "name": "list_creatives",
+      "description": "List creatives under an advertiser.",
+      "method": "GET",
+      "path": "/advertisers/{advertiserId}/creatives",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserId": { "type": "string" },
+          "pageSize": { "type": "integer", "default": 100 },
+          "pageToken": { "type": "string" },
+          "filter": { "type": "string" },
+          "orderBy": { "type": "string" }
+        },
+        "required": ["advertiserId"]
+      }
+    },
+    {
+      "name": "list_audiences",
+      "description": "List first-party audiences (custom lists, CRM uploads, lookalikes) under an advertiser.",
+      "method": "GET",
+      "path": "/advertisers/{advertiserId}/firstAndThirdPartyAudiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserId": { "type": "string" },
+          "pageSize": { "type": "integer", "default": 100 },
+          "pageToken": { "type": "string" },
+          "filter": { "type": "string" }
+        },
+        "required": ["advertiserId"]
+      }
+    }
+  ]
+}

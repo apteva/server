@@ -1,0 +1,283 @@
+{
+  "slug": "freshdesk",
+  "name": "Freshdesk",
+  "description": "Freshdesk integration for customer support with tickets and contacts",
+  "logo": "https://www.google.com/s2/favicons?domain=freshdesk.com&sz=128",
+  "categories": [
+    "customer-support",
+    "tickets",
+    "freshdesk",
+    "helpdesk",
+    "support"
+  ],
+  "base_url": "https://{{domain}}.freshdesk.com/api/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_tickets",
+      "description": "List tickets from Freshdesk",
+      "method": "GET",
+      "path": "/list-tickets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Freshdesk domain (without .freshdesk.com)"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Results per page"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Predefined filter"
+          },
+          "order_by": {
+            "type": "string",
+            "description": "Sort field"
+          },
+          "order_type": {
+            "type": "string",
+            "description": "Sort order"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "create_ticket",
+      "description": "Create a ticket in Freshdesk",
+      "method": "POST",
+      "path": "/create-ticket",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Freshdesk domain"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Ticket subject"
+          },
+          "description": {
+            "type": "string",
+            "description": "Ticket description"
+          },
+          "email": {
+            "type": "string",
+            "description": "Requester email"
+          },
+          "priority": {
+            "type": "number",
+            "description": "Priority"
+          },
+          "status": {
+            "type": "number",
+            "description": "Status"
+          },
+          "type": {
+            "type": "string",
+            "description": "Ticket type"
+          },
+          "group_id": {
+            "type": "number",
+            "description": "Group ID"
+          },
+          "responder_id": {
+            "type": "number",
+            "description": "Agent ID"
+          },
+          "tags": {
+            "type": "array",
+            "description": "Tags"
+          }
+        },
+        "required": [
+          "domain",
+          "subject",
+          "description",
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "update_ticket",
+      "description": "Update a ticket in Freshdesk",
+      "method": "PUT",
+      "path": "/update-ticket",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Freshdesk domain"
+          },
+          "ticket_id": {
+            "type": "number",
+            "description": "Ticket ID"
+          },
+          "status": {
+            "type": "number",
+            "description": "New status"
+          },
+          "priority": {
+            "type": "number",
+            "description": "New priority"
+          },
+          "type": {
+            "type": "string",
+            "description": "New type"
+          },
+          "group_id": {
+            "type": "number",
+            "description": "New group ID"
+          },
+          "responder_id": {
+            "type": "number",
+            "description": "New agent ID"
+          },
+          "tags": {
+            "type": "array",
+            "description": "New tags"
+          }
+        },
+        "required": [
+          "domain",
+          "ticket_id"
+        ]
+      }
+    },
+    {
+      "name": "get_ticket",
+      "description": "Get a single ticket from Freshdesk",
+      "method": "GET",
+      "path": "/get-ticket",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Freshdesk domain"
+          },
+          "ticket_id": {
+            "type": "number",
+            "description": "Ticket ID"
+          },
+          "include": {
+            "type": "string",
+            "description": "Include additional data"
+          }
+        },
+        "required": [
+          "domain",
+          "ticket_id"
+        ]
+      }
+    },
+    {
+      "name": "list_contacts",
+      "description": "List contacts from Freshdesk",
+      "method": "GET",
+      "path": "/list-contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Freshdesk domain"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Results per page"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "email": {
+            "type": "string",
+            "description": "Filter by email"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Filter by phone"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "create_contact",
+      "description": "Create a contact in Freshdesk",
+      "method": "POST",
+      "path": "/create-contact",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Freshdesk domain"
+          },
+          "name": {
+            "type": "string",
+            "description": "Contact name"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email address"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Phone number"
+          },
+          "mobile": {
+            "type": "string",
+            "description": "Mobile number"
+          },
+          "company_id": {
+            "type": "number",
+            "description": "Company ID"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description"
+          },
+          "job_title": {
+            "type": "string",
+            "description": "Job title"
+          },
+          "tags": {
+            "type": "array",
+            "description": "Tags"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    }
+  ]
+}

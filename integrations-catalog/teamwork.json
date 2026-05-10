@@ -1,0 +1,457 @@
+{
+  "slug": "teamwork",
+  "name": "Teamwork",
+  "description": "Teamwork.com project management for agencies - projects, tasks, time tracking, clients, and billing",
+  "logo": "https://www.google.com/s2/favicons?domain=teamwork.com&sz=128",
+  "categories": [
+    "project-management",
+    "agency",
+    "tasks",
+    "time-tracking",
+    "clients",
+    "billing"
+  ],
+  "base_url": "{{site}}.teamwork.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "projects_list",
+      "description": "List all projects with optional filtering by status, company, or category",
+      "method": "GET",
+      "path": "/projects-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "archived",
+              "all"
+            ],
+            "description": "Filter by project status",
+            "default": "active"
+          },
+          "companyId": {
+            "type": "integer",
+            "description": "Filter by company/client ID"
+          },
+          "categoryId": {
+            "type": "integer",
+            "description": "Filter by category ID"
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "Number of results per page",
+            "default": 50
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "project_get",
+      "description": "Get details of a specific project including metrics and health status",
+      "method": "GET",
+      "path": "/project-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "integer",
+            "description": "The project ID"
+          }
+        },
+        "required": [
+          "projectId"
+        ]
+      }
+    },
+    {
+      "name": "project_create",
+      "description": "Create a new project",
+      "method": "GET",
+      "path": "/project-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Project name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Project description"
+          },
+          "companyId": {
+            "type": "integer",
+            "description": "Client/company ID"
+          },
+          "categoryId": {
+            "type": "integer",
+            "description": "Project category ID"
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "endDate": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "ownerId": {
+            "type": "integer",
+            "description": "Project owner user ID"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "tasks_list",
+      "description": "List tasks with filtering by project, assignee, status, or due date",
+      "method": "GET",
+      "path": "/tasks-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "integer",
+            "description": "Filter by project ID"
+          },
+          "taskListId": {
+            "type": "integer",
+            "description": "Filter by task list ID"
+          },
+          "assigneeId": {
+            "type": "integer",
+            "description": "Filter by assignee user ID"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "all",
+              "pending",
+              "completed",
+              "late"
+            ],
+            "description": "Filter by task status"
+          },
+          "dueBefore": {
+            "type": "string",
+            "description": "Filter tasks due before date (YYYY-MM-DD)"
+          },
+          "dueAfter": {
+            "type": "string",
+            "description": "Filter tasks due after date (YYYY-MM-DD)"
+          },
+          "pageSize": {
+            "type": "integer",
+            "default": 50
+          }
+        }
+      }
+    },
+    {
+      "name": "task_create",
+      "description": "Create a new task in a project task list",
+      "method": "GET",
+      "path": "/task-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "taskListId": {
+            "type": "integer",
+            "description": "Task list ID to add task to"
+          },
+          "name": {
+            "type": "string",
+            "description": "Task name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Task description"
+          },
+          "assigneeId": {
+            "type": "integer",
+            "description": "User ID to assign task to"
+          },
+          "dueDate": {
+            "type": "string",
+            "description": "Due date (YYYY-MM-DD)"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "description": "Task priority"
+          },
+          "estimatedMinutes": {
+            "type": "integer",
+            "description": "Estimated time in minutes"
+          }
+        },
+        "required": [
+          "taskListId",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "task_update",
+      "description": "Update an existing task",
+      "method": "GET",
+      "path": "/task-update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "integer",
+            "description": "Task ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New task name"
+          },
+          "description": {
+            "type": "string",
+            "description": "New description"
+          },
+          "assigneeId": {
+            "type": "integer",
+            "description": "New assignee"
+          },
+          "dueDate": {
+            "type": "string",
+            "description": "New due date"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "completed": {
+            "type": "boolean",
+            "description": "Mark task as completed"
+          }
+        },
+        "required": [
+          "taskId"
+        ]
+      }
+    },
+    {
+      "name": "time_entries_list",
+      "description": "List time entries with filtering by project, user, or date range",
+      "method": "GET",
+      "path": "/time-entries-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "integer",
+            "description": "Filter by project ID"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Filter by user ID"
+          },
+          "taskId": {
+            "type": "integer",
+            "description": "Filter by task ID"
+          },
+          "fromDate": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "toDate": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "billable": {
+            "type": "boolean",
+            "description": "Filter by billable status"
+          },
+          "pageSize": {
+            "type": "integer",
+            "default": 50
+          }
+        }
+      }
+    },
+    {
+      "name": "time_entry_create",
+      "description": "Log a time entry for a task or project",
+      "method": "GET",
+      "path": "/time-entry-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "integer",
+            "description": "Project ID"
+          },
+          "taskId": {
+            "type": "integer",
+            "description": "Task ID (optional, can log time to project directly)"
+          },
+          "hours": {
+            "type": "number",
+            "description": "Hours worked"
+          },
+          "minutes": {
+            "type": "integer",
+            "description": "Minutes worked"
+          },
+          "date": {
+            "type": "string",
+            "description": "Date of work (YYYY-MM-DD)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description of work done"
+          },
+          "billable": {
+            "type": "boolean",
+            "description": "Is this time billable",
+            "default": true
+          },
+          "userId": {
+            "type": "integer",
+            "description": "User ID (defaults to authenticated user)"
+          }
+        },
+        "required": [
+          "projectId",
+          "date"
+        ]
+      }
+    },
+    {
+      "name": "companies_list",
+      "description": "List all companies/clients",
+      "method": "GET",
+      "path": "/companies-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageSize": {
+            "type": "integer",
+            "default": 50
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "company_create",
+      "description": "Create a new company/client",
+      "method": "GET",
+      "path": "/company-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Company name"
+          },
+          "email": {
+            "type": "string",
+            "description": "Company email"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Company phone"
+          },
+          "website": {
+            "type": "string",
+            "description": "Company website"
+          },
+          "address": {
+            "type": "string",
+            "description": "Company address"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "people_list",
+      "description": "List all people/users in the account",
+      "method": "GET",
+      "path": "/people-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "companyId": {
+            "type": "integer",
+            "description": "Filter by company ID"
+          },
+          "projectId": {
+            "type": "integer",
+            "description": "Filter by project ID"
+          },
+          "pageSize": {
+            "type": "integer",
+            "default": 50
+          }
+        }
+      }
+    },
+    {
+      "name": "milestones_list",
+      "description": "List project milestones",
+      "method": "GET",
+      "path": "/milestones-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "integer",
+            "description": "Filter by project ID"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "all",
+              "incomplete",
+              "complete",
+              "late"
+            ],
+            "description": "Filter by status"
+          }
+        }
+      }
+    }
+  ]
+}

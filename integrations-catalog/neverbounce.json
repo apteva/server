@@ -1,0 +1,92 @@
+{
+  "slug": "neverbounce",
+  "name": "NeverBounce",
+  "description": "Email verification — single-email and bulk list verification with deliverability scoring. Use to clean an Apollo/Hunter list before sending.",
+  "logo": "https://www.google.com/s2/favicons?domain=neverbounce.com&sz=128",
+  "categories": ["email", "verification", "deliverability"],
+  "base_url": "https://api.neverbounce.com/v4",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "NeverBounce API key from app.neverbounce.com → Apps & Integrations → API"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "single_check",
+      "description": "Verify one email address. Returns result: valid, invalid, disposable, catchall, unknown.",
+      "method": "GET",
+      "path": "/single/check",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string" },
+          "address_info": { "type": "integer", "enum": [0, 1], "default": 0 },
+          "credits_info": { "type": "integer", "enum": [0, 1], "default": 0 },
+          "timeout": { "type": "integer", "description": "Verification timeout in seconds" }
+        },
+        "required": ["email"]
+      }
+    },
+    {
+      "name": "jobs_create",
+      "description": "Create a bulk verification job from a list of emails or a remote URL. Returns a job_id — poll jobs_status / jobs_results.",
+      "method": "POST",
+      "path": "/jobs/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input_location": { "type": "string", "enum": ["supplied", "remote_url"] },
+          "input": { "type": "array", "items": { "type": "object" }, "description": "When input_location='supplied': array of { email } objects" },
+          "filename": { "type": "string" },
+          "auto_start": { "type": "integer", "enum": [0, 1], "default": 1 },
+          "auto_parse": { "type": "integer", "enum": [0, 1], "default": 1 },
+          "run_sample": { "type": "integer", "enum": [0, 1], "default": 0 }
+        },
+        "required": ["input_location"]
+      }
+    },
+    {
+      "name": "jobs_status",
+      "description": "Check status of a bulk job.",
+      "method": "GET",
+      "path": "/jobs/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "job_id": { "type": "integer" }
+        },
+        "required": ["job_id"]
+      }
+    },
+    {
+      "name": "jobs_results",
+      "description": "Get results of a completed bulk job.",
+      "method": "GET",
+      "path": "/jobs/results",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "job_id": { "type": "integer" },
+          "page": { "type": "integer", "default": 1 },
+          "items_per_page": { "type": "integer", "default": 10 }
+        },
+        "required": ["job_id"]
+      }
+    },
+    {
+      "name": "account_info",
+      "description": "Get current account credit balance and usage.",
+      "method": "GET",
+      "path": "/account/info",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

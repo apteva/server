@@ -1,0 +1,179 @@
+{
+  "slug": "aws-s3",
+  "name": "AWS S3",
+  "description": "Amazon Simple Storage Service \u2014 object storage. Bucket-scoped REST endpoints with AWS SigV4 request signing. Use put_object/get_object/list_objects/delete_object from any app needing durable cloud storage (backup, media, etc.).",
+  "logo": "https://www.google.com/s2/favicons?domain=aws.amazon.com&sz=128",
+  "categories": [
+    "storage",
+    "aws",
+    "cloud",
+    "infrastructure"
+  ],
+  "base_url": "https://s3.{{region}}.amazonaws.com",
+  "auth": {
+    "types": [
+      "aws_sigv4"
+    ],
+    "aws_sigv4": {
+      "service": "s3"
+    },
+    "credential_fields": [
+      {
+        "name": "access_key_id",
+        "label": "AWS Access Key ID",
+        "description": "IAM access key with s3:GetObject / s3:PutObject / s3:DeleteObject / s3:ListBucket on the buckets the app will use.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "AWS Secret Access Key",
+        "required": true,
+        "type": "password"
+      },
+      {
+        "name": "region",
+        "label": "AWS Region",
+        "description": "Region the bucket lives in (e.g. us-east-1, eu-west-1). Bucket-region mismatch produces a 301 redirect rather than a 4xx, so getting this right matters.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "session_token",
+        "label": "AWS Session Token",
+        "description": "Only required when using temporary credentials issued by STS (assume-role, federated identities). Leave blank for long-lived IAM user keys.",
+        "required": false,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_objects",
+      "description": "List objects in a bucket (S3 ListObjectsV2). Returns XML the caller parses; key fields are Contents[].Key, Contents[].Size, Contents[].LastModified, IsTruncated, NextContinuationToken.",
+      "method": "GET",
+      "path": "/{bucket}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "description": "Bucket name."
+          },
+          "prefix": {
+            "type": "string",
+            "description": "Filter to keys starting with this prefix."
+          },
+          "continuation-token": {
+            "type": "string",
+            "description": "Pagination cursor from a prior IsTruncated response."
+          },
+          "max-keys": {
+            "type": "integer",
+            "description": "Page size (max 1000)."
+          },
+          "list-type": {
+            "type": "integer",
+            "description": "Use 2 for ListObjectsV2 (recommended).",
+            "default": 2
+          }
+        },
+        "required": [
+          "bucket"
+        ]
+      },
+      "query_params": [
+        "prefix",
+        "continuation-token",
+        "max-keys",
+        "list-type"
+      ]
+    },
+    {
+      "name": "put_object",
+      "description": "Upload an object. The request body is the object content verbatim; pass it as the 'body' input. Inputs are signed (SigV4) and the body is hashed for integrity.",
+      "method": "PUT",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "Object key (path inside the bucket)."
+          },
+          "body": {
+            "type": "string",
+            "description": "Object content. Bytes welcome \u2014 the runner sends them verbatim."
+          }
+        },
+        "required": [
+          "bucket",
+          "key",
+          "body"
+        ]
+      },
+      "body_input": "body"
+    },
+    {
+      "name": "get_object",
+      "description": "Download an object. Response body is the raw object bytes.",
+      "method": "GET",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "delete_object",
+      "description": "Delete a single object. Returns 204 No Content on success.",
+      "method": "DELETE",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "list_buckets",
+      "description": "List all buckets owned by the authenticated account. Returns XML; ListAllMyBucketsResult.Buckets.Bucket[] has the names + creation dates.",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_buckets",
+    "auth_ok_when_body_contains": [
+      "AccessDenied"
+    ]
+  }
+}

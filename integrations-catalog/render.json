@@ -1,0 +1,124 @@
+{
+  "slug": "render",
+  "name": "Render",
+  "description": "MCP server for Render - services, deploys, env vars, databases",
+  "logo": "https://www.google.com/s2/favicons?domain=render.com&sz=128",
+  "categories": ["hosting", "deployment", "devops", "paas"],
+  "base_url": "https://api.render.com/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Key" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_services",
+      "description": "List services",
+      "method": "GET",
+      "path": "/services",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string" },
+          "limit": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "get_service",
+      "description": "Get a service",
+      "method": "GET",
+      "path": "/services/{service_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "service_id": { "type": "string" } },
+        "required": ["service_id"]
+      }
+    },
+    {
+      "name": "create_service",
+      "description": "Create a service",
+      "method": "POST",
+      "path": "/services",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string" },
+          "name": { "type": "string" },
+          "ownerId": { "type": "string" },
+          "repo": { "type": "string" },
+          "branch": { "type": "string" },
+          "serviceDetails": { "type": "object" }
+        },
+        "required": ["type", "name", "ownerId"]
+      }
+    },
+    {
+      "name": "trigger_deploy",
+      "description": "Trigger a new deploy",
+      "method": "POST",
+      "path": "/services/{service_id}/deploys",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "service_id": { "type": "string" },
+          "clearCache": { "type": "string", "enum": ["clear", "do_not_clear"] }
+        },
+        "required": ["service_id"]
+      }
+    },
+    {
+      "name": "list_deploys",
+      "description": "List deploys for a service",
+      "method": "GET",
+      "path": "/services/{service_id}/deploys",
+      "input_schema": {
+        "type": "object",
+        "properties": { "service_id": { "type": "string" } },
+        "required": ["service_id"]
+      }
+    },
+    {
+      "name": "rollback_deploy",
+      "description": "Rollback to a prior deploy",
+      "method": "POST",
+      "path": "/services/{service_id}/rollback",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "service_id": { "type": "string" },
+          "deployId": { "type": "string" }
+        },
+        "required": ["service_id", "deployId"]
+      }
+    },
+    {
+      "name": "list_env_vars",
+      "description": "List environment variables",
+      "method": "GET",
+      "path": "/services/{service_id}/env-vars",
+      "input_schema": {
+        "type": "object",
+        "properties": { "service_id": { "type": "string" } },
+        "required": ["service_id"]
+      }
+    },
+    {
+      "name": "update_env_vars",
+      "description": "Replace environment variables",
+      "method": "PUT",
+      "path": "/services/{service_id}/env-vars",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "service_id": { "type": "string" },
+          "envVars": { "type": "array" }
+        },
+        "required": ["service_id", "envVars"]
+      }
+    }
+  ]
+}

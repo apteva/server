@@ -1,0 +1,243 @@
+{
+  "slug": "attio",
+  "name": "Attio",
+  "description": "Attio CRM platform. Manage meetings, call recordings, and customer relationship data.",
+  "logo": "https://www.google.com/s2/favicons?domain=attio.com&sz=128",
+  "categories": [
+    "crm",
+    "attio",
+    "meetings",
+    "call-recordings"
+  ],
+  "base_url": "https://api.attio.com/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "Access Token",
+        "description": "Attio API access token (generate at app.attio.com under Settings > Developers > API keys)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_meetings",
+      "description": "List and filter meetings from Attio CRM. Supports cursor-based pagination and time-range filtering by start/end timestamps. Use ends_from and starts_before to narrow results to a specific date range.",
+      "method": "GET",
+      "path": "/meetings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of meetings to return. Defaults to 50, maximum 200.",
+            "default": 50
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response's pagination.next_cursor field. Omit for the first page."
+          },
+          "ends_from": {
+            "type": "string",
+            "description": "Filter to meetings ending after this timestamp (inclusive). ISO 8601 format, e.g. 2025-01-01T00:00:00Z."
+          },
+          "starts_before": {
+            "type": "string",
+            "description": "Filter to meetings starting before this timestamp (exclusive). ISO 8601 format, e.g. 2025-12-31T23:59:59Z."
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Timezone for interpreting ends_from and starts_before filters. Defaults to UTC. IANA timezone format, e.g. America/New_York.",
+            "default": "UTC"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_call_recordings",
+      "description": "List all call recordings associated with a specific meeting in Attio CRM. Returns recording metadata including video URLs and processing status. Requires a meeting ID obtained from the list meetings endpoint.",
+      "method": "GET",
+      "path": "/meetings/{{param.meeting_id}}/call_recordings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "meeting_id": {
+            "type": "string",
+            "description": "The unique identifier of the meeting to list call recordings for."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of call recordings to return. Defaults to 50, maximum 200.",
+            "default": 50
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response's pagination.next_cursor field. Omit for the first page."
+          }
+        },
+        "required": [
+          "meeting_id"
+        ]
+      }
+    },
+    {
+      "name": "create_call_recording",
+      "description": "Create a new call recording for a meeting in Attio CRM. Provide a video URL pointing to the recording file. Rate limited to 1 request per second. This endpoint is in alpha.",
+      "method": "POST",
+      "path": "/meetings/{{param.meeting_id}}/call_recordings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "meeting_id": {
+            "type": "string",
+            "description": "The unique identifier of the meeting to attach the call recording to."
+          },
+          "video_url": {
+            "type": "string",
+            "description": "The publicly accessible URL of the call recording video file (e.g. https://example.com/recording.mp4)."
+          }
+        },
+        "required": [
+          "meeting_id",
+          "video_url"
+        ]
+      }
+    },
+    {
+      "name": "create_meeting",
+      "description": "Find or create a meeting in Attio CRM. Uses external_ref for idempotency -- if a meeting with the same external_ref already exists for your integration, it will be returned instead of creating a duplicate. Supports setting title, description, time range, participants, and linked records. This endpoint is in alpha.",
+      "method": "POST",
+      "path": "/meetings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "The meeting data object containing all meeting details.",
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "The title of the meeting, e.g. 'Onboarding Session'."
+              },
+              "description": {
+                "type": "string",
+                "description": "A text description or summary of the meeting."
+              },
+              "start": {
+                "type": "object",
+                "description": "The start time of the meeting.",
+                "properties": {
+                  "datetime": {
+                    "type": "string",
+                    "description": "ISO 8601 datetime string, e.g. 2025-06-01T10:00:00."
+                  },
+                  "timezone": {
+                    "type": "string",
+                    "description": "IANA timezone, e.g. America/New_York."
+                  }
+                },
+                "required": [
+                  "datetime",
+                  "timezone"
+                ]
+              },
+              "end": {
+                "type": "object",
+                "description": "The end time of the meeting.",
+                "properties": {
+                  "datetime": {
+                    "type": "string",
+                    "description": "ISO 8601 datetime string, e.g. 2025-06-01T11:00:00."
+                  },
+                  "timezone": {
+                    "type": "string",
+                    "description": "IANA timezone, e.g. America/New_York."
+                  }
+                },
+                "required": [
+                  "datetime",
+                  "timezone"
+                ]
+              },
+              "is_all_day": {
+                "type": "boolean",
+                "description": "Whether this is an all-day meeting. Defaults to false.",
+                "default": false
+              },
+              "participants": {
+                "type": "array",
+                "description": "List of meeting participants.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "email_address": {
+                      "type": "string",
+                      "description": "The participant's email address."
+                    },
+                    "is_organizer": {
+                      "type": "boolean",
+                      "description": "Whether this participant is the meeting organizer.",
+                      "default": false
+                    },
+                    "status": {
+                      "type": "string",
+                      "description": "The participant's attendance status.",
+                      "enum": [
+                        "accepted",
+                        "declined",
+                        "tentative",
+                        "needs_action"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "email_address"
+                  ]
+                }
+              },
+              "external_ref": {
+                "type": "string",
+                "description": "A unique external reference identifier for idempotency. Calls with the same external_ref from your integration will be treated as the same meeting."
+              },
+              "linked_records": {
+                "type": "array",
+                "description": "Records to link to this meeting (e.g. companies, deals).",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "object": {
+                      "type": "string",
+                      "description": "The object type slug, e.g. 'companies' or 'deals'."
+                    },
+                    "record_id": {
+                      "type": "string",
+                      "description": "The record ID to link."
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "record_id"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "title",
+              "start",
+              "end"
+            ]
+          }
+        },
+        "required": [
+          "data"
+        ]
+      }
+    }
+  ]
+}

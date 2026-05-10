@@ -1,0 +1,968 @@
+{
+  "slug": "vidforge",
+  "name": "VidForge",
+  "description": "AI-powered video/audio creation and editing platform with HeyGen video generation, ElevenLabs voice synthesis, persona management, and professional media processing workflows",
+  "logo": "https://cdn-icons-png.flaticon.com/512/3406/3406886.png",
+  "categories": [
+    "omnistudio",
+    "ai",
+    "video",
+    "audio",
+    "media",
+    "heygen",
+    "elevenlabs",
+    "content-creation",
+    "personas"
+  ],
+  "base_url": "https://api.vidforge.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "omnistudio_media_production_create_composition",
+      "description": "Create a new video/audio composition with timeline and asset structure",
+      "method": "GET",
+      "path": "/omnistudio-media-production-create-composition",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Composition name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Composition description"
+          },
+          "composition": {
+            "type": "object",
+            "description": "Complete composition structure with timeline and assets",
+            "properties": {
+              "timeline": {
+                "type": "object",
+                "description": "Timeline with tracks array"
+              },
+              "assets": {
+                "type": "object",
+                "description": "Asset library for the composition. Supported asset types: ai_video (HeyGen), ai_audio (ElevenLabs TTS), ai_music (ElevenLabs), ai_generated_video (Sora/Runway), ai_generated_image (DALL-E/Midjourney), video, audio, image, text, shape, animated_graphic"
+              },
+              "global_settings": {
+                "type": "object",
+                "description": "Global settings (canvas_width, canvas_height, frame_rate, background_color)"
+              },
+              "metadata": {
+                "type": "object",
+                "description": "Additional metadata"
+              }
+            }
+          },
+          "output_settings": {
+            "type": "object",
+            "description": "Output format settings",
+            "properties": {
+              "format": {
+                "type": "string",
+                "enum": [
+                  "mp4",
+                  "webm",
+                  "mov",
+                  "mp3",
+                  "wav"
+                ],
+                "description": "Output format"
+              },
+              "quality": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "standard",
+                  "high",
+                  "ultra"
+                ],
+                "description": "Output quality"
+              },
+              "resolution": {
+                "type": "string",
+                "description": "Output resolution (e.g., 1920x1080)"
+              }
+            }
+          },
+          "source_file_id": {
+            "type": "integer",
+            "description": "Optional source file ID for editing existing media"
+          },
+          "template_id": {
+            "type": "string",
+            "description": "Optional template ID to base composition on"
+          },
+          "template_variables": {
+            "type": "object",
+            "description": "Variables to substitute in template"
+          }
+        },
+        "required": [
+          "name",
+          "composition"
+        ]
+      }
+    },
+    {
+      "name": "omnistudio_media_production_get_composition",
+      "description": "Retrieve composition details with status, job info, and file references",
+      "method": "GET",
+      "path": "/omnistudio-media-production-get-composition",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Composition ID to retrieve"
+          },
+          "include_files": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include detailed file information for output and source files"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "omnistudio_media_production_list_compositions",
+      "description": "List compositions for a project with filtering and pagination",
+      "method": "GET",
+      "path": "/omnistudio-media-production-list-compositions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "processing",
+              "completed",
+              "failed"
+            ],
+            "description": "Filter by composition status"
+          },
+          "is_template": {
+            "type": "boolean",
+            "description": "Filter by template status"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20,
+            "description": "Maximum number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0,
+            "description": "Number of results to skip for pagination"
+          },
+          "sort": {
+            "type": "string",
+            "default": "created_at:desc",
+            "description": "Sort field and direction (e.g., 'name:asc', 'created_at:desc')"
+          }
+        }
+      }
+    },
+    {
+      "name": "omnistudio_media_production_create_persona",
+      "description": "Create a new persona with avatar, voice, and image configurations for consistent content creation",
+      "method": "GET",
+      "path": "/omnistudio-media-production-create-persona",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Persona name"
+          },
+          "organization_id": {
+            "type": "integer",
+            "description": "Organization ID for multi-tenant isolation"
+          },
+          "slug": {
+            "type": "string",
+            "description": "URL-friendly slug (auto-generated from name if not provided)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Persona description and use case"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "presenter",
+              "narrator",
+              "host",
+              "spokesperson",
+              "assistant",
+              "expert"
+            ],
+            "description": "Persona role type"
+          },
+          "communication_style": {
+            "type": "string",
+            "enum": [
+              "professional",
+              "casual",
+              "friendly",
+              "authoritative",
+              "educational",
+              "conversational"
+            ],
+            "description": "Communication style"
+          },
+          "brand_archetype": {
+            "type": "string",
+            "enum": [
+              "creator",
+              "sage",
+              "explorer",
+              "hero",
+              "magician",
+              "everyman",
+              "lover",
+              "jester",
+              "caregiver",
+              "ruler",
+              "innocent",
+              "outlaw"
+            ],
+            "description": "Brand archetype for consistent personality"
+          },
+          "color_scheme": {
+            "type": "object",
+            "description": "Brand color scheme",
+            "properties": {
+              "primary": {
+                "type": "string",
+                "description": "Primary color (hex)"
+              },
+              "secondary": {
+                "type": "string",
+                "description": "Secondary color (hex)"
+              },
+              "accent": {
+                "type": "string",
+                "description": "Accent color (hex)"
+              },
+              "background": {
+                "type": "string",
+                "description": "Background color (hex)"
+              },
+              "text": {
+                "type": "string",
+                "description": "Text color (hex)"
+              }
+            }
+          },
+          "typography": {
+            "type": "object",
+            "description": "Typography settings",
+            "properties": {
+              "heading_font": {
+                "type": "string"
+              },
+              "body_font": {
+                "type": "string"
+              },
+              "font_size_base": {
+                "type": "integer"
+              }
+            }
+          },
+          "avatars": {
+            "type": "array",
+            "description": "Avatar configurations (e.g., HeyGen avatars)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "description": "Avatar provider (e.g., heygen)"
+                },
+                "provider_avatar_id": {
+                  "type": "string",
+                  "description": "Provider's avatar ID"
+                },
+                "avatar_name": {
+                  "type": "string",
+                  "description": "Display name for the avatar"
+                },
+                "quality_score": {
+                  "type": "number",
+                  "description": "Quality score (0-1)"
+                },
+                "resolution": {
+                  "type": "string",
+                  "description": "Avatar resolution"
+                },
+                "is_primary": {
+                  "type": "boolean",
+                  "description": "Is this the primary avatar"
+                },
+                "metadata": {
+                  "type": "object",
+                  "description": "Additional metadata"
+                }
+              },
+              "required": [
+                "provider",
+                "provider_avatar_id"
+              ]
+            }
+          },
+          "voices": {
+            "type": "array",
+            "description": "Voice configurations (e.g., ElevenLabs voices)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "description": "Voice provider (e.g., elevenlabs)"
+                },
+                "provider_voice_id": {
+                  "type": "string",
+                  "description": "Provider's voice ID"
+                },
+                "voice_name": {
+                  "type": "string",
+                  "description": "Display name for the voice"
+                },
+                "language": {
+                  "type": "string",
+                  "default": "en",
+                  "description": "Voice language code"
+                },
+                "gender": {
+                  "type": "string",
+                  "enum": [
+                    "male",
+                    "female",
+                    "neutral"
+                  ],
+                  "description": "Voice gender"
+                },
+                "age_range": {
+                  "type": "string",
+                  "description": "Voice age range"
+                },
+                "quality_score": {
+                  "type": "number",
+                  "description": "Quality score (0-1)"
+                },
+                "is_primary": {
+                  "type": "boolean",
+                  "description": "Is this the primary voice"
+                },
+                "voice_settings": {
+                  "type": "object",
+                  "description": "Voice-specific settings",
+                  "properties": {
+                    "stability": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "similarity_boost": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "style": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "Voice description"
+                    }
+                  }
+                }
+              },
+              "required": [
+                "provider",
+                "provider_voice_id"
+              ]
+            }
+          },
+          "images": {
+            "type": "array",
+            "description": "Profile and reference images for the persona",
+            "items": {
+              "type": "object",
+              "properties": {
+                "image_type": {
+                  "type": "string",
+                  "enum": [
+                    "profile",
+                    "reference",
+                    "background",
+                    "thumbnail"
+                  ],
+                  "default": "reference",
+                  "description": "Type of image"
+                },
+                "url": {
+                  "type": "string",
+                  "description": "Image URL"
+                },
+                "filename": {
+                  "type": "string",
+                  "description": "Original filename"
+                },
+                "mime_type": {
+                  "type": "string",
+                  "description": "MIME type (e.g., image/jpeg)"
+                },
+                "width": {
+                  "type": "integer",
+                  "description": "Image width in pixels"
+                },
+                "height": {
+                  "type": "integer",
+                  "description": "Image height in pixels"
+                },
+                "file_size": {
+                  "type": "integer",
+                  "description": "File size in bytes"
+                },
+                "is_primary": {
+                  "type": "boolean",
+                  "description": "Is this the primary image for its type"
+                },
+                "sort_order": {
+                  "type": "integer",
+                  "description": "Display order"
+                },
+                "metadata": {
+                  "type": "object",
+                  "description": "Additional metadata"
+                }
+              },
+              "required": [
+                "url"
+              ]
+            }
+          },
+          "created_by": {
+            "type": "string",
+            "description": "User ID who created the persona"
+          }
+        },
+        "required": [
+          "name",
+          "organization_id"
+        ]
+      }
+    },
+    {
+      "name": "omnistudio_media_production_update_persona",
+      "description": "Update existing persona configurations including avatars, voices, and images",
+      "method": "GET",
+      "path": "/omnistudio-media-production-update-persona",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "persona_id": {
+            "type": "string",
+            "description": "Persona ID to update"
+          },
+          "organization_id": {
+            "type": "integer",
+            "description": "Organization ID for access control"
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated persona name"
+          },
+          "slug": {
+            "type": "string",
+            "description": "Updated URL-friendly slug"
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated persona description"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "presenter",
+              "narrator",
+              "host",
+              "spokesperson",
+              "assistant",
+              "expert"
+            ],
+            "description": "Updated role type"
+          },
+          "communication_style": {
+            "type": "string",
+            "enum": [
+              "professional",
+              "casual",
+              "friendly",
+              "authoritative",
+              "educational",
+              "conversational"
+            ],
+            "description": "Updated communication style"
+          },
+          "brand_archetype": {
+            "type": "string",
+            "enum": [
+              "creator",
+              "sage",
+              "explorer",
+              "hero",
+              "magician",
+              "everyman",
+              "lover",
+              "jester",
+              "caregiver",
+              "ruler",
+              "innocent",
+              "outlaw"
+            ],
+            "description": "Updated brand archetype"
+          },
+          "color_scheme": {
+            "type": "object",
+            "description": "Updated brand color scheme",
+            "properties": {
+              "primary": {
+                "type": "string"
+              },
+              "secondary": {
+                "type": "string"
+              },
+              "accent": {
+                "type": "string"
+              },
+              "background": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          },
+          "typography": {
+            "type": "object",
+            "description": "Updated typography settings"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Enable or disable persona"
+          },
+          "avatars": {
+            "type": "array",
+            "description": "Updated avatar configurations (replaces existing avatars)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string"
+                },
+                "provider_avatar_id": {
+                  "type": "string"
+                },
+                "avatar_name": {
+                  "type": "string"
+                },
+                "quality_score": {
+                  "type": "number"
+                },
+                "resolution": {
+                  "type": "string"
+                },
+                "is_primary": {
+                  "type": "boolean"
+                },
+                "metadata": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "provider",
+                "provider_avatar_id"
+              ]
+            }
+          },
+          "voices": {
+            "type": "array",
+            "description": "Updated voice configurations (replaces existing voices)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string"
+                },
+                "provider_voice_id": {
+                  "type": "string"
+                },
+                "voice_name": {
+                  "type": "string"
+                },
+                "language": {
+                  "type": "string"
+                },
+                "gender": {
+                  "type": "string"
+                },
+                "age_range": {
+                  "type": "string"
+                },
+                "quality_score": {
+                  "type": "number"
+                },
+                "is_primary": {
+                  "type": "boolean"
+                },
+                "voice_settings": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "provider",
+                "provider_voice_id"
+              ]
+            }
+          },
+          "images": {
+            "type": "array",
+            "description": "Updated image configurations (replaces existing images)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "image_type": {
+                  "type": "string",
+                  "enum": [
+                    "profile",
+                    "reference",
+                    "background",
+                    "thumbnail"
+                  ],
+                  "default": "reference"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "filename": {
+                  "type": "string"
+                },
+                "mime_type": {
+                  "type": "string"
+                },
+                "width": {
+                  "type": "integer"
+                },
+                "height": {
+                  "type": "integer"
+                },
+                "file_size": {
+                  "type": "integer"
+                },
+                "is_primary": {
+                  "type": "boolean"
+                },
+                "sort_order": {
+                  "type": "integer"
+                },
+                "metadata": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "url"
+              ]
+            }
+          }
+        },
+        "required": [
+          "persona_id",
+          "organization_id"
+        ]
+      }
+    },
+    {
+      "name": "omnistudio_media_production_get_persona",
+      "description": "Retrieve detailed persona information including avatars, voices, images, and usage stats",
+      "method": "GET",
+      "path": "/omnistudio-media-production-get-persona",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "persona_id": {
+            "type": "string",
+            "description": "Persona ID to retrieve"
+          },
+          "slug": {
+            "type": "string",
+            "description": "Alternative: Persona slug to retrieve (if persona_id not provided)"
+          },
+          "organization_id": {
+            "type": "integer",
+            "description": "Organization ID for access control"
+          }
+        },
+        "required": [
+          "organization_id"
+        ]
+      }
+    },
+    {
+      "name": "omnistudio_media_production_list_personas",
+      "description": "List available personas with primary avatar, voice, image, and usage summary",
+      "method": "GET",
+      "path": "/omnistudio-media-production-list-personas",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization_id": {
+            "type": "integer",
+            "description": "Organization ID for multi-tenant isolation"
+          },
+          "is_active": {
+            "type": "boolean",
+            "default": true,
+            "description": "Filter by active status"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "presenter",
+              "narrator",
+              "host",
+              "spokesperson",
+              "assistant",
+              "expert"
+            ],
+            "description": "Filter by persona role"
+          },
+          "communication_style": {
+            "type": "string",
+            "enum": [
+              "professional",
+              "casual",
+              "friendly",
+              "authoritative",
+              "educational",
+              "conversational"
+            ],
+            "description": "Filter by communication style"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search personas by name"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50,
+            "description": "Maximum number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0,
+            "description": "Number of results to skip"
+          },
+          "sort": {
+            "type": "string",
+            "default": "created_at:desc",
+            "description": "Sort field and direction"
+          }
+        },
+        "required": [
+          "organization_id"
+        ]
+      }
+    },
+    {
+      "name": "omnistudio_media_production_delete_persona",
+      "description": "Permanently delete a persona and all its associated avatars, voices, and images",
+      "method": "GET",
+      "path": "/omnistudio-media-production-delete-persona",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "persona_id": {
+            "type": "string",
+            "description": "Persona ID to delete"
+          }
+        },
+        "required": [
+          "persona_id"
+        ]
+      }
+    },
+    {
+      "name": "omnistudio_media_production_set_persona_image",
+      "description": "Convenience tool to set a profile or reference image for a persona",
+      "method": "GET",
+      "path": "/omnistudio-media-production-set-persona-image",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "persona_id": {
+            "type": "string",
+            "description": "Persona ID to update"
+          },
+          "organization_id": {
+            "type": "integer",
+            "description": "Organization ID for access control"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "URL of the image to set"
+          },
+          "image_type": {
+            "type": "string",
+            "enum": [
+              "profile",
+              "reference",
+              "background",
+              "thumbnail"
+            ],
+            "default": "profile",
+            "description": "Type of image to set"
+          },
+          "is_primary": {
+            "type": "boolean",
+            "default": true,
+            "description": "Set as primary image for this type"
+          }
+        },
+        "required": [
+          "persona_id",
+          "organization_id",
+          "image_url"
+        ]
+      }
+    },
+    {
+      "name": "omnistudio_media_production_set_persona_voice",
+      "description": "Convenience tool to set or update the primary voice for a persona",
+      "method": "GET",
+      "path": "/omnistudio-media-production-set-persona-voice",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "persona_id": {
+            "type": "string",
+            "description": "Persona ID to update"
+          },
+          "organization_id": {
+            "type": "integer",
+            "description": "Organization ID for access control"
+          },
+          "provider": {
+            "type": "string",
+            "default": "elevenlabs",
+            "description": "Voice provider"
+          },
+          "provider_voice_id": {
+            "type": "string",
+            "description": "Provider's voice ID"
+          },
+          "voice_name": {
+            "type": "string",
+            "description": "Display name for the voice"
+          },
+          "language": {
+            "type": "string",
+            "default": "en",
+            "description": "Voice language code"
+          },
+          "gender": {
+            "type": "string",
+            "enum": [
+              "male",
+              "female",
+              "neutral"
+            ],
+            "description": "Voice gender"
+          },
+          "voice_settings": {
+            "type": "object",
+            "description": "Voice-specific settings (stability, similarity_boost, etc.)"
+          }
+        },
+        "required": [
+          "persona_id",
+          "organization_id",
+          "provider_voice_id"
+        ]
+      }
+    },
+    {
+      "name": "omnistudio_media_production_set_persona_avatar",
+      "description": "Convenience tool to set or update the primary avatar for a persona",
+      "method": "GET",
+      "path": "/omnistudio-media-production-set-persona-avatar",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "persona_id": {
+            "type": "string",
+            "description": "Persona ID to update"
+          },
+          "organization_id": {
+            "type": "integer",
+            "description": "Organization ID for access control"
+          },
+          "provider": {
+            "type": "string",
+            "default": "heygen",
+            "description": "Avatar provider"
+          },
+          "provider_avatar_id": {
+            "type": "string",
+            "description": "Provider's avatar ID"
+          },
+          "avatar_name": {
+            "type": "string",
+            "description": "Display name for the avatar"
+          },
+          "resolution": {
+            "type": "string",
+            "description": "Avatar resolution"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Additional avatar metadata"
+          }
+        },
+        "required": [
+          "persona_id",
+          "organization_id",
+          "provider_avatar_id"
+        ]
+      }
+    }
+  ]
+}

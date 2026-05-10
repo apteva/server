@@ -1,0 +1,289 @@
+{
+  "slug": "box",
+  "name": "Box",
+  "description": "Box cloud storage and content management. List folders, search files, upload content, create folders, and manage shared links.",
+  "logo": "https://www.google.com/s2/favicons?domain=box.com&sz=128",
+  "categories": [
+    "storage",
+    "cloud",
+    "files",
+    "folders",
+    "content-management",
+    "sharing"
+  ],
+  "base_url": "https://upload.box.com/api",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "Access Token",
+        "description": "Box developer token or OAuth access token"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_folder_items",
+      "description": "List all files and folders within a specific Box folder. Returns item names, types, IDs, sizes, and modification dates. Supports pagination via offset and limit. Use folder_id '0' for the root folder.",
+      "method": "GET",
+      "path": "/2.0/folders/{{param.folder_id}}/items",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": "string",
+            "description": "The ID of the folder to list items from. Use '0' for the root folder."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated list of fields to include in the response (e.g. 'name,size,modified_at,type')."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of items to return per page. Default is 100, max is 1000.",
+            "default": 100
+          },
+          "offset": {
+            "type": "integer",
+            "description": "The offset of the item at which to begin the response. Default is 0.",
+            "default": 0
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field: 'id', 'name', or 'date'.",
+            "enum": [
+              "id",
+              "name",
+              "date"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "description": "Sort direction: 'ASC' or 'DESC'.",
+            "enum": [
+              "ASC",
+              "DESC"
+            ]
+          }
+        },
+        "required": [
+          "folder_id"
+        ]
+      }
+    },
+    {
+      "name": "get_file_info",
+      "description": "Retrieve detailed information about a specific file in Box by its ID. Returns metadata including name, size, SHA1 hash, owner, parent folder, timestamps, shared link status, and more.",
+      "method": "GET",
+      "path": "/2.0/files/{{param.file_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "string",
+            "description": "The unique identifier of the file to retrieve information for."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated list of fields to include (e.g. 'name,size,sha1,shared_link,parent,modified_at,created_by')."
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "search",
+      "description": "Search for files, folders, and web links across Box content. Supports filtering by content type, file extensions, ancestor folders, date ranges, and more. Returns matching items with metadata.",
+      "method": "GET",
+      "path": "/2.0/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The search query string to match against item names, descriptions, and file contents."
+          },
+          "type": {
+            "type": "string",
+            "description": "Limit results to a specific item type.",
+            "enum": [
+              "file",
+              "folder",
+              "web_link"
+            ]
+          },
+          "content_types": {
+            "type": "string",
+            "description": "Comma-separated list of content types to search: 'name', 'description', 'file_content', 'comments', 'tags'."
+          },
+          "ancestor_folder_ids": {
+            "type": "string",
+            "description": "Comma-separated list of folder IDs to limit the search scope to."
+          },
+          "file_extensions": {
+            "type": "string",
+            "description": "Comma-separated list of file extensions to filter by (e.g. 'pdf,docx,txt')."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results to return. Default 30, max 200.",
+            "default": 30
+          },
+          "offset": {
+            "type": "integer",
+            "description": "The offset for pagination. Default is 0.",
+            "default": 0
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated list of fields to include in the response."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "upload_file",
+      "description": "Upload a file to Box. The file content is sent as part of a multipart form upload to the Box upload endpoint. Provide the file name and the parent folder ID where the file should be stored. Note: for files over 50MB, use chunked upload instead.",
+      "method": "POST",
+      "path": "/2.0/files/content",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "attributes": {
+            "type": "object",
+            "description": "JSON object with file metadata including 'name' (filename) and 'parent' object with 'id' (folder ID).",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "The name for the uploaded file."
+              },
+              "parent": {
+                "type": "object",
+                "description": "The parent folder object.",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "The ID of the parent folder. Use '0' for root."
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "parent"
+            ]
+          },
+          "content_url": {
+            "type": "string",
+            "description": "A publicly accessible URL to fetch the file content from for upload."
+          }
+        },
+        "required": [
+          "attributes"
+        ]
+      }
+    },
+    {
+      "name": "create_folder",
+      "description": "Create a new folder in Box. Specify the folder name and the parent folder ID where it should be created. Use parent ID '0' to create a folder in the root directory.",
+      "method": "POST",
+      "path": "/2.0/folders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The name for the new folder."
+          },
+          "parent": {
+            "type": "object",
+            "description": "The parent folder to create the new folder in.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The ID of the parent folder. Use '0' for the root folder."
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "parent"
+        ]
+      }
+    },
+    {
+      "name": "create_shared_link",
+      "description": "Create or update a shared link for a file in Box. Allows setting the access level (open, company, or collaborators), optional password protection, expiration date, and download permissions. Returns the file object with the shared link URL.",
+      "method": "PUT",
+      "path": "/2.0/files/{{param.file_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "string",
+            "description": "The ID of the file to create a shared link for."
+          },
+          "shared_link": {
+            "type": "object",
+            "description": "Shared link configuration object.",
+            "properties": {
+              "access": {
+                "type": "string",
+                "description": "The access level for the shared link.",
+                "enum": [
+                  "open",
+                  "company",
+                  "collaborators"
+                ]
+              },
+              "password": {
+                "type": "string",
+                "description": "Optional password to protect the shared link."
+              },
+              "unshared_at": {
+                "type": "string",
+                "description": "Expiration date for the shared link in ISO 8601 format."
+              },
+              "permissions": {
+                "type": "object",
+                "description": "Permissions for the shared link.",
+                "properties": {
+                  "can_download": {
+                    "type": "boolean",
+                    "description": "Whether the shared link allows downloads."
+                  },
+                  "can_preview": {
+                    "type": "boolean",
+                    "description": "Whether the shared link allows previewing."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "file_id",
+          "shared_link"
+        ]
+      }
+    }
+  ]
+}

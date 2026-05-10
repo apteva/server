@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -488,6 +489,60 @@ func (c *AppCatalog) LoadFromDir(dir string) error {
 	}
 
 	return nil
+}
+
+// LoadFromFS is the fs.FS-shaped sibling of LoadFromDir, used by
+// the boot path to read the embedded integrations-catalog/ tree
+// out of the apteva-server binary. Same semantics as LoadFromDir
+// (full reload, populate apps + groups maps), just sourced from
+// an io/fs.FS so we can swap in embed.FS without rewriting the
+// loader. Returns the count of apps loaded so the caller can
+// decide whether to fall through to the disk / GitHub paths.
+func (c *AppCatalog) LoadFromFS(fsys fs.FS) (int, error) {
+	entries, err := fs.ReadDir(fsys, ".")
+	if err != nil {
+		return 0, err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.apps = make(map[string]*AppTemplate)
+	c.groups = make(map[string]*catalogGroup)
+
+	count := 0
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		data, err := fs.ReadFile(fsys, name)
+		if err != nil {
+			continue
+		}
+		var app AppTemplate
+		if err := json.Unmarshal(data, &app); err != nil {
+			continue
+		}
+		if app.Slug == "" {
+			continue
+		}
+		c.apps[app.Slug] = &app
+		count++
+		if app.CredentialGroup != nil && app.CredentialGroup.ID != "" {
+			gid := app.CredentialGroup.ID
+			g, ok := c.groups[gid]
+			if !ok {
+				g = &catalogGroup{Meta: *app.CredentialGroup}
+				c.groups[gid] = g
+			}
+			if g.Meta.Discovery == nil && app.CredentialGroup.Discovery != nil {
+				g.Meta.Discovery = app.CredentialGroup.Discovery
+			}
+			g.Members = append(g.Members, app.Slug)
+		}
+	}
+	return count, nil
 }
 
 func (c *AppCatalog) Register(app *AppTemplate) {

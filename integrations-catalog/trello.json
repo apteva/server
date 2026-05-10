@@ -1,0 +1,205 @@
+{
+  "slug": "trello",
+  "name": "Trello",
+  "description": "Trello integration for project management with boards, lists, and cards",
+  "logo": "https://www.google.com/s2/favicons?domain=trello.com&sz=128",
+  "categories": [
+    "project-management",
+    "boards",
+    "cards",
+    "trello",
+    "kanban"
+  ],
+  "base_url": "https://api.trello.com/1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_boards",
+      "description": "List all boards for the authenticated user",
+      "method": "GET",
+      "path": "/list-boards",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "string",
+            "description": "Filter: all, open, closed, members, organization, public, starred"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_lists",
+      "description": "List all lists on a board",
+      "method": "GET",
+      "path": "/list-lists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "type": "string",
+            "description": "Board ID"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Filter: all, open, closed"
+          }
+        },
+        "required": [
+          "board_id"
+        ]
+      }
+    },
+    {
+      "name": "list_cards",
+      "description": "List all cards on a board or list",
+      "method": "GET",
+      "path": "/list-cards",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "type": "string",
+            "description": "Board ID"
+          },
+          "list_id": {
+            "type": "string",
+            "description": "List ID"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_card",
+      "description": "Create a new card on a list",
+      "method": "POST",
+      "path": "/create-card",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "list_id": {
+            "type": "string",
+            "description": "List ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Card name"
+          },
+          "desc": {
+            "type": "string",
+            "description": "Card description"
+          },
+          "due": {
+            "type": "string",
+            "description": "Due date (ISO format)"
+          },
+          "labels": {
+            "type": "array",
+            "description": "Label IDs to add"
+          }
+        },
+        "required": [
+          "list_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_card",
+      "description": "Update an existing card",
+      "method": "PUT",
+      "path": "/update-card",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "card_id": {
+            "type": "string",
+            "description": "Card ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "New card name"
+          },
+          "desc": {
+            "type": "string",
+            "description": "New description"
+          },
+          "due": {
+            "type": "string",
+            "description": "New due date"
+          },
+          "closed": {
+            "type": "boolean",
+            "description": "Archive the card"
+          }
+        },
+        "required": [
+          "card_id"
+        ]
+      }
+    },
+    {
+      "name": "move_card",
+      "description": "Move a card to a different list",
+      "method": "GET",
+      "path": "/move-card",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "card_id": {
+            "type": "string",
+            "description": "Card ID"
+          },
+          "list_id": {
+            "type": "string",
+            "description": "Destination list ID"
+          },
+          "position": {
+            "type": "string",
+            "description": "Position: top, bottom, or a number"
+          }
+        },
+        "required": [
+          "card_id",
+          "list_id"
+        ]
+      }
+    },
+    {
+      "name": "add_comment",
+      "description": "Add a comment to a card",
+      "method": "GET",
+      "path": "/add-comment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "card_id": {
+            "type": "string",
+            "description": "Card ID"
+          },
+          "text": {
+            "type": "string",
+            "description": "Comment text"
+          }
+        },
+        "required": [
+          "card_id",
+          "text"
+        ]
+      }
+    }
+  ]
+}

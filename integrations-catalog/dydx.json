@@ -1,0 +1,151 @@
+{
+  "slug": "dydx",
+  "name": "dYdX",
+  "description": "Decentralized perpetuals exchange (v4) — market data, orderbooks, candles, trades, and funding rates. Public endpoints are free.",
+  "logo": "https://www.google.com/s2/favicons?domain=dydx.exchange&sz=128",
+  "categories": [
+    "dex",
+    "perpetuals",
+    "derivatives",
+    "defi",
+    "orderbook"
+  ],
+  "base_url": "https://indexer.dydx.trade/v4",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "dYdX API key (needed only for private endpoints)"
+      },
+      {
+        "name": "secret",
+        "label": "Secret",
+        "description": "dYdX API secret"
+      },
+      {
+        "name": "passphrase",
+        "label": "Passphrase",
+        "description": "dYdX API passphrase"
+      },
+      {
+        "name": "stark_private_key",
+        "label": "Stark_private_key",
+        "description": "STARK private key for order signing"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_markets",
+      "description": "Get all perpetual markets with current prices, volume, open interest, and funding rates.",
+      "method": "GET",
+      "path": "/perpetualMarkets",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_orderbook",
+      "description": "Get order book for a perpetual market.",
+      "method": "GET",
+      "path": "/orderbooks/perpetualMarket/{ticker}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "description": "Market ticker (e.g., BTC-USD, ETH-USD)"
+          }
+        },
+        "required": [
+          "ticker"
+        ]
+      }
+    },
+    {
+      "name": "get_candles",
+      "description": "Get OHLCV candle data for a perpetual market.",
+      "method": "GET",
+      "path": "/candles/perpetualMarkets/{ticker}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "description": "Market ticker (e.g., BTC-USD)"
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "1MIN",
+              "5MINS",
+              "15MINS",
+              "30MINS",
+              "1HOUR",
+              "4HOURS",
+              "1DAY"
+            ],
+            "default": "1HOUR"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100
+          }
+        },
+        "required": [
+          "ticker"
+        ]
+      }
+    },
+    {
+      "name": "get_trades",
+      "description": "Get recent trades for a perpetual market.",
+      "method": "GET",
+      "path": "/trades/perpetualMarket/{ticker}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticker": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          }
+        },
+        "required": [
+          "ticker"
+        ]
+      }
+    },
+    {
+      "name": "get_historical_funding",
+      "description": "Get historical funding rates for a perpetual market.",
+      "method": "GET",
+      "path": "/historicalFunding/{ticker}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticker": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          }
+        },
+        "required": [
+          "ticker"
+        ]
+      }
+    }
+  ]
+}

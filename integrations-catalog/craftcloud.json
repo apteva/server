@@ -1,0 +1,298 @@
+{
+  "slug": "craftcloud",
+  "name": "Craftcloud",
+  "description": "MCP server for Craftcloud - 3D printing price comparison service connecting 150+ manufacturing services worldwide",
+  "logo": "https://www.google.com/s2/favicons?domain=craftcloud3d.com&sz=128",
+  "categories": [
+    "3d-printing",
+    "manufacturing",
+    "price-comparison",
+    "craftcloud",
+    "all3dp"
+  ],
+  "base_url": "https://api.craftcloud3d.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Your Craftcloud API key (contact Craftcloud for API access)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "model_upload",
+      "description": "Upload a 3D model file to Craftcloud",
+      "method": "GET",
+      "path": "/model-upload",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Base64 encoded 3D model file"
+          },
+          "fileName": {
+            "type": "string",
+            "description": "Name of the file"
+          },
+          "fileURL": {
+            "type": "string",
+            "description": "URL to the 3D model file (alternative to base64)"
+          }
+        }
+      }
+    },
+    {
+      "name": "model_get",
+      "description": "Get a model by ID from Craftcloud",
+      "method": "GET",
+      "path": "/model-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modelId": {
+            "type": "string",
+            "description": "The model ID"
+          }
+        },
+        "required": [
+          "modelId"
+        ]
+      }
+    },
+    {
+      "name": "configuration_create",
+      "description": "Create a configuration for a 3D model with material and quantity",
+      "method": "GET",
+      "path": "/configuration-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modelId": {
+            "type": "string",
+            "description": "The model ID to configure"
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Quantity to print (default: 1)"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code (USD, EUR, GBP, etc.)",
+            "enum": [
+              "USD",
+              "EUR",
+              "GBP",
+              "CAD",
+              "AUD",
+              "CHF",
+              "NOK",
+              "JPY",
+              "ILS"
+            ]
+          },
+          "countryCode": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code"
+          }
+        },
+        "required": [
+          "modelId"
+        ]
+      }
+    },
+    {
+      "name": "configuration_get",
+      "description": "Get a configuration by ID from Craftcloud",
+      "method": "GET",
+      "path": "/configuration-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "configurationId": {
+            "type": "string",
+            "description": "The configuration ID"
+          }
+        },
+        "required": [
+          "configurationId"
+        ]
+      }
+    },
+    {
+      "name": "price_create",
+      "description": "Create a price request to get quotes from multiple vendors",
+      "method": "GET",
+      "path": "/price-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modelId": {
+            "type": "string",
+            "description": "The model ID to price"
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Quantity to print (default: 1)"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code"
+          },
+          "countryCode": {
+            "type": "string",
+            "description": "ISO country code for shipping"
+          }
+        },
+        "required": [
+          "modelId"
+        ]
+      }
+    },
+    {
+      "name": "price_get",
+      "description": "Get prices for a price request ID",
+      "method": "GET",
+      "path": "/price-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "priceId": {
+            "type": "string",
+            "description": "The price request ID"
+          }
+        },
+        "required": [
+          "priceId"
+        ]
+      }
+    },
+    {
+      "name": "price_grouped",
+      "description": "Get prices grouped by vendor for easy comparison",
+      "method": "GET",
+      "path": "/price-grouped",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "priceId": {
+            "type": "string",
+            "description": "The price request ID"
+          }
+        },
+        "required": [
+          "priceId"
+        ]
+      }
+    },
+    {
+      "name": "cart_create",
+      "description": "Create a shopping cart with configured items",
+      "method": "GET",
+      "path": "/cart-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "description": "Array of cart items with modelId, quantity, etc.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code"
+          },
+          "countryCode": {
+            "type": "string",
+            "description": "ISO country code"
+          }
+        },
+        "required": [
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "order_create",
+      "description": "Create an order from a cart",
+      "method": "GET",
+      "path": "/order-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "The cart ID to order"
+          },
+          "email": {
+            "type": "string",
+            "description": "Customer email"
+          },
+          "firstName": {
+            "type": "string",
+            "description": "Customer first name"
+          },
+          "lastName": {
+            "type": "string",
+            "description": "Customer last name"
+          },
+          "company": {
+            "type": "string",
+            "description": "Company name"
+          },
+          "address": {
+            "type": "string",
+            "description": "Shipping address"
+          },
+          "city": {
+            "type": "string",
+            "description": "City"
+          },
+          "postalCode": {
+            "type": "string",
+            "description": "Postal/ZIP code"
+          },
+          "countryCode": {
+            "type": "string",
+            "description": "ISO country code"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Phone number"
+          }
+        },
+        "required": [
+          "cartId"
+        ]
+      }
+    },
+    {
+      "name": "order_status",
+      "description": "Get the status of an order from Craftcloud",
+      "method": "GET",
+      "path": "/order-status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "The order ID"
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      }
+    }
+  ]
+}

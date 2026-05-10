@@ -1,0 +1,266 @@
+{
+  "slug": "docx",
+  "name": "Word Document Tools",
+  "description": "Word document (DOCX) manipulation tools - read, create, fill templates, merge, and convert documents",
+  "logo": "https://www.google.com/s2/favicons?domain=microsoft.com&sz=128",
+  "categories": [
+    "docx",
+    "word",
+    "documents",
+    "templates",
+    "office"
+  ],
+  "base_url": "https://api.docx.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "fill_template",
+      "description": "Fill placeholders in a Word document template with data. Use {placeholder} syntax in your template.",
+      "method": "GET",
+      "path": "/fill-template",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_url": {
+            "type": "string",
+            "description": "URL of the DOCX template file"
+          },
+          "file_data": {
+            "type": "string",
+            "description": "Base64 encoded DOCX template data (alternative to file_url)"
+          },
+          "data": {
+            "type": "object",
+            "description": "Data object with values to fill placeholders"
+          },
+          "options": {
+            "type": "object",
+            "description": "Template options (delimiter, nullGetter)"
+          },
+          "output_name": {
+            "type": "string",
+            "description": "Output filename",
+            "default": "filled-document.docx"
+          }
+        },
+        "required": [
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "read",
+      "description": "Read and extract content from a Word document. Returns text, HTML, markdown, or raw content.",
+      "method": "GET",
+      "path": "/read",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_url": {
+            "type": "string",
+            "description": "URL of the DOCX file to read"
+          },
+          "file_data": {
+            "type": "string",
+            "description": "Base64 encoded DOCX data"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "text",
+              "html",
+              "markdown",
+              "raw"
+            ],
+            "description": "Output format",
+            "default": "text"
+          },
+          "include_images": {
+            "type": "boolean",
+            "description": "Include images as base64 in output",
+            "default": false
+          },
+          "extract_metadata": {
+            "type": "boolean",
+            "description": "Extract document metadata",
+            "default": true
+          }
+        }
+      }
+    },
+    {
+      "name": "create",
+      "description": "Create a new Word document from scratch with paragraphs, headings, tables, images, and lists",
+      "method": "POST",
+      "path": "/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "description": "Array of content blocks (paragraph, heading, table, image, list, pageBreak)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "paragraph",
+                    "heading",
+                    "table",
+                    "image",
+                    "list",
+                    "pageBreak"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                },
+                "level": {
+                  "type": "integer",
+                  "description": "Heading level 1-6"
+                },
+                "headers": {
+                  "type": "array",
+                  "description": "Table headers"
+                },
+                "rows": {
+                  "type": "array",
+                  "description": "Table rows"
+                },
+                "items": {
+                  "type": "array",
+                  "description": "List items"
+                },
+                "ordered": {
+                  "type": "boolean",
+                  "description": "Ordered list"
+                },
+                "url": {
+                  "type": "string",
+                  "description": "Image URL"
+                },
+                "data": {
+                  "type": "string",
+                  "description": "Base64 image data"
+                }
+              }
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Document metadata (title, subject, creator)"
+          },
+          "output_name": {
+            "type": "string",
+            "description": "Output filename",
+            "default": "document.docx"
+          }
+        },
+        "required": [
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "merge",
+      "description": "Merge multiple Word documents into a single document",
+      "method": "GET",
+      "path": "/merge",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "description": "Array of DOCX files to merge (url or data)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "description": "DOCX file URL"
+                },
+                "data": {
+                  "type": "string",
+                  "description": "Base64 DOCX data"
+                },
+                "pageBreak": {
+                  "type": "boolean",
+                  "description": "Add page break before",
+                  "default": true
+                }
+              }
+            }
+          },
+          "output_name": {
+            "type": "string",
+            "description": "Output filename",
+            "default": "merged.docx"
+          }
+        },
+        "required": [
+          "files"
+        ]
+      }
+    },
+    {
+      "name": "to_pdf",
+      "description": "Convert a Word document to PDF format",
+      "method": "GET",
+      "path": "/to-pdf",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_url": {
+            "type": "string",
+            "description": "URL of the DOCX file"
+          },
+          "file_data": {
+            "type": "string",
+            "description": "Base64 encoded DOCX data"
+          },
+          "options": {
+            "type": "object",
+            "description": "PDF options",
+            "properties": {
+              "format": {
+                "type": "string",
+                "enum": [
+                  "A4",
+                  "Letter",
+                  "Legal"
+                ],
+                "default": "A4"
+              },
+              "landscape": {
+                "type": "boolean",
+                "default": false
+              },
+              "margin": {
+                "type": "object"
+              }
+            }
+          },
+          "output_name": {
+            "type": "string",
+            "description": "Output filename",
+            "default": "document.pdf"
+          }
+        }
+      }
+    }
+  ]
+}

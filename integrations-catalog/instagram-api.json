@@ -1,0 +1,584 @@
+{
+  "slug": "instagram-api",
+  "name": "Instagram",
+  "description": "MCP server for Instagram Graph API operations including media posting, account management, comments, and analytics",
+  "logo": "https://www.google.com/s2/favicons?domain=www.instagram.com&sz=128",
+  "categories": [
+    "instagram",
+    "social-media",
+    "photos",
+    "videos",
+    "analytics"
+  ],
+  "base_url": "https://graph.facebook.com/v25.0",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "instagramAccountId",
+        "label": "instagramAccountId"
+      },
+      {
+        "name": "userId",
+        "label": "userId"
+      },
+      {
+        "name": "expiresIn",
+        "label": "expiresIn"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://www.facebook.com/v25.0/dialog/oauth",
+      "token_url": "https://graph.facebook.com/v25.0/oauth/access_token",
+      "scopes": [
+        "user_profile",
+        "user_media",
+        "instagram_basic",
+        "instagram_content_publish",
+        "instagram_manage_comments",
+        "instagram_manage_insights",
+        "instagram_manage_messages",
+        "pages_show_list",
+        "pages_read_engagement"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "list_accounts",
+      "description": "List Instagram Business Accounts linked to Facebook Pages accessible via your token. Use this first to get the instagramAccountId needed for other Instagram tools. Returns Facebook Pages with their linked instagram_business_account (id, username, profile_picture_url) and the page-level access_token needed for posting.",
+      "method": "GET",
+      "path": "/me/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "type": "string",
+            "description": "Graph API fields selector",
+            "default": "name,access_token,instagram_business_account{id,username,profile_picture_url}"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "Get Instagram user profile information including username, bio, followers count, media count",
+      "method": "GET",
+      "path": "/get-user",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Instagram Business Account ID"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields to retrieve",
+            "default": "id,username,name,biography,followers_count,follows_count,media_count,profile_picture_url,website"
+          }
+        },
+        "required": [
+          "instagramAccountId"
+        ]
+      }
+    },
+    {
+      "name": "get_account_media",
+      "description": "Retrieve media posts from an Instagram Business account",
+      "method": "GET",
+      "path": "/get-account-media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Instagram Business Account ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of media items to retrieve",
+            "default": 25,
+            "maximum": 100
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields to retrieve",
+            "default": "id,media_type,media_url,thumbnail_url,permalink,caption,timestamp,like_count,comments_count"
+          },
+          "since": {
+            "type": "string",
+            "description": "Unix timestamp or strtotime data value for lower bound"
+          },
+          "until": {
+            "type": "string",
+            "description": "Unix timestamp or strtotime data value for upper bound"
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        },
+        "required": [
+          "instagramAccountId"
+        ]
+      }
+    },
+    {
+      "name": "get_media",
+      "description": "Get details of a single Instagram media object",
+      "method": "GET",
+      "path": "/get-media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "description": "Instagram Media ID"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields to retrieve",
+            "default": "id,media_type,media_url,thumbnail_url,permalink,caption,timestamp,like_count,comments_count,owner,is_comment_enabled"
+          }
+        },
+        "required": [
+          "mediaId"
+        ]
+      }
+    },
+    {
+      "name": "create_media_container",
+      "description": "Step 1 of 2 to publish on Instagram. Create a media container with image/video URL and caption. Returns containerId for step 2 (publish-media-container). For videos: use sync=true to wait for processing to complete automatically (recommended), or poll manually with get-container-status.\n\nFor CAROUSEL posts: 1) Create child containers with isCarouselItem=true (each with imageUrl or videoUrl, mediaType IMAGE or REELS). 2) Create parent carousel container via Graph API: POST /{instagramAccountId}/media with media_type=CAROUSEL, children={comma-separated child IDs}, and caption. 3) Publish the parent container with publish-media-container. Up to 10 items per carousel.",
+      "method": "POST",
+      "path": "/{instagramAccountId}/media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Instagram Business Account ID"
+          },
+          "imageUrl": {
+            "type": "string",
+            "description": "URL of image to post (for IMAGE/CAROUSEL)"
+          },
+          "videoUrl": {
+            "type": "string",
+            "description": "URL of video to post (for REELS)"
+          },
+          "caption": {
+            "type": "string",
+            "description": "Caption text for the media"
+          },
+          "mediaType": {
+            "type": "string",
+            "description": "Type of media (VIDEO is deprecated, use REELS for videos)",
+            "enum": [
+              "IMAGE",
+              "REELS",
+              "STORIES"
+            ],
+            "default": "IMAGE"
+          },
+          "sync": {
+            "type": "boolean",
+            "description": "For videos/reels: wait for processing to complete before returning. Enabled by default - eliminates need to poll get-container-status manually. Set to false for async behavior.",
+            "default": true
+          },
+          "syncTimeout": {
+            "type": "integer",
+            "description": "Max time to wait for video processing in ms (only used when sync=true)",
+            "default": 120000
+          },
+          "syncInterval": {
+            "type": "integer",
+            "description": "Polling interval in ms (only used when sync=true)",
+            "default": 3000
+          },
+          "coverUrl": {
+            "type": "string",
+            "description": "Cover/thumbnail URL for videos"
+          },
+          "thumbOffset": {
+            "type": "integer",
+            "description": "Milliseconds into video for thumbnail"
+          },
+          "locationId": {
+            "type": "string",
+            "description": "Facebook location ID"
+          },
+          "userTags": {
+            "type": "array",
+            "description": "Array of user tags",
+            "items": {
+              "type": "object",
+              "properties": {
+                "username": {
+                  "type": "string"
+                },
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "isCarouselItem": {
+            "type": "boolean",
+            "description": "Whether this is a carousel item",
+            "default": false
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_accounts → access_token). Required for IG Business writes."
+          }
+        },
+        "required": [
+          "instagramAccountId"
+        ]
+      }
+    },
+    {
+      "name": "publish_media_container",
+      "description": "Step 2 of 2 to publish on Instagram. Publishes the container created in step 1. For videos, check status first with get-container-status to ensure processing is complete. Also requires access_token (page-level token from list_accounts → access_token) for IG Business writes.",
+      "method": "POST",
+      "path": "/{instagramAccountId}/media_publish",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Instagram Business Account ID"
+          },
+          "containerId": {
+            "type": "string",
+            "description": "The 'id' returned from create-media-container (step 1). Sent as creation_id query param to Graph API."
+          },
+          "creation_id": {
+            "type": "string",
+            "description": "Alias for containerId — Graph API expects this field name. The Social app sends both for compatibility."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_accounts). Required for IG Business writes."
+          }
+        },
+        "required": [
+          "instagramAccountId",
+          "containerId"
+        ]
+      }
+    },
+    {
+      "name": "get_container_status",
+      "description": "Check the status of an Instagram media container before publishing",
+      "method": "GET",
+      "path": "/get-container-status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "containerId": {
+            "type": "string",
+            "description": "Container ID to check status"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields to retrieve",
+            "default": "id,status_code,status"
+          }
+        },
+        "required": [
+          "containerId"
+        ]
+      }
+    },
+    {
+      "name": "get_media_comments",
+      "description": "Get comments on an Instagram media post",
+      "method": "GET",
+      "path": "/get-media-comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "description": "Instagram Media ID"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields to retrieve",
+            "default": "id,text,username,timestamp,like_count,hidden,replies"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of comments to retrieve",
+            "default": 25,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "mediaId"
+        ]
+      }
+    },
+    {
+      "name": "create_comment_reply",
+      "description": "Reply to an Instagram comment",
+      "method": "POST",
+      "path": "/create-comment-reply",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commentId": {
+            "type": "string",
+            "description": "Instagram Comment ID to reply to"
+          },
+          "message": {
+            "type": "string",
+            "description": "Reply message text"
+          }
+        },
+        "required": [
+          "commentId",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "delete_comment",
+      "description": "Delete an Instagram comment",
+      "method": "DELETE",
+      "path": "/delete-comment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commentId": {
+            "type": "string",
+            "description": "Instagram Comment ID to delete"
+          }
+        },
+        "required": [
+          "commentId"
+        ]
+      }
+    },
+    {
+      "name": "get_account_insights",
+      "description": "Get Instagram Business account analytics and insights",
+      "method": "GET",
+      "path": "/get-account-insights",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Instagram Business Account ID"
+          },
+          "metrics": {
+            "type": "array",
+            "description": "Metrics to retrieve. Note: Many metrics deprecated Jan 2025 (email_contacts, phone_call_clicks, etc.)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "reach",
+                "follower_count",
+                "accounts_engaged",
+                "total_interactions"
+              ]
+            },
+            "default": [
+              "reach",
+              "follower_count",
+              "accounts_engaged",
+              "total_interactions"
+            ]
+          },
+          "period": {
+            "type": "string",
+            "description": "Time period for insights",
+            "enum": [
+              "day",
+              "week",
+              "days_28"
+            ],
+            "default": "day"
+          },
+          "since": {
+            "type": "string",
+            "description": "Unix timestamp or strtotime for lower bound"
+          },
+          "until": {
+            "type": "string",
+            "description": "Unix timestamp or strtotime for upper bound"
+          },
+          "metricType": {
+            "type": "string",
+            "description": "Metric type",
+            "enum": [
+              "total_value",
+              "time_series"
+            ],
+            "default": "total_value"
+          }
+        },
+        "required": [
+          "instagramAccountId"
+        ]
+      }
+    },
+    {
+      "name": "get_media_insights",
+      "description": "Get analytics and insights for a specific Instagram media post. Note: 'plays' metric was deprecated in 2025 \u2014 use 'views' instead.",
+      "method": "GET",
+      "path": "/get-media-insights",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "description": "Instagram Media ID"
+          },
+          "metrics": {
+            "type": "array",
+            "description": "Metrics to retrieve. Note: 'views' replaces deprecated 'impressions' and 'video_views' for 2025",
+            "items": {
+              "type": "string",
+              "enum": [
+                "views",
+                "reach",
+                "saved",
+                "likes",
+                "comments",
+                "shares"
+              ]
+            },
+            "default": [
+              "views",
+              "reach",
+              "saved",
+              "likes",
+              "comments",
+              "shares"
+            ]
+          }
+        },
+        "required": [
+          "mediaId"
+        ]
+      }
+    },
+    {
+      "name": "get_comment",
+      "description": "Get details of a specific Instagram comment",
+      "method": "GET",
+      "path": "/get-comment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commentId": {
+            "type": "string",
+            "description": "Instagram Comment ID"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields to retrieve",
+            "default": "id,text,username,timestamp,like_count,hidden,media,from,replies"
+          }
+        },
+        "required": [
+          "commentId"
+        ]
+      }
+    },
+    {
+      "name": "get_comment_replies",
+      "description": "Get replies to an Instagram comment",
+      "method": "GET",
+      "path": "/get-comment-replies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commentId": {
+            "type": "string",
+            "description": "Instagram Comment ID to get replies for"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields to retrieve",
+            "default": "id,text,username,timestamp,like_count,hidden"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of replies to retrieve",
+            "default": 25,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "commentId"
+        ]
+      }
+    },
+    {
+      "name": "get_media_children",
+      "description": "Get children of a carousel Instagram media post",
+      "method": "GET",
+      "path": "/get-media-children",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "description": "Instagram Media ID (must be a carousel)"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields to retrieve",
+            "default": "id,media_type,media_url,thumbnail_url,permalink,timestamp"
+          }
+        },
+        "required": [
+          "mediaId"
+        ]
+      }
+    },
+    {
+      "name": "hide_comment",
+      "description": "Hide or unhide an Instagram comment",
+      "method": "GET",
+      "path": "/hide-comment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commentId": {
+            "type": "string",
+            "description": "Instagram Comment ID"
+          },
+          "hide": {
+            "type": "boolean",
+            "description": "True to hide, false to unhide",
+            "default": true
+          }
+        },
+        "required": [
+          "commentId"
+        ]
+      }
+    }
+  ]
+}

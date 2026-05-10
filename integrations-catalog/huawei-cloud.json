@@ -1,0 +1,189 @@
+{
+  "slug": "huawei-cloud",
+  "name": "Huawei Cloud (ECS)",
+  "description": "MCP server for Huawei Cloud Elastic Cloud Server - cloud servers, flavors, images, key pairs, snapshots, volumes (covers China, AP, EMEA, LATAM regions)",
+  "logo": "https://www.google.com/s2/favicons?domain=huaweicloud.com&sz=128",
+  "categories": ["cloud", "servers", "vps", "infrastructure", "china", "asia"],
+  "base_url": "https://ecs.{{region}}.myhuaweicloud.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": { "X-Auth-Token": "{{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "X-Auth-Token", "description": "Issue via POST https://iam.{region}.myhuaweicloud.com/v3/auth/tokens (returns token in X-Subject-Token header). Tokens last 24h." },
+      { "name": "project_id", "label": "Project ID", "description": "Your Huawei Cloud project ID" },
+      { "name": "region", "label": "Region", "description": "e.g. ap-southeast-3 (Singapore), cn-east-3, sa-brazil-1" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_servers",
+      "description": "List ECS cloud servers (detail)",
+      "method": "GET",
+      "path": "/v1/{project_id}/cloudservers/detail",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "limit": { "type": "number" },
+          "offset": { "type": "number" },
+          "name": { "type": "string" },
+          "status": { "type": "string" }
+        },
+        "required": ["project_id"]
+      }
+    },
+    {
+      "name": "get_server",
+      "description": "Get an ECS server by ID",
+      "method": "GET",
+      "path": "/v1/{project_id}/cloudservers/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "server_id": { "type": "string" }
+        },
+        "required": ["project_id", "server_id"]
+      }
+    },
+    {
+      "name": "create_server",
+      "description": "Create a pay-per-use ECS server",
+      "method": "POST",
+      "path": "/v1/{project_id}/cloudservers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "server": { "type": "object", "description": "Body wraps under 'server': { name, imageRef, flavorRef, vpcid, nics:[{subnet_id}], root_volume:{volumetype}, key_name, count }" }
+        },
+        "required": ["project_id", "server"]
+      }
+    },
+    {
+      "name": "delete_servers",
+      "description": "Delete one or more ECS servers",
+      "method": "POST",
+      "path": "/v1/{project_id}/cloudservers/delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "servers": { "type": "array", "description": "[{ id: 'xxx' }]" },
+          "delete_publicip": { "type": "boolean" },
+          "delete_volume": { "type": "boolean" }
+        },
+        "required": ["project_id", "servers"]
+      }
+    },
+    {
+      "name": "batch_start_servers",
+      "description": "Batch start ECS servers",
+      "method": "POST",
+      "path": "/v1/{project_id}/cloudservers/action",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "os-start": { "type": "object", "description": "{ servers: [{ id }] }" }
+        },
+        "required": ["project_id", "os-start"]
+      }
+    },
+    {
+      "name": "batch_stop_servers",
+      "description": "Batch stop ECS servers",
+      "method": "POST",
+      "path": "/v1/{project_id}/cloudservers/action",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "os-stop": { "type": "object", "description": "{ type: 'SOFT'|'HARD', servers: [{ id }] }" }
+        },
+        "required": ["project_id", "os-stop"]
+      }
+    },
+    {
+      "name": "batch_reboot_servers",
+      "description": "Batch reboot ECS servers",
+      "method": "POST",
+      "path": "/v1/{project_id}/cloudservers/action",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "reboot": { "type": "object", "description": "{ type: 'SOFT'|'HARD', servers: [{ id }] }" }
+        },
+        "required": ["project_id", "reboot"]
+      }
+    },
+    {
+      "name": "list_flavors",
+      "description": "List available ECS flavors (sizes)",
+      "method": "GET",
+      "path": "/v1/{project_id}/cloudservers/flavors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "availability_zone": { "type": "string" }
+        },
+        "required": ["project_id"]
+      }
+    },
+    {
+      "name": "list_images",
+      "description": "List images via IMS (Image Management Service)",
+      "method": "GET",
+      "path": "/v2/cloudimages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "imagetype": { "type": "string" },
+          "__os_type": { "type": "string" },
+          "limit": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "list_key_pairs",
+      "description": "List SSH key pairs",
+      "method": "GET",
+      "path": "/v2.1/{project_id}/os-keypairs",
+      "input_schema": {
+        "type": "object",
+        "properties": { "project_id": { "type": "string" } },
+        "required": ["project_id"]
+      }
+    },
+    {
+      "name": "create_snapshot",
+      "description": "Create a volume snapshot via EVS",
+      "method": "POST",
+      "path": "/v2/{project_id}/cloudsnapshots",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "snapshot": { "type": "object", "description": "{ volume_id, name, description, force }" }
+        },
+        "required": ["project_id", "snapshot"]
+      }
+    },
+    {
+      "name": "list_volumes",
+      "description": "List block storage volumes",
+      "method": "GET",
+      "path": "/v2/{project_id}/cloudvolumes/detail",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "limit": { "type": "number" }
+        },
+        "required": ["project_id"]
+      }
+    }
+  ]
+}

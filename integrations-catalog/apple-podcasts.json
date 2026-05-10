@@ -1,0 +1,116 @@
+{
+  "slug": "apple-podcasts",
+  "name": "Apple Podcasts",
+  "description": "MCP server for Apple Podcasts - search, lookup, genres, top charts",
+  "logo": "https://www.google.com/s2/favicons?domain=podcasts.apple.com&sz=128",
+  "categories": [
+    "podcasts",
+    "audio",
+    "search",
+    "media"
+  ],
+  "base_url": "https://itunes.apple.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search_podcasts",
+      "description": "Search for podcasts",
+      "method": "GET",
+      "path": "/search-podcasts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "term": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "term"
+        ]
+      }
+    },
+    {
+      "name": "get_podcast",
+      "description": "Get podcast details",
+      "method": "GET",
+      "path": "/get-podcast",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "lookup_podcast",
+      "description": "Lookup podcast by ID",
+      "method": "GET",
+      "path": "/lookup-podcast",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_genres",
+      "description": "Get podcast genres",
+      "method": "GET",
+      "path": "/get-genres",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_top_podcasts",
+      "description": "Get top podcasts by genre",
+      "method": "GET",
+      "path": "/get-top-podcasts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "genre": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  ]
+}

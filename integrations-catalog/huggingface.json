@@ -1,0 +1,100 @@
+{
+  "slug": "huggingface",
+  "name": "Hugging Face",
+  "description": "MCP server for Hugging Face - models, embeddings, inference",
+  "logo": "https://www.google.com/s2/favicons?domain=huggingface.co&sz=128",
+  "categories": [
+    "ai",
+    "ml",
+    "nlp",
+    "models"
+  ],
+  "base_url": "https://api-inference.huggingface.co",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "text_generation",
+      "description": "Generate text with a model",
+      "method": "GET",
+      "path": "/text-generation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "model",
+          "inputs"
+        ]
+      }
+    },
+    {
+      "name": "create_embedding",
+      "description": "Create text embeddings",
+      "method": "POST",
+      "path": "/create-embedding",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "model",
+          "inputs"
+        ]
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List available models",
+      "method": "GET",
+      "path": "/list-models",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string"
+          },
+          "filter": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_models"
+  }
+}

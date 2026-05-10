@@ -1,0 +1,660 @@
+{
+  "slug": "notion",
+  "name": "Notion",
+  "description": "MCP server for Notion operations - databases, pages, blocks, and search. Use notion-search with filter {\"value\":\"page\",\"property\":\"object\"} to discover page IDs for use with create-database and other tools.",
+  "logo": "https://www.google.com/s2/favicons?domain=notion.so&sz=128",
+  "categories": [
+    "productivity",
+    "notion",
+    "database",
+    "notes",
+    "wiki"
+  ],
+  "base_url": "https://api.notion.com/v1",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "bot_id",
+        "label": "bot_id"
+      },
+      {
+        "name": "workspace_id",
+        "label": "workspace_id"
+      },
+      {
+        "name": "workspace_name",
+        "label": "workspace_name"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://api.notion.com/v1/oauth/authorize",
+      "token_url": "https://api.notion.com/v1/oauth/token",
+      "scopes": [],
+      "client_id_required": true,
+      "pkce": true
+    }
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "Search pages and databases in Notion. Also use this to list/browse pages by passing filter: {\"value\":\"page\",\"property\":\"object\"} with no query. Useful for discovering page IDs needed by other tools like notion-create-database.",
+      "method": "POST",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query to find pages/databases by title. Omit to list all."
+          },
+          "filter": {
+            "type": "object",
+            "description": "Filter by object type. Format: { \"value\": \"page\", \"property\": \"object\" } or { \"value\": \"database\", \"property\": \"object\" }"
+          },
+          "sort": {
+            "type": "object",
+            "description": "Sort results. Format: { \"direction\": \"ascending\"|\"descending\", \"timestamp\": \"last_edited_time\" }"
+          },
+          "start_cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Number of results (default: 100, max: 100)"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_databases",
+      "description": "List all databases the user has access to in the workspace",
+      "method": "POST",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Number of results (default: 100)"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_database",
+      "description": "Retrieve a database schema and properties by ID",
+      "method": "GET",
+      "path": "/databases/{database_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "ID of the database to retrieve"
+          }
+        },
+        "required": [
+          "database_id"
+        ]
+      }
+    },
+    {
+      "name": "query_database",
+      "description": "Query a Notion database with filters and sorts. Returns pages matching the criteria.",
+      "method": "POST",
+      "path": "/databases/{database_id}/query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "ID of the database to query"
+          },
+          "filter": {
+            "type": "object",
+            "description": "Notion filter object. Example: { \"property\": \"Status\", \"select\": { \"equals\": \"Done\" } }"
+          },
+          "sorts": {
+            "type": "array",
+            "description": "Sort conditions. Example: [{ \"property\": \"Due Date\", \"direction\": \"ascending\" }]"
+          },
+          "start_cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Number of results (default: 100)"
+          }
+        },
+        "required": [
+          "database_id"
+        ]
+      }
+    },
+    {
+      "name": "create_database",
+      "description": "Create a new database in Notion. Use notion-search with filter {\"value\":\"page\",\"property\":\"object\"} to find page IDs for the parent field.",
+      "method": "POST",
+      "path": "/databases",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "parent": {
+            "type": "object",
+            "description": "Parent page. Format: { \"page_id\": \"<page-id>\" }"
+          },
+          "title": {
+            "type": "array",
+            "description": "Database title as rich text. Format: [{ \"type\": \"text\", \"text\": { \"content\": \"My Database\" } }]"
+          },
+          "properties": {
+            "type": "object",
+            "description": "Database property schema. Example: { \"Name\": { \"title\": {} }, \"Status\": { \"select\": { \"options\": [{ \"name\": \"To Do\" }, { \"name\": \"Done\" }] } } }"
+          },
+          "icon": {
+            "type": "object",
+            "description": "Database icon. Example: { \"type\": \"emoji\", \"emoji\": \"\ud83d\udccb\" }"
+          },
+          "cover": {
+            "type": "object",
+            "description": "Database cover image"
+          },
+          "is_inline": {
+            "type": "boolean",
+            "description": "Create as inline database (default: false)"
+          }
+        },
+        "required": [
+          "parent",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "update_database",
+      "description": "Update a database schema, title, or properties",
+      "method": "PATCH",
+      "path": "/databases/{database_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "ID of the database to update"
+          },
+          "title": {
+            "type": "array",
+            "description": "New title as rich text. Format: [{ \"type\": \"text\", \"text\": { \"content\": \"New Title\" } }]"
+          },
+          "description": {
+            "type": "array",
+            "description": "New description as rich text. Format: [{ \"type\": \"text\", \"text\": { \"content\": \"Description\" } }]"
+          },
+          "properties": {
+            "type": "object",
+            "description": "Property schema updates"
+          },
+          "icon": {
+            "type": "object",
+            "description": "Database icon"
+          },
+          "cover": {
+            "type": "object",
+            "description": "Database cover image"
+          },
+          "is_inline": {
+            "type": "boolean",
+            "description": "Whether database is inline"
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Archive the database"
+          }
+        },
+        "required": [
+          "database_id"
+        ]
+      }
+    },
+    {
+      "name": "create_page",
+      "description": "Create a new page in Notion (in a database or as child of page)",
+      "method": "POST",
+      "path": "/pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "parent": {
+            "type": "object",
+            "description": "Parent container. For database: { \"database_id\": \"<id>\" }. For page: { \"page_id\": \"<id>\" }"
+          },
+          "properties": {
+            "type": "object",
+            "description": "Page properties. For database pages, must match database schema. Example: { \"Name\": { \"title\": [{ \"text\": { \"content\": \"My Page\" } }] } }"
+          },
+          "children": {
+            "type": "array",
+            "description": "Page content blocks. Example: [{ \"object\": \"block\", \"type\": \"paragraph\", \"paragraph\": { \"rich_text\": [{ \"text\": { \"content\": \"Hello\" } }] } }]"
+          },
+          "icon": {
+            "type": "object",
+            "description": "Page icon. Example: { \"type\": \"emoji\", \"emoji\": \"\ud83d\udcc4\" }"
+          },
+          "cover": {
+            "type": "object",
+            "description": "Page cover image"
+          }
+        },
+        "required": [
+          "parent"
+        ]
+      }
+    },
+    {
+      "name": "get_page",
+      "description": "Retrieve a page and its properties from Notion",
+      "method": "GET",
+      "path": "/pages/{page_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page_id": {
+            "type": "string",
+            "description": "ID of the page to retrieve"
+          }
+        },
+        "required": [
+          "page_id"
+        ]
+      }
+    },
+    {
+      "name": "update_page",
+      "description": "Update an existing page's properties, icon, cover, or archive status",
+      "method": "PATCH",
+      "path": "/pages/{page_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page_id": {
+            "type": "string",
+            "description": "ID of the page to update"
+          },
+          "properties": {
+            "type": "object",
+            "description": "Properties to update"
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Archive the page"
+          },
+          "icon": {
+            "type": "object",
+            "description": "Page icon"
+          },
+          "cover": {
+            "type": "object",
+            "description": "Page cover"
+          }
+        },
+        "required": [
+          "page_id"
+        ]
+      }
+    },
+    {
+      "name": "get_page_property",
+      "description": "Retrieve a specific property value from a page. Useful for paginated properties like relations, rollups, and rich text with many items.",
+      "method": "GET",
+      "path": "/pages/{page_id}/properties/{property_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page_id": {
+            "type": "string",
+            "description": "ID of the page"
+          },
+          "property_id": {
+            "type": "string",
+            "description": "ID of the property to retrieve (from page's properties object)"
+          },
+          "start_cursor": {
+            "type": "string",
+            "description": "Pagination cursor for paginated property values"
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Number of results (default: 100)"
+          }
+        },
+        "required": [
+          "page_id",
+          "property_id"
+        ]
+      }
+    },
+    {
+      "name": "list_blocks",
+      "description": "List child blocks of a block or page. Use to read page content.",
+      "method": "GET",
+      "path": "/blocks/{block_id}/children",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "block_id": {
+            "type": "string",
+            "description": "ID of the block or page to list children of"
+          },
+          "start_cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Number of results (default: 100)"
+          }
+        },
+        "required": [
+          "block_id"
+        ]
+      }
+    },
+    {
+      "name": "get_block",
+      "description": "Retrieve a single block from Notion by ID",
+      "method": "GET",
+      "path": "/blocks/{block_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "block_id": {
+            "type": "string",
+            "description": "ID of the block to retrieve"
+          }
+        },
+        "required": [
+          "block_id"
+        ]
+      }
+    },
+    {
+      "name": "append_blocks",
+      "description": "Append child blocks to a page or block. Use to add content to pages.",
+      "method": "PATCH",
+      "path": "/blocks/{block_id}/children",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "block_id": {
+            "type": "string",
+            "description": "ID of the page or block to append to"
+          },
+          "children": {
+            "type": "array",
+            "description": "Blocks to append. Example: [{ \"object\": \"block\", \"type\": \"paragraph\", \"paragraph\": { \"rich_text\": [{ \"text\": { \"content\": \"Hello world\" } }] } }]"
+          }
+        },
+        "required": [
+          "block_id",
+          "children"
+        ]
+      }
+    },
+    {
+      "name": "update_block",
+      "description": "Update a block's content or archive status. Pass the block type key with its content.",
+      "method": "PATCH",
+      "path": "/blocks/{block_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "block_id": {
+            "type": "string",
+            "description": "ID of the block to update"
+          },
+          "paragraph": {
+            "type": "object",
+            "description": "Paragraph content (if block type is paragraph). Example: { \"rich_text\": [{ \"text\": { \"content\": \"Updated text\" } }] }"
+          },
+          "heading_1": {
+            "type": "object",
+            "description": "Heading 1 content (if block type is heading_1)"
+          },
+          "heading_2": {
+            "type": "object",
+            "description": "Heading 2 content (if block type is heading_2)"
+          },
+          "heading_3": {
+            "type": "object",
+            "description": "Heading 3 content (if block type is heading_3)"
+          },
+          "to_do": {
+            "type": "object",
+            "description": "To-do content. Example: { \"rich_text\": [{ \"text\": { \"content\": \"Task\" } }], \"checked\": true }"
+          },
+          "bulleted_list_item": {
+            "type": "object",
+            "description": "Bulleted list item content"
+          },
+          "numbered_list_item": {
+            "type": "object",
+            "description": "Numbered list item content"
+          },
+          "toggle": {
+            "type": "object",
+            "description": "Toggle block content"
+          },
+          "code": {
+            "type": "object",
+            "description": "Code block content. Example: { \"rich_text\": [{ \"text\": { \"content\": \"console.log()\" } }], \"language\": \"javascript\" }"
+          },
+          "callout": {
+            "type": "object",
+            "description": "Callout block content"
+          },
+          "quote": {
+            "type": "object",
+            "description": "Quote block content"
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Set to true to archive the block"
+          }
+        },
+        "required": [
+          "block_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_block",
+      "description": "Delete (archive) a block in Notion",
+      "method": "DELETE",
+      "path": "/blocks/{block_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "block_id": {
+            "type": "string",
+            "description": "ID of the block to delete"
+          }
+        },
+        "required": [
+          "block_id"
+        ]
+      }
+    },
+    {
+      "name": "list_users",
+      "description": "List all users in the Notion workspace",
+      "method": "GET",
+      "path": "/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Number of results (default: 100)"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "Retrieve a user from Notion by ID",
+      "method": "GET",
+      "path": "/users/{user_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "ID of the user to retrieve"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "get_me",
+      "description": "Get the bot user associated with the current integration token",
+      "method": "GET",
+      "path": "/users/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_comments",
+      "description": "List comments on a block or page",
+      "method": "GET",
+      "path": "/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "block_id": {
+            "type": "string",
+            "description": "ID of the block or page to get comments for"
+          },
+          "start_cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Number of results (default: 100)"
+          }
+        },
+        "required": [
+          "block_id"
+        ]
+      }
+    },
+    {
+      "name": "create_comment",
+      "description": "Create a comment on a page or reply to a discussion thread",
+      "method": "POST",
+      "path": "/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "parent": {
+            "type": "object",
+            "description": "Parent page to start a new discussion. Format: { \"page_id\": \"<page-id>\" }"
+          },
+          "discussion_id": {
+            "type": "string",
+            "description": "Discussion ID to reply to an existing thread (use instead of parent)"
+          },
+          "rich_text": {
+            "type": "array",
+            "description": "Comment content as rich text. Format: [{ \"text\": { \"content\": \"My comment\" } }]"
+          }
+        },
+        "required": [
+          "rich_text"
+        ]
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-notion-signature",
+    "events": [
+      {
+        "name": "page.created",
+        "description": "A new page is created"
+      },
+      {
+        "name": "page.content_updated",
+        "description": "Page content is updated"
+      },
+      {
+        "name": "page.properties_updated",
+        "description": "Page properties are changed"
+      },
+      {
+        "name": "page.deleted",
+        "description": "A page is deleted/archived"
+      },
+      {
+        "name": "page.undeleted",
+        "description": "A page is restored"
+      },
+      {
+        "name": "database.created",
+        "description": "A new database is created"
+      },
+      {
+        "name": "database.content_updated",
+        "description": "Database rows are added/modified"
+      },
+      {
+        "name": "database.properties_updated",
+        "description": "Database schema is changed"
+      },
+      {
+        "name": "database.deleted",
+        "description": "A database is deleted/archived"
+      },
+      {
+        "name": "comment.created",
+        "description": "A comment is added"
+      },
+      {
+        "name": "comment.updated",
+        "description": "A comment is edited"
+      },
+      {
+        "name": "comment.deleted",
+        "description": "A comment is removed"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_me"
+  }
+}

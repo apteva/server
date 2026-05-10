@@ -1,0 +1,147 @@
+{
+  "slug": "media-downloader",
+  "name": "Media Downloader",
+  "description": "Download and extract media from any platform (YouTube, Soundgasm, Vimeo, TikTok, Twitter, Instagram, etc.) with metadata extraction, format selection, and direct storage integration",
+  "logo": "https://cdn-icons-png.flaticon.com/512/1968/1968394.png",
+  "categories": [
+    "media",
+    "download",
+    "youtube",
+    "video",
+    "audio",
+    "extraction",
+    "yt-dlp"
+  ],
+  "base_url": "https://api.mediadownloader.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "extract_media_info",
+      "description": "Extract metadata and format information from any video/audio URL (YouTube, Soundgasm, Vimeo, TikTok, Twitter, Instagram, etc.). Returns title, uploader, duration, available formats, quality options, file sizes, and direct download URLs without actually downloading the file.",
+      "method": "GET",
+      "path": "/extract-media-info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL of the video or audio to extract information from"
+          },
+          "format_type": {
+            "type": "string",
+            "enum": [
+              "audio",
+              "video",
+              "all"
+            ],
+            "default": "all",
+            "description": "Type of formats to return (audio-only, video, or all available formats)"
+          },
+          "include_formats": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include detailed format information (codecs, bitrates, resolutions)"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "download_media",
+      "description": "Download video or audio from any supported platform and save directly to storage with public/private access. Supports quality selection, format conversion, automatic transcription, and preserves all source metadata. Works with YouTube, Soundgasm, Vimeo, TikTok, Twitter, Instagram, and 1000+ other sites.",
+      "method": "GET",
+      "path": "/download-media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL of the video or audio to download"
+          },
+          "folder_id": {
+            "type": "integer",
+            "description": "Optional folder ID to organize the downloaded file"
+          },
+          "bucket_id": {
+            "type": "integer",
+            "description": "Optional storage bucket ID (uses default project bucket if not provided)"
+          },
+          "format_type": {
+            "type": "string",
+            "enum": [
+              "audio",
+              "video",
+              "best"
+            ],
+            "default": "best",
+            "description": "Type of media to download: 'audio' extracts audio only, 'video' downloads video with audio, 'best' selects highest quality available"
+          },
+          "quality": {
+            "type": "string",
+            "description": "Quality setting: '1080p', '720p', '480p', '360p' for video OR '320', '256', '192', '128' (kbps) for audio bitrate"
+          },
+          "format_id": {
+            "type": "string",
+            "description": "Specific format ID from extract-media-info (overrides quality setting for precise control)"
+          },
+          "file_name": {
+            "type": "string",
+            "description": "Custom filename (automatically uses video title if not provided)"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "File access level: 'public' generates public URL, 'private' requires authentication"
+          },
+          "skip_thumbnails": {
+            "type": "boolean",
+            "default": false,
+            "description": "Skip automatic thumbnail generation"
+          },
+          "auto_transcribe": {
+            "type": "boolean",
+            "default": true,
+            "description": "Automatically transcribe audio content (audio files only)"
+          },
+          "description": {
+            "type": "string",
+            "description": "File description/notes"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags for file organization and search"
+          },
+          "created_by": {
+            "type": "integer",
+            "description": "User ID of the creator"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,142 @@
+{
+  "slug": "reddit",
+  "name": "Reddit",
+  "description": "MCP server for Reddit - posts, comments, subreddits, search, user info",
+  "logo": "https://www.google.com/s2/favicons?domain=reddit.com&sz=128",
+  "categories": ["social", "community", "content", "search"],
+  "base_url": "https://oauth.reddit.com",
+  "auth": {
+    "types": ["oauth2", "bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "User-Agent": "{{userAgent}}"
+    },
+    "credential_fields": [
+      { "name": "token", "label": "OAuth Access Token" },
+      { "name": "clientId", "label": "Client ID" },
+      { "name": "clientSecret", "label": "Client Secret" },
+      { "name": "userAgent", "label": "User-Agent", "description": "e.g. myapp/1.0 by u/username" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_subreddit_posts",
+      "description": "Get posts from a subreddit",
+      "method": "GET",
+      "path": "/r/{subreddit}/{sort}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subreddit": { "type": "string" },
+          "sort": { "type": "string", "enum": ["hot", "new", "top", "rising", "controversial"] },
+          "t": { "type": "string" },
+          "limit": { "type": "number" }
+        },
+        "required": ["subreddit", "sort"]
+      }
+    },
+    {
+      "name": "search",
+      "description": "Search Reddit",
+      "method": "GET",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string" },
+          "sort": { "type": "string" },
+          "restrict_sr": { "type": "boolean" },
+          "limit": { "type": "number" }
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "submit_post",
+      "description": "Submit a post",
+      "method": "POST",
+      "path": "/api/submit",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sr": { "type": "string" },
+          "kind": { "type": "string", "enum": ["self", "link", "image"] },
+          "title": { "type": "string" },
+          "text": { "type": "string" },
+          "url": { "type": "string" }
+        },
+        "required": ["sr", "kind", "title"]
+      }
+    },
+    {
+      "name": "delete_post",
+      "description": "Delete a Reddit post by its fullname (e.g. t3_abc123). Only the post's author can delete it — other users get a 200 with no effect. Note: Reddit's /api/del also handles comments (kind t1_); this tool documents posts (t3_) but accepts any fullname.",
+      "method": "POST",
+      "path": "/api/del",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Reddit fullname of the post to delete (t3_xxxxx)"
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "comment",
+      "description": "Post a comment/reply",
+      "method": "POST",
+      "path": "/api/comment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "thing_id": { "type": "string" },
+          "text": { "type": "string" }
+        },
+        "required": ["thing_id", "text"]
+      }
+    },
+    {
+      "name": "get_comments",
+      "description": "Get comments for a post",
+      "method": "GET",
+      "path": "/r/{subreddit}/comments/{article}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subreddit": { "type": "string" },
+          "article": { "type": "string" },
+          "sort": { "type": "string" }
+        },
+        "required": ["subreddit", "article"]
+      }
+    },
+    {
+      "name": "get_user_about",
+      "description": "Get a user's profile",
+      "method": "GET",
+      "path": "/user/{username}/about",
+      "input_schema": {
+        "type": "object",
+        "properties": { "username": { "type": "string" } },
+        "required": ["username"]
+      }
+    },
+    {
+      "name": "vote",
+      "description": "Upvote, downvote, or clear vote",
+      "method": "POST",
+      "path": "/api/vote",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "dir": { "type": "number", "enum": [-1, 0, 1] }
+        },
+        "required": ["id", "dir"]
+      }
+    }
+  ]
+}

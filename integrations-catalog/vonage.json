@@ -1,0 +1,394 @@
+{
+  "slug": "vonage",
+  "name": "Vonage",
+  "description": "Vonage APIs for voice calls, SMS messaging, and phone number management",
+  "logo": "https://www.google.com/s2/favicons?domain=vonage.com&sz=128",
+  "categories": [
+    "voice",
+    "calls",
+    "sms",
+    "messaging",
+    "phone",
+    "communications"
+  ],
+  "base_url": "https://api.nexmo.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "make_call",
+      "description": "Make an outbound voice call using Vonage Voice API. Supports TTS (text-to-speech), NCCO (call control), or answer URL for webhooks.",
+      "method": "GET",
+      "path": "/make-call",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "description": "Phone number to call (E.164 format, e.g., 14155551234)"
+          },
+          "from": {
+            "type": "string",
+            "description": "Your Vonage virtual number (E.164 format)"
+          },
+          "text": {
+            "type": "string",
+            "description": "Text to speak when call is answered (TTS mode)"
+          },
+          "language": {
+            "type": "string",
+            "description": "TTS language code (e.g., en-US, es-ES, fr-FR)",
+            "default": "en-US"
+          },
+          "style": {
+            "type": "integer",
+            "description": "TTS voice style (0-5 depending on language)",
+            "default": 0
+          },
+          "ncco": {
+            "type": "array",
+            "description": "NCCO actions array for complex call flows"
+          },
+          "answer_url": {
+            "type": "string",
+            "description": "URL returning NCCO JSON for call control"
+          },
+          "event_url": {
+            "type": "string",
+            "description": "Webhook URL for call events"
+          },
+          "machine_detection": {
+            "type": "string",
+            "enum": [
+              "continue",
+              "hangup"
+            ],
+            "description": "Action when answering machine detected"
+          }
+        },
+        "required": [
+          "to",
+          "from"
+        ]
+      }
+    },
+    {
+      "name": "get_call",
+      "description": "Get details of a specific call by its UUID",
+      "method": "GET",
+      "path": "/get-call",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_uuid": {
+            "type": "string",
+            "description": "The UUID of the call to retrieve"
+          }
+        },
+        "required": [
+          "call_uuid"
+        ]
+      }
+    },
+    {
+      "name": "list_calls",
+      "description": "List all calls with optional filtering by status, date range, and pagination",
+      "method": "GET",
+      "path": "/list-calls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "started",
+              "ringing",
+              "answered",
+              "machine",
+              "completed",
+              "timeout",
+              "failed",
+              "rejected",
+              "cancelled",
+              "busy"
+            ],
+            "description": "Filter by call status"
+          },
+          "date_start": {
+            "type": "string",
+            "description": "Filter calls starting after this date (ISO 8601)"
+          },
+          "date_end": {
+            "type": "string",
+            "description": "Filter calls starting before this date (ISO 8601)"
+          },
+          "page_size": {
+            "type": "integer",
+            "description": "Number of results per page (max 100)",
+            "default": 10
+          },
+          "record_index": {
+            "type": "integer",
+            "description": "Start index for pagination",
+            "default": 0
+          },
+          "order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "description": "Sort order by start time",
+            "default": "desc"
+          },
+          "conversation_uuid": {
+            "type": "string",
+            "description": "Filter by conversation UUID"
+          }
+        }
+      }
+    },
+    {
+      "name": "hangup_call",
+      "description": "End an active call by its UUID",
+      "method": "GET",
+      "path": "/hangup-call",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_uuid": {
+            "type": "string",
+            "description": "The UUID of the call to end"
+          }
+        },
+        "required": [
+          "call_uuid"
+        ]
+      }
+    },
+    {
+      "name": "transfer_call",
+      "description": "Transfer an active call to a new destination using NCCO or URL",
+      "method": "GET",
+      "path": "/transfer-call",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_uuid": {
+            "type": "string",
+            "description": "The UUID of the call to transfer"
+          },
+          "ncco": {
+            "type": "array",
+            "description": "NCCO actions array for the transfer destination"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL returning NCCO for the transfer (alternative to ncco)"
+          }
+        },
+        "required": [
+          "call_uuid"
+        ]
+      }
+    },
+    {
+      "name": "send_sms",
+      "description": "Send an SMS message using Vonage SMS API",
+      "method": "POST",
+      "path": "/send-sms",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "description": "Recipient phone number (E.164 format)"
+          },
+          "from": {
+            "type": "string",
+            "description": "Sender ID (phone number or alphanumeric, max 11 chars)"
+          },
+          "text": {
+            "type": "string",
+            "description": "Message text (max 1600 chars for concatenated SMS)"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "unicode"
+            ],
+            "description": "Message type (unicode for special characters)",
+            "default": "text"
+          },
+          "ttl": {
+            "type": "integer",
+            "description": "Message validity in milliseconds (default 259200000 = 3 days)"
+          },
+          "status_report_req": {
+            "type": "boolean",
+            "description": "Request delivery receipt",
+            "default": false
+          },
+          "callback": {
+            "type": "string",
+            "description": "Webhook URL for delivery receipts"
+          },
+          "client_ref": {
+            "type": "string",
+            "description": "Your reference for tracking (max 40 chars)"
+          }
+        },
+        "required": [
+          "to",
+          "from",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "numbers_search",
+      "description": "Search for available phone numbers to purchase by country, type, and features",
+      "method": "GET",
+      "path": "/numbers-search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country": {
+            "type": "string",
+            "description": "2-letter ISO country code (e.g., US, GB, DE)"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "landline",
+              "mobile-lvn",
+              "landline-toll-free"
+            ],
+            "description": "Number type filter"
+          },
+          "pattern": {
+            "type": "string",
+            "description": "Number pattern to search (e.g., 1555 for numbers containing 1555)"
+          },
+          "search_pattern": {
+            "type": "integer",
+            "enum": [
+              0,
+              1,
+              2
+            ],
+            "description": "Pattern match type: 0=starts with, 1=anywhere, 2=ends with"
+          },
+          "features": {
+            "type": "string",
+            "enum": [
+              "SMS",
+              "VOICE",
+              "SMS,VOICE"
+            ],
+            "description": "Required features"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Number of results to return (max 100)",
+            "default": 10
+          }
+        },
+        "required": [
+          "country"
+        ]
+      }
+    },
+    {
+      "name": "number_buy",
+      "description": "Purchase a phone number for your Vonage account",
+      "method": "GET",
+      "path": "/number-buy",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country": {
+            "type": "string",
+            "description": "2-letter ISO country code"
+          },
+          "msisdn": {
+            "type": "string",
+            "description": "The phone number to purchase (from search results)"
+          }
+        },
+        "required": [
+          "country",
+          "msisdn"
+        ]
+      }
+    },
+    {
+      "name": "numbers_list",
+      "description": "List all phone numbers owned by your Vonage account",
+      "method": "GET",
+      "path": "/numbers-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "application_id": {
+            "type": "string",
+            "description": "Filter by application ID"
+          },
+          "has_application": {
+            "type": "boolean",
+            "description": "Filter numbers with/without application linked"
+          },
+          "country": {
+            "type": "string",
+            "description": "Filter by country code"
+          },
+          "pattern": {
+            "type": "string",
+            "description": "Number pattern filter"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Number of results (max 100)",
+            "default": 100
+          }
+        }
+      }
+    },
+    {
+      "name": "number_cancel",
+      "description": "Cancel/release a phone number from your Vonage account",
+      "method": "GET",
+      "path": "/number-cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country": {
+            "type": "string",
+            "description": "2-letter ISO country code"
+          },
+          "msisdn": {
+            "type": "string",
+            "description": "The phone number to cancel"
+          }
+        },
+        "required": [
+          "country",
+          "msisdn"
+        ]
+      }
+    }
+  ]
+}

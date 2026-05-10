@@ -1,0 +1,255 @@
+{
+  "slug": "dynadot",
+  "name": "Dynadot",
+  "description": "Dynadot domain registrar - register, search, and manage domains with 500+ TLDs and bulk tools",
+  "logo": "https://www.google.com/s2/favicons?domain=dynadot.com&sz=128",
+  "categories": [
+    "dns",
+    "domains",
+    "registrar",
+    "dynadot",
+    "bulk"
+  ],
+  "base_url": "https://api.dynadot.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "Dynadot API key (generate at dynadot.com/account/domain/setting/api.html)"
+      },
+      {
+        "name": "apiKey",
+        "label": "Api Key",
+        "description": "Dynadot API key (generate at dynadot.com/account/domain/setting/api.html)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_domains",
+      "description": "List all domains in your Dynadot account with their status, expiration dates, and settings.",
+      "method": "GET",
+      "path": "/list-domains",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "search_domain",
+      "description": "Search for a domain name to check availability and pricing. Returns whether the domain is available for registration.",
+      "method": "GET",
+      "path": "/search-domain",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "The domain name to search for (e.g. 'example.com')"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "bulk_search",
+      "description": "Search for multiple domain names at once to check availability. Accepts a comma-separated list of domains.",
+      "method": "GET",
+      "path": "/bulk-search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domains": {
+            "type": "string",
+            "description": "Comma-separated list of domain names to search (e.g. 'example.com,example.net,example.org')"
+          }
+        },
+        "required": [
+          "domains"
+        ]
+      }
+    },
+    {
+      "name": "get_domain_info",
+      "description": "Retrieve detailed information about a specific domain including status, expiration, nameservers, and WHOIS settings.",
+      "method": "GET",
+      "path": "/get-domain-info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "The domain name to get info for (e.g. 'example.com')"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "register_domain",
+      "description": "Register a new domain name for a specified duration in years.",
+      "method": "GET",
+      "path": "/register-domain",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "The domain name to register (e.g. 'example.com')"
+          },
+          "duration": {
+            "type": "string",
+            "description": "Registration duration in years (e.g. '1', '2', '5')"
+          }
+        },
+        "required": [
+          "domain",
+          "duration"
+        ]
+      }
+    },
+    {
+      "name": "renew_domain",
+      "description": "Renew an existing domain registration for additional years.",
+      "method": "GET",
+      "path": "/renew-domain",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "The domain name to renew (e.g. 'example.com')"
+          },
+          "duration": {
+            "type": "string",
+            "description": "Renewal duration in years (e.g. '1', '2', '5')"
+          }
+        },
+        "required": [
+          "domain",
+          "duration"
+        ]
+      }
+    },
+    {
+      "name": "set_nameservers",
+      "description": "Set the nameservers for a domain. Provide up to 4 nameserver hostnames.",
+      "method": "GET",
+      "path": "/set-nameservers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "The domain name to set nameservers for (e.g. 'example.com')"
+          },
+          "ns0": {
+            "type": "string",
+            "description": "Primary nameserver (e.g. 'ns1.example.com')"
+          },
+          "ns1": {
+            "type": "string",
+            "description": "Secondary nameserver (e.g. 'ns2.example.com')"
+          },
+          "ns2": {
+            "type": "string",
+            "description": "Third nameserver (optional)"
+          },
+          "ns3": {
+            "type": "string",
+            "description": "Fourth nameserver (optional)"
+          }
+        },
+        "required": [
+          "domain",
+          "ns0",
+          "ns1"
+        ]
+      }
+    },
+    {
+      "name": "get_dns",
+      "description": "Retrieve the current DNS configuration and records for a domain.",
+      "method": "GET",
+      "path": "/get-dns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "The domain name to get DNS records for (e.g. 'example.com')"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "set_dns_record",
+      "description": "Set a DNS record for a domain. Configures the main record type, value, and TTL.",
+      "method": "GET",
+      "path": "/set-dns-record",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "The domain name to set the DNS record for (e.g. 'example.com')"
+          },
+          "recordType": {
+            "type": "string",
+            "description": "The DNS record type (e.g. 'a', 'aaaa', 'cname', 'mx', 'txt', 'forward')"
+          },
+          "recordValue": {
+            "type": "string",
+            "description": "The value of the DNS record (e.g. IP address, hostname, text value)"
+          },
+          "ttl": {
+            "type": "string",
+            "description": "Time to live in seconds (e.g. '300', '3600')"
+          }
+        },
+        "required": [
+          "domain",
+          "recordType",
+          "recordValue"
+        ]
+      }
+    },
+    {
+      "name": "transfer_domain",
+      "description": "Transfer a domain to Dynadot from another registrar using an authorization code (EPP code).",
+      "method": "GET",
+      "path": "/transfer-domain",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "The domain name to transfer (e.g. 'example.com')"
+          },
+          "authcode": {
+            "type": "string",
+            "description": "The authorization/EPP code from the current registrar"
+          }
+        },
+        "required": [
+          "domain",
+          "authcode"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,1854 @@
+{
+  "slug": "omnikit-billing",
+  "name": "OmniKit Billing",
+  "description": "Comprehensive billing and invoicing system for OmniKit platform - handles invoices, subscriptions, payments, products, pricing, credits, vendors, expenses, and financial reporting",
+  "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+  "categories": [
+    "billing",
+    "invoicing",
+    "subscriptions",
+    "payments",
+    "accounting",
+    "financial",
+    "vendors",
+    "expenses",
+    "omnikit",
+    "commerce"
+  ],
+  "base_url": "https://api.omnikit.co",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your OmniKit API key (starts with 'okt_'). The project is determined automatically from the key."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_invoice",
+      "description": "Create a new invoice with line items, taxes, and discounts",
+      "method": "POST",
+      "path": "/billing/invoices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Customer ID for the invoice"
+          },
+          "subscription_id": {
+            "type": "string",
+            "description": "Subscription ID if invoice is for a subscription"
+          },
+          "items": {
+            "type": "array",
+            "description": "Invoice line items",
+            "items": {
+              "type": "object",
+              "properties": {
+                "price_id": {
+                  "type": "string",
+                  "description": "Price ID if using predefined price"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unit_amount": {
+                  "type": "number",
+                  "description": "Amount in cents"
+                },
+                "currency": {
+                  "type": "string",
+                  "description": "Currency for this item"
+                },
+                "tax_rate": {
+                  "type": "number",
+                  "description": "Tax rate as percentage"
+                },
+                "period": {
+                  "type": "object",
+                  "description": "Billing period for subscription items"
+                },
+                "proration": {
+                  "type": "boolean",
+                  "description": "Whether this is a proration"
+                },
+                "tax_amounts": {
+                  "type": "array",
+                  "description": "Tax amounts array"
+                }
+              },
+              "required": [
+                "description",
+                "quantity",
+                "unit_amount"
+              ]
+            }
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code (e.g., usd, eur)",
+            "default": "usd"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Invoice due date"
+          },
+          "test_mode": {
+            "type": "boolean",
+            "description": "Whether this is a test invoice",
+            "default": false
+          },
+          "sync_to_provider": {
+            "type": "boolean",
+            "description": "Sync to Stripe",
+            "default": false
+          },
+          "stripe_api_key": {
+            "type": "string",
+            "description": "Stripe API key for syncing"
+          }
+        },
+        "required": [
+          "customer_id",
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "update_invoice",
+      "description": "Update invoice details or change status. Can mark invoices as 'paid' (auto-calculates amount_paid as full total), or update other fields like description, due_date, etc.",
+      "method": "PUT",
+      "path": "/billing/invoices/{invoice_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string",
+            "description": "Invoice ID to update"
+          },
+          "description": {
+            "type": "string",
+            "description": "Invoice description"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Updated due date"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "open",
+              "paid",
+              "uncollectible",
+              "void"
+            ],
+            "description": "Invoice status. Use 'paid' to mark as fully paid (auto-sets amount_paid and amount_remaining=0)"
+          },
+          "collection_method": {
+            "type": "string",
+            "description": "Collection method"
+          },
+          "days_until_due": {
+            "type": "integer",
+            "description": "Days until due"
+          },
+          "default_payment_method_id": {
+            "type": "string",
+            "description": "Default payment method ID"
+          },
+          "default_source": {
+            "type": "string",
+            "description": "Default payment source"
+          },
+          "footer": {
+            "type": "string",
+            "description": "Invoice footer text"
+          },
+          "statement_descriptor": {
+            "type": "string",
+            "description": "Statement descriptor"
+          },
+          "custom_fields": {
+            "type": "array",
+            "description": "Custom fields",
+            "items": {
+              "type": "object"
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Updated metadata"
+          },
+          "line_items": {
+            "type": "array",
+            "description": "Updated line items",
+            "items": {
+              "type": "object"
+            }
+          },
+          "payment_terms": {
+            "type": "string",
+            "description": "Updated payment terms"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Updated notes"
+          },
+          "sync_to_provider": {
+            "type": "boolean",
+            "default": false
+          },
+          "stripe_api_key": {
+            "type": "string",
+            "description": "Stripe API key if syncing"
+          }
+        },
+        "required": [
+          "invoice_id"
+        ]
+      }
+    },
+    {
+      "name": "finalize_invoice",
+      "description": "Finalize a draft invoice (makes it immutable and ready for sending)",
+      "method": "POST",
+      "path": "/billing/invoices/{invoice_id}/finalize",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string",
+            "description": "Invoice ID to finalize"
+          },
+          "auto_advance": {
+            "type": "boolean",
+            "description": "Automatically advance the invoice",
+            "default": true
+          },
+          "sync_to_provider": {
+            "type": "boolean",
+            "default": false
+          },
+          "stripe_api_key": {
+            "type": "string",
+            "description": "Stripe API key if syncing"
+          }
+        },
+        "required": [
+          "invoice_id"
+        ]
+      }
+    },
+    {
+      "name": "list_invoices",
+      "description": "List and filter invoices with pagination and status filtering",
+      "method": "GET",
+      "path": "/billing/invoices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Filter by customer ID"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "sent",
+              "paid",
+              "overdue",
+              "cancelled",
+              "refunded"
+            ],
+            "description": "Filter by invoice status"
+          },
+          "date_from": {
+            "type": "string",
+            "format": "date",
+            "description": "Filter invoices created after this date"
+          },
+          "date_to": {
+            "type": "string",
+            "format": "date",
+            "description": "Filter invoices created before this date"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of invoices to return",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "created_desc",
+              "created_asc",
+              "due_date_desc",
+              "due_date_asc",
+              "amount_desc",
+              "amount_asc"
+            ],
+            "default": "created_desc"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_invoice",
+      "description": "Retrieve detailed information about a specific invoice",
+      "method": "GET",
+      "path": "/billing/invoices/{invoice_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string",
+            "description": "Invoice ID to retrieve"
+          },
+          "include_line_items": {
+            "type": "boolean",
+            "description": "Include line items",
+            "default": false
+          },
+          "include_customer": {
+            "type": "boolean",
+            "description": "Include customer details",
+            "default": false
+          },
+          "include_subscription": {
+            "type": "boolean",
+            "description": "Include subscription details",
+            "default": false
+          }
+        },
+        "required": [
+          "invoice_id"
+        ]
+      }
+    },
+    {
+      "name": "void_invoice",
+      "description": "Void an invoice (mark as cancelled)",
+      "method": "POST",
+      "path": "/billing/invoices/{invoice_id}/void",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string",
+            "description": "Invoice ID to void"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason for voiding the invoice"
+          }
+        },
+        "required": [
+          "invoice_id"
+        ]
+      }
+    },
+    {
+      "name": "generate_invoice_pdf",
+      "description": "Generate a PDF version of an invoice",
+      "method": "POST",
+      "path": "/billing/invoices/{invoice_id}/regenerate-pdf",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string",
+            "description": "Invoice ID to generate PDF for"
+          },
+          "organization_id": {
+            "type": "string",
+            "description": "Organization ID"
+          }
+        },
+        "required": [
+          "invoice_id"
+        ]
+      }
+    },
+    {
+      "name": "create_subscription",
+      "description": "Create a new subscription for recurring billing",
+      "method": "POST",
+      "path": "/billing/subscriptions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Customer ID for the subscription"
+          },
+          "price_id": {
+            "type": "string",
+            "description": "Price ID for the subscription"
+          },
+          "quantity": {
+            "type": "integer",
+            "description": "Quantity of the subscription",
+            "default": 1
+          },
+          "items": {
+            "type": "array",
+            "description": "Array of subscription items (alternative to price_id/quantity)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "price_id": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "trial_period_days": {
+            "type": "integer",
+            "description": "Number of trial days"
+          },
+          "collection_method": {
+            "type": "string",
+            "enum": [
+              "charge_automatically",
+              "send_invoice"
+            ],
+            "description": "How to collect payment",
+            "default": "charge_automatically"
+          },
+          "days_until_due": {
+            "type": "integer",
+            "description": "Days until invoice is due (for send_invoice method)"
+          },
+          "default_tax_rates": {
+            "type": "array",
+            "description": "Default tax rate IDs",
+            "items": {
+              "type": "string"
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Custom metadata"
+          },
+          "promotion_code": {
+            "type": "string",
+            "description": "Promotion code to apply"
+          },
+          "billing_cycle_anchor": {
+            "type": "string",
+            "description": "Billing cycle anchor"
+          },
+          "test_mode": {
+            "type": "boolean",
+            "default": false
+          },
+          "sync_to_stripe": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "update_subscription",
+      "description": "Update subscription plan, quantity, or addons",
+      "method": "PUT",
+      "path": "/billing/subscriptions/{subscription_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscription_id": {
+            "type": "string",
+            "description": "Subscription ID to update"
+          },
+          "default_payment_method_id": {
+            "type": "string",
+            "description": "Default payment method ID"
+          },
+          "trial_end": {
+            "type": "string",
+            "description": "Trial end date/time"
+          },
+          "proration_behavior": {
+            "type": "string",
+            "enum": [
+              "create_prorations",
+              "none",
+              "always_invoice"
+            ],
+            "description": "How to handle prorations",
+            "default": "create_prorations"
+          },
+          "billing_cycle_anchor": {
+            "type": "string",
+            "description": "Billing cycle anchor"
+          },
+          "collection_method": {
+            "type": "string",
+            "enum": [
+              "charge_automatically",
+              "send_invoice"
+            ],
+            "description": "Collection method"
+          },
+          "days_until_due": {
+            "type": "integer",
+            "description": "Days until invoice is due"
+          },
+          "description": {
+            "type": "string",
+            "description": "Subscription description"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Custom metadata"
+          },
+          "sync_to_provider": {
+            "type": "boolean",
+            "default": false
+          },
+          "stripe_api_key": {
+            "type": "string",
+            "description": "Stripe API key if syncing"
+          }
+        },
+        "required": [
+          "subscription_id"
+        ]
+      }
+    },
+    {
+      "name": "cancel_subscription",
+      "description": "Cancel an active subscription",
+      "method": "POST",
+      "path": "/billing/subscriptions/{subscription_id}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscription_id": {
+            "type": "string",
+            "description": "Subscription ID to cancel"
+          },
+          "cancel_at_period_end": {
+            "type": "boolean",
+            "description": "Cancel at end of billing period",
+            "default": false
+          },
+          "cancel_at": {
+            "type": "string",
+            "description": "Timestamp to cancel subscription"
+          },
+          "proration_behavior": {
+            "type": "string",
+            "enum": [
+              "create_prorations",
+              "none",
+              "always_invoice"
+            ],
+            "default": "create_prorations"
+          },
+          "invoice_now": {
+            "type": "boolean",
+            "description": "Generate final invoice immediately",
+            "default": false
+          },
+          "reason": {
+            "type": "string",
+            "description": "Cancellation reason"
+          },
+          "sync_to_provider": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "subscription_id"
+        ]
+      }
+    },
+    {
+      "name": "list_subscriptions",
+      "description": "List and filter subscriptions with pagination",
+      "method": "GET",
+      "path": "/billing/subscriptions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Filter by customer ID"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "incomplete",
+              "incomplete_expired",
+              "trialing",
+              "active",
+              "past_due",
+              "canceled",
+              "unpaid",
+              "paused"
+            ],
+            "description": "Filter by subscription status"
+          },
+          "price_id": {
+            "type": "string",
+            "description": "Filter by price ID"
+          },
+          "collection_method": {
+            "type": "string",
+            "enum": [
+              "charge_automatically",
+              "send_invoice"
+            ],
+            "description": "Filter by collection method"
+          },
+          "test_mode": {
+            "type": "string",
+            "enum": [
+              "true",
+              "false"
+            ],
+            "description": "Filter by test mode"
+          },
+          "include_items": {
+            "type": "string",
+            "enum": [
+              "true",
+              "false"
+            ],
+            "description": "Include subscription items in response",
+            "default": "false"
+          },
+          "include_customer": {
+            "type": "string",
+            "enum": [
+              "true",
+              "false"
+            ],
+            "description": "Include customer details in response",
+            "default": "false"
+          },
+          "include_price": {
+            "type": "string",
+            "enum": [
+              "true",
+              "false"
+            ],
+            "description": "Include price details in response",
+            "default": "false"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of subscriptions to return",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of subscriptions to skip",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "get_subscription",
+      "description": "Retrieve detailed information about a specific subscription",
+      "method": "GET",
+      "path": "/billing/subscriptions/{subscription_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscription_id": {
+            "type": "string",
+            "description": "Subscription ID to retrieve"
+          },
+          "expand": {
+            "type": "string",
+            "description": "Comma-separated list of objects to expand (customer, price, latest_invoice)"
+          }
+        },
+        "required": [
+          "subscription_id"
+        ]
+      }
+    },
+    {
+      "name": "create_customer",
+      "description": "Create a new billing customer profile",
+      "method": "POST",
+      "path": "/billing/customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Customer email (required)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Customer name (optional)"
+          },
+          "customer_type": {
+            "type": "string",
+            "enum": [
+              "individual",
+              "business"
+            ],
+            "default": "individual",
+            "description": "Customer type (optional)"
+          },
+          "company_name": {
+            "type": "string",
+            "description": "Company name (required if customer_type='business')"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Phone number (optional)"
+          },
+          "vat_number": {
+            "type": "string",
+            "description": "VAT number for business customers (optional)"
+          },
+          "tax_id_type": {
+            "type": "string",
+            "description": "Type of tax ID (e.g., 'ssn', 'ein', 'vat') (optional)"
+          },
+          "tax_id_value": {
+            "type": "string",
+            "description": "Tax ID value (optional)"
+          },
+          "business_registration_number": {
+            "type": "string",
+            "description": "Business registration number (optional)"
+          },
+          "industry": {
+            "type": "string",
+            "description": "Industry type (optional)"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "Associated user ID (optional)"
+          },
+          "organization_id": {
+            "type": "string",
+            "description": "Associated organization ID (optional)"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Preferred currency",
+            "default": "usd"
+          },
+          "address": {
+            "type": "object",
+            "description": "Billing address (optional)",
+            "properties": {
+              "line1": {
+                "type": "string"
+              },
+              "line2": {
+                "type": "string"
+              },
+              "city": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string"
+              },
+              "postal_code": {
+                "type": "string"
+              },
+              "country": {
+                "type": "string"
+              }
+            }
+          },
+          "shipping": {
+            "type": "object",
+            "description": "Shipping address (optional)"
+          },
+          "tax_info": {
+            "type": "object",
+            "description": "Tax information (optional)"
+          },
+          "test_mode": {
+            "type": "boolean",
+            "default": false,
+            "description": "Test mode flag (optional)"
+          },
+          "sync_to_provider": {
+            "type": "boolean",
+            "default": false,
+            "description": "Sync to external provider (optional)"
+          },
+          "sync_to_stripe": {
+            "type": "boolean",
+            "default": false,
+            "description": "Sync to Stripe (optional)"
+          },
+          "stripe_api_key": {
+            "type": "string",
+            "description": "Stripe API key if syncing (optional)"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "update_customer",
+      "description": "Update customer billing information",
+      "method": "PUT",
+      "path": "/billing/customers/{customer_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Customer ID to update"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "name": {
+            "type": "string"
+          },
+          "company": {
+            "type": "string"
+          },
+          "tax_id": {
+            "type": "string"
+          },
+          "billing_address": {
+            "type": "object"
+          },
+          "payment_terms": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "list_customers",
+      "description": "List customers with filtering, pagination, and sorting",
+      "method": "GET",
+      "path": "/billing/customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "Additional filter criteria"
+          },
+          "customer_type": {
+            "type": "string",
+            "description": "Filter by customer type"
+          },
+          "company_name": {
+            "type": "string",
+            "description": "Filter by company name (partial match)"
+          },
+          "industry": {
+            "type": "string",
+            "description": "Filter by industry (partial match)"
+          },
+          "test_mode": {
+            "type": "boolean",
+            "description": "Filter by test mode"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of customers to return",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of customers to skip",
+            "default": 0
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "created_at:asc",
+              "created_at:desc",
+              "name:asc",
+              "name:desc",
+              "email:asc",
+              "email:desc"
+            ],
+            "description": "Sort order",
+            "default": "created_at:desc"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_customer",
+      "description": "Retrieve detailed information about a specific customer",
+      "method": "GET",
+      "path": "/billing/customers/{customer_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Customer ID to retrieve"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "get_customer_by_user_id",
+      "description": "Retrieve customer information by associated user ID",
+      "method": "GET",
+      "path": "/billing/customers/by-user/{user_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User ID to find customer for"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_customer",
+      "description": "Delete a customer and associated billing data",
+      "method": "DELETE",
+      "path": "/billing/customers/{customer_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Customer ID to delete"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "create_product",
+      "description": "Create a product for billing",
+      "method": "POST",
+      "path": "/billing/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Product name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Product description"
+          },
+          "test_mode": {
+            "type": "boolean",
+            "default": true
+          },
+          "sync_to_stripe": {
+            "type": "boolean",
+            "default": true
+          },
+          "sync_to_provider": {
+            "type": "boolean",
+            "default": false
+          },
+          "stripe_api_key": {
+            "type": "string",
+            "description": "Stripe API key if syncing"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "create_refund",
+      "description": "Create a refund for a charge",
+      "method": "POST",
+      "path": "/billing/refunds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "charge_id": {
+            "type": "string",
+            "description": "Charge ID to refund"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Refund amount (in cents)"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason for refund"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Custom metadata"
+          },
+          "refund_application_fee": {
+            "type": "boolean",
+            "default": false
+          },
+          "reverse_transfer": {
+            "type": "boolean",
+            "default": false
+          },
+          "sync_to_provider": {
+            "type": "boolean",
+            "default": false
+          },
+          "stripe_api_key": {
+            "type": "string",
+            "description": "Stripe API key if syncing"
+          }
+        },
+        "required": [
+          "charge_id"
+        ]
+      }
+    },
+    {
+      "name": "create_payment_intent",
+      "description": "Create a payment intent for collecting payment",
+      "method": "POST",
+      "path": "/billing/payments/intents",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "description": "Amount in cents"
+          },
+          "currency": {
+            "type": "string",
+            "default": "usd"
+          },
+          "customer_id": {
+            "type": "string",
+            "description": "Customer ID"
+          },
+          "receipt_email": {
+            "type": "string",
+            "description": "Email for receipt"
+          },
+          "description": {
+            "type": "string",
+            "description": "Payment description"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Custom metadata"
+          },
+          "application_fee_amount": {
+            "type": "integer",
+            "description": "Application fee in cents"
+          },
+          "payment_method_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "card"
+            ]
+          },
+          "test_mode": {
+            "type": "boolean",
+            "default": false
+          },
+          "sync_to_provider": {
+            "type": "boolean",
+            "default": false
+          },
+          "stripe_api_key": {
+            "type": "string",
+            "description": "Stripe API key if syncing"
+          }
+        },
+        "required": [
+          "amount",
+          "currency"
+        ]
+      }
+    },
+    {
+      "name": "list_payment_methods",
+      "description": "List payment methods for a customer",
+      "method": "GET",
+      "path": "/billing/customers/{customer_id}/payment-methods",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Customer ID"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "card",
+              "bank_account"
+            ],
+            "description": "Payment method type"
+          },
+          "test_mode": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "create_payment_method",
+      "description": "Create a new payment method for a customer",
+      "method": "POST",
+      "path": "/billing/customers/{customer_id}/payment-methods",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Customer ID"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "card",
+              "bank_account"
+            ],
+            "description": "Payment method type"
+          },
+          "card": {
+            "type": "object",
+            "description": "Card details if type is card",
+            "properties": {
+              "number": {
+                "type": "string"
+              },
+              "exp_month": {
+                "type": "integer"
+              },
+              "exp_year": {
+                "type": "integer"
+              },
+              "cvc": {
+                "type": "string"
+              }
+            }
+          },
+          "bank_account": {
+            "type": "object",
+            "description": "Bank account details if type is bank_account",
+            "properties": {
+              "country": {
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "account_number": {
+                "type": "string"
+              },
+              "routing_number": {
+                "type": "string"
+              }
+            }
+          },
+          "test_mode": {
+            "type": "boolean",
+            "default": false
+          },
+          "sync_to_provider": {
+            "type": "boolean",
+            "default": false
+          },
+          "stripe_api_key": {
+            "type": "string",
+            "description": "Stripe API key if syncing"
+          }
+        },
+        "required": [
+          "customer_id",
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "create_price",
+      "description": "Create a price for a product",
+      "method": "POST",
+      "path": "/billing/products/{product_id}/prices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "description": "Product ID"
+          },
+          "unit_amount": {
+            "type": "integer",
+            "description": "Price in cents"
+          },
+          "currency": {
+            "type": "string",
+            "default": "usd"
+          },
+          "recurring": {
+            "type": "object",
+            "description": "Recurring billing details",
+            "properties": {
+              "interval": {
+                "type": "string",
+                "enum": [
+                  "day",
+                  "week",
+                  "month",
+                  "year"
+                ]
+              },
+              "interval_count": {
+                "type": "integer",
+                "default": 1
+              },
+              "usage_type": {
+                "type": "string",
+                "enum": [
+                  "licensed",
+                  "metered"
+                ],
+                "default": "licensed"
+              }
+            }
+          },
+          "billing_scheme": {
+            "type": "string",
+            "enum": [
+              "per_unit",
+              "tiered"
+            ],
+            "default": "per_unit"
+          },
+          "tiers_mode": {
+            "type": "string",
+            "enum": [
+              "graduated",
+              "volume"
+            ]
+          },
+          "tiers": {
+            "type": "array",
+            "description": "Tiers for tiered pricing",
+            "items": {
+              "type": "object"
+            }
+          },
+          "test_mode": {
+            "type": "boolean",
+            "default": true
+          },
+          "sync_to_stripe": {
+            "type": "boolean",
+            "default": true
+          },
+          "stripe_api_key": {
+            "type": "string",
+            "description": "Stripe API key if syncing"
+          }
+        },
+        "required": [
+          "product_id",
+          "unit_amount",
+          "currency"
+        ]
+      }
+    },
+    {
+      "name": "create_vendor",
+      "description": "Create a new vendor for expense and bill management",
+      "method": "POST",
+      "path": "/billing/vendors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Vendor name"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Vendor email address"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Vendor phone number"
+          },
+          "address": {
+            "type": "object",
+            "properties": {
+              "street": {
+                "type": "string"
+              },
+              "city": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string"
+              },
+              "country": {
+                "type": "string"
+              },
+              "postal_code": {
+                "type": "string"
+              }
+            },
+            "description": "Vendor address"
+          },
+          "tax_id": {
+            "type": "string",
+            "description": "Tax ID or business registration number"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Default currency for this vendor",
+            "default": "usd"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Additional metadata"
+          },
+          "test_mode": {
+            "type": "boolean",
+            "description": "Whether this is a test vendor",
+            "default": false
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_vendor",
+      "description": "Update vendor information",
+      "method": "PUT",
+      "path": "/billing/vendors/{vendor_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "vendor_id": {
+            "type": "string",
+            "description": "Vendor ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated vendor name"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Updated vendor email"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Updated vendor phone"
+          },
+          "address": {
+            "type": "object",
+            "description": "Updated vendor address"
+          },
+          "tax_id": {
+            "type": "string",
+            "description": "Updated tax ID"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Updated default currency"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Updated metadata"
+          }
+        },
+        "required": [
+          "vendor_id"
+        ]
+      }
+    },
+    {
+      "name": "get_vendor",
+      "description": "Retrieve detailed information about a specific vendor",
+      "method": "GET",
+      "path": "/billing/vendors/{vendor_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "vendor_id": {
+            "type": "string",
+            "description": "Vendor ID to retrieve"
+          }
+        },
+        "required": [
+          "vendor_id"
+        ]
+      }
+    },
+    {
+      "name": "list_vendors",
+      "description": "List vendors with filtering and pagination",
+      "method": "GET",
+      "path": "/billing/vendors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Filter by vendor name (partial match)"
+          },
+          "email": {
+            "type": "string",
+            "description": "Filter by vendor email"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Filter by currency"
+          },
+          "test_mode": {
+            "type": "boolean",
+            "description": "Filter by test mode"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of vendors to return",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of vendors to skip",
+            "default": 0
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "name:asc",
+              "name:desc",
+              "created_at:asc",
+              "created_at:desc"
+            ],
+            "default": "name:asc"
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_vendor",
+      "description": "Delete a vendor (soft delete to preserve expense history)",
+      "method": "DELETE",
+      "path": "/billing/vendors/{vendor_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "vendor_id": {
+            "type": "string",
+            "description": "Vendor ID to delete"
+          }
+        },
+        "required": [
+          "vendor_id"
+        ]
+      }
+    },
+    {
+      "name": "create_expense",
+      "description": "Record a new business expense",
+      "method": "POST",
+      "path": "/billing/expenses",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "description": "Expense amount in cents"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Expense currency",
+            "default": "usd"
+          },
+          "category": {
+            "type": "string",
+            "description": "Expense category (travel, meals, equipment, etc.)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Expense description"
+          },
+          "expense_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Date of expense (defaults to today)"
+          },
+          "vendor_id": {
+            "type": "string",
+            "description": "ID of the vendor from vendors table"
+          },
+          "vendor_name": {
+            "type": "string",
+            "description": "Vendor/merchant name (fallback if vendor_id not provided)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "reimbursed"
+            ],
+            "default": "pending",
+            "description": "Expense approval status"
+          },
+          "receipt_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL to receipt/invoice"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "User who incurred the expense"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Additional metadata"
+          },
+          "test_mode": {
+            "type": "boolean",
+            "description": "Whether this is a test expense",
+            "default": false
+          }
+        },
+        "required": [
+          "amount",
+          "description"
+        ]
+      }
+    },
+    {
+      "name": "update_expense",
+      "description": "Update expense information and approval status",
+      "method": "PUT",
+      "path": "/billing/expenses/{expense_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "expense_id": {
+            "type": "string",
+            "description": "Expense ID to update"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Updated expense amount in cents"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Updated expense currency"
+          },
+          "category": {
+            "type": "string",
+            "description": "Updated expense category"
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated expense description"
+          },
+          "expense_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Updated expense date"
+          },
+          "vendor_id": {
+            "type": "string",
+            "description": "Updated vendor ID"
+          },
+          "vendor_name": {
+            "type": "string",
+            "description": "Updated vendor name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "reimbursed"
+            ],
+            "description": "Updated expense status"
+          },
+          "receipt_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Updated receipt URL"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Updated metadata"
+          }
+        },
+        "required": [
+          "expense_id"
+        ]
+      }
+    },
+    {
+      "name": "get_expense",
+      "description": "Retrieve detailed information about a specific expense",
+      "method": "GET",
+      "path": "/billing/expenses/{expense_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "expense_id": {
+            "type": "string",
+            "description": "Expense ID to retrieve"
+          },
+          "include_vendor": {
+            "type": "boolean",
+            "description": "Include vendor details",
+            "default": false
+          }
+        },
+        "required": [
+          "expense_id"
+        ]
+      }
+    },
+    {
+      "name": "list_expenses",
+      "description": "List expenses with filtering and pagination",
+      "method": "GET",
+      "path": "/billing/expenses",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "Filter by expense category"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "Filter by user who incurred expense"
+          },
+          "vendor_name": {
+            "type": "string",
+            "description": "Filter by vendor name"
+          },
+          "min_amount": {
+            "type": "number",
+            "description": "Minimum expense amount in cents"
+          },
+          "max_amount": {
+            "type": "number",
+            "description": "Maximum expense amount in cents"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Filter expenses from this date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Filter expenses until this date"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Filter by currency"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "reimbursed"
+            ],
+            "description": "Filter by expense status"
+          },
+          "test_mode": {
+            "type": "boolean",
+            "description": "Filter by test mode"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of expenses to return",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of expenses to skip",
+            "default": 0
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "expense_date:asc",
+              "expense_date:desc",
+              "amount:asc",
+              "amount:desc",
+              "created_at:asc",
+              "created_at:desc"
+            ],
+            "default": "expense_date:desc"
+          },
+          "include_vendor": {
+            "type": "boolean",
+            "description": "Include vendor details in response",
+            "default": false
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_expense",
+      "description": "Delete an expense record",
+      "method": "DELETE",
+      "path": "/billing/expenses/{expense_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "expense_id": {
+            "type": "string",
+            "description": "Expense ID to delete"
+          }
+        },
+        "required": [
+          "expense_id"
+        ]
+      }
+    }
+  ],
+  "credential_group": {
+    "id": "omnikit",
+    "name": "OmniKit",
+    "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+    "description": "One key unlocks the whole OmniKit suite. Account keys can manage many projects; project keys are scoped to one.",
+    "discovery": {
+      "list_projects": {
+        "method": "GET",
+        "path": "/projects",
+        "response_path": "data",
+        "id_field": "id",
+        "label_field": "name"
+      },
+      "api_lookup": {
+        "method": "GET",
+        "path": "/apis",
+        "response_path": "data",
+        "match_field": "base_path",
+        "match_value": "omnikit",
+        "id_field": "id"
+      },
+      "provision_project_key": {
+        "method": "POST",
+        "path": "/api-keys",
+        "body": {
+          "name": "Apteva \u00b7 {{label}}",
+          "api_id": "{{api_lookup_id}}",
+          "target_project_id": "{{external_project_id}}",
+          "scopes": [
+            "read",
+            "write"
+          ]
+        },
+        "response_key_path": "data.key",
+        "id_response_path": "data.id",
+        "credential_field": "api_key"
+      }
+    }
+  },
+  "scopes": {
+    "account": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Account API Key",
+          "description": "Starts with okt_acc_ \u2014 operates across every project in the account.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      },
+      "project_binding": {
+        "type": "header",
+        "name": "X-Project-Id",
+        "value": "{{project_id}}"
+      }
+    },
+    "project": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Project API Key",
+          "description": "Starts with okt_ \u2014 already scoped to a single project.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      }
+    }
+  }
+}

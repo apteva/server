@@ -1,0 +1,274 @@
+{
+  "slug": "square",
+  "name": "Square",
+  "description": "MCP server for Square commerce operations - locations, customers, orders, payments, and catalog",
+  "logo": "https://www.google.com/s2/favicons?domain=squareup.com&sz=128",
+  "categories": [
+    "commerce",
+    "square",
+    "payments",
+    "pos",
+    "retail"
+  ],
+  "base_url": "https://connect.squareup.com/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_locations",
+      "description": "List all business locations",
+      "method": "GET",
+      "path": "/list-locations",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_customers",
+      "description": "List all customers",
+      "method": "GET",
+      "path": "/list-customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum results",
+            "default": 100
+          },
+          "sort_field": {
+            "type": "string",
+            "description": "Sort field"
+          },
+          "sort_order": {
+            "type": "string",
+            "description": "Sort order"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_customer",
+      "description": "Create a new customer",
+      "method": "POST",
+      "path": "/create-customer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "given_name": {
+            "type": "string",
+            "description": "First name"
+          },
+          "family_name": {
+            "type": "string",
+            "description": "Last name"
+          },
+          "email_address": {
+            "type": "string",
+            "description": "Email address"
+          },
+          "phone_number": {
+            "type": "string",
+            "description": "Phone number"
+          },
+          "company_name": {
+            "type": "string",
+            "description": "Company name"
+          },
+          "address": {
+            "type": "object",
+            "description": "Customer address"
+          },
+          "note": {
+            "type": "string",
+            "description": "Customer note"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "Search orders with filters",
+      "method": "GET",
+      "path": "/list-orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location_ids": {
+            "type": "array",
+            "description": "Location IDs to search"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum results",
+            "default": 100
+          },
+          "query": {
+            "type": "object",
+            "description": "Search query"
+          }
+        },
+        "required": [
+          "location_ids"
+        ]
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Create a new order",
+      "method": "POST",
+      "path": "/create-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location_id": {
+            "type": "string",
+            "description": "Location ID"
+          },
+          "line_items": {
+            "type": "array",
+            "description": "Order line items"
+          },
+          "customer_id": {
+            "type": "string",
+            "description": "Customer ID"
+          },
+          "discounts": {
+            "type": "array",
+            "description": "Order discounts"
+          },
+          "taxes": {
+            "type": "array",
+            "description": "Order taxes"
+          },
+          "note": {
+            "type": "string",
+            "description": "Order note"
+          }
+        },
+        "required": [
+          "location_id"
+        ]
+      }
+    },
+    {
+      "name": "list_payments",
+      "description": "List payments with filters",
+      "method": "GET",
+      "path": "/list-payments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location_id": {
+            "type": "string",
+            "description": "Location ID"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum results",
+            "default": 100
+          },
+          "begin_time": {
+            "type": "string",
+            "description": "Start time filter"
+          },
+          "end_time": {
+            "type": "string",
+            "description": "End time filter"
+          },
+          "sort_order": {
+            "type": "string",
+            "description": "Sort order"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_payment",
+      "description": "Create a new payment",
+      "method": "POST",
+      "path": "/create-payment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "description": "Payment source ID (card nonce)"
+          },
+          "amount_money": {
+            "type": "object",
+            "description": "Payment amount"
+          },
+          "location_id": {
+            "type": "string",
+            "description": "Location ID"
+          },
+          "customer_id": {
+            "type": "string",
+            "description": "Customer ID"
+          },
+          "order_id": {
+            "type": "string",
+            "description": "Order ID"
+          },
+          "note": {
+            "type": "string",
+            "description": "Payment note"
+          },
+          "tip_money": {
+            "type": "object",
+            "description": "Tip amount"
+          }
+        },
+        "required": [
+          "source_id",
+          "amount_money"
+        ]
+      }
+    },
+    {
+      "name": "list_catalog",
+      "description": "List catalog items",
+      "method": "GET",
+      "path": "/list-catalog",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "types": {
+            "type": "string",
+            "description": "Object types to include"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "slug": "keywords-everywhere",
+  "name": "Keywords Everywhere",
+  "description": "Keyword research API — search volume, CPC, competition, trend data for any keyword list. Credit-based pricing ($10 = 100k credits). Also covers People Also Search For, Related, and trends.",
+  "logo": "https://www.google.com/s2/favicons?domain=keywordseverywhere.com&sz=128",
+  "categories": ["seo", "keywords", "search-volume", "cpc", "competition", "trends"],
+  "base_url": "https://api.keywordseverywhere.com/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Key", "description": "Generate at keywordseverywhere.com/manage-api-key" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_keyword_data",
+      "description": "Search volume, CPC, competition, trend for a list of keywords",
+      "method": "POST",
+      "path": "/get_keyword_data",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country": { "type": "string", "description": "us|uk|ca|au|in|... or 'global'" },
+          "currency": { "type": "string", "description": "USD|EUR|..." },
+          "dataSource": { "type": "string", "description": "gkp (Google Keyword Planner) | cli (clickstream)" },
+          "kw": { "type": "array", "description": "List of keyword strings (max 100 per call)" }
+        },
+        "required": ["country", "kw"]
+      }
+    },
+    {
+      "name": "get_related_keywords",
+      "description": "Get keywords related to a seed keyword",
+      "method": "POST",
+      "path": "/get_related_keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country": { "type": "string" },
+          "currency": { "type": "string" },
+          "kw": { "type": "string" },
+          "num": { "type": "number" }
+        },
+        "required": ["country", "kw"]
+      }
+    },
+    {
+      "name": "get_people_also_search_for",
+      "description": "Get 'People Also Search For' keywords for a seed",
+      "method": "POST",
+      "path": "/get_people_also_search_for",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country": { "type": "string" },
+          "currency": { "type": "string" },
+          "kw": { "type": "string" }
+        },
+        "required": ["country", "kw"]
+      }
+    },
+    {
+      "name": "get_long_tail_keywords",
+      "description": "Get long-tail keyword variants",
+      "method": "POST",
+      "path": "/get_long_tail_keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country": { "type": "string" },
+          "currency": { "type": "string" },
+          "kw": { "type": "string" }
+        },
+        "required": ["country", "kw"]
+      }
+    },
+    {
+      "name": "get_credits",
+      "description": "Remaining credits on the account",
+      "method": "GET",
+      "path": "/get_credits",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

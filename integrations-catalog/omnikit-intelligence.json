@@ -1,0 +1,1043 @@
+{
+  "slug": "omnikit-intelligence",
+  "name": "OmniKit Intelligence",
+  "description": "Unified AI generation platform - video, image, speech, music, and 3D model generation across multiple providers (OpenAI Sora, Google Veo, Kling, DALL-E, Gemini, ElevenLabs TTS, Tripo, Meshy) with voice library, job tracking and model catalog",
+  "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+  "categories": [
+    "ai",
+    "video",
+    "image",
+    "music",
+    "speech",
+    "voice",
+    "tts",
+    "audio",
+    "3d",
+    "generation",
+    "sora",
+    "veo",
+    "kling",
+    "dalle",
+    "gemini",
+    "elevenlabs",
+    "tripo",
+    "meshy"
+  ],
+  "base_url": "https://api.omnikit.co",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your OmniKit API key (starts with 'okt_'). The project is determined automatically from the key."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "generate_video",
+      "description": "Generate videos with AI: OpenAI Sora (up to 90s, 4K), Google Veo (up to 8s, 1080p), or Fal AI models like Kling, Luma, MiniMax, Hunyuan, Mochi. Supports text-to-video and image-to-video.",
+      "method": "POST",
+      "path": "/ai/generate/video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Description of the video to generate (max 500 chars)"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "openai",
+              "google",
+              "fal"
+            ],
+            "default": "openai",
+            "description": "AI provider: openai (Sora), google (Veo), or fal (Kling, Luma)"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model: sora-2, sora-2-pro (OpenAI), veo-3.1, veo-3.0, veo-2.0 (Google), kling-2.6-pro, kling-o1, luma-dream-machine, minimax-hailuo (Fal)"
+          },
+          "duration": {
+            "type": "number",
+            "default": 5,
+            "description": "Video duration in seconds (1-20 for sora-2, 1-90 for sora-2-pro)"
+          },
+          "size": {
+            "type": "string",
+            "default": "720x1280",
+            "description": "Video dimensions WIDTHxHEIGHT (OpenAI only). Default: 720x1280 (portrait 720p)"
+          },
+          "aspectRatio": {
+            "type": "string",
+            "description": "Aspect ratio: portrait, landscape, square (OpenAI) or 16:9, 9:16 (Google)"
+          },
+          "n": {
+            "type": "number",
+            "default": 1,
+            "description": "Number of video variations (1-4, OpenAI only)"
+          },
+          "loop": {
+            "type": "boolean",
+            "default": false,
+            "description": "Create seamless looping video (OpenAI only)"
+          },
+          "style": {
+            "type": "string",
+            "description": "Video style: cinematic, documentary, animation (OpenAI only)"
+          },
+          "fps": {
+            "type": "number",
+            "description": "Frame rate: 24, 30, 60 (60fps requires sora-2-pro)"
+          },
+          "quality": {
+            "type": "string",
+            "default": "standard",
+            "description": "Quality tier"
+          },
+          "negativePrompt": {
+            "type": "string",
+            "description": "What NOT to include (Google Veo only)"
+          },
+          "resolution": {
+            "type": "string",
+            "description": "720p or 1080p (Google Veo only)"
+          },
+          "inputImageUrl": {
+            "type": "string",
+            "description": "URL to reference image for image-to-video generation"
+          },
+          "sync": {
+            "type": "boolean",
+            "default": true,
+            "description": "Wait for completion and return result (default: true). Set false only for async/webhook mode."
+          },
+          "storeResult": {
+            "type": "boolean",
+            "default": true,
+            "description": "Store generated video to files table (default: true)"
+          },
+          "webhookUrl": {
+            "type": "string",
+            "description": "Webhook URL for completion notification"
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "generate_image",
+      "description": "Generate or edit images with AI. Provider is auto-detected from the model name (gemini-* \u2192 google, dall-e-*/gpt-image-* \u2192 openai), so you can just pass a model. For image editing or reference images, pass the 'images' array \u2014 supported by Google Gemini (gemini-2.5-flash-image, gemini-3-pro-image-preview) AND OpenAI gpt-image-1 / gpt-image-1.5 / gpt-image-2 (up to 16 reference images, optional 'mask' for inpainting). DALL-E 3 does NOT support reference images \u2014 use gpt-image-2 for OpenAI editing.",
+      "method": "POST",
+      "path": "/ai/generate/image",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Description of the image to generate or edit instruction"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "openai",
+              "google"
+            ],
+            "description": "Optional. AI provider. Auto-detected from the model name if omitted (gemini-* \u2192 google, dall-e-*/gpt-image-* \u2192 openai). Defaults to openai if neither provider nor model is set."
+          },
+          "model": {
+            "type": "string",
+            "description": "Optional model ID. Options: 'dall-e-3' (OpenAI, text-only), 'gpt-image-1' / 'gpt-image-1.5' / 'gpt-image-2' (OpenAI, supports reference images + editing + masks; gpt-image-2 is the highest quality), 'gemini-2.5-flash-image' (Google, fast), 'gemini-3-pro-image-preview' (Google, supports reference images + editing). If omitted, a default model for the provider is auto-selected from the catalog."
+          },
+          "images": {
+            "type": "array",
+            "description": "Reference images for generation OR images to edit. Use for: (1) character/style consistency - pass a reference photo to maintain appearance, (2) image editing - pass an image to modify based on prompt. Works with: Gemini (gemini-2.5-flash-image, gemini-3-pro-image-preview, max 14) and OpenAI gpt-image-* (up to 16). Will error on dall-e-3.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "description": "HTTPS URL of the image (will be fetched and base64-encoded server-side). Supported types: image/png, image/jpeg, image/webp, image/gif."
+                },
+                "data": {
+                  "type": "string",
+                  "description": "Base64-encoded image data. Alternative to url \u2014 provide one or the other."
+                },
+                "mimeType": {
+                  "type": "string",
+                  "description": "MIME type when using 'data' (e.g. image/png, image/jpeg). Defaults to image/png."
+                }
+              }
+            }
+          },
+          "mask": {
+            "type": "object",
+            "description": "Optional PNG mask for inpainting (OpenAI gpt-image-* only). Same dimensions as the first input image. Transparent regions = areas to be edited.",
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "HTTPS URL of the mask PNG."
+              },
+              "data": {
+                "type": "string",
+                "description": "Base64-encoded mask PNG."
+              }
+            }
+          },
+          "size": {
+            "type": "string",
+            "default": "1024x1024",
+            "description": "Image dimensions. dall-e-3: 1024x1024, 1024x1792, 1792x1024. gpt-image-* (incl. gpt-image-2): 1024x1024, 1024x1536, 1536x1024, auto. Ignored for Google models."
+          },
+          "aspectRatio": {
+            "type": "string",
+            "default": "1:1",
+            "description": "Aspect ratio - ONLY for gemini models (Google). Values: 1:1, 9:16, 16:9, 3:4, 4:3. Ignored for OpenAI models."
+          },
+          "resolution": {
+            "type": "string",
+            "description": "DO NOT USE with 'images' parameter - causes errors. Only for text-to-image with gemini-3-pro-image-preview. Values: 1K, 2K, 4K. For image editing, use 'quality' instead."
+          },
+          "quality": {
+            "type": "string",
+            "default": "standard",
+            "description": "Quality tier. dall-e-3: standard | hd. gpt-image-*: low | medium | high | auto. Google: low | medium | high. For reference-image editing, prefer 'high'."
+          },
+          "style": {
+            "type": "string",
+            "default": "vivid",
+            "description": "DALL-E 3 style: vivid or natural"
+          },
+          "n": {
+            "type": "number",
+            "default": 1,
+            "description": "Number of images to generate (1-10)"
+          },
+          "sync": {
+            "type": "boolean",
+            "default": true,
+            "description": "Wait for completion and return result (default: true). Set false only for async/webhook mode."
+          },
+          "storeResult": {
+            "type": "boolean",
+            "default": true,
+            "description": "Store generated images to files table (default: true)"
+          },
+          "webhookUrl": {
+            "type": "string",
+            "description": "Webhook URL for completion notification"
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "generate_3d",
+      "description": "Generate 3D models from text or images using Tripo or Meshy. Supports text-to-3D and image-to-3D with configurable texture, polycount, and topology.",
+      "method": "POST",
+      "path": "/ai/generate/3d",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Text description for text-to-3D generation"
+          },
+          "imageUrl": {
+            "type": "string",
+            "description": "Image URL for image-to-3D generation"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "tripo",
+              "meshy"
+            ],
+            "default": "tripo",
+            "description": "3D generation provider"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model ID (auto-selected if not specified)"
+          },
+          "texture": {
+            "type": "boolean",
+            "default": true,
+            "description": "Generate texture for the model"
+          },
+          "polycount": {
+            "type": "number",
+            "default": 30000,
+            "description": "Target polygon count"
+          },
+          "topology": {
+            "type": "string",
+            "enum": [
+              "quad",
+              "triangle"
+            ],
+            "default": "quad",
+            "description": "Mesh topology (Meshy only)"
+          },
+          "negativePrompt": {
+            "type": "string",
+            "description": "What NOT to include in the model"
+          },
+          "artStyle": {
+            "type": "string",
+            "description": "Art style: realistic, cartoon, etc. (Meshy only)"
+          },
+          "sync": {
+            "type": "boolean",
+            "default": true,
+            "description": "Wait for completion and return result (default: true). Set false only for async/webhook mode."
+          },
+          "storeResult": {
+            "type": "boolean",
+            "default": true,
+            "description": "Store generated model to files table (default: true)"
+          }
+        }
+      }
+    },
+    {
+      "name": "generate_music",
+      "description": "Generate music with AI using ElevenLabs. Supports text-to-music with styles, lyrics, and composition plans. Up to 5 minutes duration.",
+      "method": "POST",
+      "path": "/ai/generate/music",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Description of the music to generate (e.g., 'An upbeat electronic dance track with driving synths')"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "elevenlabs"
+            ],
+            "default": "elevenlabs",
+            "description": "AI provider for music generation"
+          },
+          "model": {
+            "type": "string",
+            "default": "music_v1",
+            "description": "Model: music_v1 (ElevenLabs)"
+          },
+          "duration": {
+            "type": "number",
+            "default": 30,
+            "description": "Music duration in seconds (10-300, max 5 minutes)"
+          },
+          "instrumental": {
+            "type": "boolean",
+            "default": false,
+            "description": "Generate instrumental only (no vocals)"
+          },
+          "styles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Styles to include (e.g., ['electronic', 'upbeat', 'energetic'])"
+          },
+          "excludeStyles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Styles to exclude (e.g., ['acoustic', 'slow', 'jazz'])"
+          },
+          "lyrics": {
+            "type": "string",
+            "description": "Lyrics for the song (ignored if instrumental is true)"
+          },
+          "sections": {
+            "type": "array",
+            "description": "Composition sections for detailed control. Each section: {name, duration, styles, excludeStyles, lyrics}",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Section name (e.g., 'Intro', 'Verse', 'Chorus')"
+                },
+                "duration": {
+                  "type": "number",
+                  "description": "Section duration in seconds"
+                },
+                "styles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "excludeStyles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "lyrics": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "outputFormat": {
+            "type": "string",
+            "enum": [
+              "mp3",
+              "wav"
+            ],
+            "default": "mp3",
+            "description": "Output audio format"
+          },
+          "storeResult": {
+            "type": "boolean",
+            "default": true,
+            "description": "Store generated music to files table"
+          },
+          "webhookUrl": {
+            "type": "string",
+            "description": "Webhook URL for completion notification"
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "generate_speech",
+      "description": "Generate speech/voiceover from text using ElevenLabs. Select a voice from list-voices (sync-voices first if empty).\n\nResponse includes: audio.url, audio.durationMs (milliseconds \u2014 divide by 1000 for seconds), audio.sizeBytes, audio.format, and voice info. Ignore the cost field \u2014 it is not accurate.",
+      "method": "POST",
+      "path": "/ai/generate/speech",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Text to convert to speech"
+          },
+          "voiceId": {
+            "type": "number",
+            "description": "Voice ID from the voices library (use list-voices to find). Preferred over providerVoiceId."
+          },
+          "voiceName": {
+            "type": "string",
+            "description": "Voice name to search in the library. Alternative to voiceId."
+          },
+          "providerVoiceId": {
+            "type": "string",
+            "description": "Direct ElevenLabs voice_id. Only use if voice is not in the library."
+          },
+          "model": {
+            "type": "string",
+            "default": "eleven_multilingual_v2",
+            "description": "TTS model. eleven_multilingual_v2 (best quality, 29 langs), eleven_turbo_v2_5 (fast, 32 langs), eleven_flash_v2_5 (fastest, cheapest)"
+          },
+          "stability": {
+            "type": "number",
+            "description": "Voice stability 0.0-1.0. Higher = more consistent, lower = more expressive. Default from voice settings."
+          },
+          "similarityBoost": {
+            "type": "number",
+            "description": "Voice similarity 0.0-1.0. Higher = closer to original voice. Default from voice settings."
+          },
+          "style": {
+            "type": "number",
+            "description": "Style exaggeration 0.0-1.0. Higher = more expressive. Default: 0."
+          },
+          "storeResult": {
+            "type": "boolean",
+            "default": true,
+            "description": "Store generated audio to files table"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "list_voices",
+      "description": "List available voices from the voice library. If empty, run sync-voices first to populate with ElevenLabs premade voices. Returns voice ID, name, category, language, and preview URL.",
+      "method": "GET",
+      "path": "/ai/voices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string",
+            "description": "Search by voice name or description"
+          },
+          "gender": {
+            "type": "string",
+            "enum": [
+              "male",
+              "female",
+              "neutral"
+            ],
+            "description": "Filter by gender"
+          },
+          "language": {
+            "type": "string",
+            "description": "Filter by language code (e.g., 'en', 'es', 'fr')"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "premade",
+              "cloned",
+              "generated"
+            ],
+            "description": "Filter by voice category"
+          },
+          "limit": {
+            "type": "number",
+            "default": 50,
+            "description": "Number of results (max 100)"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_job_status",
+      "description": "Check the status of an async AI generation job (video, image, or 3D). Returns current status, progress, and result when complete.",
+      "method": "GET",
+      "path": "/ai/jobs/{requestId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "description": "Request ID from the generation call"
+          },
+          "refresh": {
+            "type": "boolean",
+            "default": false,
+            "description": "Fetch latest status from provider (for processing jobs)"
+          }
+        },
+        "required": [
+          "requestId"
+        ]
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List available AI models with pricing and capabilities. Examples: type='video' for Sora/Veo/Kling, type='image' for DALL-E/Gemini, type='speech' for ElevenLabs TTS, type='music' for ElevenLabs Music, type='3d' for Tripo/Meshy.",
+      "method": "GET",
+      "path": "/ai/models",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "image",
+              "video",
+              "music",
+              "speech",
+              "embedding",
+              "audio",
+              "3d",
+              "all"
+            ],
+            "default": "all",
+            "description": "Filter by model type: 'video' for Sora/Veo/Kling, 'image' for DALL-E/Gemini, 'music' for ElevenLabs, '3d' for Tripo/Meshy, 'text' for LLMs, 'all' for everything"
+          },
+          "provider": {
+            "type": "string",
+            "description": "Filter by provider: openai, anthropic, google, fal, tripo, meshy"
+          },
+          "capabilities": {
+            "type": "object",
+            "description": "Filter by capabilities object"
+          },
+          "includeDeprecated": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include deprecated models in results"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_generations",
+      "description": "List AI generations (video, image, 3D, audio) with filtering and pagination. Track generation history and costs.",
+      "method": "GET",
+      "path": "/ai/generations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modelType": {
+            "type": "string",
+            "enum": [
+              "video",
+              "image",
+              "audio",
+              "text",
+              "3d"
+            ],
+            "description": "Filter by generation type"
+          },
+          "provider": {
+            "type": "string",
+            "description": "Filter by provider: openai, google, fal, tripo, meshy"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "processing",
+              "completed",
+              "failed"
+            ],
+            "description": "Filter by status"
+          },
+          "limit": {
+            "type": "number",
+            "default": 20,
+            "description": "Number of results to return (max 100)"
+          },
+          "offset": {
+            "type": "number",
+            "default": 0,
+            "description": "Offset for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "chat",
+      "description": "Unified AI chat supporting Anthropic Claude, OpenAI GPT, and Fireworks models. Auto-detects provider from model name.",
+      "method": "POST",
+      "path": "/ai/chat",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "description": "Array of message objects with role (user/assistant/system) and content",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "user",
+                    "assistant",
+                    "system"
+                  ]
+                },
+                "content": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "role",
+                "content"
+              ]
+            }
+          },
+          "model": {
+            "type": "string",
+            "default": "claude-3-5-sonnet-20241022",
+            "description": "Model: claude-* (Anthropic), gpt-* (OpenAI), accounts/fireworks/* (Fireworks)"
+          },
+          "max_tokens": {
+            "type": "number",
+            "default": 4000,
+            "description": "Maximum tokens in response"
+          },
+          "temperature": {
+            "type": "number",
+            "default": 0.7,
+            "description": "Temperature for response randomness (0-1)"
+          }
+        },
+        "required": [
+          "messages"
+        ]
+      }
+    },
+    {
+      "name": "create_script",
+      "description": "Create a new script for audio/speech generation. Write text content and (optionally) assign a voice. Call generate_script afterwards to render audio. The project is taken from the API key's scope.",
+      "method": "POST",
+      "path": "/ai/scripts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Script title (used in lists / search)"
+          },
+          "content": {
+            "type": "string",
+            "description": "The text the voice will read"
+          },
+          "voiceId": {
+            "type": "number",
+            "description": "Voice ID from list_voices. Optional \u2014 can be assigned later via update_script."
+          },
+          "voiceSettings": {
+            "type": "object",
+            "description": "Optional ElevenLabs voice tweaks: stability (0-1), similarityBoost (0-1), style (0-1).",
+            "properties": {
+              "stability": {
+                "type": "number"
+              },
+              "similarityBoost": {
+                "type": "number"
+              },
+              "style": {
+                "type": "number"
+              }
+            }
+          },
+          "outputType": {
+            "type": "string",
+            "enum": [
+              "audio",
+              "video"
+            ],
+            "default": "audio",
+            "description": "Output type"
+          }
+        },
+        "required": [
+          "title",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "list_scripts",
+      "description": "List scripts in the current project (auto-scoped by the API key). Returns id, title, content preview, voice_id, status (draft|generating|completed|failed), output_url (when audio is rendered), and metadata (word_count, audio_duration_ms, etc.).",
+      "method": "GET",
+      "path": "/ai/scripts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "generating",
+              "completed",
+              "failed"
+            ],
+            "description": "Optional status filter."
+          },
+          "search": {
+            "type": "string",
+            "description": "Optional title/content substring filter."
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_script",
+      "description": "Get a script by ID with full content, voice_id, voice_settings, status, output_url (audio URL when generated), and metadata (word_count, char_count, audio_duration_ms, last_generated, generation_latency_ms).",
+      "method": "GET",
+      "path": "/ai/scripts/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Script ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_script",
+      "description": "Update a script's title, content, voice, or settings. Only provided fields are changed. Pass voiceId: null to clear the voice assignment.",
+      "method": "PUT",
+      "path": "/ai/scripts/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Script ID"
+          },
+          "title": {
+            "type": "string",
+            "description": "New title"
+          },
+          "content": {
+            "type": "string",
+            "description": "New text content"
+          },
+          "voiceId": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "New voice ID. Pass null to unassign."
+          },
+          "voiceSettings": {
+            "type": "object",
+            "description": "New ElevenLabs voice tweaks: stability (0-1), similarityBoost (0-1), style (0-1).",
+            "properties": {
+              "stability": {
+                "type": "number"
+              },
+              "similarityBoost": {
+                "type": "number"
+              },
+              "style": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_script",
+      "description": "Delete a script and its generated audio file (if any).",
+      "method": "DELETE",
+      "path": "/ai/scripts/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Script ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "generate_script",
+      "description": "Render a script to audio (ElevenLabs TTS). Uses the script's saved voice + voiceSettings unless overridden. Updates the script row in place: status \u2192 'generating' then 'completed' (or 'failed'), and sets output_url + file_id when done.\n\nResponse includes: audio.url, audio.durationMs (ms \u2014 divide by 1000 for seconds), audio.sizeBytes, audio.format, and voice info. Ignore the cost field \u2014 it's not accurate.",
+      "method": "POST",
+      "path": "/ai/scripts/{id}/generate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Script ID to render"
+          },
+          "voiceId": {
+            "type": "number",
+            "description": "Override the script's saved voice for this render only."
+          },
+          "voiceSettings": {
+            "type": "object",
+            "description": "Override the saved voice settings for this render only.",
+            "properties": {
+              "stability": {
+                "type": "number"
+              },
+              "similarityBoost": {
+                "type": "number"
+              },
+              "style": {
+                "type": "number"
+              }
+            }
+          },
+          "model": {
+            "type": "string",
+            "description": "TTS model. eleven_multilingual_v2 (best, default), eleven_turbo_v2_5 (fast), eleven_flash_v2_5 (fastest)."
+          },
+          "outputFormat": {
+            "type": "string",
+            "enum": [
+              "mp3",
+              "wav",
+              "ogg"
+            ],
+            "default": "mp3",
+            "description": "Audio format"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "sync_voices",
+      "description": "Sync premade voices from ElevenLabs into the local voice library. Run this first before listing voices \u2014 it populates the library with all available ElevenLabs voices. Only needs to be done once (or periodically to pick up new voices).",
+      "method": "POST",
+      "path": "/ai/voices/sync",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "premade",
+              "cloned"
+            ],
+            "description": "Filter by voice category (optional, syncs all by default)"
+          }
+        }
+      }
+    },
+    {
+      "name": "clone_voice",
+      "description": "Clone a voice from audio samples using ElevenLabs. Provide a name, description, and base64-encoded audio files. The cloned voice is added to the library and can be used in scripts and speech generation.",
+      "method": "POST",
+      "path": "/ai/voices/clone",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name for the cloned voice"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description of the voice"
+          },
+          "audioFiles": {
+            "type": "array",
+            "description": "Audio samples for cloning (base64-encoded)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "data": {
+                  "type": "string",
+                  "description": "Base64-encoded audio data"
+                },
+                "filename": {
+                  "type": "string",
+                  "description": "Filename (e.g., sample.mp3)"
+                },
+                "contentType": {
+                  "type": "string",
+                  "description": "MIME type (e.g., audio/mpeg)"
+                }
+              },
+              "required": [
+                "data",
+                "filename"
+              ]
+            }
+          }
+        },
+        "required": [
+          "name",
+          "audioFiles"
+        ]
+      }
+    }
+  ],
+  "credential_group": {
+    "id": "omnikit",
+    "name": "OmniKit",
+    "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+    "description": "One key unlocks the whole OmniKit suite. Account keys can manage many projects; project keys are scoped to one.",
+    "discovery": {
+      "list_projects": {
+        "method": "GET",
+        "path": "/projects",
+        "response_path": "data",
+        "id_field": "id",
+        "label_field": "name"
+      },
+      "api_lookup": {
+        "method": "GET",
+        "path": "/apis",
+        "response_path": "data",
+        "match_field": "base_path",
+        "match_value": "omnikit",
+        "id_field": "id"
+      },
+      "provision_project_key": {
+        "method": "POST",
+        "path": "/api-keys",
+        "body": {
+          "name": "Apteva \u00b7 {{label}}",
+          "api_id": "{{api_lookup_id}}",
+          "target_project_id": "{{external_project_id}}",
+          "scopes": [
+            "read",
+            "write"
+          ]
+        },
+        "response_key_path": "data.key",
+        "id_response_path": "data.id",
+        "credential_field": "api_key"
+      }
+    }
+  },
+  "scopes": {
+    "account": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Account API Key",
+          "description": "Starts with okt_acc_ \u2014 operates across every project in the account.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      },
+      "project_binding": {
+        "type": "header",
+        "name": "X-Project-Id",
+        "value": "{{project_id}}"
+      }
+    },
+    "project": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Project API Key",
+          "description": "Starts with okt_ \u2014 already scoped to a single project.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      }
+    }
+  },
+  "health_check": {
+    "tool": "list_models"
+  }
+}

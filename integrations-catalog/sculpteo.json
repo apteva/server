@@ -1,0 +1,234 @@
+{
+  "slug": "sculpteo",
+  "name": "Sculpteo",
+  "description": "MCP server for Sculpteo 3D printing services - upload models, get quotes, configure designs, and place orders",
+  "logo": "https://www.google.com/s2/favicons?domain=sculpteo.com&sz=128",
+  "categories": [
+    "3d-printing",
+    "sculpteo",
+    "manufacturing",
+    "prototyping",
+    "materials"
+  ],
+  "base_url": "https://api.sculpteo.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "Sculpteo API key from your Sculpteo account settings"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_materials",
+      "description": "Get available materials and their properties from Sculpteo",
+      "method": "GET",
+      "path": "/list-materials",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "Filter by material category (plastic, metal, resin)"
+          },
+          "technology": {
+            "type": "string",
+            "description": "Filter by printing technology (SLS, SLA, DMLS, FDM)"
+          }
+        }
+      }
+    },
+    {
+      "name": "upload_and_repair",
+      "description": "Upload 3D model to Sculpteo with automatic repair and optimization",
+      "method": "POST",
+      "path": "/upload-and-repair",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Base64 encoded 3D model file (STL, OBJ, etc.)"
+          },
+          "fileName": {
+            "type": "string",
+            "description": "Name of the file"
+          },
+          "autoRepair": {
+            "type": "boolean",
+            "description": "Automatically repair model issues",
+            "default": true
+          },
+          "optimize": {
+            "type": "boolean",
+            "description": "Optimize model for 3D printing",
+            "default": true
+          }
+        },
+        "required": [
+          "file",
+          "fileName"
+        ]
+      }
+    },
+    {
+      "name": "configure_design",
+      "description": "Configure 3D design with material, finish, and scaling options",
+      "method": "GET",
+      "path": "/configure-design",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "designId": {
+            "type": "string",
+            "description": "ID of the uploaded design"
+          },
+          "materialId": {
+            "type": "string",
+            "description": "Material ID to use for printing"
+          },
+          "finishId": {
+            "type": "string",
+            "description": "Finish/color ID"
+          },
+          "scale": {
+            "type": "number",
+            "description": "Scale factor for the model",
+            "default": 1
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Number of copies to print",
+            "default": 1
+          }
+        },
+        "required": [
+          "designId",
+          "materialId"
+        ]
+      }
+    },
+    {
+      "name": "batch_quote",
+      "description": "Get pricing quotes for multiple designs and material combinations",
+      "method": "GET",
+      "path": "/batch-quote",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "description": "Array of design configurations to quote",
+            "items": {
+              "type": "object",
+              "properties": {
+                "designId": {
+                  "type": "string"
+                },
+                "materialId": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number",
+                  "default": 1
+                }
+              },
+              "required": [
+                "designId",
+                "materialId"
+              ]
+            }
+          },
+          "shippingCountry": {
+            "type": "string",
+            "description": "ISO country code for shipping"
+          }
+        },
+        "required": [
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Place a 3D printing order with configured designs",
+      "method": "POST",
+      "path": "/create-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "description": "Array of configured designs to order",
+            "items": {
+              "type": "object",
+              "properties": {
+                "designId": {
+                  "type": "string"
+                },
+                "materialId": {
+                  "type": "string"
+                },
+                "finishId": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number",
+                  "default": 1
+                }
+              },
+              "required": [
+                "designId",
+                "materialId"
+              ]
+            }
+          },
+          "shippingAddress": {
+            "type": "object",
+            "description": "Shipping address details",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "address": {
+                "type": "string"
+              },
+              "city": {
+                "type": "string"
+              },
+              "postalCode": {
+                "type": "string"
+              },
+              "country": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "address",
+              "city",
+              "postalCode",
+              "country"
+            ]
+          },
+          "shippingMethod": {
+            "type": "string",
+            "description": "Shipping method (standard, express)"
+          }
+        },
+        "required": [
+          "items",
+          "shippingAddress"
+        ]
+      }
+    }
+  ]
+}

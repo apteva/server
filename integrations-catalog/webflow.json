@@ -1,0 +1,223 @@
+{
+  "slug": "webflow",
+  "name": "Webflow",
+  "description": "MCP server for Webflow CMS operations - sites, collections, and items",
+  "logo": "https://www.google.com/s2/favicons?domain=webflow.com&sz=128",
+  "categories": [
+    "cms",
+    "webflow",
+    "website",
+    "design",
+    "content"
+  ],
+  "base_url": "https://api.webflow.com/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_sites",
+      "description": "List all Webflow sites",
+      "method": "GET",
+      "path": "/list-sites",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_site",
+      "description": "Get details of a specific site",
+      "method": "GET",
+      "path": "/get-site",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "ID of the site"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "list_collections",
+      "description": "List all collections in a site",
+      "method": "GET",
+      "path": "/list-collections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "ID of the site"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "list_items",
+      "description": "List items in a collection",
+      "method": "GET",
+      "path": "/list-items",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collection_id": {
+            "type": "string",
+            "description": "ID of the collection"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number to return",
+            "default": 100
+          },
+          "offset": {
+            "type": "number",
+            "description": "Pagination offset",
+            "default": 0
+          }
+        },
+        "required": [
+          "collection_id"
+        ]
+      }
+    },
+    {
+      "name": "create_item",
+      "description": "Create a new item in a collection",
+      "method": "POST",
+      "path": "/create-item",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collection_id": {
+            "type": "string",
+            "description": "ID of the collection"
+          },
+          "field_data": {
+            "type": "object",
+            "description": "Field values for the item"
+          },
+          "is_draft": {
+            "type": "boolean",
+            "description": "Create as draft",
+            "default": false
+          },
+          "is_archived": {
+            "type": "boolean",
+            "description": "Create as archived",
+            "default": false
+          }
+        },
+        "required": [
+          "collection_id",
+          "field_data"
+        ]
+      }
+    },
+    {
+      "name": "update_item",
+      "description": "Update an item in a collection",
+      "method": "PUT",
+      "path": "/update-item",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collection_id": {
+            "type": "string",
+            "description": "ID of the collection"
+          },
+          "item_id": {
+            "type": "string",
+            "description": "ID of the item"
+          },
+          "field_data": {
+            "type": "object",
+            "description": "Field values to update"
+          },
+          "is_draft": {
+            "type": "boolean",
+            "description": "Draft status"
+          },
+          "is_archived": {
+            "type": "boolean",
+            "description": "Archived status"
+          }
+        },
+        "required": [
+          "collection_id",
+          "item_id",
+          "field_data"
+        ]
+      }
+    },
+    {
+      "name": "delete_item",
+      "description": "Delete an item from a collection",
+      "method": "DELETE",
+      "path": "/delete-item",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collection_id": {
+            "type": "string",
+            "description": "ID of the collection"
+          },
+          "item_id": {
+            "type": "string",
+            "description": "ID of the item"
+          }
+        },
+        "required": [
+          "collection_id",
+          "item_id"
+        ]
+      }
+    },
+    {
+      "name": "publish_site",
+      "description": "Publish a site to production",
+      "method": "GET",
+      "path": "/publish-site",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "ID of the site"
+          },
+          "custom_domains": {
+            "type": "array",
+            "description": "Custom domains to publish to"
+          },
+          "publish_to_webflow_subdomain": {
+            "type": "boolean",
+            "description": "Publish to Webflow subdomain",
+            "default": true
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    }
+  ]
+}

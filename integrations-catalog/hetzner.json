@@ -1,0 +1,658 @@
+{
+  "slug": "hetzner",
+  "name": "Hetzner Cloud",
+  "description": "MCP server for Hetzner Cloud - servers, volumes, images, SSH keys",
+  "logo": "https://www.google.com/s2/favicons?domain=hetzner.com&sz=128",
+  "categories": [
+    "cloud",
+    "servers",
+    "vps",
+    "infrastructure"
+  ],
+  "base_url": "https://api.hetzner.cloud/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "server_list",
+      "description": "List all servers",
+      "method": "GET",
+      "path": "/server-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "label_selector": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "server_get",
+      "description": "Get server details",
+      "method": "GET",
+      "path": "/server-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "server_create",
+      "description": "Create a new server",
+      "method": "GET",
+      "path": "/server-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "server_type": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "ssh_keys": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "server_type",
+          "image"
+        ]
+      }
+    },
+    {
+      "name": "server_delete",
+      "description": "Delete a server",
+      "method": "GET",
+      "path": "/server-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "server_update",
+      "description": "Update server details",
+      "method": "GET",
+      "path": "/server-update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "server_poweron",
+      "description": "Power on a server",
+      "method": "GET",
+      "path": "/server-poweron",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "server_poweroff",
+      "description": "Power off a server",
+      "method": "GET",
+      "path": "/server-poweroff",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "server_reboot",
+      "description": "Reboot a server",
+      "method": "GET",
+      "path": "/server-reboot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "server_shutdown",
+      "description": "Gracefully shutdown a server",
+      "method": "GET",
+      "path": "/server-shutdown",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "server_reset",
+      "description": "Hard reset a server",
+      "method": "GET",
+      "path": "/server-reset",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "server_rebuild",
+      "description": "Rebuild a server with new image",
+      "method": "GET",
+      "path": "/server-rebuild",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          },
+          "image": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "image"
+        ]
+      }
+    },
+    {
+      "name": "server_change_type",
+      "description": "Change server type",
+      "method": "GET",
+      "path": "/server-change-type",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          },
+          "server_type": {
+            "type": "string"
+          },
+          "upgrade_disk": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "server_type"
+        ]
+      }
+    },
+    {
+      "name": "server_change_protection",
+      "description": "Change server protection settings",
+      "method": "GET",
+      "path": "/server-change-protection",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          },
+          "delete": {
+            "type": "boolean"
+          },
+          "rebuild": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "server_enable_rescue",
+      "description": "Enable rescue mode",
+      "method": "GET",
+      "path": "/server-enable-rescue",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "server_disable_rescue",
+      "description": "Disable rescue mode",
+      "method": "GET",
+      "path": "/server-disable-rescue",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "server_reset_password",
+      "description": "Reset root password",
+      "method": "GET",
+      "path": "/server-reset-password",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "server_request_console",
+      "description": "Request VNC console",
+      "method": "GET",
+      "path": "/server-request-console",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "server_get_metrics",
+      "description": "Get server metrics",
+      "method": "GET",
+      "path": "/server-get-metrics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          },
+          "type": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "start",
+          "end"
+        ]
+      }
+    },
+    {
+      "name": "server_types_list",
+      "description": "List available server types",
+      "method": "GET",
+      "path": "/server-types-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "images_list",
+      "description": "List available images",
+      "method": "GET",
+      "path": "/images-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "locations_list",
+      "description": "List available locations",
+      "method": "GET",
+      "path": "/locations-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "ssh_keys_list",
+      "description": "List SSH keys",
+      "method": "GET",
+      "path": "/ssh-keys-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "ssh_key_create",
+      "description": "Create an SSH key",
+      "method": "GET",
+      "path": "/ssh-key-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "public_key": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "public_key"
+        ]
+      }
+    },
+    {
+      "name": "volume_list",
+      "description": "List volumes",
+      "method": "GET",
+      "path": "/volume-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "volume_get",
+      "description": "Get volume details",
+      "method": "GET",
+      "path": "/volume-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "volume_create",
+      "description": "Create a volume",
+      "method": "GET",
+      "path": "/volume-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "number"
+          },
+          "location": {
+            "type": "string"
+          },
+          "server": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "size"
+        ]
+      }
+    },
+    {
+      "name": "volume_delete",
+      "description": "Delete a volume",
+      "method": "GET",
+      "path": "/volume-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "volume_update",
+      "description": "Update volume details",
+      "method": "GET",
+      "path": "/volume-update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "volume_attach",
+      "description": "Attach volume to server",
+      "method": "GET",
+      "path": "/volume-attach",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          },
+          "server": {
+            "type": "number"
+          },
+          "automount": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "server"
+        ]
+      }
+    },
+    {
+      "name": "volume_detach",
+      "description": "Detach volume from server",
+      "method": "GET",
+      "path": "/volume-detach",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "volume_resize",
+      "description": "Resize a volume",
+      "method": "GET",
+      "path": "/volume-resize",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          },
+          "size": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "size"
+        ]
+      }
+    },
+    {
+      "name": "action_list",
+      "description": "List actions",
+      "method": "GET",
+      "path": "/action-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "action_get",
+      "description": "Get action details",
+      "method": "GET",
+      "path": "/action-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    }
+  ]
+}

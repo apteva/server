@@ -1,0 +1,1273 @@
+{
+  "slug": "dataforseo",
+  "name": "DataForSEO",
+  "description": "Complete SEO data platform — SERP tracking, keyword research, backlink analysis, on-page audits, competitor intelligence, content analysis, domain insights, and AI optimization",
+  "logo": "https://cdn-icons-png.flaticon.com/512/2103/2103633.png",
+  "categories": [
+    "seo",
+    "serp",
+    "keywords",
+    "backlinks",
+    "competitors",
+    "analytics",
+    "domain-analysis",
+    "rank-tracking",
+    "content-analysis",
+    "ai-optimization"
+  ],
+  "base_url": "https://api.dataforseo.com/v3",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "login",
+        "label": "Login",
+        "description": "Your DataForSEO API login email"
+      },
+      {
+        "name": "password",
+        "label": "Password",
+        "description": "Your DataForSEO API password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "keyword_search_volume",
+      "description": "Get search volume, competition, CPC data, and monthly trends for keywords via Google Ads API. Max 1000 keywords per request.",
+      "method": "POST",
+      "path": "/keywords_data/google_ads/search_volume/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of keywords to analyze (max 1000)"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Target location name (e.g., 'United States')"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Target location code (e.g., 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          },
+          "sort_by": {
+            "type": "string",
+            "enum": [
+              "relevance",
+              "search_volume",
+              "competition_index"
+            ],
+            "description": "Sort results by field"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "keyword_suggestions",
+      "description": "Get keyword suggestions and ideas based on seed keywords from Google Ads data, with search volume and competition metrics",
+      "method": "POST",
+      "path": "/keywords_data/google_ads/keywords_for_keywords/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of seed keywords (max 20)"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Target location code (e.g., 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          },
+          "sort_by": {
+            "type": "string",
+            "enum": [
+              "relevance",
+              "search_volume",
+              "competition_index"
+            ],
+            "description": "Sort results"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "keyword_ideas",
+      "description": "Get keyword ideas from DataForSEO Labs database with keyword difficulty, search volume, and SERP features",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/keyword_ideas/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Seed keywords"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code (e.g., 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          },
+          "include_seed_keyword": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include seed keyword in results"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "keyword_difficulty",
+      "description": "Get keyword difficulty scores in bulk — indicates how hard it is to rank in the top 10 for each keyword",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/bulk_keyword_difficulty/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Keywords to check difficulty for (max 1000)"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code (e.g., 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "search_intent",
+      "description": "Classify the search intent of keywords (informational, navigational, commercial, transactional)",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/search_intent/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Keywords to classify intent for"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "serp_organic",
+      "description": "Get live Google organic search results with rankings, snippets, featured elements, and SERP features",
+      "method": "POST",
+      "path": "/serp/google/organic/live/advanced",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Search keyword"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code (e.g., 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          },
+          "device": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ],
+            "default": "desktop",
+            "description": "Device type"
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 700,
+            "default": 100,
+            "description": "Number of results"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "serp_maps",
+      "description": "Get Google Maps local search results for a keyword with business listings, ratings, and locations",
+      "method": "POST",
+      "path": "/serp/google/maps/live/advanced",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Search keyword (e.g., 'pizza near me')"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          },
+          "depth": {
+            "type": "integer",
+            "default": 20,
+            "description": "Number of results"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "serp_news",
+      "description": "Get Google News search results for a keyword",
+      "method": "POST",
+      "path": "/serp/google/news/live/advanced",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Search keyword"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "google_autocomplete",
+      "description": "Get Google autocomplete suggestions for a keyword — useful for content ideas and long-tail keyword discovery",
+      "method": "POST",
+      "path": "/serp/google/autocomplete/live/advanced",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Partial search query"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "ranked_keywords",
+      "description": "Get all keywords a domain ranks for in organic search with positions, search volume, and traffic estimates",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/ranked_keywords/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain to analyze (e.g., 'example.com')"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code (e.g., 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "domain_rank_overview",
+      "description": "Get domain-level SEO overview: organic traffic estimate, total keywords, visibility score, and rank distribution",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/domain_rank_overview/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain to analyze"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "traffic_estimation",
+      "description": "Estimate organic traffic for multiple domains in bulk — includes keyword count, traffic cost, and estimated visits",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/bulk_traffic_estimation/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Domains to estimate traffic for (max 1000)"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "targets"
+        ]
+      }
+    },
+    {
+      "name": "competitors",
+      "description": "Find organic search competitors for a domain based on shared keyword rankings",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/competitors_domain/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain to find competitors for"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code (e.g., 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 100,
+            "description": "Max competitors"
+          },
+          "filters": {
+            "type": "array",
+            "description": "Filter conditions (e.g., [\"avg_position\", \"<\", 10])"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "domain_intersection",
+      "description": "Find keyword overlap/gaps between domains for competitive gap analysis. Compare up to 20 domains.",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/domain_intersection/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target1": {
+            "type": "string",
+            "description": "First domain"
+          },
+          "target2": {
+            "type": "string",
+            "description": "Second domain"
+          },
+          "target3": {
+            "type": "string",
+            "description": "Third domain (optional)"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code (e.g., 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "target1",
+          "target2"
+        ]
+      }
+    },
+    {
+      "name": "relevant_pages",
+      "description": "Find the most relevant/important pages on a domain based on organic rankings and traffic",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/relevant_pages/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain to analyze"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "historical_serps",
+      "description": "Get historical Google SERP snapshots for a keyword — see how rankings changed over time",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/historical_serps/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Keyword to get historical SERPs for"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          },
+          "date_from": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "date_to": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "backlinks_summary",
+      "description": "Get complete backlink profile summary: rank, referring domains, backlink counts, dofollow/nofollow ratio, and more",
+      "method": "POST",
+      "path": "/backlinks/summary/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain or URL to analyze (e.g., 'example.com')"
+          },
+          "include_subdomains": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include subdomains"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "backlinks_list",
+      "description": "Get detailed list of backlinks with anchor text, source URLs, link type, and attributes",
+      "method": "POST",
+      "path": "/backlinks/backlinks/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain or URL to analyze"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "as_is",
+              "one_per_domain",
+              "one_per_anchor"
+            ],
+            "default": "as_is",
+            "description": "Results grouping"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          },
+          "backlinks_status_type": {
+            "type": "string",
+            "enum": [
+              "all",
+              "live",
+              "lost"
+            ],
+            "default": "live",
+            "description": "Filter by status"
+          },
+          "filters": {
+            "type": "array",
+            "description": "Filter conditions"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "referring_domains",
+      "description": "Get list of domains linking to a target with domain rank, backlink count, and first/last seen dates",
+      "method": "POST",
+      "path": "/backlinks/referring_domains/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain or URL to analyze"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          },
+          "backlinks_status_type": {
+            "type": "string",
+            "enum": [
+              "all",
+              "live",
+              "lost"
+            ],
+            "default": "live",
+            "description": "Filter by status"
+          },
+          "filters": {
+            "type": "array",
+            "description": "Filter conditions"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "backlinks_anchors",
+      "description": "Get anchor text distribution for a domain's backlink profile",
+      "method": "POST",
+      "path": "/backlinks/anchors/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain or URL to analyze"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "backlinks_competitors",
+      "description": "Find domains competing for the same backlinks as your target domain",
+      "method": "POST",
+      "path": "/backlinks/competitors/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain to find link competitors for"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "backlinks_domain_intersection",
+      "description": "Find domains linking to competitors but not to your target — the backlink gap for link building opportunities",
+      "method": "POST",
+      "path": "/backlinks/domain_intersection/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "object",
+            "description": "Map of targets: {\"1\": \"competitor1.com\", \"2\": \"competitor2.com\"}"
+          },
+          "exclude_targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Domains to exclude (typically your own domain)"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "targets"
+        ]
+      }
+    },
+    {
+      "name": "bulk_domain_ranks",
+      "description": "Get domain/page rank scores for multiple targets in bulk — quick authority check",
+      "method": "POST",
+      "path": "/backlinks/bulk_ranks/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Domains or URLs to check (max 1000)"
+          }
+        },
+        "required": [
+          "targets"
+        ]
+      }
+    },
+    {
+      "name": "bulk_spam_score",
+      "description": "Check spam scores for multiple domains in bulk",
+      "method": "POST",
+      "path": "/backlinks/bulk_spam_score/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Domains to check spam score for (max 1000)"
+          }
+        },
+        "required": [
+          "targets"
+        ]
+      }
+    },
+    {
+      "name": "onpage_instant",
+      "description": "Instant single-page SEO analysis: meta tags, headings, content, images, links, Core Web Vitals, structured data",
+      "method": "POST",
+      "path": "/on_page/instant_pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Full URL to analyze"
+          },
+          "browser_preset": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile",
+              "tablet"
+            ],
+            "default": "desktop",
+            "description": "Device type"
+          },
+          "enable_javascript": {
+            "type": "boolean",
+            "default": true,
+            "description": "Execute JavaScript"
+          },
+          "validate_micromarkup": {
+            "type": "boolean",
+            "default": true,
+            "description": "Validate structured data"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "lighthouse",
+      "description": "Run a Google Lighthouse audit on a page — performance, accessibility, best practices, and SEO scores",
+      "method": "POST",
+      "path": "/on_page/lighthouse/live/json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Full URL to audit"
+          },
+          "for_mobile": {
+            "type": "boolean",
+            "default": false,
+            "description": "Run mobile audit (default is desktop)"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Categories to audit: performance, accessibility, best-practices, seo"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "content_parsing",
+      "description": "Extract and parse structured content from a web page — text, headings, links, images, and metadata",
+      "method": "POST",
+      "path": "/on_page/content_parsing/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Full URL to parse"
+          },
+          "enable_javascript": {
+            "type": "boolean",
+            "default": true,
+            "description": "Execute JavaScript"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "domain_technologies",
+      "description": "Detect all technologies used by a domain: CMS, frameworks, analytics, CDN, hosting, and more",
+      "method": "POST",
+      "path": "/domain_analytics/technologies/domain_technologies/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain to analyze (e.g., 'example.com')"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "domains_by_technology",
+      "description": "Find domains using a specific technology (e.g., 'WordPress', 'Shopify', 'React')",
+      "method": "POST",
+      "path": "/domain_analytics/technologies/domains_by_technology/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "technology_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Technology paths to search for (e.g., ['CMS.WordPress'])"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          },
+          "filters": {
+            "type": "array",
+            "description": "Additional filters"
+          }
+        },
+        "required": [
+          "technology_paths"
+        ]
+      }
+    },
+    {
+      "name": "domain_whois",
+      "description": "Get WHOIS information: registrar, creation/expiry dates, nameservers, and contact details",
+      "method": "POST",
+      "path": "/domain_analytics/whois/overview/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain to look up (e.g., 'example.com')"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "google_reviews",
+      "description": "Get Google reviews and ratings for a business location by name, CID, or Place ID",
+      "method": "POST",
+      "path": "/business_data/google/reviews/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Business name to search for"
+          },
+          "cid": {
+            "type": "string",
+            "description": "Google business entity ID"
+          },
+          "place_id": {
+            "type": "string",
+            "description": "Google Maps place ID"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4490,
+            "default": 10,
+            "description": "Number of reviews"
+          },
+          "sort_by": {
+            "type": "string",
+            "enum": [
+              "newest",
+              "highest_rating",
+              "lowest_rating",
+              "relevant"
+            ],
+            "default": "relevant",
+            "description": "Sort order"
+          }
+        }
+      }
+    },
+    {
+      "name": "google_business_info",
+      "description": "Get Google My Business / Knowledge Graph information for a business",
+      "method": "POST",
+      "path": "/business_data/google/my_business_info/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Business name to search for"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "content_analysis_search",
+      "description": "Find online mentions and citations for a keyword across the web with sentiment and source data",
+      "method": "POST",
+      "path": "/content_analysis/search/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Keyword or brand to search for"
+          },
+          "keyword_fields": {
+            "type": "object",
+            "description": "Where to search: {\"title\": true, \"main_content\": true}"
+          },
+          "page_type": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter by page type (e.g., ['blog', 'news'])"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 10,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "content_analysis_summary",
+      "description": "Get aggregated content analysis summary for a keyword: total mentions, sentiment breakdown, top sources",
+      "method": "POST",
+      "path": "/content_analysis/summary/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Keyword or brand"
+          },
+          "keyword_fields": {
+            "type": "object",
+            "description": "Where to search"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "content_sentiment",
+      "description": "Get sentiment polarity and connotation breakdown for a keyword across web content",
+      "method": "POST",
+      "path": "/content_analysis/sentiment_analysis/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Keyword or brand to analyze sentiment for"
+          },
+          "keyword_fields": {
+            "type": "object",
+            "description": "Where to search"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "google_trends",
+      "description": "Get Google Trends data for keywords — search interest over time with geographic breakdown",
+      "method": "POST",
+      "path": "/keywords_data/google_trends/explore/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Keywords to compare (max 5)"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          },
+          "date_from": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "date_to": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "web_searches",
+              "news_searches",
+              "google_shopping",
+              "youtube_searches",
+              "image_searches"
+            ],
+            "default": "web_searches",
+            "description": "Search type"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "ai_mentions",
+      "description": "Track brand or keyword mentions across LLM outputs (ChatGPT, Claude, etc.) — AI visibility monitoring",
+      "method": "POST",
+      "path": "/ai_optimization/llm_mentions/search/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Keyword or brand to track in AI outputs"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 10,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "ai_top_domains",
+      "description": "Get top domains mentioned by LLMs for a keyword — see which sites AI models recommend",
+      "method": "POST",
+      "path": "/ai_optimization/llm_mentions/top_domains/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Keyword to check top mentioned domains for"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Max results"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "account_info",
+      "description": "Get account balance, rate limits, and usage statistics",
+      "method": "GET",
+      "path": "/appendix/user_data",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

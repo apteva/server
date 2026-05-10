@@ -1,0 +1,115 @@
+{
+  "slug": "dune",
+  "name": "Dune Analytics",
+  "description": "On-chain SQL analytics \u2014 execute queries, get results from community dashboards, and access pre-built blockchain datasets.",
+  "logo": "https://www.google.com/s2/favicons?domain=dune.com&sz=128",
+  "categories": [
+    "analytics",
+    "on-chain",
+    "sql",
+    "blockchain",
+    "dashboards"
+  ],
+  "base_url": "https://api.dune.com/api/v1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-Dune-Api-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Dune Analytics API key (from https://dune.com/settings/api)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "execute_query",
+      "description": "Execute a Dune SQL query by ID. Returns an execution_id to poll for results.",
+      "method": "POST",
+      "path": "/execute-query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query_id": {
+            "type": "integer",
+            "description": "Dune query ID (from the query URL)"
+          },
+          "parameters": {
+            "type": "object",
+            "description": "Query parameters as key-value pairs"
+          }
+        },
+        "required": [
+          "query_id"
+        ]
+      }
+    },
+    {
+      "name": "get_results",
+      "description": "Get the latest results for a query (uses cached results if available).",
+      "method": "GET",
+      "path": "/get-results",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query_id": {
+            "type": "integer",
+            "description": "Dune query ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max rows to return",
+            "default": 100
+          }
+        },
+        "required": [
+          "query_id"
+        ]
+      }
+    },
+    {
+      "name": "get_execution_status",
+      "description": "Check the status of a running query execution.",
+      "method": "GET",
+      "path": "/get-execution-status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "execution_id": {
+            "type": "string",
+            "description": "Execution ID from execute-query"
+          }
+        },
+        "required": [
+          "execution_id"
+        ]
+      }
+    },
+    {
+      "name": "get_execution_results",
+      "description": "Get results for a specific execution (after it completes).",
+      "method": "GET",
+      "path": "/get-execution-results",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "execution_id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100
+          }
+        },
+        "required": [
+          "execution_id"
+        ]
+      }
+    }
+  ]
+}

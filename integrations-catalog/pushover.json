@@ -1,0 +1,137 @@
+{
+  "slug": "pushover",
+  "name": "Pushover",
+  "description": "Real-time push notifications to mobile and desktop devices",
+  "logo": "https://www.google.com/s2/favicons?domain=pushover.net&sz=128",
+  "categories": [
+    "communication",
+    "notifications"
+  ],
+  "base_url": "https://api.pushover.net/1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "query_params": {
+      "token": "{{app_token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "app_token",
+        "label": "Application Token",
+        "description": "Your Pushover application API token"
+      },
+      {
+        "name": "user_key",
+        "label": "User/Group Key",
+        "description": "Your Pushover user or group key (default recipient)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "send_notification",
+      "description": "Send a push notification. The user_key from your connection is used automatically.",
+      "method": "POST",
+      "path": "/messages.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Notification message body"
+          },
+          "title": {
+            "type": "string",
+            "description": "Notification title"
+          },
+          "user": {
+            "type": "string",
+            "description": "Override recipient user/group key (uses stored key if omitted)"
+          },
+          "priority": {
+            "type": "number",
+            "description": "Priority: -2 (lowest) to 2 (emergency)",
+            "default": 0
+          },
+          "sound": {
+            "type": "string",
+            "description": "Sound name (e.g. pushover, bike, bugle)"
+          },
+          "url": {
+            "type": "string",
+            "description": "Supplementary URL to show with the message"
+          },
+          "url_title": {
+            "type": "string",
+            "description": "Title for the supplementary URL"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "validate_user",
+      "description": "Validate a user or group key",
+      "method": "POST",
+      "path": "/users/validate.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "type": "string",
+            "description": "User or group key to validate"
+          }
+        },
+        "required": [
+          "user"
+        ]
+      }
+    },
+    {
+      "name": "list_sounds",
+      "description": "List available notification sounds",
+      "method": "GET",
+      "path": "/sounds.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "send_priority_alert",
+      "description": "Send a high-priority alert that requires acknowledgment",
+      "method": "POST",
+      "path": "/send-priority-alert",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "The alert message"
+          },
+          "title": {
+            "type": "string",
+            "description": "Alert title",
+            "default": "PRIORITY ALERT"
+          },
+          "expire": {
+            "type": "integer",
+            "description": "How long to keep sending alerts (seconds)",
+            "default": 3600
+          },
+          "retry": {
+            "type": "integer",
+            "description": "How often to retry (seconds)",
+            "default": 60
+          }
+        },
+        "required": [
+          "message"
+        ]
+      }
+    }
+  ]
+}

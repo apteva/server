@@ -1,0 +1,139 @@
+{
+  "slug": "serper",
+  "name": "Serper",
+  "description": "Google SERP API — fast, cheap structured access to Google Search, Maps, News, Images, Places, Shopping, Scholar, and Autocomplete. Excellent for local-business discovery via Google Maps and SERP scraping at scale.",
+  "logo": "https://www.google.com/s2/favicons?domain=serper.dev&sz=128",
+  "categories": ["search", "google", "serp", "maps", "news", "scraping", "prospecting"],
+  "base_url": "https://google.serper.dev",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "X-API-KEY": "{{api_key}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Serper API key from serper.dev/api-key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "Google Web Search. Returns organic results, knowledge graph, people-also-ask, related searches.",
+      "method": "POST",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string", "description": "Search query" },
+          "gl": { "type": "string", "description": "Country code (e.g. 'us', 'fr')" },
+          "hl": { "type": "string", "description": "Language code (e.g. 'en', 'fr')" },
+          "location": { "type": "string", "description": "Geographic location string, e.g. 'Lyon, France'" },
+          "num": { "type": "integer", "default": 10, "maximum": 100 },
+          "page": { "type": "integer", "default": 1 },
+          "tbs": { "type": "string", "description": "Time filter: 'qdr:d|w|m|y'" },
+          "autocorrect": { "type": "boolean", "default": true }
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "maps",
+      "description": "Google Maps search — returns local businesses with name, address, phone, website, rating, reviews count, hours, place id. Best raw data source for local SMB lead lists.",
+      "method": "POST",
+      "path": "/maps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string", "description": "Query, e.g. 'marketing agencies Lyon'" },
+          "ll": { "type": "string", "description": "Center as '@lat,lng,zoomz' e.g. '@45.764,4.835,14z'" },
+          "gl": { "type": "string" },
+          "hl": { "type": "string" },
+          "page": { "type": "integer", "default": 1 }
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "places",
+      "description": "Google Places search — variant of Maps focused on the Places card data.",
+      "method": "POST",
+      "path": "/places",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string" },
+          "location": { "type": "string" },
+          "gl": { "type": "string" },
+          "hl": { "type": "string" }
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "news",
+      "description": "Google News search. Use for buying-signal monitoring (funding, hires, product launches).",
+      "method": "POST",
+      "path": "/news",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string" },
+          "gl": { "type": "string" },
+          "hl": { "type": "string" },
+          "tbs": { "type": "string", "description": "'qdr:d|w|m|y'" },
+          "num": { "type": "integer", "default": 10 },
+          "page": { "type": "integer" }
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "autocomplete",
+      "description": "Google search autocomplete suggestions. Useful for keyword discovery and ICP-language research.",
+      "method": "POST",
+      "path": "/autocomplete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string" },
+          "gl": { "type": "string" },
+          "hl": { "type": "string" }
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "scholar",
+      "description": "Google Scholar search — useful for academic / R&D-heavy industries.",
+      "method": "POST",
+      "path": "/scholar",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string" },
+          "num": { "type": "integer", "default": 10 },
+          "page": { "type": "integer" }
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "webpage",
+      "description": "Fetch a single URL and return its rendered content. Use when you have the URL and just need the page.",
+      "method": "POST",
+      "path": "/webpage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" },
+          "includeMarkdown": { "type": "boolean", "default": true }
+        },
+        "required": ["url"]
+      }
+    }
+  ]
+}

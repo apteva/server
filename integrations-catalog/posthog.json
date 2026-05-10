@@ -1,0 +1,107 @@
+{
+  "slug": "posthog",
+  "name": "PostHog",
+  "description": "MCP server for PostHog - product analytics, feature flags, session replays, experiments",
+  "logo": "https://www.google.com/s2/favicons?domain=posthog.com&sz=128",
+  "categories": ["analytics", "product-analytics", "feature-flags", "experiments"],
+  "base_url": "https://us.i.posthog.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Personal API Key" },
+      { "name": "projectApiKey", "label": "Project API Key" },
+      { "name": "projectId", "label": "Project ID" },
+      { "name": "host", "label": "Host", "description": "us.i.posthog.com or eu.i.posthog.com" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "capture_event",
+      "description": "Capture a single event",
+      "method": "POST",
+      "path": "/capture/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_key": { "type": "string" },
+          "event": { "type": "string" },
+          "distinct_id": { "type": "string" },
+          "properties": { "type": "object" }
+        },
+        "required": ["api_key", "event", "distinct_id"]
+      }
+    },
+    {
+      "name": "batch_capture",
+      "description": "Capture a batch of events",
+      "method": "POST",
+      "path": "/batch/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_key": { "type": "string" },
+          "batch": { "type": "array" }
+        },
+        "required": ["api_key", "batch"]
+      }
+    },
+    {
+      "name": "identify_user",
+      "description": "Set person properties",
+      "method": "POST",
+      "path": "/capture/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_key": { "type": "string" },
+          "distinct_id": { "type": "string" },
+          "properties": { "type": "object" }
+        },
+        "required": ["api_key", "distinct_id"]
+      }
+    },
+    {
+      "name": "list_feature_flags",
+      "description": "List feature flags in a project",
+      "method": "GET",
+      "path": "/api/projects/{project_id}/feature_flags/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "project_id": { "type": "string" } },
+        "required": ["project_id"]
+      }
+    },
+    {
+      "name": "create_feature_flag",
+      "description": "Create a feature flag",
+      "method": "POST",
+      "path": "/api/projects/{project_id}/feature_flags/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "key": { "type": "string" },
+          "name": { "type": "string" },
+          "active": { "type": "boolean" },
+          "filters": { "type": "object" }
+        },
+        "required": ["project_id", "key"]
+      }
+    },
+    {
+      "name": "run_insight",
+      "description": "Run an insight query",
+      "method": "POST",
+      "path": "/api/projects/{project_id}/query/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "query": { "type": "object" }
+        },
+        "required": ["project_id", "query"]
+      }
+    }
+  ]
+}

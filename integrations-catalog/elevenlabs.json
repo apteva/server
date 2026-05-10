@@ -1,0 +1,376 @@
+{
+  "slug": "elevenlabs",
+  "name": "ElevenLabs",
+  "description": "AI voice synthesis and music generation platform with text-to-speech, voice cloning, and AI music composition",
+  "logo": "https://www.google.com/s2/favicons?domain=elevenlabs.io&sz=128",
+  "categories": [
+    "ai",
+    "voice",
+    "text-to-speech",
+    "audio",
+    "voice-cloning",
+    "music",
+    "speech-synthesis"
+  ],
+  "base_url": "https://api.elevenlabs.io/v1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "xi-api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your ElevenLabs API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "generate_speech",
+      "description": "Convert text to speech with AI voices and customizable voice settings",
+      "method": "GET",
+      "path": "/generate-speech",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "ElevenLabs API key (required)"
+          },
+          "text": {
+            "type": "string",
+            "description": "Text to convert to speech (required)"
+          },
+          "voice_id": {
+            "type": "string",
+            "description": "Voice ID to use (required)"
+          },
+          "model_id": {
+            "type": "string",
+            "default": "eleven_multilingual_v2",
+            "description": "ElevenLabs model ID (e.g. eleven_multilingual_v2, eleven_turbo_v2_5, eleven_flash_v2_5)"
+          },
+          "stability": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.5,
+            "description": "Voice stability (0.0-1.0)"
+          },
+          "similarity_boost": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.5,
+            "description": "Similarity boost (0.0-1.0)"
+          },
+          "style": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0,
+            "description": "Style setting (0.0-1.0)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code for multilingual models (e.g. en, es, fr, de, ja)"
+          },
+          "output_format": {
+            "type": "string",
+            "default": "mp3_44100_128",
+            "description": "Output format (mp3_44100_128, pcm_16000, pcm_22050, pcm_24000, pcm_44100, ulaw_8000)"
+          },
+          "seed": {
+            "type": "integer",
+            "description": "Seed for deterministic generation"
+          },
+          "previous_text": {
+            "type": "string",
+            "description": "Text that comes before the current text for context"
+          },
+          "next_text": {
+            "type": "string",
+            "description": "Text that comes after the current text for context"
+          },
+          "apply_text_normalization": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "on",
+              "off"
+            ],
+            "default": "auto",
+            "description": "Text normalization mode"
+          }
+        },
+        "required": [
+          "apiKey",
+          "text",
+          "voice_id"
+        ]
+      }
+    },
+    {
+      "name": "list_voices",
+      "description": "Get available AI voices with pagination, search, and filtering support",
+      "method": "GET",
+      "path": "/list-voices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "ElevenLabs API key (required)"
+          },
+          "next_page_token": {
+            "type": "string",
+            "description": "Token for pagination from previous response"
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 10,
+            "description": "Number of voices to return (max 100, default 10)"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search by name, description, labels, and category"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "created_at_unix",
+              "name"
+            ],
+            "description": "Sort field"
+          },
+          "sort_direction": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "description": "Sort order"
+          },
+          "voice_type": {
+            "type": "string",
+            "enum": [
+              "personal",
+              "community",
+              "default",
+              "workspace",
+              "non-default",
+              "saved"
+            ],
+            "description": "Filter by voice type"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "premade",
+              "cloned",
+              "generated",
+              "professional"
+            ],
+            "description": "Filter by category"
+          },
+          "fine_tuning_state": {
+            "type": "string",
+            "description": "Filter professional voice clones by state"
+          },
+          "collection_id": {
+            "type": "string",
+            "description": "Filter voices by collection ID"
+          },
+          "include_total_count": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include total count of voices in response"
+          },
+          "voice_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "description": "Voice IDs to lookup (max 100)"
+          }
+        },
+        "required": [
+          "apiKey"
+        ]
+      }
+    },
+    {
+      "name": "clone_voice",
+      "description": "Create a custom voice clone from audio samples for personalized speech synthesis",
+      "method": "GET",
+      "path": "/clone-voice",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "ElevenLabs API key (required)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name for the cloned voice (required)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description for the cloned voice"
+          },
+          "audio_files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "data": {
+                  "type": "string",
+                  "description": "Base64 encoded audio data"
+                },
+                "filename": {
+                  "type": "string",
+                  "description": "Filename for the audio file"
+                },
+                "contentType": {
+                  "type": "string",
+                  "description": "Content type (e.g., audio/wav)"
+                }
+              }
+            },
+            "description": "Array of audio file data (base64 encoded, 1-25 files)"
+          },
+          "labels": {
+            "type": "object",
+            "description": "Labels for the voice (accent, age, gender, etc.)"
+          },
+          "remove_background_noise": {
+            "type": "boolean",
+            "default": false,
+            "description": "Remove background noise from audio samples before cloning"
+          }
+        },
+        "required": [
+          "apiKey",
+          "name",
+          "audio_files"
+        ]
+      }
+    },
+    {
+      "name": "compose_music",
+      "description": "Generate AI music composition from text prompts with customizable duration and style",
+      "method": "GET",
+      "path": "/compose-music",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "ElevenLabs API key (required)"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Text description of desired music (required if composition_plan not provided)"
+          },
+          "composition_plan": {
+            "type": "object",
+            "description": "JSON composition plan object (required if prompt not provided)"
+          },
+          "music_length_ms": {
+            "type": "number",
+            "minimum": 3000,
+            "maximum": 600000,
+            "default": 30000,
+            "description": "Music length in milliseconds (3000-600000, 3 seconds to 10 minutes)"
+          },
+          "output_format": {
+            "type": "string",
+            "default": "mp3",
+            "description": "Audio output format (mp3 or wav)"
+          },
+          "model_id": {
+            "type": "string",
+            "description": "Model ID for music generation"
+          },
+          "force_instrumental": {
+            "type": "boolean",
+            "description": "Force instrumental-only output (no vocals)"
+          },
+          "seed": {
+            "type": "integer",
+            "description": "Seed for deterministic generation"
+          }
+        },
+        "required": [
+          "apiKey"
+        ]
+      }
+    },
+    {
+      "name": "get_music_generation",
+      "description": "Get status and download URL for music generation task",
+      "method": "GET",
+      "path": "/get-music-generation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "ElevenLabs API key (required)"
+          },
+          "generation_id": {
+            "type": "string",
+            "description": "ID of the music generation to retrieve (required)"
+          },
+          "include_audio": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether to include audio data in response when completed"
+          }
+        },
+        "required": [
+          "apiKey",
+          "generation_id"
+        ]
+      }
+    },
+    {
+      "name": "create_composition_plan",
+      "description": "Generate detailed composition plans from prompts for fine-grained music control",
+      "method": "POST",
+      "path": "/create-composition-plan",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "ElevenLabs API key (required)"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Text description of desired music for plan generation (required)"
+          },
+          "music_length_ms": {
+            "type": "number",
+            "minimum": 3000,
+            "maximum": 600000,
+            "default": 30000,
+            "description": "Target music length in milliseconds (3000-600000)"
+          }
+        },
+        "required": [
+          "apiKey",
+          "prompt"
+        ]
+      }
+    }
+  ]
+}

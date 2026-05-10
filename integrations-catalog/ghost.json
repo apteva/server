@@ -1,0 +1,439 @@
+{
+  "slug": "ghost",
+  "name": "Ghost",
+  "description": "MCP server for Ghost CMS operations - posts, pages, tags, authors, and members",
+  "logo": "https://www.google.com/s2/favicons?domain=ghost.org&sz=128",
+  "categories": [
+    "cms",
+    "ghost",
+    "blog",
+    "publishing",
+    "content"
+  ],
+  "base_url": "configurable",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_posts",
+      "description": "List posts from Ghost",
+      "method": "GET",
+      "path": "/list-posts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiUrl": {
+            "type": "string",
+            "description": "Ghost API URL"
+          },
+          "include": {
+            "type": "string",
+            "description": "Relations to include (tags, authors)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum results",
+            "default": 15
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "order": {
+            "type": "string",
+            "description": "Sort order"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Filter expression"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields to return"
+          }
+        },
+        "required": [
+          "apiUrl"
+        ]
+      }
+    },
+    {
+      "name": "get_post",
+      "description": "Get a specific post from Ghost",
+      "method": "GET",
+      "path": "/get-post",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiUrl": {
+            "type": "string",
+            "description": "Ghost API URL"
+          },
+          "postId": {
+            "type": "string",
+            "description": "Post ID"
+          },
+          "slug": {
+            "type": "string",
+            "description": "Post slug (alternative to ID)"
+          },
+          "include": {
+            "type": "string",
+            "description": "Relations to include"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields to return"
+          }
+        },
+        "required": [
+          "apiUrl"
+        ]
+      }
+    },
+    {
+      "name": "create_post",
+      "description": "Create a new post in Ghost (requires Admin API key)",
+      "method": "POST",
+      "path": "/create-post",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiUrl": {
+            "type": "string",
+            "description": "Ghost API URL"
+          },
+          "title": {
+            "type": "string",
+            "description": "Post title"
+          },
+          "html": {
+            "type": "string",
+            "description": "HTML content"
+          },
+          "mobiledoc": {
+            "type": "string",
+            "description": "Mobiledoc content"
+          },
+          "lexical": {
+            "type": "string",
+            "description": "Lexical content"
+          },
+          "status": {
+            "type": "string",
+            "description": "Post status (draft, published)",
+            "default": "draft"
+          },
+          "slug": {
+            "type": "string",
+            "description": "URL slug"
+          },
+          "featureImage": {
+            "type": "string",
+            "description": "Feature image URL"
+          },
+          "tags": {
+            "type": "array",
+            "description": "Tags array"
+          },
+          "authors": {
+            "type": "array",
+            "description": "Authors array"
+          },
+          "publishedAt": {
+            "type": "string",
+            "description": "Publish date"
+          },
+          "excerpt": {
+            "type": "string",
+            "description": "Custom excerpt"
+          },
+          "metaTitle": {
+            "type": "string",
+            "description": "SEO title"
+          },
+          "metaDescription": {
+            "type": "string",
+            "description": "SEO description"
+          }
+        },
+        "required": [
+          "apiUrl",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "update_post",
+      "description": "Update a post in Ghost (requires Admin API key)",
+      "method": "PUT",
+      "path": "/update-post",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiUrl": {
+            "type": "string",
+            "description": "Ghost API URL"
+          },
+          "postId": {
+            "type": "string",
+            "description": "Post ID"
+          },
+          "updatedAt": {
+            "type": "string",
+            "description": "Current updated_at value (required for updates)"
+          },
+          "title": {
+            "type": "string",
+            "description": "Post title"
+          },
+          "html": {
+            "type": "string",
+            "description": "HTML content"
+          },
+          "status": {
+            "type": "string",
+            "description": "Post status"
+          },
+          "slug": {
+            "type": "string",
+            "description": "URL slug"
+          },
+          "featureImage": {
+            "type": "string",
+            "description": "Feature image URL"
+          },
+          "tags": {
+            "type": "array",
+            "description": "Tags array"
+          },
+          "excerpt": {
+            "type": "string",
+            "description": "Custom excerpt"
+          }
+        },
+        "required": [
+          "apiUrl",
+          "postId",
+          "updatedAt"
+        ]
+      }
+    },
+    {
+      "name": "delete_post",
+      "description": "Delete a post from Ghost (requires Admin API key)",
+      "method": "DELETE",
+      "path": "/delete-post",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiUrl": {
+            "type": "string",
+            "description": "Ghost API URL"
+          },
+          "postId": {
+            "type": "string",
+            "description": "Post ID"
+          }
+        },
+        "required": [
+          "apiUrl",
+          "postId"
+        ]
+      }
+    },
+    {
+      "name": "list_pages",
+      "description": "List pages from Ghost",
+      "method": "GET",
+      "path": "/list-pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiUrl": {
+            "type": "string",
+            "description": "Ghost API URL"
+          },
+          "include": {
+            "type": "string",
+            "description": "Relations to include"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum results",
+            "default": 15
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "order": {
+            "type": "string",
+            "description": "Sort order"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Filter expression"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields to return"
+          }
+        },
+        "required": [
+          "apiUrl"
+        ]
+      }
+    },
+    {
+      "name": "list_tags",
+      "description": "List tags from Ghost",
+      "method": "GET",
+      "path": "/list-tags",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiUrl": {
+            "type": "string",
+            "description": "Ghost API URL"
+          },
+          "include": {
+            "type": "string",
+            "description": "Relations to include (count.posts)"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum results",
+            "default": "all"
+          },
+          "order": {
+            "type": "string",
+            "description": "Sort order"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Filter expression"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields to return"
+          }
+        },
+        "required": [
+          "apiUrl"
+        ]
+      }
+    },
+    {
+      "name": "list_authors",
+      "description": "List authors from Ghost",
+      "method": "GET",
+      "path": "/list-authors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiUrl": {
+            "type": "string",
+            "description": "Ghost API URL"
+          },
+          "include": {
+            "type": "string",
+            "description": "Relations to include (count.posts)"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum results",
+            "default": "all"
+          },
+          "order": {
+            "type": "string",
+            "description": "Sort order"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Filter expression"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields to return"
+          }
+        },
+        "required": [
+          "apiUrl"
+        ]
+      }
+    },
+    {
+      "name": "list_members",
+      "description": "List members from Ghost (requires Admin API key)",
+      "method": "GET",
+      "path": "/list-members",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiUrl": {
+            "type": "string",
+            "description": "Ghost API URL"
+          },
+          "include": {
+            "type": "string",
+            "description": "Relations to include"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum results",
+            "default": 15
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "order": {
+            "type": "string",
+            "description": "Sort order"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Filter expression"
+          }
+        },
+        "required": [
+          "apiUrl"
+        ]
+      }
+    },
+    {
+      "name": "get_site",
+      "description": "Get site settings from Ghost",
+      "method": "GET",
+      "path": "/get-site",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiUrl": {
+            "type": "string",
+            "description": "Ghost API URL"
+          }
+        },
+        "required": [
+          "apiUrl"
+        ]
+      }
+    }
+  ]
+}

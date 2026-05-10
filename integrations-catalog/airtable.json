@@ -1,0 +1,597 @@
+{
+  "slug": "airtable",
+  "name": "Airtable",
+  "description": "MCP server for Airtable - bases, tables, records, fields, views, and webhooks via the Airtable REST API",
+  "logo": "https://www.google.com/s2/favicons?domain=airtable.com&sz=128",
+  "categories": [
+    "database",
+    "airtable",
+    "records",
+    "tables",
+    "spreadsheet",
+    "data"
+  ],
+  "base_url": "https://api.airtable.com/v0",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "token_type",
+        "label": "token_type"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://airtable.com/oauth2/v1/authorize",
+      "token_url": "https://airtable.com/oauth2/v1/token",
+      "scopes": [
+        "data.records:read",
+        "data.records:write",
+        "schema.bases:read",
+        "schema.bases:write",
+        "webhook:manage",
+        "user.email:read"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "list_bases",
+      "description": "List all accessible Airtable bases with their IDs, names, and permission levels",
+      "method": "GET",
+      "path": "/meta/bases",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "string",
+            "description": "Pagination offset from previous response"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_base_schema",
+      "description": "Get the schema of an Airtable base including all tables, fields, and their types",
+      "method": "GET",
+      "path": "/meta/bases/{base_id}/tables",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "description": "The ID of the Airtable base (e.g. appXXXXXXXXXX)"
+          }
+        },
+        "required": [
+          "base_id"
+        ]
+      }
+    },
+    {
+      "name": "create_table",
+      "description": "Create a new table in an Airtable base with specified fields",
+      "method": "POST",
+      "path": "/meta/bases/{base_id}/tables",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "description": "The ID of the Airtable base"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name of the new table"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description of the table"
+          },
+          "fields": {
+            "type": "array",
+            "description": "Array of field definitions with name, type, and options",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "description": "Field type: singleLineText, multilineText, number, percent, currency, email, url, checkbox, singleSelect, multipleSelects, date, dateTime, etc."
+                },
+                "description": {
+                  "type": "string"
+                },
+                "options": {
+                  "type": "object",
+                  "description": "Type-specific options (e.g. choices for select fields)"
+                }
+              },
+              "required": [
+                "name",
+                "type"
+              ]
+            }
+          }
+        },
+        "required": [
+          "base_id",
+          "name",
+          "fields"
+        ]
+      }
+    },
+    {
+      "name": "update_table",
+      "description": "Update a table's name or description",
+      "method": "PATCH",
+      "path": "/meta/bases/{base_id}/tables/{table_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "description": "The ID of the Airtable base"
+          },
+          "table_id": {
+            "type": "string",
+            "description": "The ID of the table to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New table name"
+          },
+          "description": {
+            "type": "string",
+            "description": "New table description"
+          }
+        },
+        "required": [
+          "base_id",
+          "table_id"
+        ]
+      }
+    },
+    {
+      "name": "create_field",
+      "description": "Add a new field (column) to an existing table",
+      "method": "POST",
+      "path": "/meta/bases/{base_id}/tables/{table_id}/fields",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "description": "The ID of the Airtable base"
+          },
+          "table_id": {
+            "type": "string",
+            "description": "The ID of the table"
+          },
+          "name": {
+            "type": "string",
+            "description": "Field name"
+          },
+          "type": {
+            "type": "string",
+            "description": "Field type: singleLineText, multilineText, number, percent, currency, email, url, checkbox, singleSelect, multipleSelects, date, dateTime, phoneNumber, rating, richText, etc."
+          },
+          "description": {
+            "type": "string",
+            "description": "Field description"
+          },
+          "options": {
+            "type": "object",
+            "description": "Type-specific options (e.g. choices for select, precision for number)"
+          }
+        },
+        "required": [
+          "base_id",
+          "table_id",
+          "name",
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "update_field",
+      "description": "Update a field's name, description, or type-specific options",
+      "method": "PATCH",
+      "path": "/meta/bases/{base_id}/tables/{table_id}/fields/{field_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "description": "The ID of the Airtable base"
+          },
+          "table_id": {
+            "type": "string",
+            "description": "The ID of the table"
+          },
+          "field_id": {
+            "type": "string",
+            "description": "The ID of the field to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New field name"
+          },
+          "description": {
+            "type": "string",
+            "description": "New field description"
+          }
+        },
+        "required": [
+          "base_id",
+          "table_id",
+          "field_id"
+        ]
+      }
+    },
+    {
+      "name": "list_records",
+      "description": "List records from a table with optional filtering, sorting, and field selection. Supports Airtable formula filtering.",
+      "method": "GET",
+      "path": "/{base_id}/{table_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "description": "The ID of the Airtable base"
+          },
+          "table_id": {
+            "type": "string",
+            "description": "The ID or name of the table"
+          },
+          "maxRecords": {
+            "type": "integer",
+            "description": "Maximum number of records to return (max 100 per page)"
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "Number of records per page (max 100)"
+          },
+          "offset": {
+            "type": "string",
+            "description": "Pagination offset from previous response"
+          },
+          "filterByFormula": {
+            "type": "string",
+            "description": "Airtable formula to filter records, e.g. {Status}='Active'"
+          },
+          "sort_field": {
+            "type": "string",
+            "description": "Field name to sort by"
+          },
+          "sort_direction": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "description": "Sort direction"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Only return these specific field names"
+          },
+          "view": {
+            "type": "string",
+            "description": "Name or ID of a view to use (applies its filters/sorts)"
+          }
+        },
+        "required": [
+          "base_id",
+          "table_id"
+        ]
+      }
+    },
+    {
+      "name": "get_record",
+      "description": "Get a single record by its ID",
+      "method": "GET",
+      "path": "/{base_id}/{table_id}/{record_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "description": "The ID of the Airtable base"
+          },
+          "table_id": {
+            "type": "string",
+            "description": "The ID or name of the table"
+          },
+          "record_id": {
+            "type": "string",
+            "description": "The ID of the record (recXXXXXXXXXX)"
+          }
+        },
+        "required": [
+          "base_id",
+          "table_id",
+          "record_id"
+        ]
+      }
+    },
+    {
+      "name": "create_records",
+      "description": "Create one or more records in a table. Supports up to 10 records per call.",
+      "method": "POST",
+      "path": "/{base_id}/{table_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "description": "The ID of the Airtable base"
+          },
+          "table_id": {
+            "type": "string",
+            "description": "The ID or name of the table"
+          },
+          "records": {
+            "type": "array",
+            "description": "Array of records to create, each with a fields object",
+            "items": {
+              "type": "object",
+              "properties": {
+                "fields": {
+                  "type": "object",
+                  "description": "Field values for the record"
+                }
+              },
+              "required": [
+                "fields"
+              ]
+            }
+          },
+          "typecast": {
+            "type": "boolean",
+            "description": "If true, Airtable will try to convert string values to the appropriate cell type"
+          }
+        },
+        "required": [
+          "base_id",
+          "table_id",
+          "records"
+        ]
+      }
+    },
+    {
+      "name": "update_records",
+      "description": "Update one or more existing records. Supports up to 10 records per call. Uses PATCH (partial update).",
+      "method": "PATCH",
+      "path": "/{base_id}/{table_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "description": "The ID of the Airtable base"
+          },
+          "table_id": {
+            "type": "string",
+            "description": "The ID or name of the table"
+          },
+          "records": {
+            "type": "array",
+            "description": "Array of records to update, each with id and fields",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Record ID"
+                },
+                "fields": {
+                  "type": "object",
+                  "description": "Fields to update"
+                }
+              },
+              "required": [
+                "id",
+                "fields"
+              ]
+            }
+          },
+          "typecast": {
+            "type": "boolean",
+            "description": "If true, Airtable will try to convert string values to the appropriate cell type"
+          }
+        },
+        "required": [
+          "base_id",
+          "table_id",
+          "records"
+        ]
+      }
+    },
+    {
+      "name": "delete_records",
+      "description": "Delete one or more records by their IDs. Supports up to 10 records per call.",
+      "method": "DELETE",
+      "path": "/{base_id}/{table_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "description": "The ID of the Airtable base"
+          },
+          "table_id": {
+            "type": "string",
+            "description": "The ID or name of the table"
+          },
+          "record_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of record IDs to delete (max 10)"
+          }
+        },
+        "required": [
+          "base_id",
+          "table_id",
+          "record_ids"
+        ]
+      }
+    },
+    {
+      "name": "list_views",
+      "description": "List all views in a table with their types (grid, form, calendar, gallery, kanban)",
+      "method": "GET",
+      "path": "/meta/bases/{base_id}/tables/{table_id}/views",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "description": "The ID of the Airtable base"
+          },
+          "table_id": {
+            "type": "string",
+            "description": "The ID of the table"
+          }
+        },
+        "required": [
+          "base_id",
+          "table_id"
+        ]
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a webhook to receive notifications when records change in a base",
+      "method": "POST",
+      "path": "/bases/{base_id}/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "description": "The ID of the Airtable base"
+          },
+          "notificationUrl": {
+            "type": "string",
+            "description": "URL to receive webhook notifications"
+          },
+          "specification": {
+            "type": "object",
+            "description": "Webhook specification defining triggers",
+            "properties": {
+              "options": {
+                "type": "object",
+                "properties": {
+                  "filters": {
+                    "type": "object",
+                    "description": "Filter conditions for the webhook"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "base_id",
+          "notificationUrl"
+        ]
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List all webhooks for a base",
+      "method": "GET",
+      "path": "/bases/{base_id}/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "description": "The ID of the Airtable base"
+          }
+        },
+        "required": [
+          "base_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete a webhook by its ID",
+      "method": "DELETE",
+      "path": "/bases/{base_id}/webhooks/{webhook_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "description": "The ID of the Airtable base"
+          },
+          "webhook_id": {
+            "type": "string",
+            "description": "The ID of the webhook to delete"
+          }
+        },
+        "required": [
+          "base_id",
+          "webhook_id"
+        ]
+      }
+    },
+    {
+      "name": "get_webhook_payloads",
+      "description": "Retrieve webhook payloads (change notifications) for a webhook",
+      "method": "GET",
+      "path": "/bases/{base_id}/webhooks/{webhook_id}/payloads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_id": {
+            "type": "string",
+            "description": "The ID of the Airtable base"
+          },
+          "webhook_id": {
+            "type": "string",
+            "description": "The ID of the webhook"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Cursor for pagination"
+          }
+        },
+        "required": [
+          "base_id",
+          "webhook_id"
+        ]
+      }
+    }
+  ]
+}

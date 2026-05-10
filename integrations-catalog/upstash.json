@@ -1,0 +1,90 @@
+{
+  "slug": "upstash",
+  "name": "Upstash",
+  "description": "MCP server for Upstash - serverless Redis and Kafka databases, REST commands",
+  "logo": "https://www.google.com/s2/favicons?domain=upstash.com&sz=128",
+  "categories": ["database", "redis", "kafka", "serverless", "cache"],
+  "base_url": "https://api.upstash.com/v2",
+  "auth": {
+    "types": ["basic"],
+    "headers": { "Authorization": "Basic {{basic}}" },
+    "credential_fields": [
+      { "name": "email", "label": "Account Email", "description": "Used as HTTP Basic username" },
+      { "name": "apiKey", "label": "Management API Key" },
+      { "name": "redisRestUrl", "label": "Redis REST URL", "description": "For data-plane commands" },
+      { "name": "redisRestToken", "label": "Redis REST Token" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_redis_databases",
+      "description": "List Redis databases",
+      "method": "GET",
+      "path": "/redis/databases",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_redis_database",
+      "description": "Create a Redis database",
+      "method": "POST",
+      "path": "/redis/database",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "region": { "type": "string" },
+          "tls": { "type": "boolean" },
+          "primary_region": { "type": "string" },
+          "read_regions": { "type": "array" }
+        },
+        "required": ["name", "region"]
+      }
+    },
+    {
+      "name": "delete_redis_database",
+      "description": "Delete a Redis database",
+      "method": "DELETE",
+      "path": "/redis/database/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "redis_command",
+      "description": "Execute a Redis command against a database (use redisRestUrl as base)",
+      "method": "POST",
+      "path": "{redis_rest_url}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "redis_rest_url": { "type": "string" },
+          "command": { "type": "array", "items": { "type": "string" }, "description": "e.g. [\"SET\", \"key\", \"value\"]" }
+        },
+        "required": ["redis_rest_url", "command"]
+      }
+    },
+    {
+      "name": "redis_pipeline",
+      "description": "Execute multiple Redis commands in a pipeline",
+      "method": "POST",
+      "path": "{redis_rest_url}/pipeline",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "redis_rest_url": { "type": "string" },
+          "commands": { "type": "array" }
+        },
+        "required": ["redis_rest_url", "commands"]
+      }
+    },
+    {
+      "name": "list_kafka_clusters",
+      "description": "List Kafka clusters",
+      "method": "GET",
+      "path": "/kafka/clusters",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

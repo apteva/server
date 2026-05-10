@@ -1,0 +1,193 @@
+{
+  "slug": "zoo",
+  "name": "Zoo (KittyCAD)",
+  "description": "MCP server for Zoo - AI-powered Text-to-CAD, file conversion, and 3D model analysis",
+  "logo": "https://www.google.com/s2/favicons?domain=zoo.dev&sz=128",
+  "categories": [
+    "cad",
+    "3d-modeling",
+    "text-to-cad",
+    "ai",
+    "step",
+    "file-conversion"
+  ],
+  "base_url": "https://api.zoo.dev",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Your Zoo API token (get from zoo.dev account settings)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "text_to_cad",
+      "description": "Generate a CAD model from a text prompt (outputs real STEP files)",
+      "method": "GET",
+      "path": "/text-to-cad",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Text description of the CAD model to generate"
+          },
+          "output_format": {
+            "type": "string",
+            "description": "Output format (step, stl, obj, gltf, glb, fbx)",
+            "enum": [
+              "step",
+              "stl",
+              "obj",
+              "gltf",
+              "glb",
+              "fbx",
+              "ply"
+            ],
+            "default": "step"
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "text_to_cad_get",
+      "description": "Get the status and result of a text-to-CAD generation",
+      "method": "GET",
+      "path": "/text-to-cad-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "The task ID from text-to-cad generation"
+          }
+        },
+        "required": [
+          "taskId"
+        ]
+      }
+    },
+    {
+      "name": "file_convert",
+      "description": "Convert between CAD file formats (STEP, STL, OBJ, GLTF, etc.)",
+      "method": "GET",
+      "path": "/file-convert",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Base64 encoded CAD file"
+          },
+          "src_format": {
+            "type": "string",
+            "description": "Source file format"
+          },
+          "output_format": {
+            "type": "string",
+            "description": "Target file format"
+          }
+        },
+        "required": [
+          "file",
+          "src_format",
+          "output_format"
+        ]
+      }
+    },
+    {
+      "name": "file_volume",
+      "description": "Calculate the volume of a 3D model",
+      "method": "GET",
+      "path": "/file-volume",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Base64 encoded 3D model file"
+          },
+          "src_format": {
+            "type": "string",
+            "description": "File format (step, stl, obj, etc.)"
+          }
+        },
+        "required": [
+          "file",
+          "src_format"
+        ]
+      }
+    },
+    {
+      "name": "file_mass",
+      "description": "Calculate the mass of a 3D model given material density",
+      "method": "GET",
+      "path": "/file-mass",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Base64 encoded 3D model file"
+          },
+          "src_format": {
+            "type": "string",
+            "description": "File format"
+          },
+          "material_density": {
+            "type": "number",
+            "description": "Material density in g/cm³ (default: 1.0)"
+          }
+        },
+        "required": [
+          "file",
+          "src_format"
+        ]
+      }
+    },
+    {
+      "name": "file_surface_area",
+      "description": "Calculate the surface area of a 3D model",
+      "method": "GET",
+      "path": "/file-surface-area",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Base64 encoded 3D model file"
+          },
+          "src_format": {
+            "type": "string",
+            "description": "File format"
+          }
+        },
+        "required": [
+          "file",
+          "src_format"
+        ]
+      }
+    },
+    {
+      "name": "user_get",
+      "description": "Get the current user's information and API usage",
+      "method": "GET",
+      "path": "/user-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

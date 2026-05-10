@@ -1,0 +1,261 @@
+{
+  "slug": "pinterest-ads",
+  "name": "Pinterest Ads",
+  "description": "Pinterest Ads API v5 — manage ad accounts, campaigns, ad groups, ads, audiences, conversion events, and pull analytics for Pinterest's promoted-pin ecosystem",
+  "logo": "https://www.google.com/s2/favicons?domain=ads.pinterest.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "social-ads",
+    "pinterest",
+    "shopping-ads"
+  ],
+  "base_url": "https://api.pinterest.com/v5",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token",
+        "type": "password"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token",
+        "type": "password"
+      },
+      {
+        "name": "ad_account_id",
+        "label": "Default Ad Account ID",
+        "description": "Default ad account id used when a tool input omits one"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://www.pinterest.com/oauth/",
+      "token_url": "https://api.pinterest.com/v5/oauth/token",
+      "scopes": [
+        "ads:read",
+        "ads:write",
+        "user_accounts:read",
+        "boards:read",
+        "pins:read",
+        "catalogs:read"
+      ],
+      "client_id_required": true,
+      "pkce": true
+    }
+  },
+  "tools": [
+    {
+      "name": "list_ad_accounts",
+      "description": "List ad accounts the authenticated user can access. Use include_shared_accounts=true to include accounts owned by other users that grant access.",
+      "method": "GET",
+      "path": "/ad_accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "include_shared_accounts": { "type": "boolean", "default": true },
+          "page_size": { "type": "integer", "default": 25, "description": "Max 250" },
+          "bookmark": { "type": "string", "description": "Pagination cursor from previous response" }
+        }
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List campaigns under an ad account. Filter by entity_statuses (ACTIVE|PAUSED|ARCHIVED|DRAFT) or campaign_ids.",
+      "method": "GET",
+      "path": "/ad_accounts/{ad_account_id}/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "campaign_ids": { "type": "array", "items": { "type": "string" } },
+          "entity_statuses": { "type": "array", "items": { "type": "string", "enum": ["ACTIVE", "PAUSED", "ARCHIVED", "DRAFT"] } },
+          "page_size": { "type": "integer", "default": 25 },
+          "order": { "type": "string", "enum": ["ASCENDING", "DESCENDING"] },
+          "bookmark": { "type": "string" }
+        },
+        "required": ["ad_account_id"]
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create one or more campaigns. objective_type values: AWARENESS, CONSIDERATION, VIDEO_VIEW, WEB_CONVERSION, CATALOG_SALES, WEB_SESSIONS. Provide either daily_spend_cap (micros) or lifetime_spend_cap. status: ACTIVE|PAUSED. Body is an array of campaign objects.",
+      "method": "POST",
+      "path": "/ad_accounts/{ad_account_id}/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "campaigns": {
+            "type": "array",
+            "items": { "type": "object" },
+            "description": "Each: {name, objective_type, status, daily_spend_cap?, lifetime_spend_cap?, start_time?, end_time?, default_ad_group_budget_in_micro_currency?}"
+          }
+        },
+        "required": ["ad_account_id", "campaigns"]
+      }
+    },
+    {
+      "name": "update_campaigns",
+      "description": "Update one or more campaigns. Each item must include id; only provided fields are mutated.",
+      "method": "PATCH",
+      "path": "/ad_accounts/{ad_account_id}/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "campaigns": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["ad_account_id", "campaigns"]
+      }
+    },
+    {
+      "name": "list_ad_groups",
+      "description": "List ad groups under an ad account, optionally scoped to specific campaign_ids.",
+      "method": "GET",
+      "path": "/ad_accounts/{ad_account_id}/ad_groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "campaign_ids": { "type": "array", "items": { "type": "string" } },
+          "ad_group_ids": { "type": "array", "items": { "type": "string" } },
+          "entity_statuses": { "type": "array", "items": { "type": "string" } },
+          "page_size": { "type": "integer", "default": 25 },
+          "bookmark": { "type": "string" }
+        },
+        "required": ["ad_account_id"]
+      }
+    },
+    {
+      "name": "create_ad_group",
+      "description": "Create one or more ad groups under campaigns. Each requires name, campaign_id, billable_event (CLICKTHROUGH|IMPRESSION|VIDEO_V_50_MRC), status, optimization_goal_metadata, targeting_spec, and either daily/lifetime budget (in micros).",
+      "method": "POST",
+      "path": "/ad_accounts/{ad_account_id}/ad_groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "ad_groups": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["ad_account_id", "ad_groups"]
+      }
+    },
+    {
+      "name": "list_ads",
+      "description": "List ads under an ad account, optionally scoped to specific ad_group_ids or campaign_ids.",
+      "method": "GET",
+      "path": "/ad_accounts/{ad_account_id}/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "campaign_ids": { "type": "array", "items": { "type": "string" } },
+          "ad_group_ids": { "type": "array", "items": { "type": "string" } },
+          "ad_ids": { "type": "array", "items": { "type": "string" } },
+          "entity_statuses": { "type": "array", "items": { "type": "string" } },
+          "page_size": { "type": "integer", "default": 25 },
+          "bookmark": { "type": "string" }
+        },
+        "required": ["ad_account_id"]
+      }
+    },
+    {
+      "name": "create_ad",
+      "description": "Create one or more ads. Each requires ad_group_id, creative_type (REGULAR|VIDEO|SHOPPING|CAROUSEL|MAX_VIDEO|SHOP_THE_PIN|COLLECTION|IDEA|SHOWCASE), pin_id (the underlying pin), name, status, destination_url, tracking_urls.",
+      "method": "POST",
+      "path": "/ad_accounts/{ad_account_id}/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "ads": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["ad_account_id", "ads"]
+      }
+    },
+    {
+      "name": "list_audiences",
+      "description": "List custom audiences (targeting segments) under an ad account.",
+      "method": "GET",
+      "path": "/ad_accounts/{ad_account_id}/audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "page_size": { "type": "integer", "default": 25 },
+          "bookmark": { "type": "string" }
+        },
+        "required": ["ad_account_id"]
+      }
+    },
+    {
+      "name": "create_audience",
+      "description": "Create a custom audience. Common audience_type values: CUSTOMER_LIST, VISITOR, ENGAGEMENT, ACTALIKE. rule shape varies by type.",
+      "method": "POST",
+      "path": "/ad_accounts/{ad_account_id}/audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "name": { "type": "string" },
+          "audience_type": { "type": "string", "enum": ["CUSTOMER_LIST", "VISITOR", "ENGAGEMENT", "ACTALIKE"] },
+          "description": { "type": "string" },
+          "rule": { "type": "object" }
+        },
+        "required": ["ad_account_id", "name", "audience_type", "rule"]
+      }
+    },
+    {
+      "name": "analytics",
+      "description": "Pull ad-account-level analytics. columns selects metrics (e.g. SPEND_IN_DOLLAR, IMPRESSION_1, CLICKTHROUGH_1, OUTBOUND_CLICK, ECPM_IN_DOLLAR, TOTAL_CONVERSIONS, TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR). granularity: TOTAL|DAY|HOUR|WEEK|MONTH.",
+      "method": "GET",
+      "path": "/ad_accounts/{ad_account_id}/analytics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "start_date": { "type": "string", "description": "YYYY-MM-DD" },
+          "end_date": { "type": "string", "description": "YYYY-MM-DD" },
+          "granularity": { "type": "string", "enum": ["TOTAL", "DAY", "HOUR", "WEEK", "MONTH"], "default": "DAY" },
+          "columns": { "type": "array", "items": { "type": "string" } },
+          "click_window_days": { "type": "integer", "enum": [1, 7, 14, 30, 60], "default": 30 },
+          "engagement_window_days": { "type": "integer", "enum": [1, 7, 14, 30, 60], "default": 30 },
+          "view_window_days": { "type": "integer", "enum": [1, 7, 14, 30, 60], "default": 1 },
+          "conversion_report_time": { "type": "string", "enum": ["TIME_OF_AD_ACTION", "TIME_OF_CONVERSION"], "default": "TIME_OF_AD_ACTION" }
+        },
+        "required": ["ad_account_id", "start_date", "end_date", "columns"]
+      }
+    },
+    {
+      "name": "campaign_analytics",
+      "description": "Pull campaign-level analytics for one or more campaign_ids.",
+      "method": "GET",
+      "path": "/ad_accounts/{ad_account_id}/campaigns/analytics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "campaign_ids": { "type": "array", "items": { "type": "string" } },
+          "start_date": { "type": "string" },
+          "end_date": { "type": "string" },
+          "granularity": { "type": "string", "enum": ["TOTAL", "DAY", "HOUR", "WEEK", "MONTH"], "default": "DAY" },
+          "columns": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["ad_account_id", "campaign_ids", "start_date", "end_date", "columns"]
+      }
+    }
+  ]
+}

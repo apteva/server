@@ -1,0 +1,106 @@
+{
+  "slug": "customer-io",
+  "name": "Customer.io",
+  "description": "MCP server for Customer.io - customers, events, segments, campaigns, transactional emails",
+  "logo": "https://www.google.com/s2/favicons?domain=customer.io&sz=128",
+  "categories": ["email", "marketing", "messaging", "automation", "crm"],
+  "base_url": "https://track.customer.io/api/v1",
+  "auth": {
+    "types": ["basic"],
+    "headers": { "Authorization": "Basic {{basic}}" },
+    "credential_fields": [
+      { "name": "siteId", "label": "Site ID (Track API user)" },
+      { "name": "trackApiKey", "label": "Track API Key" },
+      { "name": "appApiKey", "label": "App API Key", "description": "Bearer token for api.customer.io" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "identify_customer",
+      "description": "Create or update a customer",
+      "method": "PUT",
+      "path": "/customers/{customer_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": { "type": "string" },
+          "email": { "type": "string" },
+          "attributes": { "type": "object" }
+        },
+        "required": ["customer_id"]
+      }
+    },
+    {
+      "name": "delete_customer",
+      "description": "Delete a customer",
+      "method": "DELETE",
+      "path": "/customers/{customer_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "customer_id": { "type": "string" } },
+        "required": ["customer_id"]
+      }
+    },
+    {
+      "name": "track_event",
+      "description": "Track an event for a customer",
+      "method": "POST",
+      "path": "/customers/{customer_id}/events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": { "type": "string" },
+          "name": { "type": "string" },
+          "data": { "type": "object" }
+        },
+        "required": ["customer_id", "name"]
+      }
+    },
+    {
+      "name": "track_anonymous",
+      "description": "Track an anonymous event",
+      "method": "POST",
+      "path": "/events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "data": { "type": "object" },
+          "anonymous_id": { "type": "string" }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "send_transactional",
+      "description": "Send a transactional email via App API",
+      "method": "POST",
+      "path": "https://api.customer.io/v1/send/email",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transactional_message_id": { "type": "string" },
+          "to": { "type": "string" },
+          "identifiers": { "type": "object" },
+          "message_data": { "type": "object" }
+        },
+        "required": ["to", "identifiers"]
+      }
+    },
+    {
+      "name": "trigger_broadcast",
+      "description": "Trigger an API-triggered broadcast",
+      "method": "POST",
+      "path": "https://api.customer.io/v1/campaigns/{broadcast_id}/triggers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "broadcast_id": { "type": "string" },
+          "ids": { "type": "array" },
+          "data": { "type": "object" }
+        },
+        "required": ["broadcast_id"]
+      }
+    }
+  ]
+}

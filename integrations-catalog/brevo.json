@@ -1,0 +1,1495 @@
+{
+  "slug": "brevo",
+  "name": "Brevo (Sendinblue)",
+  "description": "Complete email marketing and transactional email platform. Send emails, SMS, manage contacts, create campaigns, and track engagement.",
+  "logo": "https://www.brevo.com/favicon.ico",
+  "categories": [
+    "email",
+    "sms",
+    "marketing",
+    "transactional",
+    "campaigns",
+    "contacts",
+    "automation",
+    "analytics"
+  ],
+  "base_url": "https://api.brevo.com/v3",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Your Brevo API Key (found in SMTP & API settings)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "send_transactional_email",
+      "description": "Send a transactional email immediately. Use for password resets, order confirmations, notifications, etc.",
+      "method": "POST",
+      "path": "/smtp/email",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sender": {
+            "type": "object",
+            "description": "Sender information",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Sender name"
+              },
+              "email": {
+                "type": "string",
+                "description": "Sender email address"
+              }
+            },
+            "required": [
+              "email"
+            ]
+          },
+          "to": {
+            "type": "array",
+            "description": "List of recipients",
+            "items": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "email"
+              ]
+            }
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject line"
+          },
+          "htmlContent": {
+            "type": "string",
+            "description": "HTML content of the email"
+          },
+          "textContent": {
+            "type": "string",
+            "description": "Plain text content of the email"
+          },
+          "templateId": {
+            "type": "integer",
+            "description": "ID of the Brevo template to use (optional, use instead of htmlContent)"
+          },
+          "params": {
+            "type": "object",
+            "description": "Template variables for personalization"
+          },
+          "replyTo": {
+            "type": "object",
+            "description": "Reply-to address",
+            "properties": {
+              "email": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags for categorizing the email"
+          }
+        },
+        "required": [
+          "sender",
+          "to"
+        ]
+      }
+    },
+    {
+      "name": "create_contact",
+      "description": "Create a new contact in Brevo. Attributes must be in UPPERCASE (e.g., FIRSTNAME, LASTNAME). Attributes must exist in your account - use brevo-list-attributes to see available attributes.",
+      "method": "POST",
+      "path": "/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address of the contact (required)"
+          },
+          "attributes": {
+            "type": "object",
+            "description": "Contact attributes in UPPERCASE, e.g., {\"FIRSTNAME\": \"John\", \"LASTNAME\": \"Doe\", \"SMS\": \"+33612345678\"}"
+          },
+          "listIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "List IDs to add the contact to"
+          },
+          "updateEnabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Update contact if already exists"
+          },
+          "smtpBlacklistSender": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Sender emails to blacklist for this contact"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "get_contact",
+      "description": "Get contact details by email address or ID",
+      "method": "GET",
+      "path": "/contacts/{identifier}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string",
+            "description": "Email address or contact ID"
+          }
+        },
+        "required": [
+          "identifier"
+        ]
+      }
+    },
+    {
+      "name": "update_contact",
+      "description": "Update an existing contact's attributes or list memberships. Attributes must be passed in UPPERCASE (e.g., FIRSTNAME, LASTNAME). Attributes must exist in your Brevo account - use brevo-list-attributes to see available attributes.",
+      "method": "PUT",
+      "path": "/contacts/{identifier}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string",
+            "description": "Email address or contact ID to update (required)"
+          },
+          "attributes": {
+            "type": "object",
+            "description": "Contact attributes to update in UPPERCASE, e.g., {\"FIRSTNAME\": \"John\", \"LASTNAME\": \"Doe\", \"SMS\": \"+33612345678\"}"
+          },
+          "listIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "List IDs to add the contact to"
+          },
+          "unlinkListIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "List IDs to remove the contact from"
+          },
+          "emailBlacklisted": {
+            "type": "boolean",
+            "description": "Set to true to blacklist the contact for emails"
+          },
+          "smsBlacklisted": {
+            "type": "boolean",
+            "description": "Set to true to blacklist the contact for SMS"
+          },
+          "smtpBlacklistSender": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Sender emails to blacklist for this contact"
+          }
+        },
+        "required": [
+          "identifier"
+        ]
+      }
+    },
+    {
+      "name": "delete_contact",
+      "description": "Permanently delete a contact from Brevo",
+      "method": "DELETE",
+      "path": "/contacts/{identifier}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string",
+            "description": "Email address or contact ID to delete"
+          }
+        },
+        "required": [
+          "identifier"
+        ]
+      }
+    },
+    {
+      "name": "list_contacts",
+      "description": "Get all contacts with optional filtering and pagination",
+      "method": "GET",
+      "path": "/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of contacts to return (max 1000)"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Index of the first contact to return"
+          },
+          "modifiedSince": {
+            "type": "string",
+            "description": "Filter contacts modified after this date (YYYY-MM-DD)"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc",
+            "description": "Sort order by creation date"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_list",
+      "description": "Create a new contact list for organizing and segmenting contacts",
+      "method": "POST",
+      "path": "/contacts/lists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the list"
+          },
+          "folderId": {
+            "type": "integer",
+            "description": "ID of the folder to place the list in"
+          }
+        },
+        "required": [
+          "name",
+          "folderId"
+        ]
+      }
+    },
+    {
+      "name": "get_lists",
+      "description": "Get all contact lists",
+      "method": "GET",
+      "path": "/contacts/lists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "default": 10,
+            "description": "Number of lists to return"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Index of the first list"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          }
+        }
+      }
+    },
+    {
+      "name": "add_contacts_to_list",
+      "description": "Add multiple contacts to a list by email addresses",
+      "method": "POST",
+      "path": "/contacts/lists/{listId}/contacts/add",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listId": {
+            "type": "integer",
+            "description": "ID of the list"
+          },
+          "emails": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Email addresses to add"
+          }
+        },
+        "required": [
+          "listId",
+          "emails"
+        ]
+      }
+    },
+    {
+      "name": "remove_contacts_from_list",
+      "description": "Remove multiple contacts from a list",
+      "method": "POST",
+      "path": "/contacts/lists/{listId}/contacts/remove",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listId": {
+            "type": "integer",
+            "description": "ID of the list"
+          },
+          "emails": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Email addresses to remove"
+          }
+        },
+        "required": [
+          "listId",
+          "emails"
+        ]
+      }
+    },
+    {
+      "name": "get_templates",
+      "description": "Get all email templates",
+      "method": "GET",
+      "path": "/smtp/templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "templateStatus": {
+            "type": "boolean",
+            "description": "Filter by active (true) or inactive (false) templates"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of templates to return"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Index of first template"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_template",
+      "description": "Get a specific email template by ID",
+      "method": "GET",
+      "path": "/smtp/templates/{templateId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "integer",
+            "description": "Template ID"
+          }
+        },
+        "required": [
+          "templateId"
+        ]
+      }
+    },
+    {
+      "name": "create_template",
+      "description": "Create a new email template",
+      "method": "POST",
+      "path": "/smtp/templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "templateName": {
+            "type": "string",
+            "description": "Name of the template"
+          },
+          "sender": {
+            "type": "object",
+            "description": "Sender details",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "email"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject line"
+          },
+          "htmlContent": {
+            "type": "string",
+            "description": "HTML content of the template"
+          },
+          "isActive": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether the template is active"
+          },
+          "replyTo": {
+            "type": "string",
+            "description": "Reply-to email address"
+          },
+          "toField": {
+            "type": "string",
+            "description": "To field personalization (e.g., {{contact.FIRSTNAME}})"
+          }
+        },
+        "required": [
+          "templateName",
+          "sender",
+          "subject",
+          "htmlContent"
+        ]
+      }
+    },
+    {
+      "name": "update_template",
+      "description": "Update an existing email template",
+      "method": "PUT",
+      "path": "/smtp/templates/{templateId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "integer",
+            "description": "Template ID to update"
+          },
+          "templateName": {
+            "type": "string",
+            "description": "New template name"
+          },
+          "sender": {
+            "type": "object",
+            "description": "Sender details"
+          },
+          "subject": {
+            "type": "string",
+            "description": "New subject line"
+          },
+          "htmlContent": {
+            "type": "string",
+            "description": "New HTML content"
+          },
+          "isActive": {
+            "type": "boolean",
+            "description": "Whether template is active"
+          },
+          "replyTo": {
+            "type": "string",
+            "description": "Reply-to email"
+          }
+        },
+        "required": [
+          "templateId"
+        ]
+      }
+    },
+    {
+      "name": "delete_template",
+      "description": "Delete an email template",
+      "method": "DELETE",
+      "path": "/smtp/templates/{templateId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "integer",
+            "description": "Template ID to delete"
+          }
+        },
+        "required": [
+          "templateId"
+        ]
+      }
+    },
+    {
+      "name": "send_sms",
+      "description": "Send a transactional SMS message",
+      "method": "POST",
+      "path": "/transactionalSMS/sms",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sender": {
+            "type": "string",
+            "description": "Sender name (max 11 chars) or phone number"
+          },
+          "recipient": {
+            "type": "string",
+            "description": "Recipient phone number with country code (e.g., +33612345678)"
+          },
+          "content": {
+            "type": "string",
+            "description": "SMS message content"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "transactional",
+              "marketing"
+            ],
+            "default": "transactional",
+            "description": "Type of SMS"
+          },
+          "tag": {
+            "type": "string",
+            "description": "Tag for categorizing the SMS"
+          },
+          "webUrl": {
+            "type": "string",
+            "description": "Webhook URL for delivery reports"
+          }
+        },
+        "required": [
+          "sender",
+          "recipient",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "get_email_events",
+      "description": "Get email event logs (deliveries, opens, clicks, bounces, etc.)",
+      "method": "GET",
+      "path": "/smtp/statistics/events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of events to return"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Index of first event"
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "endDate": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "email": {
+            "type": "string",
+            "description": "Filter by recipient email"
+          },
+          "event": {
+            "type": "string",
+            "enum": [
+              "bounces",
+              "hardBounces",
+              "softBounces",
+              "delivered",
+              "spam",
+              "requests",
+              "opened",
+              "clicks",
+              "invalid",
+              "deferred",
+              "blocked",
+              "unsubscribed",
+              "error"
+            ],
+            "description": "Filter by event type"
+          },
+          "tags": {
+            "type": "string",
+            "description": "Filter by tag"
+          },
+          "messageId": {
+            "type": "string",
+            "description": "Filter by message ID"
+          },
+          "templateId": {
+            "type": "integer",
+            "description": "Filter by template ID"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_aggregated_report",
+      "description": "Get aggregated email statistics for a date range",
+      "method": "GET",
+      "path": "/smtp/statistics/aggregatedReport",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "startDate": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "endDate": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "days": {
+            "type": "integer",
+            "description": "Number of days (alternative to date range)"
+          },
+          "tag": {
+            "type": "string",
+            "description": "Filter by tag"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_campaigns",
+      "description": "Get all email campaigns",
+      "method": "GET",
+      "path": "/emailCampaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "classic",
+              "trigger"
+            ],
+            "default": "classic",
+            "description": "Type of campaigns"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "suspended",
+              "archive",
+              "sent",
+              "queued",
+              "draft",
+              "inProcess"
+            ],
+            "description": "Filter by status"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of campaigns to return"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Index of first campaign"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_campaign",
+      "description": "Get details of a specific email campaign",
+      "method": "GET",
+      "path": "/emailCampaigns/{campaignId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "integer",
+            "description": "Campaign ID"
+          }
+        },
+        "required": [
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create a new email campaign",
+      "method": "POST",
+      "path": "/emailCampaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Campaign name"
+          },
+          "sender": {
+            "type": "object",
+            "description": "Sender information",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "email"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject"
+          },
+          "htmlContent": {
+            "type": "string",
+            "description": "HTML content (use this OR templateId)"
+          },
+          "templateId": {
+            "type": "integer",
+            "description": "Template ID to use (use this OR htmlContent)"
+          },
+          "recipients": {
+            "type": "object",
+            "description": "Recipients configuration",
+            "properties": {
+              "listIds": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "description": "List IDs to send to"
+              },
+              "exclusionListIds": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "description": "List IDs to exclude"
+              }
+            }
+          },
+          "replyTo": {
+            "type": "string",
+            "description": "Reply-to email"
+          },
+          "toField": {
+            "type": "string",
+            "description": "To field personalization"
+          },
+          "tag": {
+            "type": "string",
+            "description": "Campaign tag"
+          },
+          "params": {
+            "type": "object",
+            "description": "Template parameters"
+          }
+        },
+        "required": [
+          "name",
+          "sender",
+          "subject",
+          "recipients"
+        ]
+      }
+    },
+    {
+      "name": "update_campaign",
+      "description": "Update an existing email campaign (only draft campaigns can be updated)",
+      "method": "PUT",
+      "path": "/emailCampaigns/{campaignId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "integer",
+            "description": "Campaign ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New campaign name"
+          },
+          "sender": {
+            "type": "object",
+            "description": "Sender information"
+          },
+          "subject": {
+            "type": "string",
+            "description": "New subject"
+          },
+          "htmlContent": {
+            "type": "string",
+            "description": "New HTML content"
+          },
+          "recipients": {
+            "type": "object",
+            "description": "Recipients configuration"
+          },
+          "replyTo": {
+            "type": "string",
+            "description": "Reply-to email"
+          },
+          "tag": {
+            "type": "string",
+            "description": "Campaign tag"
+          }
+        },
+        "required": [
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "send_campaign_now",
+      "description": "Send an email campaign immediately",
+      "method": "POST",
+      "path": "/emailCampaigns/{campaignId}/sendNow",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "integer",
+            "description": "Campaign ID to send"
+          }
+        },
+        "required": [
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "send_test_email",
+      "description": "Send a test email for a campaign before launching",
+      "method": "POST",
+      "path": "/emailCampaigns/{campaignId}/sendTest",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "integer",
+            "description": "Campaign ID"
+          },
+          "emailTo": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Email addresses to send test to"
+          }
+        },
+        "required": [
+          "campaignId",
+          "emailTo"
+        ]
+      }
+    },
+    {
+      "name": "schedule_campaign",
+      "description": "Schedule an email campaign for a specific date and time",
+      "method": "POST",
+      "path": "/emailCampaigns/{campaignId}/schedule",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "integer",
+            "description": "Campaign ID"
+          },
+          "scheduledAt": {
+            "type": "string",
+            "description": "Scheduled date and time in ISO 8601 format (e.g., 2024-01-15T10:00:00.000Z)"
+          }
+        },
+        "required": [
+          "campaignId",
+          "scheduledAt"
+        ]
+      }
+    },
+    {
+      "name": "get_campaign_stats",
+      "description": "Get detailed statistics for an email campaign",
+      "method": "GET",
+      "path": "/emailCampaigns/{campaignId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "integer",
+            "description": "Campaign ID"
+          }
+        },
+        "required": [
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "get_senders",
+      "description": "Get all validated sender identities",
+      "method": "GET",
+      "path": "/senders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ip": {
+            "type": "string",
+            "description": "Filter by dedicated IP (optional)"
+          },
+          "domain": {
+            "type": "string",
+            "description": "Filter by domain (optional)"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_sender",
+      "description": "Create a new sender identity (requires email verification)",
+      "method": "POST",
+      "path": "/senders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Sender name"
+          },
+          "email": {
+            "type": "string",
+            "description": "Sender email address"
+          }
+        },
+        "required": [
+          "name",
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "delete_sender",
+      "description": "Delete a sender identity",
+      "method": "DELETE",
+      "path": "/senders/{senderId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "senderId": {
+            "type": "integer",
+            "description": "Sender ID to delete"
+          }
+        },
+        "required": [
+          "senderId"
+        ]
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a webhook to receive real-time email event notifications",
+      "method": "POST",
+      "path": "/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Webhook URL to receive events"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description of the webhook"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "sent",
+                "hardBounce",
+                "softBounce",
+                "blocked",
+                "spam",
+                "delivered",
+                "request",
+                "click",
+                "invalid",
+                "deferred",
+                "opened",
+                "uniqueOpened",
+                "unsubscribed",
+                "listAddition",
+                "contactUpdated",
+                "contactDeleted"
+              ]
+            },
+            "description": "Events to subscribe to"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "transactional",
+              "marketing",
+              "inbound"
+            ],
+            "default": "transactional",
+            "description": "Type of emails to monitor"
+          }
+        },
+        "required": [
+          "url",
+          "events"
+        ]
+      }
+    },
+    {
+      "name": "get_webhooks",
+      "description": "Get all webhooks",
+      "method": "GET",
+      "path": "/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "transactional",
+              "marketing",
+              "inbound"
+            ],
+            "default": "transactional",
+            "description": "Filter by webhook type"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete a webhook",
+      "method": "DELETE",
+      "path": "/webhooks/{webhookId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhookId": {
+            "type": "integer",
+            "description": "Webhook ID to delete"
+          }
+        },
+        "required": [
+          "webhookId"
+        ]
+      }
+    },
+    {
+      "name": "get_account",
+      "description": "Get Brevo account information and usage",
+      "method": "GET",
+      "path": "/account",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "import_contacts",
+      "description": "Import contacts from a list of emails with optional attributes",
+      "method": "POST",
+      "path": "/contacts/import",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "List IDs to add contacts to"
+          },
+          "jsonBody": {
+            "type": "array",
+            "description": "Array of contact objects with email and attributes",
+            "items": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string"
+                },
+                "attributes": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "email"
+              ]
+            }
+          },
+          "updateExistingContacts": {
+            "type": "boolean",
+            "default": true,
+            "description": "Update contacts if they already exist"
+          },
+          "emptyContactsAttributes": {
+            "type": "boolean",
+            "default": false,
+            "description": "Clear attributes not in import"
+          }
+        },
+        "required": [
+          "listIds",
+          "jsonBody"
+        ]
+      }
+    },
+    {
+      "name": "get_folders",
+      "description": "Get all contact list folders",
+      "method": "GET",
+      "path": "/contacts/folders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "default": 10,
+            "description": "Number of folders to return"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Index of first folder"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_folder",
+      "description": "Create a folder to organize contact lists",
+      "method": "POST",
+      "path": "/contacts/folders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Folder name"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_attributes",
+      "description": "Get all contact attributes (fields) defined in your Brevo account. Attributes must exist before they can be used on contacts.",
+      "method": "GET",
+      "path": "/contacts/attributes",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_attribute",
+      "description": "Create a new contact attribute (field) definition. You must create an attribute before you can use it on contacts. Categories: normal (standard fields), transactional, category (enumerated values), calculated, global.",
+      "method": "POST",
+      "path": "/contacts/attributes/{attributeCategory}/{attributeName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "attributeCategory": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "transactional",
+              "category",
+              "calculated",
+              "global"
+            ],
+            "description": "Category of the attribute (required)"
+          },
+          "attributeName": {
+            "type": "string",
+            "description": "Name of the attribute in UPPERCASE (required, e.g., FIRSTNAME, COMPANY)"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "date",
+              "float",
+              "boolean",
+              "id",
+              "category"
+            ],
+            "description": "Type of the attribute (for normal/category/transactional)"
+          },
+          "value": {
+            "type": "string",
+            "description": "Value formula (for calculated/global attributes)"
+          },
+          "enumeration": {
+            "type": "array",
+            "description": "List of values for category attributes, e.g., [{\"value\":1,\"label\":\"Male\"},{\"value\":2,\"label\":\"Female\"}]",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "integer"
+                },
+                "label": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "attributeCategory",
+          "attributeName"
+        ]
+      }
+    },
+    {
+      "name": "update_attribute",
+      "description": "Update an existing contact attribute definition. Used to modify enumeration values for category attributes or formulas for calculated attributes.",
+      "method": "PUT",
+      "path": "/contacts/attributes/{attributeCategory}/{attributeName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "attributeCategory": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "category",
+              "calculated",
+              "global"
+            ],
+            "description": "Category of the attribute (required)"
+          },
+          "attributeName": {
+            "type": "string",
+            "description": "Name of the existing attribute (required)"
+          },
+          "value": {
+            "type": "string",
+            "description": "New value formula (for calculated/global attributes)"
+          },
+          "enumeration": {
+            "type": "array",
+            "description": "Updated list of values for category attributes",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "integer"
+                },
+                "label": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "attributeCategory",
+          "attributeName"
+        ]
+      }
+    },
+    {
+      "name": "delete_attribute",
+      "description": "Delete a contact attribute definition. Warning: This removes the attribute from all contacts.",
+      "method": "DELETE",
+      "path": "/contacts/attributes/{attributeCategory}/{attributeName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "attributeCategory": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "transactional",
+              "category",
+              "calculated",
+              "global"
+            ],
+            "description": "Category of the attribute (required)"
+          },
+          "attributeName": {
+            "type": "string",
+            "description": "Name of the attribute to delete (required)"
+          }
+        },
+        "required": [
+          "attributeCategory",
+          "attributeName"
+        ]
+      }
+    },
+    {
+      "name": "get_list",
+      "description": "Get details of a specific contact list including subscriber count",
+      "method": "GET",
+      "path": "/contacts/lists/{listId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listId": {
+            "type": "integer",
+            "description": "ID of the list to retrieve"
+          }
+        },
+        "required": [
+          "listId"
+        ]
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-brevo-signature",
+    "events": [
+      {
+        "name": "sent",
+        "description": "An email was sent to the recipient"
+      },
+      {
+        "name": "hardBounce",
+        "description": "Email permanently bounced (invalid address, domain not found, etc.)"
+      },
+      {
+        "name": "softBounce",
+        "description": "Email temporarily bounced (mailbox full, server unavailable, etc.)"
+      },
+      {
+        "name": "blocked",
+        "description": "Email was blocked before sending (blacklisted contact, etc.)"
+      },
+      {
+        "name": "spam",
+        "description": "Recipient marked the email as spam"
+      },
+      {
+        "name": "delivered",
+        "description": "Email was successfully delivered to the recipient's mailbox"
+      },
+      {
+        "name": "request",
+        "description": "Email send request was received by Brevo"
+      },
+      {
+        "name": "click",
+        "description": "A link in the email was clicked by the recipient"
+      },
+      {
+        "name": "invalid",
+        "description": "Email address was detected as invalid"
+      },
+      {
+        "name": "deferred",
+        "description": "Email delivery was deferred by the receiving server"
+      },
+      {
+        "name": "opened",
+        "description": "Email was opened by the recipient"
+      },
+      {
+        "name": "uniqueOpened",
+        "description": "Email was opened for the first time by the recipient"
+      },
+      {
+        "name": "unsubscribed",
+        "description": "Recipient unsubscribed from the mailing list"
+      },
+      {
+        "name": "listAddition",
+        "description": "Contact was added to a mailing list"
+      },
+      {
+        "name": "contactUpdated",
+        "description": "Contact information was updated"
+      },
+      {
+        "name": "contactDeleted",
+        "description": "Contact was deleted from the account"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_account"
+  }
+}

@@ -1,0 +1,536 @@
+{
+  "slug": "gemini",
+  "name": "Google Gemini & Veo",
+  "description": "Google AI platform - Gemini text generation, Veo video generation, Imagen image generation, and embeddings",
+  "logo": "https://www.gstatic.com/lamda/images/gemini_favicon_f069958c85030456e93de685481c559f160ea06b.png",
+  "categories": [
+    "ai",
+    "video-generation",
+    "text-generation",
+    "image-generation",
+    "embeddings",
+    "gemini",
+    "veo",
+    "imagen",
+    "google-ai"
+  ],
+  "base_url": "https://generativelanguage.googleapis.com/v1beta",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "x-goog-api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your Google AI API Key (get from https://aistudio.google.com/apikey)"
+      },
+      {
+        "name": "apiKey",
+        "label": "Api Key",
+        "description": "Your Google AI API Key (get from https://aistudio.google.com/apikey)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "generate_content",
+      "description": "Generate text content using Gemini models. Provide a contents array with message parts following the Gemini API format. Supports multimodal input (text, images, audio, video).",
+      "method": "POST",
+      "path": "/generate-content",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Gemini model to use (e.g. 'gemini-2.5-flash', 'gemini-2.5-pro')",
+            "default": "gemini-2.5-flash"
+          },
+          "contents": {
+            "type": "array",
+            "description": "Array of message objects. Each has 'role' ('user' or 'model') and 'parts' array. Parts can be {text: '...'} or {inlineData: {mimeType: '...', data: 'base64...'}}",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "user",
+                    "model"
+                  ],
+                  "description": "Message role"
+                },
+                "parts": {
+                  "type": "array",
+                  "description": "Content parts - text, images, etc.",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              },
+              "required": [
+                "role",
+                "parts"
+              ]
+            }
+          },
+          "systemInstruction": {
+            "type": "object",
+            "description": "System instruction. Format: {parts: [{text: '...'}]}",
+            "properties": {
+              "parts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "generationConfig": {
+            "type": "object",
+            "description": "Generation parameters",
+            "properties": {
+              "temperature": {
+                "type": "number",
+                "description": "Creativity (0-2)",
+                "default": 1
+              },
+              "maxOutputTokens": {
+                "type": "integer",
+                "description": "Maximum tokens to generate",
+                "default": 8192
+              },
+              "topP": {
+                "type": "number",
+                "description": "Nucleus sampling threshold"
+              },
+              "topK": {
+                "type": "integer",
+                "description": "Top-K sampling"
+              },
+              "stopSequences": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Stop sequences"
+              }
+            }
+          },
+          "safetySettings": {
+            "type": "array",
+            "description": "Safety filter settings",
+            "items": {
+              "type": "object",
+              "properties": {
+                "category": {
+                  "type": "string"
+                },
+                "threshold": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "contents"
+        ]
+      }
+    },
+    {
+      "name": "generate_image",
+      "description": "Generate images using Gemini models. Uses the native Gemini image generation with responseModalities set to Image. Supports gemini-2.5-flash-image (fast, ~1024px) and gemini-3-pro-image-preview (up to 4K, text rendering).",
+      "method": "POST",
+      "path": "/generate-image",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Image model: 'gemini-2.5-flash-image' (fast) or 'gemini-3-pro-image-preview' (4K, text rendering)",
+            "enum": [
+              "gemini-2.5-flash-image",
+              "gemini-3-pro-image-preview"
+            ],
+            "default": "gemini-2.5-flash-image"
+          },
+          "contents": {
+            "type": "array",
+            "description": "Content array. For text-to-image: [{parts: [{text: 'your prompt'}]}]. For image editing: [{parts: [{text: 'edit instruction'}, {inlineData: {mimeType: 'image/png', data: 'base64...'}}]}]",
+            "items": {
+              "type": "object",
+              "properties": {
+                "parts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "generationConfig": {
+            "type": "object",
+            "description": "Must include responseModalities: ['Image']. Can also include imageConfig with aspectRatio and imageSize.",
+            "properties": {
+              "responseModalities": {
+                "type": "array",
+                "description": "Must be ['Image'] for image generation",
+                "items": {
+                  "type": "string"
+                },
+                "default": [
+                  "Image"
+                ]
+              },
+              "imageConfig": {
+                "type": "object",
+                "description": "Image configuration",
+                "properties": {
+                  "aspectRatio": {
+                    "type": "string",
+                    "enum": [
+                      "1:1",
+                      "2:3",
+                      "3:2",
+                      "3:4",
+                      "4:3",
+                      "4:5",
+                      "5:4",
+                      "9:16",
+                      "16:9",
+                      "21:9"
+                    ],
+                    "default": "1:1"
+                  },
+                  "numberOfImages": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 8,
+                    "default": 1
+                  },
+                  "imageSize": {
+                    "type": "string",
+                    "enum": [
+                      "1K",
+                      "2K",
+                      "4K"
+                    ],
+                    "description": "Image size (Pro model only)"
+                  }
+                }
+              },
+              "thinkingConfig": {
+                "type": "object",
+                "description": "Thinking mode for complex prompts (Pro model only)",
+                "properties": {
+                  "thinkingBudget": {
+                    "type": "integer",
+                    "default": 1024
+                  }
+                }
+              }
+            }
+          },
+          "safetySettings": {
+            "type": "array",
+            "description": "Safety filter settings",
+            "items": {
+              "type": "object",
+              "properties": {
+                "category": {
+                  "type": "string"
+                },
+                "threshold": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "contents",
+          "generationConfig"
+        ]
+      }
+    },
+    {
+      "name": "start_video_generation",
+      "description": "Generate video from text prompt or animate images using Google Veo. Supports 16:9 landscape and 9:16 portrait, up to 1080p. Returns an operation name to poll with check-video-status.",
+      "method": "POST",
+      "path": "/start-video-generation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "veo-3.1-generate-preview",
+              "veo-3.0-generate-001",
+              "veo-3.0-fast-generate-001",
+              "veo-2.0-generate-001"
+            ],
+            "description": "Veo model to use",
+            "default": "veo-3.1-generate-preview"
+          },
+          "instances": {
+            "type": "array",
+            "description": "Array with one instance object. Must include 'prompt'. Optional: 'image' (for image-to-video with bytesBase64Encoded and mimeType), 'referenceImages' array.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "prompt": {
+                  "type": "string",
+                  "description": "Text prompt describing the video"
+                },
+                "image": {
+                  "type": "object",
+                  "description": "Initial image for image-to-video",
+                  "properties": {
+                    "bytesBase64Encoded": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "referenceImages": {
+                  "type": "array",
+                  "description": "Up to 3 reference images",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "image": {
+                        "type": "object",
+                        "properties": {
+                          "bytesBase64Encoded": {
+                            "type": "string"
+                          },
+                          "mimeType": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "referenceType": {
+                        "type": "string",
+                        "enum": [
+                          "asset",
+                          "style"
+                        ]
+                      }
+                    }
+                  },
+                  "maxItems": 3
+                }
+              },
+              "required": [
+                "prompt"
+              ]
+            }
+          },
+          "parameters": {
+            "type": "object",
+            "description": "Generation parameters",
+            "properties": {
+              "negativePrompt": {
+                "type": "string",
+                "description": "What NOT to include"
+              },
+              "aspectRatio": {
+                "type": "string",
+                "enum": [
+                  "16:9",
+                  "9:16"
+                ],
+                "default": "16:9"
+              },
+              "resolution": {
+                "type": "string",
+                "enum": [
+                  "720p",
+                  "1080p"
+                ],
+                "default": "720p"
+              },
+              "personGeneration": {
+                "type": "string",
+                "enum": [
+                  "allow_all",
+                  "allow_adult",
+                  "dont_allow"
+                ]
+              },
+              "seed": {
+                "type": "integer",
+                "description": "Seed for consistency"
+              }
+            }
+          }
+        },
+        "required": [
+          "instances"
+        ]
+      }
+    },
+    {
+      "name": "check_video_status",
+      "description": "Check the status of a Veo video generation operation. Returns done=true with video URL when complete, or progress percentage when in progress.",
+      "method": "GET",
+      "path": "/check-video-status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operationName": {
+            "type": "string",
+            "description": "Operation name from start-video-generation response (e.g. 'operations/xxx')"
+          }
+        },
+        "required": [
+          "operationName"
+        ]
+      }
+    },
+    {
+      "name": "download_video",
+      "description": "Download a completed video from Veo generation using the video URL returned by check-video-status",
+      "method": "GET",
+      "path": "/download-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Video URL from check-video-status response"
+          }
+        },
+        "required": [
+          "videoUrl"
+        ]
+      }
+    },
+    {
+      "name": "create_embedding",
+      "description": "Create text embeddings using Gemini embedding models. Returns a vector of float values for semantic search, classification, or clustering.",
+      "method": "POST",
+      "path": "/create-embedding",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Embedding model",
+            "default": "text-embedding-004"
+          },
+          "content": {
+            "type": "object",
+            "description": "Content to embed. Format: {parts: [{text: '...'}]}",
+            "properties": {
+              "parts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "taskType": {
+            "type": "string",
+            "enum": [
+              "RETRIEVAL_QUERY",
+              "RETRIEVAL_DOCUMENT",
+              "SEMANTIC_SIMILARITY",
+              "CLASSIFICATION",
+              "CLUSTERING"
+            ],
+            "description": "Task type for optimal embeddings"
+          },
+          "title": {
+            "type": "string",
+            "description": "Optional title for RETRIEVAL_DOCUMENT task type"
+          }
+        },
+        "required": [
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "count_tokens",
+      "description": "Count tokens in content for any Gemini model. Returns totalTokens count.",
+      "method": "POST",
+      "path": "/count-tokens",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Model to count tokens for",
+            "default": "gemini-2.5-flash"
+          },
+          "contents": {
+            "type": "array",
+            "description": "Content to count tokens for. Format: [{parts: [{text: '...'}]}]",
+            "items": {
+              "type": "object",
+              "properties": {
+                "parts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "text": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "contents"
+        ]
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List all available Google AI models (Gemini, Veo, Imagen) with their capabilities and limits",
+      "method": "GET",
+      "path": "/list-models",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageSize": {
+            "type": "integer",
+            "description": "Maximum number of models to return",
+            "default": 50
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Pagination token from previous response"
+          }
+        }
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_models"
+  }
+}

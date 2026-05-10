@@ -1,0 +1,340 @@
+{
+  "slug": "murf-ai",
+  "name": "Murf AI",
+  "description": "AI voice synthesis platform with text-to-speech, voice changer, translation, and dubbing capabilities",
+  "logo": "https://www.google.com/s2/favicons?domain=murf.ai&sz=128",
+  "categories": [
+    "ai",
+    "voice",
+    "text-to-speech",
+    "tts",
+    "audio",
+    "voice-changer",
+    "dubbing",
+    "translation"
+  ],
+  "base_url": "https://api.murf.ai/v1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "murf_generate_speech",
+      "description": "Convert text to speech with AI voices, customizable pitch, rate, and style settings",
+      "method": "POST",
+      "path": "/speech/generate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "Murf AI API key (required)"
+          },
+          "text": {
+            "type": "string",
+            "description": "Text to convert to speech (required)"
+          },
+          "voiceId": {
+            "type": "string",
+            "description": "Voice ID or actor name (required). Use list-voices to find available voices."
+          },
+          "locale": {
+            "type": "string",
+            "description": "Language locale code (e.g., en-US, en-UK, es-ES)"
+          },
+          "pitch": {
+            "type": "integer",
+            "minimum": -50,
+            "maximum": 50,
+            "description": "Voice pitch adjustment (-50 to 50)"
+          },
+          "rate": {
+            "type": "integer",
+            "minimum": -50,
+            "maximum": 50,
+            "description": "Speaking rate adjustment (-50 to 50)"
+          },
+          "variation": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5,
+            "default": 1,
+            "description": "Speech variation level (0-5, default 1)"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "MP3",
+              "WAV",
+              "FLAC",
+              "ALAW",
+              "ULAW",
+              "PCM",
+              "OGG"
+            ],
+            "default": "WAV",
+            "description": "Audio output format"
+          },
+          "channelType": {
+            "type": "string",
+            "enum": [
+              "STEREO",
+              "MONO"
+            ],
+            "default": "MONO",
+            "description": "Audio channel type"
+          },
+          "sampleRate": {
+            "type": "number",
+            "enum": [
+              8000,
+              24000,
+              44100,
+              48000
+            ],
+            "default": 44100,
+            "description": "Audio sample rate in Hz"
+          },
+          "style": {
+            "type": "string",
+            "description": "Voice style selection (voice-dependent)"
+          },
+          "audioDuration": {
+            "type": "number",
+            "description": "Target audio duration in seconds"
+          },
+          "encodeAsBase64": {
+            "type": "boolean",
+            "default": false,
+            "description": "Return audio as Base64 encoded string instead of URL"
+          },
+          "pronunciationDictionary": {
+            "type": "object",
+            "description": "Custom pronunciation overrides (key-value pairs)"
+          }
+        },
+        "required": [
+          "apiKey",
+          "text",
+          "voiceId"
+        ]
+      }
+    },
+    {
+      "name": "murf_list_voices",
+      "description": "Get available AI voices with gender, locale, and style information",
+      "method": "GET",
+      "path": "/speech/voices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "Murf AI API key (required)"
+          },
+          "model": {
+            "type": "string",
+            "enum": [
+              "GEN2",
+              "FALCON"
+            ],
+            "default": "GEN2",
+            "description": "Voice model generation to list"
+          }
+        },
+        "required": [
+          "apiKey"
+        ]
+      }
+    },
+    {
+      "name": "murf_voice_changer",
+      "description": "Transform audio to a different AI voice while preserving content",
+      "method": "POST",
+      "path": "/voice-changer/convert",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "Murf AI API key (required)"
+          },
+          "voice_id": {
+            "type": "string",
+            "description": "Target voice ID (required). Use list-voices to find available voices."
+          },
+          "file_url": {
+            "type": "string",
+            "description": "URL of audio file to transform"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "WAV",
+              "MP3",
+              "FLAC",
+              "ALAW",
+              "ULAW"
+            ],
+            "default": "WAV",
+            "description": "Output audio format"
+          },
+          "pitch": {
+            "type": "integer",
+            "minimum": -50,
+            "maximum": 50,
+            "description": "Voice pitch adjustment (-50 to 50)"
+          },
+          "rate": {
+            "type": "integer",
+            "minimum": -50,
+            "maximum": 50,
+            "description": "Speaking rate adjustment (-50 to 50)"
+          },
+          "channel_type": {
+            "type": "string",
+            "enum": [
+              "STEREO",
+              "MONO"
+            ],
+            "default": "MONO",
+            "description": "Audio channel type"
+          },
+          "sample_rate": {
+            "type": "number",
+            "enum": [
+              8000,
+              24000,
+              44100,
+              48000
+            ],
+            "default": 44100,
+            "description": "Audio sample rate in Hz"
+          },
+          "encode_output_as_base64": {
+            "type": "boolean",
+            "default": false,
+            "description": "Return audio as Base64 encoded string"
+          }
+        },
+        "required": [
+          "apiKey",
+          "voice_id"
+        ]
+      }
+    },
+    {
+      "name": "murf_translate",
+      "description": "Translate text to a target language for multilingual voice synthesis",
+      "method": "POST",
+      "path": "/text/translate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "Murf AI API key (required)"
+          },
+          "texts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of texts to translate (required)"
+          },
+          "targetLanguage": {
+            "type": "string",
+            "description": "Target language code for translation (required)"
+          }
+        },
+        "required": [
+          "apiKey",
+          "texts",
+          "targetLanguage"
+        ]
+      }
+    },
+    {
+      "name": "murf_create_dubbing_job",
+      "description": "Create a dubbing job to translate and voice-over audio/video content",
+      "method": "POST",
+      "path": "/dubbing/jobs/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "Murf AI API key (required)"
+          },
+          "source_url": {
+            "type": "string",
+            "description": "URL of the audio/video content to dub"
+          },
+          "source_language": {
+            "type": "string",
+            "description": "Source language code"
+          },
+          "target_language": {
+            "type": "string",
+            "description": "Target language code for dubbing"
+          }
+        },
+        "required": [
+          "apiKey"
+        ]
+      }
+    },
+    {
+      "name": "murf_get_dubbing_status",
+      "description": "Check the status of a dubbing job",
+      "method": "GET",
+      "path": "/dubbing/jobs/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "Murf AI API key (required)"
+          },
+          "job_id": {
+            "type": "string",
+            "description": "Dubbing job ID to check (required)"
+          }
+        },
+        "required": [
+          "apiKey",
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "murf_list_dubbing_languages",
+      "description": "Get available source and destination languages for dubbing",
+      "method": "GET",
+      "path": "/dubbing/languages/destination",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "Murf AI API key (required)"
+          }
+        },
+        "required": [
+          "apiKey"
+        ]
+      }
+    }
+  ]
+}

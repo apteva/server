@@ -1,0 +1,751 @@
+{
+  "slug": "slides",
+  "name": "Slides & Presentations",
+  "description": "Create, edit, and export presentations with slides, text, images, shapes, charts, tables, and code blocks. Export to PowerPoint (PPTX) or PDF.",
+  "logo": "https://www.google.com/s2/favicons?domain=slides.google.com&sz=128",
+  "categories": [
+    "slides",
+    "presentation",
+    "powerpoint",
+    "pptx",
+    "pdf",
+    "charts",
+    "documents"
+  ],
+  "base_url": "https://slides.googleapis.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Token"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_presentation",
+      "description": "Create a new presentation with optional theme, settings, and initial slide. Returns the presentation ID for adding slides and elements.",
+      "method": "POST",
+      "path": "/create-presentation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Presentation name/title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description"
+          },
+          "theme": {
+            "type": "object",
+            "description": "Theme settings with colors and fonts",
+            "properties": {
+              "colors": {
+                "type": "object",
+                "properties": {
+                  "primary": {
+                    "type": "string",
+                    "description": "Primary color (hex without #)"
+                  },
+                  "secondary": {
+                    "type": "string",
+                    "description": "Secondary color"
+                  },
+                  "background": {
+                    "type": "string",
+                    "description": "Background color"
+                  },
+                  "text": {
+                    "type": "string",
+                    "description": "Text color"
+                  },
+                  "accent": {
+                    "type": "string",
+                    "description": "Accent color"
+                  }
+                }
+              },
+              "fonts": {
+                "type": "object",
+                "properties": {
+                  "heading": {
+                    "type": "string",
+                    "description": "Heading font family"
+                  },
+                  "body": {
+                    "type": "string",
+                    "description": "Body font family"
+                  }
+                }
+              }
+            }
+          },
+          "settings": {
+            "type": "object",
+            "description": "Presentation settings",
+            "properties": {
+              "aspect_ratio": {
+                "type": "string",
+                "enum": [
+                  "16:9",
+                  "4:3"
+                ],
+                "description": "Aspect ratio (default: 16:9)"
+              },
+              "width": {
+                "type": "number",
+                "description": "Width in pixels (default: 1920)"
+              },
+              "height": {
+                "type": "number",
+                "description": "Height in pixels (default: 1080)"
+              }
+            }
+          },
+          "add_initial_slide": {
+            "type": "boolean",
+            "description": "Add a blank initial slide (default: true)"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "get_presentation",
+      "description": "Retrieve a presentation with its slides and elements.",
+      "method": "GET",
+      "path": "/get-presentation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Presentation ID"
+          },
+          "include_slides": {
+            "type": "boolean",
+            "description": "Include slides in response (default: true)"
+          },
+          "include_elements": {
+            "type": "boolean",
+            "description": "Include slide elements (default: true)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_presentations",
+      "description": "List all presentations, optionally filtered by project.",
+      "method": "GET",
+      "path": "/list-presentations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "Max results (default: 50)"
+          },
+          "offset": {
+            "type": "number",
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_presentation",
+      "description": "Update presentation metadata, theme, or settings.",
+      "method": "PUT",
+      "path": "/update-presentation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Presentation ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "New name"
+          },
+          "description": {
+            "type": "string",
+            "description": "New description"
+          },
+          "theme": {
+            "type": "object",
+            "description": "Updated theme settings"
+          },
+          "settings": {
+            "type": "object",
+            "description": "Updated settings"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "published",
+              "archived"
+            ],
+            "description": "Presentation status"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_presentation",
+      "description": "Delete a presentation and all its slides/elements.",
+      "method": "DELETE",
+      "path": "/delete-presentation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Presentation ID to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "duplicate_presentation",
+      "description": "Create a copy of an existing presentation with all slides and elements.",
+      "method": "GET",
+      "path": "/duplicate-presentation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Presentation ID to duplicate"
+          },
+          "new_name": {
+            "type": "string",
+            "description": "Name for the copy (default: 'Copy of [original]')"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "add_slide",
+      "description": "Add a new slide to a presentation at the specified position.",
+      "method": "GET",
+      "path": "/add-slide",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "presentation_id": {
+            "type": "string",
+            "description": "Presentation ID"
+          },
+          "position": {
+            "type": "number",
+            "description": "Position index (0-based). Omit to append at end."
+          },
+          "layout": {
+            "type": "string",
+            "enum": [
+              "blank",
+              "title",
+              "title_content",
+              "two_column",
+              "comparison",
+              "section_header"
+            ],
+            "description": "Slide layout template (default: blank)"
+          },
+          "background": {
+            "type": "object",
+            "description": "Background settings",
+            "properties": {
+              "color": {
+                "type": "string",
+                "description": "Background color (hex with #)"
+              },
+              "image_url": {
+                "type": "string",
+                "description": "Background image URL"
+              }
+            }
+          },
+          "notes": {
+            "type": "string",
+            "description": "Speaker notes"
+          }
+        },
+        "required": [
+          "presentation_id"
+        ]
+      }
+    },
+    {
+      "name": "get_slide",
+      "description": "Get a single slide with its elements.",
+      "method": "GET",
+      "path": "/get-slide",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Slide ID"
+          },
+          "include_elements": {
+            "type": "boolean",
+            "description": "Include elements (default: true)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_slide",
+      "description": "Update slide properties like background, layout, or notes.",
+      "method": "PUT",
+      "path": "/update-slide",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Slide ID"
+          },
+          "layout": {
+            "type": "string",
+            "description": "New layout"
+          },
+          "background": {
+            "type": "object",
+            "description": "New background settings"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Updated speaker notes"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_slide",
+      "description": "Remove a slide and its elements from a presentation.",
+      "method": "DELETE",
+      "path": "/delete-slide",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Slide ID to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "duplicate_slide",
+      "description": "Create a copy of a slide with all its elements.",
+      "method": "GET",
+      "path": "/duplicate-slide",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Slide ID to duplicate"
+          },
+          "position": {
+            "type": "number",
+            "description": "Position for the copy (default: after original)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "reorder_slides",
+      "description": "Change the order of slides in a presentation.",
+      "method": "GET",
+      "path": "/reorder-slides",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "presentation_id": {
+            "type": "string",
+            "description": "Presentation ID"
+          },
+          "slide_order": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of slide IDs in desired order"
+          }
+        },
+        "required": [
+          "presentation_id",
+          "slide_order"
+        ]
+      }
+    },
+    {
+      "name": "add_element",
+      "description": "Add an element (text, image, shape, chart, table, or code) to a slide.",
+      "method": "GET",
+      "path": "/add-element",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slide_id": {
+            "type": "string",
+            "description": "Slide ID"
+          },
+          "element_type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "image",
+              "shape",
+              "chart",
+              "table",
+              "code",
+              "video"
+            ],
+            "description": "Type of element"
+          },
+          "position": {
+            "type": "object",
+            "description": "Position and size (percentages 0-100)",
+            "properties": {
+              "x": {
+                "type": "number",
+                "description": "X position (%)"
+              },
+              "y": {
+                "type": "number",
+                "description": "Y position (%)"
+              },
+              "width": {
+                "type": "number",
+                "description": "Width (%)"
+              },
+              "height": {
+                "type": "number",
+                "description": "Height (%)"
+              }
+            },
+            "required": [
+              "x",
+              "y",
+              "width",
+              "height"
+            ]
+          },
+          "content": {
+            "type": "object",
+            "description": "Element content (varies by type)",
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "Text content (for text/shape)"
+              },
+              "url": {
+                "type": "string",
+                "description": "Image URL (for image)"
+              },
+              "shape": {
+                "type": "string",
+                "enum": [
+                  "rect",
+                  "ellipse",
+                  "roundRect",
+                  "triangle",
+                  "line",
+                  "arrow",
+                  "star"
+                ],
+                "description": "Shape type"
+              },
+              "chartType": {
+                "type": "string",
+                "enum": [
+                  "bar",
+                  "line",
+                  "pie",
+                  "doughnut",
+                  "area",
+                  "scatter"
+                ],
+                "description": "Chart type"
+              },
+              "data": {
+                "type": "array",
+                "description": "Chart data series"
+              },
+              "rows": {
+                "type": "array",
+                "description": "Table rows (array of arrays)"
+              },
+              "code": {
+                "type": "string",
+                "description": "Code content"
+              }
+            }
+          },
+          "style": {
+            "type": "object",
+            "description": "Styling options",
+            "properties": {
+              "fontSize": {
+                "type": "number"
+              },
+              "fontFace": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string"
+              },
+              "bold": {
+                "type": "boolean"
+              },
+              "italic": {
+                "type": "boolean"
+              },
+              "align": {
+                "type": "string",
+                "enum": [
+                  "left",
+                  "center",
+                  "right"
+                ]
+              },
+              "fill": {
+                "type": "object",
+                "properties": {
+                  "color": {
+                    "type": "string"
+                  }
+                }
+              },
+              "line": {
+                "type": "object",
+                "properties": {
+                  "color": {
+                    "type": "string"
+                  },
+                  "width": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          },
+          "z_index": {
+            "type": "number",
+            "description": "Layer order (higher = on top)"
+          }
+        },
+        "required": [
+          "slide_id",
+          "element_type",
+          "position",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "update_element",
+      "description": "Modify an existing element's position, content, or style.",
+      "method": "PUT",
+      "path": "/update-element",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Element ID"
+          },
+          "position": {
+            "type": "object",
+            "description": "New position/size"
+          },
+          "content": {
+            "type": "object",
+            "description": "Updated content"
+          },
+          "style": {
+            "type": "object",
+            "description": "Updated styling"
+          },
+          "z_index": {
+            "type": "number",
+            "description": "New layer order"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_element",
+      "description": "Remove an element from a slide.",
+      "method": "DELETE",
+      "path": "/delete-element",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Element ID to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "export_pptx",
+      "description": "Export presentation to PowerPoint (PPTX) format. Returns a download URL or base64 data.",
+      "method": "GET",
+      "path": "/export-pptx",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "presentation_id": {
+            "type": "string",
+            "description": "Presentation ID to export"
+          },
+          "save_to_storage": {
+            "type": "boolean",
+            "description": "Save to storage and return URL (default: true). If false, returns base64."
+          }
+        },
+        "required": [
+          "presentation_id"
+        ]
+      }
+    },
+    {
+      "name": "export_pdf",
+      "description": "Export presentation to PDF format. Each slide becomes a page.",
+      "method": "GET",
+      "path": "/export-pdf",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "presentation_id": {
+            "type": "string",
+            "description": "Presentation ID to export"
+          },
+          "width": {
+            "type": "number",
+            "description": "PDF width in pixels (default: 1920)"
+          },
+          "height": {
+            "type": "number",
+            "description": "PDF height in pixels (default: 1080)"
+          },
+          "save_to_storage": {
+            "type": "boolean",
+            "description": "Save to storage and return URL (default: true)"
+          }
+        },
+        "required": [
+          "presentation_id"
+        ]
+      }
+    },
+    {
+      "name": "render_image",
+      "description": "Render a single slide as a PNG image.",
+      "method": "GET",
+      "path": "/render-image",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slide_id": {
+            "type": "string",
+            "description": "Slide ID to render"
+          },
+          "width": {
+            "type": "number",
+            "description": "Image width (default: 1920)"
+          },
+          "height": {
+            "type": "number",
+            "description": "Image height (default: 1080)"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "png",
+              "jpeg"
+            ],
+            "description": "Image format (default: png)"
+          }
+        },
+        "required": [
+          "slide_id"
+        ]
+      }
+    },
+    {
+      "name": "render_thumbnails",
+      "description": "Generate thumbnail images for all slides in a presentation.",
+      "method": "GET",
+      "path": "/render-thumbnails",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "presentation_id": {
+            "type": "string",
+            "description": "Presentation ID"
+          },
+          "width": {
+            "type": "number",
+            "description": "Thumbnail width (default: 320)"
+          },
+          "height": {
+            "type": "number",
+            "description": "Thumbnail height (default: 180)"
+          }
+        },
+        "required": [
+          "presentation_id"
+        ]
+      }
+    }
+  ]
+}

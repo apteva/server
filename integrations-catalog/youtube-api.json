@@ -1,0 +1,869 @@
+{
+  "slug": "youtube-api",
+  "name": "YouTube",
+  "description": "YouTube Data API v3 \u2014 manage videos, channels, playlists, search, analytics, and content publishing via OAuth2",
+  "logo": "https://www.youtube.com/s/desktop/28b0985e/img/favicon_144x144.png",
+  "categories": [
+    "youtube",
+    "video",
+    "content",
+    "analytics",
+    "social-media",
+    "google"
+  ],
+  "base_url": "https://www.googleapis.com/youtube/v3",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "expires_at",
+        "label": "expires_at"
+      },
+      {
+        "name": "token_type",
+        "label": "token_type"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+      "token_url": "https://oauth2.googleapis.com/token",
+      "scopes": [
+        "https://www.googleapis.com/auth/youtube",
+        "https://www.googleapis.com/auth/youtube.upload",
+        "https://www.googleapis.com/auth/youtube.readonly",
+        "https://www.googleapis.com/auth/youtubepartner",
+        "https://www.googleapis.com/auth/yt-analytics.readonly"
+      ],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "access_type": "offline",
+        "prompt": "consent",
+        "include_granted_scopes": "true"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "get_my_channel",
+      "description": "Get the authenticated user's YouTube channel info including subscriber count, video count, uploads playlist ID, branding, and description",
+      "method": "GET",
+      "path": "/channels?mine=true",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "part": {
+            "type": "string",
+            "description": "Comma-separated parts to include",
+            "default": "snippet,contentDetails,statistics,brandingSettings"
+          }
+        },
+        "required": [
+          "part"
+        ]
+      }
+    },
+    {
+      "name": "get_channel",
+      "description": "Get detailed info about a YouTube channel by ID. Returns statistics (subscribers, views, videos), branding, description, and content details including uploads playlist ID",
+      "method": "GET",
+      "path": "/channels",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Channel ID (e.g. UCxxxxxx)"
+          },
+          "part": {
+            "type": "string",
+            "description": "Comma-separated parts to include",
+            "default": "snippet,contentDetails,statistics,brandingSettings"
+          }
+        },
+        "required": [
+          "id",
+          "part"
+        ]
+      }
+    },
+    {
+      "name": "update_channel",
+      "description": "Update YouTube channel branding (the public 'About' description, title, keywords, country, etc.). ⚠️ DESTRUCTIVE OVERWRITE: this call overrides ALL mutable properties in brandingSettings.channel — any field you omit gets CLEARED. Safe pattern: first call get_my_channel with part='brandingSettings' to read current values, then send the full brandingSettings.channel object back with only the fields you want to change modified. Description max 1000 chars. Note: snippet.description is read-only via the API; the public 'About' description is brandingSettings.channel.description.",
+      "method": "PUT",
+      "path": "/channels?part=brandingSettings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Channel ID to update"
+          },
+          "brandingSettings": {
+            "type": "object",
+            "description": "Full brandingSettings object. The 'channel' sub-object's mutable fields are title, description, keywords, country, defaultLanguage, unsubscribedTrailer, trackingAnalyticsAccountId. Omitted fields will be CLEARED — always merge over the current values returned by get_my_channel.",
+            "properties": {
+              "channel": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "description": "Channel title (max 100 chars)"
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Public 'About' description shown on the channel page (max 1000 chars)"
+                  },
+                  "keywords": {
+                    "type": "string",
+                    "description": "Space-separated keywords (quote multi-word phrases)"
+                  },
+                  "country": {
+                    "type": "string",
+                    "description": "ISO 3166-1 alpha-2 country code (e.g. US, GB)"
+                  },
+                  "defaultLanguage": {
+                    "type": "string",
+                    "description": "BCP-47 language code (e.g. en, fr)"
+                  },
+                  "unsubscribedTrailer": {
+                    "type": "string",
+                    "description": "Video ID of the channel trailer for unsubscribed visitors"
+                  },
+                  "trackingAnalyticsAccountId": {
+                    "type": "string",
+                    "description": "Google Analytics tracking ID"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "id",
+          "brandingSettings"
+        ]
+      }
+    },
+    {
+      "name": "search",
+      "description": "Search for videos, channels, or playlists on YouTube. Supports filtering by duration, date range, channel, category, and sort order.",
+      "method": "GET",
+      "path": "/search?part=snippet",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search query keywords"
+          },
+          "type": {
+            "type": "string",
+            "description": "Resource type to search for",
+            "enum": [
+              "video",
+              "channel",
+              "playlist"
+            ],
+            "default": "video"
+          },
+          "maxResults": {
+            "type": "integer",
+            "description": "Max results (1-50)",
+            "default": 25
+          },
+          "order": {
+            "type": "string",
+            "description": "Sort order",
+            "enum": [
+              "relevance",
+              "date",
+              "viewCount",
+              "rating",
+              "title"
+            ],
+            "default": "relevance"
+          },
+          "videoDuration": {
+            "type": "string",
+            "description": "Filter by duration",
+            "enum": [
+              "short",
+              "medium",
+              "long"
+            ]
+          },
+          "channelId": {
+            "type": "string",
+            "description": "Limit search to a specific channel"
+          },
+          "publishedAfter": {
+            "type": "string",
+            "description": "Filter videos published after this date (ISO 8601, e.g. 2024-01-01T00:00:00Z)"
+          },
+          "publishedBefore": {
+            "type": "string",
+            "description": "Filter videos published before this date (ISO 8601)"
+          },
+          "safeSearch": {
+            "type": "string",
+            "description": "Safe search filtering",
+            "enum": [
+              "none",
+              "moderate",
+              "strict"
+            ],
+            "default": "moderate"
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Page token for pagination"
+          }
+        },
+        "required": [
+          "q"
+        ]
+      }
+    },
+    {
+      "name": "get_trending",
+      "description": "Get the most popular/trending videos on YouTube for a specific region",
+      "method": "GET",
+      "path": "/videos?chart=mostPopular&part=snippet,statistics,contentDetails",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "regionCode": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code (e.g. US, GB, DE, JP)",
+            "default": "US"
+          },
+          "videoCategoryId": {
+            "type": "string",
+            "description": "Filter by category (e.g. 10=Music, 20=Gaming, 24=Entertainment, 25=News)"
+          },
+          "maxResults": {
+            "type": "integer",
+            "description": "Max results (1-50)",
+            "default": 25
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Page token for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_video",
+      "description": "Get detailed info about one or more YouTube videos including title, description, statistics (views, likes, comments), duration, publish date, and status",
+      "method": "GET",
+      "path": "/videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Video ID(s), comma-separated for multiple (max 50)"
+          },
+          "part": {
+            "type": "string",
+            "description": "Comma-separated parts to include",
+            "default": "snippet,statistics,contentDetails,status"
+          }
+        },
+        "required": [
+          "id",
+          "part"
+        ]
+      }
+    },
+    {
+      "name": "update_video",
+      "description": "Update video metadata (title, description, tags, privacy, category, schedule). IMPORTANT: To schedule a video for future publish, you MUST set privacyStatus to 'private' AND provide publishAt as ISO 8601 datetime. Scheduling does NOT work with 'unlisted' or 'public' status \u2014 YouTube requires the video to be 'private' first. You must provide the full snippet and/or status objects.",
+      "method": "PUT",
+      "path": "/videos?part=snippet,status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Video ID to update"
+          },
+          "snippet": {
+            "type": "object",
+            "description": "Video snippet with title, description, tags, categoryId",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "categoryId": {
+                "type": "string"
+              },
+              "defaultLanguage": {
+                "type": "string"
+              },
+              "defaultAudioLanguage": {
+                "type": "string"
+              }
+            }
+          },
+          "status": {
+            "type": "object",
+            "description": "Video status with privacyStatus, publishAt, license, embeddable, madeForKids",
+            "properties": {
+              "privacyStatus": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "public",
+                  "unlisted"
+                ]
+              },
+              "publishAt": {
+                "type": "string",
+                "description": "ISO 8601 datetime for scheduled publish. ONLY works when privacyStatus is 'private'. To schedule: set privacyStatus='private' and publishAt to the desired time."
+              },
+              "license": {
+                "type": "string",
+                "enum": [
+                  "youtube",
+                  "creativeCommon"
+                ]
+              },
+              "embeddable": {
+                "type": "boolean"
+              },
+              "publicStatsViewable": {
+                "type": "boolean"
+              },
+              "selfDeclaredMadeForKids": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_video",
+      "description": "Permanently delete a video from YouTube. This cannot be undone.",
+      "method": "DELETE",
+      "path": "/videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Video ID to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "upload_video_init",
+      "description": "Step 1 of YouTube's resumable video upload protocol. POSTs the video metadata (title, description, privacy, category) to the upload host and gets back a session URL in the Location response header. The caller (typically the social app's publishYoutube flow) then PUTs the actual video bytes to that session URL — that step does NOT go through this integration because Google's session URLs are pre-authorized (no Bearer header needed). Note: the path is absolute because YouTube's upload endpoint lives at googleapis.com/upload/youtube/v3, not the read API host.",
+      "method": "POST",
+      "path": "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "snippet": {
+            "type": "object",
+            "description": "Video metadata. Required at minimum: title. Optional: description, tags, categoryId.",
+            "properties": {
+              "title": { "type": "string" },
+              "description": { "type": "string" },
+              "tags": { "type": "array", "items": { "type": "string" } },
+              "categoryId": {
+                "type": "string",
+                "description": "YouTube category ID. Defaults to 22 (People & Blogs) when omitted upstream."
+              }
+            },
+            "required": ["title"]
+          },
+          "status": {
+            "type": "object",
+            "description": "Privacy + license. privacyStatus is one of public, unlisted, private. Default 'private' for safety.",
+            "properties": {
+              "privacyStatus": {
+                "type": "string",
+                "enum": ["public", "unlisted", "private"],
+                "default": "private"
+              },
+              "selfDeclaredMadeForKids": { "type": "boolean" },
+              "embeddable": { "type": "boolean" }
+            }
+          }
+        },
+        "required": ["snippet"]
+      }
+    },
+    {
+      "name": "rate_video",
+      "description": "Like, dislike, or remove rating from a YouTube video",
+      "method": "POST",
+      "path": "/videos/rate?id={id}&rating={rating}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Video ID to rate"
+          },
+          "rating": {
+            "type": "string",
+            "description": "Rating to apply",
+            "enum": [
+              "like",
+              "dislike",
+              "none"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "rating"
+        ]
+      }
+    },
+    {
+      "name": "list_playlists",
+      "description": "List playlists for a channel or the authenticated user. Returns playlist titles, descriptions, item counts, and thumbnails.",
+      "method": "GET",
+      "path": "/playlists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channelId": {
+            "type": "string",
+            "description": "Channel ID to list playlists for"
+          },
+          "mine": {
+            "type": "boolean",
+            "description": "List authenticated user's playlists (use instead of channelId)"
+          },
+          "maxResults": {
+            "type": "integer",
+            "description": "Max results (1-50)",
+            "default": 25
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Page token for pagination"
+          },
+          "part": {
+            "type": "string",
+            "description": "Comma-separated parts to include",
+            "default": "snippet,contentDetails,status"
+          }
+        },
+        "required": [
+          "part"
+        ]
+      }
+    },
+    {
+      "name": "get_playlist",
+      "description": "Get details of a specific YouTube playlist by ID",
+      "method": "GET",
+      "path": "/playlists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Playlist ID"
+          },
+          "part": {
+            "type": "string",
+            "description": "Comma-separated parts",
+            "default": "snippet,contentDetails,status"
+          }
+        },
+        "required": [
+          "id",
+          "part"
+        ]
+      }
+    },
+    {
+      "name": "create_playlist",
+      "description": "Create a new YouTube playlist",
+      "method": "POST",
+      "path": "/playlists?part=snippet,status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "snippet": {
+            "type": "object",
+            "description": "Playlist snippet",
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "Playlist title"
+              },
+              "description": {
+                "type": "string",
+                "description": "Playlist description"
+              }
+            },
+            "required": [
+              "title"
+            ]
+          },
+          "status": {
+            "type": "object",
+            "description": "Playlist status",
+            "properties": {
+              "privacyStatus": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "public",
+                  "unlisted"
+                ],
+                "default": "private"
+              }
+            }
+          }
+        },
+        "required": [
+          "snippet"
+        ]
+      }
+    },
+    {
+      "name": "update_playlist",
+      "description": "Update a YouTube playlist's title, description, or privacy status",
+      "method": "PUT",
+      "path": "/playlists?part=snippet,status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Playlist ID to update"
+          },
+          "snippet": {
+            "type": "object",
+            "description": "Updated snippet",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          },
+          "status": {
+            "type": "object",
+            "description": "Updated status",
+            "properties": {
+              "privacyStatus": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "public",
+                  "unlisted"
+                ]
+              }
+            }
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_playlist",
+      "description": "Permanently delete a YouTube playlist. This cannot be undone.",
+      "method": "DELETE",
+      "path": "/playlists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Playlist ID to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_playlist_items",
+      "description": "List videos in a playlist. Works with any playlist ID including a channel's uploads playlist (from Get My Channel \u2192 contentDetails.relatedPlaylists.uploads). Returns video IDs, titles, thumbnails, and positions.",
+      "method": "GET",
+      "path": "/playlistItems",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "playlistId": {
+            "type": "string",
+            "description": "Playlist ID"
+          },
+          "maxResults": {
+            "type": "integer",
+            "description": "Max results (1-50)",
+            "default": 25
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Page token for pagination"
+          },
+          "part": {
+            "type": "string",
+            "description": "Comma-separated parts to include",
+            "default": "snippet,contentDetails,status"
+          }
+        },
+        "required": [
+          "playlistId",
+          "part"
+        ]
+      }
+    },
+    {
+      "name": "add_to_playlist",
+      "description": "Add a video to a YouTube playlist at an optional position",
+      "method": "POST",
+      "path": "/playlistItems?part=snippet",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "snippet": {
+            "type": "object",
+            "description": "Playlist item snippet",
+            "properties": {
+              "playlistId": {
+                "type": "string",
+                "description": "Playlist ID"
+              },
+              "resourceId": {
+                "type": "object",
+                "description": "Resource to add",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "default": "youtube#video"
+                  },
+                  "videoId": {
+                    "type": "string",
+                    "description": "Video ID to add"
+                  }
+                },
+                "required": [
+                  "videoId"
+                ]
+              },
+              "position": {
+                "type": "integer",
+                "description": "Position in playlist (0-based)"
+              }
+            },
+            "required": [
+              "playlistId",
+              "resourceId"
+            ]
+          }
+        },
+        "required": [
+          "snippet"
+        ]
+      }
+    },
+    {
+      "name": "remove_from_playlist",
+      "description": "Remove an item from a YouTube playlist. Use the playlistItemId (not video ID) from List Playlist Items.",
+      "method": "DELETE",
+      "path": "/playlistItems",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Playlist item ID (from list-playlist-items, not the video ID)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_comments",
+      "description": "Get comment threads for a YouTube video. Returns top-level comments with reply counts.",
+      "method": "GET",
+      "path": "/commentThreads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Video ID to get comments for"
+          },
+          "maxResults": {
+            "type": "integer",
+            "description": "Max results (1-100)",
+            "default": 20
+          },
+          "order": {
+            "type": "string",
+            "description": "Sort order",
+            "enum": [
+              "relevance",
+              "time"
+            ],
+            "default": "relevance"
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Page token for pagination"
+          },
+          "part": {
+            "type": "string",
+            "description": "Comma-separated parts to include",
+            "default": "snippet,replies"
+          }
+        },
+        "required": [
+          "videoId",
+          "part"
+        ]
+      }
+    },
+    {
+      "name": "post_comment",
+      "description": "Post a top-level comment on a YouTube video",
+      "method": "POST",
+      "path": "/commentThreads?part=snippet",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "snippet": {
+            "type": "object",
+            "properties": {
+              "videoId": {
+                "type": "string",
+                "description": "Video ID to comment on"
+              },
+              "topLevelComment": {
+                "type": "object",
+                "properties": {
+                  "snippet": {
+                    "type": "object",
+                    "properties": {
+                      "textOriginal": {
+                        "type": "string",
+                        "description": "Comment text"
+                      }
+                    },
+                    "required": [
+                      "textOriginal"
+                    ]
+                  }
+                },
+                "required": [
+                  "snippet"
+                ]
+              }
+            },
+            "required": [
+              "videoId",
+              "topLevelComment"
+            ]
+          }
+        },
+        "required": [
+          "snippet"
+        ]
+      }
+    },
+    {
+      "name": "list_subscriptions",
+      "description": "List the authenticated user's YouTube subscriptions or subscriptions to a specific channel",
+      "method": "GET",
+      "path": "/subscriptions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mine": {
+            "type": "boolean",
+            "description": "List my subscriptions",
+            "default": true
+          },
+          "channelId": {
+            "type": "string",
+            "description": "List subscriptions of this channel instead"
+          },
+          "maxResults": {
+            "type": "integer",
+            "description": "Max results (1-50)",
+            "default": 25
+          },
+          "order": {
+            "type": "string",
+            "description": "Sort order",
+            "enum": [
+              "alphabetical",
+              "relevance",
+              "unread"
+            ],
+            "default": "relevance"
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Page token for pagination"
+          },
+          "part": {
+            "type": "string",
+            "description": "Comma-separated parts to include",
+            "default": "snippet,contentDetails"
+          }
+        },
+        "required": [
+          "part"
+        ]
+      }
+    }
+  ]
+}

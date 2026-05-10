@@ -1,0 +1,1986 @@
+{
+  "slug": "omnikit-messaging",
+  "name": "OmniKit Messaging",
+  "description": "Comprehensive messaging and marketing automation system with template management, contact segmentation, campaign orchestration, and multi-channel delivery",
+  "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+  "categories": [
+    "messaging",
+    "email",
+    "sms",
+    "campaigns",
+    "marketing",
+    "automation",
+    "analytics",
+    "omnikit"
+  ],
+  "base_url": "https://api.omnikit.co",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your OmniKit API key (starts with 'okt_'). The project is determined automatically from the key."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_template",
+      "description": "Create a reusable email or SMS template. IMPORTANT: Set category='campaign' for marketing campaigns, 'transactional' for receipts/notifications, 'automation' for welcome series. Returns a template ID (UUID) - save this ID to use in create-campaign. Unsubscribe link is added automatically - do NOT include it in your content. Does NOT send anything.",
+      "method": "POST",
+      "path": "/messaging/templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Template name"
+          },
+          "content": {
+            "type": "object",
+            "description": "Message content object with channel-specific fields (e.g., {html, text} for email, {body} for SMS)"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "push",
+              "sms",
+              "slack",
+              "webhook",
+              "in_app"
+            ],
+            "default": "email",
+            "description": "Communication channel"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "transactional",
+              "campaign",
+              "automation"
+            ],
+            "default": "transactional",
+            "description": "IMPORTANT - choose correctly: 'campaign' for marketing emails/broadcasts sent via create-campaign, 'transactional' for individual receipts/notifications, 'automation' for triggered sequences. For campaigns, you MUST set this to 'campaign'."
+          },
+          "subject": {
+            "type": "string",
+            "description": "Message subject (required for email channel)"
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of template variables (optional, will be auto-extracted)"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Template tags for organization"
+          },
+          "created_by": {
+            "type": "string",
+            "description": "User ID who created the template (optional)"
+          }
+        },
+        "required": [
+          "name",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "list_templates",
+      "description": "List all saved email/SMS templates for a project. Use this to find a template_id before creating a campaign.",
+      "method": "GET",
+      "path": "/messaging/templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "push",
+              "slack",
+              "webhook",
+              "in_app"
+            ],
+            "description": "Filter by channel (optional)"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "transactional",
+              "campaign",
+              "automation"
+            ],
+            "description": "Filter by category: transactional, campaign, or automation (optional)"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search in template name and content (optional)"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter by tags (optional)"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Filter by active status (optional)"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20,
+            "description": "Number of templates to return (optional)"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0,
+            "description": "Pagination offset (optional)"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_template",
+      "description": "Update an existing email or SMS template. Modify name, subject, content, category, tags, or active status. Variables in content are auto-extracted. Unsubscribe link is added automatically - do NOT include it in your content.",
+      "method": "PUT",
+      "path": "/messaging/templates/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Template ID to update (required)"
+          },
+          "name": {
+            "type": "string",
+            "description": "New template name"
+          },
+          "subject": {
+            "type": "string",
+            "description": "New message subject (for email channel)"
+          },
+          "content": {
+            "type": "object",
+            "description": "New message content object with channel-specific fields (e.g., {html, text} for email, {body} for SMS)"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "transactional",
+              "campaign",
+              "automation"
+            ],
+            "description": "Template category: transactional (individual messages), campaign (broadcasts), automation (flow-triggered)"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Template tags for organization"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Whether template is active"
+          },
+          "updated_by": {
+            "type": "string",
+            "description": "User ID making the update"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_template",
+      "description": "Get a message template by ID or name",
+      "method": "GET",
+      "path": "/messaging/templates/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Template ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Template name (alternative to id)"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_contact",
+      "description": "Add a new contact to the messaging system. Requires at least one of: email, phone, pushToken, slackUserId, or user_id. If contact already exists, returns existing_contact_id in the data field - use that ID to send messages.",
+      "method": "POST",
+      "path": "/messaging/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User ID (one of: user_id, email, phone, pushToken, slackUserId required)"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Contact email address"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Contact phone number"
+          },
+          "pushToken": {
+            "type": "string",
+            "description": "Push notification token"
+          },
+          "slackUserId": {
+            "type": "string",
+            "description": "Slack user ID"
+          },
+          "attributes": {
+            "type": "object",
+            "description": "Custom contact attributes",
+            "default": {}
+          },
+          "preferences": {
+            "type": "object",
+            "description": "Contact communication preferences",
+            "default": {}
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Contact tags"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "unsubscribed",
+              "bounced",
+              "complained",
+              "inactive"
+            ],
+            "default": "active",
+            "description": "Contact status"
+          },
+          "created_by": {
+            "type": "string",
+            "description": "User ID who created the contact (optional)"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_contact",
+      "description": "Get a specific messaging contact by ID",
+      "method": "GET",
+      "path": "/messaging/contacts/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Contact ID to retrieve"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_contacts",
+      "description": "List contacts with filtering and pagination",
+      "method": "GET",
+      "path": "/messaging/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "unsubscribed",
+              "bounced",
+              "complained",
+              "inactive"
+            ],
+            "description": "Filter by contact status"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter by tags"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search in email, phone, and attributes"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Number of contacts to return (max 100)"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Number of contacts to skip"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_contact",
+      "description": "Update an existing contact",
+      "method": "PUT",
+      "path": "/messaging/contacts/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Contact ID to update (required)"
+          },
+          "email": {
+            "type": "string",
+            "description": "Contact email address"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Contact phone number"
+          },
+          "push_token": {
+            "type": "string",
+            "description": "Push notification token"
+          },
+          "attributes": {
+            "type": "object",
+            "description": "Custom contact attributes"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Contact tags"
+          },
+          "preferences": {
+            "type": "object",
+            "description": "Contact messaging preferences"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "unsubscribed",
+              "bounced",
+              "complained",
+              "inactive"
+            ],
+            "description": "Contact status"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create an email/SMS campaign. WORKFLOW: 1) Call create-template with category='campaign', save returned ID (UUID like '8e3b305e-...'), 2) Call create-segment, save returned ID, 3) Call this with those UUIDs. IDs are UUIDs from API responses, NOT names you create. Creates draft - use launch-campaign to send.",
+      "method": "POST",
+      "path": "/messaging/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Campaign name (required)"
+          },
+          "template_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID from create-template response (e.g., '8e3b305e-38d1-44c6-a545-87c28b43bc24'). NOT a name - must be actual ID. Template must have category='campaign'."
+          },
+          "segment_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID from create-segment response. NOT a name - must be actual ID from the API response."
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "push",
+              "multi"
+            ],
+            "description": "Communication channel (required)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Campaign description (optional)"
+          },
+          "scheduled_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When to send the campaign (ISO 8601)"
+          },
+          "timezone": {
+            "type": "string",
+            "default": "UTC",
+            "description": "Timezone for scheduling"
+          },
+          "send_immediately": {
+            "type": "boolean",
+            "default": false,
+            "description": "Send immediately instead of scheduling"
+          },
+          "delivery_settings": {
+            "type": "object",
+            "description": "Delivery configuration",
+            "properties": {
+              "rate_limit": {
+                "type": "integer",
+                "description": "Messages per minute"
+              },
+              "retry_failed": {
+                "type": "boolean",
+                "default": true
+              },
+              "track_opens": {
+                "type": "boolean",
+                "default": true
+              },
+              "track_clicks": {
+                "type": "boolean",
+                "default": true
+              }
+            }
+          }
+        },
+        "required": [
+          "name",
+          "template_id",
+          "segment_id",
+          "channel"
+        ]
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List CAMPAIGNS (actual send instances). Campaigns use templates and target segments. This returns campaigns, NOT templates.",
+      "method": "GET",
+      "path": "/messaging/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "scheduled",
+              "sending",
+              "sent",
+              "paused",
+              "failed",
+              "cancelled"
+            ],
+            "description": "Filter by campaign status"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "push",
+              "multi"
+            ],
+            "description": "Filter by communication channel"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Number of campaigns to return"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "minimum": 0,
+            "description": "Offset for pagination"
+          },
+          "sort": {
+            "type": "string",
+            "default": "created_at:desc",
+            "description": "Sort order (e.g., created_at:desc, name:asc, scheduled_at:desc)"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_campaign",
+      "description": "Get details of a specific CAMPAIGN by ID. Returns campaign configuration, stats, and metadata.",
+      "method": "GET",
+      "path": "/messaging/campaigns/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Campaign ID (required)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_campaign",
+      "description": "Update a CAMPAIGN's details (name, description, channel, template, segment, sender, schedule, tracking, send settings). Can only update campaigns that haven't been sent yet.",
+      "method": "PUT",
+      "path": "/messaging/campaigns/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Campaign ID (required)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Campaign name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Campaign description"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "push",
+              "multi"
+            ],
+            "description": "Communication channel"
+          },
+          "template_id": {
+            "type": "string",
+            "description": "Message template ID"
+          },
+          "segment_id": {
+            "type": "string",
+            "description": "Target segment ID"
+          },
+          "sender_id": {
+            "type": "string",
+            "description": "Sender ID (verified email/phone to send from)"
+          },
+          "schedule": {
+            "type": "object",
+            "description": "Schedule configuration (e.g., {type: 'scheduled', send_at: '2024-12-25T10:00:00Z'})"
+          },
+          "tracking": {
+            "type": "object",
+            "description": "Tracking configuration (e.g., {track_opens: true, track_clicks: true})"
+          },
+          "send_settings": {
+            "type": "object",
+            "description": "Send settings (e.g., {rate_limit: 100, retry_failed: true})"
+          },
+          "updated_by": {
+            "type": "string",
+            "description": "User ID making the update"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_campaign",
+      "description": "Delete/cancel a CAMPAIGN. Can only delete campaigns that haven't been sent yet. Use with caution.",
+      "method": "DELETE",
+      "path": "/messaging/campaigns/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Campaign ID to delete (required)"
+          },
+          "deleted_by": {
+            "type": "string",
+            "description": "User ID performing the deletion"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "Send a standalone one-off message directly to a contact or email/phone. Provide either contactId OR 'to' (email/phone) - if 'to' is used without contactId, will auto-find or create a contact. This is for promotional/transactional messages, NOT for replying to customer support conversations. For conversation replies, use omnikit-messaging-conversation-reply instead.",
+      "method": "POST",
+      "path": "/messaging/messages/send",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contactId": {
+            "type": "string",
+            "description": "Contact ID to send to (required if 'to' not provided)"
+          },
+          "to": {
+            "type": "string",
+            "description": "Direct email address or phone number to send to. If no contactId provided, will auto-find or create a contact. Example: 'user@example.com' for email, '+1234567890' for SMS."
+          },
+          "contactName": {
+            "type": "string",
+            "description": "Optional name for auto-created contact (e.g., 'John Doe'). Only used when 'to' creates a new contact."
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "push",
+              "slack",
+              "webhook",
+              "in_app"
+            ],
+            "default": "email",
+            "description": "Delivery channel (required)"
+          },
+          "templateId": {
+            "type": "string",
+            "description": "Template ID to use (optional, or provide content)"
+          },
+          "content": {
+            "type": "object",
+            "description": "Message content (required if no templateId). For EMAIL: use {\"html\": \"<html>...</html>\", \"text\": \"plain text fallback\"}. For PUSH: use {\"title\": \"...\", \"body\": \"...\", \"action_url\": \"...\"}. For SMS/OTHER: use {\"body\": \"...\"}. HTML is fully supported for email channel.",
+            "properties": {
+              "html": {
+                "type": "string",
+                "description": "HTML content for email (supports full HTML with inline styles)"
+              },
+              "text": {
+                "type": "string",
+                "description": "Plain text fallback for email"
+              },
+              "body": {
+                "type": "string",
+                "description": "Body text for SMS/push/other channels"
+              },
+              "title": {
+                "type": "string",
+                "description": "Title for push notifications"
+              },
+              "action_url": {
+                "type": "string",
+                "description": "Action URL for push notifications"
+              }
+            }
+          },
+          "subject": {
+            "type": "string",
+            "description": "Message subject (for email/push)"
+          },
+          "templateData": {
+            "type": "object",
+            "description": "Data for template variable substitution",
+            "default": {}
+          },
+          "conversationId": {
+            "type": "string",
+            "description": "Conversation ID (optional)"
+          },
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID (optional)"
+          },
+          "scheduledAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Schedule delivery for later (optional)"
+          },
+          "created_by": {
+            "type": "string",
+            "description": "User ID who sent the message (optional)"
+          }
+        },
+        "required": [
+          "channel"
+        ]
+      }
+    },
+    {
+      "name": "create_segment",
+      "description": "Create a new contact segment with filtering rules",
+      "method": "POST",
+      "path": "/messaging/segments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Segment name (required)"
+          },
+          "rules": {
+            "type": "object",
+            "description": "Filtering rules for segment membership. Structure: {operator: 'AND'|'OR', conditions: [{field, operator, value}]}. Operators: equals, not_equals, contains, starts_with, greater_than, less_than, in, not_in, exists, not_exists"
+          },
+          "description": {
+            "type": "string",
+            "description": "Segment description (optional)"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "static",
+              "dynamic"
+            ],
+            "default": "dynamic",
+            "description": "Segment type: 'dynamic' auto-updates based on rules, 'static' is a fixed list"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Segment tags"
+          }
+        },
+        "required": [
+          "name",
+          "rules"
+        ]
+      }
+    },
+    {
+      "name": "list_segments",
+      "description": "List all contact segments with filtering and pagination",
+      "method": "GET",
+      "path": "/messaging/segments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "is_active": {
+            "type": "boolean",
+            "description": "Filter by active status"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search in segment name and description"
+          },
+          "created_by": {
+            "type": "string",
+            "description": "Filter by creator user ID"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20,
+            "description": "Number of segments to return"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0,
+            "description": "Number of segments to skip"
+          },
+          "sort": {
+            "type": "string",
+            "pattern": "^(name|created_at|updated_at):(asc|desc)$",
+            "default": "created_at:desc",
+            "description": "Sort field and direction"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_segment",
+      "description": "Update an existing contact segment's name, description, or filters",
+      "method": "PUT",
+      "path": "/messaging/segments/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Segment ID (required)"
+          },
+          "name": {
+            "type": "string",
+            "description": "New segment name"
+          },
+          "description": {
+            "type": "string",
+            "description": "New segment description"
+          },
+          "filters": {
+            "type": "object",
+            "description": "New filtering rules"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Whether segment is active"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_segment",
+      "description": "Delete a contact segment (cannot be undone)",
+      "method": "DELETE",
+      "path": "/messaging/segments/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Segment ID to delete (required)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "refresh_segment",
+      "description": "Manually refresh segment membership based on current filter rules",
+      "method": "POST",
+      "path": "/messaging/segments/{segment_id}/refresh",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "segment_id": {
+            "type": "string",
+            "description": "Segment ID to refresh (required)"
+          }
+        },
+        "required": [
+          "segment_id"
+        ]
+      }
+    },
+    {
+      "name": "test_campaign",
+      "description": "Send a test email for a campaign to verify content and rendering before sending to the full audience",
+      "method": "POST",
+      "path": "/messaging/campaigns/{campaign_id}/test",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": {
+            "type": "string",
+            "description": "Campaign ID to test (required)"
+          },
+          "test_email": {
+            "type": "string",
+            "format": "email",
+            "description": "Email address to send test to (required)"
+          },
+          "test_name": {
+            "type": "string",
+            "default": "Test User",
+            "description": "Name of test recipient for personalization"
+          },
+          "created_by": {
+            "type": "string",
+            "description": "User ID sending the test"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "test_email"
+        ]
+      }
+    },
+    {
+      "name": "launch_campaign",
+      "description": "Execute and send a campaign to its target audience. Campaign must be created first with create-campaign.",
+      "method": "POST",
+      "path": "/messaging/campaigns/{campaign_id}/launch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": {
+            "type": "string",
+            "description": "Campaign ID to launch (required)"
+          },
+          "launched_by": {
+            "type": "string",
+            "description": "User ID who is launching the campaign (optional)"
+          }
+        },
+        "required": [
+          "campaign_id"
+        ]
+      }
+    },
+    {
+      "name": "list_conversations",
+      "description": "List conversations in a project with filtering, searching, and pagination",
+      "method": "GET",
+      "path": "/messaging/conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "pending",
+              "archived",
+              "closed",
+              "spam"
+            ],
+            "description": "Filter by conversation status. Values: active (open/ongoing - needs our response), pending (waiting on customer response), archived (hidden but not resolved), closed (resolved/completed), spam (marked as spam)"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "urgent"
+            ],
+            "description": "Filter by priority (optional)"
+          },
+          "assigned_to": {
+            "type": "string",
+            "description": "Filter conversations assigned to a user (optional)"
+          },
+          "contact_id": {
+            "type": "string",
+            "description": "Filter conversations containing a specific contact (optional)"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "push",
+              "slack",
+              "webhook",
+              "in_app"
+            ],
+            "description": "Filter by communication channel (optional)"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search in conversation subject and metadata (optional)"
+          },
+          "created_after": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Filter conversations created after this date (ISO 8601) (optional)"
+          },
+          "created_before": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Filter conversations created before this date (ISO 8601) (optional)"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20,
+            "description": "Number of conversations to return (optional)"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0,
+            "description": "Pagination offset (optional)"
+          },
+          "sort": {
+            "type": "string",
+            "default": "created_at:desc",
+            "description": "Sort field and direction (e.g., 'created_at:desc', 'status:asc') (optional)"
+          }
+        }
+      }
+    },
+    {
+      "name": "conversation_reply",
+      "description": "Send a reply message within an existing customer support conversation thread. Requires conversation_id. Use this when responding to customer inquiries. For standalone messages to contacts, use omnikit-messaging-send-message instead.",
+      "method": "POST",
+      "path": "/messaging/conversations/{conversation_id}/reply",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "description": "Conversation ID to reply to (required)"
+          },
+          "content": {
+            "type": "string",
+            "description": "Reply content text (optional if template_id provided)"
+          },
+          "template_id": {
+            "type": "string",
+            "description": "Template ID to use for the reply (optional if content provided)"
+          },
+          "template_data": {
+            "type": "object",
+            "description": "Data for template variable substitution",
+            "default": {}
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ],
+            "default": "outbound",
+            "description": "Message direction (optional)"
+          },
+          "send_message": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether to actually send the message or just create it (optional)"
+          },
+          "contact_id": {
+            "type": "string",
+            "description": "Contact ID (required if getting from conversation)"
+          },
+          "reply_to_message_id": {
+            "type": "string",
+            "description": "ID of the message being replied to (optional)"
+          },
+          "channel_override": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "push",
+              "slack",
+              "webhook"
+            ],
+            "description": "Override the default channel (optional)"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Custom message subject (for email) (optional)"
+          },
+          "from_email": {
+            "type": "string",
+            "format": "email",
+            "description": "Verified email address to send from (optional)"
+          },
+          "sender_id": {
+            "type": "string",
+            "description": "Sender user ID to get verified email (optional)"
+          },
+          "created_by": {
+            "type": "string",
+            "description": "User ID who created the reply (optional)"
+          }
+        },
+        "required": [
+          "conversation_id"
+        ]
+      }
+    },
+    {
+      "name": "list_messages",
+      "description": "List messages in a conversation. Retrieve all messages from a conversation thread including content, sender, direction (inbound/outbound), timestamps, and delivery status. Use this to get conversation history, read messages, or view what was said.",
+      "method": "GET",
+      "path": "/messaging/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "description": "Conversation ID to load messages from (optional - filter by conversation)"
+          },
+          "contact_id": {
+            "type": "string",
+            "description": "Filter by contact ID (optional)"
+          },
+          "campaign_id": {
+            "type": "string",
+            "description": "Filter by campaign ID (optional)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "scheduled",
+              "sending",
+              "sent",
+              "delivered",
+              "opened",
+              "clicked",
+              "bounced",
+              "complained",
+              "failed"
+            ],
+            "description": "Filter by message status (optional)"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "push",
+              "webhook"
+            ],
+            "description": "Filter by channel (optional)"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ],
+            "description": "Filter by direction (optional)"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50,
+            "description": "Number of messages to return (optional)"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0,
+            "description": "Pagination offset (optional)"
+          },
+          "sort": {
+            "type": "string",
+            "default": "created_at:desc",
+            "description": "Sort field and direction (e.g., 'created_at:desc' for latest first, 'created_at:asc' for oldest first) (optional)"
+          },
+          "include_content": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include full message content (optional)"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_conversation",
+      "description": "Get conversation metadata and context (status, priority, participants, tags, assigned_to). Returns conversation info only - NOT the message history. Use omnikit-messaging-list-messages to load actual messages.",
+      "method": "GET",
+      "path": "/messaging/conversations/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Conversation ID (required)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_conversation",
+      "description": "Update conversation status, priority, assignment, and metadata. Use this to change status from open to closed, modify priority, or reassign conversations",
+      "method": "PUT",
+      "path": "/messaging/conversations/{conversation_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "description": "Conversation ID to update (required)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "pending",
+              "archived",
+              "closed",
+              "spam"
+            ],
+            "description": "Update conversation status. Values: active (open/ongoing - needs our response), pending (waiting on customer response - use after replying), archived (hidden but not resolved), closed (resolved/completed), spam (mark as spam)"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "urgent"
+            ],
+            "description": "Update priority level (optional)"
+          },
+          "assigned_to": {
+            "type": "string",
+            "description": "User ID to assign conversation to, or null to unassign (optional)"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Update conversation tags (optional)"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Update conversation subject (optional)"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Add internal notes (appended to history) (optional)"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Update custom metadata fields (optional)"
+          },
+          "updated_by": {
+            "type": "string",
+            "description": "User ID making the update (optional)"
+          }
+        },
+        "required": [
+          "conversation_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_contact",
+      "description": "Soft-delete a messaging contact by ID. The contact will be marked as deleted but data is retained for audit purposes.",
+      "method": "DELETE",
+      "path": "/messaging/contacts/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Contact ID to delete (UUID)"
+          },
+          "deleted_by": {
+            "type": "string",
+            "description": "User ID performing the deletion (optional)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "contact_history",
+      "description": "Get the full message history and engagement statistics for a contact. Returns contact info, message history with delivery/open/click tracking, and an engagement summary with rates. Use this to check if a contact has already been emailed before sending again.",
+      "method": "GET",
+      "path": "/messaging/contacts/{id}/history",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Contact ID (UUID)"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "push"
+            ],
+            "description": "Filter history by channel (optional)"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ],
+            "description": "Filter by message direction (optional)"
+          },
+          "include_engagement": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include engagement summary with open/click/bounce rates (default: true)"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of messages to return (default: 50)"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset (default: 0)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_template",
+      "description": "Soft-delete a message template by ID. Template will be marked as deleted but retained for audit. Cannot delete templates actively used by running campaigns.",
+      "method": "DELETE",
+      "path": "/messaging/templates/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Template ID to delete (UUID)"
+          },
+          "deleted_by": {
+            "type": "string",
+            "description": "User ID performing the deletion (optional)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "template_stats",
+      "description": "Get engagement statistics for templates - open rates, click rates, bounce rates, etc. Can filter by specific template, channel, or date range. Useful for evaluating template performance before reusing in campaigns.",
+      "method": "GET",
+      "path": "/messaging/templates/stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "template_id": {
+            "type": "string",
+            "description": "Specific template ID to get stats for (optional, returns all if not provided)"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "push"
+            ],
+            "description": "Filter by channel (optional)"
+          },
+          "date_from": {
+            "type": "string",
+            "description": "Start date filter in ISO 8601 format (optional)"
+          },
+          "date_to": {
+            "type": "string",
+            "description": "End date filter in ISO 8601 format (optional)"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_conversation",
+      "description": "Create a new customer support conversation/ticket. Optionally include an initial message, participant IDs, priority, tags, and assignment. Returns the conversation ID for follow-up replies.",
+      "method": "POST",
+      "path": "/messaging/conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "participant_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Contact IDs to include in the conversation"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "push",
+              "slack",
+              "webhook",
+              "in-app"
+            ],
+            "default": "email",
+            "description": "Communication channel"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Conversation subject/title"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "urgent"
+            ],
+            "default": "medium",
+            "description": "Priority level"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags for categorization"
+          },
+          "assigned_to": {
+            "type": "string",
+            "description": "Agent/user ID to assign the conversation to"
+          },
+          "initial_message": {
+            "type": "object",
+            "description": "Optional initial message: {content: string, direction: 'inbound'|'outbound'}",
+            "properties": {
+              "content": {
+                "type": "string",
+                "description": "Message content"
+              },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "inbound",
+                  "outbound"
+                ],
+                "default": "inbound",
+                "description": "Message direction"
+              }
+            },
+            "required": [
+              "content"
+            ]
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Custom metadata (optional)"
+          }
+        }
+      }
+    },
+    {
+      "name": "close_conversation",
+      "description": "Close a conversation with resolution details. Optionally send a final message, set resolution status (resolved, not_resolved, escalated, duplicate, spam, abandoned), and record satisfaction rating.",
+      "method": "POST",
+      "path": "/messaging/conversations/{conversation_id}/close",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "description": "Conversation ID to close"
+          },
+          "resolution_status": {
+            "type": "string",
+            "enum": [
+              "resolved",
+              "not_resolved",
+              "escalated",
+              "duplicate",
+              "spam",
+              "abandoned"
+            ],
+            "default": "resolved",
+            "description": "How the conversation was resolved"
+          },
+          "resolution_notes": {
+            "type": "string",
+            "description": "Notes about the resolution"
+          },
+          "resolution_category": {
+            "type": "string",
+            "description": "Category of the resolution (e.g., 'billing', 'technical')"
+          },
+          "customer_satisfaction_rating": {
+            "type": "integer",
+            "description": "Satisfaction rating 1-5 (optional)"
+          },
+          "final_message": {
+            "type": "string",
+            "description": "Optional final message to send before closing"
+          },
+          "send_final_message": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to send the final_message to the customer"
+          },
+          "closed_by": {
+            "type": "string",
+            "description": "User ID of the agent closing the conversation"
+          }
+        },
+        "required": [
+          "conversation_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_conversation",
+      "description": "Soft-delete a conversation and its messages. The data is retained for audit purposes but no longer visible in listings.",
+      "method": "DELETE",
+      "path": "/messaging/conversations/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Conversation ID to delete (UUID)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "assign_conversation",
+      "description": "Assign or reassign a conversation to a support agent. Supports notification of both new and previous assignees, priority changes, and assignment notes.",
+      "method": "POST",
+      "path": "/messaging/conversations/{conversation_id}/assign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "description": "Conversation ID to assign"
+          },
+          "assigned_to": {
+            "type": "string",
+            "description": "Agent/user ID to assign to, or null to unassign"
+          },
+          "assigned_by": {
+            "type": "string",
+            "description": "User ID performing the assignment"
+          },
+          "assignment_reason": {
+            "type": "string",
+            "description": "Reason for the assignment or reassignment"
+          },
+          "priority_change": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "urgent"
+            ],
+            "description": "Optionally change priority during assignment"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Internal notes for the assignee"
+          },
+          "notify_assignee": {
+            "type": "boolean",
+            "default": true,
+            "description": "Notify the new assignee"
+          },
+          "notify_previous_assignee": {
+            "type": "boolean",
+            "default": true,
+            "description": "Notify the previous assignee about reassignment"
+          }
+        },
+        "required": [
+          "conversation_id"
+        ]
+      }
+    },
+    {
+      "name": "escalate_conversation",
+      "description": "Escalate a conversation to a higher priority level or different team. Use when a conversation needs elevated attention or specialist handling.",
+      "method": "POST",
+      "path": "/messaging/conversations/{conversation_id}/escalate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "description": "Conversation ID to escalate"
+          },
+          "escalation_reason": {
+            "type": "string",
+            "description": "Reason for the escalation (required)"
+          },
+          "escalation_level": {
+            "type": "string",
+            "enum": [
+              "medium",
+              "high",
+              "urgent",
+              "critical"
+            ],
+            "default": "high",
+            "description": "Escalation severity level"
+          },
+          "escalated_to_team": {
+            "type": "string",
+            "description": "Target team for escalation"
+          },
+          "escalated_to_agent": {
+            "type": "string",
+            "description": "Specific agent to escalate to"
+          },
+          "escalated_by": {
+            "type": "string",
+            "description": "User ID performing the escalation"
+          },
+          "escalation_notes": {
+            "type": "string",
+            "description": "Additional context for the escalation target"
+          },
+          "priority_change": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "urgent"
+            ],
+            "default": "high",
+            "description": "New priority level"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "escalation_reason"
+        ]
+      }
+    },
+    {
+      "name": "create_sender",
+      "description": "Register a new authorized sender email address for a project. Senders must be verified before they can be used to send emails. After creating, the sender will need domain verification.",
+      "method": "POST",
+      "path": "/messaging/senders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "Sender email address"
+          },
+          "name": {
+            "type": "string",
+            "description": "Display name for the sender (e.g., 'Support Team')"
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description or notes about this sender"
+          },
+          "is_active": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether this sender is active"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "list_senders",
+      "description": "List authorized sender email addresses for the project. Filter by email, active status, or search by name/description.",
+      "method": "GET",
+      "path": "/messaging/senders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Filter by sender email address (optional)"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Filter by active status (optional)"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search in email, name, and description (optional)"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Number of results to return (max 100)"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field:direction (e.g., 'created_at:desc')"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_sender",
+      "description": "Get details of a specific authorized sender by ID, including email, display name, active status, and verification info.",
+      "method": "GET",
+      "path": "/messaging/senders/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Sender ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_sender",
+      "description": "Update an existing authorized sender - change email, display name, description, or active status.",
+      "method": "PUT",
+      "path": "/messaging/senders/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Sender ID to update"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "New sender email address"
+          },
+          "name": {
+            "type": "string",
+            "description": "New display name"
+          },
+          "description": {
+            "type": "string",
+            "description": "New description"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Set active/inactive"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_sender",
+      "description": "Delete an authorized sender email address. Cannot delete senders that are actively used by running campaigns.",
+      "method": "DELETE",
+      "path": "/messaging/senders/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Sender ID to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-webhook-signature",
+    "registration": {
+      "method": "POST",
+      "path": "/webhooks-register",
+      "url_field": "endpoint_url",
+      "events_field": "event_types",
+      "secret_field": "secret_key",
+      "id_field": "webhook_id",
+      "extra": {
+        "name": "Apteva Webhook",
+        "direction": "outgoing",
+        "provider": "custom",
+        "auth_type": "hmac-sha256"
+      },
+      "delete_path": "/webhooks/{id}",
+      "delete_method": "DELETE",
+      "list_path": "/webhooks",
+      "list_field": "data"
+    },
+    "events": [
+      {
+        "name": "messaging.inbound_message_processed",
+        "description": "Inbound message received from customer (email reply, SMS, etc.)"
+      },
+      {
+        "name": "messaging.message_sent",
+        "description": "Outbound message successfully sent"
+      },
+      {
+        "name": "messaging.message_delivered",
+        "description": "Message delivery confirmed by provider"
+      },
+      {
+        "name": "messaging.message_opened",
+        "description": "Email opened (tracking pixel loaded)"
+      },
+      {
+        "name": "messaging.message_clicked",
+        "description": "Link in message was clicked"
+      },
+      {
+        "name": "messaging.message_bounced",
+        "description": "Message delivery failed (hard or soft bounce)"
+      },
+      {
+        "name": "messaging.message_complained",
+        "description": "Recipient marked message as spam"
+      },
+      {
+        "name": "messaging.conversation_created",
+        "description": "New support conversation started"
+      },
+      {
+        "name": "messaging.conversation_updated",
+        "description": "Conversation status, priority, or assignment changed"
+      },
+      {
+        "name": "messaging.conversation_closed",
+        "description": "Conversation marked as resolved/closed"
+      },
+      {
+        "name": "messaging.contact_created",
+        "description": "New contact added to project"
+      },
+      {
+        "name": "messaging.contact_updated",
+        "description": "Contact information or attributes changed"
+      },
+      {
+        "name": "messaging.contact_unsubscribed",
+        "description": "Contact opted out of communications"
+      },
+      {
+        "name": "messaging.campaign_launched",
+        "description": "Campaign started sending to recipients"
+      },
+      {
+        "name": "messaging.campaign_completed",
+        "description": "Campaign finished sending to all recipients"
+      },
+      {
+        "name": "messaging.campaign_failed",
+        "description": "Campaign failed to send"
+      }
+    ]
+  },
+  "credential_group": {
+    "id": "omnikit",
+    "name": "OmniKit",
+    "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+    "description": "One key unlocks the whole OmniKit suite. Account keys can manage many projects; project keys are scoped to one.",
+    "discovery": {
+      "list_projects": {
+        "method": "GET",
+        "path": "/projects",
+        "response_path": "data",
+        "id_field": "id",
+        "label_field": "name"
+      },
+      "api_lookup": {
+        "method": "GET",
+        "path": "/apis",
+        "response_path": "data",
+        "match_field": "base_path",
+        "match_value": "omnikit",
+        "id_field": "id"
+      },
+      "provision_project_key": {
+        "method": "POST",
+        "path": "/api-keys",
+        "body": {
+          "name": "Apteva \u00b7 {{label}}",
+          "api_id": "{{api_lookup_id}}",
+          "target_project_id": "{{external_project_id}}",
+          "scopes": [
+            "read",
+            "write"
+          ]
+        },
+        "response_key_path": "data.key",
+        "id_response_path": "data.id",
+        "credential_field": "api_key"
+      }
+    }
+  },
+  "scopes": {
+    "account": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Account API Key",
+          "description": "Starts with okt_acc_ \u2014 operates across every project in the account.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      },
+      "project_binding": {
+        "type": "header",
+        "name": "X-Project-Id",
+        "value": "{{project_id}}"
+      }
+    },
+    "project": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Project API Key",
+          "description": "Starts with okt_ \u2014 already scoped to a single project.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      }
+    }
+  }
+}

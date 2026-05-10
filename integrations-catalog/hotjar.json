@@ -1,0 +1,91 @@
+{
+  "slug": "hotjar",
+  "name": "Hotjar",
+  "description": "MCP server for Hotjar - sites, recordings, heatmaps, and surveys via the Hotjar Insights API. Note: Hotjar's public API surface is intentionally narrow; many product features are dashboard-only.",
+  "logo": "https://www.google.com/s2/favicons?domain=hotjar.com&sz=128",
+  "categories": ["analytics", "user-research", "product-analytics"],
+  "base_url": "https://api.hotjar.io",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Personal Access Token", "description": "Personal access token from Account → API Tokens" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_sites",
+      "description": "List Hotjar sites accessible to the token",
+      "method": "GET",
+      "path": "/v2/sites",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_recordings",
+      "description": "List session recordings for a site",
+      "method": "GET",
+      "path": "/v2/sites/{site_id}/recordings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": { "type": "string" },
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" }
+        },
+        "required": ["site_id"]
+      },
+      "query_params": ["limit", "offset"]
+    },
+    {
+      "name": "get_recording",
+      "description": "Get a single recording's metadata",
+      "method": "GET",
+      "path": "/v2/sites/{site_id}/recordings/{recording_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": { "type": "string" },
+          "recording_id": { "type": "string" }
+        },
+        "required": ["site_id", "recording_id"]
+      }
+    },
+    {
+      "name": "list_heatmaps",
+      "description": "List heatmaps configured on a site",
+      "method": "GET",
+      "path": "/v2/sites/{site_id}/heatmaps",
+      "input_schema": {
+        "type": "object",
+        "properties": { "site_id": { "type": "string" } },
+        "required": ["site_id"]
+      }
+    },
+    {
+      "name": "list_surveys",
+      "description": "List surveys configured on a site",
+      "method": "GET",
+      "path": "/v2/sites/{site_id}/surveys",
+      "input_schema": {
+        "type": "object",
+        "properties": { "site_id": { "type": "string" } },
+        "required": ["site_id"]
+      }
+    },
+    {
+      "name": "list_feedback",
+      "description": "List incoming feedback widget responses for a site",
+      "method": "GET",
+      "path": "/v2/sites/{site_id}/feedback",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": { "type": "string" },
+          "limit": { "type": "integer" }
+        },
+        "required": ["site_id"]
+      },
+      "query_params": ["limit"]
+    }
+  ]
+}

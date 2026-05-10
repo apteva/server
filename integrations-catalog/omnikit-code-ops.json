@@ -1,0 +1,1270 @@
+{
+  "slug": "omnikit-code-ops",
+  "name": "OmniKit Code Ops",
+  "description": "Operations & infrastructure via OmniKit \u2014 deployments (web, Docker, App Store, Play Store), custom domains & DNS, CI/CD pipelines, container management, and iOS/Android simulators.",
+  "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+  "categories": [
+    "deployments",
+    "domains",
+    "ci-cd",
+    "pipelines",
+    "simulator",
+    "docker",
+    "app-store",
+    "play-store",
+    "containers",
+    "omnikit"
+  ],
+  "base_url": "https://api.omnikit.co",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your OmniKit API key (starts with 'okt_'). The project is determined automatically from the key."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "omnikit_code_deploy",
+      "description": "Deploy a build to an environment (production, staging, or development)",
+      "method": "POST",
+      "path": "/repositories/{repository_id}/deploy",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "repository_id": {
+            "type": "integer",
+            "description": "Repository ID"
+          },
+          "build_id": {
+            "type": "integer",
+            "description": "Build ID to deploy (defaults to latest successful build)"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "production",
+              "staging",
+              "development"
+            ],
+            "default": "production",
+            "description": "Target environment"
+          },
+          "force": {
+            "type": "boolean",
+            "default": false,
+            "description": "Stop existing deployment and redeploy"
+          }
+        },
+        "required": [
+          "repository_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_code_deploy_container",
+      "description": "Deploy a container build to an instance using docker service",
+      "method": "POST",
+      "path": "/deployment-targets/{target_id}/deploy",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target_id": {
+            "type": "integer",
+            "description": "Deployment target ID"
+          },
+          "build_id": {
+            "type": "integer",
+            "description": "Build ID to deploy"
+          },
+          "force": {
+            "type": "boolean",
+            "default": false,
+            "description": "Force deployment even if one is running"
+          },
+          "rollback_on_failure": {
+            "type": "boolean",
+            "default": true,
+            "description": "Rollback to previous deployment on failure"
+          },
+          "health_check_timeout": {
+            "type": "integer",
+            "default": 300,
+            "description": "Health check timeout in seconds"
+          }
+        },
+        "required": [
+          "target_id",
+          "build_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_code_deploy_static_site",
+      "description": "Deploy a static site build to storage service (CDN-style)",
+      "method": "POST",
+      "path": "/deployment-targets/{target_id}/deploy-static",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target_id": {
+            "type": "integer",
+            "description": "Deployment target ID"
+          },
+          "build_id": {
+            "type": "integer",
+            "description": "Build ID to deploy"
+          },
+          "force": {
+            "type": "boolean",
+            "default": false,
+            "description": "Force deployment even if one is running"
+          },
+          "backup_previous": {
+            "type": "boolean",
+            "default": true,
+            "description": "Backup previous deployment before deploying"
+          }
+        },
+        "required": [
+          "target_id",
+          "build_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_code_list_deployments",
+      "description": "List deployments for a repository or build with filtering and pagination",
+      "method": "GET",
+      "path": "/repositories/{repository_id}/deployments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "repository_id": {
+            "type": "integer",
+            "description": "Filter by repository ID"
+          },
+          "build_id": {
+            "type": "integer",
+            "description": "Filter by build ID"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "deploying",
+              "running",
+              "success",
+              "failed",
+              "stopped",
+              "cancelled"
+            ],
+            "description": "Filter by deployment status"
+          },
+          "environment": {
+            "type": "string",
+            "description": "Filter by environment (production, staging, development)"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Maximum number of deployments to return"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Offset for pagination"
+          }
+        },
+        "required": [
+          "repository_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_code_get_deployment_status",
+      "description": "Get deployment status and details including container health",
+      "method": "GET",
+      "path": "/deployments/{deployment_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "deployment_id": {
+            "type": "integer",
+            "description": "Deployment ID to get status for"
+          }
+        },
+        "required": [
+          "deployment_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_code_delete_deployment",
+      "description": "Stop and delete a deployment",
+      "method": "DELETE",
+      "path": "/deployments/{deployment_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "deployment_id": {
+            "type": "integer",
+            "description": "Deployment ID to delete"
+          },
+          "remove_container": {
+            "type": "boolean",
+            "default": true,
+            "description": "Remove the container after stopping"
+          }
+        },
+        "required": [
+          "deployment_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_code_update_environment",
+      "description": "Update environment configuration for a repository (auto-deploy, domain, env vars, resources)",
+      "method": "PUT",
+      "path": "/repositories/{repository_id}/environments/{environment}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "repository_id": {
+            "type": "integer",
+            "description": "Repository ID"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "production",
+              "staging",
+              "development"
+            ],
+            "description": "Environment name"
+          },
+          "auto_deploy": {
+            "type": "boolean",
+            "description": "Enable auto-deploy when builds succeed"
+          },
+          "branch": {
+            "type": "string",
+            "description": "Git branch for auto-deploy"
+          },
+          "domain": {
+            "type": "string",
+            "description": "Custom domain for this environment"
+          },
+          "env_vars": {
+            "type": "object",
+            "description": "Environment variables (set value to null to delete)"
+          },
+          "resources": {
+            "type": "object",
+            "description": "Resource limits (memory in MB, cpu as decimal)"
+          },
+          "port": {
+            "type": "integer",
+            "description": "Container port"
+          }
+        },
+        "required": [
+          "repository_id",
+          "environment"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_code_create_domain",
+      "description": "Create a domain with SSL certificate and Nginx configuration",
+      "method": "POST",
+      "path": "/domains",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain name (e.g., example.com)"
+          },
+          "subdomains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [],
+            "description": "Subdomains to configure (e.g., ['www', 'api'])"
+          },
+          "repository_id": {
+            "type": "integer",
+            "description": "Repository ID to link domain to"
+          },
+          "deployment_id": {
+            "type": "integer",
+            "description": "Deployment ID to link domain to (will auto-detect port)"
+          },
+          "environment": {
+            "type": "string",
+            "description": "Environment (production, staging, development)"
+          },
+          "upstream_host": {
+            "type": "string",
+            "default": "localhost",
+            "description": "Upstream host for proxying"
+          },
+          "upstream_port": {
+            "type": "integer",
+            "description": "Upstream port for proxying"
+          },
+          "ssl_email": {
+            "type": "string",
+            "description": "Email for SSL certificate notifications"
+          },
+          "ssl_enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable SSL certificate"
+          },
+          "auto_configure": {
+            "type": "boolean",
+            "default": true,
+            "description": "Automatically configure SSL and Nginx"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_code_get_domain",
+      "description": "Get domain details by ID or domain name",
+      "method": "GET",
+      "path": "/domains/{domain_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain_id": {
+            "type": "string",
+            "description": "Domain ID (UUID)"
+          },
+          "domain": {
+            "type": "string",
+            "description": "Domain name (e.g., example.com)"
+          }
+        }
+      }
+    },
+    {
+      "name": "omnikit_code_list_domains",
+      "description": "List domains with filtering by repository, deployment, environment, or SSL status",
+      "method": "GET",
+      "path": "/domains",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "repository_id": {
+            "type": "integer",
+            "description": "Filter by repository ID"
+          },
+          "deployment_id": {
+            "type": "integer",
+            "description": "Filter by deployment ID"
+          },
+          "environment": {
+            "type": "string",
+            "description": "Filter by environment"
+          },
+          "ssl_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "active",
+              "failed",
+              "expired",
+              "disabled"
+            ],
+            "description": "Filter by SSL status"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Maximum number of domains to return"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Offset for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "omnikit_code_delete_domain",
+      "description": "Delete a domain and its SSL/Nginx configuration",
+      "method": "DELETE",
+      "path": "/domains/{domain_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain_id": {
+            "type": "string",
+            "description": "Domain ID to delete"
+          },
+          "remove_ssl": {
+            "type": "boolean",
+            "default": true,
+            "description": "Remove SSL certificate"
+          },
+          "remove_nginx": {
+            "type": "boolean",
+            "default": true,
+            "description": "Remove Nginx configuration"
+          }
+        },
+        "required": [
+          "domain_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_code_configure_dns",
+      "description": "Configure DNS records for a domain via Namecheap API. Supports replace, append, or remove actions.",
+      "method": "POST",
+      "path": "/domains/{domain_id}/dns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain_id": {
+            "type": "string",
+            "description": "Domain ID (UUID)"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "A",
+                    "AAAA",
+                    "CNAME",
+                    "MX",
+                    "TXT",
+                    "NS",
+                    "SRV"
+                  ],
+                  "description": "DNS record type"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Record name (e.g., '@' for root, 'www' for subdomain)"
+                },
+                "value": {
+                  "type": "string",
+                  "description": "Record value (IP address, hostname, etc.)"
+                },
+                "ttl": {
+                  "type": "integer",
+                  "default": 300,
+                  "description": "TTL in seconds"
+                },
+                "priority": {
+                  "type": "integer",
+                  "description": "Priority (required for MX records)"
+                }
+              },
+              "required": [
+                "type",
+                "name",
+                "value"
+              ]
+            },
+            "description": "DNS records to configure"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "replace",
+              "append",
+              "remove"
+            ],
+            "default": "replace",
+            "description": "Action: replace all records, append new records, or remove specified records"
+          }
+        },
+        "required": [
+          "domain_id",
+          "records"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_code_link_domain",
+      "description": "Link a domain to a deployment and update Nginx upstream",
+      "method": "POST",
+      "path": "/domains/{domain_id}/link",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain_id": {
+            "type": "string",
+            "description": "Domain ID to link"
+          },
+          "deployment_id": {
+            "type": "integer",
+            "description": "Deployment ID to link to (will auto-detect port)"
+          },
+          "upstream_host": {
+            "type": "string",
+            "default": "localhost",
+            "description": "Upstream host for proxying"
+          },
+          "upstream_port": {
+            "type": "integer",
+            "description": "Upstream port for proxying"
+          },
+          "update_nginx": {
+            "type": "boolean",
+            "default": true,
+            "description": "Update Nginx configuration with new upstream"
+          }
+        },
+        "required": [
+          "domain_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_code_trigger_pipeline",
+      "description": "Trigger a CI/CD pipeline execution for a repository",
+      "method": "POST",
+      "path": "/pipelines/{pipeline_id}/trigger",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pipeline_id": {
+            "type": "integer",
+            "description": "Pipeline ID to trigger"
+          },
+          "repository_id": {
+            "type": "integer",
+            "description": "Repository ID"
+          },
+          "branch_name": {
+            "type": "string",
+            "default": "main",
+            "description": "Branch to run pipeline on"
+          },
+          "pipeline_config": {
+            "type": "object",
+            "description": "Pipeline configuration overrides"
+          },
+          "variables": {
+            "type": "object",
+            "description": "Pipeline variables"
+          }
+        },
+        "required": [
+          "pipeline_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_code_get_pipeline_status",
+      "description": "Get pipeline execution status and details",
+      "method": "GET",
+      "path": "/pipeline-executions/{execution_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "execution_id": {
+            "type": "integer",
+            "description": "Pipeline execution ID"
+          }
+        },
+        "required": [
+          "execution_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_code_create_build_config",
+      "description": "Create a build configuration for a repository (container, static, function, or custom build type)",
+      "method": "POST",
+      "path": "/repositories/{repository_id}/build-configs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "repository_id": {
+            "type": "integer",
+            "description": "Repository ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Build configuration name"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "container",
+              "static",
+              "function",
+              "custom"
+            ],
+            "description": "Build type"
+          },
+          "dockerfile_path": {
+            "type": "string",
+            "default": "Dockerfile",
+            "description": "Path to Dockerfile"
+          },
+          "build_context": {
+            "type": "string",
+            "default": ".",
+            "description": "Docker build context directory"
+          },
+          "build_args": {
+            "type": "object",
+            "description": "Docker build arguments"
+          },
+          "environment_variables": {
+            "type": "object",
+            "description": "Environment variables for the build"
+          },
+          "build_command": {
+            "type": "string",
+            "description": "Custom build command"
+          },
+          "output_directory": {
+            "type": "string",
+            "default": "dist",
+            "description": "Output directory for static builds"
+          },
+          "install_command": {
+            "type": "string",
+            "default": "npm install",
+            "description": "Install command"
+          },
+          "node_version": {
+            "type": "string",
+            "default": "20",
+            "description": "Node.js version"
+          },
+          "base_image": {
+            "type": "string",
+            "description": "Base Docker image"
+          },
+          "auto_build_on_push": {
+            "type": "boolean",
+            "default": true,
+            "description": "Automatically build on push"
+          },
+          "trigger_branches": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "main"
+            ],
+            "description": "Branches that trigger builds"
+          },
+          "cpu_limit": {
+            "type": "number",
+            "default": 1,
+            "description": "CPU limit for builds"
+          },
+          "memory_limit": {
+            "type": "number",
+            "default": 1024,
+            "description": "Memory limit in MB for builds"
+          },
+          "timeout_minutes": {
+            "type": "number",
+            "default": 30,
+            "description": "Build timeout in minutes"
+          }
+        },
+        "required": [
+          "repository_id",
+          "name",
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_code_create_pipeline",
+      "description": "Create a CI/CD pipeline for a repository with configurable trigger types (push, tag, manual, schedule, webhook) and multi-step execution",
+      "method": "POST",
+      "path": "/repositories/{repository_id}/pipelines",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "repository_id": {
+            "type": "integer",
+            "description": "Repository ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Pipeline name"
+          },
+          "trigger_type": {
+            "type": "string",
+            "enum": [
+              "push",
+              "tag",
+              "manual",
+              "schedule",
+              "webhook"
+            ],
+            "default": "push",
+            "description": "What triggers the pipeline"
+          },
+          "trigger_branches": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "main"
+            ],
+            "description": "Branches that trigger the pipeline"
+          },
+          "trigger_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tag patterns that trigger the pipeline"
+          },
+          "schedule_cron": {
+            "type": "string",
+            "description": "Cron expression for scheduled pipelines"
+          },
+          "steps": {
+            "type": "array",
+            "description": "Pipeline steps to execute in order",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Step name"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "build",
+                    "test",
+                    "deploy",
+                    "notification",
+                    "custom"
+                  ],
+                  "description": "Step type"
+                },
+                "config": {
+                  "type": "object",
+                  "description": "Step configuration"
+                },
+                "conditions": {
+                  "type": "object",
+                  "description": "Conditions for running this step"
+                },
+                "retry_count": {
+                  "type": "number",
+                  "default": 0,
+                  "description": "Number of retries on failure"
+                },
+                "timeout_minutes": {
+                  "type": "number",
+                  "default": 30,
+                  "description": "Step timeout in minutes"
+                },
+                "continue_on_failure": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Continue pipeline if this step fails"
+                }
+              },
+              "required": [
+                "name",
+                "type"
+              ]
+            }
+          },
+          "environment_variables": {
+            "type": "object",
+            "description": "Pipeline-level environment variables"
+          },
+          "parallel_execution": {
+            "type": "boolean",
+            "default": false,
+            "description": "Execute steps in parallel"
+          },
+          "auto_rollback": {
+            "type": "boolean",
+            "default": true,
+            "description": "Auto-rollback on deployment failure"
+          },
+          "is_active": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether the pipeline is active"
+          }
+        },
+        "required": [
+          "repository_id",
+          "name",
+          "steps"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_ops_deploy_app_store",
+      "description": "Deploy an iOS build to the Apple App Store. Supports IOS, MAC_OS, and TV_OS platforms with optional submit-for-review.",
+      "method": "POST",
+      "path": "/repositories/{repository_id}/deploy/app-store",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "repository_id": {
+            "type": "integer",
+            "description": "Repository ID"
+          },
+          "version_string": {
+            "type": "string",
+            "description": "App version string (e.g. 1.0.0)"
+          },
+          "build_id": {
+            "type": "integer",
+            "description": "Build ID to deploy (uses latest if not specified)"
+          },
+          "submit_for_review": {
+            "type": "boolean",
+            "description": "Auto-submit for App Store review",
+            "default": false
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "IOS",
+              "MAC_OS",
+              "TV_OS"
+            ],
+            "default": "IOS",
+            "description": "Target Apple platform"
+          }
+        },
+        "required": [
+          "repository_id",
+          "version_string"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_ops_deploy_play_store",
+      "description": "Deploy an Android build to the Google Play Store with track selection (alpha, beta, production) and staged rollout support.",
+      "method": "POST",
+      "path": "/repositories/{repository_id}/deploy/play-store",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "repository_id": {
+            "type": "integer",
+            "description": "Repository ID"
+          },
+          "build_id": {
+            "type": "integer",
+            "description": "Build ID to deploy"
+          },
+          "track": {
+            "type": "string",
+            "enum": [
+              "alpha",
+              "beta",
+              "production"
+            ],
+            "default": "production",
+            "description": "Release track"
+          },
+          "user_fraction": {
+            "type": "number",
+            "default": 1,
+            "description": "Staged rollout fraction (0.0-1.0)"
+          },
+          "release_notes": {
+            "type": "object",
+            "description": "Localized release notes, e.g. {\"en-US\": \"Bug fixes\"}"
+          }
+        },
+        "required": [
+          "repository_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_ops_deploy_docker",
+      "description": "Build and deploy a Docker container from a repository with Dockerfile. Supports custom ports, env vars, and resource limits.",
+      "method": "POST",
+      "path": "/repositories/{repository_id}/deploy/docker",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "repository_id": {
+            "type": "integer",
+            "description": "Repository ID"
+          },
+          "dockerfile_path": {
+            "type": "string",
+            "description": "Path to Dockerfile (default: Dockerfile)",
+            "default": "Dockerfile"
+          },
+          "port": {
+            "type": "integer",
+            "description": "Container port to expose"
+          },
+          "environment": {
+            "type": "object",
+            "description": "Environment variables as key-value pairs"
+          },
+          "build_args": {
+            "type": "object",
+            "description": "Docker build arguments"
+          }
+        },
+        "required": [
+          "repository_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_ops_get_container_logs",
+      "description": "Get live logs from a running container deployment. Supports tail count and time-range filtering.",
+      "method": "GET",
+      "path": "/containers/{container_id}/logs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "container_id": {
+            "type": "string",
+            "description": "Container/deployment ID"
+          },
+          "tail": {
+            "type": "integer",
+            "description": "Number of recent log lines to return"
+          },
+          "since": {
+            "type": "string",
+            "description": "Show logs since timestamp (ISO 8601)"
+          },
+          "until": {
+            "type": "string",
+            "description": "Show logs until timestamp (ISO 8601)"
+          }
+        },
+        "required": [
+          "container_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_ops_simulator_create_session",
+      "description": "Create a new iOS or Android simulator session. Optionally install an app or open a URL on boot.",
+      "method": "POST",
+      "path": "/simulator/sessions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "ios",
+              "android"
+            ],
+            "description": "Simulator platform"
+          },
+          "device": {
+            "type": "string",
+            "description": "Device model (e.g. iPhone 15, Pixel 8)"
+          },
+          "runtime": {
+            "type": "string",
+            "description": "OS version (e.g. iOS-17-2, API-34)"
+          },
+          "app_path": {
+            "type": "string",
+            "description": "URL to .app/.apk to install on boot"
+          },
+          "bundle_id": {
+            "type": "string",
+            "description": "Bundle ID to launch after install"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL to open on boot"
+          }
+        },
+        "required": [
+          "platform"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_ops_simulator_get_session",
+      "description": "Get details of a simulator session including status, device info, and connection URLs",
+      "method": "GET",
+      "path": "/simulator/sessions/{session_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "Simulator session ID"
+          }
+        },
+        "required": [
+          "session_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_ops_simulator_list_sessions",
+      "description": "List all active and recent simulator sessions",
+      "method": "GET",
+      "path": "/simulator/sessions",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "omnikit_ops_simulator_close_session",
+      "description": "Close and destroy a simulator session, freeing resources",
+      "method": "DELETE",
+      "path": "/simulator/sessions/{session_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "Simulator session ID to close"
+          }
+        },
+        "required": [
+          "session_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_ops_simulator_execute_command",
+      "description": "Execute a command on a simulator session \u2014 tap, swipe, type text, take screenshot, install/launch apps, get accessibility tree, record screen, and more.",
+      "method": "POST",
+      "path": "/simulator/sessions/{session_id}/commands",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "Simulator session ID"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "tap",
+              "double_tap",
+              "long_press",
+              "swipe",
+              "scroll",
+              "type",
+              "key",
+              "screenshot",
+              "install_app",
+              "launch_app",
+              "terminate_app",
+              "open_url",
+              "get_accessibility",
+              "start_recording",
+              "stop_recording",
+              "home",
+              "back",
+              "list_devices"
+            ],
+            "description": "Command type"
+          },
+          "params": {
+            "type": "object",
+            "description": "Command-specific parameters (e.g. {x, y} for tap, {text} for type, {url} for open_url)"
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Command timeout in ms"
+          }
+        },
+        "required": [
+          "session_id",
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_ops_simulator_screenshot",
+      "description": "Capture a screenshot of the current simulator screen. Returns image URL.",
+      "method": "GET",
+      "path": "/simulator/sessions/{session_id}/screenshot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "Simulator session ID"
+          }
+        },
+        "required": [
+          "session_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_ops_simulator_pool_status",
+      "description": "Get the status of the simulator pool \u2014 available capacity, active sessions, and resource usage",
+      "method": "GET",
+      "path": "/simulator/pool/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-webhook-signature",
+    "registration": {
+      "method": "POST",
+      "path": "/webhooks-register",
+      "url_field": "endpoint_url",
+      "events_field": "event_types",
+      "secret_field": "secret_key",
+      "id_field": "webhook_id",
+      "extra": {
+        "name": "Apteva Webhook",
+        "direction": "outgoing",
+        "provider": "custom",
+        "auth_type": "hmac-sha256"
+      },
+      "delete_path": "/webhooks/{id}",
+      "delete_method": "DELETE",
+      "list_path": "/webhooks",
+      "list_field": "data"
+    },
+    "events": [
+      {
+        "name": "deployment.succeeded",
+        "description": "Build successfully deployed to environment"
+      },
+      {
+        "name": "deployment.failed",
+        "description": "Deployment failed"
+      },
+      {
+        "name": "deployment.stopped",
+        "description": "Deployment stopped/deleted"
+      },
+      {
+        "name": "domain.created",
+        "description": "Custom domain created"
+      },
+      {
+        "name": "domain.deleted",
+        "description": "Custom domain deleted"
+      },
+      {
+        "name": "pipeline.created",
+        "description": "CI/CD pipeline created"
+      },
+      {
+        "name": "pipeline.triggered",
+        "description": "Pipeline execution triggered"
+      }
+    ]
+  },
+  "credential_group": {
+    "id": "omnikit",
+    "name": "OmniKit",
+    "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+    "description": "One key unlocks the whole OmniKit suite. Account keys can manage many projects; project keys are scoped to one.",
+    "discovery": {
+      "list_projects": {
+        "method": "GET",
+        "path": "/projects",
+        "response_path": "data",
+        "id_field": "id",
+        "label_field": "name"
+      },
+      "api_lookup": {
+        "method": "GET",
+        "path": "/apis",
+        "response_path": "data",
+        "match_field": "base_path",
+        "match_value": "omnikit",
+        "id_field": "id"
+      },
+      "provision_project_key": {
+        "method": "POST",
+        "path": "/api-keys",
+        "body": {
+          "name": "Apteva \u00b7 {{label}}",
+          "api_id": "{{api_lookup_id}}",
+          "target_project_id": "{{external_project_id}}",
+          "scopes": [
+            "read",
+            "write"
+          ]
+        },
+        "response_key_path": "data.key",
+        "id_response_path": "data.id",
+        "credential_field": "api_key"
+      }
+    }
+  },
+  "scopes": {
+    "account": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Account API Key",
+          "description": "Starts with okt_acc_ \u2014 operates across every project in the account.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      },
+      "project_binding": {
+        "type": "header",
+        "name": "X-Project-Id",
+        "value": "{{project_id}}"
+      }
+    },
+    "project": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Project API Key",
+          "description": "Starts with okt_ \u2014 already scoped to a single project.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      }
+    }
+  }
+}

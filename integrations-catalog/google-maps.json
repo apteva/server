@@ -1,0 +1,473 @@
+{
+  "slug": "google-maps",
+  "name": "Google Maps",
+  "description": "MCP server for Google Maps Platform APIs including geocoding, directions, distance calculations, elevation, timezone, static maps, and street view",
+  "logo": "https://developers.google.com/maps/images/maps-icon.svg",
+  "categories": [
+    "google-maps",
+    "geocoding",
+    "directions",
+    "navigation",
+    "location",
+    "maps",
+    "geospatial"
+  ],
+  "base_url": "https://maps.googleapis.com/maps/api",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "apiKey"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "geocode_address",
+      "description": "Convert an address to geographic coordinates (latitude and longitude)",
+      "method": "GET",
+      "path": "/geocode-address",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Address to geocode"
+          },
+          "components": {
+            "type": "object",
+            "description": "Component filters (country, postal_code, etc.)",
+            "properties": {
+              "country": {
+                "type": "string"
+              },
+              "postal_code": {
+                "type": "string"
+              },
+              "locality": {
+                "type": "string"
+              }
+            }
+          },
+          "bounds": {
+            "type": "object",
+            "description": "Viewport bounds for biasing results",
+            "properties": {
+              "northeast": {
+                "type": "object",
+                "properties": {
+                  "lat": {
+                    "type": "number"
+                  },
+                  "lng": {
+                    "type": "number"
+                  }
+                }
+              },
+              "southwest": {
+                "type": "object",
+                "properties": {
+                  "lat": {
+                    "type": "number"
+                  },
+                  "lng": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          },
+          "region": {
+            "type": "string",
+            "description": "Region code for biasing (e.g., 'us', 'uk')"
+          },
+          "language": {
+            "type": "string",
+            "description": "Language code for results"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      }
+    },
+    {
+      "name": "reverse_geocode",
+      "description": "Convert geographic coordinates to a human-readable address",
+      "method": "GET",
+      "path": "/reverse-geocode",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "description": "Latitude coordinate"
+          },
+          "longitude": {
+            "type": "number",
+            "description": "Longitude coordinate"
+          },
+          "result_types": {
+            "type": "array",
+            "description": "Filter results by type (e.g., 'street_address', 'postal_code')",
+            "items": {
+              "type": "string"
+            }
+          },
+          "location_type": {
+            "type": "string",
+            "description": "Filter by location type (ROOFTOP, RANGE_INTERPOLATED, etc.)"
+          },
+          "language": {
+            "type": "string",
+            "description": "Language code for results"
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ]
+      }
+    },
+    {
+      "name": "get_directions",
+      "description": "Get driving, walking, bicycling, or transit directions between locations",
+      "method": "GET",
+      "path": "/get-directions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "origin": {
+            "type": "string",
+            "description": "Starting point (address, place ID, or lat,lng)"
+          },
+          "destination": {
+            "type": "string",
+            "description": "Ending point (address, place ID, or lat,lng)"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Travel mode: driving (default), walking, bicycling, transit",
+            "enum": [
+              "driving",
+              "walking",
+              "bicycling",
+              "transit"
+            ],
+            "default": "driving"
+          },
+          "waypoints": {
+            "type": "array",
+            "description": "Array of waypoints to visit",
+            "items": {
+              "type": "string"
+            }
+          },
+          "optimize_waypoints": {
+            "type": "boolean",
+            "description": "Optimize waypoint order for shortest route",
+            "default": false
+          },
+          "avoid": {
+            "type": "array",
+            "description": "Features to avoid: tolls, highways, ferries, indoor",
+            "items": {
+              "type": "string",
+              "enum": [
+                "tolls",
+                "highways",
+                "ferries",
+                "indoor"
+              ]
+            }
+          },
+          "units": {
+            "type": "string",
+            "description": "Unit system: metric or imperial",
+            "enum": [
+              "metric",
+              "imperial"
+            ],
+            "default": "metric"
+          },
+          "alternatives": {
+            "type": "boolean",
+            "description": "Request alternative routes",
+            "default": false
+          }
+        },
+        "required": [
+          "origin",
+          "destination"
+        ]
+      }
+    },
+    {
+      "name": "calculate_distances",
+      "description": "Calculate distance and time between multiple origins and destinations",
+      "method": "GET",
+      "path": "/calculate-distances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "origins": {
+            "type": "array",
+            "description": "Array of origin locations (addresses or coordinates)",
+            "items": {
+              "type": "string"
+            }
+          },
+          "destinations": {
+            "type": "array",
+            "description": "Array of destination locations (addresses or coordinates)",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mode": {
+            "type": "string",
+            "description": "Travel mode: driving, walking, bicycling, transit",
+            "enum": [
+              "driving",
+              "walking",
+              "bicycling",
+              "transit"
+            ],
+            "default": "driving"
+          },
+          "units": {
+            "type": "string",
+            "description": "Unit system: metric or imperial",
+            "enum": [
+              "metric",
+              "imperial"
+            ],
+            "default": "metric"
+          },
+          "avoid": {
+            "type": "array",
+            "description": "Features to avoid: tolls, highways, ferries",
+            "items": {
+              "type": "string",
+              "enum": [
+                "tolls",
+                "highways",
+                "ferries"
+              ]
+            }
+          }
+        },
+        "required": [
+          "origins",
+          "destinations"
+        ]
+      }
+    },
+    {
+      "name": "get_elevation",
+      "description": "Get elevation data for specific locations on Earth",
+      "method": "GET",
+      "path": "/get-elevation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "locations": {
+            "type": "array",
+            "description": "Array of location objects with lat and lng properties",
+            "items": {
+              "type": "object",
+              "properties": {
+                "lat": {
+                  "type": "number"
+                },
+                "lng": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "lat",
+                "lng"
+              ]
+            }
+          }
+        },
+        "required": [
+          "locations"
+        ]
+      }
+    },
+    {
+      "name": "get_timezone",
+      "description": "Get timezone information for a specific location and time",
+      "method": "GET",
+      "path": "/get-timezone",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "object",
+            "description": "Location object with lat and lng properties",
+            "properties": {
+              "lat": {
+                "type": "number"
+              },
+              "lng": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "lat",
+              "lng"
+            ]
+          },
+          "timestamp": {
+            "type": "number",
+            "description": "Unix timestamp in seconds (defaults to current time)"
+          },
+          "language": {
+            "type": "string",
+            "description": "Language code for timezone name"
+          }
+        },
+        "required": [
+          "location"
+        ]
+      }
+    },
+    {
+      "name": "generate_map",
+      "description": "Generate a static map image with markers, paths, and custom styling",
+      "method": "GET",
+      "path": "/generate-map",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "center": {
+            "type": "string",
+            "description": "Center of the map (address or lat,lng)"
+          },
+          "zoom": {
+            "type": "number",
+            "description": "Zoom level (0-21)",
+            "minimum": 0,
+            "maximum": 21,
+            "default": 12
+          },
+          "size": {
+            "type": "object",
+            "description": "Image size with width and height (max 640x640 for free)",
+            "properties": {
+              "width": {
+                "type": "number",
+                "maximum": 640
+              },
+              "height": {
+                "type": "number",
+                "maximum": 640
+              }
+            },
+            "default": {
+              "width": 600,
+              "height": 400
+            }
+          },
+          "maptype": {
+            "type": "string",
+            "description": "Map type: roadmap, satellite, terrain, hybrid",
+            "enum": [
+              "roadmap",
+              "satellite",
+              "terrain",
+              "hybrid"
+            ],
+            "default": "roadmap"
+          },
+          "markers": {
+            "type": "array",
+            "description": "Array of marker objects",
+            "items": {
+              "type": "object",
+              "properties": {
+                "color": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "location": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "get_street_view",
+      "description": "Get street view image for a specific location",
+      "method": "GET",
+      "path": "/get-street-view",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "Location as address or lat,lng coordinates"
+          },
+          "size": {
+            "type": "object",
+            "description": "Image size with width and height",
+            "properties": {
+              "width": {
+                "type": "number",
+                "maximum": 640
+              },
+              "height": {
+                "type": "number",
+                "maximum": 640
+              }
+            },
+            "default": {
+              "width": 600,
+              "height": 400
+            }
+          },
+          "heading": {
+            "type": "number",
+            "description": "Camera heading in degrees (0-360)",
+            "minimum": 0,
+            "maximum": 360,
+            "default": 0
+          },
+          "pitch": {
+            "type": "number",
+            "description": "Camera pitch in degrees (-90 to 90)",
+            "minimum": -90,
+            "maximum": 90,
+            "default": 0
+          },
+          "fov": {
+            "type": "number",
+            "description": "Field of view in degrees (10-120)",
+            "minimum": 10,
+            "maximum": 120,
+            "default": 90
+          }
+        },
+        "required": [
+          "location"
+        ]
+      }
+    }
+  ]
+}

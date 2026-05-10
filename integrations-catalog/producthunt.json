@@ -1,0 +1,358 @@
+{
+  "slug": "producthunt",
+  "name": "Product Hunt",
+  "description": "Product Hunt API v2 (GraphQL) - browse posts, products, topics, collections, users, and votes",
+  "logo": "https://www.google.com/s2/favicons?domain=producthunt.com&sz=128",
+  "categories": [
+    "products",
+    "launches",
+    "startups",
+    "tech",
+    "producthunt"
+  ],
+  "base_url": "https://api.producthunt.com/v2/api/graphql",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "token_type",
+        "label": "token_type"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://api.producthunt.com/v2/oauth/authorize",
+      "token_url": "https://api.producthunt.com/v2/oauth/token",
+      "scopes": [
+        "public",
+        "private"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "query",
+      "description": "Execute a custom GraphQL query against the Product Hunt API v2. Use this for any query not covered by the other tools. See https://api.producthunt.com/v2/docs for the full schema.",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "GraphQL query string"
+          },
+          "variables": {
+            "type": "object",
+            "description": "Variables for the GraphQL query"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "get_posts",
+      "description": "Get recent or trending Product Hunt posts. Returns name, tagline, URL, votes count, comments count, and more. Use 'order' to sort by RANKING, VOTES, NEWEST, or FEATURED_AT.",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "default": "query GetPosts($first: Int, $after: String, $order: PostsOrder, $postedAfter: DateTime, $postedBefore: DateTime, $topic: String) { posts(first: $first, after: $after, order: $order, postedAfter: $postedAfter, postedBefore: $postedBefore, topic: $topic) { edges { node { id name tagline slug url votesCount commentsCount createdAt featuredAt website thumbnail { url } topics { edges { node { name slug } } } makers { id name username } } cursor } pageInfo { hasNextPage endCursor } totalCount } }"
+          },
+          "variables": {
+            "type": "object",
+            "description": "Query variables",
+            "properties": {
+              "first": {
+                "type": "integer",
+                "description": "Number of posts to return (max 20)",
+                "default": 10
+              },
+              "after": {
+                "type": "string",
+                "description": "Cursor for pagination"
+              },
+              "order": {
+                "type": "string",
+                "description": "Sort order: RANKING, VOTES, NEWEST, or FEATURED_AT",
+                "enum": [
+                  "RANKING",
+                  "VOTES",
+                  "NEWEST",
+                  "FEATURED_AT"
+                ]
+              },
+              "postedAfter": {
+                "type": "string",
+                "description": "ISO 8601 date — only posts after this date (e.g., 2026-03-04T00:00:00Z)"
+              },
+              "postedBefore": {
+                "type": "string",
+                "description": "ISO 8601 date — only posts before this date"
+              },
+              "topic": {
+                "type": "string",
+                "description": "Filter by topic slug (e.g., 'artificial-intelligence', 'developer-tools')"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "get_post",
+      "description": "Get a specific Product Hunt post by its slug. Returns full details including description, media, makers, votes, and comments.",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "default": "query GetPost($slug: String!) { post(slug: $slug) { id name tagline slug url description votesCount commentsCount createdAt featuredAt website reviewsRating reviewsCount thumbnail { url } media { type url videoUrl } topics { edges { node { id name slug } } } makers { id name headline username profileImage } productLinks { type url } } }"
+          },
+          "variables": {
+            "type": "object",
+            "description": "Query variables",
+            "properties": {
+              "slug": {
+                "type": "string",
+                "description": "Post slug (e.g., 'chatgpt')"
+              }
+            },
+            "required": [
+              "slug"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "get_topic",
+      "description": "Get a Product Hunt topic by slug, including its top posts. Use this to browse categories like 'artificial-intelligence', 'developer-tools', 'design-tools', etc.",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "default": "query GetTopic($slug: String!) { topic(slug: $slug) { id name slug description followersCount postsCount } }"
+          },
+          "variables": {
+            "type": "object",
+            "description": "Query variables",
+            "properties": {
+              "slug": {
+                "type": "string",
+                "description": "Topic slug (e.g., 'artificial-intelligence', 'developer-tools', 'design-tools', 'saas')"
+              }
+            },
+            "required": [
+              "slug"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "get_topics",
+      "description": "List available Product Hunt topics/categories. Use this to discover topic slugs for filtering posts.",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "default": "query GetTopics($first: Int, $after: String) { topics(first: $first, after: $after) { edges { node { id name slug description followersCount postsCount } cursor } pageInfo { hasNextPage endCursor } } }"
+          },
+          "variables": {
+            "type": "object",
+            "description": "Query variables",
+            "properties": {
+              "first": {
+                "type": "integer",
+                "description": "Number of topics to return (max 20)",
+                "default": 20
+              },
+              "after": {
+                "type": "string",
+                "description": "Cursor for pagination"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "get_collection",
+      "description": "Get a Product Hunt collection by slug with its curated posts.",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "default": "query GetCollection($slug: String!) { collection(slug: $slug) { id name slug description followersCount postsCount coverImage posts(first: 20) { edges { node { id name tagline slug url votesCount } } } user { id name username } } }"
+          },
+          "variables": {
+            "type": "object",
+            "description": "Query variables",
+            "properties": {
+              "slug": {
+                "type": "string",
+                "description": "Collection slug"
+              }
+            },
+            "required": [
+              "slug"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "Get a Product Hunt user profile by username, including their headline, submitted products, and follower counts.",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "default": "query GetUser($username: String!) { user(username: $username) { id name username headline profileImage coverImage followersCount followingCount madePosts(first: 10) { edges { node { id name tagline slug url votesCount } } totalCount } submittedPosts(first: 10) { edges { node { id name tagline slug url votesCount } } totalCount } } }"
+          },
+          "variables": {
+            "type": "object",
+            "description": "Query variables",
+            "properties": {
+              "username": {
+                "type": "string",
+                "description": "Product Hunt username"
+              }
+            },
+            "required": [
+              "username"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "get_viewer",
+      "description": "Get the currently authenticated user's profile on Product Hunt.",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "default": "query GetViewer { viewer { user { id name username headline profileImage followersCount followingCount } } }"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_post_comments",
+      "description": "Get comments on a specific Product Hunt post by slug.",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "default": "query GetPostComments($slug: String!, $first: Int, $after: String) { post(slug: $slug) { id name comments(first: $first, after: $after) { edges { node { id body createdAt user { id name username profileImage } replies(first: 5) { edges { node { id body createdAt user { id name username } } } } } cursor } pageInfo { hasNextPage endCursor } totalCount } } }"
+          },
+          "variables": {
+            "type": "object",
+            "description": "Query variables",
+            "properties": {
+              "slug": {
+                "type": "string",
+                "description": "Post slug (e.g., 'chatgpt')"
+              },
+              "first": {
+                "type": "integer",
+                "description": "Number of comments to return (max 20)",
+                "default": 10
+              },
+              "after": {
+                "type": "string",
+                "description": "Cursor for pagination"
+              }
+            },
+            "required": [
+              "slug"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "get_post_votes",
+      "description": "Get voters on a specific Product Hunt post by slug.",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "default": "query GetPostVotes($slug: String!, $first: Int, $after: String) { post(slug: $slug) { id name votesCount votes(first: $first, after: $after) { edges { node { id createdAt user { id name username headline } } cursor } pageInfo { hasNextPage endCursor } totalCount } } }"
+          },
+          "variables": {
+            "type": "object",
+            "description": "Query variables",
+            "properties": {
+              "slug": {
+                "type": "string",
+                "description": "Post slug (e.g., 'chatgpt')"
+              },
+              "first": {
+                "type": "integer",
+                "description": "Number of votes to return (max 20)",
+                "default": 10
+              },
+              "after": {
+                "type": "string",
+                "description": "Cursor for pagination"
+              }
+            },
+            "required": [
+              "slug"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

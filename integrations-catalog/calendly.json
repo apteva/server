@@ -1,0 +1,581 @@
+{
+  "slug": "calendly",
+  "name": "Calendly",
+  "description": "MCP server for Calendly scheduling \u2014 manage event types, scheduled events, invitees, availability, scheduling links, and webhooks",
+  "logo": "https://www.google.com/s2/favicons?domain=calendly.com&sz=128",
+  "categories": [
+    "scheduling",
+    "calendar",
+    "meetings",
+    "appointments",
+    "booking"
+  ],
+  "base_url": "https://api.calendly.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "Calendly Personal Access Token"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_current_user",
+      "description": "Get the current authenticated user's info including name, email, scheduling URL, timezone, and organization URI. Call this first to get your user URI and organization URI needed by other endpoints.",
+      "method": "GET",
+      "path": "/users/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_event_types",
+      "description": "List available event types (meeting templates). IMPORTANT: You must provide either 'user' or 'organization' as a full Calendly URI (e.g., https://api.calendly.com/users/XXXXX). Get your user URI from the get-current-user tool first.",
+      "method": "GET",
+      "path": "/event_types",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "type": "string",
+            "description": "User URI (full URL like https://api.calendly.com/users/XXXXX). Required if organization not provided."
+          },
+          "organization": {
+            "type": "string",
+            "description": "Organization URI. Required if user not provided."
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Filter by active (true) or inactive (false) event types"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Number of results per page (default 20)"
+          },
+          "page_token": {
+            "type": "string",
+            "description": "Token for next page of results"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort order (e.g., 'name:asc')"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_event_type",
+      "description": "Get detailed info about a specific event type including duration, location, color, and scheduling URL",
+      "method": "GET",
+      "path": "/event_types/{event_type_uuid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_type_uuid": {
+            "type": "string",
+            "description": "Event type UUID (the ID portion from the event type URI)"
+          }
+        },
+        "required": [
+          "event_type_uuid"
+        ]
+      }
+    },
+    {
+      "name": "list_scheduled_events",
+      "description": "List scheduled events (booked meetings). IMPORTANT: You must provide either 'user' or 'organization' as a full Calendly URI. Use min_start_time/max_start_time to filter by date range.",
+      "method": "GET",
+      "path": "/scheduled_events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "type": "string",
+            "description": "User URI (full URL). Required if organization not provided."
+          },
+          "organization": {
+            "type": "string",
+            "description": "Organization URI. Required if user not provided."
+          },
+          "min_start_time": {
+            "type": "string",
+            "description": "Only events starting after this time (ISO 8601, e.g., 2025-01-01T00:00:00Z)"
+          },
+          "max_start_time": {
+            "type": "string",
+            "description": "Only events starting before this time (ISO 8601)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "canceled"
+            ],
+            "description": "Filter by event status"
+          },
+          "invitee_email": {
+            "type": "string",
+            "description": "Filter by invitee email"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Results per page (default 20)"
+          },
+          "page_token": {
+            "type": "string",
+            "description": "Token for next page"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort order (e.g., 'start_time:asc')"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_scheduled_event",
+      "description": "Get details of a specific scheduled event including start/end time, location, status, and event type",
+      "method": "GET",
+      "path": "/scheduled_events/{event_uuid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_uuid": {
+            "type": "string",
+            "description": "Scheduled event UUID"
+          }
+        },
+        "required": [
+          "event_uuid"
+        ]
+      }
+    },
+    {
+      "name": "cancel_event",
+      "description": "Cancel a scheduled event. Optionally provide a reason for cancellation.",
+      "method": "POST",
+      "path": "/scheduled_events/{event_uuid}/cancellation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_uuid": {
+            "type": "string",
+            "description": "UUID of the event to cancel"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Cancellation reason (shown to invitees)"
+          }
+        },
+        "required": [
+          "event_uuid"
+        ]
+      }
+    },
+    {
+      "name": "list_invitees",
+      "description": "List all invitees for a scheduled event \u2014 includes name, email, questions/answers, timezone, and cancellation info",
+      "method": "GET",
+      "path": "/scheduled_events/{event_uuid}/invitees",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_uuid": {
+            "type": "string",
+            "description": "Scheduled event UUID"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "canceled"
+            ],
+            "description": "Filter by invitee status"
+          },
+          "email": {
+            "type": "string",
+            "description": "Filter by invitee email"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Results per page"
+          },
+          "page_token": {
+            "type": "string",
+            "description": "Token for next page"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort order"
+          }
+        },
+        "required": [
+          "event_uuid"
+        ]
+      }
+    },
+    {
+      "name": "mark_no_show",
+      "description": "Mark an invitee as a no-show for a scheduled event",
+      "method": "POST",
+      "path": "/scheduled_events/{event_uuid}/invitees/{invitee_uuid}/no_show",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_uuid": {
+            "type": "string",
+            "description": "Scheduled event UUID"
+          },
+          "invitee_uuid": {
+            "type": "string",
+            "description": "Invitee UUID"
+          }
+        },
+        "required": [
+          "event_uuid",
+          "invitee_uuid"
+        ]
+      }
+    },
+    {
+      "name": "create_scheduling_link",
+      "description": "Create a single-use scheduling link for an event type. The link expires after one booking or 90 days. Returns a booking_url that can be shared with a prospect.",
+      "method": "POST",
+      "path": "/scheduling_links",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "max_event_count": {
+            "type": "integer",
+            "description": "Max number of events that can be scheduled (use 1 for single-use)",
+            "default": 1
+          },
+          "owner": {
+            "type": "string",
+            "description": "Event type URI (full URL like https://api.calendly.com/event_types/XXXXX)"
+          },
+          "owner_type": {
+            "type": "string",
+            "default": "EventType",
+            "description": "Must be 'EventType'"
+          }
+        },
+        "required": [
+          "max_event_count",
+          "owner",
+          "owner_type"
+        ]
+      }
+    },
+    {
+      "name": "create_one_off_event_type",
+      "description": "Create a temporary event type for a specific occasion \u2014 useful for custom meetings not covered by regular event types",
+      "method": "POST",
+      "path": "/one_off_event_types",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name for this one-off event type"
+          },
+          "host": {
+            "type": "string",
+            "description": "Host user URI (full URL)"
+          },
+          "duration": {
+            "type": "integer",
+            "description": "Duration in minutes"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Timezone (e.g., 'America/New_York')"
+          },
+          "date_setting": {
+            "type": "object",
+            "description": "Date range settings",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "date_range"
+                ],
+                "description": "Must be 'date_range'"
+              },
+              "start_date": {
+                "type": "string",
+                "description": "Start date (YYYY-MM-DD)"
+              },
+              "end_date": {
+                "type": "string",
+                "description": "End date (YYYY-MM-DD)"
+              }
+            }
+          },
+          "location": {
+            "type": "object",
+            "description": "Meeting location",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "description": "Location type (e.g., 'physical', 'custom', 'google_conference', 'zoom_conference')"
+              },
+              "location": {
+                "type": "string",
+                "description": "Location details (address or URL)"
+              }
+            }
+          }
+        },
+        "required": [
+          "name",
+          "host",
+          "duration"
+        ]
+      }
+    },
+    {
+      "name": "list_available_times",
+      "description": "List available time slots for an event type within a date range. Useful for checking when someone can be booked.",
+      "method": "GET",
+      "path": "/event_type_available_times",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_type": {
+            "type": "string",
+            "description": "Event type URI (full URL)"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "Start of range (ISO 8601, e.g., 2025-03-01T00:00:00Z)"
+          },
+          "end_time": {
+            "type": "string",
+            "description": "End of range (ISO 8601, max 7 days from start)"
+          }
+        },
+        "required": [
+          "event_type",
+          "start_time",
+          "end_time"
+        ]
+      }
+    },
+    {
+      "name": "list_busy_times",
+      "description": "List time blocks when a user is busy/unavailable within a date range",
+      "method": "GET",
+      "path": "/user_busy_times",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "type": "string",
+            "description": "User URI (full URL)"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "Start of range (ISO 8601)"
+          },
+          "end_time": {
+            "type": "string",
+            "description": "End of range (ISO 8601)"
+          }
+        },
+        "required": [
+          "user",
+          "start_time",
+          "end_time"
+        ]
+      }
+    },
+    {
+      "name": "list_availability_schedules",
+      "description": "List a user's availability schedules (working hours configuration)",
+      "method": "GET",
+      "path": "/user_availability_schedules",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "type": "string",
+            "description": "User URI (full URL)"
+          }
+        },
+        "required": [
+          "user"
+        ]
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List webhook subscriptions for an organization. Webhooks fire on invitee.created, invitee.canceled, and routing_form_submission.created events.",
+      "method": "GET",
+      "path": "/webhook_subscriptions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization": {
+            "type": "string",
+            "description": "Organization URI (required)"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "organization"
+            ],
+            "description": "Webhook scope"
+          },
+          "user": {
+            "type": "string",
+            "description": "User URI (required if scope is 'user')"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Results per page"
+          },
+          "page_token": {
+            "type": "string",
+            "description": "Token for next page"
+          }
+        },
+        "required": [
+          "organization",
+          "scope"
+        ]
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a webhook subscription. Supported events: invitee.created (new booking), invitee.canceled (cancellation), routing_form_submission.created (form submitted).",
+      "method": "POST",
+      "path": "/webhook_subscriptions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Webhook callback URL"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Events to subscribe to: invitee.created, invitee.canceled, routing_form_submission.created"
+          },
+          "organization": {
+            "type": "string",
+            "description": "Organization URI (required)"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "organization"
+            ],
+            "description": "Webhook scope"
+          },
+          "user": {
+            "type": "string",
+            "description": "User URI (required if scope is 'user')"
+          },
+          "signing_key": {
+            "type": "string",
+            "description": "Optional key for webhook signature verification"
+          }
+        },
+        "required": [
+          "url",
+          "events",
+          "organization",
+          "scope"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete a webhook subscription by its UUID",
+      "method": "DELETE",
+      "path": "/webhook_subscriptions/{webhook_uuid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook_uuid": {
+            "type": "string",
+            "description": "Webhook subscription UUID to delete"
+          }
+        },
+        "required": [
+          "webhook_uuid"
+        ]
+      }
+    },
+    {
+      "name": "list_routing_forms",
+      "description": "List routing forms for an organization \u2014 forms that route invitees to the right event type based on their answers",
+      "method": "GET",
+      "path": "/routing_forms",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization": {
+            "type": "string",
+            "description": "Organization URI (required)"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Results per page"
+          },
+          "page_token": {
+            "type": "string",
+            "description": "Token for next page"
+          }
+        },
+        "required": [
+          "organization"
+        ]
+      }
+    },
+    {
+      "name": "list_routing_form_submissions",
+      "description": "List submissions for a routing form \u2014 see how invitees answered routing questions and which event type they were routed to",
+      "method": "GET",
+      "path": "/routing_form_submissions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form": {
+            "type": "string",
+            "description": "Routing form URI (full URL)"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Results per page"
+          },
+          "page_token": {
+            "type": "string",
+            "description": "Token for next page"
+          }
+        },
+        "required": [
+          "form"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_current_user"
+  }
+}

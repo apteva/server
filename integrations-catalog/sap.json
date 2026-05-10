@@ -1,0 +1,256 @@
+{
+  "slug": "sap",
+  "name": "SAP S/4HANA",
+  "description": "SAP S/4HANA integration for enterprise resource planning with business partners, orders, and materials",
+  "logo": "https://www.google.com/s2/favicons?domain=sap.com&sz=128",
+  "categories": [
+    "erp",
+    "enterprise",
+    "sap",
+    "business",
+    "orders"
+  ],
+  "base_url": "{{instance_url}}/sap/opu/odata/sap",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_business_partners",
+      "description": "List business partners from SAP",
+      "method": "GET",
+      "path": "/list-business-partners",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "description": "SAP S/4HANA base URL"
+          },
+          "top": {
+            "type": "number",
+            "description": "Number of results"
+          },
+          "skip": {
+            "type": "number",
+            "description": "Skip first N results"
+          },
+          "filter": {
+            "type": "string",
+            "description": "OData filter expression"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search term"
+          }
+        },
+        "required": [
+          "base_url"
+        ]
+      }
+    },
+    {
+      "name": "create_sales_order",
+      "description": "Create a sales order in SAP",
+      "method": "POST",
+      "path": "/create-sales-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "description": "SAP S/4HANA base URL"
+          },
+          "sales_order_type": {
+            "type": "string",
+            "description": "Sales order type"
+          },
+          "sales_organization": {
+            "type": "string",
+            "description": "Sales organization"
+          },
+          "distribution_channel": {
+            "type": "string",
+            "description": "Distribution channel"
+          },
+          "division": {
+            "type": "string",
+            "description": "Division"
+          },
+          "sold_to_party": {
+            "type": "string",
+            "description": "Customer ID"
+          },
+          "items": {
+            "type": "array",
+            "description": "Line items"
+          }
+        },
+        "required": [
+          "base_url",
+          "sales_order_type",
+          "sales_organization",
+          "sold_to_party"
+        ]
+      }
+    },
+    {
+      "name": "list_materials",
+      "description": "List materials/products from SAP",
+      "method": "GET",
+      "path": "/list-materials",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "description": "SAP S/4HANA base URL"
+          },
+          "top": {
+            "type": "number",
+            "description": "Number of results"
+          },
+          "skip": {
+            "type": "number",
+            "description": "Skip first N results"
+          },
+          "filter": {
+            "type": "string",
+            "description": "OData filter expression"
+          },
+          "material_type": {
+            "type": "string",
+            "description": "Filter by material type"
+          }
+        },
+        "required": [
+          "base_url"
+        ]
+      }
+    },
+    {
+      "name": "list_purchase_orders",
+      "description": "List purchase orders from SAP",
+      "method": "GET",
+      "path": "/list-purchase-orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "description": "SAP S/4HANA base URL"
+          },
+          "top": {
+            "type": "number",
+            "description": "Number of results"
+          },
+          "skip": {
+            "type": "number",
+            "description": "Skip first N results"
+          },
+          "filter": {
+            "type": "string",
+            "description": "OData filter expression"
+          },
+          "supplier": {
+            "type": "string",
+            "description": "Filter by supplier"
+          }
+        },
+        "required": [
+          "base_url"
+        ]
+      }
+    },
+    {
+      "name": "create_purchase_order",
+      "description": "Create a purchase order in SAP",
+      "method": "POST",
+      "path": "/create-purchase-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "description": "SAP S/4HANA base URL"
+          },
+          "purchase_order_type": {
+            "type": "string",
+            "description": "Purchase order type"
+          },
+          "supplier": {
+            "type": "string",
+            "description": "Supplier ID"
+          },
+          "purchasing_organization": {
+            "type": "string",
+            "description": "Purchasing organization"
+          },
+          "purchasing_group": {
+            "type": "string",
+            "description": "Purchasing group"
+          },
+          "company_code": {
+            "type": "string",
+            "description": "Company code"
+          },
+          "items": {
+            "type": "array",
+            "description": "Line items"
+          }
+        },
+        "required": [
+          "base_url",
+          "purchase_order_type",
+          "supplier",
+          "purchasing_organization"
+        ]
+      }
+    },
+    {
+      "name": "list_invoices",
+      "description": "List billing documents/invoices from SAP",
+      "method": "GET",
+      "path": "/list-invoices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base_url": {
+            "type": "string",
+            "description": "SAP S/4HANA base URL"
+          },
+          "top": {
+            "type": "number",
+            "description": "Number of results"
+          },
+          "skip": {
+            "type": "number",
+            "description": "Skip first N results"
+          },
+          "filter": {
+            "type": "string",
+            "description": "OData filter expression"
+          },
+          "sold_to_party": {
+            "type": "string",
+            "description": "Filter by customer"
+          }
+        },
+        "required": [
+          "base_url"
+        ]
+      }
+    }
+  ]
+}

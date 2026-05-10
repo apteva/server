@@ -1,0 +1,80 @@
+{
+  "slug": "newrelic",
+  "name": "New Relic",
+  "description": "MCP server for New Relic - NRQL queries, entities, alerts, incidents, dashboards",
+  "logo": "https://www.google.com/s2/favicons?domain=newrelic.com&sz=128",
+  "categories": ["monitoring", "observability", "apm", "devops"],
+  "base_url": "https://api.newrelic.com",
+  "auth": {
+    "types": ["header"],
+    "headers": { "Api-Key": "{{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "User API Key" },
+      { "name": "accountId", "label": "Account ID" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "nrql_query",
+      "description": "Run a NRQL query via NerdGraph",
+      "method": "POST",
+      "path": "https://api.newrelic.com/graphql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "GraphQL query" },
+          "variables": { "type": "object" }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "submit_metric",
+      "description": "Submit metrics (Metric API)",
+      "method": "POST",
+      "path": "https://metric-api.newrelic.com/metric/v1",
+      "input_schema": {
+        "type": "object",
+        "properties": { "metrics": { "type": "array" } },
+        "required": ["metrics"]
+      }
+    },
+    {
+      "name": "submit_log",
+      "description": "Submit logs (Log API)",
+      "method": "POST",
+      "path": "https://log-api.newrelic.com/log/v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string" },
+          "attributes": { "type": "object" }
+        }
+      }
+    },
+    {
+      "name": "submit_event",
+      "description": "Submit custom events (Event API)",
+      "method": "POST",
+      "path": "https://insights-collector.newrelic.com/v1/accounts/{account_id}/events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "events": { "type": "array" }
+        },
+        "required": ["account_id", "events"]
+      }
+    },
+    {
+      "name": "list_applications",
+      "description": "List APM applications (REST v2)",
+      "method": "GET",
+      "path": "/v2/applications.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "filter": { "type": "object" } }
+      }
+    }
+  ]
+}

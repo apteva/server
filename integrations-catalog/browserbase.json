@@ -1,0 +1,237 @@
+{
+  "slug": "browserbase",
+  "name": "Browserbase",
+  "description": "Headless browser infrastructure for AI agents. Create/manage long-lived browser sessions, then connect over CDP/Playwright to drive them — screenshots, form fills, scraping, authenticated flows. REST API manages sessions, contexts (persisted cookies/state), extensions, recordings, logs, downloads. The screenshot itself is taken by your Playwright/CDP client against the session's `connectUrl`, not by a REST endpoint.",
+  "logo": "https://www.google.com/s2/favicons?domain=browserbase.com&sz=128",
+  "categories": ["browser", "automation", "scraping", "screenshots", "ai"],
+  "base_url": "https://api.browserbase.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "x-bb-api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      { "name": "api_key", "label": "Browserbase API key" },
+      { "name": "project_id", "label": "Browserbase project ID" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_session",
+      "description": "Create a new browser session. Returns `{id, connectUrl, seleniumRemoteUrl, ...}` — use `connectUrl` to connect via Playwright/Puppeteer over CDP and drive the browser (take screenshots, click, type, etc.). Sessions idle out after ~5 min unless `keepAlive=true`.",
+      "method": "POST",
+      "path": "/v1/sessions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string", "description": "Your Browserbase project ID" },
+          "browserSettings": {
+            "type": "object",
+            "description": "Browser configuration",
+            "properties": {
+              "viewport": {
+                "type": "object",
+                "properties": {
+                  "width": { "type": "integer", "default": 1280 },
+                  "height": { "type": "integer", "default": 720 }
+                }
+              },
+              "solveCaptchas": { "type": "boolean", "default": false, "description": "Automatically solve CAPTCHAs encountered during the session" },
+              "blockAds": { "type": "boolean", "default": false },
+              "recordSession": { "type": "boolean", "default": true },
+              "logSession": { "type": "boolean", "default": true },
+              "fingerprint": {
+                "type": "object",
+                "description": "Override fingerprint (OS, browser, locale, device type)",
+                "properties": {
+                  "devices": { "type": "array", "items": { "type": "string", "enum": ["desktop", "mobile"] } },
+                  "locales": { "type": "array", "items": { "type": "string" } },
+                  "operatingSystems": { "type": "array", "items": { "type": "string", "enum": ["windows", "macos", "linux", "ios", "android"] } }
+                }
+              },
+              "context": {
+                "type": "object",
+                "description": "Reuse a persisted context (cookies/storage)",
+                "properties": {
+                  "id": { "type": "string" },
+                  "persist": { "type": "boolean", "default": false }
+                }
+              }
+            }
+          },
+          "extensionId": { "type": "string", "description": "ID of an uploaded Chrome extension to load" },
+          "keepAlive": { "type": "boolean", "default": false, "description": "Keep the session alive after disconnect (Scale plan)" },
+          "proxies": { "description": "Proxy config — `true` for built-in, or array of proxy objects" },
+          "region": { "type": "string", "enum": ["us-west-2", "us-east-1", "eu-central-1", "ap-southeast-1"], "description": "Geographic region to run the browser in" },
+          "timeout": { "type": "integer", "description": "Max session duration in seconds" },
+          "userMetadata": { "type": "object", "description": "Arbitrary key/values attached to the session" }
+        },
+        "required": ["projectId"]
+      }
+    },
+    {
+      "name": "list_sessions",
+      "description": "List browser sessions, optionally filtered by status.",
+      "method": "GET",
+      "path": "/v1/sessions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["RUNNING", "ERROR", "TIMED_OUT", "COMPLETED"] },
+          "q": { "type": "string", "description": "Search by userMetadata key/value, e.g. `user_metadata['tag']:'demo'`" }
+        }
+      },
+      "query_params": ["status", "q"]
+    },
+    {
+      "name": "get_session",
+      "description": "Retrieve a single session by id.",
+      "method": "GET",
+      "path": "/v1/sessions/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      },
+      "path_params": ["id"]
+    },
+    {
+      "name": "update_session",
+      "description": "Update a session — most commonly used to stop a running session by setting `status` to `REQUEST_RELEASE`.",
+      "method": "POST",
+      "path": "/v1/sessions/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "projectId": { "type": "string" },
+          "status": { "type": "string", "enum": ["REQUEST_RELEASE"] }
+        },
+        "required": ["id", "projectId", "status"]
+      },
+      "path_params": ["id"]
+    },
+    {
+      "name": "get_session_debug",
+      "description": "Get debug URLs for a session — live view (watch the browser in real time) and debugger (DevTools).",
+      "method": "GET",
+      "path": "/v1/sessions/{id}/debug",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      },
+      "path_params": ["id"]
+    },
+    {
+      "name": "get_session_recording",
+      "description": "Retrieve the session recording (rrweb events) — replayable video of everything that happened in the browser.",
+      "method": "GET",
+      "path": "/v1/sessions/{id}/recording",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      },
+      "path_params": ["id"]
+    },
+    {
+      "name": "get_session_logs",
+      "description": "Retrieve CDP and network logs for the session.",
+      "method": "GET",
+      "path": "/v1/sessions/{id}/logs",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      },
+      "path_params": ["id"]
+    },
+    {
+      "name": "get_session_downloads",
+      "description": "Retrieve files downloaded during the session as a zip.",
+      "method": "GET",
+      "path": "/v1/sessions/{id}/downloads",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      },
+      "path_params": ["id"]
+    },
+    {
+      "name": "create_context",
+      "description": "Create a persisted context — cookies, localStorage, and auth state that can be reused across sessions (e.g. stay logged in).",
+      "method": "POST",
+      "path": "/v1/contexts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" }
+        },
+        "required": ["projectId"]
+      }
+    },
+    {
+      "name": "get_context",
+      "description": "Retrieve a context by id.",
+      "method": "GET",
+      "path": "/v1/contexts/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      },
+      "path_params": ["id"]
+    },
+    {
+      "name": "update_context",
+      "description": "Refresh a context's upload URL so new cookie/storage state can be saved.",
+      "method": "PUT",
+      "path": "/v1/contexts/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      },
+      "path_params": ["id"]
+    },
+    {
+      "name": "create_extension",
+      "description": "Upload a Chrome extension (.zip) to be loaded into future sessions via `extensionId`. Multipart body with `file` field.",
+      "method": "POST",
+      "path": "/v1/extensions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": { "type": "string", "description": "Zip of the unpacked extension" }
+        },
+        "required": ["file"]
+      }
+    },
+    {
+      "name": "get_extension",
+      "description": "Retrieve an uploaded extension by id.",
+      "method": "GET",
+      "path": "/v1/extensions/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      },
+      "path_params": ["id"]
+    },
+    {
+      "name": "delete_extension",
+      "description": "Delete an uploaded extension.",
+      "method": "DELETE",
+      "path": "/v1/extensions/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      },
+      "path_params": ["id"]
+    }
+  ]
+}

@@ -1,0 +1,201 @@
+{
+  "slug": "cartesia",
+  "name": "Cartesia",
+  "description": "AI text-to-speech platform with voice cloning, multilingual speech synthesis, and a library of pre-built voices powered by the Sonic model.",
+  "logo": "https://www.google.com/s2/favicons?domain=cartesia.ai&sz=128",
+  "categories": [
+    "ai",
+    "voice",
+    "text-to-speech",
+    "tts",
+    "voice-cloning",
+    "audio",
+    "speech-synthesis"
+  ],
+  "base_url": "https://api.cartesia.ai",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Cartesia API key (from your Cartesia dashboard)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_voices",
+      "description": "List all available voices in your Cartesia account. Returns voice metadata including IDs, names, descriptions, and language support.",
+      "method": "GET",
+      "path": "/voices",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_voice",
+      "description": "Retrieve details for a specific voice by its ID. Returns the voice's name, description, language, and embedding information.",
+      "method": "GET",
+      "path": "/voices/{{param.voice_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_id": {
+            "type": "string",
+            "description": "The unique identifier of the voice to retrieve."
+          }
+        },
+        "required": [
+          "voice_id"
+        ]
+      }
+    },
+    {
+      "name": "create_speech",
+      "description": "Convert text to speech audio using the Cartesia Sonic model. Specify a voice, language, and output format to generate speech from a transcript. Returns audio bytes.",
+      "method": "POST",
+      "path": "/tts/bytes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "description": "The model to use for speech generation (e.g. 'sonic-2024-10-19', 'sonic-english', 'sonic-multilingual').",
+            "default": "sonic-2024-10-19"
+          },
+          "transcript": {
+            "type": "string",
+            "description": "The text to convert to speech."
+          },
+          "voice": {
+            "type": "object",
+            "description": "Voice configuration object. Use mode 'id' with a voice ID, or mode 'embedding' with a raw embedding array.",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "id",
+                  "embedding"
+                ],
+                "description": "Voice selection mode: 'id' to reference a voice by ID, or 'embedding' for a raw voice embedding."
+              },
+              "id": {
+                "type": "string",
+                "description": "The voice ID to use (required when mode is 'id')."
+              },
+              "embedding": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "description": "Raw voice embedding array (required when mode is 'embedding')."
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "output_format": {
+            "type": "object",
+            "description": "Output audio format configuration.",
+            "properties": {
+              "container": {
+                "type": "string",
+                "enum": [
+                  "raw",
+                  "wav",
+                  "mp3"
+                ],
+                "description": "Audio container format.",
+                "default": "wav"
+              },
+              "encoding": {
+                "type": "string",
+                "enum": [
+                  "pcm_s16le",
+                  "pcm_f32le",
+                  "pcm_mulaw",
+                  "pcm_alaw"
+                ],
+                "description": "Audio encoding format (required for raw container)."
+              },
+              "sample_rate": {
+                "type": "integer",
+                "description": "Audio sample rate in Hz (e.g. 8000, 16000, 22050, 44100).",
+                "default": 44100
+              }
+            },
+            "required": [
+              "container",
+              "sample_rate"
+            ]
+          },
+          "language": {
+            "type": "string",
+            "description": "Language code for the speech (e.g. 'en', 'fr', 'de', 'es', 'pt', 'zh', 'ja', 'hi', 'it', 'ko', 'nl', 'pl', 'ru', 'sv', 'tr').",
+            "default": "en"
+          }
+        },
+        "required": [
+          "model_id",
+          "transcript",
+          "voice",
+          "output_format"
+        ]
+      }
+    },
+    {
+      "name": "clone_voice",
+      "description": "Clone a voice from an audio clip. Provide a short audio sample (about 5 seconds) to create a high-similarity voice clone. The clip should be submitted as a multipart form with the audio file.",
+      "method": "POST",
+      "path": "/voices/clone/clip",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name for the cloned voice."
+          },
+          "description": {
+            "type": "string",
+            "description": "Description of the cloned voice."
+          },
+          "clip": {
+            "type": "string",
+            "description": "Base64-encoded audio clip data for cloning. Use an audio clip of about 5 seconds for best results."
+          },
+          "language": {
+            "type": "string",
+            "description": "Language of the voice clip (e.g. 'en', 'fr', 'de').",
+            "default": "en"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "similarity",
+              "stability"
+            ],
+            "description": "Cloning mode. 'similarity' prioritizes closeness to the original voice; 'stability' prioritizes consistent output.",
+            "default": "similarity"
+          },
+          "enhance": {
+            "type": "boolean",
+            "description": "Whether to enhance the audio clip before cloning to improve quality.",
+            "default": false
+          }
+        },
+        "required": [
+          "name",
+          "clip"
+        ]
+      }
+    }
+  ]
+}

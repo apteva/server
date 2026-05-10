@@ -1,0 +1,211 @@
+{
+  "slug": "alibaba-cloud",
+  "name": "Alibaba Cloud (ECS)",
+  "description": "MCP server for Alibaba Cloud Elastic Compute Service - instances, regions, instance types, images, security groups, snapshots. NOTE: Alibaba RPC APIs require HMAC-SHA1 signing not yet implemented in the http-executor; this manifest is published for catalog discoverability — runtime calls will fail until executor adds Alibaba signing support.",
+  "logo": "https://www.google.com/s2/favicons?domain=alibabacloud.com&sz=128",
+  "categories": ["cloud", "servers", "vps", "infrastructure", "china", "asia", "global", "needs-signing-support"],
+  "base_url": "https://ecs.aliyuncs.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {},
+    "credential_fields": [
+      { "name": "access_key_id", "label": "AccessKey ID", "description": "Alibaba Cloud AccessKey ID (RAM user recommended)" },
+      { "name": "access_key_secret", "label": "AccessKey Secret", "description": "Used to compute HMAC-SHA1 signature per Alibaba RPC signing spec" },
+      { "name": "region_id", "label": "Region ID", "description": "e.g. cn-hangzhou, ap-southeast-1 (Singapore), ap-southeast-5 (Jakarta), ap-southeast-7 (Bangkok), ap-northeast-1 (Tokyo)" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "describe_instances",
+      "description": "List ECS instances. Action=DescribeInstances",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "DescribeInstances" },
+          "Version": { "type": "string", "description": "2014-05-26" },
+          "RegionId": { "type": "string" },
+          "PageSize": { "type": "number" },
+          "PageNumber": { "type": "number" }
+        },
+        "required": ["Action", "Version", "RegionId"]
+      }
+    },
+    {
+      "name": "run_instances",
+      "description": "Create one or more ECS instances. Action=RunInstances",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "RunInstances" },
+          "Version": { "type": "string", "description": "2014-05-26" },
+          "RegionId": { "type": "string" },
+          "ImageId": { "type": "string" },
+          "InstanceType": { "type": "string" },
+          "SecurityGroupId": { "type": "string" },
+          "VSwitchId": { "type": "string" },
+          "InstanceName": { "type": "string" },
+          "Amount": { "type": "number" },
+          "KeyPairName": { "type": "string" }
+        },
+        "required": ["Action", "Version", "RegionId", "ImageId", "InstanceType", "SecurityGroupId"]
+      }
+    },
+    {
+      "name": "delete_instance",
+      "description": "Delete an ECS instance. Action=DeleteInstance",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "DeleteInstance" },
+          "Version": { "type": "string", "description": "2014-05-26" },
+          "InstanceId": { "type": "string" },
+          "Force": { "type": "boolean" }
+        },
+        "required": ["Action", "Version", "InstanceId"]
+      }
+    },
+    {
+      "name": "start_instance",
+      "description": "Start an ECS instance. Action=StartInstance",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "StartInstance" },
+          "Version": { "type": "string", "description": "2014-05-26" },
+          "InstanceId": { "type": "string" }
+        },
+        "required": ["Action", "Version", "InstanceId"]
+      }
+    },
+    {
+      "name": "stop_instance",
+      "description": "Stop an ECS instance. Action=StopInstance",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "StopInstance" },
+          "Version": { "type": "string", "description": "2014-05-26" },
+          "InstanceId": { "type": "string" },
+          "ForceStop": { "type": "boolean" }
+        },
+        "required": ["Action", "Version", "InstanceId"]
+      }
+    },
+    {
+      "name": "reboot_instance",
+      "description": "Reboot an ECS instance. Action=RebootInstance",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "RebootInstance" },
+          "Version": { "type": "string", "description": "2014-05-26" },
+          "InstanceId": { "type": "string" },
+          "ForceStop": { "type": "boolean" }
+        },
+        "required": ["Action", "Version", "InstanceId"]
+      }
+    },
+    {
+      "name": "describe_regions",
+      "description": "List available regions. Action=DescribeRegions",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "DescribeRegions" },
+          "Version": { "type": "string", "description": "2014-05-26" }
+        },
+        "required": ["Action", "Version"]
+      }
+    },
+    {
+      "name": "describe_instance_types",
+      "description": "List instance types. Action=DescribeInstanceTypes",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "DescribeInstanceTypes" },
+          "Version": { "type": "string", "description": "2014-05-26" }
+        },
+        "required": ["Action", "Version"]
+      }
+    },
+    {
+      "name": "describe_images",
+      "description": "List images. Action=DescribeImages",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "DescribeImages" },
+          "Version": { "type": "string", "description": "2014-05-26" },
+          "RegionId": { "type": "string" },
+          "ImageOwnerAlias": { "type": "string", "description": "system|self|others|marketplace" }
+        },
+        "required": ["Action", "Version", "RegionId"]
+      }
+    },
+    {
+      "name": "describe_security_groups",
+      "description": "List security groups. Action=DescribeSecurityGroups",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "DescribeSecurityGroups" },
+          "Version": { "type": "string", "description": "2014-05-26" },
+          "RegionId": { "type": "string" }
+        },
+        "required": ["Action", "Version", "RegionId"]
+      }
+    },
+    {
+      "name": "create_snapshot",
+      "description": "Create a disk snapshot. Action=CreateSnapshot",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "CreateSnapshot" },
+          "Version": { "type": "string", "description": "2014-05-26" },
+          "DiskId": { "type": "string" },
+          "SnapshotName": { "type": "string" }
+        },
+        "required": ["Action", "Version", "DiskId"]
+      }
+    },
+    {
+      "name": "describe_snapshots",
+      "description": "List disk snapshots. Action=DescribeSnapshots",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "DescribeSnapshots" },
+          "Version": { "type": "string", "description": "2014-05-26" },
+          "RegionId": { "type": "string" }
+        },
+        "required": ["Action", "Version", "RegionId"]
+      }
+    }
+  ]
+}

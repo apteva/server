@@ -1,0 +1,248 @@
+{
+  "slug": "flightapi",
+  "name": "FlightAPI",
+  "description": "FlightAPI.io — flight price search across one-way, round-trip and multi-city itineraries",
+  "logo": "https://www.google.com/s2/favicons?domain=flightapi.io&sz=128",
+  "categories": [
+    "travel",
+    "flights",
+    "pricing"
+  ],
+  "base_url": "https://api.flightapi.io",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Your FlightAPI.io API key from https://app.flightapi.io"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "oneway_trip",
+      "description": "Search prices for a one-way flight",
+      "method": "GET",
+      "path": "/onewaytrip/{{credential.api_key}}/{departure}/{arrival}/{departure_date}/{adults}/{children}/{infants}/{cabin_class}/{currency}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "departure": {
+            "type": "string",
+            "description": "Departure airport IATA code (e.g. JFK)"
+          },
+          "arrival": {
+            "type": "string",
+            "description": "Arrival airport IATA code (e.g. LAX)"
+          },
+          "departure_date": {
+            "type": "string",
+            "description": "Departure date YYYY-MM-DD"
+          },
+          "adults": {
+            "type": "integer",
+            "description": "Number of adult passengers",
+            "default": 1
+          },
+          "children": {
+            "type": "integer",
+            "description": "Number of children",
+            "default": 0
+          },
+          "infants": {
+            "type": "integer",
+            "description": "Number of infants",
+            "default": 0
+          },
+          "cabin_class": {
+            "type": "string",
+            "enum": [
+              "Economy",
+              "Premium_Economy",
+              "Business",
+              "First"
+            ],
+            "default": "Economy"
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO currency code (e.g. USD, EUR)",
+            "default": "USD"
+          }
+        },
+        "required": [
+          "departure",
+          "arrival",
+          "departure_date",
+          "adults",
+          "children",
+          "infants",
+          "cabin_class",
+          "currency"
+        ]
+      }
+    },
+    {
+      "name": "round_trip",
+      "description": "Search prices for a round-trip flight",
+      "method": "GET",
+      "path": "/roundtrip/{{credential.api_key}}/{departure}/{arrival}/{departure_date}/{return_date}/{adults}/{children}/{infants}/{cabin_class}/{currency}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "departure": {
+            "type": "string",
+            "description": "Departure airport IATA code"
+          },
+          "arrival": {
+            "type": "string",
+            "description": "Arrival airport IATA code"
+          },
+          "departure_date": {
+            "type": "string",
+            "description": "Outbound date YYYY-MM-DD"
+          },
+          "return_date": {
+            "type": "string",
+            "description": "Return date YYYY-MM-DD"
+          },
+          "adults": {
+            "type": "integer",
+            "default": 1
+          },
+          "children": {
+            "type": "integer",
+            "default": 0
+          },
+          "infants": {
+            "type": "integer",
+            "default": 0
+          },
+          "cabin_class": {
+            "type": "string",
+            "enum": [
+              "Economy",
+              "Premium_Economy",
+              "Business",
+              "First"
+            ],
+            "default": "Economy"
+          },
+          "currency": {
+            "type": "string",
+            "default": "USD"
+          }
+        },
+        "required": [
+          "departure",
+          "arrival",
+          "departure_date",
+          "return_date",
+          "adults",
+          "children",
+          "infants",
+          "cabin_class",
+          "currency"
+        ]
+      }
+    },
+    {
+      "name": "multi_trip",
+      "description": "Search prices for a multi-city itinerary (up to 3 legs)",
+      "method": "GET",
+      "path": "/multitrip/{{credential.api_key}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "trips": {
+            "type": "integer",
+            "description": "Number of trip legs (2 or 3)",
+            "enum": [
+              2,
+              3
+            ]
+          },
+          "arp1": {
+            "type": "string",
+            "description": "Leg 1 departure IATA"
+          },
+          "arp2": {
+            "type": "string",
+            "description": "Leg 1 arrival IATA"
+          },
+          "date1": {
+            "type": "string",
+            "description": "Leg 1 date YYYY-MM-DD"
+          },
+          "arp3": {
+            "type": "string",
+            "description": "Leg 2 departure IATA"
+          },
+          "arp4": {
+            "type": "string",
+            "description": "Leg 2 arrival IATA"
+          },
+          "date2": {
+            "type": "string",
+            "description": "Leg 2 date YYYY-MM-DD"
+          },
+          "arp5": {
+            "type": "string",
+            "description": "Leg 3 departure IATA (only when trips=3)"
+          },
+          "arp6": {
+            "type": "string",
+            "description": "Leg 3 arrival IATA (only when trips=3)"
+          },
+          "date3": {
+            "type": "string",
+            "description": "Leg 3 date YYYY-MM-DD (only when trips=3)"
+          },
+          "adults": {
+            "type": "integer",
+            "default": 1
+          },
+          "children": {
+            "type": "integer",
+            "default": 0
+          },
+          "infants": {
+            "type": "integer",
+            "default": 0
+          },
+          "cabinclass": {
+            "type": "string",
+            "enum": [
+              "Economy",
+              "Premium_Economy",
+              "Business",
+              "First"
+            ],
+            "default": "Economy"
+          },
+          "currency": {
+            "type": "string",
+            "default": "USD"
+          }
+        },
+        "required": [
+          "trips",
+          "arp1",
+          "arp2",
+          "date1",
+          "arp3",
+          "arp4",
+          "date2",
+          "adults",
+          "children",
+          "infants",
+          "cabinclass",
+          "currency"
+        ]
+      }
+    }
+  ]
+}

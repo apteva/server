@@ -1,0 +1,206 @@
+{
+  "slug": "bluesky",
+  "name": "Bluesky",
+  "description": "Bluesky social network integration via the AT Protocol (XRPC). Get profiles, search and create posts, browse feeds, and view follower lists on bsky.social.",
+  "logo": "https://www.google.com/s2/favicons?domain=bsky.social&sz=128",
+  "categories": [
+    "social-media",
+    "bluesky",
+    "atprotocol",
+    "microblogging",
+    "decentralized"
+  ],
+  "base_url": "https://bsky.social",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "Access Token",
+        "description": "Bluesky access JWT (obtain via com.atproto.server.createSession)"
+      },
+      {
+        "name": "handle",
+        "label": "Handle",
+        "description": "Your Bluesky handle (e.g. user.bsky.social)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_profile",
+      "description": "Get the detailed profile of a Bluesky user (actor). Returns display name, bio, avatar, follower/following counts, and post count. Use a handle (e.g. 'alice.bsky.social') or DID.",
+      "method": "GET",
+      "path": "/xrpc/app.bsky.actor.getProfile",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "actor": {
+            "type": "string",
+            "description": "The handle (e.g. 'alice.bsky.social') or DID of the user whose profile to retrieve."
+          }
+        },
+        "required": [
+          "actor"
+        ]
+      }
+    },
+    {
+      "name": "search_posts",
+      "description": "Search for posts matching a query string on Bluesky. Returns post views with text content, author info, timestamps, and engagement metrics. Supports pagination via cursor.",
+      "method": "GET",
+      "path": "/xrpc/app.bsky.feed.searchPosts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "The search query string to match against post content."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of results to return. Range 1-100. Defaults to 25."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response to fetch the next page."
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "top",
+              "latest"
+            ],
+            "description": "Sort order for results. 'top' for most relevant, 'latest' for most recent. Defaults to 'latest'."
+          }
+        },
+        "required": [
+          "q"
+        ]
+      }
+    },
+    {
+      "name": "create_post",
+      "description": "Create a new post (skeet) on Bluesky. Uses the com.atproto.repo.createRecord XRPC method to write a post record to the user's repository. Provide the text content and your DID as the repo.",
+      "method": "POST",
+      "path": "/xrpc/com.atproto.repo.createRecord",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string",
+            "description": "The DID of the authenticated user (the repository to write to). Example: 'did:plc:abc123'."
+          },
+          "collection": {
+            "type": "string",
+            "description": "The NSID of the record collection. Must be 'app.bsky.feed.post' for creating posts.",
+            "default": "app.bsky.feed.post"
+          },
+          "record": {
+            "type": "object",
+            "description": "The post record object containing the post data.",
+            "properties": {
+              "$type": {
+                "type": "string",
+                "description": "Record type. Must be 'app.bsky.feed.post'.",
+                "default": "app.bsky.feed.post"
+              },
+              "text": {
+                "type": "string",
+                "description": "The text content of the post. Maximum 300 characters."
+              },
+              "createdAt": {
+                "type": "string",
+                "description": "Timestamp in ISO 8601 format. Example: '2025-01-15T12:00:00Z'."
+              },
+              "langs": {
+                "type": "array",
+                "description": "Array of BCP-47 language tags for the post content (e.g. ['en']).",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "$type",
+              "text",
+              "createdAt"
+            ]
+          }
+        },
+        "required": [
+          "repo",
+          "collection",
+          "record"
+        ]
+      }
+    },
+    {
+      "name": "get_feed",
+      "description": "Get a user's feed of posts and reposts (their authored content). Returns a chronological list of post views from the specified actor.",
+      "method": "GET",
+      "path": "/xrpc/app.bsky.feed.getAuthorFeed",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "actor": {
+            "type": "string",
+            "description": "The handle (e.g. 'alice.bsky.social') or DID of the user whose feed to retrieve."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of posts to return. Range 1-100. Defaults to 50."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response to fetch the next page."
+          },
+          "filter": {
+            "type": "string",
+            "enum": [
+              "posts_with_replies",
+              "posts_no_replies",
+              "posts_with_media",
+              "posts_and_author_threads"
+            ],
+            "description": "Filter the feed by post type. Defaults to 'posts_with_replies'."
+          }
+        },
+        "required": [
+          "actor"
+        ]
+      }
+    },
+    {
+      "name": "get_followers",
+      "description": "Get the list of accounts that follow a specified Bluesky user. Returns follower profiles with display names, handles, and bios. Supports pagination.",
+      "method": "GET",
+      "path": "/xrpc/app.bsky.graph.getFollowers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "actor": {
+            "type": "string",
+            "description": "The handle (e.g. 'alice.bsky.social') or DID of the user whose followers to list."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of followers to return. Range 1-100. Defaults to 50."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response to fetch the next page."
+          }
+        },
+        "required": [
+          "actor"
+        ]
+      }
+    }
+  ]
+}

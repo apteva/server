@@ -1,0 +1,1294 @@
+{
+  "slug": "shopify",
+  "name": "Shopify",
+  "description": "MCP server for Shopify e-commerce platform - products, orders, customers, inventory, fulfillment, metafields, discounts, and webhooks",
+  "logo": "https://www.google.com/s2/favicons?domain=shopify.com&sz=128",
+  "categories": [
+    "e-commerce",
+    "retail",
+    "products",
+    "orders",
+    "inventory",
+    "fulfillment",
+    "discounts"
+  ],
+  "base_url": "https://{shop}.myshopify.com/admin/api/2024-01",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "X-Shopify-Access-Token": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "scope",
+        "label": "scope"
+      },
+      {
+        "name": "associated_user",
+        "label": "associated_user"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://{shop}.myshopify.com/admin/oauth/authorize",
+      "token_url": "https://{shop}.myshopify.com/admin/oauth/access_token",
+      "scopes": [
+        "read_products",
+        "write_products",
+        "read_product_listings",
+        "read_customers",
+        "write_customers",
+        "read_orders",
+        "write_orders",
+        "read_all_orders",
+        "read_draft_orders",
+        "write_draft_orders",
+        "read_inventory",
+        "write_inventory",
+        "read_locations",
+        "read_script_tags",
+        "write_script_tags",
+        "read_fulfillments",
+        "write_fulfillments",
+        "read_assigned_fulfillment_orders",
+        "write_assigned_fulfillment_orders",
+        "read_merchant_managed_fulfillment_orders",
+        "write_merchant_managed_fulfillment_orders",
+        "read_shipping",
+        "write_shipping",
+        "read_analytics",
+        "read_checkouts",
+        "write_checkouts",
+        "read_reports",
+        "write_reports",
+        "read_price_rules",
+        "write_price_rules",
+        "read_discounts",
+        "write_discounts",
+        "read_marketing_events",
+        "write_marketing_events",
+        "read_resource_feedbacks",
+        "write_resource_feedbacks",
+        "read_shopify_payments_payouts",
+        "read_shopify_payments_disputes",
+        "read_translations",
+        "write_translations",
+        "read_locales",
+        "write_locales"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "get_shop_info",
+      "description": "Get information about the Shopify store",
+      "method": "GET",
+      "path": "/get-shop-info",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_products",
+      "description": "List products in the store",
+      "method": "GET",
+      "path": "/list-products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "Number of products to return"
+          },
+          "since_id": {
+            "type": "string",
+            "description": "Restrict results to after the specified ID"
+          },
+          "collection_id": {
+            "type": "string",
+            "description": "Filter by collection"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_product",
+      "description": "Get a single product by ID",
+      "method": "GET",
+      "path": "/get-product",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "description": "Product ID"
+          }
+        },
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "create_product",
+      "description": "Create a new product",
+      "method": "POST",
+      "path": "/create-product",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Product title"
+          },
+          "body_html": {
+            "type": "string",
+            "description": "Product description HTML"
+          },
+          "vendor": {
+            "type": "string",
+            "description": "Product vendor"
+          },
+          "product_type": {
+            "type": "string",
+            "description": "Product type"
+          },
+          "tags": {
+            "type": "string",
+            "description": "Comma-separated tags"
+          },
+          "variants": {
+            "type": "array",
+            "description": "Product variants"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "update_product",
+      "description": "Update an existing product",
+      "method": "PUT",
+      "path": "/update-product",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "description": "Product ID"
+          },
+          "title": {
+            "type": "string",
+            "description": "Product title"
+          },
+          "body_html": {
+            "type": "string",
+            "description": "Product description HTML"
+          },
+          "vendor": {
+            "type": "string",
+            "description": "Product vendor"
+          },
+          "tags": {
+            "type": "string",
+            "description": "Comma-separated tags"
+          }
+        },
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_product",
+      "description": "Delete a product",
+      "method": "DELETE",
+      "path": "/delete-product",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "description": "Product ID"
+          }
+        },
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "get_product_variants",
+      "description": "Get variants for a product",
+      "method": "GET",
+      "path": "/get-product-variants",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "description": "Product ID"
+          }
+        },
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "update_product_variant",
+      "description": "Update a product variant",
+      "method": "PUT",
+      "path": "/update-product-variant",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variant_id": {
+            "type": "string",
+            "description": "Variant ID"
+          },
+          "price": {
+            "type": "string",
+            "description": "Variant price"
+          },
+          "sku": {
+            "type": "string",
+            "description": "SKU"
+          },
+          "inventory_quantity": {
+            "type": "number",
+            "description": "Inventory quantity"
+          }
+        },
+        "required": [
+          "variant_id"
+        ]
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "List orders in the store",
+      "method": "GET",
+      "path": "/list-orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "Number of orders to return"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed",
+              "cancelled",
+              "any"
+            ],
+            "description": "Order status filter"
+          },
+          "financial_status": {
+            "type": "string",
+            "description": "Financial status filter"
+          },
+          "fulfillment_status": {
+            "type": "string",
+            "description": "Fulfillment status filter"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get a single order by ID",
+      "method": "GET",
+      "path": "/get-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order ID"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "cancel_order",
+      "description": "Cancel an order",
+      "method": "GET",
+      "path": "/cancel-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order ID"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Cancellation reason"
+          },
+          "restock": {
+            "type": "boolean",
+            "description": "Whether to restock items"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "fulfill_order",
+      "description": "Create fulfillment for an order",
+      "method": "GET",
+      "path": "/fulfill-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order ID"
+          },
+          "tracking_number": {
+            "type": "string",
+            "description": "Tracking number"
+          },
+          "tracking_company": {
+            "type": "string",
+            "description": "Shipping carrier"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "process_order",
+      "description": "Process an order",
+      "method": "GET",
+      "path": "/process-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order ID to process"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "create_fulfillment",
+      "description": "Create a fulfillment for an order with tracking information",
+      "method": "POST",
+      "path": "/create-fulfillment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "Order ID or GID"
+          },
+          "lineItems": {
+            "type": "array",
+            "description": "Line items to fulfill"
+          },
+          "trackingNumber": {
+            "type": "string",
+            "description": "Tracking number"
+          },
+          "trackingCompany": {
+            "type": "string",
+            "description": "Shipping carrier"
+          },
+          "trackingUrl": {
+            "type": "string",
+            "description": "Tracking URL"
+          },
+          "notifyCustomer": {
+            "type": "boolean",
+            "description": "Whether to notify the customer"
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      }
+    },
+    {
+      "name": "update_fulfillment",
+      "description": "Update fulfillment tracking information",
+      "method": "PUT",
+      "path": "/update-fulfillment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fulfillmentId": {
+            "type": "string",
+            "description": "Fulfillment ID or GID"
+          },
+          "trackingNumber": {
+            "type": "string",
+            "description": "Tracking number"
+          },
+          "trackingCompany": {
+            "type": "string",
+            "description": "Shipping carrier"
+          },
+          "trackingUrl": {
+            "type": "string",
+            "description": "Tracking URL"
+          },
+          "notifyCustomer": {
+            "type": "boolean",
+            "description": "Whether to notify the customer"
+          }
+        },
+        "required": [
+          "fulfillmentId"
+        ]
+      }
+    },
+    {
+      "name": "cancel_fulfillment",
+      "description": "Cancel a fulfillment in Shopify",
+      "method": "GET",
+      "path": "/cancel-fulfillment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fulfillmentId": {
+            "type": "string",
+            "description": "Fulfillment ID or GID"
+          }
+        },
+        "required": [
+          "fulfillmentId"
+        ]
+      }
+    },
+    {
+      "name": "create_draft_order",
+      "description": "Create a draft order in Shopify",
+      "method": "POST",
+      "path": "/create-draft-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "description": "Customer ID or GID"
+          },
+          "email": {
+            "type": "string",
+            "description": "Customer email"
+          },
+          "lineItems": {
+            "type": "array",
+            "description": "Array of line items with variantId and quantity"
+          },
+          "shippingAddress": {
+            "type": "object",
+            "description": "Shipping address object"
+          },
+          "billingAddress": {
+            "type": "object",
+            "description": "Billing address object"
+          },
+          "note": {
+            "type": "string",
+            "description": "Order note"
+          },
+          "tags": {
+            "type": "array",
+            "description": "Order tags"
+          }
+        },
+        "required": [
+          "lineItems"
+        ]
+      }
+    },
+    {
+      "name": "complete_draft_order",
+      "description": "Complete a draft order and convert it to an order",
+      "method": "GET",
+      "path": "/complete-draft-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "draftOrderId": {
+            "type": "string",
+            "description": "Draft order ID or GID"
+          },
+          "paymentPending": {
+            "type": "boolean",
+            "description": "Whether payment is pending"
+          }
+        },
+        "required": [
+          "draftOrderId"
+        ]
+      }
+    },
+    {
+      "name": "list_customers",
+      "description": "List customers",
+      "method": "GET",
+      "path": "/list-customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "Number of customers to return"
+          },
+          "since_id": {
+            "type": "string",
+            "description": "Restrict results to after the specified ID"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_customer",
+      "description": "Get a single customer by ID",
+      "method": "GET",
+      "path": "/get-customer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Customer ID"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "create_customer",
+      "description": "Create a new customer",
+      "method": "POST",
+      "path": "/create-customer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Customer email"
+          },
+          "first_name": {
+            "type": "string",
+            "description": "First name"
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Last name"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Phone number"
+          },
+          "tags": {
+            "type": "string",
+            "description": "Comma-separated tags"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "update_customer",
+      "description": "Update a customer",
+      "method": "PUT",
+      "path": "/update-customer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Customer ID"
+          },
+          "email": {
+            "type": "string",
+            "description": "Customer email"
+          },
+          "first_name": {
+            "type": "string",
+            "description": "First name"
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Last name"
+          },
+          "tags": {
+            "type": "string",
+            "description": "Comma-separated tags"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "search_customers",
+      "description": "Search for customers",
+      "method": "GET",
+      "path": "/search-customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "get_inventory_levels",
+      "description": "Get inventory levels",
+      "method": "GET",
+      "path": "/get-inventory-levels",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inventory_item_ids": {
+            "type": "string",
+            "description": "Comma-separated inventory item IDs"
+          },
+          "location_ids": {
+            "type": "string",
+            "description": "Comma-separated location IDs"
+          }
+        }
+      }
+    },
+    {
+      "name": "adjust_inventory",
+      "description": "Adjust inventory quantity",
+      "method": "GET",
+      "path": "/adjust-inventory",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inventory_item_id": {
+            "type": "string",
+            "description": "Inventory item ID"
+          },
+          "location_id": {
+            "type": "string",
+            "description": "Location ID"
+          },
+          "adjustment": {
+            "type": "number",
+            "description": "Quantity to adjust (positive or negative)"
+          }
+        },
+        "required": [
+          "inventory_item_id",
+          "location_id",
+          "adjustment"
+        ]
+      }
+    },
+    {
+      "name": "update_inventory",
+      "description": "Update inventory levels",
+      "method": "PUT",
+      "path": "/update-inventory",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inventoryItemId": {
+            "type": "string",
+            "description": "Inventory item ID or GID"
+          },
+          "locationId": {
+            "type": "string",
+            "description": "Location ID or GID"
+          },
+          "available": {
+            "type": "number",
+            "description": "New available quantity"
+          }
+        },
+        "required": [
+          "inventoryItemId",
+          "locationId",
+          "available"
+        ]
+      }
+    },
+    {
+      "name": "list_locations",
+      "description": "List store locations from Shopify",
+      "method": "GET",
+      "path": "/list-locations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "first": {
+            "type": "number",
+            "description": "Number of locations to return"
+          },
+          "after": {
+            "type": "string",
+            "description": "Cursor for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_collections",
+      "description": "List product collections",
+      "method": "GET",
+      "path": "/list-collections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "Number of collections to return"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_collection",
+      "description": "Create a product collection",
+      "method": "POST",
+      "path": "/create-collection",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Collection title"
+          },
+          "body_html": {
+            "type": "string",
+            "description": "Collection description"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "add_product_to_collection",
+      "description": "Add a product to a collection in Shopify",
+      "method": "GET",
+      "path": "/add-product-to-collection",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collectionId": {
+            "type": "string",
+            "description": "Collection ID or GID"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Product ID or GID"
+          }
+        },
+        "required": [
+          "collectionId",
+          "productId"
+        ]
+      }
+    },
+    {
+      "name": "remove_product_from_collection",
+      "description": "Remove a product from a collection in Shopify",
+      "method": "DELETE",
+      "path": "/remove-product-from-collection",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collectionId": {
+            "type": "string",
+            "description": "Collection ID or GID"
+          },
+          "productId": {
+            "type": "string",
+            "description": "Product ID or GID"
+          }
+        },
+        "required": [
+          "collectionId",
+          "productId"
+        ]
+      }
+    },
+    {
+      "name": "get_metafields",
+      "description": "Get metafields for a resource in Shopify",
+      "method": "GET",
+      "path": "/get-metafields",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ownerId": {
+            "type": "string",
+            "description": "Owner resource GID (product, customer, order, etc.)"
+          },
+          "namespace": {
+            "type": "string",
+            "description": "Metafield namespace filter"
+          },
+          "first": {
+            "type": "number",
+            "description": "Number of metafields to return"
+          },
+          "after": {
+            "type": "string",
+            "description": "Cursor for pagination"
+          }
+        },
+        "required": [
+          "ownerId"
+        ]
+      }
+    },
+    {
+      "name": "create_metafield",
+      "description": "Add a metafield to a resource in Shopify",
+      "method": "POST",
+      "path": "/create-metafield",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ownerId": {
+            "type": "string",
+            "description": "Owner resource GID"
+          },
+          "namespace": {
+            "type": "string",
+            "description": "Metafield namespace"
+          },
+          "key": {
+            "type": "string",
+            "description": "Metafield key"
+          },
+          "value": {
+            "type": "string",
+            "description": "Metafield value"
+          },
+          "type": {
+            "type": "string",
+            "description": "Metafield type (e.g., single_line_text_field, number_integer)"
+          }
+        },
+        "required": [
+          "ownerId",
+          "namespace",
+          "key",
+          "value",
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "update_metafield",
+      "description": "Update a metafield in Shopify",
+      "method": "PUT",
+      "path": "/update-metafield",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "metafieldId": {
+            "type": "string",
+            "description": "Metafield ID or GID"
+          },
+          "value": {
+            "type": "string",
+            "description": "New metafield value"
+          }
+        },
+        "required": [
+          "metafieldId",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "delete_metafield",
+      "description": "Delete a metafield from Shopify",
+      "method": "DELETE",
+      "path": "/delete-metafield",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "metafieldId": {
+            "type": "string",
+            "description": "Metafield ID or GID"
+          }
+        },
+        "required": [
+          "metafieldId"
+        ]
+      }
+    },
+    {
+      "name": "create_price_rule",
+      "description": "Create a discount/price rule in Shopify",
+      "method": "POST",
+      "path": "/create-price-rule",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Price rule title"
+          },
+          "valueType": {
+            "type": "string",
+            "enum": [
+              "PERCENTAGE",
+              "FIXED_AMOUNT"
+            ],
+            "description": "Type of discount value"
+          },
+          "value": {
+            "type": "number",
+            "description": "Discount value (percentage or fixed amount)"
+          },
+          "targetType": {
+            "type": "string",
+            "enum": [
+              "LINE_ITEM",
+              "SHIPPING_LINE"
+            ],
+            "description": "What the discount applies to"
+          },
+          "targetSelection": {
+            "type": "string",
+            "enum": [
+              "ALL",
+              "ENTITLED"
+            ],
+            "description": "Which items the discount applies to"
+          },
+          "allocationMethod": {
+            "type": "string",
+            "enum": [
+              "ACROSS",
+              "EACH"
+            ],
+            "description": "How the discount is allocated"
+          },
+          "customerSelection": {
+            "type": "string",
+            "enum": [
+              "ALL",
+              "PREREQUISITE"
+            ],
+            "description": "Which customers can use the discount"
+          },
+          "startsAt": {
+            "type": "string",
+            "description": "Start date (ISO 8601)"
+          },
+          "endsAt": {
+            "type": "string",
+            "description": "End date (ISO 8601)"
+          },
+          "usageLimit": {
+            "type": "number",
+            "description": "Maximum usage count"
+          },
+          "oncePerCustomer": {
+            "type": "boolean",
+            "description": "Whether discount can only be used once per customer"
+          }
+        },
+        "required": [
+          "title",
+          "valueType",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "list_price_rules",
+      "description": "List active price rules in Shopify",
+      "method": "GET",
+      "path": "/list-price-rules",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "first": {
+            "type": "number",
+            "description": "Number of price rules to return"
+          },
+          "after": {
+            "type": "string",
+            "description": "Cursor for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "apply_discount",
+      "description": "Validate and get discount code details",
+      "method": "GET",
+      "path": "/apply-discount",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Discount code to validate"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      }
+    },
+    {
+      "name": "create_discount_code",
+      "description": "Create a discount code",
+      "method": "POST",
+      "path": "/create-discount-code",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "price_rule_id": {
+            "type": "string",
+            "description": "Price rule ID"
+          },
+          "code": {
+            "type": "string",
+            "description": "Discount code"
+          }
+        },
+        "required": [
+          "price_rule_id",
+          "code"
+        ]
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a webhook",
+      "method": "POST",
+      "path": "/create-webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string",
+            "description": "Webhook topic (e.g., orders/create)"
+          },
+          "address": {
+            "type": "string",
+            "description": "Webhook URL"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "xml"
+            ],
+            "description": "Response format"
+          }
+        },
+        "required": [
+          "topic",
+          "address"
+        ]
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List registered webhooks in Shopify",
+      "method": "GET",
+      "path": "/list-webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "first": {
+            "type": "number",
+            "description": "Number of webhooks to return"
+          },
+          "after": {
+            "type": "string",
+            "description": "Cursor for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete a webhook from Shopify",
+      "method": "DELETE",
+      "path": "/delete-webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhookId": {
+            "type": "string",
+            "description": "Webhook ID or GID"
+          }
+        },
+        "required": [
+          "webhookId"
+        ]
+      }
+    },
+    {
+      "name": "get_abandoned_checkouts",
+      "description": "List abandoned carts from Shopify",
+      "method": "GET",
+      "path": "/get-abandoned-checkouts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "first": {
+            "type": "number",
+            "description": "Number of abandoned checkouts to return"
+          },
+          "after": {
+            "type": "string",
+            "description": "Cursor for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_sales_report",
+      "description": "Get sales report data",
+      "method": "GET",
+      "path": "/get-sales-report",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "since": {
+            "type": "string",
+            "description": "Start date (ISO 8601)"
+          },
+          "until": {
+            "type": "string",
+            "description": "End date (ISO 8601)"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_top_products",
+      "description": "Get top selling products",
+      "method": "GET",
+      "path": "/get-top-products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "Number of products to return"
+          }
+        }
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-shopify-hmac-sha256",
+    "events": [
+      {
+        "name": "orders/create",
+        "description": "New order placed"
+      },
+      {
+        "name": "orders/updated",
+        "description": "Order details changed"
+      },
+      {
+        "name": "orders/paid",
+        "description": "Order payment received"
+      },
+      {
+        "name": "orders/fulfilled",
+        "description": "Order shipped/fulfilled"
+      },
+      {
+        "name": "orders/cancelled",
+        "description": "Order cancelled"
+      },
+      {
+        "name": "products/create",
+        "description": "New product created"
+      },
+      {
+        "name": "products/update",
+        "description": "Product details changed"
+      },
+      {
+        "name": "products/delete",
+        "description": "Product removed"
+      },
+      {
+        "name": "customers/create",
+        "description": "New customer registered"
+      },
+      {
+        "name": "customers/update",
+        "description": "Customer info changed"
+      },
+      {
+        "name": "carts/create",
+        "description": "New cart created"
+      },
+      {
+        "name": "carts/update",
+        "description": "Cart updated"
+      },
+      {
+        "name": "checkouts/create",
+        "description": "Checkout initiated"
+      },
+      {
+        "name": "refunds/create",
+        "description": "Refund issued"
+      },
+      {
+        "name": "inventory_levels/update",
+        "description": "Inventory changed"
+      },
+      {
+        "name": "app/uninstalled",
+        "description": "App uninstalled from store"
+      }
+    ]
+  }
+}

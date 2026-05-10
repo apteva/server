@@ -1,0 +1,123 @@
+{
+  "slug": "pinterest",
+  "name": "Pinterest",
+  "description": "MCP server for Pinterest - boards, pins, user account, analytics",
+  "logo": "https://www.google.com/s2/favicons?domain=pinterest.com&sz=128",
+  "categories": ["social", "content", "marketing", "visual"],
+  "base_url": "https://api.pinterest.com/v5",
+  "auth": {
+    "types": ["oauth2", "bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "OAuth Access Token" },
+      { "name": "appId", "label": "App ID" },
+      { "name": "appSecret", "label": "App Secret" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_boards",
+      "description": "List boards owned by the authenticated user",
+      "method": "GET",
+      "path": "/boards",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bookmark": { "type": "string" },
+          "page_size": { "type": "number" },
+          "privacy": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "create_board",
+      "description": "Create a board",
+      "method": "POST",
+      "path": "/boards",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "privacy": { "type": "string", "enum": ["PUBLIC", "SECRET"] }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "get_board",
+      "description": "Get a board",
+      "method": "GET",
+      "path": "/boards/{board_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "board_id": { "type": "string" } },
+        "required": ["board_id"]
+      }
+    },
+    {
+      "name": "list_pins",
+      "description": "List pins",
+      "method": "GET",
+      "path": "/pins",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bookmark": { "type": "string" },
+          "page_size": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "create_pin",
+      "description": "Create a pin",
+      "method": "POST",
+      "path": "/pins",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "board_id": { "type": "string" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "link": { "type": "string" },
+          "media_source": { "type": "object" },
+          "alt_text": { "type": "string" }
+        },
+        "required": ["board_id", "media_source"]
+      }
+    },
+    {
+      "name": "delete_pin",
+      "description": "Delete a pin",
+      "method": "DELETE",
+      "path": "/pins/{pin_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "pin_id": { "type": "string" } },
+        "required": ["pin_id"]
+      }
+    },
+    {
+      "name": "get_user_account",
+      "description": "Get the authenticated user's account info",
+      "method": "GET",
+      "path": "/user_account",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_user_analytics",
+      "description": "Get user account analytics",
+      "method": "GET",
+      "path": "/user_account/analytics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_date": { "type": "string" },
+          "end_date": { "type": "string" },
+          "metric_types": { "type": "array" }
+        },
+        "required": ["start_date", "end_date"]
+      }
+    }
+  ]
+}

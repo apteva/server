@@ -1,0 +1,271 @@
+{
+  "slug": "firebase",
+  "name": "Firebase",
+  "description": "MCP server for Firebase - Auth, Firestore, Functions, Realtime Database",
+  "logo": "https://www.google.com/s2/favicons?domain=firebase.google.com&sz=128",
+  "categories": [
+    "backend",
+    "database",
+    "auth",
+    "serverless"
+  ],
+  "base_url": "https://firestore.googleapis.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_user",
+      "description": "Create a Firebase Auth user",
+      "method": "POST",
+      "path": "/create-user",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "phone_number": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      }
+    },
+    {
+      "name": "update_user",
+      "description": "Update a user",
+      "method": "PUT",
+      "path": "/update-user",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "disabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "uid"
+        ]
+      }
+    },
+    {
+      "name": "delete_user",
+      "description": "Delete a user",
+      "method": "DELETE",
+      "path": "/delete-user",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "uid"
+        ]
+      }
+    },
+    {
+      "name": "verify_token",
+      "description": "Verify an ID token",
+      "method": "GET",
+      "path": "/verify-token",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id_token"
+        ]
+      }
+    },
+    {
+      "name": "set_custom_claims",
+      "description": "Set custom claims on a user",
+      "method": "GET",
+      "path": "/set-custom-claims",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string"
+          },
+          "claims": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "uid",
+          "claims"
+        ]
+      }
+    },
+    {
+      "name": "firestore_create_document",
+      "description": "Create a Firestore document",
+      "method": "GET",
+      "path": "/firestore-create-document",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collection": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "collection",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "firestore_get_document",
+      "description": "Get a Firestore document",
+      "method": "GET",
+      "path": "/firestore-get-document",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collection": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "collection",
+          "document_id"
+        ]
+      }
+    },
+    {
+      "name": "firestore_update_document",
+      "description": "Update a Firestore document",
+      "method": "GET",
+      "path": "/firestore-update-document",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collection": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "collection",
+          "document_id",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "firestore_delete_document",
+      "description": "Delete a Firestore document",
+      "method": "GET",
+      "path": "/firestore-delete-document",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collection": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "collection",
+          "document_id"
+        ]
+      }
+    },
+    {
+      "name": "firestore_query_collection",
+      "description": "Query a Firestore collection",
+      "method": "GET",
+      "path": "/firestore-query-collection",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collection": {
+            "type": "string"
+          },
+          "where": {
+            "type": "array"
+          },
+          "order_by": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "collection"
+        ]
+      }
+    },
+    {
+      "name": "firestore_batch_write",
+      "description": "Perform batch write operations",
+      "method": "GET",
+      "path": "/firestore-batch-write",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operations": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "operations"
+        ]
+      }
+    }
+  ]
+}

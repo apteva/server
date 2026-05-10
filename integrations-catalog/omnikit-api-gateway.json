@@ -1,0 +1,733 @@
+{
+  "slug": "omnikit-api-gateway",
+  "name": "OmniKit API Gateway",
+  "description": "Manage APIs, routes, and API keys on the OmniKit platform - create and configure API definitions, define routes with function mappings, sync to gateway, and manage API key authentication",
+  "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+  "categories": [
+    "api-gateway",
+    "apis",
+    "routes",
+    "api-keys",
+    "authentication",
+    "omnikit"
+  ],
+  "base_url": "https://api.omnikit.co",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your OmniKit API key (starts with 'okt_'). The project is determined automatically from the key."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_api",
+      "description": "Create a new API definition with a unique prefix (e.g., 'myapi' for /myapi/* routes)",
+      "method": "POST",
+      "path": "/apis",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Unique API name"
+          },
+          "prefix": {
+            "type": "string",
+            "description": "URL prefix for the API (e.g., 'myapi' for /myapi/*)"
+          },
+          "description": {
+            "type": "string",
+            "description": "API description"
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Human-readable display name"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags for categorization"
+          },
+          "is_public": {
+            "type": "boolean",
+            "description": "Whether the API is publicly accessible"
+          }
+        },
+        "required": [
+          "name",
+          "prefix"
+        ]
+      }
+    },
+    {
+      "name": "list_apis",
+      "description": "List all API definitions with optional filtering by project, visibility, and tags",
+      "method": "GET",
+      "path": "/apis",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "is_public": {
+            "type": "boolean",
+            "description": "Filter by public/private status"
+          },
+          "tag": {
+            "type": "string",
+            "description": "Filter by tag"
+          },
+          "include_routes": {
+            "type": "boolean",
+            "description": "Include routes in response"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Maximum results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_api",
+      "description": "Get a single API definition by ID, optionally including its routes",
+      "method": "GET",
+      "path": "/apis/{api_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_id": {
+            "type": "string",
+            "description": "API ID (UUID)"
+          },
+          "include_routes": {
+            "type": "boolean",
+            "description": "Include routes in response"
+          }
+        },
+        "required": [
+          "api_id"
+        ]
+      }
+    },
+    {
+      "name": "get_api_by_prefix",
+      "description": "Get a single API definition by its URL prefix",
+      "method": "GET",
+      "path": "/apis/prefix/{prefix}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prefix": {
+            "type": "string",
+            "description": "API prefix (e.g., 'omnikit', 'tasks')"
+          },
+          "include_routes": {
+            "type": "boolean",
+            "description": "Include routes in response"
+          }
+        },
+        "required": [
+          "prefix"
+        ]
+      }
+    },
+    {
+      "name": "update_api",
+      "description": "Update an existing API definition's name, prefix, description, tags, or visibility",
+      "method": "PUT",
+      "path": "/apis/{api_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_id": {
+            "type": "string",
+            "description": "API ID (UUID)"
+          },
+          "name": {
+            "type": "string",
+            "description": "API name"
+          },
+          "prefix": {
+            "type": "string",
+            "description": "URL prefix"
+          },
+          "description": {
+            "type": "string",
+            "description": "API description"
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Human-readable display name"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags for categorization"
+          },
+          "is_public": {
+            "type": "boolean",
+            "description": "Public visibility"
+          }
+        },
+        "required": [
+          "api_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_api",
+      "description": "Delete an API and all its routes permanently",
+      "method": "DELETE",
+      "path": "/apis/{api_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_id": {
+            "type": "string",
+            "description": "API ID (UUID)"
+          }
+        },
+        "required": [
+          "api_id"
+        ]
+      }
+    },
+    {
+      "name": "generate_openapi",
+      "description": "Generate OpenAPI specification for a specific API by ID or prefix",
+      "method": "GET",
+      "path": "/apis/openapi/spec",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_id": {
+            "type": "string",
+            "description": "API UUID"
+          },
+          "api_prefix": {
+            "type": "string",
+            "description": "API prefix (alternative to api_id)"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "yaml"
+            ],
+            "default": "json",
+            "description": "Output format"
+          }
+        }
+      }
+    },
+    {
+      "name": "generate_openapi_combined",
+      "description": "Generate a combined OpenAPI specification for all APIs",
+      "method": "GET",
+      "path": "/apis/openapi",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "yaml"
+            ],
+            "default": "json",
+            "description": "Output format"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_route",
+      "description": "Create a new API route definition with path, method, and function mapping",
+      "method": "POST",
+      "path": "/routes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_id": {
+            "type": "string",
+            "description": "API ID (UUID) - required if api_prefix not provided"
+          },
+          "api_prefix": {
+            "type": "string",
+            "description": "API prefix - alternative to api_id"
+          },
+          "path": {
+            "type": "string",
+            "description": "Route path (e.g., /users/:id)"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST",
+              "PUT",
+              "DELETE",
+              "PATCH"
+            ],
+            "description": "HTTP method"
+          },
+          "function_name": {
+            "type": "string",
+            "description": "Function to invoke for this route"
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Human-readable name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Route description"
+          },
+          "category": {
+            "type": "string",
+            "description": "Category for grouping"
+          },
+          "arguments": {
+            "type": "object",
+            "description": "Input parameter schema"
+          },
+          "response": {
+            "type": "object",
+            "description": "Response schema"
+          }
+        },
+        "required": [
+          "path",
+          "method",
+          "function_name"
+        ]
+      }
+    },
+    {
+      "name": "list_routes",
+      "description": "List API routes with filtering by API, category, method, function, deployment status, and pagination",
+      "method": "GET",
+      "path": "/routes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_id": {
+            "type": "string",
+            "description": "Filter by API ID"
+          },
+          "api_prefix": {
+            "type": "string",
+            "description": "Filter by API prefix"
+          },
+          "category": {
+            "type": "string",
+            "description": "Filter by category"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST",
+              "PUT",
+              "DELETE",
+              "PATCH"
+            ],
+            "description": "Filter by HTTP method"
+          },
+          "function_name": {
+            "type": "string",
+            "description": "Filter by function name (partial match)"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Filter by active status"
+          },
+          "gateway_deployed": {
+            "type": "boolean",
+            "description": "Filter by deployment status"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_route",
+      "description": "Get a single API route by ID",
+      "method": "GET",
+      "path": "/routes/{route_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "route_id": {
+            "type": "string",
+            "description": "Route ID (UUID)"
+          }
+        },
+        "required": [
+          "route_id"
+        ]
+      }
+    },
+    {
+      "name": "update_route",
+      "description": "Update an existing API route's path, method, function, or metadata",
+      "method": "PUT",
+      "path": "/routes/{route_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "route_id": {
+            "type": "string",
+            "description": "Route ID (UUID)"
+          },
+          "path": {
+            "type": "string",
+            "description": "Route path"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST",
+              "PUT",
+              "DELETE",
+              "PATCH"
+            ],
+            "description": "HTTP method"
+          },
+          "function_name": {
+            "type": "string",
+            "description": "Function to invoke"
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Human-readable name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Route description"
+          },
+          "category": {
+            "type": "string",
+            "description": "Category for grouping"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Active status"
+          },
+          "deprecated": {
+            "type": "boolean",
+            "description": "Deprecation status"
+          }
+        },
+        "required": [
+          "route_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_route",
+      "description": "Delete an API route permanently",
+      "method": "DELETE",
+      "path": "/routes/{route_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "route_id": {
+            "type": "string",
+            "description": "Route ID (UUID)"
+          }
+        },
+        "required": [
+          "route_id"
+        ]
+      }
+    },
+    {
+      "name": "sync_routes",
+      "description": "Sync routes from database to the API Gateway - deploy new or updated routes",
+      "method": "POST",
+      "path": "/routes/sync",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_id": {
+            "type": "string",
+            "description": "Sync routes for specific API ID"
+          },
+          "api_prefix": {
+            "type": "string",
+            "description": "Sync routes for specific API prefix"
+          },
+          "route_id": {
+            "type": "string",
+            "description": "Sync single route by ID"
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Re-deploy even if already deployed"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_api_key",
+      "description": "Create a new API key for authenticating requests to APIs",
+      "method": "POST",
+      "path": "/api-keys",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "API key name"
+          },
+          "api_id": {
+            "type": "string",
+            "description": "API ID this key is scoped to"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Permission scopes for this key"
+          },
+          "expires_at": {
+            "type": "string",
+            "description": "Expiration date (ISO 8601)"
+          },
+          "allowed_origins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Allowed origins for CORS"
+          },
+          "allowed_ips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Allowed IP addresses"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_api_keys",
+      "description": "List API keys with optional filtering",
+      "method": "GET",
+      "path": "/api-keys",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_api_key",
+      "description": "Get a single API key by ID",
+      "method": "GET",
+      "path": "/api-keys/{key_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "key_id": {
+            "type": "string",
+            "description": "API key ID"
+          }
+        },
+        "required": [
+          "key_id"
+        ]
+      }
+    },
+    {
+      "name": "update_api_key",
+      "description": "Update an API key's name, scopes, expiration, or allowed origins/IPs",
+      "method": "PUT",
+      "path": "/api-keys/{key_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "key_id": {
+            "type": "string",
+            "description": "API key ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "API key name"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Permission scopes"
+          },
+          "expires_at": {
+            "type": "string",
+            "description": "Expiration date (ISO 8601)"
+          },
+          "allowed_origins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Allowed origins"
+          },
+          "allowed_ips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Allowed IP addresses"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Active status"
+          }
+        },
+        "required": [
+          "key_id"
+        ]
+      }
+    },
+    {
+      "name": "revoke_api_key",
+      "description": "Revoke an API key so it can no longer be used for authentication",
+      "method": "POST",
+      "path": "/api-keys/{key_id}/revoke",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "key_id": {
+            "type": "string",
+            "description": "API key ID"
+          }
+        },
+        "required": [
+          "key_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_api_key",
+      "description": "Permanently delete an API key (hard delete)",
+      "method": "DELETE",
+      "path": "/api-keys/{key_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "key_id": {
+            "type": "string",
+            "description": "API key ID"
+          }
+        },
+        "required": [
+          "key_id"
+        ]
+      }
+    }
+  ],
+  "credential_group": {
+    "id": "omnikit",
+    "name": "OmniKit",
+    "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+    "description": "One key unlocks the whole OmniKit suite. Account keys can manage many projects; project keys are scoped to one.",
+    "discovery": {
+      "list_projects": {
+        "method": "GET",
+        "path": "/projects",
+        "response_path": "data",
+        "id_field": "id",
+        "label_field": "name"
+      },
+      "api_lookup": {
+        "method": "GET",
+        "path": "/apis",
+        "response_path": "data",
+        "match_field": "base_path",
+        "match_value": "omnikit",
+        "id_field": "id"
+      },
+      "provision_project_key": {
+        "method": "POST",
+        "path": "/api-keys",
+        "body": {
+          "name": "Apteva \u00b7 {{label}}",
+          "api_id": "{{api_lookup_id}}",
+          "target_project_id": "{{external_project_id}}",
+          "scopes": [
+            "read",
+            "write"
+          ]
+        },
+        "response_key_path": "data.key",
+        "id_response_path": "data.id",
+        "credential_field": "api_key"
+      }
+    }
+  },
+  "scopes": {
+    "account": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Account API Key",
+          "description": "Starts with okt_acc_ \u2014 operates across every project in the account.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      },
+      "project_binding": {
+        "type": "header",
+        "name": "X-Project-Id",
+        "value": "{{project_id}}"
+      }
+    },
+    "project": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Project API Key",
+          "description": "Starts with okt_ \u2014 already scoped to a single project.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      }
+    }
+  }
+}

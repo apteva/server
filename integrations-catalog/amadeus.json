@@ -1,0 +1,225 @@
+{
+  "slug": "amadeus",
+  "name": "Amadeus",
+  "description": "MCP server for Amadeus travel API - flights, hotels, airports",
+  "logo": "https://www.google.com/s2/favicons?domain=amadeus.com&sz=128",
+  "categories": [
+    "travel",
+    "flights",
+    "hotels",
+    "booking"
+  ],
+  "base_url": "https://api.amadeus.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "flight_search",
+      "description": "Search for flight offers",
+      "method": "GET",
+      "path": "/flight-search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "origin": {
+            "type": "string",
+            "description": "Origin IATA code"
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination IATA code"
+          },
+          "departure_date": {
+            "type": "string"
+          },
+          "return_date": {
+            "type": "string"
+          },
+          "adults": {
+            "type": "number"
+          },
+          "cabin": {
+            "type": "string",
+            "enum": [
+              "ECONOMY",
+              "PREMIUM_ECONOMY",
+              "BUSINESS",
+              "FIRST"
+            ]
+          }
+        },
+        "required": [
+          "origin",
+          "destination",
+          "departure_date",
+          "adults"
+        ]
+      }
+    },
+    {
+      "name": "flight_inspiration",
+      "description": "Get flight destination inspiration",
+      "method": "GET",
+      "path": "/flight-inspiration",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "origin": {
+            "type": "string"
+          },
+          "max_price": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "origin"
+        ]
+      }
+    },
+    {
+      "name": "airport_search",
+      "description": "Search for airports",
+      "method": "GET",
+      "path": "/airport-search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "city_search",
+      "description": "Search for cities",
+      "method": "GET",
+      "path": "/city-search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "hotel_search",
+      "description": "Search for hotels",
+      "method": "GET",
+      "path": "/hotel-search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "city_code": {
+            "type": "string"
+          },
+          "check_in_date": {
+            "type": "string"
+          },
+          "check_out_date": {
+            "type": "string"
+          },
+          "adults": {
+            "type": "number"
+          },
+          "radius": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "city_code"
+        ]
+      }
+    },
+    {
+      "name": "hotel_offers",
+      "description": "Get offers for a hotel",
+      "method": "GET",
+      "path": "/hotel-offers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "hotel_id": {
+            "type": "string"
+          },
+          "check_in_date": {
+            "type": "string"
+          },
+          "check_out_date": {
+            "type": "string"
+          },
+          "adults": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "hotel_id"
+        ]
+      }
+    },
+    {
+      "name": "hotel_booking",
+      "description": "Create a hotel booking",
+      "method": "GET",
+      "path": "/hotel-booking",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offer_id": {
+            "type": "string"
+          },
+          "guests": {
+            "type": "array"
+          },
+          "payments": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "offer_id",
+          "guests"
+        ]
+      }
+    },
+    {
+      "name": "hotel_ratings",
+      "description": "Get hotel sentiment ratings",
+      "method": "GET",
+      "path": "/hotel-ratings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "hotel_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "hotel_ids"
+        ]
+      }
+    }
+  ]
+}

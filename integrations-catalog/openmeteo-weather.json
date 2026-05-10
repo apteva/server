@@ -1,0 +1,75 @@
+{
+  "slug": "openmeteo-weather",
+  "name": "OpenMeteo",
+  "description": "Free weather data service using OpenMeteo API - no authentication required",
+  "logo": "https://www.google.com/s2/favicons?domain=openweathermap.org&sz=128",
+  "categories": [
+    "weather",
+    "forecast",
+    "free",
+    "openmeteo",
+    "no-auth"
+  ],
+  "base_url": "https://api.open-meteo.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_current_weather",
+      "description": "Get current weather data using free OpenMeteo API - no API key required",
+      "method": "GET",
+      "path": "/get-current-weather",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "description": "Latitude coordinate",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "description": "Longitude coordinate",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Weather variables to retrieve",
+            "default": [
+              "temperature_2m",
+              "relative_humidity_2m",
+              "wind_speed_10m",
+              "pressure_msl"
+            ]
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Timezone for the forecast",
+            "default": "auto"
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ]
+      }
+    }
+  ]
+}

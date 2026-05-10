@@ -1,0 +1,159 @@
+{
+  "slug": "webpagetest",
+  "name": "WebPageTest",
+  "description": "Industry-standard performance testing service from Catchpoint. Runs Lighthouse PLUS its own waterfall analysis, filmstrip capture, video comparison, and multi-run averages from real test locations around the world (~40 regions). Async — submit a test with run_test, get a test ID, then poll get_result until status='completed'.",
+  "logo": "https://www.google.com/s2/favicons?domain=webpagetest.org&sz=128",
+  "categories": ["performance", "lighthouse", "audit", "monitoring", "web-vitals"],
+  "base_url": "https://www.webpagetest.org",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {},
+    "query_params": {
+      "k": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "WebPageTest API key (get one at webpagetest.org/getkey.php)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "run_test",
+      "description": "Submit a new test against a URL. Returns a test ID + URLs for the JSON result and the HTML result page. Set runs > 1 for averaged measurements (each run consumes a credit). Supports custom locations, browsers, connection profiles, scripted user journeys, and Lighthouse-only mode. Returns immediately — poll get_result with the returned testId until the data is ready.",
+      "method": "GET",
+      "path": "/runtest.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "The URL to test" },
+          "f": {
+            "type": "string",
+            "enum": ["json", "xml"],
+            "default": "json",
+            "description": "Response format. JSON is what you almost always want."
+          },
+          "runs": {
+            "type": "integer",
+            "default": 1,
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Number of test runs to average (each consumes one test credit)"
+          },
+          "fvonly": {
+            "type": "integer",
+            "enum": [0, 1],
+            "default": 0,
+            "description": "0 = test first AND repeat view, 1 = first view only (faster, half the credits)"
+          },
+          "location": {
+            "type": "string",
+            "default": "Dulles:Chrome",
+            "description": "Test location + browser, e.g. 'Dulles:Chrome', 'London:Chrome', 'ec2-eu-central-1:Chrome'. See /getLocations.php for the full list."
+          },
+          "connectivity": {
+            "type": "string",
+            "enum": ["Cable", "DSL", "3G", "3GFast", "4G", "LTE", "Native"],
+            "default": "Cable",
+            "description": "Connection profile (sets bandwidth + latency + packet loss)"
+          },
+          "lighthouse": {
+            "type": "integer",
+            "enum": [0, 1],
+            "default": 1,
+            "description": "Run a Lighthouse audit alongside the WPT measurements"
+          },
+          "mobile": {
+            "type": "integer",
+            "enum": [0, 1],
+            "default": 0,
+            "description": "Use mobile emulation"
+          },
+          "label": { "type": "string", "description": "Free-text label for this test (shown in the UI)" },
+          "private": { "type": "integer", "enum": [0, 1], "default": 0, "description": "Hide from the public test history" },
+          "video": { "type": "integer", "enum": [0, 1], "default": 0, "description": "Capture filmstrip / video" },
+          "block": { "type": "string", "description": "Comma-separated list of substrings to block from being requested" },
+          "script": { "type": "string", "description": "WPT scripting language for multi-step user journeys (login + measure)" },
+          "pingback": { "type": "string", "description": "URL to call when the test is complete (avoids polling)" }
+        },
+        "required": ["url"]
+      },
+      "query_params": [
+        "url", "f", "runs", "fvonly", "location", "connectivity",
+        "lighthouse", "mobile", "label", "private", "video", "block",
+        "script", "pingback"
+      ]
+    },
+    {
+      "name": "get_result",
+      "description": "Get the result of a previously submitted test. Poll this until `data.statusCode === 200` (test complete). Returns the full WPT result including Lighthouse JSON (under `data.lighthouse`), waterfall data, video frames, and per-run metrics.",
+      "method": "GET",
+      "path": "/jsonResult.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "test": { "type": "string", "description": "Test ID returned by run_test" },
+          "pretty": { "type": "integer", "enum": [0, 1], "default": 1 }
+        },
+        "required": ["test"]
+      },
+      "query_params": ["test", "pretty"]
+    },
+    {
+      "name": "test_status",
+      "description": "Lightweight status check for a running test. Returns just the queue position + status code without the full result body — much smaller than get_result while polling.",
+      "method": "GET",
+      "path": "/testStatus.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "test": { "type": "string" },
+          "f": { "type": "string", "enum": ["json"], "default": "json" }
+        },
+        "required": ["test"]
+      },
+      "query_params": ["test", "f"]
+    },
+    {
+      "name": "cancel_test",
+      "description": "Cancel a queued or running test.",
+      "method": "GET",
+      "path": "/cancelTest.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "test": { "type": "string" }
+        },
+        "required": ["test"]
+      },
+      "query_params": ["test"]
+    },
+    {
+      "name": "list_locations",
+      "description": "List the available test locations (geographic regions + browsers + queue depth). Use this to pick a location that matches your real users' geography.",
+      "method": "GET",
+      "path": "/getLocations.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "f": { "type": "string", "enum": ["json", "xml"], "default": "json" }
+        }
+      },
+      "query_params": ["f"]
+    },
+    {
+      "name": "test_balance",
+      "description": "Get the current API key's remaining test credits.",
+      "method": "GET",
+      "path": "/testBalance.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "f": { "type": "string", "enum": ["json"], "default": "json" }
+        }
+      },
+      "query_params": ["f"]
+    }
+  ]
+}

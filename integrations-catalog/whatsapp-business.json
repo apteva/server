@@ -1,0 +1,131 @@
+{
+  "slug": "whatsapp-business",
+  "name": "WhatsApp Business",
+  "description": "MCP server for WhatsApp Cloud API - send messages, templates, media, manage phone numbers",
+  "logo": "https://www.google.com/s2/favicons?domain=whatsapp.com&sz=128",
+  "categories": ["messaging", "communication", "whatsapp", "meta"],
+  "base_url": "https://graph.facebook.com/v21.0",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "System User Access Token" },
+      { "name": "phoneNumberId", "label": "Phone Number ID" },
+      { "name": "wabaId", "label": "WhatsApp Business Account ID" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "send_text",
+      "description": "Send a text message",
+      "method": "POST",
+      "path": "/{phone_number_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "phone_number_id": { "type": "string" },
+          "messaging_product": { "type": "string", "default": "whatsapp" },
+          "to": { "type": "string" },
+          "type": { "type": "string", "default": "text" },
+          "text": { "type": "object" }
+        },
+        "required": ["phone_number_id", "to", "text"]
+      }
+    },
+    {
+      "name": "send_template",
+      "description": "Send a template message",
+      "method": "POST",
+      "path": "/{phone_number_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "phone_number_id": { "type": "string" },
+          "messaging_product": { "type": "string", "default": "whatsapp" },
+          "to": { "type": "string" },
+          "type": { "type": "string", "default": "template" },
+          "template": { "type": "object" }
+        },
+        "required": ["phone_number_id", "to", "template"]
+      }
+    },
+    {
+      "name": "send_media",
+      "description": "Send a media message (image, video, audio, document)",
+      "method": "POST",
+      "path": "/{phone_number_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "phone_number_id": { "type": "string" },
+          "to": { "type": "string" },
+          "type": { "type": "string", "enum": ["image", "video", "audio", "document", "sticker"] },
+          "image": { "type": "object" },
+          "video": { "type": "object" },
+          "audio": { "type": "object" },
+          "document": { "type": "object" }
+        },
+        "required": ["phone_number_id", "to", "type"]
+      }
+    },
+    {
+      "name": "mark_read",
+      "description": "Mark a message as read",
+      "method": "POST",
+      "path": "/{phone_number_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "phone_number_id": { "type": "string" },
+          "status": { "type": "string", "default": "read" },
+          "message_id": { "type": "string" }
+        },
+        "required": ["phone_number_id", "message_id"]
+      }
+    },
+    {
+      "name": "upload_media",
+      "description": "Upload a media file",
+      "method": "POST",
+      "path": "/{phone_number_id}/media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "phone_number_id": { "type": "string" },
+          "file": { "type": "string" },
+          "type": { "type": "string" },
+          "messaging_product": { "type": "string", "default": "whatsapp" }
+        },
+        "required": ["phone_number_id", "file", "type"]
+      }
+    },
+    {
+      "name": "list_templates",
+      "description": "List message templates",
+      "method": "GET",
+      "path": "/{waba_id}/message_templates",
+      "input_schema": {
+        "type": "object",
+        "properties": { "waba_id": { "type": "string" } },
+        "required": ["waba_id"]
+      }
+    },
+    {
+      "name": "create_template",
+      "description": "Create a message template",
+      "method": "POST",
+      "path": "/{waba_id}/message_templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "waba_id": { "type": "string" },
+          "name": { "type": "string" },
+          "language": { "type": "string" },
+          "category": { "type": "string" },
+          "components": { "type": "array" }
+        },
+        "required": ["waba_id", "name", "language", "category", "components"]
+      }
+    }
+  ]
+}

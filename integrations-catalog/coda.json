@@ -1,0 +1,288 @@
+{
+  "slug": "coda",
+  "name": "Coda",
+  "description": "Coda document and spreadsheet platform API. List docs, manage tables, and perform CRUD operations on rows within Coda documents.",
+  "logo": "https://www.google.com/s2/favicons?domain=coda.io&sz=128",
+  "categories": [
+    "documents",
+    "spreadsheets",
+    "tables",
+    "productivity",
+    "collaboration",
+    "no-code"
+  ],
+  "base_url": "https://coda.io/apis/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "apiToken",
+        "label": "Api Token",
+        "description": "Coda API token (generate at coda.io/account under API settings)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_docs",
+      "description": "List all Coda documents accessible by the authenticated user. Returns docs in reverse chronological order. Supports filtering by name search query and pagination.",
+      "method": "GET",
+      "path": "/list-docs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of docs to return (default 25).",
+            "default": 25
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Pagination token from a previous response to fetch the next page."
+          },
+          "query": {
+            "type": "string",
+            "description": "Search query to filter docs by name."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_doc",
+      "description": "Retrieve details for a specific Coda document by its ID. Returns the document's name, owner, creation date, folder, and other metadata.",
+      "method": "GET",
+      "path": "/get-doc",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "docId": {
+            "type": "string",
+            "description": "The unique identifier of the Coda document."
+          }
+        },
+        "required": [
+          "docId"
+        ]
+      }
+    },
+    {
+      "name": "list_tables",
+      "description": "List all tables in a Coda document. Returns table metadata including IDs, names, column information, and row counts. Works for both base tables and views.",
+      "method": "GET",
+      "path": "/list-tables",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "docId": {
+            "type": "string",
+            "description": "The unique identifier of the Coda document."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of tables to return (default 25).",
+            "default": 25
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Pagination token from a previous response to fetch the next page."
+          }
+        },
+        "required": [
+          "docId"
+        ]
+      }
+    },
+    {
+      "name": "list_rows",
+      "description": "List rows in a table within a Coda document. Supports filtering with a query, sorting, pagination, and configurable value formatting. Returns cell values for each row.",
+      "method": "GET",
+      "path": "/list-rows",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "docId": {
+            "type": "string",
+            "description": "The unique identifier of the Coda document."
+          },
+          "tableIdOrName": {
+            "type": "string",
+            "description": "The ID or name of the table. IDs are preferred as names may change."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of rows to return (default 25).",
+            "default": 25
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Pagination token from a previous response to fetch the next page."
+          },
+          "query": {
+            "type": "string",
+            "description": "Filter query in the format 'column:value' to search for matching rows."
+          },
+          "sortBy": {
+            "type": "string",
+            "enum": [
+              "natural",
+              "createdAt",
+              "updatedAt"
+            ],
+            "description": "Sort order for the rows.",
+            "default": "natural"
+          },
+          "useColumnNames": {
+            "type": "boolean",
+            "description": "Use column names instead of IDs in the response values.",
+            "default": false
+          },
+          "valueFormat": {
+            "type": "string",
+            "enum": [
+              "simple",
+              "simpleWithArrays",
+              "rich"
+            ],
+            "description": "Format for cell values in the response.",
+            "default": "simple"
+          },
+          "visibleOnly": {
+            "type": "boolean",
+            "description": "Only return rows visible in the table view (applies filters/sorts).",
+            "default": false
+          }
+        },
+        "required": [
+          "docId",
+          "tableIdOrName"
+        ]
+      }
+    },
+    {
+      "name": "insert_row",
+      "description": "Insert one or more new rows into a table in a Coda document. Provide an array of row objects with cell values. Optionally specify key columns to upsert (update existing rows if matched). Returns HTTP 202 as inserts are processed asynchronously.",
+      "method": "POST",
+      "path": "/insert-row",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "docId": {
+            "type": "string",
+            "description": "The unique identifier of the Coda document."
+          },
+          "tableIdOrName": {
+            "type": "string",
+            "description": "The ID or name of the table to insert rows into. Must be a base table (not a view)."
+          },
+          "rows": {
+            "type": "array",
+            "description": "Array of row objects to insert.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "cells": {
+                  "type": "array",
+                  "description": "Array of cell objects for the row.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "column": {
+                        "type": "string",
+                        "description": "Column ID or name."
+                      },
+                      "value": {
+                        "description": "The value to set for this cell. Type depends on the column type."
+                      }
+                    },
+                    "required": [
+                      "column",
+                      "value"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "cells"
+              ]
+            }
+          },
+          "keyColumns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional array of column IDs/names to use as upsert keys. If provided, existing rows matching these columns will be updated instead of inserting duplicates."
+          }
+        },
+        "required": [
+          "docId",
+          "tableIdOrName",
+          "rows"
+        ]
+      }
+    },
+    {
+      "name": "update_row",
+      "description": "Update a specific row in a table within a Coda document. Provide the row ID and the cell values to update. Only specified cells are changed; omitted cells remain unchanged. Returns HTTP 202 as updates are processed asynchronously.",
+      "method": "PUT",
+      "path": "/update-row",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "docId": {
+            "type": "string",
+            "description": "The unique identifier of the Coda document."
+          },
+          "tableIdOrName": {
+            "type": "string",
+            "description": "The ID or name of the table containing the row."
+          },
+          "rowIdOrName": {
+            "type": "string",
+            "description": "The ID or name of the row to update. IDs are preferred as names may change."
+          },
+          "row": {
+            "type": "object",
+            "description": "Row object containing the cells to update.",
+            "properties": {
+              "cells": {
+                "type": "array",
+                "description": "Array of cell objects with updated values.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "column": {
+                      "type": "string",
+                      "description": "Column ID or name."
+                    },
+                    "value": {
+                      "description": "The new value for this cell."
+                    }
+                  },
+                  "required": [
+                    "column",
+                    "value"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "cells"
+            ]
+          }
+        },
+        "required": [
+          "docId",
+          "tableIdOrName",
+          "rowIdOrName",
+          "row"
+        ]
+      }
+    }
+  ]
+}

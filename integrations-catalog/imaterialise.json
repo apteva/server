@@ -1,0 +1,349 @@
+{
+  "slug": "imaterialise",
+  "name": "i.materialise",
+  "description": "MCP server for i.materialise - professional 3D printing service with 25+ years experience, 100+ materials",
+  "logo": "https://www.google.com/s2/favicons?domain=i.materialise.com&sz=128",
+  "categories": [
+    "3d-printing",
+    "manufacturing",
+    "professional",
+    "materialise",
+    "prototyping"
+  ],
+  "base_url": "https://i.materialise.com/api",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Your i.materialise API code (request from i.materialise after registration)"
+      },
+      {
+        "name": "tool_id",
+        "label": "Tool_id",
+        "description": "Your i.materialise tool ID (provided with API code)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "upload_model",
+      "description": "Upload a 3D model to i.materialise for analysis and pricing",
+      "method": "POST",
+      "path": "/upload-model",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Base64 encoded 3D model file"
+          },
+          "fileName": {
+            "type": "string",
+            "description": "Name of the file"
+          },
+          "fileURL": {
+            "type": "string",
+            "description": "URL to the 3D model file (alternative to base64)"
+          }
+        }
+      }
+    },
+    {
+      "name": "pricing_parameters",
+      "description": "Get pricing by providing model parameters (dimensions, volume, surface)",
+      "method": "GET",
+      "path": "/pricing-parameters",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "materialId": {
+            "type": "string",
+            "description": "Material ID to price for"
+          },
+          "finishId": {
+            "type": "string",
+            "description": "Finish ID"
+          },
+          "xDimMm": {
+            "type": "number",
+            "description": "X dimension in mm"
+          },
+          "yDimMm": {
+            "type": "number",
+            "description": "Y dimension in mm"
+          },
+          "zDimMm": {
+            "type": "number",
+            "description": "Z dimension in mm"
+          },
+          "volumeMm3": {
+            "type": "number",
+            "description": "Volume in mm³"
+          },
+          "surfaceMm2": {
+            "type": "number",
+            "description": "Surface area in mm²"
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Quantity to price"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code (USD, EUR, GBP)"
+          }
+        },
+        "required": [
+          "materialId"
+        ]
+      }
+    },
+    {
+      "name": "pricing_model",
+      "description": "Get pricing for an uploaded model by its ID",
+      "method": "GET",
+      "path": "/pricing-model",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modelId": {
+            "type": "string",
+            "description": "The uploaded model ID"
+          },
+          "materialId": {
+            "type": "string",
+            "description": "Material ID to price for"
+          },
+          "finishId": {
+            "type": "string",
+            "description": "Finish ID"
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Quantity to price"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code"
+          }
+        },
+        "required": [
+          "modelId",
+          "materialId"
+        ]
+      }
+    },
+    {
+      "name": "materials_list",
+      "description": "Get the catalog of available materials and their properties (public API)",
+      "method": "GET",
+      "path": "/materials-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string",
+            "description": "Currency for prices"
+          }
+        }
+      }
+    },
+    {
+      "name": "cart_item_create",
+      "description": "Create a cart item for ordering",
+      "method": "GET",
+      "path": "/cart-item-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modelId": {
+            "type": "string",
+            "description": "The model ID"
+          },
+          "materialId": {
+            "type": "string",
+            "description": "Material ID"
+          },
+          "finishId": {
+            "type": "string",
+            "description": "Finish ID"
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Quantity (default: 1)"
+          },
+          "scale": {
+            "type": "number",
+            "description": "Scale factor (default: 1)"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code"
+          }
+        },
+        "required": [
+          "modelId",
+          "materialId"
+        ]
+      }
+    },
+    {
+      "name": "cart_create",
+      "description": "Create a cart with cart items",
+      "method": "GET",
+      "path": "/cart-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartItemIds": {
+            "type": "array",
+            "description": "Array of cart item IDs",
+            "items": {
+              "type": "string"
+            }
+          },
+          "shipmentCountryCode": {
+            "type": "string",
+            "description": "ISO country code for shipping"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code"
+          }
+        },
+        "required": [
+          "cartItemIds"
+        ]
+      }
+    },
+    {
+      "name": "cart_checkout",
+      "description": "Checkout a cart and place the order",
+      "method": "GET",
+      "path": "/cart-checkout",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "The cart ID"
+          },
+          "email": {
+            "type": "string",
+            "description": "Customer email"
+          },
+          "firstName": {
+            "type": "string",
+            "description": "First name"
+          },
+          "lastName": {
+            "type": "string",
+            "description": "Last name"
+          },
+          "company": {
+            "type": "string",
+            "description": "Company name"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Phone number"
+          },
+          "address1": {
+            "type": "string",
+            "description": "Address line 1"
+          },
+          "address2": {
+            "type": "string",
+            "description": "Address line 2"
+          },
+          "city": {
+            "type": "string",
+            "description": "City"
+          },
+          "stateCode": {
+            "type": "string",
+            "description": "State code"
+          },
+          "postalCode": {
+            "type": "string",
+            "description": "Postal/ZIP code"
+          },
+          "countryCode": {
+            "type": "string",
+            "description": "ISO country code"
+          },
+          "shippingMethodId": {
+            "type": "string",
+            "description": "Shipping method ID"
+          }
+        },
+        "required": [
+          "cartId"
+        ]
+      }
+    },
+    {
+      "name": "cart_status",
+      "description": "Get the status of a cart",
+      "method": "GET",
+      "path": "/cart-status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "The cart ID"
+          }
+        },
+        "required": [
+          "cartId"
+        ]
+      }
+    },
+    {
+      "name": "order_status",
+      "description": "Get the status of an order",
+      "method": "GET",
+      "path": "/order-status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "The order ID"
+          },
+          "orderNumber": {
+            "type": "string",
+            "description": "The order number (alternative to orderId)"
+          }
+        }
+      }
+    },
+    {
+      "name": "order_cancel",
+      "description": "Cancel an order (if processing hasn't started)",
+      "method": "GET",
+      "path": "/order-cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "The order ID"
+          },
+          "orderNumber": {
+            "type": "string",
+            "description": "The order number (alternative to orderId)"
+          }
+        }
+      }
+    }
+  ]
+}

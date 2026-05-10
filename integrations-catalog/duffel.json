@@ -1,0 +1,231 @@
+{
+  "slug": "duffel",
+  "name": "Duffel",
+  "description": "MCP server for Duffel travel API - flights, booking, ancillaries",
+  "logo": "https://www.google.com/s2/favicons?domain=duffel.com&sz=128",
+  "categories": [
+    "travel",
+    "flights",
+    "booking",
+    "airlines"
+  ],
+  "base_url": "https://api.duffel.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "Your Duffel API Key (test_ or live_)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search_flights",
+      "description": "Search for flight offers",
+      "method": "GET",
+      "path": "/search-flights",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slices": {
+            "type": "array",
+            "description": "Flight slices with origin, destination, departure_date"
+          },
+          "passengers": {
+            "type": "array",
+            "description": "Passenger types"
+          },
+          "cabin_class": {
+            "type": "string",
+            "enum": [
+              "economy",
+              "premium_economy",
+              "business",
+              "first"
+            ]
+          }
+        },
+        "required": [
+          "slices",
+          "passengers"
+        ]
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Book a flight offer",
+      "method": "POST",
+      "path": "/create-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offer_id": {
+            "type": "string"
+          },
+          "passengers": {
+            "type": "array"
+          },
+          "payments": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "offer_id",
+          "passengers",
+          "payments"
+        ]
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get order details",
+      "method": "GET",
+      "path": "/get-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "List all orders",
+      "method": "GET",
+      "path": "/list-orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number"
+          },
+          "after": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "cancel_order",
+      "description": "Cancel an order",
+      "method": "GET",
+      "path": "/cancel-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "get_seat_maps",
+      "description": "Get available seat maps",
+      "method": "GET",
+      "path": "/get-seat-maps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offer_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "offer_id"
+        ]
+      }
+    },
+    {
+      "name": "select_seats",
+      "description": "Select seats for an order",
+      "method": "GET",
+      "path": "/select-seats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offer_id": {
+            "type": "string"
+          },
+          "services": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "offer_id",
+          "services"
+        ]
+      }
+    },
+    {
+      "name": "add_baggage",
+      "description": "Add baggage to an order",
+      "method": "GET",
+      "path": "/add-baggage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offer_id": {
+            "type": "string"
+          },
+          "services": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "offer_id",
+          "services"
+        ]
+      }
+    },
+    {
+      "name": "search_airports",
+      "description": "Search for airports",
+      "method": "GET",
+      "path": "/search-airports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "search_airlines",
+      "description": "Search for airlines",
+      "method": "GET",
+      "path": "/search-airlines",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  ]
+}

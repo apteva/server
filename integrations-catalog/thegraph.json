@@ -1,0 +1,59 @@
+{
+  "slug": "thegraph",
+  "name": "The Graph",
+  "description": "Indexed blockchain data via GraphQL \u2014 query Uniswap pools, Aave markets, Compound positions, and any indexed subgraph.",
+  "logo": "https://www.google.com/s2/favicons?domain=thegraph.com&sz=128",
+  "categories": [
+    "blockchain",
+    "graphql",
+    "indexer",
+    "defi",
+    "uniswap",
+    "aave"
+  ],
+  "base_url": "https://gateway.thegraph.com/api",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "The Graph API key (from https://thegraph.com/studio/apikeys/)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "query_subgraph",
+      "description": "Execute a GraphQL query against any subgraph. Common subgraph IDs: Uniswap V3 (5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV), Aave V3 (Cd2gEDVeqnjBn1hSeqFMitw8Q1iiyV9FYUZkLNRcL87g).",
+      "method": "POST",
+      "path": "/query-subgraph",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subgraphId": {
+            "type": "string",
+            "description": "Subgraph deployment ID"
+          },
+          "query": {
+            "type": "string",
+            "description": "GraphQL query string"
+          },
+          "variables": {
+            "type": "object",
+            "description": "GraphQL variables"
+          }
+        },
+        "required": [
+          "subgraphId",
+          "query"
+        ]
+      }
+    }
+  ]
+}

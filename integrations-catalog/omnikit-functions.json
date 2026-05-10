@@ -1,0 +1,402 @@
+{
+  "slug": "omnikit-functions",
+  "name": "OmniKit Functions",
+  "description": "Manage serverless functions on the OmniKit platform - create, update, deploy, invoke, and monitor function execution logs",
+  "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+  "categories": [
+    "serverless",
+    "functions",
+    "faas",
+    "deploy",
+    "invoke",
+    "omnikit"
+  ],
+  "base_url": "https://api.omnikit.co",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your OmniKit API key (starts with 'okt_'). The project is determined automatically from the key."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create",
+      "description": "Create a new serverless function with source code, runtime, and configuration",
+      "method": "POST",
+      "path": "/functions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Function name (lowercase, alphanumeric with hyphens)"
+          },
+          "code": {
+            "type": "string",
+            "description": "Function source code"
+          },
+          "description": {
+            "type": "string",
+            "description": "Function description"
+          },
+          "runtime": {
+            "type": "string",
+            "enum": [
+              "node18",
+              "node20",
+              "python3.9",
+              "python3.11",
+              "bun1.0"
+            ],
+            "default": "node18",
+            "description": "Runtime environment"
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "default": 300,
+            "description": "Function timeout in seconds"
+          },
+          "memory_mb": {
+            "type": "integer",
+            "default": 256,
+            "description": "Memory allocation in MB"
+          },
+          "environment_variables": {
+            "type": "object",
+            "description": "Environment variables for the function"
+          }
+        },
+        "required": [
+          "name",
+          "code"
+        ]
+      }
+    },
+    {
+      "name": "list",
+      "description": "List all serverless functions with optional filtering by status, type, and pagination",
+      "method": "GET",
+      "path": "/functions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "error",
+              "inactive"
+            ],
+            "description": "Filter by status"
+          },
+          "is_system_function": {
+            "type": "boolean",
+            "description": "Filter by system vs user-created functions"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Number of results to return"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Number of results to skip"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "name",
+              "created_at",
+              "updated_at",
+              "execution_count"
+            ],
+            "default": "created_at",
+            "description": "Sort field"
+          },
+          "order": {
+            "type": "string",
+            "enum": [
+              "ASC",
+              "DESC"
+            ],
+            "default": "DESC",
+            "description": "Sort order"
+          }
+        }
+      }
+    },
+    {
+      "name": "get",
+      "description": "Get detailed information about a specific serverless function including optional code and version history",
+      "method": "GET",
+      "path": "/functions/{function_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function_id": {
+            "type": "string",
+            "description": "Function ID or name"
+          },
+          "include_code": {
+            "type": "boolean",
+            "description": "Include function source code in response"
+          },
+          "include_versions": {
+            "type": "boolean",
+            "description": "Include version history"
+          }
+        },
+        "required": [
+          "function_id"
+        ]
+      }
+    },
+    {
+      "name": "update",
+      "description": "Update an existing serverless function's code, runtime, timeout, memory, or environment variables",
+      "method": "PUT",
+      "path": "/functions/{function_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function_id": {
+            "type": "string",
+            "description": "Function ID or name"
+          },
+          "code": {
+            "type": "string",
+            "description": "Updated function source code"
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated function description"
+          },
+          "runtime": {
+            "type": "string",
+            "enum": [
+              "node18",
+              "node20",
+              "python3.9",
+              "python3.11",
+              "bun1.0"
+            ],
+            "description": "Updated runtime environment"
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "description": "Updated timeout in seconds"
+          },
+          "memory_mb": {
+            "type": "integer",
+            "description": "Updated memory allocation in MB"
+          },
+          "environment_variables": {
+            "type": "object",
+            "description": "Updated environment variables"
+          }
+        },
+        "required": [
+          "function_id"
+        ]
+      }
+    },
+    {
+      "name": "delete",
+      "description": "Delete a serverless function permanently",
+      "method": "DELETE",
+      "path": "/functions/{function_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function_id": {
+            "type": "string",
+            "description": "Function ID or name"
+          },
+          "force": {
+            "type": "boolean",
+            "default": false,
+            "description": "Force delete even if function is active or system function"
+          }
+        },
+        "required": [
+          "function_id"
+        ]
+      }
+    },
+    {
+      "name": "deploy",
+      "description": "Deploy a serverless function to make it available for invocation",
+      "method": "POST",
+      "path": "/functions/{function_id}/deploy",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function_id": {
+            "type": "string",
+            "description": "Function ID or name"
+          }
+        },
+        "required": [
+          "function_id"
+        ]
+      }
+    },
+    {
+      "name": "invoke",
+      "description": "Test invoke a deployed serverless function with input data",
+      "method": "POST",
+      "path": "/functions/{function_id}/invoke",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function_id": {
+            "type": "string",
+            "description": "Function ID or name"
+          },
+          "input_data": {
+            "type": "object",
+            "description": "Input data to pass to the function"
+          },
+          "test_mode": {
+            "type": "boolean",
+            "default": true,
+            "description": "Run in test mode (doesn't count against execution limits)"
+          }
+        },
+        "required": [
+          "function_id"
+        ]
+      }
+    },
+    {
+      "name": "logs",
+      "description": "Get execution logs and history for a serverless function with filtering by status, date range, and pagination",
+      "method": "GET",
+      "path": "/functions/{function_id}/logs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function_id": {
+            "type": "string",
+            "description": "Function ID or name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "error",
+              "timeout"
+            ],
+            "description": "Filter by execution status"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of results to return"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of results to skip"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Filter executions after this date (ISO 8601)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "Filter executions before this date (ISO 8601)"
+          },
+          "include_logs": {
+            "type": "boolean",
+            "description": "Include detailed execution logs"
+          }
+        },
+        "required": [
+          "function_id"
+        ]
+      }
+    }
+  ],
+  "credential_group": {
+    "id": "omnikit",
+    "name": "OmniKit",
+    "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+    "description": "One key unlocks the whole OmniKit suite. Account keys can manage many projects; project keys are scoped to one.",
+    "discovery": {
+      "list_projects": {
+        "method": "GET",
+        "path": "/projects",
+        "response_path": "data",
+        "id_field": "id",
+        "label_field": "name"
+      },
+      "api_lookup": {
+        "method": "GET",
+        "path": "/apis",
+        "response_path": "data",
+        "match_field": "base_path",
+        "match_value": "omnikit",
+        "id_field": "id"
+      },
+      "provision_project_key": {
+        "method": "POST",
+        "path": "/api-keys",
+        "body": {
+          "name": "Apteva \u00b7 {{label}}",
+          "api_id": "{{api_lookup_id}}",
+          "target_project_id": "{{external_project_id}}",
+          "scopes": [
+            "read",
+            "write"
+          ]
+        },
+        "response_key_path": "data.key",
+        "id_response_path": "data.id",
+        "credential_field": "api_key"
+      }
+    }
+  },
+  "scopes": {
+    "account": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Account API Key",
+          "description": "Starts with okt_acc_ \u2014 operates across every project in the account.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      },
+      "project_binding": {
+        "type": "header",
+        "name": "X-Project-Id",
+        "value": "{{project_id}}"
+      }
+    },
+    "project": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Project API Key",
+          "description": "Starts with okt_ \u2014 already scoped to a single project.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      }
+    }
+  }
+}

@@ -1,0 +1,255 @@
+{
+  "slug": "pipedrive",
+  "name": "Pipedrive",
+  "description": "MCP server for Pipedrive CRM operations - deals, persons, organizations, and pipelines",
+  "logo": "https://www.google.com/s2/favicons?domain=pipedrive.com&sz=128",
+  "categories": [
+    "crm",
+    "pipedrive",
+    "deals",
+    "sales",
+    "contacts"
+  ],
+  "base_url": "https://api.pipedrive.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_deals",
+      "description": "List deals from Pipedrive",
+      "method": "GET",
+      "path": "/list-deals",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of deals to return",
+            "default": 100
+          },
+          "start": {
+            "type": "number",
+            "description": "Pagination offset",
+            "default": 0
+          },
+          "status": {
+            "type": "string",
+            "description": "Deal status filter"
+          },
+          "stage_id": {
+            "type": "number",
+            "description": "Stage ID filter"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field and order"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_deal",
+      "description": "Create a new deal in Pipedrive",
+      "method": "POST",
+      "path": "/create-deal",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Deal title"
+          },
+          "value": {
+            "type": "number",
+            "description": "Deal value"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code"
+          },
+          "person_id": {
+            "type": "number",
+            "description": "Person ID"
+          },
+          "org_id": {
+            "type": "number",
+            "description": "Organization ID"
+          },
+          "stage_id": {
+            "type": "number",
+            "description": "Stage ID"
+          },
+          "expected_close_date": {
+            "type": "string",
+            "description": "Expected close date"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "update_deal",
+      "description": "Update an existing deal",
+      "method": "PUT",
+      "path": "/update-deal",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "deal_id": {
+            "type": "number",
+            "description": "ID of the deal to update"
+          },
+          "title": {
+            "type": "string",
+            "description": "Deal title"
+          },
+          "value": {
+            "type": "number",
+            "description": "Deal value"
+          },
+          "status": {
+            "type": "string",
+            "description": "Deal status"
+          },
+          "stage_id": {
+            "type": "number",
+            "description": "Stage ID"
+          }
+        },
+        "required": [
+          "deal_id"
+        ]
+      }
+    },
+    {
+      "name": "list_persons",
+      "description": "List persons from Pipedrive",
+      "method": "GET",
+      "path": "/list-persons",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "Maximum number to return",
+            "default": 100
+          },
+          "start": {
+            "type": "number",
+            "description": "Pagination offset"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field and order"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_person",
+      "description": "Create a new person in Pipedrive",
+      "method": "POST",
+      "path": "/create-person",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Person name"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email address"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Phone number"
+          },
+          "org_id": {
+            "type": "number",
+            "description": "Organization ID"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_organizations",
+      "description": "List organizations from Pipedrive",
+      "method": "GET",
+      "path": "/list-organizations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "Maximum number to return",
+            "default": 100
+          },
+          "start": {
+            "type": "number",
+            "description": "Pagination offset"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field and order"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_pipelines",
+      "description": "List pipelines from Pipedrive",
+      "method": "GET",
+      "path": "/list-pipelines",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_activities",
+      "description": "List activities from Pipedrive",
+      "method": "GET",
+      "path": "/list-activities",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "Maximum number to return",
+            "default": 100
+          },
+          "start": {
+            "type": "number",
+            "description": "Pagination offset"
+          },
+          "type": {
+            "type": "string",
+            "description": "Activity type filter"
+          },
+          "done": {
+            "type": "boolean",
+            "description": "Filter by completion status"
+          }
+        }
+      }
+    }
+  ]
+}

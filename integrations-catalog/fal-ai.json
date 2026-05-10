@@ -1,0 +1,400 @@
+{
+  "slug": "fal-ai",
+  "name": "fal.ai",
+  "description": "MCP server for fal.ai generative AI platform - image generation, video, audio, 3D models, and LLMs with fast inference",
+  "logo": "https://fal.ai/favicon.png",
+  "categories": [
+    "ai",
+    "inference",
+    "image-generation",
+    "video",
+    "audio",
+    "3d",
+    "llm",
+    "generative-ai"
+  ],
+  "base_url": "https://fal.run",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Key {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "fal.ai API Key (from https://fal.ai/dashboard/keys)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "run",
+      "description": "Run a fal.ai model synchronously and get the result directly. Best for fast models that complete in under 60 seconds (e.g. FLUX image generation, whisper transcription)",
+      "method": "POST",
+      "path": "/{model_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "description": "Model endpoint ID (e.g. fal-ai/flux/dev, fal-ai/fast-sdxl, fal-ai/whisper)"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Text prompt for generation (for image/video/audio models)"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Input image URL (for image-to-image, upscaling, or vision models)"
+          },
+          "audio_url": {
+            "type": "string",
+            "description": "Input audio URL (for transcription or audio processing models)"
+          },
+          "image_size": {
+            "type": "object",
+            "description": "Image dimensions {width, height} or preset string like 'landscape_4_3', 'square_hd'",
+            "properties": {
+              "width": {
+                "type": "integer",
+                "description": "Image width in pixels"
+              },
+              "height": {
+                "type": "integer",
+                "description": "Image height in pixels"
+              }
+            }
+          },
+          "num_images": {
+            "type": "integer",
+            "description": "Number of images to generate",
+            "minimum": 1,
+            "maximum": 4,
+            "default": 1
+          },
+          "num_inference_steps": {
+            "type": "integer",
+            "description": "Number of inference steps (higher = better quality, slower)"
+          },
+          "guidance_scale": {
+            "type": "number",
+            "description": "Guidance scale for diffusion models (higher = more prompt adherence)"
+          },
+          "seed": {
+            "type": "integer",
+            "description": "Random seed for reproducible results"
+          },
+          "negative_prompt": {
+            "type": "string",
+            "description": "Negative prompt to avoid certain features in generation"
+          },
+          "loras": {
+            "type": "array",
+            "description": "LoRA weights to apply [{path, scale}]",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "LoRA model path or URL"
+                },
+                "scale": {
+                  "type": "number",
+                  "description": "LoRA weight scale",
+                  "default": 1
+                }
+              }
+            }
+          },
+          "enable_safety_checker": {
+            "type": "boolean",
+            "description": "Enable safety content filter",
+            "default": true
+          }
+        },
+        "required": [
+          "model_id"
+        ]
+      }
+    },
+    {
+      "name": "queue_submit",
+      "description": "Submit a model request to the fal.ai queue for async processing. Returns a request_id to poll for results. Best for longer-running models (video generation, training, etc.)",
+      "method": "POST",
+      "path": "/{model_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "description": "Model endpoint ID (e.g. fal-ai/flux/dev, fal-ai/minimax-video, fal-ai/kling-video)"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Text prompt for generation"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Input image URL"
+          },
+          "audio_url": {
+            "type": "string",
+            "description": "Input audio URL"
+          },
+          "image_size": {
+            "type": "object",
+            "description": "Image dimensions {width, height}",
+            "properties": {
+              "width": {
+                "type": "integer"
+              },
+              "height": {
+                "type": "integer"
+              }
+            }
+          },
+          "num_images": {
+            "type": "integer",
+            "description": "Number of images to generate",
+            "minimum": 1,
+            "maximum": 4,
+            "default": 1
+          },
+          "num_inference_steps": {
+            "type": "integer",
+            "description": "Number of inference steps"
+          },
+          "guidance_scale": {
+            "type": "number",
+            "description": "Guidance scale for diffusion models"
+          },
+          "seed": {
+            "type": "integer",
+            "description": "Random seed for reproducibility"
+          },
+          "negative_prompt": {
+            "type": "string",
+            "description": "Negative prompt"
+          },
+          "loras": {
+            "type": "array",
+            "description": "LoRA weights [{path, scale}]",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "scale": {
+                  "type": "number",
+                  "default": 1
+                }
+              }
+            }
+          },
+          "webhook_url": {
+            "type": "string",
+            "description": "Webhook URL to receive completion notification instead of polling"
+          }
+        },
+        "required": [
+          "model_id"
+        ]
+      }
+    },
+    {
+      "name": "queue_status",
+      "description": "Check the status of an async queue request. Returns status (IN_QUEUE, IN_PROGRESS, COMPLETED) and queue position",
+      "method": "GET",
+      "path": "/{model_id}/requests/{request_id}/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "description": "Model endpoint ID used in the original request"
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Request ID returned from queue submission"
+          }
+        },
+        "required": [
+          "model_id",
+          "request_id"
+        ]
+      }
+    },
+    {
+      "name": "queue_result",
+      "description": "Retrieve the result of a completed async queue request. Only call after status is COMPLETED",
+      "method": "GET",
+      "path": "/{model_id}/requests/{request_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "description": "Model endpoint ID used in the original request"
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Request ID returned from queue submission"
+          }
+        },
+        "required": [
+          "model_id",
+          "request_id"
+        ]
+      }
+    },
+    {
+      "name": "queue_cancel",
+      "description": "Cancel a pending or in-progress queue request",
+      "method": "PUT",
+      "path": "/{model_id}/requests/{request_id}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "description": "Model endpoint ID"
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Request ID to cancel"
+          }
+        },
+        "required": [
+          "model_id",
+          "request_id"
+        ]
+      }
+    },
+    {
+      "name": "upload_file",
+      "description": "Upload a file to fal.ai storage for use as model input. Returns a URL that can be passed to model endpoints",
+      "method": "POST",
+      "path": "/fal-ai/file-upload/upload",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_url": {
+            "type": "string",
+            "description": "URL of the file to upload to fal.ai storage"
+          },
+          "file_name": {
+            "type": "string",
+            "description": "Name for the uploaded file"
+          }
+        },
+        "required": [
+          "file_url"
+        ]
+      }
+    },
+    {
+      "name": "search_models",
+      "description": "Search and discover available fal.ai models by keyword, category, or endpoint ID",
+      "method": "GET",
+      "path": "/api/models",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query (e.g. 'flux', 'video generation', 'whisper')"
+          },
+          "category": {
+            "type": "string",
+            "description": "Filter by category",
+            "enum": [
+              "text-to-image",
+              "image-to-image",
+              "text-to-video",
+              "image-to-video",
+              "text-to-speech",
+              "speech-to-text",
+              "text-to-music",
+              "text-to-3d",
+              "llm",
+              "embedding",
+              "upscaler"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results to return",
+            "default": 20,
+            "maximum": 100
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset for pagination",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "get_usage",
+      "description": "Get API usage records for your fal.ai account with filters by endpoint and date range",
+      "method": "GET",
+      "path": "/api/platform-apis/v1/models/usage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpoint_id": {
+            "type": "string",
+            "description": "Filter by model endpoint ID"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date filter (ISO 8601 format)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date filter (ISO 8601 format)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max records to return",
+            "default": 50
+          }
+        }
+      }
+    },
+    {
+      "name": "list_request_history",
+      "description": "Get history of requests made to fal.ai models with status and timing information",
+      "method": "GET",
+      "path": "/api/platform-apis/v1/models/requests/by-endpoint",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpoint_id": {
+            "type": "string",
+            "description": "Filter by model endpoint ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by request status",
+            "enum": [
+              "success",
+              "error",
+              "user_error"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max records to return",
+            "default": 20
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "slug": "paraswap",
+  "name": "ParaSwap",
+  "description": "Multi-chain DEX aggregator with MEV protection \u2014 swap quotes and token data across Ethereum, Polygon, BSC, Arbitrum, Avalanche. Free, no API key.",
+  "logo": "https://www.google.com/s2/favicons?domain=paraswap.io&sz=128",
+  "categories": [
+    "dex",
+    "aggregator",
+    "swap",
+    "mev-protection",
+    "defi"
+  ],
+  "base_url": "https://apiv5.paraswap.io",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Token"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_price",
+      "description": "Get the best swap price across DEXs. Network: 1=ETH, 56=BSC, 137=Polygon, 42161=Arbitrum, 43114=Avalanche.",
+      "method": "GET",
+      "path": "/get-price",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "srcToken": {
+            "type": "string",
+            "description": "Source token address (ETH native: 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE)"
+          },
+          "destToken": {
+            "type": "string",
+            "description": "Destination token address"
+          },
+          "amount": {
+            "type": "string",
+            "description": "Amount in smallest unit"
+          },
+          "srcDecimals": {
+            "type": "integer",
+            "description": "Source token decimals",
+            "default": 18
+          },
+          "destDecimals": {
+            "type": "integer",
+            "description": "Destination token decimals",
+            "default": 18
+          },
+          "network": {
+            "type": "integer",
+            "description": "Chain ID",
+            "default": 1
+          }
+        },
+        "required": [
+          "srcToken",
+          "destToken",
+          "amount"
+        ]
+      }
+    },
+    {
+      "name": "get_tokens",
+      "description": "Get all supported tokens on a network.",
+      "method": "GET",
+      "path": "/get-tokens",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "network": {
+            "type": "integer",
+            "default": 1
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,265 @@
+{
+  "slug": "yahoo-dsp",
+  "name": "Yahoo DSP",
+  "description": "Yahoo DSP API — manage advertisers, campaigns, line items (insertion orders), ads, audiences, and pull performance reports for Yahoo's programmatic DSP (formerly Verizon Media DSP / Oath / BrightRoll). Auth via Yahoo OAuth2; partners use a separate developer app from regular Yahoo APIs.",
+  "logo": "https://www.google.com/s2/favicons?domain=yahooinc.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "dsp",
+    "programmatic",
+    "yahoo",
+    "video-ads",
+    "display-ads"
+  ],
+  "base_url": "https://dspapi.admanagerplus.yahoo.com/traffic",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "X-Auth-Method": "OAuth2",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token",
+        "type": "password"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token",
+        "type": "password"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "advertiser_id",
+        "label": "Default Advertiser ID"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://api.login.yahoo.com/oauth2/request_auth",
+      "token_url": "https://api.login.yahoo.com/oauth2/get_token",
+      "scopes": [
+        "dsp-api-read",
+        "dsp-api-write"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "list_advertisers",
+      "description": "List advertisers the authenticated user can access.",
+      "method": "GET",
+      "path": "/advertiser",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "default": 100 },
+          "offset": { "type": "integer", "default": 0 }
+        }
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List campaigns under an advertiser.",
+      "method": "GET",
+      "path": "/campaign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserId": { "type": "integer" },
+          "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE", "PAUSED"] },
+          "limit": { "type": "integer", "default": 100 },
+          "offset": { "type": "integer", "default": 0 }
+        },
+        "required": ["advertiserId"]
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create a campaign. Required: advertiserId, name, status (ACTIVE|INACTIVE), budget {amount, type: TOTAL|DAILY, currency}, pacing (FRONTLOADED|EVEN|ASAP), startDate (yyyy-MM-dd), endDate, objective (REACH|VIEWABILITY|VIDEO_COMPLETION|CTR|CPA|ROAS).",
+      "method": "POST",
+      "path": "/campaign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserId": { "type": "integer" },
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"], "default": "INACTIVE" },
+          "budget": { "type": "object" },
+          "pacing": { "type": "string", "enum": ["FRONTLOADED", "EVEN", "ASAP"], "default": "EVEN" },
+          "startDate": { "type": "string" },
+          "endDate": { "type": "string" },
+          "objective": { "type": "string" },
+          "channel": { "type": "string", "enum": ["DISPLAY", "VIDEO", "AUDIO", "NATIVE"] }
+        },
+        "required": ["advertiserId", "name", "budget", "startDate", "endDate"]
+      }
+    },
+    {
+      "name": "update_campaign",
+      "description": "Update a campaign by id.",
+      "method": "PUT",
+      "path": "/campaign/{campaignId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "integer" },
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"] },
+          "budget": { "type": "object" },
+          "endDate": { "type": "string" }
+        },
+        "required": ["campaignId"]
+      }
+    },
+    {
+      "name": "list_line_items",
+      "description": "List line items under a campaign or advertiser.",
+      "method": "GET",
+      "path": "/lineitem",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "integer" },
+          "advertiserId": { "type": "integer" },
+          "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE", "PAUSED"] },
+          "limit": { "type": "integer", "default": 100 },
+          "offset": { "type": "integer", "default": 0 }
+        }
+      }
+    },
+    {
+      "name": "create_line_item",
+      "description": "Create a line item. Required: campaignId, name, status, budget {amount, type, currency}, pacing, startDate, endDate, bidStrategy {type: FIXED|AUTOMATIC|MAX_CPM|MAX_CPC, value?}, lineItemType (DISPLAY|VIDEO|NATIVE|AUDIO), targeting object, frequencyCap {impressions, period}.",
+      "method": "POST",
+      "path": "/lineitem",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "integer" },
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"], "default": "INACTIVE" },
+          "budget": { "type": "object" },
+          "pacing": { "type": "string", "enum": ["FRONTLOADED", "EVEN", "ASAP"] },
+          "startDate": { "type": "string" },
+          "endDate": { "type": "string" },
+          "bidStrategy": { "type": "object" },
+          "lineItemType": { "type": "string", "enum": ["DISPLAY", "VIDEO", "NATIVE", "AUDIO"] },
+          "targeting": { "type": "object" },
+          "frequencyCap": { "type": "object" }
+        },
+        "required": ["campaignId", "name", "budget", "startDate", "endDate", "bidStrategy", "lineItemType"]
+      }
+    },
+    {
+      "name": "list_ads",
+      "description": "List ads under a line item or advertiser.",
+      "method": "GET",
+      "path": "/ad",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lineItemId": { "type": "integer" },
+          "advertiserId": { "type": "integer" },
+          "status": { "type": "string" },
+          "limit": { "type": "integer", "default": 100 },
+          "offset": { "type": "integer", "default": 0 }
+        }
+      }
+    },
+    {
+      "name": "create_ad",
+      "description": "Create an ad / creative association. Required: lineItemId, name, status, creativeId (the pre-uploaded creative asset).",
+      "method": "POST",
+      "path": "/ad",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lineItemId": { "type": "integer" },
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"], "default": "INACTIVE" },
+          "creativeId": { "type": "integer" },
+          "clickUrl": { "type": "string" }
+        },
+        "required": ["lineItemId", "name", "creativeId"]
+      }
+    },
+    {
+      "name": "list_audiences",
+      "description": "List audiences for an advertiser. Audience types: PIXEL (site visitors), CUSTOMER_FILE (CRM upload), MODELED (lookalike), CONVERSION_TRACKER.",
+      "method": "GET",
+      "path": "/audience",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserId": { "type": "integer" },
+          "type": { "type": "string", "enum": ["PIXEL", "CUSTOMER_FILE", "MODELED", "CONVERSION_TRACKER"] },
+          "limit": { "type": "integer", "default": 100 },
+          "offset": { "type": "integer", "default": 0 }
+        },
+        "required": ["advertiserId"]
+      }
+    },
+    {
+      "name": "create_audience",
+      "description": "Create an audience. Required: advertiserId, name, type. PIXEL audiences need rules{}; CUSTOMER_FILE audiences require a follow-up upload to /audience/{id}/members.",
+      "method": "POST",
+      "path": "/audience",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserId": { "type": "integer" },
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["PIXEL", "CUSTOMER_FILE", "MODELED"] },
+          "rules": { "type": "object" },
+          "ttl": { "type": "integer", "description": "Membership lifetime in days" }
+        },
+        "required": ["advertiserId", "name", "type"]
+      }
+    },
+    {
+      "name": "submit_report",
+      "description": "Queue an async performance report. dimensions: ADVERTISER, CAMPAIGN, LINE_ITEM, AD, CREATIVE, DAY, WEEK, MONTH, COUNTRY, DEVICE, EXCHANGE, INVENTORY_SOURCE. metrics: impressions, clicks, ctr, spend, cpm, ecpm, video_starts, video_completes, conversions, post_click_conversions, post_view_conversions, viewable_impressions.",
+      "method": "POST",
+      "path": "/reportRequest",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserId": { "type": "integer" },
+          "name": { "type": "string" },
+          "dimensions": { "type": "array", "items": { "type": "string" } },
+          "metrics": { "type": "array", "items": { "type": "string" } },
+          "startDate": { "type": "string" },
+          "endDate": { "type": "string" },
+          "intervalSize": { "type": "string", "enum": ["DAY", "WEEK", "MONTH", "TOTAL"], "default": "DAY" },
+          "format": { "type": "string", "enum": ["JSON", "CSV", "GZIP_CSV"], "default": "JSON" }
+        },
+        "required": ["advertiserId", "dimensions", "metrics", "startDate", "endDate"]
+      }
+    },
+    {
+      "name": "get_report",
+      "description": "Poll a queued report by reportRequestId. When status=COMPLETED, fetch the result from downloadUrl (presigned, short TTL).",
+      "method": "GET",
+      "path": "/reportRequest/{reportRequestId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "reportRequestId": { "type": "string" }
+        },
+        "required": ["reportRequestId"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,153 @@
+{
+  "slug": "clerk",
+  "name": "Clerk",
+  "description": "MCP server for Clerk - user management, organizations, sessions, invitations",
+  "logo": "https://www.google.com/s2/favicons?domain=clerk.com&sz=128",
+  "categories": ["auth", "identity", "users", "organizations"],
+  "base_url": "https://api.clerk.com/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Secret Key", "description": "Clerk Secret Key (sk_...)" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_users",
+      "description": "List users",
+      "method": "GET",
+      "path": "/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email_address": { "type": "array" },
+          "query": { "type": "string" },
+          "limit": { "type": "number" },
+          "offset": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "Get a user by ID",
+      "method": "GET",
+      "path": "/users/{user_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "user_id": { "type": "string" } },
+        "required": ["user_id"]
+      }
+    },
+    {
+      "name": "create_user",
+      "description": "Create a user",
+      "method": "POST",
+      "path": "/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email_address": { "type": "array" },
+          "password": { "type": "string" },
+          "first_name": { "type": "string" },
+          "last_name": { "type": "string" },
+          "public_metadata": { "type": "object" },
+          "private_metadata": { "type": "object" }
+        }
+      }
+    },
+    {
+      "name": "update_user",
+      "description": "Update a user",
+      "method": "PATCH",
+      "path": "/users/{user_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": { "type": "string" },
+          "first_name": { "type": "string" },
+          "last_name": { "type": "string" },
+          "public_metadata": { "type": "object" },
+          "private_metadata": { "type": "object" }
+        },
+        "required": ["user_id"]
+      }
+    },
+    {
+      "name": "delete_user",
+      "description": "Delete a user",
+      "method": "DELETE",
+      "path": "/users/{user_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "user_id": { "type": "string" } },
+        "required": ["user_id"]
+      }
+    },
+    {
+      "name": "ban_user",
+      "description": "Ban a user",
+      "method": "POST",
+      "path": "/users/{user_id}/ban",
+      "input_schema": {
+        "type": "object",
+        "properties": { "user_id": { "type": "string" } },
+        "required": ["user_id"]
+      }
+    },
+    {
+      "name": "create_invitation",
+      "description": "Create an invitation",
+      "method": "POST",
+      "path": "/invitations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email_address": { "type": "string" },
+          "redirect_url": { "type": "string" },
+          "public_metadata": { "type": "object" }
+        },
+        "required": ["email_address"]
+      }
+    },
+    {
+      "name": "list_organizations",
+      "description": "List organizations",
+      "method": "GET",
+      "path": "/organizations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "number" },
+          "offset": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "create_organization",
+      "description": "Create an organization",
+      "method": "POST",
+      "path": "/organizations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "slug": { "type": "string" },
+          "created_by": { "type": "string" }
+        },
+        "required": ["name", "created_by"]
+      }
+    },
+    {
+      "name": "revoke_session",
+      "description": "Revoke a session",
+      "method": "POST",
+      "path": "/sessions/{session_id}/revoke",
+      "input_schema": {
+        "type": "object",
+        "properties": { "session_id": { "type": "string" } },
+        "required": ["session_id"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,113 @@
+{
+  "slug": "deepl",
+  "name": "DeepL",
+  "description": "MCP server for DeepL - translation, document translation, glossaries",
+  "logo": "https://www.google.com/s2/favicons?domain=deepl.com&sz=128",
+  "categories": ["translation", "nlp", "localization", "ai"],
+  "base_url": "https://api.deepl.com/v2",
+  "auth": {
+    "types": ["header"],
+    "headers": { "Authorization": "DeepL-Auth-Key {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Auth Key", "description": "DeepL API key (use api-free.deepl.com base for free plan)" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "translate_text",
+      "description": "Translate one or more texts",
+      "method": "POST",
+      "path": "/translate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "array", "items": { "type": "string" } },
+          "target_lang": { "type": "string" },
+          "source_lang": { "type": "string" },
+          "formality": { "type": "string", "enum": ["default", "more", "less", "prefer_more", "prefer_less"] },
+          "glossary_id": { "type": "string" },
+          "tag_handling": { "type": "string" }
+        },
+        "required": ["text", "target_lang"]
+      }
+    },
+    {
+      "name": "upload_document",
+      "description": "Submit a document for translation",
+      "method": "POST",
+      "path": "/document",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": { "type": "string" },
+          "target_lang": { "type": "string" },
+          "source_lang": { "type": "string" },
+          "filename": { "type": "string" }
+        },
+        "required": ["file", "target_lang"]
+      }
+    },
+    {
+      "name": "get_document_status",
+      "description": "Check translation progress of a document",
+      "method": "POST",
+      "path": "/document/{document_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document_id": { "type": "string" },
+          "document_key": { "type": "string" }
+        },
+        "required": ["document_id", "document_key"]
+      }
+    },
+    {
+      "name": "download_document",
+      "description": "Download a translated document",
+      "method": "POST",
+      "path": "/document/{document_id}/result",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document_id": { "type": "string" },
+          "document_key": { "type": "string" }
+        },
+        "required": ["document_id", "document_key"]
+      }
+    },
+    {
+      "name": "get_usage",
+      "description": "Get API usage & quota",
+      "method": "GET",
+      "path": "/usage",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_languages",
+      "description": "List supported languages",
+      "method": "GET",
+      "path": "/languages",
+      "input_schema": {
+        "type": "object",
+        "properties": { "type": { "type": "string", "enum": ["source", "target"] } }
+      }
+    },
+    {
+      "name": "create_glossary",
+      "description": "Create a glossary",
+      "method": "POST",
+      "path": "/glossaries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "source_lang": { "type": "string" },
+          "target_lang": { "type": "string" },
+          "entries": { "type": "string" },
+          "entries_format": { "type": "string" }
+        },
+        "required": ["name", "source_lang", "target_lang", "entries", "entries_format"]
+      }
+    }
+  ]
+}

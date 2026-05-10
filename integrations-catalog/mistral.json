@@ -1,0 +1,129 @@
+{
+  "slug": "mistral",
+  "name": "Mistral AI",
+  "description": "MCP server for Mistral AI - chat, embeddings, code (codestral), and fine-tuning",
+  "logo": "https://www.google.com/s2/favicons?domain=mistral.ai&sz=128",
+  "categories": [
+    "ai",
+    "llm",
+    "embeddings",
+    "code"
+  ],
+  "base_url": "https://api.mistral.ai/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "chat_completion",
+      "description": "Create a chat completion (mistral-large, mistral-small, etc.)",
+      "method": "POST",
+      "path": "/chat/completions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "array"
+          },
+          "temperature": {
+            "type": "number"
+          },
+          "max_tokens": {
+            "type": "number"
+          },
+          "stream": {
+            "type": "boolean"
+          },
+          "tools": {
+            "type": "array"
+          },
+          "response_format": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "model",
+          "messages"
+        ]
+      }
+    },
+    {
+      "name": "fim_completion",
+      "description": "Fill-in-the-middle completion (codestral)",
+      "method": "POST",
+      "path": "/fim/completions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "suffix": {
+            "type": "string"
+          },
+          "max_tokens": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "model",
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "create_embedding",
+      "description": "Create embeddings (mistral-embed)",
+      "method": "POST",
+      "path": "/embeddings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "input": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "model",
+          "input"
+        ]
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List available models",
+      "method": "GET",
+      "path": "/models",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_models"
+  }
+}

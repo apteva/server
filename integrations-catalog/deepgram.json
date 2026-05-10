@@ -1,0 +1,350 @@
+{
+  "slug": "deepgram",
+  "name": "Deepgram",
+  "description": "Speech AI platform: Nova speech-to-text (pre-recorded transcription with speaker diarization, summarization, language detection) and Aura text-to-speech (low-latency, natural voices in English and Spanish). REST API, single API key.",
+  "logo": "https://www.google.com/s2/favicons?domain=deepgram.com&sz=128",
+  "categories": ["ai", "speech", "audio", "transcription", "text-to-speech", "voice"],
+  "base_url": "https://api.deepgram.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "Authorization": "Token {{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Deepgram API Key",
+        "description": "Create one at https://console.deepgram.com/project/default/keys — needs usage:write scope."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "speak",
+      "description": "Text-to-speech via Deepgram's Aura models. Converts text to natural-sounding audio at sub-second latency. Returns the generated audio as binary (mp3/wav/ogg depending on encoding). Best for conversational agents, voice notifications, and on-the-fly narration. Defaults to `aura-asteria-en` (English female); full model catalog at https://developers.deepgram.com/docs/tts-models.",
+      "method": "POST",
+      "path": "/v1/speak",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "The text to convert to speech. Max 2000 characters per request — longer inputs should be split client-side."
+          },
+          "model": {
+            "type": "string",
+            "default": "aura-asteria-en",
+            "description": "Voice model slug. Common choices: aura-asteria-en (female, conversational), aura-luna-en (female, warm), aura-stella-en (female, friendly), aura-athena-en (female, mature), aura-hera-en (female, deep), aura-orion-en (male, mature), aura-arcas-en (male, casual), aura-perseus-en (male, confident), aura-angus-en (male, Irish), aura-orpheus-en (male, narrator), aura-helios-en (male, upbeat), aura-zeus-en (male, authoritative), aura-sirio-es (Spanish male), aura-nestor-es (Spanish male). Also supports newer aura-2-* variants (e.g. aura-2-thalia-en) for higher quality."
+          },
+          "encoding": {
+            "type": "string",
+            "enum": ["mp3", "linear16", "flac", "mulaw", "alaw", "opus", "aac"],
+            "default": "mp3",
+            "description": "Audio encoding. mp3 is the most compatible default. linear16 returns raw PCM — pair with `container=wav` to get a playable WAV file."
+          },
+          "container": {
+            "type": "string",
+            "enum": ["none", "wav", "ogg"],
+            "description": "Audio container format. Most callers can leave this unset — mp3/linear16/flac pick sensible defaults. Required when encoding=linear16 and you want a WAV file."
+          },
+          "sample_rate": {
+            "type": "integer",
+            "description": "Sample rate in Hz. Valid values depend on encoding: linear16/flac/mulaw/alaw accept 8000/16000/24000/32000/48000; mp3 is fixed at 22050; opus is fixed at 48000. Omit for the encoding-appropriate default."
+          },
+          "bit_rate": {
+            "type": "integer",
+            "description": "Bit rate in bits per second for compressed encodings (mp3: 32000 or 48000, opus: 8000-32000, aac: 32000-128000). Omit for the default."
+          },
+          "callback": {
+            "type": "string",
+            "description": "Optional URL to receive the audio asynchronously instead of inline in the response. Deepgram POSTs the audio bytes to this URL when generation completes."
+          }
+        },
+        "required": ["text"]
+      },
+      "query_params": [
+        "model",
+        "encoding",
+        "container",
+        "sample_rate",
+        "bit_rate",
+        "callback"
+      ]
+    },
+    {
+      "name": "listen",
+      "description": "Speech-to-text transcription of pre-recorded audio via Deepgram's Nova models (default: nova-3, their latest and most accurate, multilingual). Accepts the audio two ways — pick exactly one: (a) `url` for a publicly-reachable HTTPS link Deepgram will fetch (best for S3/CDN/public Drive links), or (b) `audio` as a blobref:// handle returned by an upstream download tool. By default you get ONLY the transcript text + paragraph-level structure; per-word timestamps are always stripped server-side (they're typically 90%+ of Deepgram's payload and not needed for analysis). Do NOT enable paragraphs/utterances/diarize/topics/intents/sentiment/summarize unless you specifically need that extra data — each one balloons the response and risks blowing the agent's context window on audio >5 minutes. Override the default via `model` for domain-tuned variants (nova-2-meeting, nova-2-phonecall) or Whisper.",
+      "method": "POST",
+      "path": "/v1/listen",
+      "body_binary_param": "audio",
+      "timeout_ms": 600000,
+      "response_omit": [
+        "metadata.sha256",
+        "metadata.model_info",
+        "metadata.request_id",
+        "metadata.transaction_key",
+        "results.channels[].alternatives[].words"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Publicly-reachable HTTPS URL of the audio file to transcribe. Deepgram fetches this directly. Mutually exclusive with `audio`."
+          },
+          "audio": {
+            "type": "string",
+            "description": "A blobref:// handle produced by an upstream file-download tool (google-drive, dropbox, etc.). The runtime rehydrates the bytes and Deepgram receives them as the request body. Mutually exclusive with `url`. Do NOT base64-encode or inline raw bytes yourself."
+          },
+          "model": {
+            "type": "string",
+            "default": "nova-3",
+            "description": "STT model: nova-3 (latest, best accuracy + multilingual), nova-2 (prior generation, still excellent and cheaper), nova-2-meeting / nova-2-phonecall / nova-2-voicemail / nova-2-finance / nova-2-conversationalai (domain-tuned variants), enhanced, base, whisper-cloud."
+          },
+          "language": {
+            "type": "string",
+            "description": "BCP-47 language tag (en, en-US, es, fr, de, ja, zh, etc). Omit to default to English or use detect_language=true for auto-detection."
+          },
+          "detect_language": {
+            "type": "boolean",
+            "description": "Auto-detect the spoken language and include it in the response. Useful when you don't know the audio language up front."
+          },
+          "smart_format": {
+            "type": "boolean",
+            "default": true,
+            "description": "Apply readability formatting to transcripts: numbers, dates, times, URLs, emails, etc. Strongly recommended."
+          },
+          "punctuate": {
+            "type": "boolean",
+            "default": true,
+            "description": "Add punctuation and capitalization. Enabled by default when smart_format is on."
+          },
+          "diarize": {
+            "type": "boolean",
+            "description": "Identify speaker changes and label each word with a speaker number. Adds speaker labels per-word — BLOATS the response significantly. Leave off unless you specifically need speaker attribution in multi-speaker content (interviews, meetings)."
+          },
+          "paragraphs": {
+            "type": "boolean",
+            "description": "Segment the transcript into paragraphs based on speaker changes and pauses. Adds a nested structure that duplicates the transcript text with per-sentence timestamps — roughly doubles response size. Leave off unless you specifically need paragraph boundaries."
+          },
+          "utterances": {
+            "type": "boolean",
+            "description": "Return per-utterance segments with start/end times. Adds another array re-serialising the same speech as time-stamped segments — bloats the response. Leave off unless you need per-utterance timing."
+          },
+          "summarize": {
+            "type": "string",
+            "enum": ["v2"],
+            "description": "Generate a summary of the transcript. Use 'v2' for the current summarizer. Adds a summary field but usually small enough not to matter."
+          },
+          "topics": {
+            "type": "boolean",
+            "description": "Detect and label topics discussed in the audio. Adds a topics array — moderate response size impact."
+          },
+          "intents": {
+            "type": "boolean",
+            "description": "Detect speaker intents (requests, commitments, questions). Adds intents per utterance — moderate response size impact."
+          },
+          "sentiment": {
+            "type": "boolean",
+            "description": "Score sentiment per utterance (positive / neutral / negative). Adds sentiment labels per utterance — moderate response size impact."
+          },
+          "filler_words": {
+            "type": "boolean",
+            "description": "Include filler words like 'uh', 'um', 'you know' in the transcript. Off by default."
+          },
+          "profanity_filter": {
+            "type": "boolean",
+            "description": "Mask profanity with asterisks."
+          },
+          "redact": {
+            "type": "string",
+            "description": "Comma-separated entity types to redact: pci, numbers, ssn. E.g. 'pci,ssn' replaces detected sensitive data with [REDACTED]."
+          },
+          "keywords": {
+            "type": "string",
+            "description": "Comma-separated keywords to boost in transcription accuracy. Use intensifier syntax for weight (e.g. 'apteva:2,agent:1')."
+          },
+          "callback": {
+            "type": "string",
+            "description": "Optional URL for async delivery. Deepgram POSTs the full JSON result here instead of returning it inline."
+          }
+        },
+        "required": []
+      },
+      "query_params": [
+        "model",
+        "language",
+        "detect_language",
+        "smart_format",
+        "punctuate",
+        "diarize",
+        "paragraphs",
+        "utterances",
+        "summarize",
+        "topics",
+        "intents",
+        "sentiment",
+        "filler_words",
+        "profanity_filter",
+        "redact",
+        "keywords",
+        "callback"
+      ]
+    },
+    {
+      "name": "read",
+      "description": "Text Intelligence — runs analysis on plain text (no audio needed). Extracts topics, intents, sentiment, and summaries from a block of text or from a text file at a URL. Use for post-processing transcripts from other providers, analyzing emails, long documents, support tickets, etc. Same feature set as the transcript-analysis layer of listen but runs directly on text input.",
+      "method": "POST",
+      "path": "/v1/read",
+      "timeout_ms": 300000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "The plain text to analyze. Mutually exclusive with url — supply exactly one."
+          },
+          "url": {
+            "type": "string",
+            "description": "HTTPS URL of a text document to analyze. Mutually exclusive with text."
+          },
+          "language": {
+            "type": "string",
+            "default": "en",
+            "description": "BCP-47 language tag. Default en."
+          },
+          "summarize": {
+            "type": "string",
+            "enum": ["v2"],
+            "description": "Generate a summary. Use 'v2' for the current summarizer."
+          },
+          "topics": {
+            "type": "boolean",
+            "description": "Detect and label topics discussed in the text."
+          },
+          "custom_topic": {
+            "type": "string",
+            "description": "Comma-separated custom topics to detect (up to 100)."
+          },
+          "custom_topic_mode": {
+            "type": "string",
+            "enum": ["strict", "extended"],
+            "description": "strict = only match exact custom topics; extended = also surface related topics."
+          },
+          "intents": {
+            "type": "boolean",
+            "description": "Recognize speaker intents (requests, commitments, questions)."
+          },
+          "custom_intent": {
+            "type": "string",
+            "description": "Comma-separated custom intents to identify."
+          },
+          "custom_intent_mode": {
+            "type": "string",
+            "enum": ["strict", "extended"],
+            "description": "Intent detection mode — mirrors custom_topic_mode."
+          },
+          "sentiment": {
+            "type": "boolean",
+            "description": "Score sentiment across the text (positive / neutral / negative)."
+          },
+          "callback": {
+            "type": "string",
+            "description": "Optional URL for async delivery of the analysis result."
+          },
+          "callback_method": {
+            "type": "string",
+            "enum": ["POST", "PUT"],
+            "description": "HTTP method Deepgram uses when calling back. POST by default."
+          },
+          "tag": {
+            "type": "string",
+            "description": "Comma-separated labels attached to this request for usage reporting and filtering."
+          }
+        }
+      },
+      "query_params": [
+        "language",
+        "summarize",
+        "topics",
+        "custom_topic",
+        "custom_topic_mode",
+        "intents",
+        "custom_intent",
+        "custom_intent_mode",
+        "sentiment",
+        "callback",
+        "callback_method",
+        "tag"
+      ]
+    },
+    {
+      "name": "list_projects",
+      "description": "List every Deepgram project the API key has access to. Returns an array of `{project_id, name}` objects. Useful as the first call in any management flow — you need a project_id to list models, keys, usage, balances, members, etc.",
+      "method": "GET",
+      "path": "/v1/projects",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_project",
+      "description": "Fetch a single project's metadata (name, company, created_at) by id. Usually called right after list_projects to confirm which project the agent is about to act on.",
+      "method": "GET",
+      "path": "/v1/projects/{project_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "The project's unique identifier from list_projects."
+          }
+        },
+        "required": ["project_id"]
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List every speech-to-text (Nova / Whisper / enhanced / base variants) and text-to-speech (Aura voice) model enabled on a given project. Response groups models under `stt` and `tts` arrays with per-model metadata: name, version, supported languages, architecture, capability flags (batch/streaming/formatted_output), and for TTS: accent, age, voice sample URL. Use this before calling speak or listen to discover what's available and what the exact slug is.",
+      "method": "GET",
+      "path": "/v1/projects/{project_id}/models",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "Target project id from list_projects."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "Include prior-version models alongside the latest ones. Default false — you only see the currently-recommended models."
+          }
+        },
+        "required": ["project_id"]
+      },
+      "query_params": ["include_outdated"]
+    },
+    {
+      "name": "get_model",
+      "description": "Full metadata for a single model (stt or tts) by its id within a project. Returns the same shape as an entry in list_models but with all optional fields populated — use when you need the exact supported languages, architecture, or voice sample URL for a specific model.",
+      "method": "GET",
+      "path": "/v1/projects/{project_id}/models/{model_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "Target project id."
+          },
+          "model_id": {
+            "type": "string",
+            "description": "Model slug from list_models (e.g. 'nova-3' or 'aura-asteria-en')."
+          }
+        },
+        "required": ["project_id", "model_id"]
+      }
+    }
+  ]
+}

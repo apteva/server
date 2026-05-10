@@ -1,0 +1,75 @@
+{
+  "slug": "scrapingbee",
+  "name": "ScrapingBee",
+  "description": "Generic proxy scraper with JS rendering, premium proxies, and anti-bot handling. Use as a fallback when Firecrawl can't fetch a target. Also offers Google SERP and AI-extraction endpoints.",
+  "logo": "https://www.google.com/s2/favicons?domain=scrapingbee.com&sz=128",
+  "categories": ["scraping", "proxy", "anti-bot", "serp"],
+  "base_url": "https://app.scrapingbee.com/api/v1",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "api_key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "ScrapingBee API key from app.scrapingbee.com"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "scrape",
+      "description": "Fetch any URL through ScrapingBee's proxy stack. Returns the raw page (HTML, screenshot, or extracted data depending on params).",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "Target URL" },
+          "render_js": { "type": "boolean", "default": true },
+          "premium_proxy": { "type": "boolean", "default": false, "description": "Use premium residential proxy (costs more credits, needed for tough sites)" },
+          "stealth_proxy": { "type": "boolean", "default": false, "description": "Use stealth proxies (highest cost, hardest sites)" },
+          "country_code": { "type": "string", "description": "Proxy egress country, 2 letters" },
+          "wait": { "type": "integer", "description": "Milliseconds to wait after page load" },
+          "wait_for": { "type": "string", "description": "CSS selector to wait for" },
+          "block_ads": { "type": "boolean", "default": false },
+          "block_resources": { "type": "boolean", "default": true },
+          "screenshot": { "type": "boolean", "default": false },
+          "screenshot_full_page": { "type": "boolean", "default": false },
+          "extract_rules": { "type": "string", "description": "JSON-encoded CSS-selector extraction rules" },
+          "ai_query": { "type": "string", "description": "Natural-language extraction prompt (uses ScrapingBee's AI extraction)" },
+          "ai_extract_rules": { "type": "string", "description": "JSON-encoded schema for AI extraction" }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "google_search",
+      "description": "Structured Google SERP results.",
+      "method": "GET",
+      "path": "/store/google",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search": { "type": "string", "description": "Query" },
+          "country_code": { "type": "string" },
+          "language": { "type": "string" },
+          "device": { "type": "string", "enum": ["desktop", "mobile"], "default": "desktop" },
+          "search_type": { "type": "string", "enum": ["classic", "news"], "default": "classic" },
+          "nb_results": { "type": "integer", "default": 10 },
+          "page": { "type": "integer", "default": 1 }
+        },
+        "required": ["search"]
+      }
+    },
+    {
+      "name": "usage",
+      "description": "Get remaining API credits and concurrency for the current account.",
+      "method": "GET",
+      "path": "/usage",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

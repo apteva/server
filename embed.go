@@ -34,6 +34,36 @@ var integrationsUIEmbeddedFS fs.FS = func() fs.FS {
 	return sub
 }()
 
+// Integration catalog (the *.json templates that drive auth, tools,
+// webhooks, health_check) baked into the binary. Pre-v0.13.1 the
+// catalog was *only* on disk: downloaded from apteva/integrations@main
+// at first boot, then cached forever in ~/.apteva/integrations/. So
+// `apteva update` shipped a fresh server but operators kept seeing
+// the OLD catalog (e.g. without health_check) because the JSONs on
+// disk had never been refreshed. Embedding the catalog makes every
+// release self-contained: binary version === catalog version,
+// always. build-local.sh + release.yml sync
+// integrations/src/apps/*.json into server/integrations-catalog/
+// before go build.
+//
+// Empty by default — the embed directive doesn't fail when the dir
+// doesn't exist or is empty. The catalog loader handles the empty
+// case by falling through to the legacy on-disk / GitHub paths.
+//
+//go:embed all:integrations-catalog
+var integrationsCatalogFS embed.FS
+
+// integrationsCatalogEmbeddedFS exposes the embed root rooted at
+// `<slug>.json` so AppCatalog.LoadFromFS can iterate it as a
+// flat directory of JSON files (mirrors AppCatalog.LoadFromDir).
+var integrationsCatalogEmbeddedFS fs.FS = func() fs.FS {
+	sub, err := fs.Sub(integrationsCatalogFS, "integrations-catalog")
+	if err != nil {
+		return integrationsCatalogFS
+	}
+	return sub
+}()
+
 // dashboardHandler serves the embedded dashboard with SPA fallback.
 func dashboardHandler() http.Handler {
 	sub, _ := fs.Sub(dashboardFS, "dashboard")

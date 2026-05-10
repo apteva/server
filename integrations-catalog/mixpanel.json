@@ -1,0 +1,95 @@
+{
+  "slug": "mixpanel",
+  "name": "Mixpanel",
+  "description": "MCP server for Mixpanel - product analytics, event tracking, user profiles, funnels",
+  "logo": "https://www.google.com/s2/favicons?domain=mixpanel.com&sz=128",
+  "categories": ["analytics", "product-analytics", "events", "tracking"],
+  "base_url": "https://api.mixpanel.com",
+  "auth": {
+    "types": ["basic"],
+    "headers": { "Authorization": "Basic {{basic}}" },
+    "credential_fields": [
+      { "name": "projectToken", "label": "Project Token" },
+      { "name": "serviceAccountUsername", "label": "Service Account Username" },
+      { "name": "serviceAccountSecret", "label": "Service Account Secret" },
+      { "name": "projectId", "label": "Project ID" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "track_event",
+      "description": "Track a single event",
+      "method": "POST",
+      "path": "/track",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event": { "type": "string" },
+          "properties": { "type": "object" }
+        },
+        "required": ["event"]
+      }
+    },
+    {
+      "name": "import_events",
+      "description": "Import historical events (requires service account)",
+      "method": "POST",
+      "path": "/import",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "events": { "type": "array" }
+        },
+        "required": ["project_id", "events"]
+      }
+    },
+    {
+      "name": "engage_user",
+      "description": "Set or update a user profile",
+      "method": "POST",
+      "path": "/engage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "distinct_id": { "type": "string" },
+          "set": { "type": "object" },
+          "set_once": { "type": "object" },
+          "increment": { "type": "object" }
+        },
+        "required": ["distinct_id"]
+      }
+    },
+    {
+      "name": "query_events",
+      "description": "Query raw event data via Export API",
+      "method": "GET",
+      "path": "https://data.mixpanel.com/api/2.0/export",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from_date": { "type": "string" },
+          "to_date": { "type": "string" },
+          "event": { "type": "array" }
+        },
+        "required": ["from_date", "to_date"]
+      }
+    },
+    {
+      "name": "query_segmentation",
+      "description": "Query event segmentation",
+      "method": "GET",
+      "path": "https://mixpanel.com/api/2.0/segmentation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event": { "type": "string" },
+          "from_date": { "type": "string" },
+          "to_date": { "type": "string" },
+          "on": { "type": "string" }
+        },
+        "required": ["event", "from_date", "to_date"]
+      }
+    }
+  ]
+}

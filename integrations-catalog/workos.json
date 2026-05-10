@@ -1,0 +1,123 @@
+{
+  "slug": "workos",
+  "name": "WorkOS",
+  "description": "MCP server for WorkOS - SSO, directory sync, organizations, users, audit logs",
+  "logo": "https://www.google.com/s2/favicons?domain=workos.com&sz=128",
+  "categories": ["auth", "identity", "sso", "enterprise"],
+  "base_url": "https://api.workos.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Key" },
+      { "name": "clientId", "label": "Client ID" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_organizations",
+      "description": "List organizations",
+      "method": "GET",
+      "path": "/organizations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domains": { "type": "array" },
+          "limit": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "create_organization",
+      "description": "Create an organization",
+      "method": "POST",
+      "path": "/organizations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "domains": { "type": "array" },
+          "domain_data": { "type": "array" }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "list_users",
+      "description": "List users (User Management)",
+      "method": "GET",
+      "path": "/user_management/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string" },
+          "organization_id": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "Get a user",
+      "method": "GET",
+      "path": "/user_management/users/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "authenticate_with_code",
+      "description": "Exchange an auth code for a session",
+      "method": "POST",
+      "path": "/user_management/authenticate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "client_id": { "type": "string" },
+          "client_secret": { "type": "string" },
+          "grant_type": { "type": "string" },
+          "code": { "type": "string" }
+        },
+        "required": ["client_id", "client_secret", "grant_type", "code"]
+      }
+    },
+    {
+      "name": "list_directories",
+      "description": "List Directory Sync directories",
+      "method": "GET",
+      "path": "/directories",
+      "input_schema": {
+        "type": "object",
+        "properties": { "organization_id": { "type": "string" } }
+      }
+    },
+    {
+      "name": "list_directory_users",
+      "description": "List users from a directory",
+      "method": "GET",
+      "path": "/directory_users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "directory": { "type": "string" },
+          "group": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "send_audit_log_event",
+      "description": "Send an audit log event",
+      "method": "POST",
+      "path": "/audit_logs/events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization_id": { "type": "string" },
+          "event": { "type": "object" }
+        },
+        "required": ["organization_id", "event"]
+      }
+    }
+  ]
+}

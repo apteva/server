@@ -1,0 +1,1246 @@
+{
+  "slug": "core-video",
+  "name": "CoreVideo",
+  "description": "Complete media processing and file management toolkit - upload, browse, search, and organize files and folders, plus video/audio processing: extract clips, screenshots, audio tracks, compress, resize, create GIFs, burn subtitles, probe metadata, download from any platform",
+  "logo": "https://cdn-icons-png.flaticon.com/512/2991/2991112.png",
+  "categories": [
+    "video",
+    "audio",
+    "media",
+    "processing",
+    "ffmpeg",
+    "storage",
+    "files",
+    "folders",
+    "extract",
+    "compress",
+    "resize",
+    "thumbnails",
+    "clips",
+    "download"
+  ],
+  "base_url": "https://api.omnikit.co",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your Media API key for accessing the /media/* endpoints. The project is determined automatically from the key."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_files",
+      "description": "List files and folders for a project with filtering by type, folder, and search with pagination",
+      "method": "GET",
+      "path": "/media/files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket_id": {
+            "type": "integer",
+            "description": "Filter by storage bucket"
+          },
+          "folder_id": {
+            "type": "integer",
+            "description": "Filter by folder"
+          },
+          "file_type": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video",
+              "audio",
+              "document",
+              "archive",
+              "other"
+            ],
+            "description": "Filter by file type"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search in file names and descriptions"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50,
+            "description": "Number of files to return"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_file",
+      "description": "Get detailed metadata about a file including size, dimensions, duration, mime type, and storage info",
+      "method": "GET",
+      "path": "/media/files/{file_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the file to get info for"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "upload_file",
+      "description": "Upload a file to storage. Accepts base64-encoded file data. Automatically extracts metadata and generates thumbnails for video/image files.",
+      "method": "POST",
+      "path": "/media/files/upload",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_name": {
+            "type": "string",
+            "description": "Name of the file including extension"
+          },
+          "file_data": {
+            "type": "string",
+            "description": "File data as base64-encoded string"
+          },
+          "mime_type": {
+            "type": "string",
+            "description": "MIME type of the file (e.g., 'video/mp4', 'audio/mp3')"
+          },
+          "folder_id": {
+            "type": "integer",
+            "description": "Folder ID to store file in"
+          },
+          "bucket_id": {
+            "type": "integer",
+            "description": "Storage bucket ID (uses default if not provided)"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "File access level"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags for organizing the file"
+          },
+          "auto_transcribe": {
+            "type": "boolean",
+            "default": true,
+            "description": "Auto-generate transcripts for audio/video files"
+          }
+        },
+        "required": [
+          "file_name",
+          "file_data",
+          "mime_type"
+        ]
+      }
+    },
+    {
+      "name": "download_file",
+      "description": "Get a download URL for a file in storage",
+      "method": "GET",
+      "path": "/media/files/{file_id}/download",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the file to download"
+          },
+          "inline": {
+            "type": "boolean",
+            "default": false,
+            "description": "Return inline content instead of download URL"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "update_file",
+      "description": "Update file metadata - name, description, tags, access level, or move to different folder",
+      "method": "PUT",
+      "path": "/media/files/{file_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the file to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New file name"
+          },
+          "description": {
+            "type": "string",
+            "description": "New description"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Updated tags"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private",
+              "shared"
+            ],
+            "description": "Update access level"
+          },
+          "folder_id": {
+            "type": "integer",
+            "description": "Move to a different folder"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_file",
+      "description": "Delete a file from storage permanently",
+      "method": "DELETE",
+      "path": "/media/files/{file_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the file to delete"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "search_files",
+      "description": "Advanced search and filter files by type, size, dimensions, duration, tags, dates, and more with sorting and pagination",
+      "method": "GET",
+      "path": "/media/files/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string",
+            "description": "Search in file names and descriptions"
+          },
+          "file_type": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video",
+              "audio",
+              "document",
+              "archive",
+              "other"
+            ],
+            "description": "Filter by file type"
+          },
+          "mime_type": {
+            "type": "string",
+            "description": "Filter by MIME type (e.g., 'video/mp4')"
+          },
+          "extension": {
+            "type": "string",
+            "description": "Filter by file extension (e.g., 'mp4', 'jpg')"
+          },
+          "folder_id": {
+            "type": "integer",
+            "description": "Filter by folder ID"
+          },
+          "bucket_id": {
+            "type": "integer",
+            "description": "Filter by bucket ID"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private",
+              "restricted"
+            ],
+            "description": "Filter by access level"
+          },
+          "min_size": {
+            "type": "integer",
+            "description": "Minimum file size in bytes"
+          },
+          "max_size": {
+            "type": "integer",
+            "description": "Maximum file size in bytes"
+          },
+          "min_duration": {
+            "type": "number",
+            "description": "Minimum duration in seconds (video/audio)"
+          },
+          "max_duration": {
+            "type": "number",
+            "description": "Maximum duration in seconds (video/audio)"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter by tags (any match)"
+          },
+          "sort_by": {
+            "type": "string",
+            "enum": [
+              "name",
+              "size_bytes",
+              "created_at",
+              "file_type",
+              "duration"
+            ],
+            "default": "created_at",
+            "description": "Sort field"
+          },
+          "sort_order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc",
+            "description": "Sort direction"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50,
+            "description": "Number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_thumbnails",
+      "description": "List all thumbnails for a video file with timing information and URLs",
+      "method": "GET",
+      "path": "/media/files/{file_id}/thumbnails",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the video file"
+          },
+          "include_urls": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include thumbnail URLs"
+          },
+          "include_poster": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include poster frame"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "create_folder",
+      "description": "Create a new folder for organizing media files",
+      "method": "POST",
+      "path": "/media/folders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Folder name"
+          },
+          "parent_folder_id": {
+            "type": "integer",
+            "description": "Parent folder ID for nested folders"
+          },
+          "description": {
+            "type": "string",
+            "description": "Folder description"
+          },
+          "bucket_id": {
+            "type": "integer",
+            "description": "Storage bucket ID"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_folders",
+      "description": "List folders in project storage with hierarchy support",
+      "method": "GET",
+      "path": "/media/folders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket_id": {
+            "type": "integer",
+            "description": "Filter by bucket ID"
+          },
+          "parent_folder_id": {
+            "type": "integer",
+            "description": "Parent folder ID (omit for root folders)"
+          },
+          "include_subfolders": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include child folders"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of folders to return"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_folder",
+      "description": "Update folder name, description, or move to different parent",
+      "method": "PUT",
+      "path": "/media/folders/{folder_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": "integer",
+            "description": "ID of the folder to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New folder name"
+          },
+          "description": {
+            "type": "string",
+            "description": "New description"
+          },
+          "parent_folder_id": {
+            "type": "integer",
+            "description": "Move to different parent folder"
+          }
+        },
+        "required": [
+          "folder_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_folder",
+      "description": "Delete a folder and optionally all its contents recursively",
+      "method": "DELETE",
+      "path": "/media/folders/{folder_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": "integer",
+            "description": "ID of the folder to delete"
+          },
+          "recursive": {
+            "type": "boolean",
+            "default": false,
+            "description": "Delete all contents recursively"
+          }
+        },
+        "required": [
+          "folder_id"
+        ]
+      }
+    },
+    {
+      "name": "extract_screenshot",
+      "description": "Extract high-quality screenshot(s) from a video file at specific timestamps. Saves as individual image files in storage.",
+      "method": "POST",
+      "path": "/media/extract-screenshots",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the video file to extract screenshots from"
+          },
+          "timestamps": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Array of timestamps in seconds to extract frames at (e.g., [2.5, 10, 30])"
+          },
+          "interval": {
+            "type": "number",
+            "description": "Extract a frame every N seconds (alternative to timestamps)"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Extract N evenly-spaced frames across the video (alternative to timestamps)"
+          },
+          "percentage": {
+            "type": "boolean",
+            "default": false,
+            "description": "Extract frames at 0%, 25%, 50%, 75%, 100% of video duration"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "jpg",
+              "png",
+              "webp"
+            ],
+            "default": "png",
+            "description": "Image output format (png recommended for best quality)"
+          },
+          "output_size": {
+            "type": "string",
+            "description": "Output size: 'original', 'thumbnail' (320px), 'preview' (640px), 'hd' (1280px), 'fullhd' (1920px), '4k' (3840px), or custom width like '800'"
+          },
+          "quality": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31,
+            "default": 1,
+            "description": "Image quality (1-31, 1 = highest quality)"
+          },
+          "create_grid": {
+            "type": "boolean",
+            "default": false,
+            "description": "Also create a thumbnail grid image combining all screenshots"
+          },
+          "folder_id": {
+            "type": "integer",
+            "description": "Optional folder ID to save screenshots to"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "Access level for created files"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "extract_clip",
+      "description": "Extract a segment/clip from a video or audio file at specific time range. Supports re-encoding or fast copy mode.",
+      "method": "POST",
+      "path": "/media/extract-clip",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the video/audio file to extract clip from"
+          },
+          "start_time": {
+            "type": "number",
+            "default": 0,
+            "description": "Start time in seconds"
+          },
+          "end_time": {
+            "type": "number",
+            "description": "End time in seconds (required if duration not provided)"
+          },
+          "duration": {
+            "type": "number",
+            "description": "Duration in seconds (alternative to end_time)"
+          },
+          "output_format": {
+            "type": "string",
+            "description": "Output format: mp4, webm, mov, mp3, wav, etc. (defaults to source format)"
+          },
+          "include_audio": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include audio track in output"
+          },
+          "include_video": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include video track in output"
+          },
+          "bitrate": {
+            "type": "string",
+            "description": "Video bitrate (e.g., '2M', '5M')"
+          },
+          "audio_bitrate": {
+            "type": "string",
+            "description": "Audio bitrate (e.g., '128k', '256k')"
+          },
+          "fast_copy": {
+            "type": "boolean",
+            "default": true,
+            "description": "Use fast copy mode (no re-encoding, instant but keyframe-aligned cuts). Set to false for frame-precise cuts."
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "Access level for created file"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "extract_audio",
+      "description": "Extract audio track from a video file and save as separate audio file (mp3, wav, aac, etc.)",
+      "method": "POST",
+      "path": "/media/extract-audio",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the video file to extract audio from"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "mp3",
+              "wav",
+              "aac",
+              "flac",
+              "ogg"
+            ],
+            "default": "mp3",
+            "description": "Audio output format"
+          },
+          "bitrate": {
+            "type": "string",
+            "default": "192k",
+            "description": "Audio bitrate (e.g., '128k', '192k', '320k')"
+          },
+          "sample_rate": {
+            "type": "integer",
+            "description": "Sample rate in Hz (e.g., 44100, 48000)"
+          },
+          "channels": {
+            "type": "integer",
+            "enum": [
+              1,
+              2
+            ],
+            "description": "Number of audio channels (1=mono, 2=stereo)"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "Access level for created file"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "compress",
+      "description": "Compress video to reduce file size while maintaining quality. Supports various quality presets and target file sizes.",
+      "method": "POST",
+      "path": "/media/compress-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the video file to compress"
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "very_high"
+            ],
+            "default": "medium",
+            "description": "Quality preset - affects bitrate and file size"
+          },
+          "target_size_mb": {
+            "type": "number",
+            "description": "Target file size in MB (overrides quality preset)"
+          },
+          "max_bitrate": {
+            "type": "string",
+            "description": "Maximum video bitrate (e.g., '2M', '5M')"
+          },
+          "resolution": {
+            "type": "string",
+            "description": "Target resolution (e.g., '1280x720', '1920x1080') - downscales if larger"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "mp4",
+              "webm"
+            ],
+            "default": "mp4",
+            "description": "Output format"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "Access level for created file"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "resize",
+      "description": "Resize video to different resolution or aspect ratio. Supports scaling, cropping, padding, and social media presets.",
+      "method": "POST",
+      "path": "/media/resize-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the video file to resize"
+          },
+          "width": {
+            "type": "integer",
+            "description": "Target width in pixels"
+          },
+          "height": {
+            "type": "integer",
+            "description": "Target height in pixels"
+          },
+          "resolution": {
+            "type": "string",
+            "description": "Target resolution as string (e.g., '1280x720', '1920x1080')"
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "9:16",
+              "4:3",
+              "1:1"
+            ],
+            "description": "Target aspect ratio"
+          },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "social-vertical",
+              "social-square",
+              "social-landscape",
+              "youtube-shorts",
+              "tiktok",
+              "instagram-reel",
+              "instagram-square",
+              "reel-left",
+              "reel-center",
+              "reel-right"
+            ],
+            "description": "Quick preset: social formats or reel extraction (reel-left/center/right extracts vertical slice from landscape)"
+          },
+          "crop_region": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "description": "X position (pixels or '50%')"
+              },
+              "y": {
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "description": "Y position (pixels or '0%')"
+              },
+              "width": {
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "description": "Crop width (pixels or '33%')"
+              },
+              "height": {
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "description": "Crop height (pixels or '100%')"
+              }
+            },
+            "description": "Precise crop region for custom extraction (overrides crop_mode)"
+          },
+          "crop_mode": {
+            "type": "string",
+            "enum": [
+              "center",
+              "top",
+              "bottom",
+              "left",
+              "right"
+            ],
+            "default": "center",
+            "description": "Where to crop from when using fit_mode=crop"
+          },
+          "fit_mode": {
+            "type": "string",
+            "enum": [
+              "cover",
+              "crop",
+              "contain",
+              "pad",
+              "fill",
+              "stretch"
+            ],
+            "default": "cover",
+            "description": "How to fit: cover/crop (cut edges), contain/pad (letterbox), fill/stretch (distort)"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "mp4",
+              "webm",
+              "mov"
+            ],
+            "default": "mp4",
+            "description": "Output format"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "Access level for created file"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "create_gif",
+      "description": "Convert a video segment to an animated GIF. Perfect for creating shareable clips and previews.",
+      "method": "POST",
+      "path": "/media/create-gif",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the video file to convert"
+          },
+          "start_time": {
+            "type": "number",
+            "default": 0,
+            "description": "Start time in seconds"
+          },
+          "duration": {
+            "type": "number",
+            "default": 5,
+            "description": "Duration in seconds (max recommended: 10s)"
+          },
+          "width": {
+            "type": "integer",
+            "default": 480,
+            "description": "GIF width in pixels (height auto-calculated)"
+          },
+          "fps": {
+            "type": "integer",
+            "default": 10,
+            "description": "Frames per second (lower = smaller file)"
+          },
+          "loop": {
+            "type": "integer",
+            "default": 0,
+            "description": "Number of loops (0 = infinite)"
+          },
+          "optimize": {
+            "type": "boolean",
+            "default": true,
+            "description": "Apply palette optimization for smaller file size"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "Access level for created file"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "burn_subtitles",
+      "description": "Permanently burn subtitles/captions into video. Supports SRT, VTT, and ASS subtitle formats.",
+      "method": "POST",
+      "path": "/media/burn-subtitles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the video file"
+          },
+          "subtitle_file_id": {
+            "type": "integer",
+            "description": "ID of the subtitle file (SRT, VTT, ASS)"
+          },
+          "subtitle_text": {
+            "type": "string",
+            "description": "Raw subtitle content in SRT format (alternative to subtitle_file_id)"
+          },
+          "font_size": {
+            "type": "integer",
+            "default": 24,
+            "description": "Subtitle font size"
+          },
+          "font_color": {
+            "type": "string",
+            "default": "white",
+            "description": "Subtitle font color (name or hex)"
+          },
+          "outline_color": {
+            "type": "string",
+            "default": "black",
+            "description": "Subtitle outline color"
+          },
+          "position": {
+            "type": "string",
+            "enum": [
+              "bottom",
+              "top",
+              "center"
+            ],
+            "default": "bottom",
+            "description": "Subtitle position"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "mp4",
+              "webm",
+              "mov"
+            ],
+            "default": "mp4",
+            "description": "Output format"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "Access level for created file"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "create_grid",
+      "description": "Combine multiple videos into a single layout (side-by-side, grid, picture-in-picture)",
+      "method": "POST",
+      "path": "/media/create-video-grid",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Array of video file IDs to combine"
+          },
+          "layout": {
+            "type": "string",
+            "enum": [
+              "2x1",
+              "1x2",
+              "2x2",
+              "3x3",
+              "pip"
+            ],
+            "default": "2x2",
+            "description": "Grid layout: 2x1 (side-by-side), 1x2 (stacked), 2x2 (quad), pip (picture-in-picture)"
+          },
+          "output_resolution": {
+            "type": "string",
+            "default": "1920x1080",
+            "description": "Output resolution (e.g., '1920x1080', '1280x720')"
+          },
+          "pip_position": {
+            "type": "string",
+            "enum": [
+              "top-left",
+              "top-right",
+              "bottom-left",
+              "bottom-right"
+            ],
+            "default": "bottom-right",
+            "description": "Position of PiP overlay (only for pip layout)"
+          },
+          "pip_size": {
+            "type": "number",
+            "default": 0.25,
+            "description": "Size of PiP as fraction of main video (0.1-0.5)"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "mp4",
+              "webm"
+            ],
+            "default": "mp4",
+            "description": "Output format"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "Access level for created file"
+          }
+        },
+        "required": [
+          "file_ids"
+        ]
+      }
+    },
+    {
+      "name": "probe",
+      "description": "Extract detailed metadata from a media file (duration, resolution, codec, bitrate, frame rate, audio channels, etc.)",
+      "method": "POST",
+      "path": "/media/probe-media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the file to probe"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "download_media",
+      "description": "Download video or audio from any platform (YouTube, Vimeo, TikTok, Twitter, Instagram, Soundgasm, etc.) and save directly to storage",
+      "method": "POST",
+      "path": "/media/download-media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL of the video or audio to download"
+          },
+          "folder_id": {
+            "type": "integer",
+            "description": "Optional folder ID to organize the downloaded file"
+          },
+          "bucket_id": {
+            "type": "integer",
+            "description": "Optional storage bucket ID (uses default if not provided)"
+          },
+          "format_type": {
+            "type": "string",
+            "enum": [
+              "audio",
+              "video",
+              "best"
+            ],
+            "default": "best",
+            "description": "Type of media to download: 'audio' extracts audio only, 'video' downloads video with audio, 'best' selects highest quality"
+          },
+          "quality": {
+            "type": "string",
+            "description": "Quality: '1080p', '720p', '480p' for video OR '320', '192', '128' (kbps) for audio"
+          },
+          "format_id": {
+            "type": "string",
+            "description": "Specific format ID from extract-media-info (overrides quality)"
+          },
+          "file_name": {
+            "type": "string",
+            "description": "Custom filename (uses video title if not provided)"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "File access level"
+          },
+          "skip_thumbnails": {
+            "type": "boolean",
+            "default": false,
+            "description": "Skip automatic thumbnail generation"
+          },
+          "auto_transcribe": {
+            "type": "boolean",
+            "default": true,
+            "description": "Auto-generate transcripts for audio content"
+          },
+          "description": {
+            "type": "string",
+            "description": "File description"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags for file organization"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "extract_media_info",
+      "description": "Extract metadata and available formats from any video/audio URL without downloading. Returns title, duration, available qualities, and format details.",
+      "method": "POST",
+      "path": "/media/extract-media-info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL of the video or audio to extract info from"
+          },
+          "format_type": {
+            "type": "string",
+            "enum": [
+              "audio",
+              "video",
+              "all"
+            ],
+            "default": "all",
+            "description": "Type of formats to return"
+          },
+          "include_formats": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include detailed format information (codecs, bitrates, resolutions)"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "extract_media_metadata",
+      "description": "Extract and persist media metadata (duration, resolution, codec, bitrate) for a file already in storage. Updates the file record with extracted info.",
+      "method": "POST",
+      "path": "/media/extract-media-metadata",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the file to extract metadata from"
+          },
+          "file_type": {
+            "type": "string",
+            "enum": [
+              "video",
+              "audio"
+            ],
+            "description": "Type of file (video or audio)"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    }
+  ]
+}

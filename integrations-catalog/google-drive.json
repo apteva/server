@@ -1,0 +1,682 @@
+{
+  "slug": "google-drive",
+  "name": "Google Drive",
+  "description": "MCP server for Google Drive file storage and management operations",
+  "logo": "https://upload.wikimedia.org/wikipedia/commons/1/12/Google_Drive_icon_%282020%29.svg",
+  "categories": [
+    "google-drive",
+    "file-storage",
+    "cloud-storage",
+    "documents",
+    "sharing"
+  ],
+  "base_url": "https://www.googleapis.com",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "accessToken"
+      },
+      {
+        "name": "refreshToken",
+        "label": "refreshToken"
+      },
+      {
+        "name": "expiresIn",
+        "label": "expiresIn"
+      },
+      {
+        "name": "tokenType",
+        "label": "tokenType"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+      "token_url": "https://oauth2.googleapis.com/token",
+      "scopes": [
+        "https://www.googleapis.com/auth/drive",
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/drive.metadata.readonly"
+      ],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "access_type": "offline",
+        "prompt": "consent",
+        "include_granted_scopes": "true"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "list_files",
+      "description": "List files in Google Drive with optional folder filter and sorting. Call with no parameters to list recent files, or use 'q' to filter.",
+      "method": "GET",
+      "path": "/drive/v3/files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search query using Drive query syntax. Examples: \"'FOLDER_ID' in parents\" to list folder contents, \"mimeType='application/vnd.google-apps.spreadsheet'\" to find sheets, \"name contains 'report'\" to search by name, \"modifiedTime > '2025-01-01'\" for recent files, \"trashed=true\" to list trashed files"
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "Maximum number of files to return (1-1000). Default 100."
+          },
+          "orderBy": {
+            "type": "string",
+            "description": "Sort order. Options: createdTime, folder, modifiedByMeTime, modifiedTime, name, quotaBytesUsed, recency, sharedWithMeTime, starred, viewedByMeTime. Append ' desc' for descending."
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Page token for pagination from a previous response"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields to include. Example: 'nextPageToken,files(id,name,mimeType,size,modifiedTime,webViewLink)'. Omit for default fields."
+          },
+          "spaces": {
+            "type": "string",
+            "description": "Spaces to search: 'drive' (default) or 'appDataFolder'"
+          },
+          "corpora": {
+            "type": "string",
+            "description": "Source of files. 'user' (default), 'domain', 'drive' (specific shared drive — requires driveId), or 'allDrives' (requires includeItemsFromAllDrives=true and supportsAllDrives=true).",
+            "enum": ["user", "domain", "drive", "allDrives"]
+          },
+          "driveId": {
+            "type": "string",
+            "description": "ID of the shared drive to search (only when corpora='drive')"
+          },
+          "includeItemsFromAllDrives": {
+            "type": "boolean",
+            "description": "Include files from shared drives. Must set corpora='allDrives' and supportsAllDrives=true when using this."
+          },
+          "supportsAllDrives": {
+            "type": "boolean",
+            "description": "Whether the request supports shared drives. Required when accessing shared drive files."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_file",
+      "description": "Get metadata for a specific file by ID. Returns file name, MIME type, size, sharing links (webViewLink for browser, webContentLink for direct download), owners, and permissions.",
+      "method": "GET",
+      "path": "/drive/v3/files/{fileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "ID of the file"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields to return. Example: 'id,name,mimeType,size,modifiedTime,webViewLink,webContentLink,owners,description'. Omit for default fields."
+          },
+          "supportsAllDrives": {
+            "type": "boolean",
+            "description": "Set to true to access files in shared drives"
+          }
+        },
+        "required": [
+          "fileId"
+        ]
+      }
+    },
+    {
+      "name": "download_file",
+      "description": "Download the binary content of a non-Google Workspace file (images, audio, video, PDFs, etc.). For Google Workspace files (Docs, Sheets, Slides), use export_file instead.",
+      "method": "GET",
+      "path": "/drive/v3/files/{fileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "ID of the file to download"
+          },
+          "alt": {
+            "type": "string",
+            "description": "Must be 'media' to download file content",
+            "default": "media"
+          }
+        },
+        "required": [
+          "fileId"
+        ]
+      }
+    },
+    {
+      "name": "search_files",
+      "description": "Search for files in Google Drive by name, content, type, or other criteria. Returns file IDs, names, links, and metadata.",
+      "method": "GET",
+      "path": "/drive/v3/files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Drive search query. Examples: \"name contains 'budget'\", \"fullText contains 'quarterly'\", \"mimeType='application/vnd.google-apps.spreadsheet'\", \"mimeType contains 'audio/'\", \"mimeType contains 'video/'\", \"mimeType='application/pdf'\", \"modifiedTime > '2025-01-01T00:00:00'\", \"'me' in owners\", \"sharedWithMe=true\", \"starred=true\". Combine with 'and'/'or'."
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "Max results (1-1000). Default 50."
+          },
+          "orderBy": {
+            "type": "string",
+            "description": "Sort order. Example: 'modifiedTime desc', 'name'"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields to return. Example: 'files(id,name,mimeType,size,modifiedTime,webViewLink,webContentLink)'. Omit for default fields."
+          }
+        },
+        "required": [
+          "q"
+        ]
+      }
+    },
+    {
+      "name": "create_folder",
+      "description": "Create a new folder in Google Drive",
+      "method": "POST",
+      "path": "/drive/v3/files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the folder"
+          },
+          "parents": {
+            "type": "array",
+            "description": "Parent folder IDs",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "Must be application/vnd.google-apps.folder",
+            "default": "application/vnd.google-apps.folder"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_file",
+      "description": "Update a file's metadata (name, description, starred, etc.) and optionally its content",
+      "method": "PATCH",
+      "path": "/drive/v3/files/{fileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "ID of the file to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New name for the file"
+          },
+          "description": {
+            "type": "string",
+            "description": "New description for the file"
+          },
+          "starred": {
+            "type": "boolean",
+            "description": "Whether to star the file"
+          },
+          "trashed": {
+            "type": "boolean",
+            "description": "Whether to move the file to trash (true) or restore it (false)"
+          },
+          "addParents": {
+            "type": "string",
+            "description": "Comma-separated parent folder IDs to add"
+          },
+          "removeParents": {
+            "type": "string",
+            "description": "Comma-separated parent folder IDs to remove"
+          }
+        },
+        "required": [
+          "fileId"
+        ]
+      }
+    },
+    {
+      "name": "share_file",
+      "description": "Share a file or folder by creating a permission. Use type='anyone' for public link sharing.",
+      "method": "POST",
+      "path": "/drive/v3/files/{fileId}/permissions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "ID of the file or folder to share"
+          },
+          "type": {
+            "type": "string",
+            "description": "Permission type",
+            "enum": [
+              "user",
+              "group",
+              "domain",
+              "anyone"
+            ]
+          },
+          "role": {
+            "type": "string",
+            "description": "Permission role",
+            "enum": [
+              "reader",
+              "writer",
+              "commenter",
+              "owner"
+            ]
+          },
+          "emailAddress": {
+            "type": "string",
+            "description": "Email for user/group type"
+          },
+          "sendNotificationEmail": {
+            "type": "boolean",
+            "description": "Send notification email",
+            "default": true
+          }
+        },
+        "required": [
+          "fileId",
+          "type",
+          "role"
+        ]
+      }
+    },
+    {
+      "name": "list_permissions",
+      "description": "List all permissions (who has access) for a file or folder",
+      "method": "GET",
+      "path": "/drive/v3/files/{fileId}/permissions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "ID of the file or folder"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields to return",
+            "default": "permissions(id,type,role,emailAddress,displayName,domain,expirationTime,deleted)"
+          },
+          "supportsAllDrives": {
+            "type": "boolean",
+            "description": "Support shared drives",
+            "default": true
+          }
+        },
+        "required": [
+          "fileId"
+        ]
+      }
+    },
+    {
+      "name": "update_permission",
+      "description": "Update an existing permission on a file (e.g. change role from reader to writer)",
+      "method": "PATCH",
+      "path": "/drive/v3/files/{fileId}/permissions/{permissionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "ID of the file or folder"
+          },
+          "permissionId": {
+            "type": "string",
+            "description": "ID of the permission to update"
+          },
+          "role": {
+            "type": "string",
+            "description": "New role",
+            "enum": [
+              "reader",
+              "writer",
+              "commenter",
+              "owner"
+            ]
+          },
+          "expirationTime": {
+            "type": "string",
+            "description": "Optional expiration time in RFC 3339 format"
+          }
+        },
+        "required": [
+          "fileId",
+          "permissionId",
+          "role"
+        ]
+      }
+    },
+    {
+      "name": "delete_permission",
+      "description": "Remove a specific permission from a file (revoke someone's access)",
+      "method": "DELETE",
+      "path": "/drive/v3/files/{fileId}/permissions/{permissionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "ID of the file or folder"
+          },
+          "permissionId": {
+            "type": "string",
+            "description": "ID of the permission to delete"
+          }
+        },
+        "required": [
+          "fileId",
+          "permissionId"
+        ]
+      }
+    },
+    {
+      "name": "trash_file",
+      "description": "Move a file or folder to the trash (can be restored later, unlike delete_file which is permanent)",
+      "method": "PATCH",
+      "path": "/drive/v3/files/{fileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "ID of the file or folder to trash"
+          },
+          "trashed": {
+            "type": "boolean",
+            "description": "Set to true to trash, false to restore from trash",
+            "default": true
+          }
+        },
+        "required": [
+          "fileId"
+        ]
+      }
+    },
+    {
+      "name": "empty_trash",
+      "description": "Permanently delete all files in the user's trash",
+      "method": "DELETE",
+      "path": "/drive/v3/files/trash",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "delete_file",
+      "description": "Permanently delete a file or folder from Google Drive (skips trash, cannot be undone). Use trash_file for recoverable deletion.",
+      "method": "DELETE",
+      "path": "/drive/v3/files/{fileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "ID of the file or folder to permanently delete"
+          }
+        },
+        "required": [
+          "fileId"
+        ]
+      }
+    },
+    {
+      "name": "copy_file",
+      "description": "Create a copy of a file in Google Drive",
+      "method": "POST",
+      "path": "/drive/v3/files/{fileId}/copy",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "ID of the file to copy"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name for the copy"
+          },
+          "parents": {
+            "type": "array",
+            "description": "Parent folder IDs for the copy",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "fileId"
+        ]
+      }
+    },
+    {
+      "name": "move_file",
+      "description": "Move a file to a different folder by updating its parents",
+      "method": "PATCH",
+      "path": "/drive/v3/files/{fileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "ID of the file to move"
+          },
+          "addParents": {
+            "type": "string",
+            "description": "Comma-separated list of parent folder IDs to add"
+          },
+          "removeParents": {
+            "type": "string",
+            "description": "Comma-separated list of parent folder IDs to remove"
+          }
+        },
+        "required": [
+          "fileId",
+          "addParents"
+        ]
+      }
+    },
+    {
+      "name": "rename_file",
+      "description": "Rename a file or folder in Google Drive",
+      "method": "PATCH",
+      "path": "/drive/v3/files/{fileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "ID of the file to rename"
+          },
+          "name": {
+            "type": "string",
+            "description": "New name for the file"
+          }
+        },
+        "required": [
+          "fileId",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "export_file",
+      "description": "Export a Google Workspace file (Doc, Sheet, Slides) to a different format like PDF, CSV, plain text, etc.",
+      "method": "GET",
+      "path": "/drive/v3/files/{fileId}/export",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "ID of the Google Workspace file to export"
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "Target MIME type. For Docs: text/plain, application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document. For Sheets: text/csv, application/pdf, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet. For Slides: application/pdf, application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          }
+        },
+        "required": [
+          "fileId",
+          "mimeType"
+        ]
+      }
+    },
+    {
+      "name": "create_comment",
+      "description": "Add a comment to a file in Google Drive",
+      "method": "POST",
+      "path": "/drive/v3/files/{fileId}/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "ID of the file to comment on"
+          },
+          "content": {
+            "type": "string",
+            "description": "The text content of the comment"
+          },
+          "anchor": {
+            "type": "string",
+            "description": "Optional anchor region for the comment (JSON string)"
+          }
+        },
+        "required": [
+          "fileId",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "list_comments",
+      "description": "List all comments on a file",
+      "method": "GET",
+      "path": "/drive/v3/files/{fileId}/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "ID of the file"
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "Max comments to return (1-100)",
+            "default": 20,
+            "maximum": 100
+          },
+          "includeDeleted": {
+            "type": "boolean",
+            "description": "Include deleted comments",
+            "default": false
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields to return",
+            "default": "comments(id,content,author,createdTime,modifiedTime,resolved,replies)"
+          }
+        },
+        "required": [
+          "fileId"
+        ]
+      }
+    },
+    {
+      "name": "list_revisions",
+      "description": "List the revision history of a file (version history)",
+      "method": "GET",
+      "path": "/drive/v3/files/{fileId}/revisions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileId": {
+            "type": "string",
+            "description": "ID of the file"
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "Max revisions to return (1-1000)",
+            "default": 100,
+            "maximum": 1000
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields to return",
+            "default": "revisions(id,modifiedTime,lastModifyingUser,size,mimeType,keepForever)"
+          }
+        },
+        "required": [
+          "fileId"
+        ]
+      }
+    },
+    {
+      "name": "generate_file_ids",
+      "description": "Pre-allocate file IDs for uploads. Useful when you need the file ID before creating the file.",
+      "method": "GET",
+      "path": "/drive/v3/files/generateIds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "description": "Number of IDs to generate (1-1000)",
+            "default": 1,
+            "maximum": 1000
+          },
+          "space": {
+            "type": "string",
+            "description": "The space for the IDs",
+            "default": "drive"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_about",
+      "description": "Get information about the user's Google Drive (storage quota, user info)",
+      "method": "GET",
+      "path": "/drive/v3/about",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "type": "string",
+            "description": "Fields to include",
+            "default": "user,storageQuota,maxUploadSize"
+          }
+        }
+      }
+    }
+  ]
+}

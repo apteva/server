@@ -1,0 +1,221 @@
+{
+  "slug": "hackernews",
+  "name": "Hacker News",
+  "description": "Hacker News API - top, new, best stories, Ask HN, Show HN, jobs, item details, user profiles, and full-text search via Algolia",
+  "logo": "https://www.google.com/s2/favicons?domain=news.ycombinator.com&sz=128",
+  "categories": [
+    "news",
+    "tech",
+    "startups",
+    "hackernews",
+    "ycombinator",
+    "community"
+  ],
+  "base_url": "https://hacker-news.firebaseio.com/v0",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "top_stories",
+      "description": "Get the IDs of the current top stories on Hacker News (up to 500). Returns an array of item IDs sorted by ranking. Use hackernews-get-item to fetch details for each ID.",
+      "method": "GET",
+      "path": "/topstories.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "new_stories",
+      "description": "Get the IDs of the newest stories on Hacker News (up to 500). Returns an array of item IDs sorted by submission time (newest first).",
+      "method": "GET",
+      "path": "/newstories.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "best_stories",
+      "description": "Get the IDs of the best stories on Hacker News (up to 500). Returns an array of item IDs sorted by best ranking algorithm.",
+      "method": "GET",
+      "path": "/beststories.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "ask_stories",
+      "description": "Get the IDs of the latest Ask HN stories (up to 200).",
+      "method": "GET",
+      "path": "/askstories.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "show_stories",
+      "description": "Get the IDs of the latest Show HN stories (up to 200).",
+      "method": "GET",
+      "path": "/showstories.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "job_stories",
+      "description": "Get the IDs of the latest job postings on Hacker News (up to 200).",
+      "method": "GET",
+      "path": "/jobstories.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_item",
+      "description": "Get a specific Hacker News item by ID. Items can be stories, comments, jobs, Ask HNs, or polls. Returns title, url, score, by (author), time, descendants (comment count), kids (child comment IDs), text, and type.",
+      "method": "GET",
+      "path": "/item/{id}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "The item ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "Get a Hacker News user profile by username. Returns id, created (unix timestamp), karma, about (bio in HTML), and submitted (array of item IDs the user has posted).",
+      "method": "GET",
+      "path": "/user/{username}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Hacker News username (case-sensitive)"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "max_item",
+      "description": "Get the current largest item ID. Useful for polling — you can walk backward from this to discover new items.",
+      "method": "GET",
+      "path": "/maxitem.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "updates",
+      "description": "Get recently changed item IDs and user profiles. Returns { items: [...], profiles: [...] }. Useful for real-time tracking of updates.",
+      "method": "GET",
+      "path": "/updates.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "search",
+      "description": "Full-text search across Hacker News stories and comments via the Algolia API. Returns matching items with title, url, author, points, num_comments, and created_at. Sorted by relevance by default.",
+      "method": "GET",
+      "path": "/api/v1/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query text"
+          },
+          "tags": {
+            "type": "string",
+            "description": "Filter by type: story, comment, ask_hn, show_hn, front_page, poll. Combine with AND using comma, OR using parentheses: (story,poll),show_hn",
+            "default": "story"
+          },
+          "numericFilters": {
+            "type": "string",
+            "description": "Filter by numeric fields: created_at_i, points, num_comments. Examples: 'points>100', 'created_at_i>1609459200,points>50'"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number (0-indexed)",
+            "default": 0
+          },
+          "hitsPerPage": {
+            "type": "integer",
+            "description": "Results per page (max 1000)",
+            "default": 20
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "search_by_date",
+      "description": "Search Hacker News stories and comments sorted by date (newest first) via the Algolia API. Same parameters as search but returns results in reverse chronological order.",
+      "method": "GET",
+      "path": "/api/v1/search_by_date",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query text"
+          },
+          "tags": {
+            "type": "string",
+            "description": "Filter by type: story, comment, ask_hn, show_hn, front_page, poll",
+            "default": "story"
+          },
+          "numericFilters": {
+            "type": "string",
+            "description": "Filter by numeric fields: created_at_i, points, num_comments. Examples: 'points>100', 'created_at_i>1609459200,points>50'"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number (0-indexed)",
+            "default": 0
+          },
+          "hitsPerPage": {
+            "type": "integer",
+            "description": "Results per page (max 1000)",
+            "default": 20
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  ]
+}

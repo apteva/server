@@ -1,0 +1,88 @@
+{
+  "slug": "rollbar",
+  "name": "Rollbar",
+  "description": "MCP server for Rollbar - error tracking, items, deploys, projects",
+  "logo": "https://www.google.com/s2/favicons?domain=rollbar.com&sz=128",
+  "categories": ["monitoring", "error-tracking", "observability", "devops"],
+  "base_url": "https://api.rollbar.com/api/1",
+  "auth": {
+    "types": ["header"],
+    "headers": { "X-Rollbar-Access-Token": "{{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Access Token", "description": "Project or account access token" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "report_item",
+      "description": "Report an occurrence (post_server_item / post_client_item)",
+      "method": "POST",
+      "path": "/item/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "access_token": { "type": "string" },
+          "data": { "type": "object" }
+        },
+        "required": ["access_token", "data"]
+      }
+    },
+    {
+      "name": "list_items",
+      "description": "List items in a project",
+      "method": "GET",
+      "path": "/items/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" },
+          "level": { "type": "string" },
+          "environment": { "type": "string" },
+          "page": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "get_item",
+      "description": "Get an item by ID",
+      "method": "GET",
+      "path": "/item/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "update_item",
+      "description": "Update item status (resolved, muted, active)",
+      "method": "PATCH",
+      "path": "/item/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "type": "string" },
+          "resolved_in_version": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "report_deploy",
+      "description": "Record a deploy",
+      "method": "POST",
+      "path": "/deploy/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "access_token": { "type": "string" },
+          "environment": { "type": "string" },
+          "revision": { "type": "string" },
+          "local_username": { "type": "string" }
+        },
+        "required": ["access_token", "environment", "revision"]
+      }
+    }
+  ]
+}

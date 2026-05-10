@@ -1,0 +1,411 @@
+{
+  "slug": "gooten",
+  "name": "Gooten",
+  "description": "Print-on-demand manufacturing and fulfillment platform for custom products including jewelry, apparel, and home goods",
+  "logo": "https://www.google.com/s2/favicons?domain=gooten.com&sz=128",
+  "categories": [
+    "print-on-demand",
+    "fulfillment",
+    "jewelry",
+    "custom-products",
+    "manufacturing",
+    "dropshipping"
+  ],
+  "base_url": "https://api.print.io",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "recipeId",
+        "label": "Recipe Id",
+        "description": "Your Gooten Recipe ID (public identifier, found in API Settings)"
+      },
+      {
+        "name": "partnerBillingKey",
+        "label": "Partner Billing Key",
+        "description": "Your Gooten Partner Billing Key (secret key for orders)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_products",
+      "description": "List all available products in the Gooten catalog. Returns products with categories, pricing, and images. Use this to browse what products can be customized and ordered.",
+      "method": "GET",
+      "path": "/list-products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "countryCode": {
+            "type": "string",
+            "default": "US",
+            "description": "2-letter ISO country code for shipping destination (affects available products)"
+          },
+          "currencyCode": {
+            "type": "string",
+            "default": "USD",
+            "description": "Currency code for pricing (USD, EUR, GBP, etc.)"
+          },
+          "languageCode": {
+            "type": "string",
+            "default": "en",
+            "description": "Language code for product descriptions"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_variants",
+      "description": "Get product variants (SKUs) with pricing for a specific product. Each variant represents a specific size, color, or material option. Returns SKUs needed for ordering.",
+      "method": "GET",
+      "path": "/get-variants",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer",
+            "description": "Product ID from list-products"
+          },
+          "countryCode": {
+            "type": "string",
+            "default": "US",
+            "description": "2-letter ISO country code"
+          },
+          "currencyCode": {
+            "type": "string",
+            "default": "USD",
+            "description": "Currency code for pricing"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page number for pagination"
+          },
+          "pageSize": {
+            "type": "integer",
+            "default": 100,
+            "description": "Number of variants per page"
+          }
+        },
+        "required": [
+          "productId"
+        ]
+      }
+    },
+    {
+      "name": "check_stock",
+      "description": "Check stock availability for specific SKUs before ordering. Returns availability status and estimated restock dates for out-of-stock items.",
+      "method": "GET",
+      "path": "/check-stock",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "skus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of SKU strings to check (e.g., ['CanvsWrp-BlkWrp-6x6', 'Pendant-Silver-1in'])"
+          }
+        },
+        "required": [
+          "skus"
+        ]
+      }
+    },
+    {
+      "name": "shipping_prices",
+      "description": "Get available shipping options and prices for a cart. Returns shipping methods (standard, expedited, overnight) with delivery estimates and costs.",
+      "method": "GET",
+      "path": "/shipping-prices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "description": "Array of items with SKU and Quantity",
+            "items": {
+              "type": "object",
+              "properties": {
+                "SKU": {
+                  "type": "string",
+                  "description": "Product variant SKU"
+                },
+                "Quantity": {
+                  "type": "integer",
+                  "description": "Quantity to order"
+                }
+              },
+              "required": [
+                "SKU",
+                "Quantity"
+              ]
+            }
+          },
+          "shipToPostalCode": {
+            "type": "string",
+            "description": "Destination postal/zip code"
+          },
+          "shipToCountry": {
+            "type": "string",
+            "description": "2-letter ISO country code"
+          },
+          "shipToState": {
+            "type": "string",
+            "description": "State/province code (optional)"
+          },
+          "currencyCode": {
+            "type": "string",
+            "default": "USD",
+            "description": "Currency for prices"
+          }
+        },
+        "required": [
+          "items",
+          "shipToPostalCode",
+          "shipToCountry"
+        ]
+      }
+    },
+    {
+      "name": "price_estimate",
+      "description": "Get a complete price estimate for an order including product costs, shipping, and taxes. Use before submitting an order to show customers the total.",
+      "method": "GET",
+      "path": "/price-estimate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "description": "Array of items with SKU, Quantity, and ShipType",
+            "items": {
+              "type": "object",
+              "properties": {
+                "SKU": {
+                  "type": "string"
+                },
+                "Quantity": {
+                  "type": "integer"
+                },
+                "ShipType": {
+                  "type": "string",
+                  "enum": [
+                    "Standard",
+                    "Expedited",
+                    "Overnight"
+                  ],
+                  "default": "Standard"
+                }
+              },
+              "required": [
+                "SKU",
+                "Quantity"
+              ]
+            }
+          },
+          "shipToAddress": {
+            "type": "object",
+            "description": "Shipping destination address",
+            "properties": {
+              "PostalCode": {
+                "type": "string"
+              },
+              "CountryCode": {
+                "type": "string"
+              },
+              "State": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "PostalCode",
+              "CountryCode"
+            ]
+          },
+          "currencyCode": {
+            "type": "string",
+            "default": "USD"
+          }
+        },
+        "required": [
+          "items",
+          "shipToAddress"
+        ]
+      }
+    },
+    {
+      "name": "submit_order",
+      "description": "Submit a new order for production and fulfillment. Charges your payment method and starts manufacturing. Returns order ID for tracking.",
+      "method": "GET",
+      "path": "/submit-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shipToAddress": {
+            "type": "object",
+            "description": "Complete shipping address",
+            "properties": {
+              "FirstName": {
+                "type": "string"
+              },
+              "LastName": {
+                "type": "string"
+              },
+              "Line1": {
+                "type": "string",
+                "description": "Street address"
+              },
+              "Line2": {
+                "type": "string",
+                "description": "Apt, suite, etc."
+              },
+              "City": {
+                "type": "string"
+              },
+              "State": {
+                "type": "string"
+              },
+              "CountryCode": {
+                "type": "string",
+                "description": "2-letter ISO code"
+              },
+              "PostalCode": {
+                "type": "string"
+              },
+              "Phone": {
+                "type": "string"
+              },
+              "Email": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "FirstName",
+              "LastName",
+              "Line1",
+              "City",
+              "CountryCode",
+              "PostalCode",
+              "Email"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "description": "Items to order",
+            "items": {
+              "type": "object",
+              "properties": {
+                "SKU": {
+                  "type": "string"
+                },
+                "Quantity": {
+                  "type": "integer"
+                },
+                "ShipType": {
+                  "type": "string",
+                  "enum": [
+                    "Standard",
+                    "Expedited",
+                    "Overnight"
+                  ]
+                },
+                "Images": {
+                  "type": "array",
+                  "description": "Images to print on the product",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "Url": {
+                        "type": "string",
+                        "description": "Public URL of the image"
+                      },
+                      "Index": {
+                        "type": "integer",
+                        "description": "Image position index"
+                      }
+                    }
+                  }
+                }
+              },
+              "required": [
+                "SKU",
+                "Quantity"
+              ]
+            }
+          },
+          "sourceId": {
+            "type": "string",
+            "description": "Your internal order reference ID"
+          },
+          "isTestMode": {
+            "type": "boolean",
+            "default": false,
+            "description": "Set true for testing (no charge, no production)"
+          }
+        },
+        "required": [
+          "shipToAddress",
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get order details including status, tracking numbers, and billing. Use to check order progress and get shipping tracking information.",
+      "method": "GET",
+      "path": "/get-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "Gooten order ID from submit-order response"
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      }
+    },
+    {
+      "name": "search_orders",
+      "description": "Search through your orders with filters. Find orders by date range, status, or your reference ID.",
+      "method": "GET",
+      "path": "/search-orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "startDate": {
+            "type": "string",
+            "description": "Filter orders after this date (ISO format)"
+          },
+          "endDate": {
+            "type": "string",
+            "description": "Filter orders before this date (ISO format)"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by order status"
+          },
+          "sourceId": {
+            "type": "string",
+            "description": "Filter by your reference ID"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "pageSize": {
+            "type": "integer",
+            "default": 50
+          }
+        }
+      }
+    }
+  ]
+}

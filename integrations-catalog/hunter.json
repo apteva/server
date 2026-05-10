@@ -1,0 +1,508 @@
+{
+  "slug": "hunter",
+  "name": "Hunter.io",
+  "description": "Hunter.io email finding and verification - domain search, email finder, email verifier, person/company enrichment, leads, and email campaigns",
+  "logo": "https://www.google.com/s2/favicons?domain=hunter.io&sz=128",
+  "categories": [
+    "email",
+    "leads",
+    "enrichment",
+    "verification",
+    "sales",
+    "outreach"
+  ],
+  "base_url": "https://api.hunter.io/v2",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-KEY": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your Hunter.io API Key (found at https://hunter.io/api-keys)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "domain_search",
+      "description": "Find all email addresses associated with a domain or company. Returns emails with confidence scores, names, positions, departments, and verification status.",
+      "method": "GET",
+      "path": "/domain-search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain to search (e.g., 'stripe.com')"
+          },
+          "company": {
+            "type": "string",
+            "description": "Company name (less accurate than domain)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 10
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          },
+          "type": {
+            "type": "string",
+            "description": "Filter: 'personal' or 'generic'"
+          },
+          "seniority": {
+            "type": "string",
+            "description": "Comma-delimited: junior, senior, executive"
+          },
+          "department": {
+            "type": "string",
+            "description": "Comma-delimited: executive, it, finance, management, sales, legal, support, hr, marketing, communication, education, design, health, operations"
+          }
+        }
+      }
+    },
+    {
+      "name": "email_finder",
+      "description": "Find the most likely email address for a person at a company. Provide domain (or company) and the person's name. Returns email with confidence score and verification status.",
+      "method": "GET",
+      "path": "/email-finder",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Company domain (e.g., 'stripe.com')"
+          },
+          "company": {
+            "type": "string",
+            "description": "Company name (alternative to domain, less accurate)"
+          },
+          "first_name": {
+            "type": "string",
+            "description": "Person's first name"
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Person's last name"
+          },
+          "full_name": {
+            "type": "string",
+            "description": "Full name (less accurate than first+last)"
+          }
+        }
+      }
+    },
+    {
+      "name": "email_verifier",
+      "description": "Verify if an email address is deliverable. Returns status (valid/invalid/accept_all/webmail/disposable/unknown), confidence score, and detailed SMTP checks.",
+      "method": "GET",
+      "path": "/email-verifier",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address to verify"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "email_count",
+      "description": "Count emails indexed for a domain or company. FREE - does not consume credits. Returns total, personal, generic counts broken down by department and seniority.",
+      "method": "GET",
+      "path": "/email-count",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain name (e.g., 'stripe.com')"
+          },
+          "company": {
+            "type": "string",
+            "description": "Company name (min 3 chars)"
+          },
+          "type": {
+            "type": "string",
+            "description": "Filter: 'personal' or 'generic'"
+          }
+        }
+      }
+    },
+    {
+      "name": "people_find",
+      "description": "Get person data from email or LinkedIn handle. Returns name, location, employment, social profiles (Twitter, LinkedIn, GitHub, Facebook).",
+      "method": "GET",
+      "path": "/people/find",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Person's email address"
+          },
+          "linkedin_handle": {
+            "type": "string",
+            "description": "LinkedIn profile handle"
+          }
+        }
+      }
+    },
+    {
+      "name": "company_find",
+      "description": "Get company data from domain. Returns name, industry, location, employee count, funding, technologies, social profiles, and more.",
+      "method": "GET",
+      "path": "/companies/find",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Company domain (e.g., 'stripe.com')"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "combined_find",
+      "description": "Get both person and company data from an email address in a single request.",
+      "method": "GET",
+      "path": "/combined/find",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Person's email address"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "account",
+      "description": "Get your Hunter.io account information including plan, credits used/available, searches, and verifications remaining.",
+      "method": "GET",
+      "path": "/account",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "lead_list",
+      "description": "List leads with optional filters. Leads management is FREE and does not consume credits.",
+      "method": "GET",
+      "path": "/leads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leads_list_id": {
+            "type": "integer",
+            "description": "Filter by list ID"
+          },
+          "email": {
+            "type": "string",
+            "description": "Filter by email"
+          },
+          "first_name": {
+            "type": "string",
+            "description": "Filter by first name"
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Filter by last name"
+          },
+          "company": {
+            "type": "string",
+            "description": "Filter by company"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Results per page (1-1000)",
+            "default": 20
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "lead_get",
+      "description": "Get a specific lead by ID.",
+      "method": "GET",
+      "path": "/leads/{lead_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lead_id": {
+            "type": "integer",
+            "description": "Lead ID"
+          }
+        },
+        "required": [
+          "lead_id"
+        ]
+      }
+    },
+    {
+      "name": "lead_create",
+      "description": "Create a new lead.",
+      "method": "POST",
+      "path": "/leads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Lead's email address"
+          },
+          "first_name": {
+            "type": "string",
+            "description": "First name"
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Last name"
+          },
+          "position": {
+            "type": "string",
+            "description": "Job title"
+          },
+          "company": {
+            "type": "string",
+            "description": "Company name"
+          },
+          "website": {
+            "type": "string",
+            "description": "Company domain"
+          },
+          "linkedin_url": {
+            "type": "string",
+            "description": "LinkedIn URL"
+          },
+          "phone_number": {
+            "type": "string",
+            "description": "Phone number"
+          },
+          "leads_list_id": {
+            "type": "integer",
+            "description": "Assign to list ID"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Internal notes"
+          },
+          "source": {
+            "type": "string",
+            "description": "Lead source"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "lead_update",
+      "description": "Update an existing lead.",
+      "method": "PUT",
+      "path": "/leads/{lead_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lead_id": {
+            "type": "integer",
+            "description": "Lead ID to update"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email address"
+          },
+          "first_name": {
+            "type": "string",
+            "description": "First name"
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Last name"
+          },
+          "position": {
+            "type": "string",
+            "description": "Job title"
+          },
+          "company": {
+            "type": "string",
+            "description": "Company name"
+          },
+          "website": {
+            "type": "string",
+            "description": "Domain"
+          },
+          "phone_number": {
+            "type": "string",
+            "description": "Phone number"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Internal notes"
+          }
+        },
+        "required": [
+          "lead_id"
+        ]
+      }
+    },
+    {
+      "name": "lead_delete",
+      "description": "Delete a lead by ID.",
+      "method": "DELETE",
+      "path": "/leads/{lead_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lead_id": {
+            "type": "integer",
+            "description": "Lead ID to delete"
+          }
+        },
+        "required": [
+          "lead_id"
+        ]
+      }
+    },
+    {
+      "name": "leads_list_list",
+      "description": "Get all lead lists in your Hunter account.",
+      "method": "GET",
+      "path": "/leads_lists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 20
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "leads_list_create",
+      "description": "Create a new lead list.",
+      "method": "POST",
+      "path": "/leads_lists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "List name"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "campaign_list",
+      "description": "List email campaigns/sequences in your Hunter account.",
+      "method": "GET",
+      "path": "/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 20
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "campaign_add_recipients",
+      "description": "Add recipients to an email campaign by email addresses or lead IDs (max 50 per request).",
+      "method": "POST",
+      "path": "/campaigns/{campaign_id}/recipients",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": {
+            "type": "integer",
+            "description": "Campaign/sequence ID"
+          },
+          "emails": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Email addresses to add (max 50)"
+          },
+          "lead_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Lead IDs to add (max 50)"
+          }
+        },
+        "required": [
+          "campaign_id"
+        ]
+      }
+    },
+    {
+      "name": "campaign_start",
+      "description": "Start an email campaign that is in draft state. Campaign must have recipients and content configured.",
+      "method": "POST",
+      "path": "/campaigns/{campaign_id}/start",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": {
+            "type": "integer",
+            "description": "Campaign/sequence ID to start"
+          }
+        },
+        "required": [
+          "campaign_id"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "account"
+  }
+}

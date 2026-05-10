@@ -1,0 +1,177 @@
+{
+  "slug": "hetzner-object-storage",
+  "name": "Hetzner Object Storage",
+  "description": "Hetzner Object Storage \u2014 S3-compatible blob store hosted in Hetzner's German + Finnish data centres. Standard AWS SigV4 signing against <region>.your-objectstorage.com. Three regions: fsn1 (Falkenstein, DE), nbg1 (Nuremberg, DE), hel1 (Helsinki, FI). Free egress within Hetzner's eu-central network zone \u2014 useful when paired with a Hetzner Cloud server in the same region. Generate access keys at console.hetzner.cloud \u2192 Project \u2192 Object Storage \u2192 Access keys.",
+  "logo": "https://www.google.com/s2/favicons?domain=hetzner.com&sz=128",
+  "categories": [
+    "storage",
+    "cloud",
+    "infrastructure"
+  ],
+  "base_url": "https://{{region}}.your-objectstorage.com",
+  "auth": {
+    "types": [
+      "aws_sigv4"
+    ],
+    "aws_sigv4": {
+      "service": "s3"
+    },
+    "credential_fields": [
+      {
+        "name": "region",
+        "label": "Region",
+        "description": "Data centre location. fsn1 = Falkenstein (Germany), nbg1 = Nuremberg (Germany), hel1 = Helsinki (Finland). Pick the region nearest your users / your Hetzner Cloud servers \u2014 egress within the same eu-central network zone is free.",
+        "required": true,
+        "type": "select",
+        "options": [
+          "fsn1",
+          "nbg1",
+          "hel1"
+        ],
+        "default": "nbg1"
+      },
+      {
+        "name": "access_key_id",
+        "label": "Access Key ID",
+        "description": "From console.hetzner.cloud \u2192 your project \u2192 Object Storage \u2192 Access keys \u2192 Create access key. Shown once on creation. Scope to the buckets the install will use.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "Secret Access Key",
+        "description": "Paired secret returned alongside the access key. Shown once; if lost, generate a fresh key.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_objects",
+      "description": "List objects in a bucket (S3-compatible ListObjectsV2). Returns XML; parse Contents[].Key / Size / LastModified, plus IsTruncated + NextContinuationToken for pagination.",
+      "method": "GET",
+      "path": "/{bucket}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "description": "Bucket name."
+          },
+          "prefix": {
+            "type": "string",
+            "description": "Filter to keys starting with this prefix."
+          },
+          "continuation-token": {
+            "type": "string",
+            "description": "Pagination cursor from a prior IsTruncated response."
+          },
+          "max-keys": {
+            "type": "integer",
+            "description": "Page size (max 1000)."
+          },
+          "list-type": {
+            "type": "integer",
+            "default": 2
+          }
+        },
+        "required": [
+          "bucket"
+        ]
+      },
+      "query_params": [
+        "prefix",
+        "continuation-token",
+        "max-keys",
+        "list-type"
+      ]
+    },
+    {
+      "name": "put_object",
+      "description": "Upload an object. Pass the object content as the 'body' input \u2014 the runner sends it verbatim with SigV4-signed integrity hash. Hetzner caps single-PUT uploads at 5 GB; the integration runner caps responses at 200 MB so use multipart for very large objects (or upload via the storage app's S3 backend, which already chunks at 32 MB part size by default).",
+      "method": "PUT",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "Object key (path inside the bucket)."
+          },
+          "body": {
+            "type": "string",
+            "description": "Object content. Bytes welcome \u2014 the runner sends them verbatim."
+          }
+        },
+        "required": [
+          "bucket",
+          "key",
+          "body"
+        ]
+      },
+      "body_input": "body"
+    },
+    {
+      "name": "get_object",
+      "description": "Download an object. Response body is the raw object bytes (response cap 200 MB).",
+      "method": "GET",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "delete_object",
+      "description": "Delete a single object. Returns 204 on success.",
+      "method": "DELETE",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "list_buckets",
+      "description": "List all buckets in this Hetzner Object Storage account for the configured region. Returns XML; ListAllMyBucketsResult.Buckets.Bucket[] carries the names + creation dates.",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_buckets",
+    "auth_ok_when_body_contains": [
+      "AccessDenied"
+    ]
+  }
+}

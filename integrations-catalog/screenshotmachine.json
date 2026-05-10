@@ -1,0 +1,49 @@
+{
+  "slug": "screenshotmachine",
+  "name": "Screenshot Machine",
+  "description": "Simple website screenshot API. GET request with customer key + URL returns PNG/JPG/GIF. Supports desktop/phone/tablet emulation, full-page capture via the `dimension` param, delay, zoom, and cache control. Returns X-Screenshotmachine-Response header with error codes.",
+  "logo": "https://www.google.com/s2/favicons?domain=screenshotmachine.com&sz=128",
+  "categories": ["screenshots", "rendering", "automation"],
+  "base_url": "https://api.screenshotmachine.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {},
+    "query_params": {
+      "key": "{{customer_key}}"
+    },
+    "credential_fields": [
+      { "name": "customer_key", "label": "Screenshot Machine customer key" },
+      { "name": "secret_phrase", "label": "Secret phrase (optional, required when calling from public sites)", "optional": true }
+    ]
+  },
+  "tools": [
+    {
+      "name": "capture",
+      "description": "Capture a screenshot of a URL. Returns the rendered image binary. For full-page use dimension='1366xfull' (or similar width + 'full'). For fixed height use dimension='1366x768'.",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "The URL to screenshot" },
+          "dimension": { "type": "string", "default": "1024x768", "description": "Viewport dimension, e.g. '1366x768' or '1366xfull' for full-page" },
+          "device": { "type": "string", "enum": ["desktop", "phone", "tablet"], "default": "desktop" },
+          "format": { "type": "string", "enum": ["png", "jpg", "gif"], "default": "png" },
+          "cacheLimit": { "type": "string", "default": "14", "description": "Max cache age in days (0 = always fresh)" },
+          "delay": { "type": "integer", "default": 200, "description": "Delay in ms before capturing" },
+          "zoom": { "type": "integer", "default": 100, "description": "Page zoom percentage" },
+          "hash": { "type": "string", "description": "md5(url + secret_phrase) signature, required when secret phrase is enabled" },
+          "click": { "type": "string", "description": "CSS selector to click before capturing" },
+          "cookies": { "type": "string", "description": "Cookies to set before loading the page" },
+          "user": { "type": "string", "description": "HTTP Basic auth username for the target site" },
+          "password": { "type": "string", "description": "HTTP Basic auth password for the target site" }
+        },
+        "required": ["url"]
+      },
+      "query_params": [
+        "url", "dimension", "device", "format", "cacheLimit", "delay", "zoom",
+        "hash", "click", "cookies", "user", "password"
+      ]
+    }
+  ]
+}

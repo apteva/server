@@ -1,0 +1,870 @@
+{
+  "slug": "kraken",
+  "name": "Kraken",
+  "description": "MCP server for Kraken cryptocurrency exchange — market data, account management, trading, and funding via the Kraken REST API v0",
+  "logo": "https://www.google.com/s2/favicons?domain=kraken.com&sz=128",
+  "categories": [
+    "trading",
+    "crypto",
+    "cryptocurrency",
+    "market-data",
+    "orders",
+    "kraken",
+    "exchange"
+  ],
+  "base_url": "https://api.kraken.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Your Kraken API Key"
+      },
+      {
+        "name": "api_secret",
+        "label": "Api_secret",
+        "description": "Your Kraken Private Key (base64 encoded)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_server_time",
+      "description": "Get Kraken server time in Unix timestamp and RFC 1123 format. Useful for checking connectivity and synchronizing timestamps.",
+      "method": "GET",
+      "path": "/0/public/Time",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_system_status",
+      "description": "Get current Kraken system status and trading mode (online, cancel_only, post_only, maintenance).",
+      "method": "GET",
+      "path": "/0/public/SystemStatus",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_assets",
+      "description": "Get information about all available assets or a specific asset. Returns asset name, class, decimals, and display decimals.",
+      "method": "GET",
+      "path": "/0/public/Assets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset": {
+            "type": "string",
+            "description": "Comma-separated list of assets (e.g., XBT,ETH,USDT). Omit for all assets."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_asset_pairs",
+      "description": "Get tradeable asset pair information including fees, leverage, margins, and trading limits. Use to check available pairs and their specifications.",
+      "method": "GET",
+      "path": "/0/public/AssetPairs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pair": {
+            "type": "string",
+            "description": "Comma-separated asset pairs (e.g., XBTUSD,ETHUSD). Omit for all pairs."
+          },
+          "info": {
+            "type": "string",
+            "description": "Info to retrieve: info (all, default), leverage, fees, margin",
+            "enum": [
+              "info",
+              "leverage",
+              "fees",
+              "margin"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "get_ticker",
+      "description": "Get ticker data for one or more trading pairs. Returns ask/bid prices, last trade, volume, VWAP, number of trades, low, high, and opening price for today and last 24 hours.",
+      "method": "GET",
+      "path": "/0/public/Ticker",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pair": {
+            "type": "string",
+            "description": "Comma-separated asset pairs (e.g., XBTUSD, ETHUSD, SOLUSD)"
+          }
+        },
+        "required": [
+          "pair"
+        ]
+      }
+    },
+    {
+      "name": "get_ohlc",
+      "description": "Get OHLC (candlestick) data for a trading pair. Returns open, high, low, close, VWAP, volume, and trade count per interval.",
+      "method": "GET",
+      "path": "/0/public/OHLC",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pair": {
+            "type": "string",
+            "description": "Asset pair (e.g., XBTUSD)"
+          },
+          "interval": {
+            "type": "integer",
+            "description": "Time frame interval in minutes: 1, 5, 15, 30, 60, 240, 1440, 10080, 21600",
+            "default": 1
+          },
+          "since": {
+            "type": "integer",
+            "description": "Return data since given Unix timestamp. Use the 'last' value from a previous response for incremental updates."
+          }
+        },
+        "required": [
+          "pair"
+        ]
+      }
+    },
+    {
+      "name": "get_orderbook",
+      "description": "Get order book (asks and bids) for a trading pair. Each entry contains price, volume, and timestamp.",
+      "method": "GET",
+      "path": "/0/public/Depth",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pair": {
+            "type": "string",
+            "description": "Asset pair (e.g., XBTUSD)"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Maximum number of asks/bids (1-500, default 100)",
+            "default": 100
+          }
+        },
+        "required": [
+          "pair"
+        ]
+      }
+    },
+    {
+      "name": "get_recent_trades",
+      "description": "Get recent trades for a trading pair. Returns price, volume, time, buy/sell, market/limit, and miscellaneous info for each trade.",
+      "method": "GET",
+      "path": "/0/public/Trades",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pair": {
+            "type": "string",
+            "description": "Asset pair (e.g., XBTUSD)"
+          },
+          "since": {
+            "type": "string",
+            "description": "Return trades since given timestamp (nanoseconds). Use 'last' from previous response."
+          },
+          "count": {
+            "type": "integer",
+            "description": "Number of trades to return (default 1000)"
+          }
+        },
+        "required": [
+          "pair"
+        ]
+      }
+    },
+    {
+      "name": "get_spread",
+      "description": "Get recent bid/ask spread data for a trading pair. Returns timestamp, bid, and ask for each data point.",
+      "method": "GET",
+      "path": "/0/public/Spread",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pair": {
+            "type": "string",
+            "description": "Asset pair (e.g., XBTUSD)"
+          },
+          "since": {
+            "type": "integer",
+            "description": "Return data since given Unix timestamp"
+          }
+        },
+        "required": [
+          "pair"
+        ]
+      }
+    },
+    {
+      "name": "get_balance",
+      "description": "Get account balance for all assets. Returns each asset with its current balance. Requires 'Query Funds' API permission.",
+      "method": "POST",
+      "path": "/0/private/Balance",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_extended_balance",
+      "description": "Get extended account balance including held amounts and credit. Shows balance, hold_trade, and credit for each asset.",
+      "method": "POST",
+      "path": "/0/private/BalanceEx",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_trade_balance",
+      "description": "Get trade balance info including equity, margin, unrealized P&L, and cost basis. Optionally specify a base asset for valuation.",
+      "method": "POST",
+      "path": "/0/private/TradeBalance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset": {
+            "type": "string",
+            "description": "Base asset for valuation (default: ZUSD)",
+            "default": "ZUSD"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_open_orders",
+      "description": "Get all currently open orders. Returns order details including status, description, volume, price, and timestamps.",
+      "method": "POST",
+      "path": "/0/private/OpenOrders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "trades": {
+            "type": "boolean",
+            "description": "Include trades related to each order (default false)"
+          },
+          "userref": {
+            "type": "integer",
+            "description": "Filter by user reference ID"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_closed_orders",
+      "description": "Get closed/cancelled orders. Results returned in pages of 50. Use ofs parameter for pagination.",
+      "method": "POST",
+      "path": "/0/private/ClosedOrders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "trades": {
+            "type": "boolean",
+            "description": "Include trades related to each order"
+          },
+          "userref": {
+            "type": "integer",
+            "description": "Filter by user reference ID"
+          },
+          "start": {
+            "type": "integer",
+            "description": "Starting Unix timestamp for results"
+          },
+          "end": {
+            "type": "integer",
+            "description": "Ending Unix timestamp for results"
+          },
+          "ofs": {
+            "type": "integer",
+            "description": "Result offset for pagination"
+          },
+          "closetime": {
+            "type": "string",
+            "description": "Which close time to use: open, close, both (default: both)",
+            "enum": [
+              "open",
+              "close",
+              "both"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "query_orders",
+      "description": "Query info about specific orders by transaction ID. Retrieve detailed status and fills for one or more orders.",
+      "method": "POST",
+      "path": "/0/private/QueryOrders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "txid": {
+            "type": "string",
+            "description": "Comma-separated list of transaction IDs to query (max 50)"
+          },
+          "trades": {
+            "type": "boolean",
+            "description": "Include trades related to each order"
+          },
+          "userref": {
+            "type": "integer",
+            "description": "Filter by user reference ID"
+          }
+        },
+        "required": [
+          "txid"
+        ]
+      }
+    },
+    {
+      "name": "get_trades_history",
+      "description": "Get trade history (executed fills). Returns 50 results at a time, use ofs for pagination. Shows price, volume, cost, fee, and order info.",
+      "method": "POST",
+      "path": "/0/private/TradesHistory",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Filter by trade type: all, any position, closed position, closing position, no position",
+            "enum": [
+              "all",
+              "any position",
+              "closed position",
+              "closing position",
+              "no position"
+            ]
+          },
+          "trades": {
+            "type": "boolean",
+            "description": "Include related trades"
+          },
+          "start": {
+            "type": "integer",
+            "description": "Starting Unix timestamp"
+          },
+          "end": {
+            "type": "integer",
+            "description": "Ending Unix timestamp"
+          },
+          "ofs": {
+            "type": "integer",
+            "description": "Result offset for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "query_trades",
+      "description": "Query info about specific trades by transaction ID. Returns detailed trade data including price, cost, fee, and margin info.",
+      "method": "POST",
+      "path": "/0/private/QueryTrades",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "txid": {
+            "type": "string",
+            "description": "Comma-separated list of trade transaction IDs to query (max 20)"
+          },
+          "trades": {
+            "type": "boolean",
+            "description": "Include trades related to each trade"
+          }
+        },
+        "required": [
+          "txid"
+        ]
+      }
+    },
+    {
+      "name": "get_open_positions",
+      "description": "Get info about open margin positions. Returns P&L, cost basis, current valuation, and margin info for each position.",
+      "method": "POST",
+      "path": "/0/private/OpenPositions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "txid": {
+            "type": "string",
+            "description": "Comma-separated list of position transaction IDs to query"
+          },
+          "docalcs": {
+            "type": "boolean",
+            "description": "Include P&L calculations (default false)"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_ledgers",
+      "description": "Get ledger entries (deposits, withdrawals, trades, margins, etc.). Returns 50 results at a time, use ofs for pagination.",
+      "method": "POST",
+      "path": "/0/private/Ledgers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset": {
+            "type": "string",
+            "description": "Comma-separated list of assets to filter (e.g., XBT,ETH)"
+          },
+          "aclass": {
+            "type": "string",
+            "description": "Asset class (default: currency)"
+          },
+          "type": {
+            "type": "string",
+            "description": "Ledger entry type filter",
+            "enum": [
+              "all",
+              "trade",
+              "deposit",
+              "withdrawal",
+              "transfer",
+              "margin",
+              "adjustment",
+              "rollover",
+              "credit",
+              "settled",
+              "staking",
+              "dividend",
+              "sale",
+              "nft_rebate"
+            ]
+          },
+          "start": {
+            "type": "integer",
+            "description": "Starting Unix timestamp"
+          },
+          "end": {
+            "type": "integer",
+            "description": "Ending Unix timestamp"
+          },
+          "ofs": {
+            "type": "integer",
+            "description": "Result offset for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "query_ledgers",
+      "description": "Query info about specific ledger entries by ID. Returns detailed ledger data including amount, fee, balance, and type.",
+      "method": "POST",
+      "path": "/0/private/QueryLedgers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Comma-separated list of ledger IDs to query (max 20)"
+          },
+          "trades": {
+            "type": "boolean",
+            "description": "Include trades related to each ledger entry"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_trade_volume",
+      "description": "Get trade volume and fee schedule. Returns 30-day USD volume and current fee tier with maker/taker rates for specified pairs.",
+      "method": "POST",
+      "path": "/0/private/TradeVolume",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pair": {
+            "type": "string",
+            "description": "Comma-separated asset pairs to get fee info for (e.g., XBTUSD,ETHUSD)"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_websockets_token",
+      "description": "Generate an authentication token for the Kraken WebSocket API. Token expires after 15 minutes.",
+      "method": "POST",
+      "path": "/0/private/GetWebSocketsToken",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "add_order",
+      "description": "Place a new order. Supports market, limit, stop-loss, take-profit, stop-loss-limit, take-profit-limit, and trailing-stop order types. Set validate=true to test without placing.",
+      "method": "POST",
+      "path": "/0/private/AddOrder",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pair": {
+            "type": "string",
+            "description": "Asset pair (e.g., XBTUSD, ETHUSD, SOLUSD)"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "buy",
+              "sell"
+            ],
+            "description": "Order direction"
+          },
+          "ordertype": {
+            "type": "string",
+            "enum": [
+              "market",
+              "limit",
+              "stop-loss",
+              "take-profit",
+              "stop-loss-limit",
+              "take-profit-limit",
+              "trailing-stop",
+              "trailing-stop-limit",
+              "settle-position"
+            ],
+            "description": "Order type"
+          },
+          "volume": {
+            "type": "string",
+            "description": "Order quantity in base asset (e.g., '0.01' for 0.01 XBT)"
+          },
+          "displayvol": {
+            "type": "string",
+            "description": "Iceberg order visible volume"
+          },
+          "price": {
+            "type": "string",
+            "description": "Limit price for limit orders, trigger price for stop-loss/take-profit"
+          },
+          "price2": {
+            "type": "string",
+            "description": "Secondary price: limit price for stop-loss-limit/take-profit-limit"
+          },
+          "trigger": {
+            "type": "string",
+            "description": "Price signal for stop/take orders: index or last (default: last)",
+            "enum": [
+              "index",
+              "last"
+            ]
+          },
+          "leverage": {
+            "type": "string",
+            "description": "Leverage amount (e.g., '2:1', '3:1'). Use 'none' for no leverage."
+          },
+          "reduce_only": {
+            "type": "boolean",
+            "description": "If true, order only reduces existing position"
+          },
+          "stptype": {
+            "type": "string",
+            "description": "Self-trade prevention: cancel-newest, cancel-oldest, cancel-both",
+            "enum": [
+              "cancel-newest",
+              "cancel-oldest",
+              "cancel-both"
+            ]
+          },
+          "oflags": {
+            "type": "string",
+            "description": "Comma-separated order flags: post (post-only), fcib (prefer fee in base), fciq (prefer fee in quote), nompp (no market price protection), viqc (volume in quote currency)"
+          },
+          "timeinforce": {
+            "type": "string",
+            "description": "Time-in-force: GTC (default), IOC, GTD",
+            "enum": [
+              "GTC",
+              "IOC",
+              "GTD"
+            ]
+          },
+          "starttm": {
+            "type": "string",
+            "description": "Scheduled start time: 0 (now, default), +n (seconds from now), or Unix timestamp"
+          },
+          "expiretm": {
+            "type": "string",
+            "description": "Expiration time: 0 (no expiry, default), +n (seconds from now), or Unix timestamp"
+          },
+          "userref": {
+            "type": "integer",
+            "description": "User reference ID (32-bit signed integer) for tracking"
+          },
+          "validate": {
+            "type": "boolean",
+            "description": "If true, validate inputs only — do not actually place order"
+          }
+        },
+        "required": [
+          "pair",
+          "type",
+          "ordertype",
+          "volume"
+        ]
+      }
+    },
+    {
+      "name": "edit_order",
+      "description": "Edit an existing open order. Allows modifying volume, price, and other parameters without cancelling and replacing. Requires 'Create & Modify Orders' API permission.",
+      "method": "POST",
+      "path": "/0/private/EditOrder",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "txid": {
+            "type": "string",
+            "description": "Transaction ID of the order to edit"
+          },
+          "pair": {
+            "type": "string",
+            "description": "Asset pair (must match original order)"
+          },
+          "volume": {
+            "type": "string",
+            "description": "New order quantity"
+          },
+          "displayvol": {
+            "type": "string",
+            "description": "New iceberg visible volume"
+          },
+          "price": {
+            "type": "string",
+            "description": "New price"
+          },
+          "price2": {
+            "type": "string",
+            "description": "New secondary price"
+          },
+          "oflags": {
+            "type": "string",
+            "description": "New order flags"
+          },
+          "userref": {
+            "type": "integer",
+            "description": "New user reference ID"
+          },
+          "validate": {
+            "type": "boolean",
+            "description": "Validate only, do not edit"
+          }
+        },
+        "required": [
+          "txid",
+          "pair"
+        ]
+      }
+    },
+    {
+      "name": "cancel_order",
+      "description": "Cancel a specific open order by transaction ID or user reference ID.",
+      "method": "POST",
+      "path": "/0/private/CancelOrder",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "txid": {
+            "type": "string",
+            "description": "Transaction ID of the order to cancel (or user reference ID as string)"
+          }
+        },
+        "required": [
+          "txid"
+        ]
+      }
+    },
+    {
+      "name": "cancel_all_orders",
+      "description": "DANGEROUS: Cancel ALL open orders at once. Returns the count of cancelled orders.",
+      "method": "POST",
+      "path": "/0/private/CancelAll",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "cancel_all_after",
+      "description": "Set a dead man's switch — automatically cancel all orders after specified seconds. Set timeout=0 to disable. Useful for safety when running automated strategies.",
+      "method": "POST",
+      "path": "/0/private/CancelAllOrdersAfter",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "timeout": {
+            "type": "integer",
+            "description": "Seconds until all orders are cancelled. Set to 0 to disable the timer."
+          }
+        },
+        "required": [
+          "timeout"
+        ]
+      }
+    },
+    {
+      "name": "get_deposit_methods",
+      "description": "Get available deposit methods for a specific asset. Returns method name, minimum deposit, fees, and generation status.",
+      "method": "POST",
+      "path": "/0/private/DepositMethods",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset": {
+            "type": "string",
+            "description": "Asset to get deposit methods for (e.g., XBT, ETH, USDT)"
+          }
+        },
+        "required": [
+          "asset"
+        ]
+      }
+    },
+    {
+      "name": "get_deposit_addresses",
+      "description": "Get or generate deposit addresses for an asset. Use new=true to generate a new address.",
+      "method": "POST",
+      "path": "/0/private/DepositAddresses",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset": {
+            "type": "string",
+            "description": "Asset (e.g., XBT, ETH)"
+          },
+          "method": {
+            "type": "string",
+            "description": "Deposit method name (from get-deposit-methods)"
+          },
+          "new": {
+            "type": "boolean",
+            "description": "Generate a new deposit address (default false)"
+          },
+          "amount": {
+            "type": "string",
+            "description": "Amount you plan to deposit (for methods that need it)"
+          }
+        },
+        "required": [
+          "asset",
+          "method"
+        ]
+      }
+    },
+    {
+      "name": "get_recent_deposits",
+      "description": "Get status of recent deposit transactions. Returns method, asset, amount, fee, time, status, and transaction info.",
+      "method": "POST",
+      "path": "/0/private/DepositStatus",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset": {
+            "type": "string",
+            "description": "Filter by asset (e.g., XBT, ETH)"
+          },
+          "method": {
+            "type": "string",
+            "description": "Filter by deposit method name"
+          }
+        }
+      }
+    },
+    {
+      "name": "withdraw",
+      "description": "DANGEROUS: Request a withdrawal to a pre-approved address. The withdrawal key must be set up in your Kraken account settings first. Requires 'Withdraw Funds' API permission.",
+      "method": "POST",
+      "path": "/0/private/Withdraw",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset": {
+            "type": "string",
+            "description": "Asset to withdraw (e.g., XBT, ETH)"
+          },
+          "key": {
+            "type": "string",
+            "description": "Withdrawal key name (as set up in your Kraken account)"
+          },
+          "amount": {
+            "type": "string",
+            "description": "Amount to withdraw"
+          },
+          "address": {
+            "type": "string",
+            "description": "Withdrawal address (optional, overrides key)"
+          }
+        },
+        "required": [
+          "asset",
+          "key",
+          "amount"
+        ]
+      }
+    },
+    {
+      "name": "get_withdrawal_info",
+      "description": "Get withdrawal fee and minimum amount for a specific asset, key, and amount combination. Use to check fees before withdrawing.",
+      "method": "POST",
+      "path": "/0/private/WithdrawInfo",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset": {
+            "type": "string",
+            "description": "Asset (e.g., XBT, ETH)"
+          },
+          "key": {
+            "type": "string",
+            "description": "Withdrawal key name"
+          },
+          "amount": {
+            "type": "string",
+            "description": "Amount to withdraw"
+          }
+        },
+        "required": [
+          "asset",
+          "key",
+          "amount"
+        ]
+      }
+    },
+    {
+      "name": "get_recent_withdrawals",
+      "description": "Get status of recent withdrawal transactions. Returns method, asset, amount, fee, time, status, and transaction info.",
+      "method": "POST",
+      "path": "/0/private/WithdrawStatus",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset": {
+            "type": "string",
+            "description": "Filter by asset (e.g., XBT, ETH)"
+          },
+          "method": {
+            "type": "string",
+            "description": "Filter by withdrawal method name"
+          }
+        }
+      }
+    }
+  ]
+}

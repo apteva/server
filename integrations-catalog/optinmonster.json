@@ -1,0 +1,247 @@
+{
+  "slug": "optinmonster",
+  "name": "OptinMonster",
+  "description": "OptinMonster lead generation platform \u2014 create and manage popup campaigns, slide-ins, floating bars, and inline forms for lead capture. Track subscribers and conversion analytics.",
+  "logo": "https://www.google.com/s2/favicons?domain=optinmonster.com&sz=128",
+  "categories": [
+    "lead-generation",
+    "popups",
+    "optins",
+    "conversion",
+    "lead-magnets",
+    "forms",
+    "marketing"
+  ],
+  "base_url": "https://api.optinmonster.com/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Token"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_campaigns",
+      "description": "List all OptinMonster campaigns (popups, slide-ins, floating bars, inline forms, fullscreen overlays, etc.) with their status, type, and configuration.",
+      "method": "GET",
+      "path": "/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_campaign",
+      "description": "Get details of a specific OptinMonster campaign by ID, including its configuration, display rules, and current status.",
+      "method": "GET",
+      "path": "/campaigns/{campaignId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID"
+          }
+        },
+        "required": [
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create a new OptinMonster campaign (popup, slide-in, floating bar, inline form, etc.).",
+      "method": "POST",
+      "path": "/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Campaign name"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "popup",
+              "slide-in",
+              "floating-bar",
+              "inline",
+              "fullscreen",
+              "sidebar"
+            ],
+            "description": "Campaign type"
+          },
+          "template_id": {
+            "type": "string",
+            "description": "Template ID to base the campaign on (optional)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused",
+              "draft"
+            ],
+            "default": "draft",
+            "description": "Initial status"
+          }
+        },
+        "required": [
+          "name",
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "update_campaign",
+      "description": "Update an existing OptinMonster campaign's settings, name, or status.",
+      "method": "PUT",
+      "path": "/campaigns/{campaignId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New campaign name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused",
+              "draft"
+            ],
+            "description": "Campaign status"
+          }
+        },
+        "required": [
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "delete_campaign",
+      "description": "Delete an OptinMonster campaign.",
+      "method": "DELETE",
+      "path": "/campaigns/{campaignId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID to delete"
+          }
+        },
+        "required": [
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "get_campaign_stats",
+      "description": "Get conversion analytics for a specific campaign \u2014 impressions, conversions, conversion rate, and more.",
+      "method": "GET",
+      "path": "/campaigns/{campaignId}/stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID"
+          }
+        },
+        "required": [
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "add_subscriber",
+      "description": "Add a new subscriber/lead to a specific OptinMonster campaign.",
+      "method": "POST",
+      "path": "/subscribers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Subscriber email address"
+          },
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID to add the subscriber to"
+          },
+          "name": {
+            "type": "string",
+            "description": "Subscriber name (optional)"
+          }
+        },
+        "required": [
+          "email",
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "list_subscribers",
+      "description": "List subscribers/leads collected by OptinMonster campaigns.",
+      "method": "GET",
+      "path": "/subscribers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string",
+            "description": "Filter by campaign ID (optional)"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_sites",
+      "description": "List websites/domains connected to your OptinMonster account.",
+      "method": "GET",
+      "path": "/sites",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_account",
+      "description": "Get your OptinMonster account information including plan details and usage.",
+      "method": "GET",
+      "path": "/account",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_account"
+  }
+}

@@ -1,0 +1,203 @@
+{
+  "slug": "apify",
+  "name": "Apify",
+  "description": "Web scraping and automation platform. Run actors, retrieve scraping results, and manage datasets.",
+  "logo": "https://www.google.com/s2/favicons?domain=apify.com&sz=128",
+  "categories": [
+    "scraping",
+    "automation",
+    "web-crawling",
+    "data-extraction",
+    "actors"
+  ],
+  "base_url": "https://api.apify.com/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "apiToken",
+        "label": "Api Token",
+        "description": "Apify API token (find at console.apify.com/account/integrations)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "run_actor",
+      "description": "Run an Apify actor with the provided input configuration. The actor is identified by its ID or name (e.g. 'apify/web-scraper'). Returns a run object with the run ID, status, and default dataset ID for retrieving results.",
+      "method": "POST",
+      "path": "/run-actor",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "actorId": {
+            "type": "string",
+            "description": "Actor ID or name in the format 'username/actor-name' (e.g. 'apify/web-scraper')."
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Optional timeout for the actor run in seconds."
+          },
+          "memory": {
+            "type": "integer",
+            "description": "Memory limit for the actor run in megabytes (e.g. 256, 512, 1024, 2048, 4096)."
+          },
+          "build": {
+            "type": "string",
+            "description": "Tag or number of the actor build to run (e.g. 'latest' or 'beta')."
+          }
+        },
+        "required": [
+          "actorId"
+        ]
+      }
+    },
+    {
+      "name": "get_run",
+      "description": "Get details about a specific actor run including its status, timing, resource usage, and default dataset/key-value store IDs. Optionally wait for the run to finish by specifying waitForFinish.",
+      "method": "GET",
+      "path": "/get-run",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "actorId": {
+            "type": "string",
+            "description": "Actor ID or name in the format 'username/actor-name'."
+          },
+          "runId": {
+            "type": "string",
+            "description": "The ID of the actor run to retrieve."
+          },
+          "waitForFinish": {
+            "type": "integer",
+            "description": "Maximum time in seconds to wait for the run to finish. If provided, the endpoint will wait synchronously."
+          }
+        },
+        "required": [
+          "actorId",
+          "runId"
+        ]
+      }
+    },
+    {
+      "name": "list_runs",
+      "description": "Get a paginated list of runs for a specific actor. Returns basic run information including status, timing, and resource usage. Supports pagination via offset and limit parameters, and optional descending sort order.",
+      "method": "GET",
+      "path": "/list-runs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "actorId": {
+            "type": "string",
+            "description": "Actor ID or name in the format 'username/actor-name'."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of records to skip (for pagination). Default is 0."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of records to return. Default is 100, maximum is 1000."
+          },
+          "desc": {
+            "type": "integer",
+            "description": "Set to 1 to sort results in descending order by startedAt. Default is ascending.",
+            "enum": [
+              0,
+              1
+            ]
+          }
+        },
+        "required": [
+          "actorId"
+        ]
+      }
+    },
+    {
+      "name": "get_dataset_items",
+      "description": "Retrieve items from an Apify dataset. Use the defaultDatasetId from an actor run response to fetch scraped results. Supports pagination, field filtering, and multiple output formats. Limited to 250,000 items per request.",
+      "method": "GET",
+      "path": "/get-dataset-items",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "datasetId": {
+            "type": "string",
+            "description": "The ID of the dataset (use defaultDatasetId from an actor run response)."
+          },
+          "format": {
+            "type": "string",
+            "description": "Output format for the data.",
+            "enum": [
+              "json",
+              "csv",
+              "xlsx",
+              "xml",
+              "rss"
+            ],
+            "default": "json"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of items to skip (for pagination). Default is 0."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of items to return. Maximum is 250000."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated list of fields to include in the results."
+          },
+          "omit": {
+            "type": "string",
+            "description": "Comma-separated list of fields to omit from the results."
+          },
+          "desc": {
+            "type": "integer",
+            "description": "Set to 1 to return items in reverse order (newest first).",
+            "enum": [
+              0,
+              1
+            ]
+          }
+        },
+        "required": [
+          "datasetId"
+        ]
+      }
+    },
+    {
+      "name": "list_actors",
+      "description": "Get a paginated list of actors. Optionally filter to only your own actors using the 'my' parameter. Returns actor metadata including name, description, and version information.",
+      "method": "GET",
+      "path": "/list-actors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "my": {
+            "type": "integer",
+            "description": "Set to 1 to only return actors created by the authenticated user.",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of records to skip (for pagination). Default is 0."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of records to return. Default is 100, maximum is 1000."
+          }
+        }
+      }
+    }
+  ]
+}

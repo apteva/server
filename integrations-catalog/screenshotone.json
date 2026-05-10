@@ -1,0 +1,97 @@
+{
+  "slug": "screenshotone",
+  "name": "ScreenshotOne",
+  "description": "Simple, fast website screenshot API. URL → PNG/JPG/WebP/PDF with one GET request. Supports custom viewports, full-page captures, mobile emulation, dark mode, ad/cookie blocking, element selectors, scripts, and more. Free tier 100 screenshots/month.",
+  "logo": "https://www.google.com/s2/favicons?domain=screenshotone.com&sz=128",
+  "categories": ["screenshots", "rendering", "automation", "scraping"],
+  "base_url": "https://api.screenshotone.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "X-Access-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      { "name": "api_key", "label": "ScreenshotOne access key" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "take",
+      "description": "Take a screenshot or generate a PDF of a URL. Returns the binary image directly (Content-Type: image/png|jpeg|webp or application/pdf). Use `format=png` for PNG output. For full-page captures set `full_page=true`. For mobile views set `device_scale_factor=2&viewport_width=375&viewport_height=812`.",
+      "method": "GET",
+      "path": "/take",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "The URL to screenshot" },
+          "html": { "type": "string", "description": "Render raw HTML instead of a URL" },
+          "markdown": { "type": "string", "description": "Render markdown instead of a URL" },
+          "format": {
+            "type": "string",
+            "enum": ["png", "jpeg", "webp", "jp2", "tiff", "avif", "heif", "pdf", "html"],
+            "default": "png",
+            "description": "Output format"
+          },
+          "full_page": { "type": "boolean", "default": false, "description": "Capture the entire scrollable page" },
+          "viewport_width": { "type": "integer", "default": 1280, "description": "Viewport width in CSS pixels" },
+          "viewport_height": { "type": "integer", "default": 720, "description": "Viewport height in CSS pixels" },
+          "device_scale_factor": { "type": "number", "default": 1, "description": "Pixel density (2 = retina)" },
+          "selector": { "type": "string", "description": "CSS selector to capture only that element" },
+          "click": { "type": "string", "description": "CSS selector to click before capturing" },
+          "scripts": { "type": "string", "description": "Custom JavaScript to execute on the page" },
+          "styles": { "type": "string", "description": "Custom CSS to inject into the page" },
+          "block_ads": { "type": "boolean", "default": false, "description": "Block ads using uBlock filters" },
+          "block_cookie_banners": { "type": "boolean", "default": false, "description": "Auto-dismiss cookie banners" },
+          "block_chats": { "type": "boolean", "default": false, "description": "Hide chat widgets" },
+          "block_trackers": { "type": "boolean", "default": false, "description": "Block tracking scripts" },
+          "dark_mode": { "type": "boolean", "default": false, "description": "Force dark color scheme" },
+          "reduced_motion": { "type": "boolean", "default": false, "description": "Disable CSS animations" },
+          "delay": { "type": "integer", "description": "Extra delay in seconds before capturing" },
+          "timeout": { "type": "integer", "default": 60, "description": "Request timeout in seconds" },
+          "wait_until": {
+            "type": "string",
+            "enum": ["load", "domcontentloaded", "networkidle0", "networkidle2"],
+            "default": "networkidle2"
+          },
+          "wait_for_selector": { "type": "string", "description": "Wait for this CSS selector before capturing" },
+          "image_quality": { "type": "integer", "minimum": 1, "maximum": 100, "default": 80, "description": "JPEG/WebP quality" },
+          "user_agent": { "type": "string", "description": "Override the user agent string" },
+          "cache": { "type": "boolean", "default": false, "description": "Cache the screenshot for cache_ttl seconds" },
+          "cache_ttl": { "type": "integer", "default": 3600, "description": "Cache lifetime in seconds" }
+        },
+        "required": ["url"]
+      },
+      "query_params": [
+        "url", "html", "markdown", "format", "full_page", "viewport_width", "viewport_height",
+        "device_scale_factor", "selector", "click", "scripts", "styles",
+        "block_ads", "block_cookie_banners", "block_chats", "block_trackers",
+        "dark_mode", "reduced_motion", "delay", "timeout", "wait_until", "wait_for_selector",
+        "image_quality", "user_agent", "cache", "cache_ttl"
+      ]
+    },
+    {
+      "name": "animate",
+      "description": "Generate an animated screenshot (scrolling video) of a URL. Returns an MP4 or WebM. Use this when you want to show a page in motion — landing-page hero scroll, demo capture, etc.",
+      "method": "GET",
+      "path": "/animate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" },
+          "format": { "type": "string", "enum": ["mp4", "webm", "gif"], "default": "mp4" },
+          "viewport_width": { "type": "integer", "default": 1280 },
+          "viewport_height": { "type": "integer", "default": 720 },
+          "scroll_easing": { "type": "string", "enum": ["linear", "ease_in_out_quad", "ease_in_out_cubic"], "default": "ease_in_out_quad" },
+          "scroll_duration": { "type": "integer", "default": 1500, "description": "Total scroll animation duration in ms" },
+          "scroll_delay": { "type": "integer", "default": 500 },
+          "scroll_back": { "type": "boolean", "default": false, "description": "Scroll back to top after the forward scroll" }
+        },
+        "required": ["url"]
+      },
+      "query_params": [
+        "url", "format", "viewport_width", "viewport_height",
+        "scroll_easing", "scroll_duration", "scroll_delay", "scroll_back"
+      ]
+    }
+  ]
+}

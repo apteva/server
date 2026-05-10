@@ -1,0 +1,295 @@
+{
+  "slug": "printify",
+  "name": "Printify",
+  "description": "MCP server for Printify print-on-demand - products, orders, blueprints",
+  "logo": "https://www.google.com/s2/favicons?domain=printify.com&sz=128",
+  "categories": [
+    "ecommerce",
+    "print-on-demand",
+    "products",
+    "fulfillment"
+  ],
+  "base_url": "https://api.printify.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_shops",
+      "description": "Get user shops",
+      "method": "GET",
+      "path": "/get-shops",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_products",
+      "description": "Get shop products",
+      "method": "GET",
+      "path": "/get-products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "shop_id"
+        ]
+      }
+    },
+    {
+      "name": "create_product",
+      "description": "Create a new product",
+      "method": "POST",
+      "path": "/create-product",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "blueprint_id": {
+            "type": "number"
+          },
+          "print_provider_id": {
+            "type": "number"
+          },
+          "variants": {
+            "type": "array"
+          },
+          "print_areas": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "shop_id",
+          "title",
+          "blueprint_id",
+          "print_provider_id",
+          "variants",
+          "print_areas"
+        ]
+      }
+    },
+    {
+      "name": "update_product",
+      "description": "Update a product",
+      "method": "PUT",
+      "path": "/update-product",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "string"
+          },
+          "product_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "shop_id",
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "publish_product",
+      "description": "Publish product to store",
+      "method": "GET",
+      "path": "/publish-product",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "string"
+          },
+          "product_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "shop_id",
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Create a new order",
+      "method": "POST",
+      "path": "/create-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "string"
+          },
+          "line_items": {
+            "type": "array"
+          },
+          "address_to": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "shop_id",
+          "line_items",
+          "address_to"
+        ]
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get order details",
+      "method": "GET",
+      "path": "/get-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "string"
+          },
+          "order_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "shop_id",
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "calculate_shipping",
+      "description": "Calculate shipping costs",
+      "method": "GET",
+      "path": "/calculate-shipping",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "string"
+          },
+          "line_items": {
+            "type": "array"
+          },
+          "address_to": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "shop_id",
+          "line_items",
+          "address_to"
+        ]
+      }
+    },
+    {
+      "name": "get_blueprints",
+      "description": "Get available blueprints",
+      "method": "GET",
+      "path": "/get-blueprints",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_blueprint_details",
+      "description": "Get blueprint details",
+      "method": "GET",
+      "path": "/get-blueprint-details",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "blueprint_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "blueprint_id"
+        ]
+      }
+    },
+    {
+      "name": "get_print_providers",
+      "description": "Get print providers for blueprint",
+      "method": "GET",
+      "path": "/get-print-providers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "blueprint_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "blueprint_id"
+        ]
+      }
+    },
+    {
+      "name": "get_provider_variants",
+      "description": "Get variants for provider",
+      "method": "GET",
+      "path": "/get-provider-variants",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "blueprint_id": {
+            "type": "number"
+          },
+          "print_provider_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "blueprint_id",
+          "print_provider_id"
+        ]
+      }
+    },
+    {
+      "name": "upload_image",
+      "description": "Upload an image",
+      "method": "POST",
+      "path": "/upload-image",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_name",
+          "url"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,94 @@
+{
+  "slug": "coconut",
+  "name": "Coconut",
+  "description": "Coconut.co — managed video transcoding API. One POST creates a job that fetches a source URL, encodes to multiple output specs, and pushes results to your storage (S3, GCS, DigitalOcean Spaces, FTP, or HTTP webhook). Simpler scope than MediaConvert/Mux: no live streaming, no playback infrastructure — just transcode + delivery. Good fit as a lightweight render executor.",
+  "logo": "https://www.google.com/s2/favicons?domain=coconut.co&sz=128",
+  "categories": ["video", "transcoding", "media", "encoding"],
+  "base_url": "https://api.coconut.co",
+  "auth": {
+    "types": ["basic"],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}"
+    },
+    "credential_fields": [
+      {
+        "name": "username",
+        "label": "API Key",
+        "description": "API key from https://app.coconut.co/api-keys. Sent as the username in HTTP Basic auth (with an empty password).",
+        "required": true,
+        "type": "password"
+      },
+      {
+        "name": "password",
+        "label": "Empty",
+        "description": "Coconut uses Basic auth with an empty password. Leave this blank — the runtime will still build a valid Basic header (api_key:'').",
+        "required": false,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_job",
+      "description": "Submit a transcoding job. The body declares one input source, one storage destination, an optional notification webhook, and one or more outputs (each output is a key like \"mp4:720p\" or \"jpg:200x\" mapped to an object with `path` + per-format options). Returns 201 with the job id; status starts at job.queued and progresses to job.completed | job.failed. Either poll get_job or rely on the notification webhook.",
+      "method": "POST",
+      "path": "/v2/jobs",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "description": "Source descriptor. {url: \"https://...\"} for HTTPS, or a service+credentials object for S3/etc. Must be reachable by Coconut.",
+            "properties": {
+              "url": { "type": "string" }
+            }
+          },
+          "storage": {
+            "type": "object",
+            "description": "Where outputs land. Common shapes:\n  {service: \"s3\", region, bucket, credentials: {access_key_id, secret_access_key}}\n  {service: \"gcs\", bucket, credentials: {...}}\n  {service: \"do\" | \"backblaze\" | \"rackspace\" | \"linode\" | \"upcloud\" | \"wasabi\" | ...}\n  {service: \"ftp\", host, user, password}\nBy default Coconut uploads to your own storage; without a storage block, files stay in Coconut for ~24h."
+          },
+          "notification": {
+            "type": "object",
+            "description": "Optional webhook callback. {type: \"http\", url: \"https://your-app/coconut-webhook\", events: true | [\"job.completed\", \"output.completed\"], metadata: {render_id: ...}}. The metadata round-trips back so you can match the callback to the originating render."
+          },
+          "outputs": {
+            "type": "object",
+            "description": "Map of <format-key>: <output-spec>. Format keys: `mp4`, `mp4:hls`, `jpg`, `jpg:gif`, `webp`, `webm`, `ogg`, `mp3`, etc — optionally suffixed with a preset like `:720p` or dimensions like `:1280x720`. Each value is at minimum {path: \"/output/file.mp4\"} relative to the storage root, plus per-format tuning fields (video_bitrate, audio_bitrate, fps, watermark, etc). For our 7 ops:\n  - trim → output spec with `start: \"00:00:01.500\"` + `end: \"00:00:03.500\"`\n  - resize → `width` + `height`\n  - transcode → switch the format key\n  - extract_frame → `jpg:200x` with `offset: \"00:00:02.500\"`\n  - audio_extract → `mp3` (no width/height)\n  - crop → `vfilter: \"crop=W:H:X:Y\"`\n  - concat → multi-input via `input.urls: [...]` + `vfilter: \"concat\"`."
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Free-form key/values echoed back in the job + notification."
+          }
+        },
+        "required": ["input", "outputs"]
+      }
+    },
+    {
+      "name": "get_job",
+      "description": "Fetch one job's status + per-output progress. Status enum: job.queued, job.starting, job.transcoding, job.completed, job.failed. Each output also has its own progress percent; the overall job's `progress` is the rolled-up min.",
+      "method": "GET",
+      "path": "/v2/jobs/{JOB_ID}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "JOB_ID": { "type": "string" }
+        },
+        "required": ["JOB_ID"]
+      }
+    },
+    {
+      "name": "get_job_metadata",
+      "description": "Fetch source-file probe data Coconut collects on ingest — duration, dimensions, codecs, bitrate. Useful before deciding output specs (e.g. don't upscale).",
+      "method": "GET",
+      "path": "/v2/metadata/jobs/{JOB_ID}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "JOB_ID": { "type": "string" }
+        },
+        "required": ["JOB_ID"]
+      }
+    }
+  ]
+}

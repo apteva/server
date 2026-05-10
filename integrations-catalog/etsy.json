@@ -1,0 +1,484 @@
+{
+  "slug": "etsy",
+  "name": "Etsy",
+  "description": "Etsy Open API v3 \u2014 manage shops, listings, orders (receipts), and reviews on Etsy. OAuth2 with PKCE; the keystring (client_id) doubles as the x-api-key header.",
+  "logo": "https://www.google.com/s2/favicons?domain=etsy.com&sz=128",
+  "categories": [
+    "ecommerce",
+    "marketplace",
+    "etsy",
+    "store",
+    "listings",
+    "orders",
+    "handmade",
+    "retail"
+  ],
+  "base_url": "https://openapi.etsy.com/v3/application",
+  "auth": {
+    "types": [
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "x-api-key": "{{client_id}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "client_id",
+        "label": "Keystring (Client ID)",
+        "description": "Etsy app keystring from etsy.com/developers \u2014 also sent as the x-api-key header on every request."
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://www.etsy.com/oauth/connect",
+      "token_url": "https://api.etsy.com/v3/public/oauth/token",
+      "scopes": [
+        "shops_r",
+        "shops_w",
+        "listings_r",
+        "listings_w",
+        "transactions_r",
+        "transactions_w",
+        "profile_r",
+        "email_r"
+      ],
+      "client_id_required": true,
+      "pkce": true
+    }
+  },
+  "tools": [
+    {
+      "name": "get_authenticated_user",
+      "description": "Get the user_id of the currently authenticated Etsy user.",
+      "method": "GET",
+      "path": "/users/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "Get an Etsy user's public profile by user ID.",
+      "method": "GET",
+      "path": "/users/{user_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "get_shop_by_owner",
+      "description": "Get the shop belonging to the authenticated user.",
+      "method": "GET",
+      "path": "/users/{user_id}/shops",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "description": "Etsy user ID (from get_authenticated_user)."
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "get_shop",
+      "description": "Get a shop by ID \u2014 name, currency, listing counts, vacation status.",
+      "method": "GET",
+      "path": "/shops/{shop_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "shop_id"
+        ]
+      }
+    },
+    {
+      "name": "list_shop_listings_active",
+      "description": "List active listings in a shop. Supports pagination + sort by created/updated/price/score.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/listings/active",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max 100."
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "keywords": {
+            "type": "string"
+          },
+          "sort_on": {
+            "type": "string",
+            "enum": [
+              "created",
+              "price",
+              "updated",
+              "score"
+            ]
+          },
+          "sort_order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc",
+              "ascending",
+              "descending"
+            ]
+          }
+        },
+        "required": [
+          "shop_id"
+        ]
+      }
+    },
+    {
+      "name": "get_listing",
+      "description": "Get a single listing by ID. Use 'includes' to embed Images, Videos, Inventory, Translations, etc.",
+      "method": "GET",
+      "path": "/listings/{listing_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listing_id": {
+            "type": "integer"
+          },
+          "includes": {
+            "type": "string",
+            "description": "Comma-separated associations (e.g. 'Images,Videos,Inventory,Shipping')."
+          }
+        },
+        "required": [
+          "listing_id"
+        ]
+      }
+    },
+    {
+      "name": "create_draft_listing",
+      "description": "Create a new draft listing in the seller's shop. The listing starts inactive \u2014 call update_listing to set state='active' once images and inventory are attached.",
+      "method": "POST",
+      "path": "/shops/{shop_id}/listings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer"
+          },
+          "quantity": {
+            "type": "integer",
+            "description": "Number of items available."
+          },
+          "title": {
+            "type": "string",
+            "description": "Max 140 chars."
+          },
+          "description": {
+            "type": "string"
+          },
+          "price": {
+            "type": "number",
+            "description": "Listing price in shop's currency."
+          },
+          "who_made": {
+            "type": "string",
+            "enum": [
+              "i_did",
+              "someone_else",
+              "collective"
+            ]
+          },
+          "when_made": {
+            "type": "string",
+            "description": "Period code (e.g. 'made_to_order', '2020_2025', 'before_2006')."
+          },
+          "taxonomy_id": {
+            "type": "integer",
+            "description": "Etsy taxonomy node ID."
+          },
+          "shipping_profile_id": {
+            "type": "integer"
+          },
+          "return_policy_id": {
+            "type": "integer"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Up to 13 tags, max 20 chars each."
+          },
+          "materials": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "physical",
+              "download",
+              "both"
+            ]
+          },
+          "is_supply": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "shop_id",
+          "quantity",
+          "title",
+          "description",
+          "price",
+          "who_made",
+          "when_made",
+          "taxonomy_id"
+        ]
+      }
+    },
+    {
+      "name": "update_listing",
+      "description": "Update fields on an existing listing. Use state='active' to publish a draft. Pass only the fields you want to change.",
+      "method": "PATCH",
+      "path": "/shops/{shop_id}/listings/{listing_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer"
+          },
+          "listing_id": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "price": {
+            "type": "number"
+          },
+          "quantity": {
+            "type": "integer"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "materials": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "draft"
+            ]
+          },
+          "shipping_profile_id": {
+            "type": "integer"
+          },
+          "return_policy_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "shop_id",
+          "listing_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_listing",
+      "description": "Delete a listing. Etsy disallows deletion of sold-out listings \u2014 deactivate them via update_listing instead.",
+      "method": "DELETE",
+      "path": "/listings/{listing_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listing_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "listing_id"
+        ]
+      }
+    },
+    {
+      "name": "list_shop_receipts",
+      "description": "List orders (receipts) for a shop \u2014 buyer info, items, totals, shipment status. Filter by paid/shipped status and date range.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/receipts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer"
+          },
+          "min_created": {
+            "type": "integer",
+            "description": "Unix timestamp lower bound."
+          },
+          "max_created": {
+            "type": "integer"
+          },
+          "min_last_modified": {
+            "type": "integer"
+          },
+          "max_last_modified": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "was_paid": {
+            "type": "boolean"
+          },
+          "was_shipped": {
+            "type": "boolean"
+          },
+          "was_delivered": {
+            "type": "boolean"
+          },
+          "was_canceled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "shop_id"
+        ]
+      }
+    },
+    {
+      "name": "get_shop_receipt",
+      "description": "Get a single receipt (order) by ID.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/receipts/{receipt_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer"
+          },
+          "receipt_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "shop_id",
+          "receipt_id"
+        ]
+      }
+    },
+    {
+      "name": "create_receipt_shipment",
+      "description": "Mark a receipt as shipped and optionally attach a tracking number / carrier to notify the buyer.",
+      "method": "POST",
+      "path": "/shops/{shop_id}/receipts/{receipt_id}/tracking",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer"
+          },
+          "receipt_id": {
+            "type": "integer"
+          },
+          "tracking_code": {
+            "type": "string"
+          },
+          "carrier_name": {
+            "type": "string",
+            "description": "e.g. 'usps', 'fedex', 'ups', 'dhl'."
+          },
+          "send_bcc": {
+            "type": "boolean",
+            "description": "BCC the seller on the buyer notification email."
+          },
+          "note_to_buyer": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "shop_id",
+          "receipt_id"
+        ]
+      }
+    },
+    {
+      "name": "list_shop_reviews",
+      "description": "List reviews left on a shop's listings.",
+      "method": "GET",
+      "path": "/shops/{shop_id}/reviews",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "min_created": {
+            "type": "integer"
+          },
+          "max_created": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "shop_id"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_authenticated_user"
+  }
+}

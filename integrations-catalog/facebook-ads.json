@@ -1,0 +1,1426 @@
+{
+  "slug": "facebook-ads",
+  "name": "Facebook Ads",
+  "description": "Facebook Ads Manager \u2014 campaign management, ad creation, audience targeting, creatives, lead forms, pixel tracking, and performance analytics via Meta Graph API",
+  "logo": "https://www.google.com/s2/favicons?domain=www.facebook.com&sz=128",
+  "categories": [
+    "facebook-ads",
+    "advertising",
+    "campaigns",
+    "marketing",
+    "meta-ads"
+  ],
+  "base_url": "https://graph.facebook.com/v25.0",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "accessToken"
+      },
+      {
+        "name": "refreshToken",
+        "label": "refreshToken"
+      },
+      {
+        "name": "expiresIn",
+        "label": "expiresIn"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://www.facebook.com/v25.0/dialog/oauth",
+      "token_url": "https://graph.facebook.com/v25.0/oauth/access_token",
+      "scopes": [
+        "email",
+        "public_profile",
+        "pages_show_list",
+        "pages_read_engagement",
+        "pages_manage_posts",
+        "pages_manage_metadata",
+        "instagram_basic",
+        "instagram_content_publish",
+        "ads_management",
+        "business_management"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "account_list",
+      "description": "List Facebook ad accounts. By default lists the current user's ad accounts (userId='me'). Pass a business ID as userId and set endpoint='owned_ad_accounts' to list business accounts.",
+      "method": "GET",
+      "path": "/account-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "default": "me",
+            "description": "User ID or Business ID. Defaults to 'me' (current user)."
+          },
+          "endpoint": {
+            "type": "string",
+            "default": "adaccounts",
+            "description": "Endpoint: 'adaccounts' for user accounts, 'owned_ad_accounts' for business accounts"
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,name,account_id,account_status,currency,timezone_name,business,default_dsa_beneficiary,default_dsa_payor",
+            "description": "Comma-separated fields to return. Includes default_dsa_beneficiary and default_dsa_payor (EU/DSA compliance defaults for the account)."
+          },
+          "limit": {
+            "type": "integer",
+            "default": 25,
+            "description": "Max results (max 100)"
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        }
+      }
+    },
+    {
+      "name": "campaign_create",
+      "description": "Create a Facebook campaign. special_ad_categories is REQUIRED (pass empty array [] if none). OBJECTIVES: OUTCOME_SALES (website purchases/conversions), OUTCOME_LEADS (lead generation forms), OUTCOME_TRAFFIC (website visits), OUTCOME_ENGAGEMENT (page likes, post engagement, event responses \u2014 use this for PAGE LIKES campaigns), OUTCOME_AWARENESS (reach/brand awareness), OUTCOME_APP_PROMOTION (app installs). PAGE LIKES CAMPAIGN: Use objective=OUTCOME_ENGAGEMENT, then on the ad set use optimization_goal=PAGE_LIKES with promoted_object={\"page_id\":\"YOUR_PAGE_ID\"}. BUDGET: Setting daily_budget or lifetime_budget here enables Campaign Budget Optimization (CBO) \u2014 the campaign controls budget for ALL ad sets. If using CBO, ad sets must NOT set their own budget. bid_strategy options: LOWEST_COST_WITHOUT_CAP (recommended default, auto-bidding), COST_CAP (target cost per result), BID_CAP (max bid cap \u2014 ad sets MUST then set bid_amount). Examples: Page likes: {\"name\":\"Page Likes\",\"objective\":\"OUTCOME_ENGAGEMENT\",\"special_ad_categories\":[],\"daily_budget\":\"1000\",\"status\":\"PAUSED\"}. Sales with CBO: {\"name\":\"Sales\",\"objective\":\"OUTCOME_SALES\",\"special_ad_categories\":[],\"daily_budget\":\"1000\",\"bid_strategy\":\"LOWEST_COST_WITHOUT_CAP\",\"status\":\"PAUSED\"}. Traffic without CBO: {\"name\":\"Traffic\",\"objective\":\"OUTCOME_TRAFFIC\",\"special_ad_categories\":[],\"status\":\"PAUSED\"}",
+      "method": "POST",
+      "path": "/campaign-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adAccountId": {
+            "type": "string",
+            "description": "Ad Account ID (format: act_123456789)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Campaign name"
+          },
+          "objective": {
+            "type": "string",
+            "description": "Campaign objective. Use OUTCOME_* objectives.",
+            "enum": [
+              "OUTCOME_SALES",
+              "OUTCOME_LEADS",
+              "OUTCOME_TRAFFIC",
+              "OUTCOME_ENGAGEMENT",
+              "OUTCOME_AWARENESS",
+              "OUTCOME_APP_PROMOTION"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ],
+            "default": "PAUSED",
+            "description": "Campaign status"
+          },
+          "special_ad_categories": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "CREDIT",
+                "EMPLOYMENT",
+                "HOUSING"
+              ]
+            },
+            "default": [],
+            "description": "Special ad categories (pass empty array [] if none)"
+          },
+          "daily_budget": {
+            "type": "string",
+            "description": "Daily budget in cents as string (e.g., '1000' = $10.00)"
+          },
+          "lifetime_budget": {
+            "type": "string",
+            "description": "Lifetime budget in cents (requires start_time and end_time)"
+          },
+          "bid_strategy": {
+            "type": "string",
+            "enum": [
+              "LOWEST_COST_WITHOUT_CAP",
+              "COST_CAP",
+              "BID_CAP"
+            ],
+            "description": "Bid strategy. LOWEST_COST_WITHOUT_CAP=auto-bid (recommended for most cases). BID_CAP=manual bid cap (ad sets MUST set bid_amount). COST_CAP=target cost per result. NOTE: when reading campaigns, API returns 'LOWEST_COST_WITH_BID_CAP' for BID_CAP."
+          },
+          "start_time": {
+            "type": "string",
+            "description": "Start time (ISO format, required for lifetime budget)"
+          },
+          "end_time": {
+            "type": "string",
+            "description": "End time (ISO format, required for lifetime budget)"
+          }
+        },
+        "required": [
+          "adAccountId",
+          "name",
+          "objective",
+          "special_ad_categories"
+        ]
+      }
+    },
+    {
+      "name": "campaign_list",
+      "description": "List all campaigns in an ad account.",
+      "method": "GET",
+      "path": "/campaign-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adAccountId": {
+            "type": "string",
+            "description": "Ad Account ID (format: act_123456789)"
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,name,objective,status,bid_strategy,daily_budget,lifetime_budget,budget_remaining,special_ad_categories,start_time,stop_time,created_time,updated_time",
+            "description": "Comma-separated fields"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 25,
+            "description": "Max results (max 100)"
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "filtering": {
+            "type": "string",
+            "description": "JSON stringified filter array, e.g. [{\"field\":\"effective_status\",\"operator\":\"IN\",\"value\":[\"ACTIVE\"]}]"
+          }
+        },
+        "required": [
+          "adAccountId"
+        ]
+      }
+    },
+    {
+      "name": "campaign_update",
+      "description": "Update campaign settings. Returns {success:true}. WARNING: Changing bid_strategy affects all ad sets \u2014 if switching to BID_CAP, all ad sets must have bid_amount set. If switching to LOWEST_COST_WITHOUT_CAP, ad sets should NOT have bid_amount. To activate, ALL components must be valid: campaign + ad set + ad + creative. NOTE: The API returns bid_strategy as LOWEST_COST_WITH_BID_CAP when reading, but for writing use BID_CAP.",
+      "method": "POST",
+      "path": "/campaign-update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New campaign name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ],
+            "description": "Campaign status"
+          },
+          "daily_budget": {
+            "type": "string",
+            "description": "Daily budget in cents"
+          },
+          "lifetime_budget": {
+            "type": "string",
+            "description": "Lifetime budget in cents"
+          },
+          "spend_cap": {
+            "type": "string",
+            "description": "Spend cap in cents"
+          },
+          "bid_strategy": {
+            "type": "string",
+            "enum": [
+              "LOWEST_COST_WITHOUT_CAP",
+              "COST_CAP",
+              "BID_CAP"
+            ],
+            "description": "Bid strategy"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "Start time (ISO)"
+          },
+          "stop_time": {
+            "type": "string",
+            "description": "Stop time (ISO)"
+          }
+        },
+        "required": [
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "campaign_delete",
+      "description": "Delete a Facebook advertising campaign.",
+      "method": "DELETE",
+      "path": "/campaign-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID to delete"
+          }
+        },
+        "required": [
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "adset_create",
+      "description": "Create a Facebook ad set. PREREQUISITE: ALWAYS call facebook-ads-campaign-list first to check the parent campaign's objective, bid_strategy, and daily_budget/lifetime_budget. OBJECTIVE \u2192 AD SET CONFIGURATION (use these exact combinations): (1) OUTCOME_SALES \u2192 optimization_goal=OFFSITE_CONVERSIONS, promoted_object={\"pixel_id\":\"YOUR_PIXEL_ID\",\"custom_event_type\":\"PURCHASE\"}, destination_type=WEBSITE. (2) OUTCOME_LEADS \u2192 optimization_goal=LEAD_GENERATION, promoted_object={\"page_id\":\"YOUR_PAGE_ID\"}, destination_type=WEBSITE. (3) OUTCOME_TRAFFIC \u2192 optimization_goal=LINK_CLICKS, no promoted_object needed, destination_type=WEBSITE. (4) OUTCOME_ENGAGEMENT + PAGE LIKES \u2192 optimization_goal=PAGE_LIKES, promoted_object={\"page_id\":\"YOUR_PAGE_ID\"}, billing_event=IMPRESSIONS, destination_type=ON_PAGE. (5) OUTCOME_ENGAGEMENT + POST ENGAGEMENT \u2192 optimization_goal=POST_ENGAGEMENT, promoted_object={\"page_id\":\"YOUR_PAGE_ID\"}, billing_event=IMPRESSIONS. (6) OUTCOME_AWARENESS \u2192 optimization_goal=REACH, billing_event=IMPRESSIONS. BUDGET RULES: (1) If campaign has daily_budget or lifetime_budget (CBO mode) \u2192 do NOT set daily_budget or lifetime_budget on adset. (2) If campaign bid_strategy is LOWEST_COST_WITH_BID_CAP or BID_CAP \u2192 you MUST set bid_amount in cents. (3) If campaign bid_strategy is LOWEST_COST_WITHOUT_CAP \u2192 do NOT set bid_amount or bid_strategy. (4) If campaign has NO budget (no CBO) \u2192 you MUST set daily_budget or lifetime_budget AND bid_strategy. EU/DSA COMPLIANCE: If targeting EU, Taiwan, Singapore, or Australia, you MUST set dsa_beneficiary and dsa_payor \u2014 ads will be rejected without these. targeting format: {\"geo_locations\":{\"countries\":[\"US\"]},\"targeting_automation\":{\"advantage_audience\":0}}.",
+      "method": "POST",
+      "path": "/adset-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adAccountId": {
+            "type": "string",
+            "description": "Ad Account ID (format: act_123456789)"
+          },
+          "campaign_id": {
+            "type": "string",
+            "description": "Campaign ID this ad set belongs to"
+          },
+          "name": {
+            "type": "string",
+            "description": "Ad set name"
+          },
+          "daily_budget": {
+            "type": "string",
+            "description": "Daily budget in CENTS as a string. '1000' = $10.00, '5000' = $50.00. ONLY set this if the parent campaign does NOT use Campaign Budget Optimization (CBO). If the campaign already has a daily_budget or lifetime_budget, do NOT set this \u2014 the campaign controls the budget. Use lifetime_budget instead if you need a fixed total spend with start/end dates."
+          },
+          "optimization_goal": {
+            "type": "string",
+            "default": "LINK_CLICKS",
+            "enum": [
+              "OFFSITE_CONVERSIONS",
+              "LINK_CLICKS",
+              "LANDING_PAGE_VIEWS",
+              "LEAD_GENERATION",
+              "REACH",
+              "IMPRESSIONS",
+              "THRUPLAY",
+              "APP_INSTALLS",
+              "PAGE_LIKES",
+              "POST_ENGAGEMENT",
+              "VALUE"
+            ],
+            "description": "What to optimize for. Must match campaign objective: OUTCOME_SALES\u2192OFFSITE_CONVERSIONS, OUTCOME_LEADS\u2192LEAD_GENERATION, OUTCOME_TRAFFIC\u2192LINK_CLICKS, OUTCOME_ENGAGEMENT\u2192PAGE_LIKES or POST_ENGAGEMENT (both require promoted_object with page_id), OUTCOME_AWARENESS\u2192REACH."
+          },
+          "billing_event": {
+            "type": "string",
+            "default": "IMPRESSIONS",
+            "enum": [
+              "IMPRESSIONS",
+              "LINK_CLICKS",
+              "THRUPLAY"
+            ],
+            "description": "How you are charged. Almost always use IMPRESSIONS."
+          },
+          "targeting": {
+            "type": "object",
+            "description": "REQUIRED. Targeting specification object. MUST include targeting_automation.advantage_audience (0=manual targeting, 1=Advantage+ auto-expand). With advantage_audience:1, age_max cannot be below 65. Minimum: {\"geo_locations\":{\"countries\":[\"US\"]},\"targeting_automation\":{\"advantage_audience\":0}}. Full example: {\"geo_locations\":{\"countries\":[\"US\",\"CA\"]},\"age_min\":25,\"age_max\":55,\"targeting_automation\":{\"advantage_audience\":0},\"publisher_platforms\":[\"facebook\",\"instagram\"],\"facebook_positions\":[\"feed\"],\"instagram_positions\":[\"stream\",\"story\"]}. Genders: 1=male, 2=female. For interests use flexible_spec: [{\"interests\":[{\"id\":\"6003139266461\",\"name\":\"Fitness\"}]}]"
+          },
+          "promoted_object": {
+            "type": "object",
+            "description": "REQUIRED for OFFSITE_CONVERSIONS, LEAD_GENERATION, PAGE_LIKES, and POST_ENGAGEMENT goals. For sales (OFFSITE_CONVERSIONS): {\"pixel_id\":\"YOUR_PIXEL_ID\",\"custom_event_type\":\"PURCHASE\"}. For leads (LEAD_GENERATION): {\"page_id\":\"YOUR_PAGE_ID\"}. For page likes (PAGE_LIKES): {\"page_id\":\"YOUR_PAGE_ID\"}. For post engagement (POST_ENGAGEMENT): {\"page_id\":\"YOUR_PAGE_ID\"}."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ],
+            "default": "PAUSED",
+            "description": "Ad set status. Use PAUSED to review before activating."
+          },
+          "bid_strategy": {
+            "type": "string",
+            "enum": [
+              "LOWEST_COST_WITHOUT_CAP",
+              "LOWEST_COST_WITH_BID_CAP",
+              "COST_CAP"
+            ],
+            "description": "Bid strategy. Required when campaign does NOT use campaign budget optimization (CBO)."
+          },
+          "bid_amount": {
+            "type": "string",
+            "description": "Bid cap in cents (required for LOWEST_COST_WITH_BID_CAP)"
+          },
+          "lifetime_budget": {
+            "type": "string",
+            "description": "Lifetime budget in cents. Use instead of daily_budget. Requires start_time and end_time."
+          },
+          "start_time": {
+            "type": "string",
+            "description": "ISO 8601 start time (required for lifetime_budget)"
+          },
+          "end_time": {
+            "type": "string",
+            "description": "ISO 8601 end time (required for lifetime_budget)"
+          },
+          "attribution_spec": {
+            "type": "array",
+            "description": "Attribution windows. Example: [{\"event_type\":\"CLICK_THROUGH\",\"window_days\":7},{\"event_type\":\"VIEW_THROUGH\",\"window_days\":1}]"
+          },
+          "destination_type": {
+            "type": "string",
+            "enum": [
+              "WEBSITE",
+              "APP",
+              "MESSENGER",
+              "WHATSAPP",
+              "INSTAGRAM_DIRECT",
+              "PHONE_CALL",
+              "ON_PAGE"
+            ],
+            "description": "Where people go when they click. WEBSITE for sales/leads/traffic. ON_PAGE for PAGE_LIKES campaigns (REQUIRED). Do NOT set for POST_ENGAGEMENT or AWARENESS."
+          },
+          "dsa_beneficiary": {
+            "type": "string",
+            "description": "REQUIRED for EU/Taiwan/Singapore/Australia targeting. The name of the entity that benefits from the ad (e.g. your business name or client name). Without this, ads targeting regulated regions will be rejected."
+          },
+          "dsa_payor": {
+            "type": "string",
+            "description": "REQUIRED for EU/Taiwan/Singapore/Australia targeting. The name of the entity paying for the ad. Often the same as dsa_beneficiary for direct advertisers, or the agency name if running ads on behalf of a client."
+          }
+        },
+        "required": [
+          "adAccountId",
+          "campaign_id",
+          "name",
+          "optimization_goal",
+          "billing_event",
+          "targeting"
+        ]
+      }
+    },
+    {
+      "name": "adset_list",
+      "description": "List ad sets. Pass an ad account ID or campaign ID as objectId.",
+      "method": "GET",
+      "path": "/adset-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "objectId": {
+            "type": "string",
+            "description": "Ad Account ID (act_xxx) or Campaign ID to list ad sets for"
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,name,campaign_id,status,daily_budget,lifetime_budget,bid_strategy,bid_amount,optimization_goal,billing_event,targeting,promoted_object,start_time,end_time,budget_remaining,created_time,dsa_beneficiary,dsa_payor",
+            "description": "Comma-separated fields"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 25,
+            "description": "Max results"
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "filtering": {
+            "type": "string",
+            "description": "JSON stringified filter array"
+          }
+        },
+        "required": [
+          "objectId"
+        ]
+      }
+    },
+    {
+      "name": "adset_update",
+      "description": "Update ad set settings. Returns {success:true}. To activate, parent campaign must be ACTIVE and ad set must have valid ads.",
+      "method": "POST",
+      "path": "/adset-update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adSetId": {
+            "type": "string",
+            "description": "Ad Set ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ],
+            "description": "Status"
+          },
+          "targeting": {
+            "type": "object",
+            "description": "Updated targeting spec"
+          },
+          "daily_budget": {
+            "type": "string",
+            "description": "Daily budget in cents"
+          },
+          "lifetime_budget": {
+            "type": "string",
+            "description": "Lifetime budget in cents"
+          },
+          "bid_amount": {
+            "type": "string",
+            "description": "Bid amount in cents"
+          },
+          "optimization_goal": {
+            "type": "string",
+            "enum": [
+              "OFFSITE_CONVERSIONS",
+              "LINK_CLICKS",
+              "LANDING_PAGE_VIEWS",
+              "LEAD_GENERATION",
+              "REACH",
+              "IMPRESSIONS",
+              "THRUPLAY"
+            ],
+            "description": "Optimization goal"
+          },
+          "promoted_object": {
+            "type": "object",
+            "description": "Promoted object config"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "Start time (ISO)"
+          },
+          "end_time": {
+            "type": "string",
+            "description": "End time (ISO)"
+          },
+          "dsa_beneficiary": {
+            "type": "string",
+            "description": "Entity benefiting from the ad (required for EU/Taiwan/Singapore/Australia targeting)"
+          },
+          "dsa_payor": {
+            "type": "string",
+            "description": "Entity paying for the ad (required for EU/Taiwan/Singapore/Australia targeting)"
+          }
+        },
+        "required": [
+          "adSetId"
+        ]
+      }
+    },
+    {
+      "name": "adset_delete",
+      "description": "Delete an ad set.",
+      "method": "DELETE",
+      "path": "/adset-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adSetId": {
+            "type": "string",
+            "description": "Ad Set ID to delete"
+          }
+        },
+        "required": [
+          "adSetId"
+        ]
+      }
+    },
+    {
+      "name": "ad_create",
+      "description": "Create an ad linking an ad set to a creative. Steps: 1) Create campaign, 2) Create ad set (with promoted_object if needed), 3) Create creative, 4) Create ad. The creative param MUST be an object: {\"creative_id\":\"YOUR_ID\"}. IMPORTANT: For OUTCOME_SALES campaigns, the ad set MUST have a promoted_object with pixel_id and custom_event_type, otherwise ad creation fails with 'Tracking pixel required'. For OUTCOME_LEADS, the ad set needs promoted_object with page_id. If you get 'Tracking pixel required', go back and update the ad set to include the correct promoted_object. Example: {\"name\":\"My Ad\",\"adset_id\":\"123456\",\"creative\":{\"creative_id\":\"789012\"},\"status\":\"PAUSED\"}",
+      "method": "POST",
+      "path": "/ad-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adAccountId": {
+            "type": "string",
+            "description": "Ad Account ID (format: act_123456789)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Ad name"
+          },
+          "adset_id": {
+            "type": "string",
+            "description": "Ad Set ID this ad belongs to"
+          },
+          "creative": {
+            "type": "object",
+            "description": "MUST be {\"creative_id\": \"YOUR_CREATIVE_ID\"}. Get the creative_id from creative-create response."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ],
+            "default": "PAUSED",
+            "description": "Ad status. Use PAUSED to review before activating."
+          },
+          "tracking_specs": {
+            "type": "array",
+            "description": "Tracking specs array. Example: [{\"action.type\":[\"offsite_conversion\"],\"fb_pixel\":[\"PIXEL_ID\"]}]"
+          },
+          "url_tags": {
+            "type": "string",
+            "description": "UTM tags appended to URLs. Example: utm_source=facebook&utm_medium=cpc&utm_campaign=my_campaign"
+          }
+        },
+        "required": [
+          "adAccountId",
+          "name",
+          "adset_id",
+          "creative"
+        ]
+      }
+    },
+    {
+      "name": "ad_list",
+      "description": "List ads. Pass an ad account ID or ad set ID as objectId.",
+      "method": "GET",
+      "path": "/ad-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "objectId": {
+            "type": "string",
+            "description": "Ad Account ID (act_xxx) or Ad Set ID"
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,name,adset_id,campaign_id,status,effective_status,creative{id,name,thumbnail_url,object_story_spec},tracking_specs,created_time",
+            "description": "Comma-separated fields"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 25,
+            "description": "Max results"
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "filtering": {
+            "type": "string",
+            "description": "JSON stringified filter array"
+          }
+        },
+        "required": [
+          "objectId"
+        ]
+      }
+    },
+    {
+      "name": "ad_update",
+      "description": "Update ad settings. Returns {success:true}. To activate, parent campaign AND ad set must both be ACTIVE.",
+      "method": "POST",
+      "path": "/ad-update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adId": {
+            "type": "string",
+            "description": "Ad ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New ad name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ],
+            "description": "Ad status"
+          }
+        },
+        "required": [
+          "adId"
+        ]
+      }
+    },
+    {
+      "name": "ad_delete",
+      "description": "Delete an ad.",
+      "method": "DELETE",
+      "path": "/ad-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adId": {
+            "type": "string",
+            "description": "Ad ID to delete"
+          }
+        },
+        "required": [
+          "adId"
+        ]
+      }
+    },
+    {
+      "name": "creative_create",
+      "description": "Create an ad creative with image, video, or link. IMPORTANT: object_story_spec MUST contain page_id at the top level. For IMAGE ads: {\"page_id\":\"PAGE_ID\",\"link_data\":{\"name\":\"Headline\",\"message\":\"Body text above image\",\"link\":\"https://yoursite.com\",\"picture\":\"https://image-url.jpg\",\"call_to_action\":{\"type\":\"LEARN_MORE\",\"value\":{\"link\":\"https://yoursite.com\"}}}}. For VIDEO ads: {\"page_id\":\"PAGE_ID\",\"video_data\":{\"video_id\":\"VIDEO_ID\",\"title\":\"Headline\",\"message\":\"Body text\",\"link_description\":\"Description\",\"call_to_action\":{\"type\":\"SHOP_NOW\",\"value\":{\"link\":\"https://yoursite.com\"}}}}. call_to_action types: LEARN_MORE, SHOP_NOW, SIGN_UP, BOOK_TRAVEL, CONTACT_US, DOWNLOAD, GET_OFFER, GET_QUOTE, SUBSCRIBE, WATCH_MORE.",
+      "method": "POST",
+      "path": "/creative-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adAccountId": {
+            "type": "string",
+            "description": "Ad Account ID (format: act_123456789)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Creative name (internal reference)"
+          },
+          "object_story_spec": {
+            "type": "object",
+            "description": "REQUIRED. Must include page_id + either link_data (image/link) or video_data (video). Image example: {\"page_id\":\"YOUR_PAGE_ID\",\"link_data\":{\"name\":\"Headline text\",\"message\":\"Primary text shown above\",\"link\":\"https://yoursite.com\",\"picture\":\"https://image-url.jpg\",\"call_to_action\":{\"type\":\"LEARN_MORE\",\"value\":{\"link\":\"https://yoursite.com\"}}}}. Video example: {\"page_id\":\"YOUR_PAGE_ID\",\"video_data\":{\"video_id\":\"VIDEO_ID\",\"title\":\"Headline\",\"message\":\"Primary text\",\"call_to_action\":{\"type\":\"SHOP_NOW\",\"value\":{\"link\":\"https://yoursite.com\"}}}}"
+          },
+          "degrees_of_freedom_spec": {
+            "type": "object",
+            "description": "Optional. Enable Advantage+ creative: {\"creative_features_spec\":{\"standard_enhancements\":{\"enroll_status\":\"OPT_IN\"}}}"
+          },
+          "url_tags": {
+            "type": "string",
+            "description": "UTM tags for tracking. Example: utm_source=facebook&utm_medium=cpc"
+          }
+        },
+        "required": [
+          "adAccountId",
+          "name",
+          "object_story_spec"
+        ]
+      }
+    },
+    {
+      "name": "creative_create_carousel",
+      "description": "Create a carousel ad creative with 2-10 cards. Pass the full object_story_spec with link_data containing child_attachments array.",
+      "method": "POST",
+      "path": "/creative-create-carousel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adAccountId": {
+            "type": "string",
+            "description": "Ad Account ID (format: act_123456789)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Creative name"
+          },
+          "object_story_spec": {
+            "type": "object",
+            "description": "Carousel spec: {\"page_id\":\"PAGE_ID\",\"link_data\":{\"message\":\"Text\",\"link\":\"https://...\",\"child_attachments\":[{\"name\":\"Card Title\",\"description\":\"Desc\",\"link\":\"https://...\",\"picture\":\"https://...\",\"call_to_action\":{\"type\":\"LEARN_MORE\"}}],\"multi_share_optimized\":true,\"multi_share_end_card\":true}}"
+          }
+        },
+        "required": [
+          "adAccountId",
+          "name",
+          "object_story_spec"
+        ]
+      }
+    },
+    {
+      "name": "creative_list",
+      "description": "List ad creatives in an ad account.",
+      "method": "GET",
+      "path": "/creative-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adAccountId": {
+            "type": "string",
+            "description": "Ad Account ID (format: act_123456789)"
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,name,status,object_story_spec,thumbnail_url,url_tags,created_time",
+            "description": "Comma-separated fields"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 25,
+            "description": "Max results (max 100)"
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        },
+        "required": [
+          "adAccountId"
+        ]
+      }
+    },
+    {
+      "name": "creative_get",
+      "description": "Get details of a specific ad creative.",
+      "method": "GET",
+      "path": "/creative-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "creativeId": {
+            "type": "string",
+            "description": "Creative ID"
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,name,object_story_spec,thumbnail_url,status,body,title,link_url,image_url",
+            "description": "Comma-separated fields"
+          }
+        },
+        "required": [
+          "creativeId"
+        ]
+      }
+    },
+    {
+      "name": "creative_upload_image",
+      "description": "Upload an image to your ad account. Returns an image_hash for use in creatives. Note: creative-create also accepts image URLs directly (Facebook downloads them), so this is only needed if you want to reuse the same image hash across multiple creatives.",
+      "method": "POST",
+      "path": "/creative-upload-image",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adAccountId": {
+            "type": "string",
+            "description": "Ad Account ID (format: act_123456789)"
+          },
+          "url": {
+            "type": "string",
+            "description": "Image URL to upload"
+          },
+          "bytes": {
+            "type": "string",
+            "description": "Base64 encoded image data (alternative to url)"
+          },
+          "name": {
+            "type": "string",
+            "default": "image.jpg",
+            "description": "Image filename"
+          }
+        },
+        "required": [
+          "adAccountId"
+        ]
+      }
+    },
+    {
+      "name": "creative_upload_video",
+      "description": "Upload a video for use in ad creatives. Provide file_url for URL-based upload.",
+      "method": "POST",
+      "path": "/creative-upload-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adAccountId": {
+            "type": "string",
+            "description": "Ad Account ID (format: act_123456789)"
+          },
+          "file_url": {
+            "type": "string",
+            "description": "Video URL to upload"
+          },
+          "title": {
+            "type": "string",
+            "description": "Video title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Video description"
+          },
+          "thumb": {
+            "type": "string",
+            "description": "Custom thumbnail URL"
+          },
+          "unpublished_content_type": {
+            "type": "string",
+            "default": "DRAFT",
+            "description": "Content type"
+          }
+        },
+        "required": [
+          "adAccountId",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "video_status",
+      "description": "Check the processing status of an uploaded video.",
+      "method": "GET",
+      "path": "/video-status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Video ID"
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,title,status,length,source,thumbnails,created_time",
+            "description": "Comma-separated fields"
+          }
+        },
+        "required": [
+          "videoId"
+        ]
+      }
+    },
+    {
+      "name": "audience_list",
+      "description": "List custom audiences in an ad account.",
+      "method": "GET",
+      "path": "/audience-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adAccountId": {
+            "type": "string",
+            "description": "Ad Account ID (format: act_123456789)"
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,name,subtype,approximate_count,delivery_status,description",
+            "description": "Comma-separated fields"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 25,
+            "description": "Max results"
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        },
+        "required": [
+          "adAccountId"
+        ]
+      }
+    },
+    {
+      "name": "audience_create_custom",
+      "description": "Create a custom audience for ad targeting.",
+      "method": "POST",
+      "path": "/audience-create-custom",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adAccountId": {
+            "type": "string",
+            "description": "Ad Account ID (format: act_123456789)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Audience name"
+          },
+          "subtype": {
+            "type": "string",
+            "enum": [
+              "CUSTOM",
+              "WEBSITE",
+              "APP",
+              "OFFLINE_CONVERSION",
+              "ENGAGEMENT",
+              "LOOKALIKE",
+              "VIDEO",
+              "DATA_SET"
+            ],
+            "description": "Audience subtype"
+          },
+          "description": {
+            "type": "string",
+            "description": "Audience description"
+          },
+          "customer_file_source": {
+            "type": "string",
+            "enum": [
+              "USER_PROVIDED_ONLY",
+              "PARTNER_PROVIDED_ONLY",
+              "BOTH_USER_AND_PARTNER_PROVIDED"
+            ],
+            "description": "Customer file source"
+          },
+          "rule": {
+            "type": "object",
+            "description": "Audience rule (required for WEBSITE and APP types)"
+          },
+          "pixel_id": {
+            "type": "string",
+            "description": "Pixel ID (required for WEBSITE type)"
+          },
+          "retention_days": {
+            "type": "integer",
+            "default": 30,
+            "description": "Retention days"
+          },
+          "prefill": {
+            "type": "boolean",
+            "default": true,
+            "description": "Prefill with existing data"
+          }
+        },
+        "required": [
+          "adAccountId",
+          "name",
+          "subtype"
+        ]
+      }
+    },
+    {
+      "name": "audience_create_lookalike",
+      "description": "Create a lookalike audience from a source custom audience.",
+      "method": "POST",
+      "path": "/audience-create-lookalike",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adAccountId": {
+            "type": "string",
+            "description": "Ad Account ID (format: act_123456789)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Lookalike audience name"
+          },
+          "subtype": {
+            "type": "string",
+            "default": "LOOKALIKE",
+            "description": "Must be LOOKALIKE"
+          },
+          "origin_audience_id": {
+            "type": "string",
+            "description": "Source custom audience ID"
+          },
+          "lookalike_spec": {
+            "type": "object",
+            "description": "Lookalike config. Example: {\"type\":\"similarity\",\"country\":\"US\",\"ratio\":0.01}. Ratio 0.01-0.20 (1%-20%)."
+          },
+          "description": {
+            "type": "string",
+            "description": "Audience description"
+          }
+        },
+        "required": [
+          "adAccountId",
+          "name",
+          "origin_audience_id",
+          "lookalike_spec"
+        ]
+      }
+    },
+    {
+      "name": "insights_get",
+      "description": "Retrieve performance metrics for campaigns, ad sets, ads, or the whole account. Pass any object ID (account, campaign, adset, ad).",
+      "method": "GET",
+      "path": "/insights-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "objectId": {
+            "type": "string",
+            "description": "Campaign, Ad Set, Ad, or Account ID (act_xxx)"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "account",
+              "campaign",
+              "adset",
+              "ad"
+            ],
+            "default": "campaign",
+            "description": "Aggregation level"
+          },
+          "fields": {
+            "type": "string",
+            "default": "impressions,clicks,spend,reach,cpm,cpc,ctr",
+            "description": "Comma-separated metrics"
+          },
+          "time_range": {
+            "type": "string",
+            "description": "JSON time range: {\"since\":\"2024-01-01\",\"until\":\"2024-01-31\"}"
+          },
+          "date_preset": {
+            "type": "string",
+            "description": "Date preset: last_7d, last_30d, this_month, last_month, etc."
+          },
+          "time_increment": {
+            "type": "string",
+            "enum": [
+              "all_days",
+              "1",
+              "7",
+              "monthly"
+            ],
+            "default": "all_days",
+            "description": "Time increment (1=daily, 7=weekly)"
+          },
+          "breakdowns": {
+            "type": "string",
+            "description": "Comma-separated breakdowns: age, gender, country, placement, etc."
+          },
+          "action_breakdowns": {
+            "type": "string",
+            "description": "Comma-separated action breakdowns"
+          },
+          "filtering": {
+            "type": "string",
+            "description": "JSON filter array"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field and direction, e.g. spend_descending"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Max results"
+          }
+        },
+        "required": [
+          "objectId"
+        ]
+      }
+    },
+    {
+      "name": "insights_export_report",
+      "description": "Create an async insights report. Returns a report_run_id \u2014 poll it with GET /{report_run_id} to check status, then GET /{report_run_id}/insights for results.",
+      "method": "POST",
+      "path": "/insights-export-report",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adAccountId": {
+            "type": "string",
+            "description": "Ad Account ID"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "account",
+              "campaign",
+              "adset",
+              "ad"
+            ],
+            "description": "Aggregation level"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Metrics to include"
+          },
+          "time_range": {
+            "type": "object",
+            "description": "{\"since\":\"YYYY-MM-DD\",\"until\":\"YYYY-MM-DD\"}"
+          },
+          "breakdowns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Breakdowns"
+          },
+          "filtering": {
+            "type": "array",
+            "description": "Filters"
+          }
+        },
+        "required": [
+          "adAccountId"
+        ]
+      }
+    },
+    {
+      "name": "pixel_create",
+      "description": "Create a Facebook pixel for conversion tracking.",
+      "method": "POST",
+      "path": "/pixel-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adAccountId": {
+            "type": "string",
+            "description": "Ad Account ID (format: act_123456789)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Pixel name"
+          }
+        },
+        "required": [
+          "adAccountId",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "pixel_send_event",
+      "description": "Send conversion events via the Conversions API. Each event needs: event_name, event_time (unix), action_source, and optional user_data/custom_data.",
+      "method": "POST",
+      "path": "/pixel-send-event",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pixelId": {
+            "type": "string",
+            "description": "Facebook Pixel ID"
+          },
+          "data": {
+            "type": "array",
+            "description": "Array of events: [{\"event_name\":\"Purchase\",\"event_time\":1234567890,\"action_source\":\"website\",\"user_data\":{\"em\":\"hashed_email\"},\"custom_data\":{\"value\":\"100.00\",\"currency\":\"USD\"}}]",
+            "items": {
+              "type": "object"
+            }
+          },
+          "test_event_code": {
+            "type": "string",
+            "description": "Test event code for debugging"
+          }
+        },
+        "required": [
+          "pixelId",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "leadform_create",
+      "description": "Create a lead generation form on a Facebook Page. Requires page-level access token. Questions can be predefined (EMAIL, PHONE, FULL_NAME) or custom objects.",
+      "method": "POST",
+      "path": "/leadform-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook Page ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Form name"
+          },
+          "questions": {
+            "type": "array",
+            "description": "Array of question objects: [{\"type\":\"FULL_NAME\"},{\"type\":\"EMAIL\"},{\"type\":\"PHONE\"}] or [{\"type\":\"CUSTOM\",\"key\":\"fav_color\",\"label\":\"Favorite color?\"}]"
+          },
+          "privacy_policy": {
+            "type": "object",
+            "description": "{\"url\":\"https://example.com/privacy\",\"link_text\":\"Privacy Policy\"}"
+          },
+          "follow_up_action_url": {
+            "type": "string",
+            "description": "URL after form submission"
+          },
+          "thank_you_page": {
+            "type": "object",
+            "description": "{\"title\":\"Thank You\",\"body\":\"We'll be in touch\",\"button_text\":\"Visit Website\",\"button_type\":\"VIEW_WEBSITE\",\"website_url\":\"https://...\"}"
+          },
+          "context_card": {
+            "type": "object",
+            "description": "Intro screen: {\"title\":\"...\",\"style\":\"PARAGRAPH_STYLE\",\"content\":[\"line1\",\"line2\"]}"
+          },
+          "block_display_for_non_targeted_viewer": {
+            "type": "boolean",
+            "default": false,
+            "description": "Only show to ad-targeted users"
+          },
+          "is_optimized_for_quality": {
+            "type": "boolean",
+            "default": false,
+            "description": "Higher intent leads (adds review step)"
+          },
+          "locale": {
+            "type": "string",
+            "default": "en_US",
+            "description": "Form locale"
+          }
+        },
+        "required": [
+          "pageId",
+          "name",
+          "questions",
+          "privacy_policy"
+        ]
+      }
+    },
+    {
+      "name": "leadform_list",
+      "description": "List lead generation forms for a Facebook Page. Requires page-level access token.",
+      "method": "GET",
+      "path": "/leadform-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook Page ID"
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,name,status,leads_count,created_time,questions",
+            "description": "Comma-separated fields"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 25,
+            "description": "Max results"
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        },
+        "required": [
+          "pageId"
+        ]
+      }
+    },
+    {
+      "name": "leadform_get",
+      "description": "Get details of a specific lead form.",
+      "method": "GET",
+      "path": "/leadform-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "formId": {
+            "type": "string",
+            "description": "Lead form ID"
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,name,status,leads_count,questions,privacy_policy_url,created_time",
+            "description": "Comma-separated fields"
+          }
+        },
+        "required": [
+          "formId"
+        ]
+      }
+    },
+    {
+      "name": "leadform_update",
+      "description": "Update lead form settings.",
+      "method": "POST",
+      "path": "/leadform-update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "formId": {
+            "type": "string",
+            "description": "Lead form ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "New form name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "ARCHIVED"
+            ],
+            "description": "Form status"
+          },
+          "follow_up_action_url": {
+            "type": "string",
+            "description": "Post-submission redirect URL"
+          },
+          "thank_you_page": {
+            "type": "object",
+            "description": "Updated thank you page config"
+          },
+          "context_card": {
+            "type": "object",
+            "description": "Updated context card config"
+          }
+        },
+        "required": [
+          "formId"
+        ]
+      }
+    },
+    {
+      "name": "leadform_delete",
+      "description": "Archive a lead form (Facebook archives rather than permanently deletes).",
+      "method": "DELETE",
+      "path": "/leadform-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "formId": {
+            "type": "string",
+            "description": "Lead form ID to delete"
+          }
+        },
+        "required": [
+          "formId"
+        ]
+      }
+    },
+    {
+      "name": "leads_get",
+      "description": "Retrieve submitted leads from a lead form or ad. Requires page-level access token for form leads.",
+      "method": "GET",
+      "path": "/leads-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "objectId": {
+            "type": "string",
+            "description": "Lead form ID or Ad ID"
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,created_time,field_data,ad_id,form_id",
+            "description": "Comma-separated fields"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Max results (max 500)"
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        },
+        "required": [
+          "objectId"
+        ]
+      }
+    }
+  ]
+}

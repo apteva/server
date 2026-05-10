@@ -1,0 +1,209 @@
+{
+  "slug": "ovhcloud",
+  "name": "OVHcloud",
+  "description": "MCP server for OVHcloud Public Cloud - instances, flavors, images, regions, volumes, SSH keys (covers EU, North America, Singapore, Sydney, Mumbai, São Paulo)",
+  "logo": "https://www.google.com/s2/favicons?domain=ovhcloud.com&sz=128",
+  "categories": ["cloud", "servers", "vps", "infrastructure", "europe", "global"],
+  "base_url": "https://api.ovh.com/1.0",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{access_token}}" },
+    "credential_fields": [
+      { "name": "access_token", "label": "OAuth2 Access Token", "description": "Obtain via OAuth2 client_credentials at oauth2/token (eu/ca/us endpoints)" },
+      { "name": "service_name", "label": "Cloud Project ID", "description": "OVHcloud Public Cloud project (serviceName)" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_projects",
+      "description": "List Public Cloud projects",
+      "method": "GET",
+      "path": "/cloud/project",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_instances",
+      "description": "List instances in a project",
+      "method": "GET",
+      "path": "/cloud/project/{serviceName}/instance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": { "type": "string" },
+          "region": { "type": "string" }
+        },
+        "required": ["serviceName"]
+      }
+    },
+    {
+      "name": "get_instance",
+      "description": "Get an instance by ID",
+      "method": "GET",
+      "path": "/cloud/project/{serviceName}/instance/{instanceId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": { "type": "string" },
+          "instanceId": { "type": "string" }
+        },
+        "required": ["serviceName", "instanceId"]
+      }
+    },
+    {
+      "name": "create_instance",
+      "description": "Create a Public Cloud instance",
+      "method": "POST",
+      "path": "/cloud/project/{serviceName}/instance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": { "type": "string" },
+          "name": { "type": "string" },
+          "region": { "type": "string", "description": "e.g. SBG5, GRA11, BHS5, SGP1, SYD1, WAW1" },
+          "flavorId": { "type": "string" },
+          "imageId": { "type": "string" },
+          "sshKeyId": { "type": "string" },
+          "userData": { "type": "string" },
+          "monthlyBilling": { "type": "boolean" }
+        },
+        "required": ["serviceName", "name", "region", "flavorId", "imageId"]
+      }
+    },
+    {
+      "name": "delete_instance",
+      "description": "Delete an instance",
+      "method": "DELETE",
+      "path": "/cloud/project/{serviceName}/instance/{instanceId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": { "type": "string" },
+          "instanceId": { "type": "string" }
+        },
+        "required": ["serviceName", "instanceId"]
+      }
+    },
+    {
+      "name": "reboot_instance",
+      "description": "Reboot an instance (soft or hard)",
+      "method": "POST",
+      "path": "/cloud/project/{serviceName}/instance/{instanceId}/reboot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": { "type": "string" },
+          "instanceId": { "type": "string" },
+          "type": { "type": "string", "description": "soft | hard" }
+        },
+        "required": ["serviceName", "instanceId", "type"]
+      }
+    },
+    {
+      "name": "start_instance",
+      "description": "Start a stopped instance",
+      "method": "POST",
+      "path": "/cloud/project/{serviceName}/instance/{instanceId}/start",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": { "type": "string" },
+          "instanceId": { "type": "string" }
+        },
+        "required": ["serviceName", "instanceId"]
+      }
+    },
+    {
+      "name": "stop_instance",
+      "description": "Stop a running instance",
+      "method": "POST",
+      "path": "/cloud/project/{serviceName}/instance/{instanceId}/stop",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": { "type": "string" },
+          "instanceId": { "type": "string" }
+        },
+        "required": ["serviceName", "instanceId"]
+      }
+    },
+    {
+      "name": "list_flavors",
+      "description": "List instance flavors (sizes)",
+      "method": "GET",
+      "path": "/cloud/project/{serviceName}/flavor",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": { "type": "string" },
+          "region": { "type": "string" }
+        },
+        "required": ["serviceName"]
+      }
+    },
+    {
+      "name": "list_images",
+      "description": "List OS images",
+      "method": "GET",
+      "path": "/cloud/project/{serviceName}/image",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": { "type": "string" },
+          "region": { "type": "string" },
+          "osType": { "type": "string" }
+        },
+        "required": ["serviceName"]
+      }
+    },
+    {
+      "name": "list_regions",
+      "description": "List regions available to the project",
+      "method": "GET",
+      "path": "/cloud/project/{serviceName}/region",
+      "input_schema": {
+        "type": "object",
+        "properties": { "serviceName": { "type": "string" } },
+        "required": ["serviceName"]
+      }
+    },
+    {
+      "name": "list_ssh_keys",
+      "description": "List SSH keys for the project",
+      "method": "GET",
+      "path": "/cloud/project/{serviceName}/sshkey",
+      "input_schema": {
+        "type": "object",
+        "properties": { "serviceName": { "type": "string" } },
+        "required": ["serviceName"]
+      }
+    },
+    {
+      "name": "list_volumes",
+      "description": "List block storage volumes",
+      "method": "GET",
+      "path": "/cloud/project/{serviceName}/volume",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": { "type": "string" },
+          "region": { "type": "string" }
+        },
+        "required": ["serviceName"]
+      }
+    },
+    {
+      "name": "list_snapshots",
+      "description": "List instance snapshots",
+      "method": "GET",
+      "path": "/cloud/project/{serviceName}/snapshot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": { "type": "string" },
+          "region": { "type": "string" }
+        },
+        "required": ["serviceName"]
+      }
+    }
+  ]
+}

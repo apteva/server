@@ -1,0 +1,47 @@
+{
+  "slug": "disify",
+  "name": "Disify",
+  "description": "Free email + domain validation API. Checks syntax, DNS/MX records, and disposable-provider blocklist. No API key required, no rate limit published.",
+  "logo": "https://www.google.com/s2/favicons?domain=disify.com&sz=128",
+  "categories": ["email", "validation", "deliverability", "anti-fraud"],
+  "base_url": "https://disify.com",
+  "auth": {
+    "types": ["none"],
+    "headers": {},
+    "credential_fields": []
+  },
+  "tools": [
+    {
+      "name": "check_email",
+      "description": "Validate a single email address. Returns whether the format is correct, whether the domain resolves with valid MX records, whether it is a disposable/throwaway provider, and whether it is an alias (e.g. Gmail plus-addressing). Use this before accepting an email at signup or before sending transactional mail.",
+      "method": "GET",
+      "path": "/api/email/{email}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address to validate (e.g. user@example.com)"
+          }
+        },
+        "required": ["email"]
+      }
+    },
+    {
+      "name": "check_domain",
+      "description": "Validate just an email domain — syntax, DNS resolution, MX records, and whether it is a known disposable provider. Cheaper than check_email when you only have a domain to screen.",
+      "method": "GET",
+      "path": "/api/domain/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain to validate (e.g. example.com)"
+          }
+        },
+        "required": ["domain"]
+      }
+    }
+  ]
+}

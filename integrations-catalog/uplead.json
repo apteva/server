@@ -1,0 +1,105 @@
+{
+  "slug": "uplead",
+  "name": "UpLead",
+  "description": "B2B contact + company database with 95% accuracy guarantee on emails. Smaller than Apollo but emphasizes data quality. Per-credit pricing, good for SMB-focused lists.",
+  "logo": "https://www.google.com/s2/favicons?domain=uplead.com&sz=128",
+  "categories": ["sales", "leads", "enrichment", "prospecting", "b2b"],
+  "base_url": "https://api.uplead.com/v2",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "Authorization": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "UpLead API key from app.uplead.com → Settings → API"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "person_search",
+      "description": "Search contacts by company domain, title, location, seniority, department.",
+      "method": "GET",
+      "path": "/person-search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": { "type": "string", "description": "Company domain to search at" },
+          "first_name": { "type": "string" },
+          "last_name": { "type": "string" },
+          "title": { "type": "string" },
+          "title_keywords": { "type": "string", "description": "Comma-separated title keywords" },
+          "seniority": { "type": "string" },
+          "department": { "type": "string" },
+          "country": { "type": "string" },
+          "state": { "type": "string" },
+          "city": { "type": "string" },
+          "industry": { "type": "string" },
+          "employees": { "type": "string", "description": "Range, e.g. '11-50'" },
+          "page": { "type": "integer", "default": 1 },
+          "limit": { "type": "integer", "default": 25, "maximum": 100 }
+        }
+      }
+    },
+    {
+      "name": "person_lookup",
+      "description": "Find a single contact by first name, last name, and company domain. Returns email + phone.",
+      "method": "GET",
+      "path": "/person-search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "first_name": { "type": "string" },
+          "last_name": { "type": "string" },
+          "domain": { "type": "string" }
+        },
+        "required": ["first_name", "last_name", "domain"]
+      }
+    },
+    {
+      "name": "company_search",
+      "description": "Search companies by industry, size, location, technologies.",
+      "method": "GET",
+      "path": "/company-search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": { "type": "string" },
+          "industry": { "type": "string" },
+          "country": { "type": "string" },
+          "state": { "type": "string" },
+          "city": { "type": "string" },
+          "employees": { "type": "string" },
+          "revenue": { "type": "string" },
+          "technology": { "type": "string", "description": "Tech name, e.g. 'Shopify'" },
+          "keywords": { "type": "string" },
+          "page": { "type": "integer", "default": 1 },
+          "limit": { "type": "integer", "default": 25 }
+        }
+      }
+    },
+    {
+      "name": "email_verify",
+      "description": "Verify a single email address.",
+      "method": "GET",
+      "path": "/email-verify",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string" }
+        },
+        "required": ["email"]
+      }
+    },
+    {
+      "name": "credits",
+      "description": "Get remaining credits for the current account.",
+      "method": "GET",
+      "path": "/credits",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

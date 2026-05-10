@@ -1,0 +1,426 @@
+{
+  "slug": "core-image",
+  "name": "CoreImage",
+  "description": "Core image processing toolkit - resize, crop, optimize, rotate, and apply effects to images. Convert between formats (jpg, png, webp, avif) with intelligent caching.",
+  "logo": "https://cdn-icons-png.flaticon.com/512/3342/3342137.png",
+  "categories": [
+    "image",
+    "processing",
+    "resize",
+    "crop",
+    "optimize",
+    "compress",
+    "convert",
+    "effects",
+    "sharp"
+  ],
+  "base_url": "https://api.core-image.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "resize",
+      "description": "Resize an image to specific dimensions with intelligent fit strategies. Perfect for creating thumbnails, social media images, or converting landscape to square/portrait formats.",
+      "method": "GET",
+      "path": "/resize",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the image file to resize"
+          },
+          "width": {
+            "type": "integer",
+            "description": "Target width in pixels"
+          },
+          "height": {
+            "type": "integer",
+            "description": "Target height in pixels"
+          },
+          "fit": {
+            "type": "string",
+            "enum": [
+              "cover",
+              "contain",
+              "fill",
+              "inside",
+              "outside"
+            ],
+            "default": "cover",
+            "description": "Fit strategy: 'cover' (crop to fill), 'contain' (fit within, may letterbox), 'fill' (stretch), 'inside' (fit within dimensions), 'outside' (cover minimum dimension)"
+          },
+          "position": {
+            "type": "string",
+            "enum": [
+              "centre",
+              "center",
+              "top",
+              "bottom",
+              "left",
+              "right",
+              "entropy",
+              "attention"
+            ],
+            "default": "centre",
+            "description": "Crop position when using cover fit. 'entropy' finds busy areas, 'attention' finds focal points using AI"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "jpg",
+              "jpeg",
+              "png",
+              "webp",
+              "avif"
+            ],
+            "description": "Output format (defaults to original format)"
+          },
+          "quality": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 80,
+            "description": "Output quality (1-100, higher is better)"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "crop",
+      "description": "Crop or zoom into an image. Use pixels for exact regions, or percentages for zoom (e.g., 2x zoom center: left_percent=25, top_percent=25, width_percent=50, height_percent=50). Use same width_percent and height_percent to keep original aspect ratio.",
+      "method": "GET",
+      "path": "/crop",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the image file to crop"
+          },
+          "x": {
+            "type": "integer",
+            "description": "Left coordinate in pixels (for exact crop)"
+          },
+          "y": {
+            "type": "integer",
+            "description": "Top coordinate in pixels (for exact crop)"
+          },
+          "width": {
+            "type": "integer",
+            "description": "Width of crop area in pixels"
+          },
+          "height": {
+            "type": "integer",
+            "description": "Height of crop area in pixels"
+          },
+          "left_percent": {
+            "type": "number",
+            "description": "Left offset as % (0-100). For 2x zoom center use 25, for 3x use 33.3"
+          },
+          "top_percent": {
+            "type": "number",
+            "description": "Top offset as % (0-100). For 2x zoom center use 25, for 3x use 33.3"
+          },
+          "width_percent": {
+            "type": "number",
+            "description": "Crop width as % (0-100). For 2x zoom use 50, for 3x use 33.3. Use same as height_percent to keep aspect ratio"
+          },
+          "height_percent": {
+            "type": "number",
+            "description": "Crop height as % (0-100). For 2x zoom use 50, for 3x use 33.3. Use same as width_percent to keep aspect ratio"
+          },
+          "smart_crop": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable AI-powered smart cropping to find the best crop area"
+          },
+          "gravity": {
+            "type": "string",
+            "enum": [
+              "center",
+              "centre",
+              "north",
+              "south",
+              "east",
+              "west",
+              "entropy",
+              "attention"
+            ],
+            "default": "center",
+            "description": "Crop gravity for smart crop. 'entropy' finds busy areas, 'attention' uses AI to find focal points"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "jpg",
+              "jpeg",
+              "png",
+              "webp",
+              "avif"
+            ],
+            "description": "Output format (defaults to original)"
+          },
+          "quality": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 80,
+            "description": "Output quality (1-100)"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "optimize",
+      "description": "Compress and optimize an image to reduce file size while maintaining visual quality. Supports format conversion and can generate WebP/AVIF variants.",
+      "method": "GET",
+      "path": "/optimize",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the image file to optimize"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "light",
+              "medium",
+              "aggressive"
+            ],
+            "default": "medium",
+            "description": "Optimization level: 'light' (90% quality), 'medium' (80%), 'aggressive' (60%)"
+          },
+          "convert_to": {
+            "type": "string",
+            "enum": [
+              "jpg",
+              "jpeg",
+              "png",
+              "webp",
+              "avif"
+            ],
+            "description": "Convert to a different format"
+          },
+          "quality": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Override quality setting (1-100)"
+          },
+          "progressive": {
+            "type": "boolean",
+            "default": true,
+            "description": "Generate progressive/interlaced image for faster perceived loading"
+          },
+          "strip_metadata": {
+            "type": "boolean",
+            "default": true,
+            "description": "Remove EXIF and other metadata to reduce file size"
+          },
+          "generate_variants": {
+            "type": "boolean",
+            "default": false,
+            "description": "Also generate WebP and AVIF variants for modern browser support"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "rotate",
+      "description": "Rotate an image by any angle, flip horizontally/vertically, or auto-rotate based on EXIF orientation data.",
+      "method": "GET",
+      "path": "/rotate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the image file to rotate"
+          },
+          "angle": {
+            "type": "number",
+            "description": "Rotation angle in degrees (positive = clockwise). Common values: 90, 180, 270"
+          },
+          "auto_rotate": {
+            "type": "boolean",
+            "default": true,
+            "description": "Auto-rotate based on EXIF orientation (fixes phone photos)"
+          },
+          "flip_horizontal": {
+            "type": "boolean",
+            "default": false,
+            "description": "Mirror/flip the image horizontally"
+          },
+          "flip_vertical": {
+            "type": "boolean",
+            "default": false,
+            "description": "Flip the image vertically"
+          },
+          "background": {
+            "type": "string",
+            "description": "Background color for rotated corners (hex like '#ffffff' or color name)"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "jpg",
+              "jpeg",
+              "png",
+              "webp",
+              "avif"
+            ],
+            "description": "Output format (defaults to original)"
+          },
+          "quality": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 80,
+            "description": "Output quality (1-100)"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "effects",
+      "description": "Apply visual effects and adjustments to an image: blur, sharpen, grayscale, brightness, saturation, tint, borders, and more.",
+      "method": "GET",
+      "path": "/effects",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the image file to apply effects to"
+          },
+          "effects": {
+            "type": "object",
+            "description": "Effects to apply",
+            "properties": {
+              "brightness": {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100,
+                "description": "Brightness adjustment (-100 to 100, 0 = no change)"
+              },
+              "saturation": {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100,
+                "description": "Saturation adjustment (-100 to 100, 0 = no change)"
+              },
+              "grayscale": {
+                "type": "boolean",
+                "description": "Convert to grayscale/black-and-white"
+              },
+              "negate": {
+                "type": "boolean",
+                "description": "Invert colors (negative)"
+              },
+              "blur": {
+                "type": "number",
+                "minimum": 0.3,
+                "maximum": 100,
+                "description": "Gaussian blur sigma (0.3-100, higher = more blur)"
+              },
+              "sharpen": {
+                "type": "object",
+                "description": "Sharpen settings",
+                "properties": {
+                  "sigma": {
+                    "type": "number",
+                    "default": 1,
+                    "description": "Sharpen sigma"
+                  },
+                  "flat": {
+                    "type": "number",
+                    "default": 1,
+                    "description": "Flat areas threshold"
+                  },
+                  "jagged": {
+                    "type": "number",
+                    "default": 2,
+                    "description": "Jagged areas threshold"
+                  }
+                }
+              },
+              "tint": {
+                "type": "string",
+                "description": "Tint color (hex like '#ff0000' for red tint)"
+              },
+              "median": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10,
+                "description": "Median filter for noise reduction (1-10)"
+              },
+              "border": {
+                "type": "object",
+                "description": "Add a border",
+                "properties": {
+                  "width": {
+                    "type": "integer",
+                    "description": "Border width in pixels"
+                  },
+                  "color": {
+                    "type": "string",
+                    "description": "Border color (hex or name)"
+                  }
+                }
+              }
+            }
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "jpg",
+              "jpeg",
+              "png",
+              "webp",
+              "avif"
+            ],
+            "description": "Output format (defaults to original)"
+          },
+          "quality": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 80,
+            "description": "Output quality (1-100)"
+          }
+        },
+        "required": [
+          "file_id",
+          "effects"
+        ]
+      }
+    }
+  ]
+}

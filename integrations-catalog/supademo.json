@@ -1,0 +1,115 @@
+{
+  "slug": "supademo",
+  "name": "Supademo",
+  "description": "MCP server for Supademo interactive demos — workspace verification and demo analytics webhooks",
+  "logo": "https://www.google.com/s2/favicons?domain=supademo.com&sz=128",
+  "categories": [
+    "demo-automation",
+    "interactive-demos",
+    "analytics",
+    "webhooks"
+  ],
+  "base_url": "https://app.supademo.com/api",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "api_key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "verify_workspace",
+      "description": "Verify your API key and get workspace information (name, subscription plan)",
+      "method": "GET",
+      "path": "/integration/zapier/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "subscribe_webhook",
+      "description": "Register a webhook to receive events when a new lead is captured or a demo is viewed",
+      "method": "POST",
+      "path": "/integration/zapier/connect",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "trigger": {
+            "type": "string",
+            "enum": [
+              "new-lead",
+              "demo-view"
+            ],
+            "description": "Event type to subscribe to. new-lead: fires when a lead is captured via demo form. demo-view: fires when someone views a demo."
+          },
+          "url": {
+            "type": "string",
+            "description": "Webhook endpoint URL to receive event payloads"
+          }
+        },
+        "required": [
+          "trigger",
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "unsubscribe_webhook",
+      "description": "Remove a webhook subscription by its integration ID",
+      "method": "DELETE",
+      "path": "/integration/zapier/connect",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "trigger": {
+            "type": "string",
+            "enum": [
+              "new-lead",
+              "demo-view"
+            ],
+            "description": "Event type to unsubscribe from"
+          },
+          "integrationId": {
+            "type": "string",
+            "description": "Integration ID returned from the subscribe call"
+          }
+        },
+        "required": [
+          "trigger",
+          "integrationId"
+        ]
+      }
+    },
+    {
+      "name": "get_sample_data",
+      "description": "Get sample event data for a trigger type to understand the webhook payload format. For new-lead: returns email objects. For demo-view: returns name, email, company, demoTitle, demoLink, demoViewedAt.",
+      "method": "GET",
+      "path": "/integration/zapier/connect",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "trigger": {
+            "type": "string",
+            "enum": [
+              "new-lead",
+              "demo-view"
+            ],
+            "description": "Event type to get sample data for"
+          }
+        },
+        "required": [
+          "trigger"
+        ]
+      }
+    }
+  ]
+}

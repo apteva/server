@@ -1,0 +1,389 @@
+{
+  "slug": "gravity-forms",
+  "name": "Gravity Forms",
+  "description": "WordPress Gravity Forms integration for form management, entries, and submissions",
+  "logo": "https://www.google.com/s2/favicons?domain=gravityforms.com&sz=128",
+  "categories": [
+    "wordpress",
+    "forms",
+    "gravity-forms",
+    "entries",
+    "submissions"
+  ],
+  "base_url": "{{site_url}}/wp-json/gf/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Basic {{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key"
+      },
+      {
+        "name": "site_url",
+        "label": "Site_url"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_forms",
+      "description": "Get all Gravity Forms from the WordPress site",
+      "method": "GET",
+      "path": "/list-forms",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "_options": {
+            "type": "object",
+            "description": "Optional parameters (not currently used)"
+          },
+          "_confirm": {
+            "type": "boolean",
+            "description": "Set to true to confirm execution",
+            "default": true
+          }
+        },
+        "required": [
+          "_confirm"
+        ]
+      }
+    },
+    {
+      "name": "get_form",
+      "description": "Get a specific Gravity Form by ID including all fields",
+      "method": "GET",
+      "path": "/get-form",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "integer",
+            "description": "The form ID"
+          }
+        },
+        "required": [
+          "form_id"
+        ]
+      }
+    },
+    {
+      "name": "list_entries",
+      "description": "Get all entries/submissions for a specific form",
+      "method": "GET",
+      "path": "/list-entries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "integer",
+            "description": "The form ID"
+          },
+          "paging": {
+            "type": "object",
+            "description": "Pagination: { page_size: 20, current_page: 1 }"
+          },
+          "search": {
+            "type": "object",
+            "description": "Search criteria for filtering entries"
+          }
+        },
+        "required": [
+          "form_id"
+        ]
+      }
+    },
+    {
+      "name": "get_entry",
+      "description": "Get a specific form entry by ID",
+      "method": "GET",
+      "path": "/get-entry",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "entry_id": {
+            "type": "integer",
+            "description": "The entry ID"
+          }
+        },
+        "required": [
+          "entry_id"
+        ]
+      }
+    },
+    {
+      "name": "create_entry",
+      "description": "Submit a new entry to a form",
+      "method": "POST",
+      "path": "/create-entry",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "integer",
+            "description": "The form ID to submit to"
+          },
+          "field_values": {
+            "type": "object",
+            "description": "Field values: { \"1.3\": \"John\", \"1.6\": \"Smith\", \"2\": \"email@example.com\" }"
+          }
+        },
+        "required": [
+          "form_id",
+          "field_values"
+        ]
+      }
+    },
+    {
+      "name": "update_entry",
+      "description": "Update an existing form entry",
+      "method": "PUT",
+      "path": "/update-entry",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "entry_id": {
+            "type": "integer",
+            "description": "The entry ID to update"
+          },
+          "field_values": {
+            "type": "object",
+            "description": "Field values to update: { \"2\": \"new-email@example.com\" }"
+          }
+        },
+        "required": [
+          "entry_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_entry",
+      "description": "Delete a form entry",
+      "method": "DELETE",
+      "path": "/delete-entry",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "entry_id": {
+            "type": "integer",
+            "description": "The entry ID to delete"
+          }
+        },
+        "required": [
+          "entry_id"
+        ]
+      }
+    },
+    {
+      "name": "list_fields",
+      "description": "Get all fields for a specific form",
+      "method": "GET",
+      "path": "/list-fields",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "integer",
+            "description": "The form ID"
+          }
+        },
+        "required": [
+          "form_id"
+        ]
+      }
+    },
+    {
+      "name": "get_notifications",
+      "description": "Get all notifications configured for a form",
+      "method": "GET",
+      "path": "/get-notifications",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "integer",
+            "description": "The form ID"
+          }
+        },
+        "required": [
+          "form_id"
+        ]
+      }
+    },
+    {
+      "name": "get_confirmations",
+      "description": "Get all confirmations configured for a form",
+      "method": "GET",
+      "path": "/get-confirmations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "integer",
+            "description": "The form ID"
+          }
+        },
+        "required": [
+          "form_id"
+        ]
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List all webhook feeds configured for a form",
+      "method": "GET",
+      "path": "/list-webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "integer",
+            "description": "The form ID"
+          }
+        },
+        "required": [
+          "form_id"
+        ]
+      }
+    },
+    {
+      "name": "get_webhook",
+      "description": "Get a specific webhook feed by ID",
+      "method": "GET",
+      "path": "/get-webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "feed_id": {
+            "type": "integer",
+            "description": "The webhook feed ID"
+          }
+        },
+        "required": [
+          "feed_id"
+        ]
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a new webhook to send form data to an external URL on submission",
+      "method": "POST",
+      "path": "/create-webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "integer",
+            "description": "The form ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Webhook feed name"
+          },
+          "url": {
+            "type": "string",
+            "description": "The webhook URL to send data to"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "POST",
+              "GET",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ],
+            "default": "POST",
+            "description": "HTTP method"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "form"
+            ],
+            "default": "json",
+            "description": "Request format"
+          },
+          "headers": {
+            "type": "array",
+            "description": "Custom headers: [{ key: 'X-API-Key', value: 'secret' }]"
+          },
+          "body_type": {
+            "type": "string",
+            "enum": [
+              "all_fields",
+              "select_fields"
+            ],
+            "default": "all_fields"
+          },
+          "field_values": {
+            "type": "array",
+            "description": "Field mappings when body_type is select_fields"
+          },
+          "is_active": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "form_id",
+          "name",
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "update_webhook",
+      "description": "Update an existing webhook feed",
+      "method": "PUT",
+      "path": "/update-webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "feed_id": {
+            "type": "integer",
+            "description": "The webhook feed ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "New webhook feed name"
+          },
+          "url": {
+            "type": "string",
+            "description": "New webhook URL"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Enable or disable the webhook"
+          }
+        },
+        "required": [
+          "feed_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete a webhook feed",
+      "method": "DELETE",
+      "path": "/delete-webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "feed_id": {
+            "type": "integer",
+            "description": "The webhook feed ID to delete"
+          }
+        },
+        "required": [
+          "feed_id"
+        ]
+      }
+    }
+  ]
+}

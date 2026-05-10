@@ -1,0 +1,161 @@
+{
+  "slug": "northflank",
+  "name": "Northflank",
+  "description": "Per-second-billed container platform — services, jobs, ephemeral environments. Good fit for ad-hoc remote builds: a build-service builds-and-deploys from git, a job runs once and exits (great for explicit build steps). Bearer-token authenticated, JWT issued via account or team API tokens with RBAC roles.",
+  "logo": "https://www.google.com/s2/favicons?domain=northflank.com&sz=128",
+  "categories": ["build", "ci", "containers", "deployment", "devops"],
+  "base_url": "https://api.northflank.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Token", "description": "Generate from app.northflank.com → User/Team Settings → API tokens", "required": true, "type": "password" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_projects",
+      "description": "List all projects the token has access to.",
+      "method": "GET",
+      "path": "/v1/projects",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_combined_service",
+      "description": "Create a combined (build + deploy) service from a git repo. Args: projectId, name, vcsData ({projectUrl, projectType: github|gitlab|bitbucket, projectBranch}), buildSettings? ({dockerfile?, buildEngine: kaniko|buildkit, nixpacks?}), deployment ({instances, docker?, storage?}).",
+      "method": "POST",
+      "path": "/v1/projects/{projectId}/services/combined",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "name": { "type": "string" },
+          "vcsData": { "type": "object" },
+          "buildSettings": { "type": "object" },
+          "deployment": { "type": "object" }
+        },
+        "required": ["projectId", "name", "vcsData", "deployment"]
+      }
+    },
+    {
+      "name": "create_build_service",
+      "description": "Create a build-only service (image is built and pushed to a registry; no deployment). Args: projectId, name, vcsData, buildSettings, repository.",
+      "method": "POST",
+      "path": "/v1/projects/{projectId}/services/build",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "name": { "type": "string" },
+          "vcsData": { "type": "object" },
+          "buildSettings": { "type": "object" },
+          "repository": { "type": "object" }
+        },
+        "required": ["projectId", "name", "vcsData"]
+      }
+    },
+    {
+      "name": "trigger_build",
+      "description": "Trigger a build run on a build-or-combined service. Args: projectId, serviceId, branch?, commit_sha?.",
+      "method": "POST",
+      "path": "/v1/projects/{projectId}/services/{serviceId}/builds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "serviceId": { "type": "string" },
+          "branch": { "type": "string" },
+          "commit_sha": { "type": "string" }
+        },
+        "required": ["projectId", "serviceId"]
+      }
+    },
+    {
+      "name": "get_build",
+      "description": "Get build status + duration. Args: projectId, serviceId, buildId.",
+      "method": "GET",
+      "path": "/v1/projects/{projectId}/services/{serviceId}/builds/{buildId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "serviceId": { "type": "string" },
+          "buildId": { "type": "string" }
+        },
+        "required": ["projectId", "serviceId", "buildId"]
+      }
+    },
+    {
+      "name": "list_builds",
+      "description": "List builds for a service. Args: projectId, serviceId, perPage?, page?.",
+      "method": "GET",
+      "path": "/v1/projects/{projectId}/services/{serviceId}/builds?per_page={perPage}&page={page}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "serviceId": { "type": "string" },
+          "perPage": { "type": "integer" },
+          "page": { "type": "integer" }
+        },
+        "required": ["projectId", "serviceId"]
+      }
+    },
+    {
+      "name": "create_job",
+      "description": "Create a job that builds and runs once. Args: projectId, name, type (manual|cron), spec (container image + command), schedule? (cron expression).",
+      "method": "POST",
+      "path": "/v1/projects/{projectId}/jobs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["manual", "cron"] },
+          "spec": { "type": "object" },
+          "schedule": { "type": "string" }
+        },
+        "required": ["projectId", "name", "type", "spec"]
+      }
+    },
+    {
+      "name": "run_job",
+      "description": "Trigger an existing manual job. Args: projectId, jobId.",
+      "method": "POST",
+      "path": "/v1/projects/{projectId}/jobs/{jobId}/runs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "jobId": { "type": "string" }
+        },
+        "required": ["projectId", "jobId"]
+      }
+    },
+    {
+      "name": "list_services",
+      "description": "List services in a project. Args: projectId.",
+      "method": "GET",
+      "path": "/v1/projects/{projectId}/services",
+      "input_schema": {
+        "type": "object",
+        "properties": { "projectId": { "type": "string" } },
+        "required": ["projectId"]
+      }
+    },
+    {
+      "name": "delete_service",
+      "description": "Delete a service. Args: projectId, serviceId.",
+      "method": "DELETE",
+      "path": "/v1/projects/{projectId}/services/{serviceId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "serviceId": { "type": "string" }
+        },
+        "required": ["projectId", "serviceId"]
+      }
+    }
+  ]
+}

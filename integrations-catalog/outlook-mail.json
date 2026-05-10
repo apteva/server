@@ -1,0 +1,337 @@
+{
+  "slug": "outlook-mail",
+  "name": "Outlook Mail",
+  "description": "Microsoft 365 / Outlook mail — read, search, send, reply and organize messages via Microsoft Graph",
+  "logo": "https://www.google.com/s2/favicons?domain=outlook.com&sz=128",
+  "categories": [
+    "email",
+    "microsoft",
+    "office365",
+    "outlook",
+    "communication"
+  ],
+  "base_url": "https://graph.microsoft.com/v1.0",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "token_type",
+        "label": "token_type"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+      "scopes": [
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+        "User.Read",
+        "Mail.Read",
+        "Mail.ReadWrite",
+        "Mail.Send",
+        "MailboxSettings.Read"
+      ],
+      "client_id_required": true,
+      "pkce": true,
+      "extra_authorize_params": {
+        "prompt": "consent"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "list_messages",
+      "description": "List messages from the user's mailbox. Supports OData filter/search/orderby for monitoring inbound traffic.",
+      "method": "GET",
+      "path": "/me/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "$top": {
+            "type": "integer",
+            "description": "Number of messages to return (max 1000)",
+            "default": 25
+          },
+          "$skip": {
+            "type": "integer",
+            "description": "Number of messages to skip"
+          },
+          "$filter": {
+            "type": "string",
+            "description": "OData filter, e.g. \"receivedDateTime ge 2026-04-01T00:00:00Z and from/emailAddress/address eq 'lead@acme.com'\""
+          },
+          "$search": {
+            "type": "string",
+            "description": "Free-text search, e.g. \"\\\"refund\\\"\" or \"from:lead@acme.com\""
+          },
+          "$select": {
+            "type": "string",
+            "description": "Comma-separated fields, e.g. \"id,subject,from,receivedDateTime,bodyPreview,isRead\""
+          },
+          "$orderby": {
+            "type": "string",
+            "description": "Sort, e.g. \"receivedDateTime desc\""
+          }
+        }
+      }
+    },
+    {
+      "name": "get_message",
+      "description": "Get a single message by id (full body + headers).",
+      "method": "GET",
+      "path": "/me/messages/{messageId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string",
+            "description": "The message id"
+          },
+          "$select": {
+            "type": "string",
+            "description": "Comma-separated fields to return"
+          }
+        },
+        "required": [
+          "messageId"
+        ]
+      }
+    },
+    {
+      "name": "search_messages",
+      "description": "Search messages using Microsoft Search. Best for free-text queries across body+subject+attachments.",
+      "method": "GET",
+      "path": "/me/messages",
+      "query_params": [
+        "$search",
+        "$top",
+        "$select"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "$search": {
+            "type": "string",
+            "description": "Search expression, e.g. \"unhappy OR refund OR cancel\""
+          },
+          "$top": {
+            "type": "integer",
+            "default": 25
+          },
+          "$select": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "$search"
+        ]
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "Send a new email from the connected mailbox.",
+      "method": "POST",
+      "path": "/me/sendMail",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "object",
+            "description": "Graph message object — { subject, body: { contentType: 'HTML'|'Text', content }, toRecipients: [{ emailAddress: { address } }], ccRecipients, bccRecipients }"
+          },
+          "saveToSentItems": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "reply_message",
+      "description": "Reply to an existing message (uses original recipients).",
+      "method": "POST",
+      "path": "/me/messages/{messageId}/reply",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string"
+          },
+          "comment": {
+            "type": "string",
+            "description": "Plain-text reply body. Use 'message' for an HTML/structured reply."
+          },
+          "message": {
+            "type": "object",
+            "description": "Optional Graph message object overriding the reply body/recipients"
+          }
+        },
+        "required": [
+          "messageId"
+        ]
+      }
+    },
+    {
+      "name": "forward_message",
+      "description": "Forward an existing message to one or more recipients.",
+      "method": "POST",
+      "path": "/me/messages/{messageId}/forward",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string"
+          },
+          "toRecipients": {
+            "type": "array",
+            "description": "[{ emailAddress: { address } }, ...]"
+          },
+          "comment": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "messageId",
+          "toRecipients"
+        ]
+      }
+    },
+    {
+      "name": "update_message",
+      "description": "Update flags on a message (mark read/unread, set categories/importance, move via parentFolderId).",
+      "method": "PATCH",
+      "path": "/me/messages/{messageId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string"
+          },
+          "isRead": {
+            "type": "boolean"
+          },
+          "importance": {
+            "type": "string",
+            "enum": [
+              "low",
+              "normal",
+              "high"
+            ]
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "flag": {
+            "type": "object",
+            "description": "{ flagStatus: 'flagged'|'complete'|'notFlagged' }"
+          }
+        },
+        "required": [
+          "messageId"
+        ]
+      }
+    },
+    {
+      "name": "delete_message",
+      "description": "Move a message to Deleted Items.",
+      "method": "DELETE",
+      "path": "/me/messages/{messageId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "messageId"
+        ]
+      }
+    },
+    {
+      "name": "list_mail_folders",
+      "description": "List the user's mail folders (Inbox, Sent Items, custom folders).",
+      "method": "GET",
+      "path": "/me/mailFolders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "$top": {
+            "type": "integer",
+            "default": 50
+          }
+        }
+      }
+    },
+    {
+      "name": "list_folder_messages",
+      "description": "List messages within a specific mail folder.",
+      "method": "GET",
+      "path": "/me/mailFolders/{folderId}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "folderId": {
+            "type": "string",
+            "description": "Folder id, or well-known names: 'inbox', 'sentitems', 'drafts', 'deleteditems', 'junkemail'"
+          },
+          "$top": {
+            "type": "integer",
+            "default": 25
+          },
+          "$filter": {
+            "type": "string"
+          },
+          "$select": {
+            "type": "string"
+          },
+          "$orderby": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "folderId"
+        ]
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-ms-signature",
+    "events": [
+      {
+        "name": "message.created",
+        "description": "New message arrived in mailbox (Graph subscription on /me/messages)"
+      },
+      {
+        "name": "message.updated",
+        "description": "Message updated (read/flag/move)"
+      }
+    ]
+  }
+}

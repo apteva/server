@@ -1,0 +1,279 @@
+{
+  "slug": "linkedin-ads",
+  "name": "LinkedIn Ads",
+  "description": "LinkedIn Marketing Developer Platform — manage ad accounts, campaign groups, campaigns, creatives, audiences, and pull analytics via the Rest API (LinkedIn-Version: 202410, X-Restli-Protocol-Version: 2.0.0)",
+  "logo": "https://www.google.com/s2/favicons?domain=business.linkedin.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "social-ads",
+    "linkedin",
+    "b2b"
+  ],
+  "base_url": "https://api.linkedin.com/rest",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "LinkedIn-Version": "202410",
+      "X-Restli-Protocol-Version": "2.0.0"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token",
+        "type": "password"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token",
+        "type": "password"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://www.linkedin.com/oauth/v2/authorization",
+      "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
+      "scopes": [
+        "r_ads",
+        "rw_ads",
+        "r_ads_reporting",
+        "r_organization_social",
+        "rw_organization_admin",
+        "r_basicprofile"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "list_ad_accounts",
+      "description": "List ad accounts the authenticated user can access. Use search criteria via q=search & filters. Returns elements[] with id, name, currency, type, status, reference (organization URN).",
+      "method": "GET",
+      "path": "/adAccounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string", "default": "search" },
+          "search": {
+            "type": "string",
+            "description": "Restli search filter, e.g. (status:(values:List(ACTIVE)),type:(values:List(BUSINESS)))"
+          },
+          "start": { "type": "integer", "default": 0 },
+          "count": { "type": "integer", "default": 10, "description": "Max 1000" }
+        }
+      }
+    },
+    {
+      "name": "get_ad_account",
+      "description": "Get a single ad account by ID.",
+      "method": "GET",
+      "path": "/adAccounts/{account_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string", "description": "Ad account numeric ID (without the urn:li:sponsoredAccount: prefix)" }
+        },
+        "required": ["account_id"]
+      }
+    },
+    {
+      "name": "list_campaign_groups",
+      "description": "List campaign groups (the LinkedIn equivalent of a parent budget container) under an ad account.",
+      "method": "GET",
+      "path": "/adAccounts/{account_id}/adCampaignGroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "q": { "type": "string", "default": "search" },
+          "search": { "type": "string", "description": "Restli search filter, e.g. (status:(values:List(ACTIVE)))" },
+          "start": { "type": "integer", "default": 0 },
+          "count": { "type": "integer", "default": 10 }
+        },
+        "required": ["account_id"]
+      }
+    },
+    {
+      "name": "create_campaign_group",
+      "description": "Create a campaign group. totalBudget / endDate are optional; if omitted the group runs continuously until paused.",
+      "method": "POST",
+      "path": "/adAccounts/{account_id}/adCampaignGroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["ACTIVE", "PAUSED", "DRAFT"], "default": "DRAFT" },
+          "runSchedule": {
+            "type": "object",
+            "description": "{\"start\": <unix ms>, \"end\": <unix ms or omit>}"
+          },
+          "totalBudget": {
+            "type": "object",
+            "description": "{\"currencyCode\": \"USD\", \"amount\": \"500.00\"}"
+          },
+          "test": { "type": "boolean", "default": false }
+        },
+        "required": ["account_id", "name"]
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List campaigns under an ad account. Search by status, campaignGroup, type. Each campaign carries id, name, status, type (TEXT_AD, SPONSORED_UPDATES, SPONSORED_INMAILS, DYNAMIC, etc.), costType (CPC, CPM, CPV), dailyBudget, totalBudget, runSchedule, locale, targetingCriteria.",
+      "method": "GET",
+      "path": "/adAccounts/{account_id}/adCampaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "q": { "type": "string", "default": "search" },
+          "search": {
+            "type": "string",
+            "description": "Restli filter, e.g. (status:(values:List(ACTIVE)),campaignGroup:(values:List(urn%3Ali%3AsponsoredCampaignGroup%3A123)))"
+          },
+          "start": { "type": "integer", "default": 0 },
+          "count": { "type": "integer", "default": 10 }
+        },
+        "required": ["account_id"]
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create a campaign. type values: SPONSORED_UPDATES (single image / carousel / video / document), TEXT_AD, SPONSORED_INMAILS (message ads), DYNAMIC. Required: campaignGroup URN, name, type, costType, locale, runSchedule, targetingCriteria.",
+      "method": "POST",
+      "path": "/adAccounts/{account_id}/adCampaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "name": { "type": "string" },
+          "campaignGroup": { "type": "string", "description": "URN like urn:li:sponsoredCampaignGroup:123" },
+          "type": { "type": "string", "enum": ["TEXT_AD", "SPONSORED_UPDATES", "SPONSORED_INMAILS", "DYNAMIC"] },
+          "costType": { "type": "string", "enum": ["CPC", "CPM", "CPV"] },
+          "objectiveType": { "type": "string", "enum": ["BRAND_AWARENESS", "WEBSITE_VISIT", "ENGAGEMENT", "VIDEO_VIEW", "LEAD_GENERATION", "WEBSITE_CONVERSION", "JOB_APPLICANT", "TALENT_LEADS"] },
+          "locale": { "type": "object", "description": "{\"country\": \"US\", \"language\": \"en\"}" },
+          "dailyBudget": { "type": "object", "description": "{\"currencyCode\": \"USD\", \"amount\": \"50.00\"}" },
+          "totalBudget": { "type": "object" },
+          "unitCost": { "type": "object", "description": "Bid: {\"currencyCode\": \"USD\", \"amount\": \"5.00\"}" },
+          "runSchedule": { "type": "object", "description": "{\"start\": 1735689600000, \"end\": 1738368000000}" },
+          "targetingCriteria": { "type": "object", "description": "Restli include/exclude facet object — see LinkedIn Targeting docs" },
+          "status": { "type": "string", "enum": ["ACTIVE", "PAUSED", "DRAFT"], "default": "DRAFT" }
+        },
+        "required": ["account_id", "name", "campaignGroup", "type", "costType", "locale", "runSchedule", "targetingCriteria"]
+      }
+    },
+    {
+      "name": "update_campaign",
+      "description": "Partial-update a campaign. Body must wrap fields in {\"patch\": {\"$set\": {...}}} per Restli partial-update conventions.",
+      "method": "POST",
+      "path": "/adAccounts/{account_id}/adCampaigns/{campaign_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "campaign_id": { "type": "string" },
+          "patch": {
+            "type": "object",
+            "description": "{\"$set\": {\"status\": \"ACTIVE\", \"dailyBudget\": {\"currencyCode\": \"USD\", \"amount\": \"75.00\"}}}"
+          }
+        },
+        "required": ["account_id", "campaign_id", "patch"]
+      }
+    },
+    {
+      "name": "list_creatives",
+      "description": "List creatives (ads) under an ad account. Filter by campaign URN to scope to a single campaign.",
+      "method": "GET",
+      "path": "/adAccounts/{account_id}/creatives",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "q": { "type": "string", "default": "criteria" },
+          "campaigns": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Array of campaign URNs to filter by"
+          },
+          "start": { "type": "integer", "default": 0 },
+          "count": { "type": "integer", "default": 10 }
+        },
+        "required": ["account_id"]
+      }
+    },
+    {
+      "name": "create_creative",
+      "description": "Create a creative under a campaign. content varies by campaign type — for SPONSORED_UPDATES you reference a UGC post URN; for TEXT_AD you pass headline/description/landingPage.",
+      "method": "POST",
+      "path": "/adAccounts/{account_id}/creatives",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "campaign": { "type": "string", "description": "URN like urn:li:sponsoredCampaign:123" },
+          "content": {
+            "type": "object",
+            "description": "Creative content union, e.g. {\"reference\": \"urn:li:ugcPost:9999\"} or {\"textAd\": {\"headline\": \"...\", \"description\": \"...\", \"landingPage\": \"https://...\"}}"
+          },
+          "intendedStatus": { "type": "string", "enum": ["ACTIVE", "PAUSED", "DRAFT"], "default": "DRAFT" }
+        },
+        "required": ["account_id", "campaign", "content"]
+      }
+    },
+    {
+      "name": "ad_analytics",
+      "description": "Pull performance analytics. pivot determines the breakdown: CAMPAIGN, CREATIVE, CAMPAIGN_GROUP, ACCOUNT, MEMBER_COMPANY, etc. timeGranularity: ALL, DAILY, MONTHLY. Pass campaigns/creatives/accounts URN list to scope. Common fields include impressions, clicks, costInLocalCurrency, externalWebsiteConversions, oneClickLeads, videoViews.",
+      "method": "GET",
+      "path": "/adAnalytics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string", "default": "analytics" },
+          "pivot": { "type": "string", "enum": ["CAMPAIGN", "CREATIVE", "CAMPAIGN_GROUP", "ACCOUNT", "MEMBER_COMPANY", "MEMBER_INDUSTRY", "MEMBER_SENIORITY", "MEMBER_JOB_TITLE", "MEMBER_JOB_FUNCTION", "MEMBER_COUNTRY_V2", "PLACEMENT_NAME"] },
+          "timeGranularity": { "type": "string", "enum": ["ALL", "DAILY", "MONTHLY", "YEARLY"], "default": "DAILY" },
+          "dateRange": {
+            "type": "object",
+            "description": "{\"start\": {\"year\": 2026, \"month\": 1, \"day\": 1}, \"end\": {\"year\": 2026, \"month\": 1, \"day\": 31}}"
+          },
+          "campaigns": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "List(URN) of campaigns to scope the report"
+          },
+          "accounts": { "type": "array", "items": { "type": "string" } },
+          "creatives": { "type": "array", "items": { "type": "string" } },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated metric fields, e.g. impressions,clicks,costInLocalCurrency,oneClickLeads,externalWebsiteConversions"
+          }
+        },
+        "required": ["pivot", "dateRange"]
+      }
+    },
+    {
+      "name": "list_audiences",
+      "description": "List matched (DMP) audiences under an ad account.",
+      "method": "GET",
+      "path": "/dmpSegments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string", "default": "account" },
+          "account": { "type": "string", "description": "URN like urn:li:sponsoredAccount:123" },
+          "start": { "type": "integer", "default": 0 },
+          "count": { "type": "integer", "default": 10 }
+        },
+        "required": ["account"]
+      }
+    }
+  ]
+}

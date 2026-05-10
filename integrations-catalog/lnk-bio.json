@@ -1,0 +1,140 @@
+{
+  "slug": "lnk-bio",
+  "name": "Lnk.Bio",
+  "description": "Lnk.Bio link-in-bio platform. Create, list, and delete bio links, manage link groups, and retrieve profile information.",
+  "logo": "https://www.google.com/s2/favicons?domain=lnk.bio&sz=128",
+  "categories": [
+    "link-in-bio",
+    "links",
+    "social-media",
+    "marketing",
+    "bio-links"
+  ],
+  "base_url": "https://lnk.bio",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "token_type",
+        "label": "token_type"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://lnk.bio/manage/access",
+      "token_url": "https://lnk.bio/oauth/token",
+      "scopes": [],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "get_profile",
+      "description": "Retrieve basic profile information for the authenticated Lnk.Bio account.",
+      "method": "GET",
+      "path": "/oauth/v1/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_links",
+      "description": "Retrieve all links in your Lnk.Bio account, in the same order they appear on your public page. Useful for getting link IDs for updates or deletions.",
+      "method": "GET",
+      "path": "/oauth/v1/lnk/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_link",
+      "description": "Create a new link on your Lnk.Bio profile. The link is immediately published and appears on top of your existing links.",
+      "method": "POST",
+      "path": "/oauth/v1/lnk/add",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Name/title of the link."
+          },
+          "link": {
+            "type": "string",
+            "description": "Target URL for the link (e.g. https://example.com)."
+          },
+          "image": {
+            "type": "string",
+            "description": "Image URL to display alongside the link. Optional."
+          },
+          "group_id": {
+            "type": "integer",
+            "description": "Numeric ID of the group to add the link to. Optional. Get group IDs from the List Groups tool."
+          },
+          "schedule_from": {
+            "type": "string",
+            "description": "Start time for scheduled visibility in RFC3339 format (YYYY-MM-DDTHH:MM:SS+HH:MM). Optional."
+          },
+          "schedule_to": {
+            "type": "string",
+            "description": "End time for scheduled visibility in RFC3339 format (YYYY-MM-DDTHH:MM:SS+HH:MM). Optional."
+          }
+        },
+        "required": [
+          "title",
+          "link"
+        ]
+      }
+    },
+    {
+      "name": "delete_link",
+      "description": "Delete an existing link from your Lnk.Bio profile. Use the List Links tool to find the link ID first.",
+      "method": "POST",
+      "path": "/oauth/v1/lnk/delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "The unique ID of the link to delete. Get this from the List Links tool."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_groups",
+      "description": "Retrieve all link groups in your Lnk.Bio account. Groups help organize links into categories on your public page.",
+      "method": "GET",
+      "path": "/oauth/v1/groups/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_profile"
+  }
+}

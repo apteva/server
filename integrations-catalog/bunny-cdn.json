@@ -1,0 +1,331 @@
+{
+  "slug": "bunny-cdn",
+  "name": "Bunny CDN",
+  "description": "MCP server for Bunny CDN content delivery, storage zones, and cache management",
+  "logo": "https://www.google.com/s2/favicons?domain=bunny.net&sz=128",
+  "categories": [
+    "cdn",
+    "storage",
+    "cache",
+    "content-delivery",
+    "performance"
+  ],
+  "base_url": "https://api.bunny.net",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "AccessKey": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your Bunny.net Account API Key (found in Account Settings > API)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_pullzones",
+      "description": "List all CDN pull zones in your account with pagination and search",
+      "method": "GET",
+      "path": "/pullzone",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number for pagination",
+            "default": 1
+          },
+          "perPage": {
+            "type": "integer",
+            "description": "Items per page (max 1000)",
+            "default": 20,
+            "maximum": 1000
+          },
+          "search": {
+            "type": "string",
+            "description": "Filter results by search term"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_pullzone",
+      "description": "Get detailed information about a specific pull zone including hostnames, cache settings, and security options",
+      "method": "GET",
+      "path": "/pullzone/{pullZoneId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pullZoneId": {
+            "type": "integer",
+            "description": "Pull zone ID"
+          }
+        },
+        "required": [
+          "pullZoneId"
+        ]
+      }
+    },
+    {
+      "name": "create_pullzone",
+      "description": "Create a new CDN pull zone for content delivery",
+      "method": "POST",
+      "path": "/pullzone",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Name": {
+            "type": "string",
+            "description": "Pull zone name (alphanumeric with hyphens)"
+          },
+          "OriginUrl": {
+            "type": "string",
+            "description": "Origin server URL"
+          },
+          "Type": {
+            "type": "integer",
+            "description": "Pull zone type (0=Standard, 1=Volume)",
+            "enum": [
+              0,
+              1
+            ],
+            "default": 0
+          },
+          "StorageZoneId": {
+            "type": "integer",
+            "description": "Storage zone ID to connect"
+          },
+          "EnableTLS1": {
+            "type": "boolean",
+            "description": "Enable TLS/SSL",
+            "default": true
+          },
+          "EnableGeoZoneUS": {
+            "type": "boolean",
+            "description": "Enable US region",
+            "default": true
+          },
+          "EnableGeoZoneEU": {
+            "type": "boolean",
+            "description": "Enable EU region",
+            "default": true
+          },
+          "EnableGeoZoneASIA": {
+            "type": "boolean",
+            "description": "Enable Asia region",
+            "default": false
+          },
+          "EnableGeoZoneSA": {
+            "type": "boolean",
+            "description": "Enable South America region",
+            "default": false
+          },
+          "EnableGeoZoneAF": {
+            "type": "boolean",
+            "description": "Enable Africa region",
+            "default": false
+          }
+        },
+        "required": [
+          "Name"
+        ]
+      }
+    },
+    {
+      "name": "update_pullzone",
+      "description": "Update pull zone configuration including origin, geo zones, caching, and security settings",
+      "method": "POST",
+      "path": "/pullzone/{pullZoneId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pullZoneId": {
+            "type": "integer",
+            "description": "Pull zone ID"
+          },
+          "OriginUrl": {
+            "type": "string",
+            "description": "New origin URL"
+          },
+          "EnableTLS1": {
+            "type": "boolean",
+            "description": "Enable/disable TLS"
+          },
+          "EnableGeoZoneUS": {
+            "type": "boolean",
+            "description": "Enable/disable US region"
+          },
+          "EnableGeoZoneEU": {
+            "type": "boolean",
+            "description": "Enable/disable EU region"
+          },
+          "EnableGeoZoneASIA": {
+            "type": "boolean",
+            "description": "Enable/disable Asia region"
+          },
+          "CacheControlMaxAge": {
+            "type": "integer",
+            "description": "Cache control max age in seconds"
+          },
+          "EnableSmartCache": {
+            "type": "boolean",
+            "description": "Enable smart caching"
+          },
+          "DisableCookies": {
+            "type": "boolean",
+            "description": "Disable cookies"
+          },
+          "EnableWebPVary": {
+            "type": "boolean",
+            "description": "Enable WebP vary"
+          },
+          "EnableAvifVary": {
+            "type": "boolean",
+            "description": "Enable AVIF vary"
+          },
+          "EnableLogging": {
+            "type": "boolean",
+            "description": "Enable logging"
+          }
+        },
+        "required": [
+          "pullZoneId"
+        ]
+      }
+    },
+    {
+      "name": "delete_pullzone",
+      "description": "Delete a CDN pull zone permanently",
+      "method": "DELETE",
+      "path": "/pullzone/{pullZoneId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pullZoneId": {
+            "type": "integer",
+            "description": "Pull zone ID to delete"
+          }
+        },
+        "required": [
+          "pullZoneId"
+        ]
+      }
+    },
+    {
+      "name": "purge_cache",
+      "description": "Purge all cached content from a pull zone's CDN edge servers",
+      "method": "POST",
+      "path": "/pullzone/{pullZoneId}/purgeCache",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pullZoneId": {
+            "type": "integer",
+            "description": "Pull zone ID to purge cache for"
+          }
+        },
+        "required": [
+          "pullZoneId"
+        ]
+      }
+    },
+    {
+      "name": "create_storagezone",
+      "description": "Create a new storage zone for file hosting with optional replication",
+      "method": "POST",
+      "path": "/storagezone",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Name": {
+            "type": "string",
+            "description": "Storage zone name (alphanumeric with hyphens)"
+          },
+          "Region": {
+            "type": "string",
+            "description": "Primary storage region",
+            "enum": [
+              "DE",
+              "NY",
+              "LA",
+              "SG",
+              "SYD",
+              "BR",
+              "JH"
+            ],
+            "default": "DE"
+          },
+          "ReplicationRegions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "DE",
+                "NY",
+                "LA",
+                "SG",
+                "SYD",
+                "BR",
+                "JH"
+              ]
+            },
+            "description": "Additional replication regions"
+          },
+          "ZoneType": {
+            "type": "integer",
+            "description": "Zone type (0=Standard, 1=Edge)",
+            "default": 0
+          }
+        },
+        "required": [
+          "Name"
+        ]
+      }
+    },
+    {
+      "name": "upload_file",
+      "description": "Upload a file to a Bunny storage zone via base64 content or URL fetch",
+      "method": "POST",
+      "path": "/upload-file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "storageZoneName": {
+            "type": "string",
+            "description": "Storage zone name"
+          },
+          "path": {
+            "type": "string",
+            "description": "File path in storage (e.g., /images/logo.png)"
+          },
+          "file": {
+            "type": "string",
+            "description": "Base64 encoded file content"
+          },
+          "fileUrl": {
+            "type": "string",
+            "description": "URL to fetch file from (alternative to base64 content)"
+          },
+          "contentType": {
+            "type": "string",
+            "description": "MIME type of the file"
+          },
+          "storageRegion": {
+            "type": "string",
+            "description": "Storage region (de, ny, la, sg, syd, br, jh)",
+            "default": "de"
+          }
+        },
+        "required": [
+          "storageZoneName",
+          "path"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "slug": "earthly-cloud",
+  "name": "Earthly Cloud",
+  "description": "Earthly Satellites — managed remote BuildKit instances with persistent cache. Generous free tier (6000 build-minutes/month). Authenticate with EARTHLY_TOKEN. v1 API exposes satellite lifecycle (launch / wake / sleep / rm) and project management; the actual build is driven by the earthly CLI talking to a selected satellite.",
+  "logo": "https://www.google.com/s2/favicons?domain=earthly.dev&sz=128",
+  "categories": ["build", "ci", "buildkit", "docker", "devops"],
+  "base_url": "https://api.earthly.dev",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "EARTHLY_TOKEN", "description": "Login token from `earthly account create-token`", "required": true, "type": "password" },
+      { "name": "org", "label": "Organization", "description": "Earthly Cloud organization slug", "required": true, "type": "text" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_satellites",
+      "description": "List satellites for the organization. Args: org.",
+      "method": "GET",
+      "path": "/api/v0/satellites?org={{org}}",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "launch_satellite",
+      "description": "Provision a new satellite. Args: name, size (xsmall|small|medium|large|xlarge), platform (linux/amd64|linux/arm64), feature_flags?.",
+      "method": "POST",
+      "path": "/api/v0/satellites",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "size": { "type": "string", "enum": ["xsmall", "small", "medium", "large", "xlarge"] },
+          "platform": { "type": "string" },
+          "feature_flags": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["name", "size"]
+      }
+    },
+    {
+      "name": "wake_satellite",
+      "description": "Wake a sleeping satellite so a build can target it. Args: name.",
+      "method": "POST",
+      "path": "/api/v0/satellites/{name}/wake",
+      "input_schema": {
+        "type": "object",
+        "properties": { "name": { "type": "string" } },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "sleep_satellite",
+      "description": "Put a satellite to sleep to stop billing. Args: name.",
+      "method": "POST",
+      "path": "/api/v0/satellites/{name}/sleep",
+      "input_schema": {
+        "type": "object",
+        "properties": { "name": { "type": "string" } },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "delete_satellite",
+      "description": "Destroy a satellite permanently. Args: name.",
+      "method": "DELETE",
+      "path": "/api/v0/satellites/{name}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "name": { "type": "string" } },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "list_builds",
+      "description": "Recent builds for the organization with status, duration, satellite. Args: org, limit?.",
+      "method": "GET",
+      "path": "/api/v0/builds?org={{org}}&limit={limit}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "limit": { "type": "integer" } }
+      }
+    }
+  ]
+}

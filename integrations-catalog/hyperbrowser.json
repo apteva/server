@@ -1,0 +1,205 @@
+{
+  "slug": "hyperbrowser",
+  "name": "Hyperbrowser",
+  "description": "Hyperbrowser cloud browser API for AI agents. Async scrape and crawl jobs, plus full browser session lifecycle for agentic workflows. Returns content as markdown or HTML.",
+  "logo": "https://www.google.com/s2/favicons?domain=hyperbrowser.ai&sz=128",
+  "categories": [
+    "browser-automation",
+    "scraping",
+    "crawling",
+    "ai-agents",
+    "headless-browser"
+  ],
+  "base_url": "https://app.hyperbrowser.ai/api",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "x-api-key": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "description": "Hyperbrowser API key from https://app.hyperbrowser.ai (Settings > API Keys)."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "start_scrape",
+      "description": "Start an async scrape job for a single URL. Returns a jobId; poll get_scrape_job until status is 'completed'. The result includes the page content in the requested formats (markdown, html, links, screenshot).",
+      "method": "POST",
+      "path": "/scrape",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL to scrape."
+          },
+          "scrapeOptions": {
+            "type": "object",
+            "description": "Output options. Common fields: formats (array of 'markdown'|'html'|'links'|'screenshot'), onlyMainContent (boolean), waitFor (ms), timeout (ms), excludeTags / includeTags (selector arrays)."
+          },
+          "sessionOptions": {
+            "type": "object",
+            "description": "Browser-session settings: useProxy (boolean), solveCaptchas (boolean), useStealth (boolean), profile.id (reuse a saved profile)."
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "get_scrape_job",
+      "description": "Get the status and result of a scrape job. Status is one of pending, running, completed, failed. When completed, the response includes the scraped data.",
+      "method": "GET",
+      "path": "/scrape/{jobId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "description": "Job ID returned by start_scrape."
+          }
+        },
+        "required": [
+          "jobId"
+        ]
+      }
+    },
+    {
+      "name": "start_crawl",
+      "description": "Start an async crawl job that walks a site starting from a seed URL. Returns a jobId; poll get_crawl_job until status is 'completed'. Each crawled page is returned with its content in the requested formats.",
+      "method": "POST",
+      "path": "/crawl",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Seed URL to crawl."
+          },
+          "maxPages": {
+            "type": "integer",
+            "description": "Maximum number of pages to crawl."
+          },
+          "followLinks": {
+            "type": "boolean",
+            "description": "Follow links found on each page."
+          },
+          "excludePatterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Glob patterns of URLs to skip."
+          },
+          "includePatterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Only crawl URLs matching these patterns."
+          },
+          "scrapeOptions": {
+            "type": "object",
+            "description": "Per-page scrape options (same shape as start_scrape.scrapeOptions)."
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "get_crawl_job",
+      "description": "Get the status and accumulated results of a crawl job.",
+      "method": "GET",
+      "path": "/crawl/{jobId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "description": "Job ID returned by start_crawl."
+          }
+        },
+        "required": [
+          "jobId"
+        ]
+      }
+    },
+    {
+      "name": "create_session",
+      "description": "Create a live browser session for interactive automation (Playwright/Puppeteer connect via the returned wsEndpoint). Sessions persist cookies and storage until stopped.",
+      "method": "POST",
+      "path": "/sessions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "useProxy": {
+            "type": "boolean"
+          },
+          "useStealth": {
+            "type": "boolean",
+            "description": "Enable stealth-mode anti-detection."
+          },
+          "solveCaptchas": {
+            "type": "boolean"
+          },
+          "adblock": {
+            "type": "boolean"
+          },
+          "profile": {
+            "type": "object",
+            "description": "Reuse a saved authenticated profile: { id: 'profile_id' }."
+          },
+          "timeoutMinutes": {
+            "type": "integer",
+            "description": "Session auto-stop timeout in minutes."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_session",
+      "description": "Get details for a live session: status, wsEndpoint, live-view URL.",
+      "method": "GET",
+      "path": "/sessions/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Session ID."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "stop_session",
+      "description": "Stop a live browser session and release its resources.",
+      "method": "PUT",
+      "path": "/sessions/{id}/stop",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Session ID."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    }
+  ]
+}

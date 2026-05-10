@@ -1,0 +1,124 @@
+{
+  "slug": "netlify",
+  "name": "Netlify",
+  "description": "MCP server for Netlify - sites, deploys, forms, functions, DNS",
+  "logo": "https://www.google.com/s2/favicons?domain=netlify.com&sz=128",
+  "categories": ["hosting", "deployment", "devops", "jamstack"],
+  "base_url": "https://api.netlify.com/api/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Personal Access Token" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_sites",
+      "description": "List all sites",
+      "method": "GET",
+      "path": "/sites",
+      "input_schema": { "type": "object", "properties": { "filter": { "type": "string" } } }
+    },
+    {
+      "name": "get_site",
+      "description": "Get a site by ID",
+      "method": "GET",
+      "path": "/sites/{site_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "site_id": { "type": "string" } },
+        "required": ["site_id"]
+      }
+    },
+    {
+      "name": "create_site",
+      "description": "Create a new site",
+      "method": "POST",
+      "path": "/sites",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "custom_domain": { "type": "string" },
+          "repo": { "type": "object" }
+        }
+      }
+    },
+    {
+      "name": "delete_site",
+      "description": "Delete a site",
+      "method": "DELETE",
+      "path": "/sites/{site_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "site_id": { "type": "string" } },
+        "required": ["site_id"]
+      }
+    },
+    {
+      "name": "list_deploys",
+      "description": "List deploys for a site",
+      "method": "GET",
+      "path": "/sites/{site_id}/deploys",
+      "input_schema": {
+        "type": "object",
+        "properties": { "site_id": { "type": "string" } },
+        "required": ["site_id"]
+      }
+    },
+    {
+      "name": "trigger_deploy",
+      "description": "Trigger a new deploy",
+      "method": "POST",
+      "path": "/sites/{site_id}/builds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": { "type": "string" },
+          "clear_cache": { "type": "boolean" }
+        },
+        "required": ["site_id"]
+      }
+    },
+    {
+      "name": "restore_deploy",
+      "description": "Restore (rollback) to an earlier deploy",
+      "method": "POST",
+      "path": "/sites/{site_id}/deploys/{deploy_id}/restore",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": { "type": "string" },
+          "deploy_id": { "type": "string" }
+        },
+        "required": ["site_id", "deploy_id"]
+      }
+    },
+    {
+      "name": "list_form_submissions",
+      "description": "List submissions for a site's forms",
+      "method": "GET",
+      "path": "/sites/{site_id}/submissions",
+      "input_schema": {
+        "type": "object",
+        "properties": { "site_id": { "type": "string" } },
+        "required": ["site_id"]
+      }
+    },
+    {
+      "name": "update_env_vars",
+      "description": "Update environment variables for a site",
+      "method": "PATCH",
+      "path": "/sites/{site_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": { "type": "string" },
+          "build_settings": { "type": "object" }
+        },
+        "required": ["site_id"]
+      }
+    }
+  ]
+}

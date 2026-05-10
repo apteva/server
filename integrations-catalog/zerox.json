@@ -1,0 +1,93 @@
+{
+  "slug": "zerox",
+  "name": "0x Protocol",
+  "description": "Multi-chain DEX aggregation — swap quotes, price comparisons, and source breakdowns across Ethereum, Polygon, BSC, Arbitrum, and more.",
+  "logo": "https://www.google.com/s2/favicons?domain=0x.org&sz=128",
+  "categories": [
+    "dex",
+    "aggregator",
+    "swap",
+    "defi"
+  ],
+  "base_url": "https://api.0x.org",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "0x-api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "0x API key (from https://dashboard.0x.org/)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_quote",
+      "description": "Get a swap quote with routing info across all DEX sources.",
+      "method": "GET",
+      "path": "/swap/v1/quote",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sellToken": {
+            "type": "string",
+            "description": "Token address or symbol to sell (e.g., ETH, USDC, or 0x...)"
+          },
+          "buyToken": {
+            "type": "string",
+            "description": "Token address or symbol to buy"
+          },
+          "sellAmount": {
+            "type": "string",
+            "description": "Amount to sell in smallest unit (wei)"
+          }
+        },
+        "required": [
+          "sellToken",
+          "buyToken",
+          "sellAmount"
+        ]
+      }
+    },
+    {
+      "name": "get_price",
+      "description": "Get an indicative price without routing. Faster than quote, good for price comparison.",
+      "method": "GET",
+      "path": "/swap/v1/price",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sellToken": {
+            "type": "string"
+          },
+          "buyToken": {
+            "type": "string"
+          },
+          "sellAmount": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sellToken",
+          "buyToken",
+          "sellAmount"
+        ]
+      }
+    },
+    {
+      "name": "get_sources",
+      "description": "Get all available liquidity sources on a chain.",
+      "method": "GET",
+      "path": "/swap/v1/sources",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

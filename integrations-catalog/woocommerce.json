@@ -1,0 +1,288 @@
+{
+  "slug": "woocommerce",
+  "name": "WooCommerce",
+  "description": "WooCommerce integration for e-commerce with products, orders, and customers",
+  "logo": "https://www.google.com/s2/favicons?domain=woocommerce.com&sz=128",
+  "categories": [
+    "e-commerce",
+    "shop",
+    "woocommerce",
+    "products",
+    "orders"
+  ],
+  "base_url": "{{site_url}}/wp-json/wc/v3",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_products",
+      "description": "List products from a WooCommerce store",
+      "method": "GET",
+      "path": "/list-products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_url": {
+            "type": "string",
+            "description": "WooCommerce site URL"
+          },
+          "consumer_key": {
+            "type": "string",
+            "description": "Consumer key"
+          },
+          "consumer_secret": {
+            "type": "string",
+            "description": "Consumer secret"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Products per page"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "status": {
+            "type": "string",
+            "description": "Product status"
+          },
+          "category": {
+            "type": "number",
+            "description": "Category ID"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search term"
+          }
+        },
+        "required": [
+          "site_url",
+          "consumer_key",
+          "consumer_secret"
+        ]
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "List orders from a WooCommerce store",
+      "method": "GET",
+      "path": "/list-orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_url": {
+            "type": "string",
+            "description": "WooCommerce site URL"
+          },
+          "consumer_key": {
+            "type": "string",
+            "description": "Consumer key"
+          },
+          "consumer_secret": {
+            "type": "string",
+            "description": "Consumer secret"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Orders per page"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "status": {
+            "type": "string",
+            "description": "Order status"
+          },
+          "customer": {
+            "type": "number",
+            "description": "Customer ID"
+          },
+          "after": {
+            "type": "string",
+            "description": "Orders after date"
+          },
+          "before": {
+            "type": "string",
+            "description": "Orders before date"
+          }
+        },
+        "required": [
+          "site_url",
+          "consumer_key",
+          "consumer_secret"
+        ]
+      }
+    },
+    {
+      "name": "create_product",
+      "description": "Create a new product",
+      "method": "POST",
+      "path": "/create-product",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_url": {
+            "type": "string",
+            "description": "WooCommerce site URL"
+          },
+          "consumer_key": {
+            "type": "string",
+            "description": "Consumer key"
+          },
+          "consumer_secret": {
+            "type": "string",
+            "description": "Consumer secret"
+          },
+          "name": {
+            "type": "string",
+            "description": "Product name"
+          },
+          "type": {
+            "type": "string",
+            "description": "Product type"
+          },
+          "regular_price": {
+            "type": "string",
+            "description": "Regular price"
+          },
+          "description": {
+            "type": "string",
+            "description": "Product description"
+          },
+          "short_description": {
+            "type": "string",
+            "description": "Short description"
+          },
+          "sku": {
+            "type": "string",
+            "description": "SKU"
+          },
+          "categories": {
+            "type": "array",
+            "description": "Category IDs"
+          },
+          "images": {
+            "type": "array",
+            "description": "Image objects"
+          },
+          "status": {
+            "type": "string",
+            "description": "Product status"
+          }
+        },
+        "required": [
+          "site_url",
+          "consumer_key",
+          "consumer_secret",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_order",
+      "description": "Update an order status or add notes",
+      "method": "PUT",
+      "path": "/update-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_url": {
+            "type": "string",
+            "description": "WooCommerce site URL"
+          },
+          "consumer_key": {
+            "type": "string",
+            "description": "Consumer key"
+          },
+          "consumer_secret": {
+            "type": "string",
+            "description": "Consumer secret"
+          },
+          "order_id": {
+            "type": "number",
+            "description": "Order ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "New order status"
+          },
+          "note": {
+            "type": "string",
+            "description": "Note to add"
+          },
+          "customer_note": {
+            "type": "boolean",
+            "description": "Send note to customer"
+          }
+        },
+        "required": [
+          "site_url",
+          "consumer_key",
+          "consumer_secret",
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "list_customers",
+      "description": "List customers from a WooCommerce store",
+      "method": "GET",
+      "path": "/list-customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_url": {
+            "type": "string",
+            "description": "WooCommerce site URL"
+          },
+          "consumer_key": {
+            "type": "string",
+            "description": "Consumer key"
+          },
+          "consumer_secret": {
+            "type": "string",
+            "description": "Consumer secret"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Customers per page"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "role": {
+            "type": "string",
+            "description": "Customer role"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search term"
+          },
+          "email": {
+            "type": "string",
+            "description": "Filter by email"
+          }
+        },
+        "required": [
+          "site_url",
+          "consumer_key",
+          "consumer_secret"
+        ]
+      }
+    }
+  ]
+}

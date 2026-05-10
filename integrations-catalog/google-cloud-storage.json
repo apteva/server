@@ -1,0 +1,484 @@
+{
+  "slug": "google-cloud-storage",
+  "name": "Google Cloud Storage",
+  "description": "Google Cloud Storage (GCS) JSON API \u2014 buckets and objects in GCP. Analogous to AWS S3. Manage buckets, upload/download/list/copy/delete objects, set lifecycle and IAM. Authenticate via OAuth2 with the cloud-platform or devstorage.full_control scope.",
+  "logo": "https://www.google.com/s2/favicons?domain=cloud.google.com&sz=128",
+  "categories": [
+    "cloud",
+    "storage",
+    "gcp",
+    "google-cloud",
+    "buckets",
+    "objects",
+    "files"
+  ],
+  "base_url": "https://storage.googleapis.com/storage/v1",
+  "auth": {
+    "types": [
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+      "token_url": "https://oauth2.googleapis.com/token",
+      "scopes": [
+        "https://www.googleapis.com/auth/devstorage.full_control"
+      ],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "access_type": "offline",
+        "prompt": "consent",
+        "include_granted_scopes": "true"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "list_buckets",
+      "description": "List buckets in a GCP project.",
+      "method": "GET",
+      "path": "/b",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "GCP project ID (the alphanumeric one, not the project number)."
+          },
+          "prefix": {
+            "type": "string",
+            "description": "Filter to buckets whose name begins with this prefix."
+          },
+          "maxResults": {
+            "type": "integer"
+          },
+          "pageToken": {
+            "type": "string"
+          },
+          "projection": {
+            "type": "string",
+            "enum": [
+              "noAcl",
+              "full"
+            ]
+          }
+        },
+        "required": [
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "get_bucket",
+      "description": "Get bucket metadata \u2014 location, storage class, versioning, lifecycle rules, IAM config, retention policy.",
+      "method": "GET",
+      "path": "/b/{bucket}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "projection": {
+            "type": "string",
+            "enum": [
+              "noAcl",
+              "full"
+            ]
+          }
+        },
+        "required": [
+          "bucket"
+        ]
+      }
+    },
+    {
+      "name": "create_bucket",
+      "description": "Create a new bucket in the given project. Bucket names are globally unique across all GCP.",
+      "method": "POST",
+      "path": "/b",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "GCP project ID (sent as the 'project' query parameter)."
+          },
+          "name": {
+            "type": "string",
+            "description": "Bucket name (globally unique, lowercase, 3\u201363 chars)."
+          },
+          "location": {
+            "type": "string",
+            "description": "GCS location (e.g. 'US', 'EU', 'us-central1', 'europe-west1')."
+          },
+          "storageClass": {
+            "type": "string",
+            "enum": [
+              "STANDARD",
+              "NEARLINE",
+              "COLDLINE",
+              "ARCHIVE"
+            ]
+          },
+          "versioning": {
+            "type": "object",
+            "description": "{ enabled: true } to enable object versioning."
+          },
+          "lifecycle": {
+            "type": "object",
+            "description": "{ rule: [...] } for age-based storage class transitions / deletions."
+          },
+          "iamConfiguration": {
+            "type": "object",
+            "description": "Bucket-level access controls. Set { uniformBucketLevelAccess: { enabled: true } } to disable per-object ACLs."
+          },
+          "labels": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "project",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_bucket",
+      "description": "Patch a bucket's metadata (lifecycle, versioning, labels, retention, IAM config). Only the supplied fields are changed.",
+      "method": "PATCH",
+      "path": "/b/{bucket}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "versioning": {
+            "type": "object"
+          },
+          "lifecycle": {
+            "type": "object"
+          },
+          "labels": {
+            "type": "object"
+          },
+          "retentionPolicy": {
+            "type": "object"
+          },
+          "iamConfiguration": {
+            "type": "object"
+          },
+          "storageClass": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket"
+        ]
+      }
+    },
+    {
+      "name": "delete_bucket",
+      "description": "Delete an empty bucket. Buckets with objects must be emptied first (or use force-deletion via lifecycle rules).",
+      "method": "DELETE",
+      "path": "/b/{bucket}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket"
+        ]
+      }
+    },
+    {
+      "name": "list_objects",
+      "description": "List objects in a bucket. Supports prefix-based filtering and folder-style hierarchical listing via 'delimiter'.",
+      "method": "GET",
+      "path": "/b/{bucket}/o",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string",
+            "description": "Filter to objects whose name begins with this prefix."
+          },
+          "delimiter": {
+            "type": "string",
+            "description": "Use '/' to mimic folder listings \u2014 common-prefixes are returned in 'prefixes'."
+          },
+          "maxResults": {
+            "type": "integer"
+          },
+          "pageToken": {
+            "type": "string"
+          },
+          "versions": {
+            "type": "boolean",
+            "description": "Include archived versions on versioning-enabled buckets."
+          },
+          "startOffset": {
+            "type": "string"
+          },
+          "endOffset": {
+            "type": "string"
+          },
+          "matchGlob": {
+            "type": "string",
+            "description": "Glob pattern (e.g. '**/*.json')."
+          }
+        },
+        "required": [
+          "bucket"
+        ]
+      }
+    },
+    {
+      "name": "get_object_metadata",
+      "description": "Get an object's metadata (size, contentType, generation, md5Hash, customTime, custom metadata). Does NOT return the object body \u2014 use download_object for that.",
+      "method": "GET",
+      "path": "/b/{bucket}/o/{object}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string",
+            "description": "Object name. Forward-slashes must be URL-encoded as %2F when passed in the path."
+          },
+          "generation": {
+            "type": "string",
+            "description": "Specific object version (for versioned buckets)."
+          }
+        },
+        "required": [
+          "bucket",
+          "object"
+        ]
+      }
+    },
+    {
+      "name": "download_object",
+      "description": "Download the object body. Note: GCS uses ?alt=media on the same path as get_object_metadata to switch from JSON metadata to raw content.",
+      "method": "GET",
+      "path": "/b/{bucket}/o/{object}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "alt": {
+            "type": "string",
+            "description": "Must be 'media' to download bytes (otherwise you get JSON metadata).",
+            "enum": [
+              "media"
+            ],
+            "default": "media"
+          },
+          "generation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket",
+          "object",
+          "alt"
+        ]
+      }
+    },
+    {
+      "name": "upload_object_simple",
+      "description": "Simple upload (\u22645 MB) for a small object. Hits the upload endpoint, not the storage one \u2014 note this tool's path uses the upload host. For large files use resumable uploads externally.",
+      "method": "POST",
+      "path": "https://storage.googleapis.com/upload/storage/v1/b/{bucket}/o",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "Object name in the bucket (sent as ?name= query param)."
+          },
+          "uploadType": {
+            "type": "string",
+            "enum": [
+              "media",
+              "multipart",
+              "resumable"
+            ],
+            "default": "media"
+          },
+          "content": {
+            "type": "string",
+            "description": "File contents. Raw bytes (uploadType=media) or multipart body."
+          },
+          "contentType": {
+            "type": "string",
+            "description": "Content-Type header value (e.g. 'application/json', 'image/png')."
+          }
+        },
+        "required": [
+          "bucket",
+          "name",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "delete_object",
+      "description": "Delete an object. On versioning-enabled buckets, omitting 'generation' adds a delete marker; supplying a generation removes that specific version.",
+      "method": "DELETE",
+      "path": "/b/{bucket}/o/{object}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket",
+          "object"
+        ]
+      }
+    },
+    {
+      "name": "copy_object",
+      "description": "Copy an object to another location (same or different bucket).",
+      "method": "POST",
+      "path": "/b/{sourceBucket}/o/{sourceObject}/copyTo/b/{destinationBucket}/o/{destinationObject}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sourceBucket": {
+            "type": "string"
+          },
+          "sourceObject": {
+            "type": "string"
+          },
+          "destinationBucket": {
+            "type": "string"
+          },
+          "destinationObject": {
+            "type": "string"
+          },
+          "destinationPredefinedAcl": {
+            "type": "string"
+          },
+          "ifGenerationMatch": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sourceBucket",
+          "sourceObject",
+          "destinationBucket",
+          "destinationObject"
+        ]
+      }
+    },
+    {
+      "name": "compose_object",
+      "description": "Concatenate up to 32 source objects into a single destination object \u2014 useful for assembling multi-part uploads server-side.",
+      "method": "POST",
+      "path": "/b/{destinationBucket}/o/{destinationObject}/compose",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "destinationBucket": {
+            "type": "string"
+          },
+          "destinationObject": {
+            "type": "string"
+          },
+          "sourceObjects": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "[{ name, generation? }, ...]; max 32 entries."
+          },
+          "destination": {
+            "type": "object",
+            "description": "Optional metadata for the resulting object (contentType, metadata, etc.)."
+          }
+        },
+        "required": [
+          "destinationBucket",
+          "destinationObject",
+          "sourceObjects"
+        ]
+      }
+    },
+    {
+      "name": "rewrite_object",
+      "description": "Rewrite an object \u2014 like copy but supports cross-region, storage-class change, and re-encryption with new KMS keys. May return a 'rewriteToken' for chunked progress on large objects.",
+      "method": "POST",
+      "path": "/b/{sourceBucket}/o/{sourceObject}/rewriteTo/b/{destinationBucket}/o/{destinationObject}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sourceBucket": {
+            "type": "string"
+          },
+          "sourceObject": {
+            "type": "string"
+          },
+          "destinationBucket": {
+            "type": "string"
+          },
+          "destinationObject": {
+            "type": "string"
+          },
+          "rewriteToken": {
+            "type": "string",
+            "description": "Continuation token from a previous response (omit on first call)."
+          },
+          "destinationKmsKeyName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sourceBucket",
+          "sourceObject",
+          "destinationBucket",
+          "destinationObject"
+        ]
+      }
+    }
+  ]
+}

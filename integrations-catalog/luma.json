@@ -1,0 +1,280 @@
+{
+  "slug": "luma",
+  "name": "Luma",
+  "description": "Luma (lu.ma) event management platform. Create and manage events, guest lists, registrations, and event analytics.",
+  "logo": "https://www.google.com/s2/favicons?domain=lu.ma&sz=128",
+  "categories": [
+    "events",
+    "event-management",
+    "registration",
+    "guests",
+    "calendar"
+  ],
+  "base_url": "https://api.lu.ma",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "x-luma-api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Luma API key (generate from your Luma dashboard under Settings > API)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "find_events",
+      "description": "List all events managed by your Luma calendar. Returns event details including name, date, location, and registration info. Supports pagination via cursor-based navigation with after parameter.",
+      "method": "GET",
+      "path": "/public/v1/calendar/list-events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor. Pass the value from the previous response's next_cursor field to get the next page of results."
+          },
+          "period": {
+            "type": "string",
+            "enum": [
+              "future",
+              "past",
+              "all"
+            ],
+            "description": "Filter events by time period. 'future' returns upcoming events, 'past' returns past events, 'all' returns everything. Defaults to 'future'."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_event",
+      "description": "Create a new event on your Luma calendar. Specify the event name, start/end times, timezone, and other details. The event will be associated with the calendar linked to your API key.",
+      "method": "POST",
+      "path": "/public/v1/event/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name/title of the event."
+          },
+          "start_at": {
+            "type": "string",
+            "description": "Event start time in ISO 8601 format (e.g. 2025-06-15T18:00:00Z)."
+          },
+          "end_at": {
+            "type": "string",
+            "description": "Event end time in ISO 8601 format (e.g. 2025-06-15T21:00:00Z)."
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Timezone for the event in IANA format (e.g. 'America/New_York', 'Europe/London'). Defaults to UTC.",
+            "default": "UTC"
+          },
+          "require_rsvp_approval": {
+            "type": "boolean",
+            "description": "Whether RSVPs require manual approval. Defaults to false.",
+            "default": false
+          },
+          "geo_address_json": {
+            "type": "object",
+            "description": "Location object with address details.",
+            "properties": {
+              "city": {
+                "type": "string",
+                "description": "City name."
+              },
+              "region": {
+                "type": "string",
+                "description": "State or region."
+              },
+              "country": {
+                "type": "string",
+                "description": "Country."
+              },
+              "latitude": {
+                "type": "string",
+                "description": "Latitude coordinate."
+              },
+              "longitude": {
+                "type": "string",
+                "description": "Longitude coordinate."
+              },
+              "full_address": {
+                "type": "string",
+                "description": "Full street address."
+              },
+              "place_id": {
+                "type": "string",
+                "description": "Google Places ID for the location."
+              }
+            }
+          },
+          "meeting_url": {
+            "type": "string",
+            "description": "Virtual meeting URL (Zoom, Google Meet, etc.) for online events."
+          },
+          "description": {
+            "type": "string",
+            "description": "Event description in markdown format."
+          }
+        },
+        "required": [
+          "name",
+          "start_at",
+          "timezone"
+        ]
+      }
+    },
+    {
+      "name": "update_event",
+      "description": "Update an existing event on Luma. Pass the event's api_id and any fields to update. Only provided fields will be changed; omitted fields remain unchanged.",
+      "method": "POST",
+      "path": "/public/v1/event/update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_api_id": {
+            "type": "string",
+            "description": "The unique API ID of the event to update (returned when creating or listing events)."
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated event name/title."
+          },
+          "start_at": {
+            "type": "string",
+            "description": "Updated start time in ISO 8601 format."
+          },
+          "end_at": {
+            "type": "string",
+            "description": "Updated end time in ISO 8601 format."
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Updated timezone in IANA format."
+          },
+          "require_rsvp_approval": {
+            "type": "boolean",
+            "description": "Whether RSVPs require manual approval."
+          },
+          "geo_address_json": {
+            "type": "object",
+            "description": "Updated location object with address details.",
+            "properties": {
+              "city": {
+                "type": "string"
+              },
+              "region": {
+                "type": "string"
+              },
+              "country": {
+                "type": "string"
+              },
+              "full_address": {
+                "type": "string"
+              }
+            }
+          },
+          "meeting_url": {
+            "type": "string",
+            "description": "Updated virtual meeting URL."
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated event description in markdown format."
+          }
+        },
+        "required": [
+          "event_api_id"
+        ]
+      }
+    },
+    {
+      "name": "add_guest",
+      "description": "Add a guest to a Luma event. The guest will be registered with 'Going' status. Provide the event API ID and guest email. Optionally include guest name and other details.",
+      "method": "POST",
+      "path": "/public/v1/event/add-guests",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_api_id": {
+            "type": "string",
+            "description": "The unique API ID of the event to add the guest to."
+          },
+          "guests": {
+            "type": "array",
+            "description": "Array of guest objects to add to the event.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string",
+                  "description": "Guest's email address (required)."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Guest's full name."
+                },
+                "phone": {
+                  "type": "string",
+                  "description": "Guest's phone number."
+                }
+              },
+              "required": [
+                "email"
+              ]
+            }
+          }
+        },
+        "required": [
+          "event_api_id",
+          "guests"
+        ]
+      }
+    },
+    {
+      "name": "update_guest",
+      "description": "Update a guest's status for a Luma event. Use this to approve, decline, or check in guests. Provide the event API ID and guest email along with the new status.",
+      "method": "POST",
+      "path": "/public/v1/event/update-guest-status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_api_id": {
+            "type": "string",
+            "description": "The unique API ID of the event."
+          },
+          "email": {
+            "type": "string",
+            "description": "Guest's email address to identify the guest to update."
+          },
+          "guest_api_id": {
+            "type": "string",
+            "description": "Alternative to email: the guest's unique API ID (starts with 'g-')."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "declined",
+              "waitlisted",
+              "pending_approval",
+              "checked_in"
+            ],
+            "description": "The new status to set for the guest."
+          }
+        },
+        "required": [
+          "event_api_id",
+          "status"
+        ]
+      }
+    }
+  ]
+}

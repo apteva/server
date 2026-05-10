@@ -1,0 +1,113 @@
+{
+  "slug": "opencode-go",
+  "name": "OpenCode Go",
+  "description": "OpenAI-compatible chat completions for the OpenCode Go subscription gateway. Flat-rate access to a curated catalog of frontier models (Kimi K2.6, GLM-5.1, Qwen3.6 Plus, DeepSeek V4 Pro, etc.) with multimodal support — text + image inputs in a single request. Use for chat, summarization, structured-output, and image description / captioning where vision-capable models like Kimi K2.6 are bound. One endpoint, one tool, one bearer key.",
+  "logo": "https://www.google.com/s2/favicons?domain=opencode.ai&sz=128",
+  "categories": ["ai", "llm", "chat", "vision", "multimodal"],
+  "base_url": "https://opencode.ai/zen/go",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "OpenCode Go API Key",
+        "description": "Create one at https://opencode.ai/account — your subscription bearer token."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "chat_completion",
+      "description": "Chat completion via OpenCode Go's OpenAI-compatible endpoint. Supports text-only and multimodal (text + image_url) messages. Returns the assistant's response in OpenAI's standard chat-completion shape. Pick a model from the OpenCode Go catalog (see https://opencode.ai/docs/go/) — recommended: kimi-k2.6 for general chat + vision, glm-5.1 for summarisation, qwen3.6-plus when you want a different style. Vision: pass content as an array of parts where each is either {type:'text', text:...} or {type:'image_url', image_url:{url:...}}. The image URL must be publicly reachable or a data: URI. Tool-calling, structured output (response_format=json_object / json_schema), and streaming are all supported but stream defaults to false for simpler callers.",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "default": "kimi-k2.6",
+            "description": "Model slug from the OpenCode Go catalog. Common choices: kimi-k2.6 (Moonshot Kimi K2.6, vision-capable, 256K context), kimi-k2.5 (prior generation), glm-5.1 (Zhipu GLM-5.1, 128K context, strong summarisation), qwen3.6-plus (Alibaba Qwen3.6 Plus, 128K), deepseek-v4-pro. Update from https://opencode.ai/docs/go/ as new models ship."
+          },
+          "messages": {
+            "type": "array",
+            "description": "Conversation messages in OpenAI chat format. Each item: {role:'system'|'user'|'assistant'|'tool', content: string OR array of content parts}. For multimodal input, content is an array — each part is either {type:'text', text:...} or {type:'image_url', image_url:{url:...}}.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": ["system", "user", "assistant", "tool"]
+                },
+                "content": {}
+              },
+              "required": ["role"]
+            }
+          },
+          "temperature": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 2,
+            "default": 0.7,
+            "description": "Sampling temperature. 0 = deterministic, 1 = balanced, 2 = creative. Lower for summarisation / structured output."
+          },
+          "max_tokens": {
+            "type": "integer",
+            "default": 1000,
+            "description": "Max tokens to generate. The response stops earlier if the model emits an EOS or hits its own limit. Don't set this huge — generation is the slowest part of the call."
+          },
+          "top_p": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Nucleus sampling. Leave unset to use the model's default."
+          },
+          "stop": {
+            "description": "String or array of strings — model stops when any is generated.",
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          },
+          "presence_penalty": {
+            "type": "number",
+            "minimum": -2,
+            "maximum": 2,
+            "description": "Penalise tokens that have already appeared. -2 to 2. Skip unless you have a reason."
+          },
+          "frequency_penalty": {
+            "type": "number",
+            "minimum": -2,
+            "maximum": 2,
+            "description": "Penalise tokens by how often they appear. -2 to 2."
+          },
+          "tools": {
+            "type": "array",
+            "description": "Tool definitions in OpenAI's tools format. Each: {type:'function', function:{name, description, parameters:<json-schema>}}. Pair with tool_choice to nudge selection."
+          },
+          "tool_choice": {
+            "description": "'auto' (default), 'none', 'required', or {type:'function', function:{name:'...'}} to force a specific tool."
+          },
+          "response_format": {
+            "type": "object",
+            "description": "Force JSON output. {type:'json_object'} requires you to instruct JSON in the prompt; {type:'json_schema', json_schema:{name, schema}} validates against a schema. Not all models honour json_schema — check OpenCode Go docs."
+          },
+          "seed": {
+            "type": "integer",
+            "description": "Best-effort deterministic sampling. Same seed + same prompt → similar output. Not guaranteed."
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false,
+            "description": "Server-sent events streaming. Defaults to false; integrations that don't speak SSE should leave this off."
+          }
+        },
+        "required": ["model", "messages"]
+      }
+    }
+  ]
+}

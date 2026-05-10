@@ -1,0 +1,719 @@
+{
+  "slug": "omnikit-media",
+  "name": "OmniKit Media",
+  "description": "Video and audio processing toolkit via OmniKit API - extract clips, screenshots, audio tracks, compress, resize, create GIFs, burn subtitles, create video grids, and probe media metadata.",
+  "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+  "categories": [
+    "video",
+    "audio",
+    "media",
+    "processing",
+    "ffmpeg",
+    "extract",
+    "compress",
+    "resize",
+    "thumbnails",
+    "clips",
+    "omnikit"
+  ],
+  "base_url": "https://api.omnikit.co",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your OmniKit API key (starts with 'okt_'). The project is determined automatically from the key."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "extract_screenshot",
+      "description": "Extract screenshot(s) from a video file. You MUST provide one of: timestamps (array of seconds, e.g. [2.5, 10, 30]), interval (extract every N seconds), count (N evenly-spaced frames), or percentage:true (frames at 0/25/50/75/100%). Saves as image files in storage.",
+      "method": "POST",
+      "path": "/media/extract-screenshots",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the video file to extract screenshots from"
+          },
+          "timestamps": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Array of timestamps in seconds to extract frames at (e.g., [2.5, 10, 30])"
+          },
+          "interval": {
+            "type": "number",
+            "description": "Extract a frame every N seconds (alternative to timestamps)"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Extract N evenly-spaced frames across the video (alternative to timestamps)"
+          },
+          "percentage": {
+            "type": "boolean",
+            "default": false,
+            "description": "Extract frames at 0%, 25%, 50%, 75%, 100% of video duration"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "jpg",
+              "png",
+              "webp"
+            ],
+            "default": "jpg",
+            "description": "Image output format (jpg for best size/quality balance, png for lossless)"
+          },
+          "output_size": {
+            "type": "string",
+            "description": "Output size: 'original', 'thumbnail' (320px), 'preview' (640px), 'hd' (1280px), 'fullhd' (1920px), '4k' (3840px), or custom width like '800'"
+          },
+          "quality": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31,
+            "default": 1,
+            "description": "Image quality (1-31, 1 = highest quality)"
+          },
+          "create_grid": {
+            "type": "boolean",
+            "default": false,
+            "description": "Also create a thumbnail grid image combining all screenshots"
+          },
+          "folder_id": {
+            "type": "integer",
+            "description": "Optional folder ID to save screenshots to"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "Access level for created files"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "extract_clip",
+      "description": "Extract a segment/clip from a video or audio file at specific time range. Supports re-encoding or fast copy mode.",
+      "method": "POST",
+      "path": "/media/extract-clip",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the video/audio file to extract clip from"
+          },
+          "start_time": {
+            "type": "number",
+            "default": 0,
+            "description": "Start time in seconds"
+          },
+          "end_time": {
+            "type": "number",
+            "description": "End time in seconds (required if duration not provided)"
+          },
+          "duration": {
+            "type": "number",
+            "description": "Duration in seconds (alternative to end_time)"
+          },
+          "output_format": {
+            "type": "string",
+            "description": "Output format: mp4, webm, mov, mp3, wav, etc. (defaults to source format)"
+          },
+          "include_audio": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include audio track in output"
+          },
+          "include_video": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include video track in output"
+          },
+          "bitrate": {
+            "type": "string",
+            "description": "Video bitrate (e.g., '2M', '5M')"
+          },
+          "audio_bitrate": {
+            "type": "string",
+            "description": "Audio bitrate (e.g., '128k', '256k')"
+          },
+          "fast_copy": {
+            "type": "boolean",
+            "default": true,
+            "description": "Use fast copy mode (no re-encoding, instant but keyframe-aligned cuts). Set to false for frame-precise cuts."
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "Access level for created file"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "extract_audio",
+      "description": "Extract audio track from a video file and save as separate audio file (mp3, wav, aac, etc.)",
+      "method": "POST",
+      "path": "/media/extract-audio",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the video file to extract audio from"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "mp3",
+              "wav",
+              "aac",
+              "flac",
+              "ogg"
+            ],
+            "default": "mp3",
+            "description": "Audio output format"
+          },
+          "bitrate": {
+            "type": "string",
+            "default": "192k",
+            "description": "Audio bitrate (e.g., '128k', '192k', '320k')"
+          },
+          "sample_rate": {
+            "type": "integer",
+            "description": "Sample rate in Hz (e.g., 44100, 48000)"
+          },
+          "channels": {
+            "type": "integer",
+            "enum": [
+              1,
+              2
+            ],
+            "description": "Number of audio channels (1=mono, 2=stereo)"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "Access level for created file"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "compress",
+      "description": "Compress video to reduce file size while maintaining quality. Supports various quality presets and target file sizes.",
+      "method": "POST",
+      "path": "/media/compress-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the video file to compress"
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "very_high"
+            ],
+            "default": "medium",
+            "description": "Quality preset - affects bitrate and file size"
+          },
+          "target_size_mb": {
+            "type": "number",
+            "description": "Target file size in MB (overrides quality preset)"
+          },
+          "max_bitrate": {
+            "type": "string",
+            "description": "Maximum video bitrate (e.g., '2M', '5M')"
+          },
+          "resolution": {
+            "type": "string",
+            "description": "Target resolution (e.g., '1280x720', '1920x1080') - downscales if larger"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "mp4",
+              "webm"
+            ],
+            "default": "mp4",
+            "description": "Output format"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "Access level for created file"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "resize",
+      "description": "Resize video to different resolution or aspect ratio. Supports scaling, cropping, padding, and social media presets.",
+      "method": "POST",
+      "path": "/media/resize-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the video file to resize"
+          },
+          "width": {
+            "type": "integer",
+            "description": "Target width in pixels"
+          },
+          "height": {
+            "type": "integer",
+            "description": "Target height in pixels"
+          },
+          "resolution": {
+            "type": "string",
+            "description": "Target resolution as string (e.g., '1280x720', '1920x1080')"
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "9:16",
+              "4:3",
+              "1:1"
+            ],
+            "description": "Target aspect ratio"
+          },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "social-vertical",
+              "social-square",
+              "social-landscape",
+              "youtube-shorts",
+              "tiktok",
+              "instagram-reel",
+              "instagram-square",
+              "reel-left",
+              "reel-center",
+              "reel-right"
+            ],
+            "description": "Quick preset: social formats or reel extraction (reel-left/center/right extracts vertical slice from landscape)"
+          },
+          "crop_region": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "description": "X position (pixels or '50%')"
+              },
+              "y": {
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "description": "Y position (pixels or '0%')"
+              },
+              "width": {
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "description": "Crop width (pixels or '33%')"
+              },
+              "height": {
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "description": "Crop height (pixels or '100%')"
+              }
+            },
+            "description": "Precise crop region for custom extraction (overrides crop_mode)"
+          },
+          "crop_mode": {
+            "type": "string",
+            "enum": [
+              "center",
+              "top",
+              "bottom",
+              "left",
+              "right"
+            ],
+            "default": "center",
+            "description": "Where to crop from when using fit_mode=crop"
+          },
+          "fit_mode": {
+            "type": "string",
+            "enum": [
+              "cover",
+              "crop",
+              "contain",
+              "pad",
+              "fill",
+              "stretch"
+            ],
+            "default": "cover",
+            "description": "How to fit: cover/crop (cut edges), contain/pad (letterbox), fill/stretch (distort)"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "mp4",
+              "webm",
+              "mov"
+            ],
+            "default": "mp4",
+            "description": "Output format"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "Access level for created file"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "create_gif",
+      "description": "Convert a video segment to an animated GIF. Perfect for creating shareable clips and previews.",
+      "method": "POST",
+      "path": "/media/create-gif",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the video file to convert"
+          },
+          "start_time": {
+            "type": "number",
+            "default": 0,
+            "description": "Start time in seconds"
+          },
+          "duration": {
+            "type": "number",
+            "default": 5,
+            "description": "Duration in seconds (max recommended: 10s)"
+          },
+          "width": {
+            "type": "integer",
+            "default": 480,
+            "description": "GIF width in pixels (height auto-calculated)"
+          },
+          "fps": {
+            "type": "integer",
+            "default": 10,
+            "description": "Frames per second (lower = smaller file)"
+          },
+          "loop": {
+            "type": "integer",
+            "default": 0,
+            "description": "Number of loops (0 = infinite)"
+          },
+          "optimize": {
+            "type": "boolean",
+            "default": true,
+            "description": "Apply palette optimization for smaller file size"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "Access level for created file"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "burn_subtitles",
+      "description": "Permanently burn subtitles/captions into video. Supports SRT, VTT, and ASS subtitle formats.",
+      "method": "POST",
+      "path": "/media/burn-subtitles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the video file"
+          },
+          "subtitle_file_id": {
+            "type": "integer",
+            "description": "ID of the subtitle file (SRT, VTT, ASS)"
+          },
+          "subtitle_text": {
+            "type": "string",
+            "description": "Raw subtitle content in SRT format (alternative to subtitle_file_id)"
+          },
+          "font_size": {
+            "type": "integer",
+            "default": 24,
+            "description": "Subtitle font size"
+          },
+          "font_color": {
+            "type": "string",
+            "default": "white",
+            "description": "Subtitle font color (name or hex)"
+          },
+          "outline_color": {
+            "type": "string",
+            "default": "black",
+            "description": "Subtitle outline color"
+          },
+          "position": {
+            "type": "string",
+            "enum": [
+              "bottom",
+              "top",
+              "center"
+            ],
+            "default": "bottom",
+            "description": "Subtitle position"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "mp4",
+              "webm",
+              "mov"
+            ],
+            "default": "mp4",
+            "description": "Output format"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "Access level for created file"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "create_grid",
+      "description": "Combine multiple videos into a single layout (side-by-side, grid, picture-in-picture)",
+      "method": "POST",
+      "path": "/media/create-video-grid",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Array of video file IDs to combine"
+          },
+          "layout": {
+            "type": "string",
+            "enum": [
+              "2x1",
+              "1x2",
+              "2x2",
+              "3x3",
+              "pip"
+            ],
+            "default": "2x2",
+            "description": "Grid layout: 2x1 (side-by-side), 1x2 (stacked), 2x2 (quad), pip (picture-in-picture)"
+          },
+          "output_resolution": {
+            "type": "string",
+            "default": "1920x1080",
+            "description": "Output resolution (e.g., '1920x1080', '1280x720')"
+          },
+          "pip_position": {
+            "type": "string",
+            "enum": [
+              "top-left",
+              "top-right",
+              "bottom-left",
+              "bottom-right"
+            ],
+            "default": "bottom-right",
+            "description": "Position of PiP overlay (only for pip layout)"
+          },
+          "pip_size": {
+            "type": "number",
+            "default": 0.25,
+            "description": "Size of PiP as fraction of main video (0.1-0.5)"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "mp4",
+              "webm"
+            ],
+            "default": "mp4",
+            "description": "Output format"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "Access level for created file"
+          }
+        },
+        "required": [
+          "file_ids"
+        ]
+      }
+    },
+    {
+      "name": "probe",
+      "description": "Extract detailed metadata from a media file (duration, resolution, codec, bitrate, frame rate, audio channels, etc.)",
+      "method": "POST",
+      "path": "/media/probe-media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the file to probe"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    }
+  ],
+  "credential_group": {
+    "id": "omnikit",
+    "name": "OmniKit",
+    "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+    "description": "One key unlocks the whole OmniKit suite. Account keys can manage many projects; project keys are scoped to one.",
+    "discovery": {
+      "list_projects": {
+        "method": "GET",
+        "path": "/projects",
+        "response_path": "data",
+        "id_field": "id",
+        "label_field": "name"
+      },
+      "api_lookup": {
+        "method": "GET",
+        "path": "/apis",
+        "response_path": "data",
+        "match_field": "base_path",
+        "match_value": "omnikit",
+        "id_field": "id"
+      },
+      "provision_project_key": {
+        "method": "POST",
+        "path": "/api-keys",
+        "body": {
+          "name": "Apteva \u00b7 {{label}}",
+          "api_id": "{{api_lookup_id}}",
+          "target_project_id": "{{external_project_id}}",
+          "scopes": [
+            "read",
+            "write"
+          ]
+        },
+        "response_key_path": "data.key",
+        "id_response_path": "data.id",
+        "credential_field": "api_key"
+      }
+    }
+  },
+  "scopes": {
+    "account": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Account API Key",
+          "description": "Starts with okt_acc_ \u2014 operates across every project in the account.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      },
+      "project_binding": {
+        "type": "header",
+        "name": "X-Project-Id",
+        "value": "{{project_id}}"
+      }
+    },
+    "project": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Project API Key",
+          "description": "Starts with okt_ \u2014 already scoped to a single project.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      }
+    }
+  }
+}

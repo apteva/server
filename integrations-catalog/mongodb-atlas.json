@@ -1,0 +1,467 @@
+{
+  "slug": "mongodb-atlas",
+  "name": "MongoDB Atlas",
+  "description": "MCP server for MongoDB Atlas operations - projects, clusters, databases, and data operations",
+  "logo": "https://www.google.com/s2/favicons?domain=mongodb.com&sz=128",
+  "categories": [
+    "database",
+    "mongodb",
+    "atlas",
+    "nosql",
+    "cloud"
+  ],
+  "base_url": "https://cloud.mongodb.com/api/atlas/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_projects",
+      "description": "List projects from MongoDB Atlas",
+      "method": "GET",
+      "path": "/list-projects",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageNum": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "itemsPerPage": {
+            "type": "number",
+            "description": "Items per page",
+            "default": 100
+          }
+        }
+      }
+    },
+    {
+      "name": "get_project",
+      "description": "Get a specific project from MongoDB Atlas",
+      "method": "GET",
+      "path": "/get-project",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Project ID"
+          }
+        },
+        "required": [
+          "projectId"
+        ]
+      }
+    },
+    {
+      "name": "list_clusters",
+      "description": "List clusters in a MongoDB Atlas project",
+      "method": "GET",
+      "path": "/list-clusters",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Project ID"
+          },
+          "pageNum": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "itemsPerPage": {
+            "type": "number",
+            "description": "Items per page",
+            "default": 100
+          }
+        },
+        "required": [
+          "projectId"
+        ]
+      }
+    },
+    {
+      "name": "get_cluster",
+      "description": "Get a specific cluster from MongoDB Atlas",
+      "method": "GET",
+      "path": "/get-cluster",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Project ID"
+          },
+          "clusterName": {
+            "type": "string",
+            "description": "Cluster name"
+          }
+        },
+        "required": [
+          "projectId",
+          "clusterName"
+        ]
+      }
+    },
+    {
+      "name": "create_cluster",
+      "description": "Create a new cluster in MongoDB Atlas",
+      "method": "POST",
+      "path": "/create-cluster",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Project ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Cluster name"
+          },
+          "clusterType": {
+            "type": "string",
+            "description": "Cluster type",
+            "default": "REPLICASET"
+          },
+          "replicationSpecs": {
+            "type": "array",
+            "description": "Replication specs"
+          },
+          "providerSettings": {
+            "type": "object",
+            "description": "Provider settings"
+          },
+          "mongoDBMajorVersion": {
+            "type": "string",
+            "description": "MongoDB version"
+          },
+          "diskSizeGB": {
+            "type": "number",
+            "description": "Disk size in GB"
+          },
+          "backupEnabled": {
+            "type": "boolean",
+            "description": "Enable backups"
+          }
+        },
+        "required": [
+          "projectId",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_databases",
+      "description": "List databases in a MongoDB Atlas cluster",
+      "method": "GET",
+      "path": "/list-databases",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Project ID"
+          },
+          "clusterName": {
+            "type": "string",
+            "description": "Cluster name"
+          },
+          "pageNum": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "itemsPerPage": {
+            "type": "number",
+            "description": "Items per page",
+            "default": 100
+          }
+        },
+        "required": [
+          "projectId",
+          "clusterName"
+        ]
+      }
+    },
+    {
+      "name": "list_collections",
+      "description": "List collections in a MongoDB Atlas database",
+      "method": "GET",
+      "path": "/list-collections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Project ID"
+          },
+          "clusterName": {
+            "type": "string",
+            "description": "Cluster name"
+          },
+          "databaseName": {
+            "type": "string",
+            "description": "Database name"
+          },
+          "pageNum": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "itemsPerPage": {
+            "type": "number",
+            "description": "Items per page",
+            "default": 100
+          }
+        },
+        "required": [
+          "projectId",
+          "clusterName",
+          "databaseName"
+        ]
+      }
+    },
+    {
+      "name": "query_data",
+      "description": "Query data from MongoDB Atlas via Data API",
+      "method": "GET",
+      "path": "/query-data",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dataApiUrl": {
+            "type": "string",
+            "description": "Data API URL"
+          },
+          "dataSource": {
+            "type": "string",
+            "description": "Data source name"
+          },
+          "database": {
+            "type": "string",
+            "description": "Database name"
+          },
+          "collection": {
+            "type": "string",
+            "description": "Collection name"
+          },
+          "filter": {
+            "type": "object",
+            "description": "Query filter"
+          },
+          "projection": {
+            "type": "object",
+            "description": "Fields to return"
+          },
+          "sort": {
+            "type": "object",
+            "description": "Sort order"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum results"
+          },
+          "skip": {
+            "type": "number",
+            "description": "Results to skip"
+          }
+        },
+        "required": [
+          "dataApiUrl",
+          "dataSource",
+          "database",
+          "collection"
+        ]
+      }
+    },
+    {
+      "name": "insert_document",
+      "description": "Insert document(s) into MongoDB Atlas via Data API",
+      "method": "GET",
+      "path": "/insert-document",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dataApiUrl": {
+            "type": "string",
+            "description": "Data API URL"
+          },
+          "dataSource": {
+            "type": "string",
+            "description": "Data source name"
+          },
+          "database": {
+            "type": "string",
+            "description": "Database name"
+          },
+          "collection": {
+            "type": "string",
+            "description": "Collection name"
+          },
+          "document": {
+            "type": "object",
+            "description": "Document to insert"
+          },
+          "documents": {
+            "type": "array",
+            "description": "Documents to insert (for batch)"
+          }
+        },
+        "required": [
+          "dataApiUrl",
+          "dataSource",
+          "database",
+          "collection"
+        ]
+      }
+    },
+    {
+      "name": "update_document",
+      "description": "Update document(s) in MongoDB Atlas via Data API",
+      "method": "PUT",
+      "path": "/update-document",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dataApiUrl": {
+            "type": "string",
+            "description": "Data API URL"
+          },
+          "dataSource": {
+            "type": "string",
+            "description": "Data source name"
+          },
+          "database": {
+            "type": "string",
+            "description": "Database name"
+          },
+          "collection": {
+            "type": "string",
+            "description": "Collection name"
+          },
+          "filter": {
+            "type": "object",
+            "description": "Query filter"
+          },
+          "update": {
+            "type": "object",
+            "description": "Update operations"
+          },
+          "upsert": {
+            "type": "boolean",
+            "description": "Insert if not exists",
+            "default": false
+          },
+          "updateMany": {
+            "type": "boolean",
+            "description": "Update multiple documents",
+            "default": false
+          }
+        },
+        "required": [
+          "dataApiUrl",
+          "dataSource",
+          "database",
+          "collection",
+          "filter",
+          "update"
+        ]
+      }
+    },
+    {
+      "name": "delete_document",
+      "description": "Delete document(s) from MongoDB Atlas via Data API",
+      "method": "DELETE",
+      "path": "/delete-document",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dataApiUrl": {
+            "type": "string",
+            "description": "Data API URL"
+          },
+          "dataSource": {
+            "type": "string",
+            "description": "Data source name"
+          },
+          "database": {
+            "type": "string",
+            "description": "Database name"
+          },
+          "collection": {
+            "type": "string",
+            "description": "Collection name"
+          },
+          "filter": {
+            "type": "object",
+            "description": "Query filter"
+          },
+          "deleteMany": {
+            "type": "boolean",
+            "description": "Delete multiple documents",
+            "default": false
+          }
+        },
+        "required": [
+          "dataApiUrl",
+          "dataSource",
+          "database",
+          "collection",
+          "filter"
+        ]
+      }
+    },
+    {
+      "name": "aggregate",
+      "description": "Run aggregation pipeline in MongoDB Atlas via Data API",
+      "method": "GET",
+      "path": "/aggregate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dataApiUrl": {
+            "type": "string",
+            "description": "Data API URL"
+          },
+          "dataSource": {
+            "type": "string",
+            "description": "Data source name"
+          },
+          "database": {
+            "type": "string",
+            "description": "Database name"
+          },
+          "collection": {
+            "type": "string",
+            "description": "Collection name"
+          },
+          "pipeline": {
+            "type": "array",
+            "description": "Aggregation pipeline stages"
+          }
+        },
+        "required": [
+          "dataApiUrl",
+          "dataSource",
+          "database",
+          "collection",
+          "pipeline"
+        ]
+      }
+    }
+  ]
+}

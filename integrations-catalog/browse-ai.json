@@ -1,0 +1,148 @@
+{
+  "slug": "browse-ai",
+  "name": "Browse AI",
+  "description": "Browse.ai web scraping and monitoring robot platform. List and manage robots, run scraping tasks, and retrieve extracted data.",
+  "logo": "https://www.google.com/s2/favicons?domain=browse.ai&sz=128",
+  "categories": [
+    "web-scraping",
+    "monitoring",
+    "automation",
+    "data-extraction",
+    "robots"
+  ],
+  "base_url": "https://api.browse.ai/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "Browse.ai API key (find at browse.ai/app/settings/api)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_robots",
+      "description": "Retrieve a list of all robots in your Browse.ai account. Returns robot IDs, names, creation dates, and input parameter configurations. Use this to discover available robots before running tasks.",
+      "method": "GET",
+      "path": "/robots",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_robot",
+      "description": "Retrieve detailed information about a specific robot by its ID. Returns the robot's name, configuration, input parameters, and creation date.",
+      "method": "GET",
+      "path": "/robots/{{param.robot_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "robot_id": {
+            "type": "string",
+            "description": "The unique identifier of the robot to retrieve."
+          }
+        },
+        "required": [
+          "robot_id"
+        ]
+      }
+    },
+    {
+      "name": "run_robot",
+      "description": "Start a new task by running a robot with the specified input parameters. The robot will navigate to the target URL and extract data based on its configuration. Returns the created task object with its ID for tracking progress.",
+      "method": "POST",
+      "path": "/robots/{{param.robot_id}}/tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "robot_id": {
+            "type": "string",
+            "description": "The unique identifier of the robot to run."
+          },
+          "inputParameters": {
+            "type": "object",
+            "description": "Input parameters for the robot, typically including 'originUrl' (the target URL to scrape) and any other robot-specific parameters.",
+            "properties": {
+              "originUrl": {
+                "type": "string",
+                "description": "The target URL for the robot to navigate to and scrape."
+              }
+            }
+          }
+        },
+        "required": [
+          "robot_id",
+          "inputParameters"
+        ]
+      }
+    },
+    {
+      "name": "get_task",
+      "description": "Retrieve the results and status of a specific task. Returns task status (successful, failed, in-progress), captured text data, screenshots, timestamps, and a debug video URL. Poll this endpoint to check if a running task has completed.",
+      "method": "GET",
+      "path": "/robots/{{param.robot_id}}/tasks/{{param.task_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "robot_id": {
+            "type": "string",
+            "description": "The unique identifier of the robot that owns the task."
+          },
+          "task_id": {
+            "type": "string",
+            "description": "The unique identifier of the task to retrieve results for."
+          }
+        },
+        "required": [
+          "robot_id",
+          "task_id"
+        ]
+      }
+    },
+    {
+      "name": "list_tasks",
+      "description": "Retrieve a paginated list of tasks for a specific robot. Supports filtering by status and date range. Returns task IDs, statuses, timestamps, and extracted data summaries.",
+      "method": "GET",
+      "path": "/robots/{{param.robot_id}}/tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "robot_id": {
+            "type": "string",
+            "description": "The unique identifier of the robot to list tasks for."
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number for pagination. Defaults to 1.",
+            "default": 1
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "Number of tasks per page. Defaults to 10.",
+            "default": 10
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter tasks by status.",
+            "enum": [
+              "successful",
+              "failed",
+              "in-progress"
+            ]
+          }
+        },
+        "required": [
+          "robot_id"
+        ]
+      }
+    }
+  ]
+}

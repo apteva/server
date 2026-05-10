@@ -1,0 +1,109 @@
+{
+  "slug": "lemlist",
+  "name": "lemlist",
+  "description": "Cold-email and multichannel (email + LinkedIn) outreach with strong personalization (text + image variables). Particularly popular in EU/FR.",
+  "logo": "https://www.google.com/s2/favicons?domain=lemlist.com&sz=128",
+  "categories": ["email", "outreach", "sequencing", "campaigns", "sales", "linkedin"],
+  "base_url": "https://api.lemlist.com/api",
+  "auth": {
+    "types": ["basic"],
+    "credential_fields": [
+      {
+        "name": "username",
+        "label": "Username",
+        "description": "Use any value (lemlist ignores it for basic auth, but a value is required)",
+        "type": "text"
+      },
+      {
+        "name": "password",
+        "label": "API key",
+        "description": "lemlist API key from app.lemlist.com → Settings → Integrations → API"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_campaigns",
+      "description": "List campaigns.",
+      "method": "GET",
+      "path": "/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "default": 1 },
+          "limit": { "type": "integer", "default": 100 }
+        }
+      }
+    },
+    {
+      "name": "add_lead",
+      "description": "Add a lead to a campaign. Lead is enrolled in the email sequence immediately by default.",
+      "method": "POST",
+      "path": "/campaigns/{campaignId}/leads/{email}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "string" },
+          "email": { "type": "string" },
+          "firstName": { "type": "string" },
+          "lastName": { "type": "string" },
+          "companyName": { "type": "string" },
+          "phone": { "type": "string" },
+          "linkedinUrl": { "type": "string" },
+          "icebreaker": { "type": "string", "description": "Custom personalization line" },
+          "customVariables": { "type": "object" },
+          "deduplicate": { "type": "boolean", "default": true }
+        },
+        "required": ["campaignId", "email"]
+      }
+    },
+    {
+      "name": "remove_lead",
+      "description": "Unsubscribe / remove a lead from a campaign.",
+      "method": "DELETE",
+      "path": "/campaigns/{campaignId}/leads/{email}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "string" },
+          "email": { "type": "string" }
+        },
+        "required": ["campaignId", "email"]
+      }
+    },
+    {
+      "name": "get_lead",
+      "description": "Get a lead's status in a campaign.",
+      "method": "GET",
+      "path": "/campaigns/{campaignId}/leads/{email}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "string" },
+          "email": { "type": "string" }
+        },
+        "required": ["campaignId", "email"]
+      }
+    },
+    {
+      "name": "campaign_stats",
+      "description": "Get aggregate stats (sent, opened, clicked, replied, bounced) for a campaign.",
+      "method": "GET",
+      "path": "/campaigns/{campaignId}/stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "string" }
+        },
+        "required": ["campaignId"]
+      }
+    },
+    {
+      "name": "list_team",
+      "description": "List members of the lemlist team (for owner assignment).",
+      "method": "GET",
+      "path": "/team",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

@@ -1,0 +1,564 @@
+{
+  "slug": "folk",
+  "name": "Folk CRM",
+  "description": "CRM platform for managing contacts, companies, deals, and notes. Build integrations and automations on top of your CRM data.",
+  "logo": "https://www.google.com/s2/favicons?domain=folk.app&sz=128",
+  "categories": [
+    "crm",
+    "contacts",
+    "companies",
+    "deals",
+    "notes",
+    "sales"
+  ],
+  "base_url": "https://api.folk.app/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "Access Token",
+        "description": "Folk API access token (generate at folk.app under Settings > API)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "find_companies",
+      "description": "Search and list companies from Folk CRM. Supports cursor-based pagination and filtering by name.",
+      "method": "GET",
+      "path": "/companies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of companies to return. Defaults to 50.",
+            "default": 50
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response. Omit for the first page."
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter companies by name (partial match)."
+          }
+        }
+      }
+    },
+    {
+      "name": "find_people",
+      "description": "Search and list people from Folk CRM. Supports filtering by name, email, and cursor-based pagination.",
+      "method": "GET",
+      "path": "/people",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of people to return. Defaults to 50.",
+            "default": 50
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response. Omit for the first page."
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter people by full name (partial match)."
+          },
+          "email": {
+            "type": "string",
+            "description": "Filter people by email address."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_deals_in_group",
+      "description": "List all deals belonging to a specific group (pipeline) in Folk CRM. Returns deal details including status, value, and associated contacts.",
+      "method": "GET",
+      "path": "/groups/{{param.group_id}}/deals",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "string",
+            "description": "The unique identifier of the group (pipeline) to list deals from."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of deals to return. Defaults to 50.",
+            "default": 50
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response. Omit for the first page."
+          }
+        },
+        "required": [
+          "group_id"
+        ]
+      }
+    },
+    {
+      "name": "find_notes",
+      "description": "Search and list notes from Folk CRM. Supports filtering by associated person or company ID and cursor-based pagination.",
+      "method": "GET",
+      "path": "/notes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of notes to return. Defaults to 50.",
+            "default": 50
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response. Omit for the first page."
+          },
+          "person_id": {
+            "type": "string",
+            "description": "Filter notes by associated person ID."
+          },
+          "company_id": {
+            "type": "string",
+            "description": "Filter notes by associated company ID."
+          }
+        }
+      }
+    },
+    {
+      "name": "update_deal",
+      "description": "Update an existing deal in Folk CRM. Modify deal properties such as name, status, value, and custom fields.",
+      "method": "PATCH",
+      "path": "/deals/{{param.deal_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "deal_id": {
+            "type": "string",
+            "description": "The unique identifier of the deal to update."
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated deal name."
+          },
+          "status": {
+            "type": "string",
+            "description": "Updated deal status (e.g. 'open', 'won', 'lost')."
+          },
+          "value": {
+            "type": "number",
+            "description": "Updated deal monetary value."
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code for the deal value (e.g. 'USD', 'EUR')."
+          },
+          "custom_fields": {
+            "type": "object",
+            "description": "Object containing custom field key-value pairs to update."
+          }
+        },
+        "required": [
+          "deal_id"
+        ]
+      }
+    },
+    {
+      "name": "create_deal",
+      "description": "Create a new deal in Folk CRM. Associate the deal with a group (pipeline) and optionally link to people or companies.",
+      "method": "POST",
+      "path": "/deals",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The name of the deal."
+          },
+          "group_id": {
+            "type": "string",
+            "description": "The group (pipeline) ID to add the deal to."
+          },
+          "status": {
+            "type": "string",
+            "description": "Deal status (e.g. 'open', 'won', 'lost')."
+          },
+          "value": {
+            "type": "number",
+            "description": "Monetary value of the deal."
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code (e.g. 'USD', 'EUR')."
+          },
+          "person_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of person IDs to associate with this deal."
+          },
+          "company_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of company IDs to associate with this deal."
+          },
+          "custom_fields": {
+            "type": "object",
+            "description": "Object containing custom field key-value pairs."
+          }
+        },
+        "required": [
+          "name",
+          "group_id"
+        ]
+      }
+    },
+    {
+      "name": "update_note",
+      "description": "Update an existing note in Folk CRM. Modify the note content.",
+      "method": "PATCH",
+      "path": "/notes/{{param.note_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "note_id": {
+            "type": "string",
+            "description": "The unique identifier of the note to update."
+          },
+          "content": {
+            "type": "string",
+            "description": "Updated note content. Supports plain text."
+          }
+        },
+        "required": [
+          "note_id",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "create_note_for_company",
+      "description": "Create a new note associated with a company in Folk CRM.",
+      "method": "POST",
+      "path": "/notes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "The note content. Supports plain text."
+          },
+          "company_id": {
+            "type": "string",
+            "description": "The ID of the company to associate this note with."
+          }
+        },
+        "required": [
+          "content",
+          "company_id"
+        ]
+      }
+    },
+    {
+      "name": "create_note_for_person",
+      "description": "Create a new note associated with a person in Folk CRM.",
+      "method": "POST",
+      "path": "/notes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "The note content. Supports plain text."
+          },
+          "person_id": {
+            "type": "string",
+            "description": "The ID of the person to associate this note with."
+          }
+        },
+        "required": [
+          "content",
+          "person_id"
+        ]
+      }
+    },
+    {
+      "name": "update_company",
+      "description": "Update an existing company in Folk CRM. Modify company properties such as name, domain, and custom fields.",
+      "method": "PATCH",
+      "path": "/companies/{{param.company_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "company_id": {
+            "type": "string",
+            "description": "The unique identifier of the company to update."
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated company name."
+          },
+          "domain": {
+            "type": "string",
+            "description": "Updated company website domain."
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated company description."
+          },
+          "industry": {
+            "type": "string",
+            "description": "Updated industry classification."
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "group_id": {
+                  "type": "string",
+                  "description": "The group ID to add the company to."
+                }
+              }
+            },
+            "description": "Groups to add the company to."
+          },
+          "custom_fields": {
+            "type": "object",
+            "description": "Object containing custom field key-value pairs to update."
+          }
+        },
+        "required": [
+          "company_id"
+        ]
+      }
+    },
+    {
+      "name": "create_company",
+      "description": "Create a new company in Folk CRM. Optionally add it to groups and set custom fields.",
+      "method": "POST",
+      "path": "/companies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The company name."
+          },
+          "domain": {
+            "type": "string",
+            "description": "The company website domain (e.g. 'example.com')."
+          },
+          "description": {
+            "type": "string",
+            "description": "A description of the company."
+          },
+          "industry": {
+            "type": "string",
+            "description": "Industry classification."
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "group_id": {
+                  "type": "string",
+                  "description": "The group ID to add the company to."
+                }
+              }
+            },
+            "description": "Groups to add the company to."
+          },
+          "custom_fields": {
+            "type": "object",
+            "description": "Object containing custom field key-value pairs."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_person",
+      "description": "Update an existing person in Folk CRM. Modify person properties such as name, email, phone, and custom fields.",
+      "method": "PATCH",
+      "path": "/people/{{param.person_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "person_id": {
+            "type": "string",
+            "description": "The unique identifier of the person to update."
+          },
+          "firstName": {
+            "type": "string",
+            "description": "Updated first name."
+          },
+          "lastName": {
+            "type": "string",
+            "description": "Updated last name."
+          },
+          "emails": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string",
+                  "description": "Email address."
+                },
+                "label": {
+                  "type": "string",
+                  "description": "Label for the email (e.g. 'work', 'personal')."
+                }
+              }
+            },
+            "description": "Updated email addresses."
+          },
+          "phones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string",
+                  "description": "Phone number."
+                },
+                "label": {
+                  "type": "string",
+                  "description": "Label for the phone (e.g. 'work', 'mobile')."
+                }
+              }
+            },
+            "description": "Updated phone numbers."
+          },
+          "jobTitle": {
+            "type": "string",
+            "description": "Updated job title."
+          },
+          "company_id": {
+            "type": "string",
+            "description": "Company ID to link this person to."
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "group_id": {
+                  "type": "string",
+                  "description": "The group ID to add the person to."
+                }
+              }
+            },
+            "description": "Groups to add the person to."
+          },
+          "custom_fields": {
+            "type": "object",
+            "description": "Object containing custom field key-value pairs to update."
+          }
+        },
+        "required": [
+          "person_id"
+        ]
+      }
+    },
+    {
+      "name": "create_person",
+      "description": "Create a new person in Folk CRM. Optionally associate with a company, add to groups, and set custom fields.",
+      "method": "POST",
+      "path": "/people",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "firstName": {
+            "type": "string",
+            "description": "First name of the person."
+          },
+          "lastName": {
+            "type": "string",
+            "description": "Last name of the person."
+          },
+          "emails": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string",
+                  "description": "Email address."
+                },
+                "label": {
+                  "type": "string",
+                  "description": "Label for the email (e.g. 'work', 'personal')."
+                }
+              }
+            },
+            "description": "Email addresses for the person."
+          },
+          "phones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string",
+                  "description": "Phone number."
+                },
+                "label": {
+                  "type": "string",
+                  "description": "Label for the phone (e.g. 'work', 'mobile')."
+                }
+              }
+            },
+            "description": "Phone numbers for the person."
+          },
+          "jobTitle": {
+            "type": "string",
+            "description": "Job title of the person."
+          },
+          "company_id": {
+            "type": "string",
+            "description": "Company ID to link this person to."
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "group_id": {
+                  "type": "string",
+                  "description": "The group ID to add the person to."
+                }
+              }
+            },
+            "description": "Groups to add the person to."
+          },
+          "custom_fields": {
+            "type": "object",
+            "description": "Object containing custom field key-value pairs."
+          }
+        },
+        "required": [
+          "firstName",
+          "lastName"
+        ]
+      }
+    }
+  ]
+}

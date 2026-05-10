@@ -1,0 +1,748 @@
+{
+  "slug": "apollo",
+  "name": "Apollo.io",
+  "description": "Apollo.io sales intelligence - people/company enrichment, prospect search, CRM contacts, accounts, deals, and email sequences",
+  "logo": "https://www.google.com/s2/favicons?domain=apollo.io&sz=128",
+  "categories": [
+    "sales",
+    "enrichment",
+    "leads",
+    "crm",
+    "email",
+    "prospecting"
+  ],
+  "base_url": "https://api.apollo.io/api/v1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "x-api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Apollo.io API key (find at app.apollo.io under Settings > Integrations > API)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "people_enrich",
+      "description": "Enrich a person's data by name, email, LinkedIn URL, or domain. Provide at least one identifier. Returns full professional profile with employment history, contact details, and company info. Consumes enrichment credits.",
+      "method": "POST",
+      "path": "/people/match",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "first_name": {
+            "type": "string",
+            "description": "Person's first name"
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Person's last name"
+          },
+          "name": {
+            "type": "string",
+            "description": "Full name (alternative to first_name + last_name)"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email address"
+          },
+          "linkedin_url": {
+            "type": "string",
+            "description": "LinkedIn profile URL"
+          },
+          "domain": {
+            "type": "string",
+            "description": "Employer domain (without www)"
+          },
+          "organization_name": {
+            "type": "string",
+            "description": "Current or previous employer name"
+          },
+          "reveal_personal_emails": {
+            "type": "boolean",
+            "description": "Include personal emails (default: false)"
+          },
+          "reveal_phone_number": {
+            "type": "boolean",
+            "description": "Include phone numbers (default: false)"
+          }
+        }
+      }
+    },
+    {
+      "name": "people_bulk_enrich",
+      "description": "Enrich up to 10 people at once. Provide an array of person detail objects with identifiers like name, email, linkedin_url, domain.",
+      "method": "POST",
+      "path": "/people/bulk_match",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "details": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "first_name": {
+                  "type": "string"
+                },
+                "last_name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "linkedin_url": {
+                  "type": "string"
+                },
+                "domain": {
+                  "type": "string"
+                },
+                "organization_name": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Array of person objects to enrich (max 10)"
+          },
+          "reveal_personal_emails": {
+            "type": "boolean",
+            "description": "Include personal emails (default: false)"
+          }
+        },
+        "required": [
+          "details"
+        ]
+      }
+    },
+    {
+      "name": "org_enrich",
+      "description": "Enrich a company/organization by domain, name, or Apollo organization ID. Returns industry, employee count, funding, technology stack, etc.",
+      "method": "GET",
+      "path": "/organizations/enrich",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Company domain (e.g., 'stripe.com')"
+          },
+          "organization_name": {
+            "type": "string",
+            "description": "Company name"
+          },
+          "organization_id": {
+            "type": "string",
+            "description": "Apollo organization ID"
+          }
+        }
+      }
+    },
+    {
+      "name": "people_search",
+      "description": "Search Apollo's 275M+ people database. Does NOT consume credits. Filter by titles, locations, seniority, departments, company size, industry, technologies. Does NOT return emails — use people-enrich for contact details.",
+      "method": "POST",
+      "path": "/mixed_people/api_search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number (default: 1, max: 500)",
+            "default": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 25
+          },
+          "q_keywords": {
+            "type": "string",
+            "description": "Free text keyword search"
+          },
+          "person_titles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Job titles to filter by (e.g. ['CEO', 'VP Sales'])"
+          },
+          "person_locations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Person locations (e.g., ['California, US'])"
+          },
+          "person_seniorities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Seniority: vp, c_suite, director, manager, senior, entry"
+          },
+          "person_departments": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Department filters"
+          },
+          "organization_num_employees_ranges": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Employee ranges: 1-10, 11-20, 21-50, 51-100, 101-200, 201-500, 501-1000, 1001-2000, 2001-5000, 5001-10000, 10001+"
+          },
+          "q_organization_domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Company domains to filter by"
+          },
+          "q_organization_keyword_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Industry/keyword tags"
+          },
+          "technology_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Technologies used by organization"
+          },
+          "contact_email_status": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Email status: verified, unverified"
+          }
+        }
+      }
+    },
+    {
+      "name": "org_search",
+      "description": "Search Apollo's company database. Filter by name, location, employee count, industry, revenue, technologies.",
+      "method": "POST",
+      "path": "/mixed_companies/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number (default: 1)",
+            "default": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 25
+          },
+          "q_organization_name": {
+            "type": "string",
+            "description": "Organization name search"
+          },
+          "organization_locations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "HQ locations"
+          },
+          "organization_num_employees_ranges": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Employee count ranges"
+          },
+          "q_organization_keyword_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Industry/keyword tags"
+          },
+          "revenue_range_min": {
+            "type": "integer",
+            "description": "Minimum annual revenue"
+          },
+          "revenue_range_max": {
+            "type": "integer",
+            "description": "Maximum annual revenue"
+          },
+          "technology_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Technologies used"
+          }
+        }
+      }
+    },
+    {
+      "name": "org_get",
+      "description": "Get complete details for a specific organization by Apollo ID. Returns industry, funding, employees, technology stack, and more.",
+      "method": "GET",
+      "path": "/organizations/{organization_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "description": "Apollo organization ID"
+          }
+        },
+        "required": [
+          "organization_id"
+        ]
+      }
+    },
+    {
+      "name": "contact_create",
+      "description": "Create a new CRM contact in Apollo.",
+      "method": "POST",
+      "path": "/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "first_name": {
+            "type": "string",
+            "description": "First name"
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Last name"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email address"
+          },
+          "title": {
+            "type": "string",
+            "description": "Job title"
+          },
+          "organization_name": {
+            "type": "string",
+            "description": "Company name"
+          },
+          "account_id": {
+            "type": "string",
+            "description": "Apollo account ID to associate"
+          },
+          "owner_id": {
+            "type": "string",
+            "description": "Contact owner user ID"
+          },
+          "website_url": {
+            "type": "string",
+            "description": "Website URL"
+          },
+          "direct_phone": {
+            "type": "string",
+            "description": "Direct phone number"
+          },
+          "mobile_phone": {
+            "type": "string",
+            "description": "Mobile phone number"
+          },
+          "city": {
+            "type": "string",
+            "description": "City"
+          },
+          "state": {
+            "type": "string",
+            "description": "State"
+          },
+          "country": {
+            "type": "string",
+            "description": "Country"
+          },
+          "label_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Labels/tags"
+          }
+        },
+        "required": [
+          "first_name",
+          "last_name"
+        ]
+      }
+    },
+    {
+      "name": "contact_update",
+      "description": "Update an existing CRM contact.",
+      "method": "PATCH",
+      "path": "/contacts/{contact_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact_id": {
+            "type": "string",
+            "description": "Apollo contact ID"
+          },
+          "first_name": {
+            "type": "string",
+            "description": "First name"
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Last name"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email address"
+          },
+          "title": {
+            "type": "string",
+            "description": "Job title"
+          },
+          "organization_name": {
+            "type": "string",
+            "description": "Company name"
+          },
+          "direct_phone": {
+            "type": "string",
+            "description": "Direct phone"
+          },
+          "mobile_phone": {
+            "type": "string",
+            "description": "Mobile phone"
+          },
+          "label_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Labels/tags"
+          }
+        },
+        "required": [
+          "contact_id"
+        ]
+      }
+    },
+    {
+      "name": "contact_view",
+      "description": "Get full details for a specific CRM contact including enriched data.",
+      "method": "GET",
+      "path": "/contacts/{contact_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact_id": {
+            "type": "string",
+            "description": "Apollo contact ID"
+          }
+        },
+        "required": [
+          "contact_id"
+        ]
+      }
+    },
+    {
+      "name": "contact_search",
+      "description": "Search your Apollo CRM contacts. Filter by keywords, stage, tags, owner.",
+      "method": "POST",
+      "path": "/contacts/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 25
+          },
+          "q_keywords": {
+            "type": "string",
+            "description": "Search name, title, company, or email"
+          },
+          "contact_stage_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter by contact stage IDs"
+          },
+          "tag_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter by tag IDs"
+          },
+          "sort_by_field": {
+            "type": "string",
+            "description": "Sort by: contact_last_activity_date, contact_created_at, contact_updated_at"
+          },
+          "sort_ascending": {
+            "type": "boolean",
+            "description": "Sort ascending (default: false)"
+          }
+        }
+      }
+    },
+    {
+      "name": "account_create",
+      "description": "Create a new CRM account (company) in Apollo.",
+      "method": "POST",
+      "path": "/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Company/account name"
+          },
+          "website_url": {
+            "type": "string",
+            "description": "Website URL"
+          },
+          "domain": {
+            "type": "string",
+            "description": "Company domain"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Phone number"
+          },
+          "owner_id": {
+            "type": "string",
+            "description": "Account owner user ID"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "account_search",
+      "description": "Search your Apollo CRM accounts.",
+      "method": "POST",
+      "path": "/accounts/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 25
+          },
+          "q_keywords": {
+            "type": "string",
+            "description": "Keyword search"
+          },
+          "sort_by_field": {
+            "type": "string",
+            "description": "Sort field"
+          },
+          "sort_ascending": {
+            "type": "boolean",
+            "description": "Sort ascending"
+          }
+        }
+      }
+    },
+    {
+      "name": "deal_create",
+      "description": "Create a new deal/opportunity in Apollo CRM.",
+      "method": "POST",
+      "path": "/opportunities",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Deal name"
+          },
+          "account_id": {
+            "type": "string",
+            "description": "Associated account ID"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Monetary value"
+          },
+          "stage_id": {
+            "type": "string",
+            "description": "Deal stage ID"
+          },
+          "owner_id": {
+            "type": "string",
+            "description": "Deal owner user ID"
+          },
+          "close_date": {
+            "type": "string",
+            "description": "Expected close date (ISO 8601)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Deal description"
+          }
+        },
+        "required": [
+          "name",
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "deal_view",
+      "description": "Get details for a specific deal/opportunity.",
+      "method": "GET",
+      "path": "/opportunities/{opportunity_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "opportunity_id": {
+            "type": "string",
+            "description": "Deal/opportunity ID"
+          }
+        },
+        "required": [
+          "opportunity_id"
+        ]
+      }
+    },
+    {
+      "name": "deal_list",
+      "description": "Search and list deals/opportunities in Apollo CRM.",
+      "method": "GET",
+      "path": "/opportunities/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 25
+          },
+          "q_keywords": {
+            "type": "string",
+            "description": "Search keywords"
+          }
+        }
+      }
+    },
+    {
+      "name": "sequence_search",
+      "description": "Search email sequences/campaigns in Apollo.",
+      "method": "POST",
+      "path": "/emailer_campaigns/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q_name": {
+            "type": "string",
+            "description": "Sequence name search"
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Filter active/inactive"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page",
+            "default": 25
+          }
+        }
+      }
+    },
+    {
+      "name": "sequence_add_contacts",
+      "description": "Add contacts to an email sequence/campaign.",
+      "method": "POST",
+      "path": "/emailer_campaigns/{sequence_id}/add_contact_ids",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sequence_id": {
+            "type": "string",
+            "description": "Sequence/campaign ID"
+          },
+          "contact_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Contact IDs to add"
+          },
+          "send_email_from_user_id": {
+            "type": "string",
+            "description": "Sender user ID (optional)"
+          }
+        },
+        "required": [
+          "sequence_id",
+          "contact_ids"
+        ]
+      }
+    },
+    {
+      "name": "contact_stages",
+      "description": "Get all contact stages defined in your Apollo workspace.",
+      "method": "GET",
+      "path": "/contact_stages",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "users_list",
+      "description": "Get all users/teammates in your Apollo workspace. Useful for getting owner IDs for contacts, accounts, and deals.",
+      "method": "GET",
+      "path": "/users/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "usage_stats",
+      "description": "View current API usage statistics and rate limits for your Apollo account.",
+      "method": "POST",
+      "path": "/usage_stats/api_usage_stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

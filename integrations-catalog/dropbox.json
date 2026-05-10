@@ -1,0 +1,197 @@
+{
+  "slug": "dropbox",
+  "name": "Dropbox",
+  "description": "Dropbox integration for cloud storage with files, folders, and sharing",
+  "logo": "https://www.google.com/s2/favicons?domain=dropbox.com&sz=128",
+  "categories": [
+    "storage",
+    "files",
+    "dropbox",
+    "cloud",
+    "sharing"
+  ],
+  "base_url": "https://api.dropboxapi.com/2",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "account_id",
+        "label": "account_id"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://www.dropbox.com/oauth2/authorize",
+      "token_url": "https://api.dropboxapi.com/oauth2/token",
+      "scopes": [
+        "account_info.read",
+        "account_info.write",
+        "files.metadata.write",
+        "files.metadata.read",
+        "files.content.write",
+        "files.content.read",
+        "sharing.write",
+        "sharing.read",
+        "file_requests.write",
+        "file_requests.read",
+        "contacts.write",
+        "contacts.read"
+      ],
+      "client_id_required": true,
+      "pkce": true
+    }
+  },
+  "tools": [
+    {
+      "name": "list_files",
+      "description": "List files and folders in a Dropbox path",
+      "method": "GET",
+      "path": "/list-files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Folder path (empty string for root)"
+          },
+          "recursive": {
+            "type": "boolean",
+            "description": "List recursively"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum results"
+          }
+        }
+      }
+    },
+    {
+      "name": "upload_file",
+      "description": "Upload a file to Dropbox",
+      "method": "POST",
+      "path": "/upload-file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Destination path including filename"
+          },
+          "content": {
+            "type": "string",
+            "description": "File content (base64 for binary)"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Write mode: add, overwrite, update"
+          },
+          "autorename": {
+            "type": "boolean",
+            "description": "Auto-rename if conflict"
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "download_file",
+      "description": "Download a file from Dropbox",
+      "method": "GET",
+      "path": "/download-file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "File path"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "create_folder",
+      "description": "Create a folder in Dropbox",
+      "method": "POST",
+      "path": "/create-folder",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Folder path"
+          },
+          "autorename": {
+            "type": "boolean",
+            "description": "Auto-rename if conflict"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "delete",
+      "description": "Delete a file or folder from Dropbox",
+      "method": "DELETE",
+      "path": "/delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to delete"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "share_link",
+      "description": "Create a shared link for a file or folder",
+      "method": "GET",
+      "path": "/share-link",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "File or folder path"
+          },
+          "settings": {
+            "type": "object",
+            "description": "Sharing settings"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,209 @@
+{
+  "slug": "activecampaign",
+  "name": "ActiveCampaign",
+  "description": "ActiveCampaign integration for marketing automation with contacts, lists, campaigns, and automations",
+  "logo": "https://www.google.com/s2/favicons?domain=activecampaign.com&sz=128",
+  "categories": [
+    "marketing",
+    "automation",
+    "activecampaign",
+    "email",
+    "crm"
+  ],
+  "base_url": "{{api_url}}/api/3",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_contacts",
+      "description": "List contacts from ActiveCampaign",
+      "method": "GET",
+      "path": "/list-contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_url": {
+            "type": "string",
+            "description": "ActiveCampaign API URL"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Results limit"
+          },
+          "offset": {
+            "type": "number",
+            "description": "Results offset"
+          },
+          "email": {
+            "type": "string",
+            "description": "Filter by email"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status"
+          }
+        },
+        "required": [
+          "api_url"
+        ]
+      }
+    },
+    {
+      "name": "create_contact",
+      "description": "Create a contact in ActiveCampaign",
+      "method": "POST",
+      "path": "/create-contact",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_url": {
+            "type": "string",
+            "description": "ActiveCampaign API URL"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email address"
+          },
+          "first_name": {
+            "type": "string",
+            "description": "First name"
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Last name"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Phone number"
+          }
+        },
+        "required": [
+          "api_url",
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "list_lists",
+      "description": "List all lists from ActiveCampaign",
+      "method": "GET",
+      "path": "/list-lists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_url": {
+            "type": "string",
+            "description": "ActiveCampaign API URL"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Results limit"
+          },
+          "offset": {
+            "type": "number",
+            "description": "Results offset"
+          }
+        },
+        "required": [
+          "api_url"
+        ]
+      }
+    },
+    {
+      "name": "add_to_list",
+      "description": "Add a contact to a list",
+      "method": "GET",
+      "path": "/add-to-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_url": {
+            "type": "string",
+            "description": "ActiveCampaign API URL"
+          },
+          "contact_id": {
+            "type": "string",
+            "description": "Contact ID"
+          },
+          "list_id": {
+            "type": "string",
+            "description": "List ID"
+          },
+          "status": {
+            "type": "number",
+            "description": "Subscription status"
+          }
+        },
+        "required": [
+          "api_url",
+          "contact_id",
+          "list_id"
+        ]
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List campaigns from ActiveCampaign",
+      "method": "GET",
+      "path": "/list-campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_url": {
+            "type": "string",
+            "description": "ActiveCampaign API URL"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Results limit"
+          },
+          "offset": {
+            "type": "number",
+            "description": "Results offset"
+          }
+        },
+        "required": [
+          "api_url"
+        ]
+      }
+    },
+    {
+      "name": "list_automations",
+      "description": "List automations from ActiveCampaign",
+      "method": "GET",
+      "path": "/list-automations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_url": {
+            "type": "string",
+            "description": "ActiveCampaign API URL"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Results limit"
+          },
+          "offset": {
+            "type": "number",
+            "description": "Results offset"
+          }
+        },
+        "required": [
+          "api_url"
+        ]
+      }
+    }
+  ]
+}

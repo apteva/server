@@ -1,0 +1,233 @@
+{
+  "slug": "aws-sns",
+  "name": "AWS SNS",
+  "description": "MCP server for Amazon SNS - topics, subscriptions, notifications",
+  "logo": "https://www.google.com/s2/favicons?domain=aws.amazon.com&sz=128",
+  "categories": [
+    "aws",
+    "sns",
+    "notifications",
+    "messaging",
+    "pubsub"
+  ],
+  "base_url": "https://sns.{region}.amazonaws.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "access_key_id",
+        "label": "Access_key_id",
+        "description": "Your AWS Access Key ID"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "Secret_access_key",
+        "description": "Your AWS Secret Access Key"
+      },
+      {
+        "name": "region",
+        "label": "Region",
+        "description": "AWS Region (e.g., us-east-1)"
+      },
+      {
+        "name": "session_token",
+        "label": "Session_token",
+        "description": "Temporary session token (for temporary credentials)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_topic",
+      "description": "Create an SNS topic",
+      "method": "POST",
+      "path": "/create-topic",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "attributes": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "subscribe_webhook",
+      "description": "Subscribe webhook to topic",
+      "method": "GET",
+      "path": "/subscribe-webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "topic_arn": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "protocol": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic_arn",
+          "endpoint"
+        ]
+      }
+    },
+    {
+      "name": "confirm_subscription",
+      "description": "Confirm SNS subscription",
+      "method": "GET",
+      "path": "/confirm-subscription",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "topic_arn": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic_arn"
+        ]
+      }
+    },
+    {
+      "name": "list_subscriptions",
+      "description": "List SNS subscriptions",
+      "method": "GET",
+      "path": "/list-subscriptions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "topic_arn": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "unsubscribe",
+      "description": "Unsubscribe from topic",
+      "method": "GET",
+      "path": "/unsubscribe",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscription_arn": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subscription_arn"
+        ]
+      }
+    },
+    {
+      "name": "set_notification_topics",
+      "description": "Configure SES notification topics",
+      "method": "GET",
+      "path": "/set-notification-topics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "identity": {
+            "type": "string"
+          },
+          "bounce_topic": {
+            "type": "string"
+          },
+          "complaint_topic": {
+            "type": "string"
+          },
+          "delivery_topic": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "identity"
+        ]
+      }
+    },
+    {
+      "name": "configure_event_publishing",
+      "description": "Configure SES event publishing to SNS",
+      "method": "GET",
+      "path": "/configure-event-publishing",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "config_set_name": {
+            "type": "string"
+          },
+          "event_destination_name": {
+            "type": "string"
+          },
+          "sns_topic_arn": {
+            "type": "string"
+          },
+          "matching_event_types": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "config_set_name",
+          "event_destination_name",
+          "sns_topic_arn"
+        ]
+      }
+    },
+    {
+      "name": "configure_tracking",
+      "description": "Configure SES tracking",
+      "method": "GET",
+      "path": "/configure-tracking",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "config_set_name": {
+            "type": "string"
+          },
+          "custom_redirect_domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "config_set_name"
+        ]
+      }
+    },
+    {
+      "name": "verify_event_destination",
+      "description": "Verify event destination configuration",
+      "method": "GET",
+      "path": "/verify-event-destination",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "config_set_name": {
+            "type": "string"
+          },
+          "event_destination_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "config_set_name",
+          "event_destination_name"
+        ]
+      }
+    }
+  ]
+}

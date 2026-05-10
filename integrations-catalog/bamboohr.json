@@ -1,0 +1,303 @@
+{
+  "slug": "bamboohr",
+  "name": "BambooHR",
+  "description": "BambooHR HRIS platform. Manage employee records, the company directory, time-off requests, and reports via the BambooHR REST API.",
+  "logo": "https://www.google.com/s2/favicons?domain=bamboohr.com&sz=128",
+  "categories": [
+    "hr",
+    "hris",
+    "employees",
+    "payroll",
+    "time-off",
+    "people"
+  ],
+  "base_url": "https://api.bamboohr.com/api/gateway.php/{{subdomain}}/v1",
+  "auth": {
+    "types": [
+      "basic"
+    ],
+    "headers": {
+      "Authorization": "Basic {{basic}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "apiKey",
+        "label": "API Key",
+        "description": "BambooHR API key (generate from your profile menu > API Keys in BambooHR)."
+      },
+      {
+        "name": "password",
+        "label": "Password",
+        "description": "BambooHR ignores the basic-auth password — enter the literal value 'x'."
+      },
+      {
+        "name": "subdomain",
+        "label": "Subdomain",
+        "description": "Your BambooHR subdomain (e.g. 'mycompany' from mycompany.bamboohr.com)."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_employee_directory",
+      "description": "Retrieve the company employee directory: every active employee's display name, job title, department, work email, and contact info. Note: the directory must be enabled for your account.",
+      "method": "GET",
+      "path": "/employees/directory",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_employee",
+      "description": "Retrieve a single employee record by ID. Specify which fields to return via the 'fields' query parameter (comma-separated).",
+      "method": "GET",
+      "path": "/employees/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Employee ID, or 'me' for the authenticated user."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated field aliases to return (e.g. 'firstName,lastName,workEmail,department,hireDate'). Required by BambooHR."
+          }
+        },
+        "required": [
+          "id",
+          "fields"
+        ]
+      }
+    },
+    {
+      "name": "create_employee",
+      "description": "Create a new employee. Returns 201 Created with the new employee's ID in the Location header. firstName and lastName are required.",
+      "method": "POST",
+      "path": "/employees",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "workEmail": {
+            "type": "string"
+          },
+          "jobTitle": {
+            "type": "string"
+          },
+          "department": {
+            "type": "string"
+          },
+          "hireDate": {
+            "type": "string",
+            "description": "Hire date in YYYY-MM-DD format."
+          },
+          "employmentHistoryStatus": {
+            "type": "string",
+            "description": "e.g. 'Full-Time', 'Part-Time', 'Contractor'."
+          },
+          "location": {
+            "type": "string"
+          },
+          "supervisorEmail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "firstName",
+          "lastName"
+        ]
+      }
+    },
+    {
+      "name": "update_employee",
+      "description": "Update an existing employee record. Only the fields supplied in the body are changed.",
+      "method": "POST",
+      "path": "/employees/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Employee ID."
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "workEmail": {
+            "type": "string"
+          },
+          "jobTitle": {
+            "type": "string"
+          },
+          "department": {
+            "type": "string"
+          },
+          "supervisorEmail": {
+            "type": "string"
+          },
+          "employmentHistoryStatus": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_time_off_requests",
+      "description": "List time-off requests, optionally filtered by date range, employee, type, status, or action.",
+      "method": "GET",
+      "path": "/time_off/requests",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "description": "Start date filter (YYYY-MM-DD)."
+          },
+          "end": {
+            "type": "string",
+            "description": "End date filter (YYYY-MM-DD)."
+          },
+          "employeeId": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "description": "Time-off type ID."
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status: 'approved', 'denied', 'superceded', 'requested', 'canceled'."
+          },
+          "action": {
+            "type": "string",
+            "description": "Filter by pending action: 'view', 'approve'."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_time_off_request",
+      "description": "Create a new time-off request on behalf of an employee.",
+      "method": "PUT",
+      "path": "/employees/{employeeId}/time_off/request",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "employeeId": {
+            "type": "string",
+            "description": "Employee ID making the request."
+          },
+          "status": {
+            "type": "string",
+            "description": "Initial status: typically 'requested' or 'approved'."
+          },
+          "start": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)."
+          },
+          "end": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)."
+          },
+          "timeOffTypeId": {
+            "type": "integer",
+            "description": "Time-off type ID (look up with list_time_off_types)."
+          },
+          "amount": {
+            "type": "number",
+            "description": "Amount of time off (in the type's units, e.g. days or hours)."
+          },
+          "notes": {
+            "type": "object",
+            "description": "Free-form notes (e.g. { employee: 'Vacation', manager: 'Approved' })."
+          }
+        },
+        "required": [
+          "employeeId",
+          "start",
+          "end",
+          "timeOffTypeId"
+        ]
+      }
+    },
+    {
+      "name": "list_time_off_types",
+      "description": "List the time-off types configured for the company (e.g. Vacation, Sick, Personal) including their IDs needed to create requests.",
+      "method": "GET",
+      "path": "/meta/time_off/types",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_who_is_out",
+      "description": "Return the list of employees scheduled to be out (time off or holidays) within a given date range. Defaults to today through 14 days out if no range is given.",
+      "method": "GET",
+      "path": "/time_off/whos_out",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)."
+          },
+          "end": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_fields",
+      "description": "List every field defined on the employee record, including standard and custom fields, with their aliases needed for get_employee/update_employee.",
+      "method": "GET",
+      "path": "/meta/fields",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_company_report",
+      "description": "Run a saved company report by ID and return the result. Set format to 'JSON' for structured output.",
+      "method": "GET",
+      "path": "/reports/{reportId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "reportId": {
+            "type": "integer",
+            "description": "ID of the saved report."
+          },
+          "format": {
+            "type": "string",
+            "description": "Output format: 'JSON', 'CSV', 'XLS', 'PDF'. Defaults to 'JSON' for API access."
+          },
+          "fd": {
+            "type": "string",
+            "description": "Set to 'no' to suppress field-display headers in tabular output."
+          }
+        },
+        "required": [
+          "reportId"
+        ]
+      }
+    }
+  ]
+}

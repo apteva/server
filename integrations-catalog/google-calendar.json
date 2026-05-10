@@ -1,0 +1,1053 @@
+{
+  "slug": "google-calendar",
+  "name": "Google Calendar",
+  "description": "MCP server for Google Calendar - create, manage, and search events, calendars, scheduling, and free/busy lookups via the Calendar REST API",
+  "logo": "https://ssl.gstatic.com/calendar/images/dynamiclogo_2020q4/calendar_31_2x.png",
+  "categories": [
+    "calendar",
+    "google",
+    "scheduling",
+    "events",
+    "productivity"
+  ],
+  "base_url": "https://www.googleapis.com/calendar/v3",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "token_type",
+        "label": "token_type"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+      "token_url": "https://oauth2.googleapis.com/token",
+      "scopes": [
+        "https://www.googleapis.com/auth/calendar",
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/calendar.settings.readonly"
+      ],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "access_type": "offline",
+        "prompt": "consent",
+        "include_granted_scopes": "true"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "list_events",
+      "description": "List events from a calendar with optional time range, search query, and pagination",
+      "method": "GET",
+      "path": "/calendars/{calendarId}/events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar ID ('primary' for the user's primary calendar, or a specific calendar ID)",
+            "default": "primary"
+          },
+          "timeMin": {
+            "type": "string",
+            "description": "Lower bound for event start time (RFC 3339, e.g. '2025-01-01T00:00:00Z')"
+          },
+          "timeMax": {
+            "type": "string",
+            "description": "Upper bound for event start time (RFC 3339)"
+          },
+          "q": {
+            "type": "string",
+            "description": "Free text search query to filter events"
+          },
+          "maxResults": {
+            "type": "integer",
+            "description": "Maximum number of events to return",
+            "default": 25,
+            "maximum": 2500
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Page token for pagination"
+          },
+          "singleEvents": {
+            "type": "boolean",
+            "description": "Expand recurring events into individual instances",
+            "default": true
+          },
+          "orderBy": {
+            "type": "string",
+            "description": "Sort order (only valid when singleEvents is true)",
+            "enum": [
+              "startTime",
+              "updated"
+            ]
+          },
+          "showDeleted": {
+            "type": "boolean",
+            "description": "Include deleted events",
+            "default": false
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "Time zone for response (IANA format, e.g. 'America/New_York')"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_event",
+      "description": "Get detailed information about a specific calendar event",
+      "method": "GET",
+      "path": "/calendars/{calendarId}/events/{eventId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar ID ('primary' for default)",
+            "default": "primary"
+          },
+          "eventId": {
+            "type": "string",
+            "description": "Event ID to retrieve"
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "Time zone for response (IANA format)"
+          }
+        },
+        "required": [
+          "eventId"
+        ]
+      }
+    },
+    {
+      "name": "create_event",
+      "description": "Create a new calendar event with optional attendees, location, reminders, and recurrence",
+      "method": "POST",
+      "path": "/calendars/{calendarId}/events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar ID ('primary' for default)",
+            "default": "primary"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Event title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Event description (supports HTML)"
+          },
+          "location": {
+            "type": "string",
+            "description": "Event location or address"
+          },
+          "start": {
+            "type": "object",
+            "description": "Start time. Use 'dateTime' for timed events or 'date' for all-day events",
+            "properties": {
+              "dateTime": {
+                "type": "string",
+                "description": "Start datetime (RFC 3339, e.g. '2025-03-15T09:00:00-05:00')"
+              },
+              "date": {
+                "type": "string",
+                "description": "Start date for all-day events (YYYY-MM-DD)"
+              },
+              "timeZone": {
+                "type": "string",
+                "description": "Time zone (IANA format, e.g. 'America/New_York')"
+              }
+            }
+          },
+          "end": {
+            "type": "object",
+            "description": "End time. Use 'dateTime' for timed events or 'date' for all-day events",
+            "properties": {
+              "dateTime": {
+                "type": "string",
+                "description": "End datetime (RFC 3339)"
+              },
+              "date": {
+                "type": "string",
+                "description": "End date for all-day events (YYYY-MM-DD)"
+              },
+              "timeZone": {
+                "type": "string",
+                "description": "Time zone (IANA format)"
+              }
+            }
+          },
+          "attendees": {
+            "type": "array",
+            "description": "List of attendees to invite",
+            "items": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string",
+                  "description": "Attendee email address"
+                },
+                "optional": {
+                  "type": "boolean",
+                  "description": "Whether attendance is optional",
+                  "default": false
+                },
+                "responseStatus": {
+                  "type": "string",
+                  "enum": [
+                    "needsAction",
+                    "declined",
+                    "tentative",
+                    "accepted"
+                  ]
+                }
+              },
+              "required": [
+                "email"
+              ]
+            }
+          },
+          "recurrence": {
+            "type": "array",
+            "description": "Recurrence rules (RRULE format, e.g. ['RRULE:FREQ=WEEKLY;COUNT=10'])",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reminders": {
+            "type": "object",
+            "description": "Reminder overrides",
+            "properties": {
+              "useDefault": {
+                "type": "boolean",
+                "description": "Use calendar default reminders",
+                "default": true
+              },
+              "overrides": {
+                "type": "array",
+                "description": "Custom reminders",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "method": {
+                      "type": "string",
+                      "enum": [
+                        "email",
+                        "popup"
+                      ],
+                      "description": "Reminder method"
+                    },
+                    "minutes": {
+                      "type": "integer",
+                      "description": "Minutes before event to trigger reminder"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "colorId": {
+            "type": "string",
+            "description": "Event color ID (1-11)"
+          },
+          "visibility": {
+            "type": "string",
+            "description": "Event visibility",
+            "enum": [
+              "default",
+              "public",
+              "private",
+              "confidential"
+            ]
+          },
+          "transparency": {
+            "type": "string",
+            "description": "Whether the event blocks time on the calendar",
+            "enum": [
+              "opaque",
+              "transparent"
+            ]
+          },
+          "sendUpdates": {
+            "type": "string",
+            "description": "Who to send notifications to",
+            "enum": [
+              "all",
+              "externalOnly",
+              "none"
+            ],
+            "default": "none"
+          },
+          "conferenceDataVersion": {
+            "type": "integer",
+            "description": "Set to 1 to enable conference data (Google Meet)",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "conferenceData": {
+            "type": "object",
+            "description": "Conference data for creating a Google Meet link",
+            "properties": {
+              "createRequest": {
+                "type": "object",
+                "properties": {
+                  "requestId": {
+                    "type": "string",
+                    "description": "Unique ID for the request (use a UUID)"
+                  },
+                  "conferenceSolutionKey": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "description": "Conference type",
+                        "enum": [
+                          "hangoutsMeet"
+                        ],
+                        "default": "hangoutsMeet"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "guestsCanModify": {
+            "type": "boolean",
+            "description": "Whether guests can modify the event",
+            "default": false
+          },
+          "guestsCanInviteOthers": {
+            "type": "boolean",
+            "description": "Whether guests can invite others",
+            "default": true
+          },
+          "guestsCanSeeOtherGuests": {
+            "type": "boolean",
+            "description": "Whether guests can see other guests",
+            "default": true
+          }
+        },
+        "required": [
+          "summary",
+          "start",
+          "end"
+        ]
+      }
+    },
+    {
+      "name": "update_event",
+      "description": "Update an existing calendar event (partial update - only provided fields are changed)",
+      "method": "PATCH",
+      "path": "/calendars/{calendarId}/events/{eventId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar ID ('primary' for default)",
+            "default": "primary"
+          },
+          "eventId": {
+            "type": "string",
+            "description": "Event ID to update"
+          },
+          "summary": {
+            "type": "string",
+            "description": "New event title"
+          },
+          "description": {
+            "type": "string",
+            "description": "New event description"
+          },
+          "location": {
+            "type": "string",
+            "description": "New event location"
+          },
+          "start": {
+            "type": "object",
+            "description": "New start time {dateTime, date, timeZone}",
+            "properties": {
+              "dateTime": {
+                "type": "string"
+              },
+              "date": {
+                "type": "string"
+              },
+              "timeZone": {
+                "type": "string"
+              }
+            }
+          },
+          "end": {
+            "type": "object",
+            "description": "New end time {dateTime, date, timeZone}",
+            "properties": {
+              "dateTime": {
+                "type": "string"
+              },
+              "date": {
+                "type": "string"
+              },
+              "timeZone": {
+                "type": "string"
+              }
+            }
+          },
+          "attendees": {
+            "type": "array",
+            "description": "Updated attendee list (replaces existing)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string"
+                },
+                "optional": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "email"
+              ]
+            }
+          },
+          "colorId": {
+            "type": "string",
+            "description": "Event color ID (1-11)"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "default",
+              "public",
+              "private",
+              "confidential"
+            ]
+          },
+          "transparency": {
+            "type": "string",
+            "enum": [
+              "opaque",
+              "transparent"
+            ]
+          },
+          "reminders": {
+            "type": "object",
+            "properties": {
+              "useDefault": {
+                "type": "boolean"
+              },
+              "overrides": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "method": {
+                      "type": "string",
+                      "enum": [
+                        "email",
+                        "popup"
+                      ]
+                    },
+                    "minutes": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "recurrence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Recurrence rules (RRULE format)"
+          },
+          "sendUpdates": {
+            "type": "string",
+            "description": "Who to send update notifications to",
+            "enum": [
+              "all",
+              "externalOnly",
+              "none"
+            ],
+            "default": "none"
+          }
+        },
+        "required": [
+          "eventId"
+        ]
+      }
+    },
+    {
+      "name": "delete_event",
+      "description": "Delete a calendar event",
+      "method": "DELETE",
+      "path": "/calendars/{calendarId}/events/{eventId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar ID ('primary' for default)",
+            "default": "primary"
+          },
+          "eventId": {
+            "type": "string",
+            "description": "Event ID to delete"
+          },
+          "sendUpdates": {
+            "type": "string",
+            "description": "Who to send cancellation notifications to",
+            "enum": [
+              "all",
+              "externalOnly",
+              "none"
+            ],
+            "default": "none"
+          }
+        },
+        "required": [
+          "eventId"
+        ]
+      }
+    },
+    {
+      "name": "move_event",
+      "description": "Move an event from one calendar to another",
+      "method": "POST",
+      "path": "/calendars/{calendarId}/events/{eventId}/move",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Source calendar ID",
+            "default": "primary"
+          },
+          "eventId": {
+            "type": "string",
+            "description": "Event ID to move"
+          },
+          "destination": {
+            "type": "string",
+            "description": "Destination calendar ID"
+          },
+          "sendUpdates": {
+            "type": "string",
+            "enum": [
+              "all",
+              "externalOnly",
+              "none"
+            ],
+            "default": "none"
+          }
+        },
+        "required": [
+          "eventId",
+          "destination"
+        ]
+      }
+    },
+    {
+      "name": "quick_add",
+      "description": "Create an event from a natural language text string (e.g. 'Dinner with John tomorrow at 7pm at Pizza Place')",
+      "method": "POST",
+      "path": "/calendars/{calendarId}/events/quickAdd",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar ID ('primary' for default)",
+            "default": "primary"
+          },
+          "text": {
+            "type": "string",
+            "description": "Natural language event description (e.g. 'Meeting with Sarah on Friday 3pm-4pm')"
+          },
+          "sendUpdates": {
+            "type": "string",
+            "enum": [
+              "all",
+              "externalOnly",
+              "none"
+            ],
+            "default": "none"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "get_recurring_instances",
+      "description": "Get all instances of a recurring event within a time range",
+      "method": "GET",
+      "path": "/calendars/{calendarId}/events/{eventId}/instances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar ID",
+            "default": "primary"
+          },
+          "eventId": {
+            "type": "string",
+            "description": "Recurring event ID"
+          },
+          "timeMin": {
+            "type": "string",
+            "description": "Lower bound (RFC 3339)"
+          },
+          "timeMax": {
+            "type": "string",
+            "description": "Upper bound (RFC 3339)"
+          },
+          "maxResults": {
+            "type": "integer",
+            "description": "Max instances to return"
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Page token for pagination"
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "Time zone (IANA format)"
+          }
+        },
+        "required": [
+          "eventId"
+        ]
+      }
+    },
+    {
+      "name": "list_calendars",
+      "description": "List all calendars visible to the user (subscribed calendars, shared calendars, etc.)",
+      "method": "GET",
+      "path": "/users/me/calendarList",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "minAccessRole": {
+            "type": "string",
+            "description": "Minimum access role to filter by",
+            "enum": [
+              "freeBusyReader",
+              "reader",
+              "writer",
+              "owner"
+            ]
+          },
+          "showDeleted": {
+            "type": "boolean",
+            "description": "Include deleted calendars",
+            "default": false
+          },
+          "showHidden": {
+            "type": "boolean",
+            "description": "Include hidden calendars",
+            "default": false
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Page token for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_calendar",
+      "description": "Get metadata for a specific calendar",
+      "method": "GET",
+      "path": "/calendars/{calendarId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar ID ('primary' for default)"
+          }
+        },
+        "required": [
+          "calendarId"
+        ]
+      }
+    },
+    {
+      "name": "create_calendar",
+      "description": "Create a new secondary calendar",
+      "method": "POST",
+      "path": "/calendars",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string",
+            "description": "Calendar name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Calendar description"
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "Default time zone (IANA format, e.g. 'America/New_York')"
+          },
+          "location": {
+            "type": "string",
+            "description": "Geographic location of the calendar"
+          }
+        },
+        "required": [
+          "summary"
+        ]
+      }
+    },
+    {
+      "name": "update_calendar",
+      "description": "Update a calendar's name, description, time zone, or location",
+      "method": "PATCH",
+      "path": "/calendars/{calendarId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar ID to update"
+          },
+          "summary": {
+            "type": "string",
+            "description": "New calendar name"
+          },
+          "description": {
+            "type": "string",
+            "description": "New calendar description"
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "New time zone (IANA format)"
+          },
+          "location": {
+            "type": "string",
+            "description": "New location"
+          }
+        },
+        "required": [
+          "calendarId"
+        ]
+      }
+    },
+    {
+      "name": "delete_calendar",
+      "description": "Permanently delete a secondary calendar. Cannot delete the primary calendar",
+      "method": "DELETE",
+      "path": "/calendars/{calendarId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar ID to delete (cannot be 'primary')"
+          }
+        },
+        "required": [
+          "calendarId"
+        ]
+      }
+    },
+    {
+      "name": "clear_calendar",
+      "description": "Clear all events from a primary calendar. Only works on the user's primary calendar",
+      "method": "POST",
+      "path": "/calendars/{calendarId}/clear",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar ID (typically 'primary')",
+            "default": "primary"
+          }
+        }
+      }
+    },
+    {
+      "name": "freebusy_query",
+      "description": "Check free/busy availability for one or more calendars within a time range. Useful for finding available meeting slots",
+      "method": "POST",
+      "path": "/freeBusy",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "timeMin": {
+            "type": "string",
+            "description": "Start of the time range to query (RFC 3339)"
+          },
+          "timeMax": {
+            "type": "string",
+            "description": "End of the time range to query (RFC 3339)"
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "Time zone (IANA format)"
+          },
+          "items": {
+            "type": "array",
+            "description": "Calendars to check availability for",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Calendar ID or email address"
+                }
+              },
+              "required": [
+                "id"
+              ]
+            }
+          },
+          "calendarExpansionMax": {
+            "type": "integer",
+            "description": "Max number of calendars to expand for groups",
+            "default": 50
+          },
+          "groupExpansionMax": {
+            "type": "integer",
+            "description": "Max number of group members to expand",
+            "default": 100
+          }
+        },
+        "required": [
+          "timeMin",
+          "timeMax",
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "list_acl",
+      "description": "List access control rules (sharing settings) for a calendar",
+      "method": "GET",
+      "path": "/calendars/{calendarId}/acl",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar ID",
+            "default": "primary"
+          },
+          "pageToken": {
+            "type": "string",
+            "description": "Page token for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "share_calendar",
+      "description": "Share a calendar with a user or group by adding an access control rule",
+      "method": "POST",
+      "path": "/calendars/{calendarId}/acl",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar ID to share",
+            "default": "primary"
+          },
+          "role": {
+            "type": "string",
+            "description": "Permission level to grant",
+            "enum": [
+              "freeBusyReader",
+              "reader",
+              "writer",
+              "owner"
+            ]
+          },
+          "scope": {
+            "type": "object",
+            "description": "Who to share with",
+            "properties": {
+              "type": {
+                "type": "string",
+                "description": "Scope type",
+                "enum": [
+                  "default",
+                  "user",
+                  "group",
+                  "domain"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "description": "Email address, group email, or domain (not needed for 'default' type)"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "sendNotifications": {
+            "type": "boolean",
+            "description": "Send sharing notification email",
+            "default": true
+          }
+        },
+        "required": [
+          "role",
+          "scope"
+        ]
+      }
+    },
+    {
+      "name": "remove_sharing",
+      "description": "Remove an access control rule (unshare a calendar with a user)",
+      "method": "DELETE",
+      "path": "/calendars/{calendarId}/acl/{ruleId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar ID",
+            "default": "primary"
+          },
+          "ruleId": {
+            "type": "string",
+            "description": "ACL rule ID to remove (e.g. 'user:email@example.com')"
+          }
+        },
+        "required": [
+          "ruleId"
+        ]
+      }
+    },
+    {
+      "name": "get_colors",
+      "description": "Get the list of available colors for events and calendars",
+      "method": "GET",
+      "path": "/colors",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_settings",
+      "description": "List all user calendar settings (time zone, date format, default event length, etc.)",
+      "method": "GET",
+      "path": "/users/me/settings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageToken": {
+            "type": "string",
+            "description": "Page token for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "watch_events",
+      "description": "Set up push notifications for changes to events in a calendar via a webhook",
+      "method": "POST",
+      "path": "/calendars/{calendarId}/events/watch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendarId": {
+            "type": "string",
+            "description": "Calendar ID to watch",
+            "default": "primary"
+          },
+          "id": {
+            "type": "string",
+            "description": "Unique channel ID for this watch (use a UUID)"
+          },
+          "type": {
+            "type": "string",
+            "description": "Channel type",
+            "enum": [
+              "web_hook"
+            ],
+            "default": "web_hook"
+          },
+          "address": {
+            "type": "string",
+            "description": "HTTPS URL to receive notifications"
+          },
+          "expiration": {
+            "type": "string",
+            "description": "Channel expiration time in Unix timestamp milliseconds"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "address"
+        ]
+      }
+    },
+    {
+      "name": "stop_watch",
+      "description": "Stop receiving push notifications for a watch channel",
+      "method": "POST",
+      "path": "/channels/stop",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Channel ID to stop"
+          },
+          "resourceId": {
+            "type": "string",
+            "description": "Resource ID from the watch response"
+          }
+        },
+        "required": [
+          "id",
+          "resourceId"
+        ]
+      }
+    }
+  ]
+}

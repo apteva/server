@@ -1,0 +1,231 @@
+{
+  "slug": "slant3d",
+  "name": "Slant 3D",
+  "description": "MCP server for Slant 3D - on-demand 3D printing API with access to massive print farms",
+  "logo": "https://www.google.com/s2/favicons?domain=slant3d.com&sz=128",
+  "categories": [
+    "3d-printing",
+    "manufacturing",
+    "print-farm",
+    "on-demand",
+    "slant3d"
+  ],
+  "base_url": "https://www.slant3dapi.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Your Slant 3D API key (starts with sl-**)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "slicer",
+      "description": "Slice a 3D model and get pricing from Slant 3D print farm",
+      "method": "GET",
+      "path": "/slicer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileURL": {
+            "type": "string",
+            "description": "URL to the STL file to slice"
+          }
+        },
+        "required": [
+          "fileURL"
+        ]
+      }
+    },
+    {
+      "name": "filaments_list",
+      "description": "List available filament options from Slant 3D",
+      "method": "GET",
+      "path": "/filaments-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "orders_list",
+      "description": "List all orders from Slant 3D",
+      "method": "GET",
+      "path": "/orders-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "order_create",
+      "description": "Create a new 3D print order with Slant 3D",
+      "method": "GET",
+      "path": "/order-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Customer email address"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Customer phone number"
+          },
+          "name": {
+            "type": "string",
+            "description": "Customer name"
+          },
+          "orderNumber": {
+            "type": "string",
+            "description": "Your internal order number"
+          },
+          "filename": {
+            "type": "string",
+            "description": "Name of the file"
+          },
+          "fileURL": {
+            "type": "string",
+            "description": "URL to the STL file"
+          },
+          "bill_to_street_1": {
+            "type": "string",
+            "description": "Billing address line 1"
+          },
+          "bill_to_city": {
+            "type": "string",
+            "description": "Billing city"
+          },
+          "bill_to_state": {
+            "type": "string",
+            "description": "Billing state"
+          },
+          "bill_to_zip": {
+            "type": "string",
+            "description": "Billing ZIP code"
+          },
+          "bill_to_country_as_iso": {
+            "type": "string",
+            "description": "Billing country ISO code (default: US)"
+          },
+          "ship_to_name": {
+            "type": "string",
+            "description": "Shipping recipient name"
+          },
+          "ship_to_street_1": {
+            "type": "string",
+            "description": "Shipping address line 1"
+          },
+          "ship_to_city": {
+            "type": "string",
+            "description": "Shipping city"
+          },
+          "ship_to_state": {
+            "type": "string",
+            "description": "Shipping state"
+          },
+          "ship_to_zip": {
+            "type": "string",
+            "description": "Shipping ZIP code"
+          },
+          "ship_to_country_as_iso": {
+            "type": "string",
+            "description": "Shipping country ISO code (default: US)"
+          },
+          "order_quantity": {
+            "type": "number",
+            "description": "Quantity to print (default: 1)"
+          },
+          "profile": {
+            "type": "string",
+            "description": "Filament profile (default: PLA BLACK)"
+          }
+        },
+        "required": [
+          "email",
+          "name",
+          "fileURL"
+        ]
+      }
+    },
+    {
+      "name": "order_estimate",
+      "description": "Get a cost estimate for a 3D print order including shipping",
+      "method": "GET",
+      "path": "/order-estimate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileURL": {
+            "type": "string",
+            "description": "URL to the STL file"
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Quantity to print (default: 1)"
+          },
+          "profile": {
+            "type": "string",
+            "description": "Filament profile (default: PLA BLACK)"
+          },
+          "ship_to_zip": {
+            "type": "string",
+            "description": "Shipping ZIP code for estimate"
+          },
+          "ship_to_country_as_iso": {
+            "type": "string",
+            "description": "Shipping country ISO code (default: US)"
+          }
+        },
+        "required": [
+          "fileURL"
+        ]
+      }
+    },
+    {
+      "name": "order_delete",
+      "description": "Delete/cancel an order from Slant 3D",
+      "method": "GET",
+      "path": "/order-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "The order ID to delete"
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      }
+    },
+    {
+      "name": "order_tracking",
+      "description": "Get tracking information for a Slant 3D order",
+      "method": "GET",
+      "path": "/order-tracking",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "The order ID to track"
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      }
+    }
+  ]
+}

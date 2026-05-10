@@ -1,0 +1,881 @@
+{
+  "slug": "porkbun",
+  "name": "Porkbun",
+  "description": "Porkbun domain registrar \u2014 register and manage domains, DNS records, nameservers, URL forwarding, glue records, and SSL certificates. Authenticates via X-API-Key + X-Secret-API-Key headers.",
+  "logo": "https://porkbun.com/static/img/favicon-32x32.png",
+  "categories": [
+    "dns",
+    "domains",
+    "registrar",
+    "porkbun"
+  ],
+  "base_url": "https://api.porkbun.com/api/json/v3",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}",
+      "X-Secret-API-Key": "{{secret_api_key}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Porkbun API key (starts with 'pk1_'). Generate at https://porkbun.com/account/api. Must be enabled per-domain unless you tick 'Enable API Access' on each domain in your control panel.",
+        "required": true,
+        "type": "password"
+      },
+      {
+        "name": "secret_api_key",
+        "label": "Secret API Key",
+        "description": "Porkbun secret API key (starts with 'sk1_'), generated alongside the API key.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "ping",
+      "description": "Test API credentials and return the caller's public IP. Returns { status, yourIp, credentialsValid }. Use this to verify credentials are working before making other calls.",
+      "method": "GET",
+      "path": "/ping",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_pricing",
+      "description": "Public domain pricing across all TLDs Porkbun sells. No credentials required, but cheapest to call once and cache \u2014 pricing rarely changes intra-day. Returns a map of TLD \u2192 { registration, renewal, transfer } prices.",
+      "method": "GET",
+      "path": "/pricing/get",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_domains",
+      "description": "Paginated list of all domains in the account, ordered by expiration date ascending. Returns up to 1000 per page; paginate by incrementing 'start' by 1000. Empty domains array means you've reached the end.",
+      "method": "POST",
+      "path": "/domain/listAll",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "integer",
+            "description": "Pagination offset (multiples of 1000)",
+            "default": 0
+          },
+          "includeLabels": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no"
+            ],
+            "description": "Include user-defined labels in the response",
+            "default": "no"
+          }
+        }
+      }
+    },
+    {
+      "name": "check_availability",
+      "description": "Check whether a domain is available for registration and return its price. Counts against your daily availability-check quota.",
+      "method": "POST",
+      "path": "/domain/checkDomain/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Fully-qualified domain name to check (e.g. example.com)"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "register_domain",
+      "description": "Register a new domain. \u26a0\ufe0f This SPENDS REAL MONEY against your account balance. The price is whatever get_pricing currently returns for the TLD. Make sure to confirm with the user before calling.",
+      "method": "POST",
+      "path": "/domain/create/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "years": {
+            "type": "integer",
+            "description": "Number of years to register (1-10)",
+            "default": 1
+          },
+          "coupon": {
+            "type": "string",
+            "description": "Optional coupon code"
+          },
+          "renewAuto": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no"
+            ],
+            "description": "Enable auto-renewal",
+            "default": "yes"
+          },
+          "whoisPrivacy": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no"
+            ],
+            "description": "Enable WHOIS privacy (free with all Porkbun registrations)",
+            "default": "yes"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "renew_domain",
+      "description": "Renew a domain for the specified number of years. \u26a0\ufe0f Spends account balance.",
+      "method": "POST",
+      "path": "/domain/renew/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "years": {
+            "type": "integer",
+            "default": 1
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "transfer_domain",
+      "description": "Initiate a domain transfer in to Porkbun. \u26a0\ufe0f Spends account balance (transfer price).",
+      "method": "POST",
+      "path": "/domain/transfer/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "authcode": {
+            "type": "string",
+            "description": "EPP/auth code from the losing registrar"
+          }
+        },
+        "required": [
+          "domain",
+          "authcode"
+        ]
+      }
+    },
+    {
+      "name": "get_transfer_status",
+      "description": "Status of a single in-progress domain transfer.",
+      "method": "GET",
+      "path": "/domain/getTransfer/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "list_transfers",
+      "description": "List all active domain transfers on the account.",
+      "method": "GET",
+      "path": "/domain/listTransfers",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "update_auto_renew",
+      "description": "Enable or disable auto-renewal for a domain.",
+      "method": "POST",
+      "path": "/domain/updateAutoRenew/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "renewAuto": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no"
+            ]
+          }
+        },
+        "required": [
+          "domain",
+          "renewAuto"
+        ]
+      }
+    },
+    {
+      "name": "get_nameservers",
+      "description": "Get the authoritative nameservers currently set on a domain.",
+      "method": "GET",
+      "path": "/domain/getNs/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "update_nameservers",
+      "description": "Replace a domain's nameservers with the supplied list (1-13 entries). Setting nameservers to anything other than Porkbun's DNS effectively disables DNS-record management for that domain.",
+      "method": "POST",
+      "path": "/domain/updateNs/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "ns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Nameserver hostnames (e.g. ['ns1.example.com', 'ns2.example.com'])"
+          }
+        },
+        "required": [
+          "domain",
+          "ns"
+        ]
+      }
+    },
+    {
+      "name": "get_glue_records",
+      "description": "List all glue records (in-bailiwick A/AAAA records published in the parent zone) for a domain.",
+      "method": "GET",
+      "path": "/domain/getGlue/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "create_glue_record",
+      "description": "Create a glue record on a subdomain (required when running your own nameservers like ns1.example.com from inside example.com).",
+      "method": "POST",
+      "path": "/domain/createGlue/{domain}/{subdomain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "subdomain": {
+            "type": "string",
+            "description": "Subdomain only (e.g. 'ns1' for ns1.example.com)"
+          },
+          "ips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "IPv4 and/or IPv6 addresses for the glue record"
+          }
+        },
+        "required": [
+          "domain",
+          "subdomain",
+          "ips"
+        ]
+      }
+    },
+    {
+      "name": "update_glue_record",
+      "description": "Update the IPs on an existing glue record.",
+      "method": "POST",
+      "path": "/domain/updateGlue/{domain}/{subdomain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "subdomain": {
+            "type": "string"
+          },
+          "ips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "domain",
+          "subdomain",
+          "ips"
+        ]
+      }
+    },
+    {
+      "name": "delete_glue_record",
+      "description": "Delete a glue record.",
+      "method": "POST",
+      "path": "/domain/deleteGlue/{domain}/{subdomain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "subdomain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain",
+          "subdomain"
+        ]
+      }
+    },
+    {
+      "name": "list_dns_records",
+      "description": "Retrieve all DNS records for a domain. Returns an array of records each with id, name (FQDN), type, content, ttl, prio, notes.",
+      "method": "GET",
+      "path": "/dns/retrieve/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "get_dns_record",
+      "description": "Retrieve a single DNS record by its numeric record ID.",
+      "method": "GET",
+      "path": "/dns/retrieve/{domain}/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "description": "DNS record ID (returned by list_dns_records)"
+          }
+        },
+        "required": [
+          "domain",
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_dns_records_by_type",
+      "description": "Retrieve DNS records filtered by name and type. Useful for fetching e.g. all MX records or the A record for a specific subdomain without paging through all records.",
+      "method": "GET",
+      "path": "/dns/retrieveByNameType/{domain}/{type}/{subdomain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "A",
+              "AAAA",
+              "MX",
+              "CNAME",
+              "ALIAS",
+              "TXT",
+              "NS",
+              "SRV",
+              "TLSA",
+              "CAA",
+              "HTTPS",
+              "SVCB"
+            ]
+          },
+          "subdomain": {
+            "type": "string",
+            "description": "Subdomain part only ('' for root, 'www' for www.example.com)"
+          }
+        },
+        "required": [
+          "domain",
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "create_dns_record",
+      "description": "Create a new DNS record. Returns { status, id }. To create a record at the apex (root), set name to ''.",
+      "method": "POST",
+      "path": "/dns/create/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "Subdomain only (e.g. 'www', 'mail'). Use '' for the apex record. Do NOT include the parent domain."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "A",
+              "AAAA",
+              "MX",
+              "CNAME",
+              "ALIAS",
+              "TXT",
+              "NS",
+              "SRV",
+              "TLSA",
+              "CAA",
+              "HTTPS",
+              "SVCB"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "description": "Record value (IP for A/AAAA, target hostname for CNAME/MX, text for TXT, etc.)"
+          },
+          "ttl": {
+            "type": "string",
+            "description": "TTL in seconds (minimum 600)",
+            "default": "600"
+          },
+          "prio": {
+            "type": "string",
+            "description": "Priority \u2014 required for MX and SRV records"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Free-form internal note (not published)"
+          }
+        },
+        "required": [
+          "domain",
+          "type",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "edit_dns_record",
+      "description": "Replace a DNS record's contents by ID. Same fields as create_dns_record.",
+      "method": "POST",
+      "path": "/dns/edit/{domain}/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "A",
+              "AAAA",
+              "MX",
+              "CNAME",
+              "ALIAS",
+              "TXT",
+              "NS",
+              "SRV",
+              "TLSA",
+              "CAA",
+              "HTTPS",
+              "SVCB"
+            ]
+          },
+          "content": {
+            "type": "string"
+          },
+          "ttl": {
+            "type": "string"
+          },
+          "prio": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain",
+          "id",
+          "type",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "edit_dns_records_by_type",
+      "description": "Replace ALL records matching a given (subdomain, type) tuple with the supplied content. Useful for atomically swapping e.g. all A records for www.",
+      "method": "POST",
+      "path": "/dns/editByNameType/{domain}/{type}/{subdomain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "A",
+              "AAAA",
+              "MX",
+              "CNAME",
+              "ALIAS",
+              "TXT",
+              "NS",
+              "SRV",
+              "TLSA",
+              "CAA",
+              "HTTPS",
+              "SVCB"
+            ]
+          },
+          "subdomain": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "ttl": {
+            "type": "string"
+          },
+          "prio": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain",
+          "type",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "delete_dns_record",
+      "description": "Delete a single DNS record by ID. Cannot be undone.",
+      "method": "POST",
+      "path": "/dns/delete/{domain}/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain",
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_dns_records_by_type",
+      "description": "Delete ALL records matching a given (subdomain, type) tuple. Cannot be undone.",
+      "method": "POST",
+      "path": "/dns/deleteByNameType/{domain}/{type}/{subdomain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "A",
+              "AAAA",
+              "MX",
+              "CNAME",
+              "ALIAS",
+              "TXT",
+              "NS",
+              "SRV",
+              "TLSA",
+              "CAA",
+              "HTTPS",
+              "SVCB"
+            ]
+          },
+          "subdomain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain",
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "get_dnssec_records",
+      "description": "Retrieve DNSSEC records (DS records) published at the registry for the domain.",
+      "method": "GET",
+      "path": "/dns/getDnssecRecords/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "create_dnssec_record",
+      "description": "Add a DNSSEC DS record at the registry. The four fields (keyTag, alg, digestType, digest) come from your authoritative DNS provider.",
+      "method": "POST",
+      "path": "/dns/createDnssecRecord/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "keyTag": {
+            "type": "string",
+            "description": "DNSKEY key tag (decimal)"
+          },
+          "alg": {
+            "type": "string",
+            "description": "Algorithm number (e.g. 13 for ECDSAP256SHA256)"
+          },
+          "digestType": {
+            "type": "string",
+            "description": "Digest type (1=SHA1, 2=SHA256, 4=SHA384)"
+          },
+          "digest": {
+            "type": "string",
+            "description": "Hex-encoded digest"
+          },
+          "maxSigLife": {
+            "type": "string",
+            "description": "Optional max signature lifetime in seconds"
+          }
+        },
+        "required": [
+          "domain",
+          "keyTag",
+          "alg",
+          "digestType",
+          "digest"
+        ]
+      }
+    },
+    {
+      "name": "delete_dnssec_record",
+      "description": "Remove a DNSSEC DS record by its keyTag.",
+      "method": "POST",
+      "path": "/dns/deleteDnssecRecord/{domain}/{keytag}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "keytag": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain",
+          "keytag"
+        ]
+      }
+    },
+    {
+      "name": "list_url_forwards",
+      "description": "List all URL-forwarding rules for a domain.",
+      "method": "GET",
+      "path": "/domain/getUrlForwarding/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "add_url_forward",
+      "description": "Add a URL-forwarding rule from a (sub)domain on this domain to a destination URL.",
+      "method": "POST",
+      "path": "/domain/addUrlForward/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "subdomain": {
+            "type": "string",
+            "description": "Subdomain to forward from ('' for the apex)"
+          },
+          "location": {
+            "type": "string",
+            "description": "Destination URL"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "temporary",
+              "permanent"
+            ],
+            "description": "302 (temporary) or 301 (permanent)"
+          },
+          "includePath": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no"
+            ],
+            "description": "Append the source request path to the destination"
+          },
+          "wildcard": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no"
+            ],
+            "description": "Apply to all subdomains under the target"
+          }
+        },
+        "required": [
+          "domain",
+          "location",
+          "type",
+          "includePath",
+          "wildcard"
+        ]
+      }
+    },
+    {
+      "name": "delete_url_forward",
+      "description": "Delete a URL-forwarding rule by its numeric ID.",
+      "method": "POST",
+      "path": "/domain/deleteUrlForward/{domain}/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain",
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "retrieve_ssl",
+      "description": "Retrieve the SSL bundle (certificate chain + private key) for a domain that uses Porkbun-managed DNS. Free Let's Encrypt cert auto-issued by Porkbun. Returns { intermediatecertificate, certificatechain, privatekey, publickey }.",
+      "method": "GET",
+      "path": "/ssl/retrieve/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "get_account_balance",
+      "description": "Current account balance (in USD by default). Use before register_domain / renew_domain to verify funds.",
+      "method": "GET",
+      "path": "/account/balance",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "ping"
+  }
+}

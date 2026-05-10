@@ -1,0 +1,463 @@
+{
+  "slug": "thinger",
+  "name": "Thinger.io",
+  "description": "Thinger.io IoT platform for managing devices, data buckets, dashboards, and endpoints",
+  "logo": "https://www.google.com/s2/favicons?domain=thinger.io&sz=128",
+  "categories": [
+    "iot",
+    "thinger",
+    "devices",
+    "sensors",
+    "embedded",
+    "cloud"
+  ],
+  "base_url": "{{server_url}}/v1",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "username",
+        "label": "Username",
+        "description": "Thinger.io username"
+      },
+      {
+        "name": "password",
+        "label": "Password",
+        "description": "Thinger.io password"
+      },
+      {
+        "name": "server_url",
+        "label": "Server_url",
+        "description": "Thinger.io server URL (default: api.thinger.io)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "auth",
+      "description": "Authenticate with Thinger.io using username and password. Returns access_token and refresh_token for API calls.",
+      "method": "GET",
+      "path": "/auth",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Thinger.io username"
+          },
+          "password": {
+            "type": "string",
+            "description": "Thinger.io password"
+          },
+          "server": {
+            "type": "string",
+            "description": "Thinger.io server (default: api.thinger.io)"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ]
+      }
+    },
+    {
+      "name": "refresh_token",
+      "description": "Refresh an expired Thinger.io access token using a refresh token.",
+      "method": "GET",
+      "path": "/refresh-token",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "description": "Thinger.io refresh token"
+          },
+          "server": {
+            "type": "string",
+            "description": "Thinger.io server (default: api.thinger.io)"
+          }
+        },
+        "required": [
+          "refresh_token"
+        ]
+      }
+    },
+    {
+      "name": "list_devices",
+      "description": "List all IoT devices registered in Thinger.io. Returns device IDs, names, types, and connection status.",
+      "method": "GET",
+      "path": "/list-devices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Thinger.io username"
+          },
+          "server": {
+            "type": "string",
+            "description": "Thinger.io server (default: api.thinger.io)"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "get_device",
+      "description": "Get details of a specific IoT device from Thinger.io including resources, status, and configuration.",
+      "method": "GET",
+      "path": "/get-device",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Thinger.io username"
+          },
+          "device_id": {
+            "type": "string",
+            "description": "Device ID"
+          },
+          "server": {
+            "type": "string",
+            "description": "Thinger.io server (default: api.thinger.io)"
+          }
+        },
+        "required": [
+          "username",
+          "device_id"
+        ]
+      }
+    },
+    {
+      "name": "create_device",
+      "description": "Create a new IoT device in Thinger.io with specified type and credentials.",
+      "method": "POST",
+      "path": "/create-device",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Thinger.io username"
+          },
+          "device_id": {
+            "type": "string",
+            "description": "Device ID to create"
+          },
+          "device_name": {
+            "type": "string",
+            "description": "Device display name"
+          },
+          "device_type": {
+            "type": "string",
+            "description": "Device type",
+            "enum": [
+              "Generic",
+              "HTTP",
+              "MQTT"
+            ],
+            "default": "Generic"
+          },
+          "description": {
+            "type": "string",
+            "description": "Device description"
+          },
+          "credentials": {
+            "type": "object",
+            "description": "Device credentials"
+          },
+          "server": {
+            "type": "string",
+            "description": "Thinger.io server (default: api.thinger.io)"
+          }
+        },
+        "required": [
+          "username",
+          "device_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_device",
+      "description": "Delete an IoT device from Thinger.io. This permanently removes the device and its data.",
+      "method": "DELETE",
+      "path": "/delete-device",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Thinger.io username"
+          },
+          "device_id": {
+            "type": "string",
+            "description": "Device ID to delete"
+          },
+          "server": {
+            "type": "string",
+            "description": "Thinger.io server (default: api.thinger.io)"
+          }
+        },
+        "required": [
+          "username",
+          "device_id"
+        ]
+      }
+    },
+    {
+      "name": "call_device",
+      "description": "Call a device resource/API in Thinger.io. Use GET to read sensor values, POST to control actuators or send commands.",
+      "method": "GET",
+      "path": "/call-device",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Thinger.io username"
+          },
+          "device_id": {
+            "type": "string",
+            "description": "Device ID"
+          },
+          "resource": {
+            "type": "string",
+            "description": "Resource name (e.g., 'led', 'temperature', 'relay')"
+          },
+          "method": {
+            "type": "string",
+            "description": "HTTP method: GET (read) or POST (write)",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "GET"
+          },
+          "data": {
+            "type": "object",
+            "description": "Data to send (for POST requests)"
+          },
+          "server": {
+            "type": "string",
+            "description": "Thinger.io server (default: api.thinger.io)"
+          }
+        },
+        "required": [
+          "username",
+          "device_id",
+          "resource"
+        ]
+      }
+    },
+    {
+      "name": "list_buckets",
+      "description": "List all data buckets in Thinger.io. Data buckets store time-series data from devices for analytics and visualization.",
+      "method": "GET",
+      "path": "/list-buckets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Thinger.io username"
+          },
+          "server": {
+            "type": "string",
+            "description": "Thinger.io server (default: api.thinger.io)"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "read_bucket",
+      "description": "Read historical data from a Thinger.io data bucket. Returns time-series sensor readings for analysis.",
+      "method": "GET",
+      "path": "/read-bucket",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Thinger.io username"
+          },
+          "bucket_id": {
+            "type": "string",
+            "description": "Bucket ID"
+          },
+          "items": {
+            "type": "number",
+            "description": "Number of items to retrieve (default: 100)",
+            "default": 100
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort order",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          },
+          "server": {
+            "type": "string",
+            "description": "Thinger.io server (default: api.thinger.io)"
+          }
+        },
+        "required": [
+          "username",
+          "bucket_id"
+        ]
+      }
+    },
+    {
+      "name": "write_bucket",
+      "description": "Write data to a Thinger.io data bucket. Use to store sensor readings or custom metrics.",
+      "method": "GET",
+      "path": "/write-bucket",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Thinger.io username"
+          },
+          "bucket_id": {
+            "type": "string",
+            "description": "Bucket ID"
+          },
+          "data": {
+            "type": "object",
+            "description": "Data to write (key-value pairs)"
+          },
+          "timestamp": {
+            "type": "number",
+            "description": "Unix timestamp (optional, defaults to now)"
+          },
+          "server": {
+            "type": "string",
+            "description": "Thinger.io server (default: api.thinger.io)"
+          }
+        },
+        "required": [
+          "username",
+          "bucket_id",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "list_dashboards",
+      "description": "List all dashboards in Thinger.io. Dashboards provide visual representations of device data.",
+      "method": "GET",
+      "path": "/list-dashboards",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Thinger.io username"
+          },
+          "server": {
+            "type": "string",
+            "description": "Thinger.io server (default: api.thinger.io)"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "get_dashboard",
+      "description": "Get details of a specific dashboard from Thinger.io including widgets and configuration.",
+      "method": "GET",
+      "path": "/get-dashboard",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Thinger.io username"
+          },
+          "dashboard_id": {
+            "type": "string",
+            "description": "Dashboard ID"
+          },
+          "server": {
+            "type": "string",
+            "description": "Thinger.io server (default: api.thinger.io)"
+          }
+        },
+        "required": [
+          "username",
+          "dashboard_id"
+        ]
+      }
+    },
+    {
+      "name": "list_endpoints",
+      "description": "List all endpoints (webhooks/integrations) in Thinger.io. Endpoints enable integration with external services.",
+      "method": "GET",
+      "path": "/list-endpoints",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Thinger.io username"
+          },
+          "server": {
+            "type": "string",
+            "description": "Thinger.io server (default: api.thinger.io)"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "call_endpoint",
+      "description": "Call/trigger a Thinger.io endpoint (webhook). Use to trigger integrations or external services.",
+      "method": "GET",
+      "path": "/call-endpoint",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Thinger.io username"
+          },
+          "endpoint_id": {
+            "type": "string",
+            "description": "Endpoint ID to call"
+          },
+          "data": {
+            "type": "object",
+            "description": "Data to send to the endpoint"
+          },
+          "server": {
+            "type": "string",
+            "description": "Thinger.io server (default: api.thinger.io)"
+          }
+        },
+        "required": [
+          "username",
+          "endpoint_id"
+        ]
+      }
+    }
+  ]
+}

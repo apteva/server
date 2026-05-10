@@ -1,0 +1,84 @@
+{
+  "slug": "namespace-cloud",
+  "name": "Namespace",
+  "description": "Ephemeral remote dev environments + Docker builders + ephemeral Kubernetes (per-second billing). Build instances boot in under a second and have persistent BuildKit cache. The control plane API is gRPC-Web (Buf Connect) at api.namespace.so; this integration covers workload run/build/list operations.",
+  "logo": "https://www.google.com/s2/favicons?domain=namespace.so&sz=128",
+  "categories": ["build", "ci", "buildkit", "docker", "kubernetes", "devops"],
+  "base_url": "https://api.namespaceapis.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Token", "description": "Generate via `nsc auth exchange-github-token` or from cloud.namespace.so → Tokens", "required": true, "type": "password" },
+      { "name": "workspace_id", "label": "Workspace ID", "description": "Namespace workspace this token is scoped to (nscr.io/<workspace>)", "required": true, "type": "text" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_instances",
+      "description": "List active workload instances (ephemeral environments).",
+      "method": "POST",
+      "path": "/nsl.vm.api.VMService/ListInstances",
+      "input_schema": {
+        "type": "object",
+        "properties": { "include_terminated": { "type": "boolean" } }
+      }
+    },
+    {
+      "name": "create_instance",
+      "description": "Boot an ephemeral instance (sub-second cold start). Args: machine_type (e.g. 2x4, 4x8, 8x16), os (ubuntu-22.04), features? (docker, kubernetes, github-runner), shape?.",
+      "method": "POST",
+      "path": "/nsl.vm.api.VMService/CreateInstance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "machine_type": { "type": "string" },
+          "os": { "type": "string" },
+          "features": { "type": "array", "items": { "type": "string" } },
+          "shape": { "type": "object" },
+          "duration": { "type": "string" }
+        },
+        "required": ["machine_type"]
+      }
+    },
+    {
+      "name": "destroy_instance",
+      "description": "Terminate an instance immediately. Args: instance_id.",
+      "method": "POST",
+      "path": "/nsl.vm.api.VMService/DestroyInstance",
+      "input_schema": {
+        "type": "object",
+        "properties": { "instance_id": { "type": "string" } },
+        "required": ["instance_id"]
+      }
+    },
+    {
+      "name": "list_builders",
+      "description": "List remote BuildKit builders attached to the workspace.",
+      "method": "POST",
+      "path": "/nsl.cloud.builders.api.BuildersService/ListBuilders",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "ensure_buildkit",
+      "description": "Get or create a BuildKit builder for an architecture. Args: platform (linux/amd64 | linux/arm64), region?.",
+      "method": "POST",
+      "path": "/nsl.cloud.builders.api.BuildersService/EnsureBuilder",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": { "type": "string" },
+          "region": { "type": "string" }
+        },
+        "required": ["platform"]
+      }
+    },
+    {
+      "name": "list_clusters",
+      "description": "List ephemeral Kubernetes clusters in the workspace.",
+      "method": "POST",
+      "path": "/nsl.k3s.api.K3sService/ListClusters",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

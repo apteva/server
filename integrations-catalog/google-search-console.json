@@ -1,0 +1,126 @@
+{
+  "slug": "google-search-console",
+  "name": "Google Search Console",
+  "description": "Google's official Search Console API — query/click/impression analytics for sites you own, sitemap management, URL inspection. The first-party signal of how Google sees your site.",
+  "logo": "https://www.google.com/s2/favicons?domain=search.google.com&sz=128",
+  "categories": ["seo", "google", "search-analytics", "sitemaps", "url-inspection", "webmaster"],
+  "base_url": "https://searchconsole.googleapis.com",
+  "auth": {
+    "types": ["oauth2", "bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "OAuth Access Token", "description": "Scope: https://www.googleapis.com/auth/webmasters.readonly (or webmasters for write)" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_sites",
+      "description": "List sites verified for the authenticated user",
+      "method": "GET",
+      "path": "/webmasters/v3/sites",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_site",
+      "description": "Get a verified site",
+      "method": "GET",
+      "path": "/webmasters/v3/sites/{siteUrl}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "siteUrl": { "type": "string", "description": "URL-encoded property, e.g. sc-domain%3Aexample.com" } },
+        "required": ["siteUrl"]
+      }
+    },
+    {
+      "name": "query_search_analytics",
+      "description": "Query search analytics — clicks, impressions, CTR, position by query/page/country/device/date",
+      "method": "POST",
+      "path": "/webmasters/v3/sites/{siteUrl}/searchAnalytics/query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "siteUrl": { "type": "string" },
+          "startDate": { "type": "string", "description": "YYYY-MM-DD" },
+          "endDate": { "type": "string", "description": "YYYY-MM-DD" },
+          "dimensions": { "type": "array", "description": "['query','page','country','device','date','searchAppearance']" },
+          "type": { "type": "string", "description": "web|image|video|news|discover|googleNews" },
+          "rowLimit": { "type": "number" },
+          "startRow": { "type": "number" },
+          "dimensionFilterGroups": { "type": "array" }
+        },
+        "required": ["siteUrl", "startDate", "endDate"]
+      }
+    },
+    {
+      "name": "list_sitemaps",
+      "description": "List sitemaps submitted for a site",
+      "method": "GET",
+      "path": "/webmasters/v3/sites/{siteUrl}/sitemaps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "siteUrl": { "type": "string" },
+          "sitemapIndex": { "type": "string" }
+        },
+        "required": ["siteUrl"]
+      }
+    },
+    {
+      "name": "get_sitemap",
+      "description": "Get a sitemap submission",
+      "method": "GET",
+      "path": "/webmasters/v3/sites/{siteUrl}/sitemaps/{feedpath}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "siteUrl": { "type": "string" },
+          "feedpath": { "type": "string", "description": "URL-encoded sitemap URL" }
+        },
+        "required": ["siteUrl", "feedpath"]
+      }
+    },
+    {
+      "name": "submit_sitemap",
+      "description": "Submit (or resubmit) a sitemap",
+      "method": "PUT",
+      "path": "/webmasters/v3/sites/{siteUrl}/sitemaps/{feedpath}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "siteUrl": { "type": "string" },
+          "feedpath": { "type": "string" }
+        },
+        "required": ["siteUrl", "feedpath"]
+      }
+    },
+    {
+      "name": "delete_sitemap",
+      "description": "Delete a sitemap submission",
+      "method": "DELETE",
+      "path": "/webmasters/v3/sites/{siteUrl}/sitemaps/{feedpath}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "siteUrl": { "type": "string" },
+          "feedpath": { "type": "string" }
+        },
+        "required": ["siteUrl", "feedpath"]
+      }
+    },
+    {
+      "name": "inspect_url",
+      "description": "URL Inspection — Google index status, last crawl, mobile usability, AMP, rich results",
+      "method": "POST",
+      "path": "/v1/urlInspection/index:inspect",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inspectionUrl": { "type": "string" },
+          "siteUrl": { "type": "string" },
+          "languageCode": { "type": "string" }
+        },
+        "required": ["inspectionUrl", "siteUrl"]
+      }
+    }
+  ]
+}

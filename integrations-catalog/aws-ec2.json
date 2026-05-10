@@ -1,0 +1,200 @@
+{
+  "slug": "aws-ec2",
+  "name": "AWS EC2",
+  "description": "MCP server for Amazon EC2 compute instances, security groups, volumes, and elastic IPs",
+  "logo": "https://www.google.com/s2/favicons?domain=aws.amazon.com&sz=128",
+  "categories": [
+    "aws",
+    "ec2",
+    "compute",
+    "instances",
+    "cloud",
+    "virtual-machines"
+  ],
+  "base_url": "https://ec2.{{region}}.amazonaws.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "access_key_id",
+        "label": "Access_key_id",
+        "description": "Your AWS Access Key ID"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "Secret_access_key",
+        "description": "Your AWS Secret Access Key"
+      },
+      {
+        "name": "region",
+        "label": "Region",
+        "description": "AWS Region (e.g., us-east-1)"
+      },
+      {
+        "name": "session_token",
+        "label": "Session_token",
+        "description": "Temporary session token (for temporary credentials)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_instance",
+      "description": "Create a new EC2 instance",
+      "method": "POST",
+      "path": "/create-instance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image_id": {
+            "type": "string",
+            "description": "AMI ID to launch"
+          },
+          "instance_type": {
+            "type": "string",
+            "description": "EC2 instance type",
+            "default": "t2.micro"
+          },
+          "key_name": {
+            "type": "string",
+            "description": "Name of the key pair"
+          },
+          "security_group_ids": {
+            "type": "array",
+            "description": "Security group IDs",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "image_id"
+        ]
+      }
+    },
+    {
+      "name": "list_instances",
+      "description": "List EC2 instances in the account",
+      "method": "GET",
+      "path": "/list-instances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instance_ids": {
+            "type": "array",
+            "description": "Specific instance IDs to list",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "start_instance",
+      "description": "Start a stopped EC2 instance",
+      "method": "GET",
+      "path": "/start-instance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instance_id": {
+            "type": "string",
+            "description": "Instance ID to start"
+          }
+        },
+        "required": [
+          "instance_id"
+        ]
+      }
+    },
+    {
+      "name": "stop_instance",
+      "description": "Stop a running EC2 instance",
+      "method": "GET",
+      "path": "/stop-instance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instance_id": {
+            "type": "string",
+            "description": "Instance ID to stop"
+          }
+        },
+        "required": [
+          "instance_id"
+        ]
+      }
+    },
+    {
+      "name": "terminate_instance",
+      "description": "Permanently terminate an EC2 instance",
+      "method": "GET",
+      "path": "/terminate-instance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instance_id": {
+            "type": "string",
+            "description": "Instance ID to terminate"
+          }
+        },
+        "required": [
+          "instance_id"
+        ]
+      }
+    },
+    {
+      "name": "create_security_group",
+      "description": "Create a new EC2 security group",
+      "method": "POST",
+      "path": "/create-security-group",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "group_name": {
+            "type": "string",
+            "description": "Name of the security group"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description of the security group"
+          },
+          "vpc_id": {
+            "type": "string",
+            "description": "VPC ID (optional)"
+          }
+        },
+        "required": [
+          "group_name",
+          "description"
+        ]
+      }
+    },
+    {
+      "name": "allocate_elastic_ip",
+      "description": "Allocate a new Elastic IP address",
+      "method": "GET",
+      "path": "/allocate-elastic-ip",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain type",
+            "enum": [
+              "vpc",
+              "standard"
+            ],
+            "default": "vpc"
+          }
+        }
+      }
+    }
+  ]
+}

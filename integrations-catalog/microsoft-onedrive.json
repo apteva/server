@@ -1,0 +1,380 @@
+{
+  "slug": "microsoft-onedrive",
+  "name": "Microsoft OneDrive",
+  "description": "Microsoft OneDrive (personal + business) and SharePoint document libraries via Microsoft Graph. Browse drives and folders, read/upload/download files, search, and manage sharing.",
+  "logo": "https://www.google.com/s2/favicons?domain=onedrive.com&sz=128",
+  "categories": [
+    "storage",
+    "files",
+    "microsoft",
+    "onedrive",
+    "sharepoint",
+    "office",
+    "cloud"
+  ],
+  "base_url": "https://graph.microsoft.com/v1.0",
+  "auth": {
+    "types": [
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+      "scopes": [
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+        "User.Read",
+        "Files.Read",
+        "Files.ReadWrite",
+        "Files.ReadWrite.All",
+        "Sites.Read.All"
+      ],
+      "client_id_required": true,
+      "pkce": true,
+      "extra_authorize_params": {
+        "prompt": "consent"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "get_my_drive",
+      "description": "Get the authenticated user's default OneDrive — driveId, quota (used / total / remaining), drive type.",
+      "method": "GET",
+      "path": "/me/drive",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_drives",
+      "description": "List all drives accessible to the authenticated user (personal OneDrive + every SharePoint document library they can see).",
+      "method": "GET",
+      "path": "/me/drives",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_root_children",
+      "description": "List items at the root of the user's OneDrive.",
+      "method": "GET",
+      "path": "/me/drive/root/children",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "$top": {
+            "type": "integer",
+            "description": "Page size."
+          },
+          "$skip": {
+            "type": "integer"
+          },
+          "$orderby": {
+            "type": "string",
+            "description": "Sort field (e.g. 'name', 'lastModifiedDateTime desc')."
+          },
+          "$filter": {
+            "type": "string",
+            "description": "OData filter (e.g. \"folder ne null\")."
+          },
+          "$select": {
+            "type": "string",
+            "description": "Comma-separated fields to include."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_folder_children",
+      "description": "List items inside a folder by item ID. Use list_root_children for the drive root, get_item_by_path for a known path, or this for a folder you already have an ID for.",
+      "method": "GET",
+      "path": "/me/drive/items/{item_id}/children",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "description": "Drive item ID of the folder."
+          },
+          "$top": {
+            "type": "integer"
+          },
+          "$skip": {
+            "type": "integer"
+          },
+          "$orderby": {
+            "type": "string"
+          },
+          "$filter": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id"
+        ]
+      }
+    },
+    {
+      "name": "get_item",
+      "description": "Get drive item metadata by ID — name, size, mime type, parent reference, web URL, created/modified times.",
+      "method": "GET",
+      "path": "/me/drive/items/{item_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string"
+          },
+          "$expand": {
+            "type": "string",
+            "description": "Embed associations (e.g. 'thumbnails', 'children', 'permissions')."
+          }
+        },
+        "required": [
+          "item_id"
+        ]
+      }
+    },
+    {
+      "name": "get_item_by_path",
+      "description": "Get a drive item by its path relative to the drive root (e.g. 'Documents/report.docx'). Avoids the list-then-find dance.",
+      "method": "GET",
+      "path": "/me/drive/root:/{path}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path relative to drive root, no leading slash."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "download_item",
+      "description": "Download the binary content of a drive item. Returns the file bytes (or a redirect to a short-lived download URL).",
+      "method": "GET",
+      "path": "/me/drive/items/{item_id}/content",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id"
+        ]
+      }
+    },
+    {
+      "name": "upload_small_file",
+      "description": "Upload (or replace) a small file (≤4 MB) at a given path. The request body should be the raw file bytes; the endpoint replaces or creates the item at the supplied path. For larger files use the Graph upload-session flow externally.",
+      "method": "PUT",
+      "path": "/me/drive/root:/{path}:/content",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Target path under the drive root (e.g. 'Documents/notes.txt')."
+          },
+          "content": {
+            "type": "string",
+            "description": "File contents. Raw bytes or base64 depending on executor handling. Max 4 MB."
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "create_folder",
+      "description": "Create a new folder. Default conflict behavior is 'rename' (Graph appends ' 1', ' 2', etc).",
+      "method": "POST",
+      "path": "/me/drive/items/{parent_id}/children",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "parent_id": {
+            "type": "string",
+            "description": "Parent folder item ID. Use 'root' for the drive root."
+          },
+          "name": {
+            "type": "string"
+          },
+          "folder": {
+            "type": "object",
+            "description": "Empty object marker required by Graph: pass {}."
+          },
+          "@microsoft.graph.conflictBehavior": {
+            "type": "string",
+            "enum": [
+              "rename",
+              "replace",
+              "fail"
+            ]
+          }
+        },
+        "required": [
+          "parent_id",
+          "name",
+          "folder"
+        ]
+      }
+    },
+    {
+      "name": "delete_item",
+      "description": "Delete a drive item (file or folder). Items go to the user's recycle bin and can be restored from the OneDrive UI for 30 days (consumer) / 93 days (business).",
+      "method": "DELETE",
+      "path": "/me/drive/items/{item_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id"
+        ]
+      }
+    },
+    {
+      "name": "move_or_rename_item",
+      "description": "Move and/or rename a drive item by patching its parentReference and/or name. Pass either name (rename), parentReference.id (move), or both.",
+      "method": "PATCH",
+      "path": "/me/drive/items/{item_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "New name (omit if only moving)."
+          },
+          "parentReference": {
+            "type": "object",
+            "description": "{ id: '<new_parent_id>' } to move into a different folder."
+          }
+        },
+        "required": [
+          "item_id"
+        ]
+      }
+    },
+    {
+      "name": "copy_item",
+      "description": "Asynchronously copy an item to another folder. Returns 202 Accepted with a Location header for polling progress.",
+      "method": "POST",
+      "path": "/me/drive/items/{item_id}/copy",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "Optional new name for the copy."
+          },
+          "parentReference": {
+            "type": "object",
+            "description": "{ driveId, id } of the destination folder."
+          }
+        },
+        "required": [
+          "item_id",
+          "parentReference"
+        ]
+      }
+    },
+    {
+      "name": "search_drive",
+      "description": "Search across the user's drive by name and content. Returns matching items.",
+      "method": "GET",
+      "path": "/me/drive/root/search(q='{q}')",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search query (substring of name or file content)."
+          },
+          "$top": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "q"
+        ]
+      }
+    },
+    {
+      "name": "create_share_link",
+      "description": "Create a sharing link for an item — view, edit, or embed. Optionally restrict scope to organization users.",
+      "method": "POST",
+      "path": "/me/drive/items/{item_id}/createLink",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "view",
+              "edit",
+              "embed"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "anonymous",
+              "organization"
+            ]
+          },
+          "password": {
+            "type": "string",
+            "description": "Business / SharePoint only."
+          },
+          "expirationDateTime": {
+            "type": "string",
+            "description": "RFC-3339 expiry."
+          }
+        },
+        "required": [
+          "item_id",
+          "type"
+        ]
+      }
+    }
+  ]
+}

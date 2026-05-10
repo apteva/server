@@ -1,0 +1,283 @@
+{
+  "slug": "wistia",
+  "name": "Wistia",
+  "description": "MCP server for Wistia video hosting operations - projects, media, and analytics",
+  "logo": "https://www.google.com/s2/favicons?domain=wistia.com&sz=128",
+  "categories": [
+    "video",
+    "wistia",
+    "hosting",
+    "analytics",
+    "media"
+  ],
+  "base_url": "https://api.wistia.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_projects",
+      "description": "List projects from Wistia",
+      "method": "GET",
+      "path": "/list-projects",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "perPage": {
+            "type": "number",
+            "description": "Results per page",
+            "default": 100
+          },
+          "sortBy": {
+            "type": "string",
+            "description": "Sort field"
+          },
+          "sortDirection": {
+            "type": "string",
+            "description": "Sort direction (asc, desc)"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_project",
+      "description": "Get a specific project from Wistia",
+      "method": "GET",
+      "path": "/get-project",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Project ID"
+          }
+        },
+        "required": [
+          "projectId"
+        ]
+      }
+    },
+    {
+      "name": "create_project",
+      "description": "Create a new project in Wistia",
+      "method": "POST",
+      "path": "/create-project",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Project name"
+          },
+          "adminEmail": {
+            "type": "string",
+            "description": "Admin email"
+          },
+          "anonymousCanUpload": {
+            "type": "boolean",
+            "description": "Allow anonymous uploads"
+          },
+          "anonymousCanDownload": {
+            "type": "boolean",
+            "description": "Allow anonymous downloads"
+          },
+          "isPublic": {
+            "type": "boolean",
+            "description": "Make project public"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_medias",
+      "description": "List media files from Wistia",
+      "method": "GET",
+      "path": "/list-medias",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Filter by project ID"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "perPage": {
+            "type": "number",
+            "description": "Results per page",
+            "default": 100
+          },
+          "sortBy": {
+            "type": "string",
+            "description": "Sort field"
+          },
+          "sortDirection": {
+            "type": "string",
+            "description": "Sort direction"
+          },
+          "type": {
+            "type": "string",
+            "description": "Media type filter"
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by name"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_media",
+      "description": "Get a specific media from Wistia",
+      "method": "GET",
+      "path": "/get-media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "description": "Media ID"
+          }
+        },
+        "required": [
+          "mediaId"
+        ]
+      }
+    },
+    {
+      "name": "update_media",
+      "description": "Update a media in Wistia",
+      "method": "PUT",
+      "path": "/update-media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "description": "Media ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "New name"
+          },
+          "description": {
+            "type": "string",
+            "description": "New description"
+          },
+          "newStillMediaId": {
+            "type": "string",
+            "description": "New still image media ID"
+          }
+        },
+        "required": [
+          "mediaId"
+        ]
+      }
+    },
+    {
+      "name": "delete_media",
+      "description": "Delete a media from Wistia",
+      "method": "DELETE",
+      "path": "/delete-media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "description": "Media ID"
+          }
+        },
+        "required": [
+          "mediaId"
+        ]
+      }
+    },
+    {
+      "name": "get_stats",
+      "description": "Get stats for a media from Wistia",
+      "method": "GET",
+      "path": "/get-stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "description": "Media ID"
+          }
+        },
+        "required": [
+          "mediaId"
+        ]
+      }
+    },
+    {
+      "name": "list_visitors",
+      "description": "List visitors from Wistia stats",
+      "method": "GET",
+      "path": "/list-visitors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "perPage": {
+            "type": "number",
+            "description": "Results per page",
+            "default": 100
+          },
+          "search": {
+            "type": "string",
+            "description": "Search query"
+          },
+          "filterEmail": {
+            "type": "string",
+            "description": "Filter by email"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_visitor",
+      "description": "Get a specific visitor from Wistia stats",
+      "method": "GET",
+      "path": "/get-visitor",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "visitorKey": {
+            "type": "string",
+            "description": "Visitor key"
+          }
+        },
+        "required": [
+          "visitorKey"
+        ]
+      }
+    }
+  ]
+}

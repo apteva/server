@@ -1,0 +1,177 @@
+{
+  "slug": "asana",
+  "name": "Asana",
+  "description": "Asana integration for work management with projects, tasks, and team collaboration",
+  "logo": "https://www.google.com/s2/favicons?domain=asana.com&sz=128",
+  "categories": [
+    "project-management",
+    "tasks",
+    "asana",
+    "collaboration",
+    "workspaces"
+  ],
+  "base_url": "https://app.asana.com/api/1.0",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_workspaces",
+      "description": "List all workspaces the user has access to",
+      "method": "GET",
+      "path": "/list-workspaces",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_projects",
+      "description": "List projects in a workspace",
+      "method": "GET",
+      "path": "/list-projects",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace GID"
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Include archived projects"
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "list_tasks",
+      "description": "List tasks in a project",
+      "method": "GET",
+      "path": "/list-tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "completed_since": {
+            "type": "string",
+            "description": "Filter completed tasks since date"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_task",
+      "description": "Create a new task",
+      "method": "POST",
+      "path": "/create-task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace GID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Task name"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Task description"
+          },
+          "due_on": {
+            "type": "string",
+            "description": "Due date (YYYY-MM-DD)"
+          },
+          "assignee": {
+            "type": "string",
+            "description": "Assignee GID or email"
+          },
+          "projects": {
+            "type": "array",
+            "description": "Project GIDs to add task to"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_task",
+      "description": "Update an existing task",
+      "method": "PUT",
+      "path": "/update-task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "Task GID"
+          },
+          "name": {
+            "type": "string",
+            "description": "New task name"
+          },
+          "notes": {
+            "type": "string",
+            "description": "New description"
+          },
+          "due_on": {
+            "type": "string",
+            "description": "New due date"
+          },
+          "completed": {
+            "type": "boolean",
+            "description": "Mark as complete"
+          },
+          "assignee": {
+            "type": "string",
+            "description": "New assignee"
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      }
+    },
+    {
+      "name": "add_comment",
+      "description": "Add a comment to a task",
+      "method": "GET",
+      "path": "/add-comment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "Task GID"
+          },
+          "text": {
+            "type": "string",
+            "description": "Comment text"
+          }
+        },
+        "required": [
+          "task_id",
+          "text"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,2403 @@
+{
+  "slug": "kalio",
+  "name": "Kalio",
+  "description": "Kalio — courses, communities, spaces, posts, enrollments, lessons, certificates, reviews, quizzes, assignments, and memberships in one platform",
+  "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+  "categories": [
+    "learning",
+    "courses",
+    "communities",
+    "education",
+    "enrollment",
+    "certificates",
+    "lms",
+    "membership",
+    "spaces",
+    "posts"
+  ],
+  "base_url": "https://learning.schwartzindustries.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "learning_list_courses",
+      "description": "List courses with filtering by category, instructor, status, and pagination",
+      "method": "GET",
+      "path": "/courses",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category_id": {
+            "type": "integer",
+            "description": "Filter by category ID"
+          },
+          "instructor_id": {
+            "type": "integer",
+            "description": "Filter by instructor ID"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "published",
+              "archived"
+            ],
+            "description": "Filter by course status"
+          },
+          "is_featured": {
+            "type": "boolean",
+            "description": "Filter featured courses only"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search courses by name"
+          },
+          "sort": {
+            "type": "string",
+            "default": "created_at",
+            "description": "Sort field"
+          },
+          "order": {
+            "type": "string",
+            "default": "desc",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "description": "Sort order"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page number"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Results per page"
+          }
+        }
+      }
+    },
+    {
+      "name": "learning_create_course",
+      "description": "Create a new course with title, description, pricing, and configuration",
+      "method": "POST",
+      "path": "/courses",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Course name"
+          },
+          "slug": {
+            "type": "string",
+            "description": "URL-friendly identifier"
+          },
+          "description": {
+            "type": "string",
+            "description": "Course description"
+          },
+          "tagline": {
+            "type": "string",
+            "description": "Short tagline"
+          },
+          "thumbnail_url": {
+            "type": "string",
+            "description": "Thumbnail image URL"
+          },
+          "promo_video_url": {
+            "type": "string",
+            "description": "Promotional video URL"
+          },
+          "course_type": {
+            "type": "string",
+            "default": "self_paced",
+            "enum": [
+              "self_paced",
+              "live",
+              "cohort"
+            ],
+            "description": "Course delivery type"
+          },
+          "difficulty_level": {
+            "type": "string",
+            "default": "beginner",
+            "enum": [
+              "beginner",
+              "intermediate",
+              "advanced"
+            ],
+            "description": "Difficulty level"
+          },
+          "estimated_duration_minutes": {
+            "type": "integer",
+            "description": "Estimated course duration in minutes"
+          },
+          "is_free": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether the course is free"
+          },
+          "is_featured": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to feature this course"
+          },
+          "requires_approval": {
+            "type": "boolean",
+            "default": false,
+            "description": "Require approval for enrollment"
+          },
+          "drip_enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable drip content scheduling"
+          },
+          "category_id": {
+            "type": "integer",
+            "description": "Category ID"
+          },
+          "instructor_id": {
+            "type": "integer",
+            "description": "Instructor user ID"
+          },
+          "certificate_enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable certificates on completion"
+          },
+          "certificate_template_id": {
+            "type": "integer",
+            "description": "Certificate template ID"
+          },
+          "passing_grade_percent": {
+            "type": "integer",
+            "default": 70,
+            "description": "Passing grade percentage"
+          },
+          "product_id": {
+            "type": "integer",
+            "description": "Associated product ID for pricing"
+          },
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Course keywords/tags"
+          },
+          "status": {
+            "type": "string",
+            "default": "draft",
+            "enum": [
+              "draft",
+              "published",
+              "archived"
+            ],
+            "description": "Initial status"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "learning_get_course",
+      "description": "Get course details by ID, optionally including sections and instructor info",
+      "method": "GET",
+      "path": "/courses/{course_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "course_id": {
+            "type": "integer",
+            "description": "Course ID"
+          },
+          "include_sections": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include sections and lessons"
+          },
+          "include_instructor": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include instructor info"
+          }
+        },
+        "required": [
+          "course_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_get_course_by_slug",
+      "description": "Get course details by URL slug",
+      "method": "GET",
+      "path": "/courses/by-slug/{slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Course URL slug"
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      }
+    },
+    {
+      "name": "learning_update_course",
+      "description": "Update course details like name, description, status, pricing, etc.",
+      "method": "PUT",
+      "path": "/courses/{course_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "course_id": {
+            "type": "integer",
+            "description": "Course ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated course name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated description"
+          },
+          "tagline": {
+            "type": "string",
+            "description": "Updated tagline"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "published",
+              "archived"
+            ],
+            "description": "Updated status"
+          },
+          "is_free": {
+            "type": "boolean",
+            "description": "Whether the course is free"
+          },
+          "is_featured": {
+            "type": "boolean",
+            "description": "Whether to feature this course"
+          },
+          "difficulty_level": {
+            "type": "string",
+            "enum": [
+              "beginner",
+              "intermediate",
+              "advanced"
+            ],
+            "description": "Updated difficulty"
+          },
+          "thumbnail_url": {
+            "type": "string",
+            "description": "Updated thumbnail URL"
+          },
+          "certificate_enabled": {
+            "type": "boolean",
+            "description": "Enable/disable certificates"
+          }
+        },
+        "required": [
+          "course_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_delete_course",
+      "description": "Soft-delete a course",
+      "method": "DELETE",
+      "path": "/courses/{course_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "course_id": {
+            "type": "integer",
+            "description": "Course ID to delete"
+          }
+        },
+        "required": [
+          "course_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_enroll_in_course",
+      "description": "Enroll current user in a course (shorthand for enrollment-create)",
+      "method": "POST",
+      "path": "/courses/{course_id}/enroll",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "course_id": {
+            "type": "integer",
+            "description": "Course ID to enroll in"
+          }
+        },
+        "required": [
+          "course_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_purchase_course",
+      "description": "Initialize a course purchase with payment processing",
+      "method": "POST",
+      "path": "/courses/{course_id}/purchase",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "course_id": {
+            "type": "integer",
+            "description": "Course ID to purchase"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "User ID making the purchase"
+          },
+          "price_id": {
+            "type": "integer",
+            "description": "Price ID to use"
+          },
+          "discount_code": {
+            "type": "string",
+            "description": "Discount/coupon code"
+          },
+          "customer_email": {
+            "type": "string",
+            "description": "Customer email for receipt"
+          },
+          "return_url": {
+            "type": "string",
+            "description": "URL to redirect after payment"
+          }
+        },
+        "required": [
+          "course_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_complete_purchase",
+      "description": "Complete a course purchase after payment confirmation",
+      "method": "POST",
+      "path": "/purchases/complete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "integer",
+            "description": "Order ID to complete"
+          },
+          "payment_intent_id": {
+            "type": "string",
+            "description": "Stripe payment intent ID"
+          },
+          "payment_status": {
+            "type": "string",
+            "default": "paid",
+            "description": "Payment status"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_get_my_progress",
+      "description": "Get current user's enrollment and progress for a specific course",
+      "method": "GET",
+      "path": "/courses/{course_id}/my-progress",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "course_id": {
+            "type": "integer",
+            "description": "Course ID"
+          }
+        },
+        "required": [
+          "course_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_check_course_access",
+      "description": "Check if a user has access to a course",
+      "method": "GET",
+      "path": "/courses/{course_id}/access",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "course_id": {
+            "type": "integer",
+            "description": "Course ID"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "User ID to check access for"
+          }
+        },
+        "required": [
+          "course_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_create_enrollment",
+      "description": "Enroll a specific user in a course (admin enrollment)",
+      "method": "POST",
+      "path": "/enrollments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "course_id": {
+            "type": "integer",
+            "description": "Course ID"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "User ID to enroll"
+          },
+          "source": {
+            "type": "string",
+            "default": "admin",
+            "enum": [
+              "purchase",
+              "admin",
+              "gift",
+              "scholarship",
+              "subscription"
+            ],
+            "description": "Enrollment source"
+          },
+          "expires_at": {
+            "type": "string",
+            "description": "Enrollment expiration date (ISO 8601)"
+          }
+        },
+        "required": [
+          "course_id",
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_list_enrollments",
+      "description": "List enrollments with filtering by course, user, and status",
+      "method": "GET",
+      "path": "/enrollments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "course_id": {
+            "type": "integer",
+            "description": "Filter by course ID"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "Filter by user ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by enrollment status"
+          },
+          "source": {
+            "type": "string",
+            "description": "Filter by enrollment source"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page number"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Results per page"
+          }
+        }
+      }
+    },
+    {
+      "name": "learning_get_enrollment",
+      "description": "Get enrollment details with progress information",
+      "method": "GET",
+      "path": "/enrollments/{enrollment_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "enrollment_id": {
+            "type": "integer",
+            "description": "Enrollment ID"
+          },
+          "include_progress": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include lesson progress details"
+          }
+        },
+        "required": [
+          "enrollment_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_update_progress",
+      "description": "Update progress for a specific lesson within an enrollment",
+      "method": "POST",
+      "path": "/enrollments/{enrollment_id}/progress",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "enrollment_id": {
+            "type": "integer",
+            "description": "Enrollment ID"
+          },
+          "lesson_id": {
+            "type": "integer",
+            "description": "Lesson ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "Lesson completion status"
+          },
+          "progress_percent": {
+            "type": "number",
+            "description": "Progress percentage (0-100)"
+          },
+          "time_spent_seconds": {
+            "type": "integer",
+            "description": "Time spent on lesson in seconds"
+          },
+          "video_position_seconds": {
+            "type": "number",
+            "description": "Current video position"
+          },
+          "quiz_score": {
+            "type": "number",
+            "description": "Quiz score if applicable"
+          },
+          "quiz_passed": {
+            "type": "boolean",
+            "description": "Whether quiz was passed"
+          }
+        },
+        "required": [
+          "enrollment_id",
+          "lesson_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_complete_enrollment",
+      "description": "Mark an enrollment as completed and optionally issue a certificate",
+      "method": "POST",
+      "path": "/enrollments/{enrollment_id}/complete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "enrollment_id": {
+            "type": "integer",
+            "description": "Enrollment ID"
+          },
+          "issue_certificate": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether to issue a completion certificate"
+          },
+          "final_grade": {
+            "type": "number",
+            "description": "Final grade percentage"
+          },
+          "grade_label": {
+            "type": "string",
+            "description": "Grade label (e.g. 'A', 'Pass')"
+          }
+        },
+        "required": [
+          "enrollment_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_revoke_enrollment",
+      "description": "Revoke a user's enrollment/access to a course",
+      "method": "POST",
+      "path": "/enrollments/{enrollment_id}/revoke",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "enrollment_id": {
+            "type": "integer",
+            "description": "Enrollment ID to revoke"
+          },
+          "reason": {
+            "type": "string",
+            "default": "admin",
+            "description": "Reason for revocation"
+          }
+        },
+        "required": [
+          "enrollment_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_list_sections",
+      "description": "List all sections for a course",
+      "method": "GET",
+      "path": "/courses/{course_id}/sections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "course_id": {
+            "type": "integer",
+            "description": "Course ID"
+          }
+        },
+        "required": [
+          "course_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_create_section",
+      "description": "Create a new section within a course",
+      "method": "POST",
+      "path": "/courses/{course_id}/sections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "course_id": {
+            "type": "integer",
+            "description": "Course ID"
+          },
+          "title": {
+            "type": "string",
+            "description": "Section title"
+          },
+          "slug": {
+            "type": "string",
+            "description": "URL-friendly identifier"
+          },
+          "description": {
+            "type": "string",
+            "description": "Section description"
+          },
+          "position": {
+            "type": "integer",
+            "description": "Display order position"
+          },
+          "is_published": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether section is published"
+          },
+          "drip_delay_days": {
+            "type": "integer",
+            "description": "Days to delay content (drip scheduling)"
+          },
+          "drip_date": {
+            "type": "string",
+            "description": "Specific date for drip release (ISO 8601)"
+          }
+        },
+        "required": [
+          "course_id",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "learning_update_section",
+      "description": "Update a course section",
+      "method": "PUT",
+      "path": "/sections/{section_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "section_id": {
+            "type": "integer",
+            "description": "Section ID to update"
+          },
+          "title": {
+            "type": "string",
+            "description": "Updated title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated description"
+          },
+          "position": {
+            "type": "integer",
+            "description": "Updated position"
+          },
+          "is_published": {
+            "type": "boolean",
+            "description": "Updated publish status"
+          }
+        },
+        "required": [
+          "section_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_delete_section",
+      "description": "Delete a course section and its lessons",
+      "method": "DELETE",
+      "path": "/sections/{section_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "section_id": {
+            "type": "integer",
+            "description": "Section ID to delete"
+          }
+        },
+        "required": [
+          "section_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_list_lessons",
+      "description": "List all lessons for a course",
+      "method": "GET",
+      "path": "/courses/{course_id}/lessons",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "course_id": {
+            "type": "integer",
+            "description": "Course ID"
+          }
+        },
+        "required": [
+          "course_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_list_lessons_by_section",
+      "description": "List lessons within a specific section",
+      "method": "GET",
+      "path": "/sections/{section_id}/lessons",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "section_id": {
+            "type": "integer",
+            "description": "Section ID"
+          }
+        },
+        "required": [
+          "section_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_create_lesson",
+      "description": "Create a new lesson within a section",
+      "method": "POST",
+      "path": "/sections/{section_id}/lessons",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "section_id": {
+            "type": "integer",
+            "description": "Section ID to add lesson to"
+          },
+          "title": {
+            "type": "string",
+            "description": "Lesson title"
+          },
+          "slug": {
+            "type": "string",
+            "description": "URL-friendly identifier"
+          },
+          "content": {
+            "type": "string",
+            "description": "Lesson content (HTML or markdown)"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "video",
+              "text",
+              "quiz",
+              "assignment",
+              "live"
+            ],
+            "description": "Lesson type"
+          },
+          "duration_minutes": {
+            "type": "integer",
+            "description": "Estimated duration in minutes"
+          },
+          "position": {
+            "type": "integer",
+            "description": "Display order within section"
+          },
+          "is_published": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether lesson is published"
+          }
+        },
+        "required": [
+          "section_id",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "learning_get_lesson",
+      "description": "Get lesson details with content and attachments",
+      "method": "GET",
+      "path": "/lessons/{lesson_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lesson_id": {
+            "type": "integer",
+            "description": "Lesson ID"
+          },
+          "include_attachments": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include lesson attachments"
+          }
+        },
+        "required": [
+          "lesson_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_update_lesson",
+      "description": "Update lesson content, title, or settings",
+      "method": "PUT",
+      "path": "/lessons/{lesson_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lesson_id": {
+            "type": "integer",
+            "description": "Lesson ID to update"
+          },
+          "title": {
+            "type": "string",
+            "description": "Updated title"
+          },
+          "content": {
+            "type": "string",
+            "description": "Updated content"
+          },
+          "type": {
+            "type": "string",
+            "description": "Updated lesson type"
+          },
+          "duration_minutes": {
+            "type": "integer",
+            "description": "Updated duration"
+          },
+          "position": {
+            "type": "integer",
+            "description": "Updated position"
+          },
+          "is_published": {
+            "type": "boolean",
+            "description": "Updated publish status"
+          }
+        },
+        "required": [
+          "lesson_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_delete_lesson",
+      "description": "Delete a lesson",
+      "method": "DELETE",
+      "path": "/lessons/{lesson_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lesson_id": {
+            "type": "integer",
+            "description": "Lesson ID to delete"
+          }
+        },
+        "required": [
+          "lesson_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_create_lesson_comment",
+      "description": "Add a comment to a lesson",
+      "method": "POST",
+      "path": "/lessons/{lesson_id}/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lesson_id": {
+            "type": "integer",
+            "description": "Lesson ID"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "Commenting user ID"
+          },
+          "body": {
+            "type": "string",
+            "description": "Comment text"
+          },
+          "parent_id": {
+            "type": "integer",
+            "description": "Parent comment ID for replies"
+          }
+        },
+        "required": [
+          "lesson_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "learning_list_lesson_comments",
+      "description": "List comments on a lesson",
+      "method": "GET",
+      "path": "/lessons/{lesson_id}/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lesson_id": {
+            "type": "integer",
+            "description": "Lesson ID"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page number"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Results per page"
+          }
+        },
+        "required": [
+          "lesson_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_list_certificates",
+      "description": "List certificates with filtering by user, course, and revocation status",
+      "method": "GET",
+      "path": "/certificates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "description": "Filter by user ID"
+          },
+          "course_id": {
+            "type": "integer",
+            "description": "Filter by course ID"
+          },
+          "is_revoked": {
+            "type": "boolean",
+            "description": "Filter by revocation status"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page number"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Results per page"
+          }
+        }
+      }
+    },
+    {
+      "name": "learning_get_certificate",
+      "description": "Get certificate details by ID, UUID, or verification code",
+      "method": "GET",
+      "path": "/certificates/{certificate_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "certificate_id": {
+            "type": "integer",
+            "description": "Certificate ID"
+          }
+        },
+        "required": [
+          "certificate_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_verify_certificate",
+      "description": "Verify a certificate's authenticity by verification code (public endpoint)",
+      "method": "GET",
+      "path": "/certificates/verify",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Certificate verification code"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      }
+    },
+    {
+      "name": "learning_revoke_certificate",
+      "description": "Revoke a certificate",
+      "method": "POST",
+      "path": "/certificates/{certificate_id}/revoke",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "certificate_id": {
+            "type": "integer",
+            "description": "Certificate ID to revoke"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason for revocation"
+          }
+        },
+        "required": [
+          "certificate_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_create_certificate_template",
+      "description": "Create a certificate template with custom HTML/CSS design",
+      "method": "POST",
+      "path": "/certificate-templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Template name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Template description"
+          },
+          "html_template": {
+            "type": "string",
+            "description": "HTML template with variable placeholders"
+          },
+          "css_styles": {
+            "type": "string",
+            "description": "CSS styles for the certificate"
+          },
+          "width_px": {
+            "type": "integer",
+            "default": 1056,
+            "description": "Certificate width in pixels"
+          },
+          "height_px": {
+            "type": "integer",
+            "default": 816,
+            "description": "Certificate height in pixels"
+          },
+          "orientation": {
+            "type": "string",
+            "default": "landscape",
+            "enum": [
+              "landscape",
+              "portrait"
+            ],
+            "description": "Certificate orientation"
+          },
+          "background_url": {
+            "type": "string",
+            "description": "Background image URL"
+          },
+          "background_color": {
+            "type": "string",
+            "description": "Background color"
+          },
+          "is_default": {
+            "type": "boolean",
+            "default": false,
+            "description": "Set as default template"
+          }
+        },
+        "required": [
+          "name",
+          "html_template"
+        ]
+      }
+    },
+    {
+      "name": "learning_list_certificate_templates",
+      "description": "List available certificate templates",
+      "method": "GET",
+      "path": "/certificate-templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "is_active": {
+            "type": "boolean",
+            "description": "Filter by active status"
+          }
+        }
+      }
+    },
+    {
+      "name": "learning_list_communities",
+      "description": "List communities accessible to the user with filtering",
+      "method": "GET",
+      "path": "/communities",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "description": "Filter by visibility"
+          },
+          "access_type": {
+            "type": "string",
+            "enum": [
+              "free",
+              "paid"
+            ],
+            "description": "Filter by access type"
+          },
+          "is_featured": {
+            "type": "boolean",
+            "description": "Filter featured communities"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search by name"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Results per page"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          },
+          "orderBy": {
+            "type": "string",
+            "default": "created_at:desc",
+            "description": "Sort field and order"
+          }
+        }
+      }
+    },
+    {
+      "name": "learning_discover_communities",
+      "description": "List public communities for discovery, sorted by popularity",
+      "method": "GET",
+      "path": "/communities/discover",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "Filter by category"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search communities"
+          },
+          "is_featured": {
+            "type": "boolean",
+            "description": "Featured only"
+          },
+          "access_type": {
+            "type": "string",
+            "description": "Filter by access type"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Results per page"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "learning_create_community",
+      "description": "Create a new community with customization options",
+      "method": "POST",
+      "path": "/communities",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Community name"
+          },
+          "slug": {
+            "type": "string",
+            "description": "URL-friendly identifier"
+          },
+          "tagline": {
+            "type": "string",
+            "description": "Short tagline"
+          },
+          "description": {
+            "type": "string",
+            "description": "Community description"
+          },
+          "about_content": {
+            "type": "string",
+            "description": "Detailed about content (HTML)"
+          },
+          "logo_url": {
+            "type": "string",
+            "description": "Logo image URL"
+          },
+          "cover_url": {
+            "type": "string",
+            "description": "Cover image URL"
+          },
+          "color_primary": {
+            "type": "string",
+            "description": "Primary brand color (hex)"
+          },
+          "visibility": {
+            "type": "string",
+            "default": "public",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "description": "Community visibility"
+          },
+          "access_type": {
+            "type": "string",
+            "default": "free",
+            "enum": [
+              "free",
+              "paid"
+            ],
+            "description": "Access type"
+          },
+          "price": {
+            "type": "number",
+            "description": "Membership price (for paid communities)"
+          },
+          "currency": {
+            "type": "string",
+            "default": "USD",
+            "description": "Currency code"
+          },
+          "member_limit": {
+            "type": "integer",
+            "description": "Maximum member count"
+          },
+          "is_featured": {
+            "type": "boolean",
+            "default": false,
+            "description": "Feature this community"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "learning_get_community",
+      "description": "Get community details by ID, optionally including spaces and courses",
+      "method": "GET",
+      "path": "/communities/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Community ID"
+          },
+          "include_spaces": {
+            "type": "boolean",
+            "description": "Include community spaces"
+          },
+          "include_courses": {
+            "type": "boolean",
+            "description": "Include linked courses"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "learning_get_community_public",
+      "description": "Get public community landing page by slug",
+      "method": "GET",
+      "path": "/communities/c/{slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Community slug"
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      }
+    },
+    {
+      "name": "learning_update_community",
+      "description": "Update community settings, branding, and configuration",
+      "method": "PUT",
+      "path": "/communities/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Community ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated name"
+          },
+          "tagline": {
+            "type": "string",
+            "description": "Updated tagline"
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated description"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "description": "Updated visibility"
+          },
+          "access_type": {
+            "type": "string",
+            "enum": [
+              "free",
+              "paid"
+            ],
+            "description": "Updated access type"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Active status"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "learning_delete_community",
+      "description": "Delete a community",
+      "method": "DELETE",
+      "path": "/communities/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Community ID to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "learning_join_community",
+      "description": "Join a community as a member",
+      "method": "POST",
+      "path": "/communities/{community_id}/join",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "community_id": {
+            "type": "integer",
+            "description": "Community ID to join"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "User ID"
+          },
+          "invite_code": {
+            "type": "string",
+            "description": "Invite code (for private communities)"
+          }
+        },
+        "required": [
+          "community_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_leave_community",
+      "description": "Leave a community",
+      "method": "POST",
+      "path": "/communities/{community_id}/leave",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "community_id": {
+            "type": "integer",
+            "description": "Community ID to leave"
+          }
+        },
+        "required": [
+          "community_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_list_community_members",
+      "description": "List members of a community with filtering by role and status",
+      "method": "GET",
+      "path": "/communities/{community_id}/members",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "community_id": {
+            "type": "integer",
+            "description": "Community ID"
+          },
+          "role": {
+            "type": "string",
+            "description": "Filter by member role"
+          },
+          "status": {
+            "type": "string",
+            "default": "active",
+            "description": "Filter by status"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search members by name"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Results per page"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "community_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_update_community_member",
+      "description": "Update a community member's role, status, or settings",
+      "method": "PUT",
+      "path": "/communities/{community_id}/members/{user_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "community_id": {
+            "type": "integer",
+            "description": "Community ID"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "Member user ID"
+          },
+          "role": {
+            "type": "string",
+            "description": "Updated role (e.g. admin, moderator, member)"
+          },
+          "status": {
+            "type": "string",
+            "description": "Updated status (active, banned, muted)"
+          },
+          "points": {
+            "type": "integer",
+            "description": "Set member points"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Admin notes about the member"
+          }
+        },
+        "required": [
+          "community_id",
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_get_community_leaderboard",
+      "description": "Get the community leaderboard rankings",
+      "method": "GET",
+      "path": "/communities/{community_id}/leaderboard",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "community_id": {
+            "type": "integer",
+            "description": "Community ID"
+          },
+          "period": {
+            "type": "string",
+            "description": "Time period (e.g. weekly, monthly, all_time)"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "community_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_create_community_invite",
+      "description": "Create an invite code/link for a community",
+      "method": "POST",
+      "path": "/communities/{community_id}/invites",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "community_id": {
+            "type": "integer",
+            "description": "Community ID"
+          },
+          "max_uses": {
+            "type": "integer",
+            "description": "Maximum number of uses (null = unlimited)"
+          },
+          "expires_in_days": {
+            "type": "integer",
+            "description": "Days until invite expires"
+          },
+          "note": {
+            "type": "string",
+            "description": "Note about the invite"
+          }
+        },
+        "required": [
+          "community_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_use_community_invite",
+      "description": "Redeem an invite code to join a community",
+      "method": "POST",
+      "path": "/communities/invite/{code}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Invite code"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "User ID accepting the invite"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      }
+    },
+    {
+      "name": "learning_list_spaces",
+      "description": "List community spaces with filtering",
+      "method": "GET",
+      "path": "/spaces",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_type": {
+            "type": "string",
+            "enum": [
+              "discussion",
+              "announcement",
+              "resource",
+              "course"
+            ],
+            "description": "Filter by space type"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "description": "Filter by visibility"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page number"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Results per page"
+          }
+        }
+      }
+    },
+    {
+      "name": "learning_create_space",
+      "description": "Create a new community space",
+      "method": "POST",
+      "path": "/spaces",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Space name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Space description"
+          },
+          "space_type": {
+            "type": "string",
+            "default": "discussion",
+            "enum": [
+              "discussion",
+              "announcement",
+              "resource",
+              "course"
+            ],
+            "description": "Space type"
+          },
+          "visibility": {
+            "type": "string",
+            "default": "public",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "description": "Space visibility"
+          },
+          "color": {
+            "type": "string",
+            "description": "Space color (hex)"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "learning_get_space",
+      "description": "Get space details by ID",
+      "method": "GET",
+      "path": "/spaces/{space_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "integer",
+            "description": "Space ID"
+          }
+        },
+        "required": [
+          "space_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_update_space",
+      "description": "Update a community space",
+      "method": "PUT",
+      "path": "/spaces/{space_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "integer",
+            "description": "Space ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated description"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "description": "Updated visibility"
+          }
+        },
+        "required": [
+          "space_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_join_space",
+      "description": "Join a community space",
+      "method": "POST",
+      "path": "/spaces/{space_id}/join",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "integer",
+            "description": "Space ID to join"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "User ID"
+          }
+        },
+        "required": [
+          "space_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_leave_space",
+      "description": "Leave a community space",
+      "method": "POST",
+      "path": "/spaces/{space_id}/leave",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "integer",
+            "description": "Space ID to leave"
+          }
+        },
+        "required": [
+          "space_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_list_space_posts",
+      "description": "List posts within a specific space",
+      "method": "GET",
+      "path": "/spaces/{space_id}/posts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "integer",
+            "description": "Space ID"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page number"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Results per page"
+          }
+        },
+        "required": [
+          "space_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_create_space_post",
+      "description": "Create a new post in a space",
+      "method": "POST",
+      "path": "/spaces/{space_id}/posts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "integer",
+            "description": "Space ID"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "Author user ID"
+          },
+          "title": {
+            "type": "string",
+            "description": "Post title"
+          },
+          "body": {
+            "type": "string",
+            "description": "Post body content"
+          },
+          "body_html": {
+            "type": "string",
+            "description": "Post body as HTML"
+          },
+          "post_type": {
+            "type": "string",
+            "default": "discussion",
+            "description": "Post type"
+          }
+        },
+        "required": [
+          "space_id",
+          "title",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "learning_list_posts",
+      "description": "List all posts with optional filtering by space",
+      "method": "GET",
+      "path": "/posts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "integer",
+            "description": "Filter by space ID"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "Filter by author user ID"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page number"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Results per page"
+          }
+        }
+      }
+    },
+    {
+      "name": "learning_get_post",
+      "description": "Get post details by ID",
+      "method": "GET",
+      "path": "/posts/{post_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "post_id": {
+            "type": "integer",
+            "description": "Post ID"
+          }
+        },
+        "required": [
+          "post_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_update_post",
+      "description": "Update a post's content or title",
+      "method": "PUT",
+      "path": "/posts/{post_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "post_id": {
+            "type": "integer",
+            "description": "Post ID to update"
+          },
+          "title": {
+            "type": "string",
+            "description": "Updated title"
+          },
+          "body": {
+            "type": "string",
+            "description": "Updated body"
+          },
+          "body_html": {
+            "type": "string",
+            "description": "Updated body as HTML"
+          }
+        },
+        "required": [
+          "post_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_delete_post",
+      "description": "Delete a post",
+      "method": "DELETE",
+      "path": "/posts/{post_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "post_id": {
+            "type": "integer",
+            "description": "Post ID to delete"
+          }
+        },
+        "required": [
+          "post_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_like_post",
+      "description": "Toggle like on a post",
+      "method": "POST",
+      "path": "/posts/{post_id}/like",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "post_id": {
+            "type": "integer",
+            "description": "Post ID"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "User ID"
+          }
+        },
+        "required": [
+          "post_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_bookmark_post",
+      "description": "Toggle bookmark on a post",
+      "method": "POST",
+      "path": "/posts/{post_id}/bookmark",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "post_id": {
+            "type": "integer",
+            "description": "Post ID"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "User ID"
+          }
+        },
+        "required": [
+          "post_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_list_post_comments",
+      "description": "List comments on a post",
+      "method": "GET",
+      "path": "/posts/{post_id}/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "post_id": {
+            "type": "integer",
+            "description": "Post ID"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page number"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Results per page"
+          }
+        },
+        "required": [
+          "post_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_create_post_comment",
+      "description": "Add a comment to a post, with optional threading via parent_id",
+      "method": "POST",
+      "path": "/posts/{post_id}/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "post_id": {
+            "type": "integer",
+            "description": "Post ID"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "Commenting user ID"
+          },
+          "body": {
+            "type": "string",
+            "description": "Comment text"
+          },
+          "body_html": {
+            "type": "string",
+            "description": "Comment as HTML"
+          },
+          "parent_id": {
+            "type": "integer",
+            "description": "Parent comment ID for threading"
+          }
+        },
+        "required": [
+          "post_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "learning_update_comment",
+      "description": "Update a comment's content",
+      "method": "PUT",
+      "path": "/comments/{comment_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "comment_id": {
+            "type": "integer",
+            "description": "Comment ID to update"
+          },
+          "body": {
+            "type": "string",
+            "description": "Updated comment text"
+          },
+          "body_html": {
+            "type": "string",
+            "description": "Updated comment as HTML"
+          }
+        },
+        "required": [
+          "comment_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "learning_delete_comment",
+      "description": "Delete a comment",
+      "method": "POST",
+      "path": "/comments/{comment_id}/delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "comment_id": {
+            "type": "integer",
+            "description": "Comment ID to delete"
+          }
+        },
+        "required": [
+          "comment_id"
+        ]
+      }
+    },
+    {
+      "name": "learning_list_members",
+      "description": "List community members with filtering by role and status",
+      "method": "GET",
+      "path": "/members",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "description": "Filter by role"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search by name"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page number"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Results per page"
+          }
+        }
+      }
+    },
+    {
+      "name": "learning_subscribe_membership",
+      "description": "Subscribe a user to a membership product",
+      "method": "POST",
+      "path": "/memberships/{product_id}/subscribe",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "integer",
+            "description": "Membership product ID"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "User ID"
+          },
+          "price_id": {
+            "type": "integer",
+            "description": "Price ID"
+          },
+          "discount_code": {
+            "type": "string",
+            "description": "Discount code"
+          },
+          "payment_method_id": {
+            "type": "string",
+            "description": "Stripe payment method ID"
+          },
+          "trial_period_days": {
+            "type": "integer",
+            "description": "Trial period in days"
+          }
+        },
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "kalio_refund_course",
+      "description": "Refund a course purchase; full refunds auto-revoke the enrollment",
+      "method": "POST",
+      "path": "/courses/{course_id}/refund",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "course_id": { "type": "integer", "description": "Course ID (path)" },
+          "order_id": { "type": "integer", "description": "Order ID to refund" },
+          "amount": { "type": "integer", "description": "Refund amount in cents (omit for full refund)" },
+          "reason": { "type": "string", "description": "Refund reason (e.g. requested_by_customer)" },
+          "revoke_enrollment": { "type": "boolean", "default": true, "description": "Revoke enrollment on full refund" }
+        },
+        "required": ["course_id", "order_id"]
+      }
+    },
+    {
+      "name": "kalio_create_review",
+      "description": "Create a 1–5 star review for a course (with optional sub-ratings)",
+      "method": "POST",
+      "path": "/courses/{course_id}/reviews",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "course_id": { "type": "integer", "description": "Course ID" },
+          "user_id": { "type": "integer", "description": "Reviewer user ID" },
+          "rating": { "type": "integer", "minimum": 1, "maximum": 5, "description": "Overall rating" },
+          "title": { "type": "string", "description": "Review title" },
+          "body": { "type": "string", "description": "Review text" },
+          "content_rating": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "instructor_rating": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "value_rating": { "type": "integer", "minimum": 1, "maximum": 5 }
+        },
+        "required": ["course_id", "user_id", "rating"]
+      }
+    },
+    {
+      "name": "kalio_list_reviews",
+      "description": "List published reviews for a course with rating aggregate (avg + 1–5 distribution)",
+      "method": "GET",
+      "path": "/courses/{course_id}/reviews",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "course_id": { "type": "integer", "description": "Course ID" },
+          "user_id": { "type": "integer", "description": "Filter by reviewer" },
+          "limit": { "type": "integer", "default": 20 },
+          "offset": { "type": "integer", "default": 0 },
+          "sort": { "type": "string", "default": "created_at:desc" }
+        },
+        "required": ["course_id"]
+      }
+    },
+    {
+      "name": "kalio_update_review",
+      "description": "Update a review (author edits content; moderator can set status / response)",
+      "method": "PUT",
+      "path": "/reviews/{review_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "review_id": { "type": "integer", "description": "Review ID" },
+          "user_id": { "type": "integer", "description": "Author user ID (required for author edits)" },
+          "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "title": { "type": "string" },
+          "body": { "type": "string" },
+          "content_rating": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "instructor_rating": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "value_rating": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "status": { "type": "string", "description": "Moderator-only: published, hidden, deleted" },
+          "response_body": { "type": "string", "description": "Moderator response text" },
+          "response_by": { "type": "integer", "description": "Moderator user ID" }
+        },
+        "required": ["review_id"]
+      }
+    },
+    {
+      "name": "kalio_delete_review",
+      "description": "Soft-delete a course review (or hard-delete with hard=true)",
+      "method": "DELETE",
+      "path": "/reviews/{review_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "review_id": { "type": "integer", "description": "Review ID" },
+          "user_id": { "type": "integer", "description": "Author user ID (for permission check)" },
+          "hard": { "type": "boolean", "default": false, "description": "Permanent delete instead of soft delete" }
+        },
+        "required": ["review_id"]
+      }
+    },
+    {
+      "name": "kalio_submit_quiz",
+      "description": "Submit and auto-grade a quiz attempt for a lesson",
+      "method": "POST",
+      "path": "/lessons/{lesson_id}/quiz/submit",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lesson_id": { "type": "integer", "description": "Lesson ID (must be lesson_type=quiz)" },
+          "user_id": { "type": "integer", "description": "Student user ID" },
+          "answers": { "type": "object", "description": "Map of question_id -> answer (string or array)" },
+          "time_spent_seconds": { "type": "integer", "default": 0 }
+        },
+        "required": ["lesson_id", "user_id", "answers"]
+      }
+    },
+    {
+      "name": "kalio_submit_assignment",
+      "description": "Submit an assignment for instructor grading",
+      "method": "POST",
+      "path": "/lessons/{lesson_id}/assignment/submit",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lesson_id": { "type": "integer", "description": "Lesson ID (must be lesson_type=assignment)" },
+          "user_id": { "type": "integer", "description": "Student user ID" },
+          "submission_text": { "type": "string", "description": "Submission body" },
+          "submission_url": { "type": "string", "description": "External submission link" },
+          "attachments": { "type": "array", "items": { "type": "object" }, "description": "Attachment metadata array" }
+        },
+        "required": ["lesson_id", "user_id"]
+      }
+    },
+    {
+      "name": "kalio_grade_assignment",
+      "description": "Instructor grades an assignment submission",
+      "method": "POST",
+      "path": "/assignments/submissions/{submission_id}/grade",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "submission_id": { "type": "integer", "description": "Assignment submission ID" },
+          "graded_by": { "type": "integer", "description": "Grader user ID" },
+          "grade": { "type": "number", "description": "Numeric grade (typically 0-100)" },
+          "grade_label": { "type": "string", "description": "Letter grade or label" },
+          "instructor_feedback": { "type": "string", "description": "Feedback for the student" },
+          "status": { "type": "string", "default": "graded" },
+          "passing_grade": { "type": "number", "default": 70, "description": "Threshold to mark lesson complete" }
+        },
+        "required": ["submission_id", "graded_by", "grade"]
+      }
+    },
+    {
+      "name": "kalio_deliver_certificate",
+      "description": "Render a certificate to PDF and email it to the student",
+      "method": "POST",
+      "path": "/certificates/{certificate_id}/deliver",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "certificate_id": { "type": "integer", "description": "Certificate ID" },
+          "send_email": { "type": "boolean", "default": true, "description": "Email the rendered PDF to the student" },
+          "verification_base_url": { "type": "string", "description": "Override the verification URL host" }
+        },
+        "required": ["certificate_id"]
+      }
+    }
+  ]
+}

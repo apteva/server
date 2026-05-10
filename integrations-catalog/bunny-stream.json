@@ -1,0 +1,391 @@
+{
+  "slug": "bunny-stream",
+  "name": "Bunny Stream",
+  "description": "MCP server for Bunny Stream video hosting, streaming, and media management platform",
+  "logo": "https://www.google.com/s2/favicons?domain=bunny.net&sz=128",
+  "categories": [
+    "video",
+    "streaming",
+    "media",
+    "video-hosting",
+    "transcoding"
+  ],
+  "base_url": "https://api.bunny.net",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "AccessKey": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "streamApiKey",
+        "label": "Stream Api Key",
+        "description": "Your Bunny Stream Account API Key (found in Account Settings > API)"
+      },
+      {
+        "name": "libraryId",
+        "label": "Library Id"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_libraries",
+      "description": "List all video libraries in your account. Returns Id, Name, VideoCount, StorageUsage, and PullZoneUrl for each library. The Id field is the libraryId needed for constructing video embed/play URLs.",
+      "method": "GET",
+      "path": "/videolibrary",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number for pagination",
+            "default": 1
+          },
+          "itemsPerPage": {
+            "type": "integer",
+            "description": "Items per page",
+            "default": 20,
+            "maximum": 100
+          },
+          "includeAccessKey": {
+            "type": "boolean",
+            "description": "Include library access keys in response",
+            "default": false
+          }
+        }
+      }
+    },
+    {
+      "name": "get_library",
+      "description": "Get detailed information about the video library",
+      "method": "GET",
+      "path": "/videolibrary/{{credential.libraryId}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "includeAccessKey": {
+            "type": "boolean",
+            "description": "Include library access key in response",
+            "default": false
+          }
+        }
+      }
+    },
+    {
+      "name": "create_library",
+      "description": "Create a new video library for organizing and hosting videos",
+      "method": "POST",
+      "path": "/videolibrary",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Name": {
+            "type": "string",
+            "description": "Library name",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "ReplicationRegions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "DE",
+                "UK",
+                "NY",
+                "LA",
+                "SG",
+                "SYD",
+                "BR",
+                "JH"
+              ]
+            },
+            "description": "Regions to replicate videos",
+            "default": [
+              "DE"
+            ]
+          },
+          "EnableDRM": {
+            "type": "boolean",
+            "description": "Enable DRM protection",
+            "default": false
+          },
+          "EnableTokenAuthentication": {
+            "type": "boolean",
+            "description": "Enable token authentication for playback"
+          },
+          "EnableOriginalQuality": {
+            "type": "boolean",
+            "description": "Keep original quality version"
+          },
+          "EnableMP4Fallback": {
+            "type": "boolean",
+            "description": "Enable MP4 fallback"
+          },
+          "WatermarkPositionLeft": {
+            "type": "integer",
+            "description": "Watermark left position"
+          },
+          "WatermarkPositionTop": {
+            "type": "integer",
+            "description": "Watermark top position"
+          },
+          "WatermarkWidth": {
+            "type": "integer",
+            "description": "Watermark width"
+          },
+          "WatermarkHeight": {
+            "type": "integer",
+            "description": "Watermark height"
+          },
+          "PlayerKeyColor": {
+            "type": "string",
+            "description": "Player key color (hex)"
+          }
+        },
+        "required": [
+          "Name"
+        ]
+      }
+    },
+    {
+      "name": "list_videos",
+      "description": "List videos in the library with pagination and filtering. Each video includes guid, title, status, length, views, and more.\n\nTo get play/embed URLs for a video, construct from guid and libraryId:\n- Embed: https://iframe.mediadelivery.net/embed/{libraryId}/{guid}\n- Player: https://player.mediadelivery.net/embed/{libraryId}/{guid}\n\nUse list_libraries to get your libraryId if needed.",
+      "method": "GET",
+      "path": "/library/{{credential.libraryId}}/videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          },
+          "itemsPerPage": {
+            "type": "integer",
+            "description": "Items per page",
+            "default": 20,
+            "maximum": 100
+          },
+          "search": {
+            "type": "string",
+            "description": "Search query for video titles"
+          },
+          "collectionId": {
+            "type": "string",
+            "description": "Filter by collection ID"
+          },
+          "orderBy": {
+            "type": "string",
+            "enum": [
+              "date",
+              "title",
+              "views"
+            ],
+            "description": "Sort order",
+            "default": "date"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_video",
+      "description": "Get video details including status, encoding progress, resolution, duration, and metadata.\n\nNOTE: The API does not return play/embed URLs directly. Construct them from the response:\n- Embed iframe: https://iframe.mediadelivery.net/embed/{libraryId}/{guid}\n- New player: https://player.mediadelivery.net/embed/{libraryId}/{guid}\n- MP4 direct (if MP4 fallback enabled): https://{pullZoneUrl}.b-cdn.net/{guid}/play_720p.mp4 (or 360p, 480p, 1080p)\n- Thumbnail: https://vz-{libraryId}.b-cdn.net/{guid}/thumbnail.jpg\n\nThe guid field in the response is the video ID. The libraryId is your configured library ID — use list_libraries to find it if needed.",
+      "method": "GET",
+      "path": "/library/{{credential.libraryId}}/videos/{videoId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Video ID"
+          }
+        },
+        "required": [
+          "videoId"
+        ]
+      }
+    },
+    {
+      "name": "create_video",
+      "description": "Create a new video entry in the library (use fetch-video to add content from a URL)",
+      "method": "POST",
+      "path": "/library/{{credential.libraryId}}/videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Video title",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "collectionId": {
+            "type": "string",
+            "description": "Collection ID to add video to"
+          },
+          "thumbnailTime": {
+            "type": "integer",
+            "description": "Thumbnail generation time in milliseconds"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "update_video",
+      "description": "Update video metadata including title, description, chapters, moments, and tags",
+      "method": "POST",
+      "path": "/library/{{credential.libraryId}}/videos/{videoId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Video ID"
+          },
+          "title": {
+            "type": "string",
+            "description": "New video title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Video description"
+          },
+          "collectionId": {
+            "type": "string",
+            "description": "Move to different collection"
+          },
+          "chapters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "start": {
+                  "type": "integer"
+                },
+                "end": {
+                  "type": "integer"
+                }
+              }
+            },
+            "description": "Video chapters"
+          },
+          "moments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "timestamp": {
+                  "type": "integer"
+                }
+              }
+            },
+            "description": "Video moments/markers"
+          },
+          "metaTags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Meta tags for SEO"
+          }
+        },
+        "required": [
+          "videoId"
+        ]
+      }
+    },
+    {
+      "name": "list_collections",
+      "description": "List all video collections in the library",
+      "method": "GET",
+      "path": "/library/{{credential.libraryId}}/collections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          },
+          "itemsPerPage": {
+            "type": "integer",
+            "description": "Items per page",
+            "default": 20,
+            "maximum": 100
+          },
+          "orderBy": {
+            "type": "string",
+            "description": "Sort order"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_collection",
+      "description": "Create a new collection for organizing videos in the library",
+      "method": "POST",
+      "path": "/library/{{credential.libraryId}}/collections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Collection name",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "fetch_video",
+      "description": "Fetch and upload a video from an external URL to Bunny Stream for processing",
+      "method": "POST",
+      "path": "/library/{{credential.libraryId}}/videos/fetch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "External URL to fetch the video from"
+          },
+          "title": {
+            "type": "string",
+            "description": "Video title (defaults to filename from URL)"
+          },
+          "collectionId": {
+            "type": "string",
+            "description": "Collection ID to add video to"
+          },
+          "thumbnailTime": {
+            "type": "integer",
+            "description": "Time in seconds to generate thumbnail"
+          },
+          "headers": {
+            "type": "object",
+            "description": "Optional headers to send when fetching the video URL"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    }
+  ]
+}

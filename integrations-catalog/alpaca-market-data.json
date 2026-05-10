@@ -1,0 +1,699 @@
+{
+  "slug": "alpaca-market-data",
+  "name": "Alpaca Market Data",
+  "description": "Alpaca Market Data API — real-time and historical bars, trades, quotes, and snapshots for stocks, crypto, options, and forex; plus news and screener (most-actives, market movers). Same API key as alpaca-trading; data subscription tier determines latency and depth.",
+  "logo": "https://www.google.com/s2/favicons?domain=alpaca.markets&sz=128",
+  "categories": [
+    "market-data",
+    "stocks",
+    "crypto",
+    "options",
+    "forex",
+    "news",
+    "screener",
+    "alpaca",
+    "finance"
+  ],
+  "base_url": "https://data.alpaca.markets",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "APCA-API-KEY-ID": "{{api_key}}",
+      "APCA-API-SECRET-KEY": "{{api_secret}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key ID",
+        "description": "Alpaca API Key ID (same as the Trading key)."
+      },
+      {
+        "name": "api_secret",
+        "label": "API Secret Key",
+        "description": "Alpaca Secret Key (same as the Trading key)."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "stock_bars",
+      "description": "Historical OHLCV bars for one or more stocks. Returns bars per symbol on the requested timeframe.",
+      "method": "GET",
+      "path": "/v2/stocks/bars",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbols": {
+            "type": "string",
+            "description": "Comma-separated tickers (e.g. 'AAPL,MSFT,SPY')."
+          },
+          "timeframe": {
+            "type": "string",
+            "description": "Bar size: 1Min, 5Min, 15Min, 30Min, 1Hour, 1Day, 1Week, 1Month."
+          },
+          "start": {
+            "type": "string",
+            "description": "RFC-3339 inclusive start."
+          },
+          "end": {
+            "type": "string",
+            "description": "RFC-3339 inclusive end."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max bars per symbol (1–10000)."
+          },
+          "adjustment": {
+            "type": "string",
+            "enum": [
+              "raw",
+              "split",
+              "dividend",
+              "all"
+            ]
+          },
+          "feed": {
+            "type": "string",
+            "enum": [
+              "iex",
+              "sip",
+              "delayed_sip",
+              "otc"
+            ]
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "page_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbols",
+          "timeframe"
+        ]
+      }
+    },
+    {
+      "name": "stock_trades",
+      "description": "Historical individual trade prints for one or more stocks.",
+      "method": "GET",
+      "path": "/v2/stocks/trades",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbols": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "feed": {
+            "type": "string"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbols"
+        ]
+      }
+    },
+    {
+      "name": "stock_quotes",
+      "description": "Historical NBBO bid/ask quotes for one or more stocks.",
+      "method": "GET",
+      "path": "/v2/stocks/quotes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbols": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "feed": {
+            "type": "string"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbols"
+        ]
+      }
+    },
+    {
+      "name": "stock_snapshots",
+      "description": "Snapshots for one or more stocks: latest bar, latest trade, latest quote, prev daily bar, current daily bar.",
+      "method": "GET",
+      "path": "/v2/stocks/snapshots",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbols": {
+            "type": "string",
+            "description": "Comma-separated tickers."
+          },
+          "feed": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbols"
+        ]
+      }
+    },
+    {
+      "name": "stock_latest_bars",
+      "description": "Most recent bar for each requested stock.",
+      "method": "GET",
+      "path": "/v2/stocks/bars/latest",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbols": {
+            "type": "string"
+          },
+          "feed": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbols"
+        ]
+      }
+    },
+    {
+      "name": "stock_latest_trades",
+      "description": "Most recent trade print for each requested stock.",
+      "method": "GET",
+      "path": "/v2/stocks/trades/latest",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbols": {
+            "type": "string"
+          },
+          "feed": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbols"
+        ]
+      }
+    },
+    {
+      "name": "stock_latest_quotes",
+      "description": "Most recent NBBO quote for each requested stock.",
+      "method": "GET",
+      "path": "/v2/stocks/quotes/latest",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbols": {
+            "type": "string"
+          },
+          "feed": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbols"
+        ]
+      }
+    },
+    {
+      "name": "crypto_bars",
+      "description": "Historical OHLCV bars for crypto pairs. 'loc' is the venue: 'us' covers the US crypto exchange.",
+      "method": "GET",
+      "path": "/v1beta3/crypto/{loc}/bars",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "loc": {
+            "type": "string",
+            "description": "Venue (e.g. 'us').",
+            "default": "us"
+          },
+          "symbols": {
+            "type": "string",
+            "description": "Comma-separated pairs (e.g. 'BTC/USD,ETH/USD')."
+          },
+          "timeframe": {
+            "type": "string",
+            "description": "Bar size."
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "page_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "symbols",
+          "timeframe"
+        ]
+      }
+    },
+    {
+      "name": "crypto_trades",
+      "description": "Historical trade prints for crypto pairs.",
+      "method": "GET",
+      "path": "/v1beta3/crypto/{loc}/trades",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "loc": {
+            "type": "string",
+            "default": "us"
+          },
+          "symbols": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "symbols"
+        ]
+      }
+    },
+    {
+      "name": "crypto_snapshots",
+      "description": "Snapshots for crypto pairs: latest bar, trade, quote, daily bar.",
+      "method": "GET",
+      "path": "/v1beta3/crypto/{loc}/snapshots",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "loc": {
+            "type": "string",
+            "default": "us"
+          },
+          "symbols": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "symbols"
+        ]
+      }
+    },
+    {
+      "name": "crypto_latest_bars",
+      "description": "Most recent bar for each requested crypto pair.",
+      "method": "GET",
+      "path": "/v1beta3/crypto/{loc}/latest/bars",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "loc": {
+            "type": "string",
+            "default": "us"
+          },
+          "symbols": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "symbols"
+        ]
+      }
+    },
+    {
+      "name": "crypto_latest_trades",
+      "description": "Most recent trade for each requested crypto pair.",
+      "method": "GET",
+      "path": "/v1beta3/crypto/{loc}/latest/trades",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "loc": {
+            "type": "string",
+            "default": "us"
+          },
+          "symbols": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "symbols"
+        ]
+      }
+    },
+    {
+      "name": "crypto_latest_quotes",
+      "description": "Most recent quote for each requested crypto pair.",
+      "method": "GET",
+      "path": "/v1beta3/crypto/{loc}/latest/quotes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "loc": {
+            "type": "string",
+            "default": "us"
+          },
+          "symbols": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "symbols"
+        ]
+      }
+    },
+    {
+      "name": "crypto_latest_orderbooks",
+      "description": "Latest L2 order book for each requested crypto pair.",
+      "method": "GET",
+      "path": "/v1beta3/crypto/{loc}/latest/orderbooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "loc": {
+            "type": "string",
+            "default": "us"
+          },
+          "symbols": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "symbols"
+        ]
+      }
+    },
+    {
+      "name": "option_bars",
+      "description": "Historical OHLCV bars for option contracts (specify by OCC symbol).",
+      "method": "GET",
+      "path": "/v1beta1/options/bars",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbols": {
+            "type": "string",
+            "description": "Comma-separated OCC option symbols."
+          },
+          "timeframe": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbols",
+          "timeframe"
+        ]
+      }
+    },
+    {
+      "name": "option_chain",
+      "description": "Snapshot of every option contract (chain) for an underlying symbol with quotes, greeks, and IV.",
+      "method": "GET",
+      "path": "/v1beta1/options/snapshots/{underlying_symbol}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "underlying_symbol": {
+            "type": "string",
+            "description": "Underlying ticker (e.g. 'AAPL')."
+          },
+          "feed": {
+            "type": "string",
+            "enum": [
+              "indicative",
+              "opra"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "call",
+              "put"
+            ]
+          },
+          "strike_price_gte": {
+            "type": "string"
+          },
+          "strike_price_lte": {
+            "type": "string"
+          },
+          "expiration_date": {
+            "type": "string"
+          },
+          "expiration_date_gte": {
+            "type": "string"
+          },
+          "expiration_date_lte": {
+            "type": "string"
+          },
+          "root_symbol": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "underlying_symbol"
+        ]
+      }
+    },
+    {
+      "name": "option_latest_quotes",
+      "description": "Most recent quote for each requested option contract.",
+      "method": "GET",
+      "path": "/v1beta1/options/quotes/latest",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbols": {
+            "type": "string"
+          },
+          "feed": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbols"
+        ]
+      }
+    },
+    {
+      "name": "most_active_stocks",
+      "description": "Top most-active stocks by volume or trade count (default: top 10 by volume).",
+      "method": "GET",
+      "path": "/v1beta1/screener/stocks/most-actives",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "by": {
+            "type": "string",
+            "enum": [
+              "volume",
+              "trades"
+            ]
+          },
+          "top": {
+            "type": "integer",
+            "description": "Number of results (1–100)."
+          }
+        }
+      }
+    },
+    {
+      "name": "market_movers",
+      "description": "Top market movers (gainers and losers) for the requested market type.",
+      "method": "GET",
+      "path": "/v1beta1/screener/{market_type}/movers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "market_type": {
+            "type": "string",
+            "description": "Market type (e.g. 'stocks').",
+            "enum": [
+              "stocks"
+            ]
+          },
+          "top": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "market_type"
+        ]
+      }
+    },
+    {
+      "name": "get_news",
+      "description": "Historical news articles, optionally filtered by symbol and date range. Set include_content=true to receive full article body.",
+      "method": "GET",
+      "path": "/v1beta1/news",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbols": {
+            "type": "string",
+            "description": "Comma-separated tickers."
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max 50."
+          },
+          "include_content": {
+            "type": "boolean"
+          },
+          "exclude_contentless": {
+            "type": "boolean"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "forex_rates",
+      "description": "Historical forex rates for currency pairs at the given timeframe.",
+      "method": "GET",
+      "path": "/v1beta1/forex/rates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "currency_pairs": {
+            "type": "string",
+            "description": "Comma-separated pairs (e.g. 'EURUSD,GBPUSD,USDJPY')."
+          },
+          "timeframe": {
+            "type": "string",
+            "description": "Sampling interval (e.g. '1Min', '5Min', '1Day'). Default 1Min."
+          },
+          "start": {
+            "type": "string",
+            "description": "RFC-3339 or YYYY-MM-DD inclusive start."
+          },
+          "end": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "1–10000 (default 1000)."
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "page_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "currency_pairs"
+        ]
+      }
+    },
+    {
+      "name": "forex_latest_rates",
+      "description": "Latest forex rates for the requested currency pairs.",
+      "method": "GET",
+      "path": "/v1beta1/forex/latest/rates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "currency_pairs": {
+            "type": "string",
+            "description": "Comma-separated pairs."
+          }
+        },
+        "required": [
+          "currency_pairs"
+        ]
+      }
+    }
+  ]
+}

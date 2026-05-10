@@ -1,0 +1,130 @@
+{
+  "slug": "debank",
+  "name": "DeBank",
+  "description": "DeFi portfolio tracker — wallet balances, protocol positions, token approvals, and P&L across all EVM chains via REST API.",
+  "logo": "https://www.google.com/s2/favicons?domain=debank.com&sz=128",
+  "categories": [
+    "defi",
+    "portfolio",
+    "wallet",
+    "multi-chain"
+  ],
+  "base_url": "https://pro-openapi.debank.com/v1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "AccessKey": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "DeBank Cloud API key (from https://cloud.debank.com/)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_total_balance",
+      "description": "Get total USD balance across all chains for a wallet.",
+      "method": "GET",
+      "path": "/user/total_balance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Wallet address (0x...)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_token_list",
+      "description": "Get all token balances for a wallet on a specific chain.",
+      "method": "GET",
+      "path": "/user/token_list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Wallet address"
+          },
+          "chain_id": {
+            "type": "string",
+            "description": "Chain ID (eth, bsc, matic, arb, op, base, avax)",
+            "default": "eth"
+          },
+          "is_all": {
+            "type": "boolean",
+            "description": "Include all chains",
+            "default": false
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_protocol_list",
+      "description": "Get all DeFi protocol positions (lending, staking, farming, LPs) for a wallet.",
+      "method": "GET",
+      "path": "/user/all_complex_protocol_list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Wallet address"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_history",
+      "description": "Get decoded transaction history for a wallet with human-readable descriptions.",
+      "method": "GET",
+      "path": "/user/history_list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Wallet address"
+          },
+          "chain_id": {
+            "type": "string",
+            "default": "eth"
+          },
+          "page_count": {
+            "type": "integer",
+            "default": 20
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_chains",
+      "description": "Get list of all supported blockchain networks.",
+      "method": "GET",
+      "path": "/chain/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

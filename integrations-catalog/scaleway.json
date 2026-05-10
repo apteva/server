@@ -1,0 +1,891 @@
+{
+  "slug": "scaleway",
+  "name": "Scaleway Cloud",
+  "description": "Manage Scaleway cloud infrastructure - servers, volumes, IPs, security groups, images, and snapshots",
+  "logo": "https://www.google.com/s2/favicons?domain=scaleway.com&sz=128",
+  "categories": [
+    "cloud",
+    "vps",
+    "hosting",
+    "infrastructure",
+    "storage"
+  ],
+  "base_url": "https://api.scaleway.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "server_list",
+      "description": "List all Scaleway servers/instances in a zone. Returns server details including ID, name, state, IP addresses, and type.",
+      "method": "GET",
+      "path": "/server-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone (fr-par-1, fr-par-2, nl-ams-1, pl-waw-1, etc.)",
+            "default": "fr-par-1"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number for pagination"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Number of results per page (max 100)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by server name"
+          },
+          "project": {
+            "type": "string",
+            "description": "Filter by project ID"
+          }
+        }
+      }
+    },
+    {
+      "name": "server_get",
+      "description": "Get detailed information about a specific Scaleway server/instance by ID",
+      "method": "GET",
+      "path": "/server-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "server_id": {
+            "type": "string",
+            "description": "Server UUID"
+          }
+        },
+        "required": [
+          "server_id"
+        ]
+      }
+    },
+    {
+      "name": "server_create",
+      "description": "Create a new Scaleway server/instance. Requires commercial_type (e.g., DEV1-S, GP1-S) and image ID.",
+      "method": "GET",
+      "path": "/server-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "name": {
+            "type": "string",
+            "description": "Server name"
+          },
+          "commercial_type": {
+            "type": "string",
+            "description": "Instance type (DEV1-S, DEV1-M, DEV1-L, GP1-S, GP1-M, etc.)"
+          },
+          "image": {
+            "type": "string",
+            "description": "Image UUID to use for the server"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags for the server"
+          },
+          "enable_ipv6": {
+            "type": "boolean",
+            "description": "Enable IPv6",
+            "default": false
+          },
+          "boot_type": {
+            "type": "string",
+            "description": "Boot type (local, bootscript, rescue)",
+            "default": "local"
+          }
+        },
+        "required": [
+          "name",
+          "commercial_type",
+          "image"
+        ]
+      }
+    },
+    {
+      "name": "server_delete",
+      "description": "Delete/terminate a Scaleway server/instance",
+      "method": "GET",
+      "path": "/server-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "server_id": {
+            "type": "string",
+            "description": "Server UUID to delete"
+          }
+        },
+        "required": [
+          "server_id"
+        ]
+      }
+    },
+    {
+      "name": "server_action",
+      "description": "Perform an action on a Scaleway server (poweron, poweroff, reboot, terminate, stop_in_place, backup)",
+      "method": "GET",
+      "path": "/server-action",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "server_id": {
+            "type": "string",
+            "description": "Server UUID"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "poweron",
+              "poweroff",
+              "reboot",
+              "terminate",
+              "stop_in_place",
+              "backup"
+            ],
+            "description": "Action to perform"
+          }
+        },
+        "required": [
+          "server_id",
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "volume_list",
+      "description": "List all block storage volumes in a Scaleway zone",
+      "method": "GET",
+      "path": "/volume-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page"
+          },
+          "volume_type": {
+            "type": "string",
+            "description": "Filter by volume type (l_ssd, b_ssd)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by name"
+          }
+        }
+      }
+    },
+    {
+      "name": "volume_get",
+      "description": "Get details of a specific Scaleway volume by ID",
+      "method": "GET",
+      "path": "/volume-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "volume_id": {
+            "type": "string",
+            "description": "Volume UUID"
+          }
+        },
+        "required": [
+          "volume_id"
+        ]
+      }
+    },
+    {
+      "name": "volume_create",
+      "description": "Create a new Scaleway block storage volume",
+      "method": "GET",
+      "path": "/volume-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "name": {
+            "type": "string",
+            "description": "Volume name"
+          },
+          "volume_type": {
+            "type": "string",
+            "description": "Volume type (b_ssd, l_ssd)",
+            "default": "b_ssd"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Volume size in bytes (e.g., 10000000000 for 10GB)"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags for the volume"
+          }
+        },
+        "required": [
+          "name",
+          "size"
+        ]
+      }
+    },
+    {
+      "name": "volume_delete",
+      "description": "Delete a Scaleway block storage volume",
+      "method": "GET",
+      "path": "/volume-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "volume_id": {
+            "type": "string",
+            "description": "Volume UUID to delete"
+          }
+        },
+        "required": [
+          "volume_id"
+        ]
+      }
+    },
+    {
+      "name": "ip_list",
+      "description": "List all flexible/reserved IPs in a Scaleway zone",
+      "method": "GET",
+      "path": "/ip-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page"
+          },
+          "project": {
+            "type": "string",
+            "description": "Filter by project ID"
+          }
+        }
+      }
+    },
+    {
+      "name": "ip_get",
+      "description": "Get details of a specific Scaleway flexible IP",
+      "method": "GET",
+      "path": "/ip-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "ip_id": {
+            "type": "string",
+            "description": "IP UUID"
+          }
+        },
+        "required": [
+          "ip_id"
+        ]
+      }
+    },
+    {
+      "name": "ip_create",
+      "description": "Reserve a new flexible IP address in Scaleway",
+      "method": "GET",
+      "path": "/ip-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "server_id": {
+            "type": "string",
+            "description": "Optionally attach to a server immediately"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags for the IP"
+          }
+        }
+      }
+    },
+    {
+      "name": "ip_attach",
+      "description": "Attach a flexible IP to a Scaleway server",
+      "method": "GET",
+      "path": "/ip-attach",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "ip_id": {
+            "type": "string",
+            "description": "IP UUID to attach"
+          },
+          "server_id": {
+            "type": "string",
+            "description": "Server UUID to attach the IP to"
+          }
+        },
+        "required": [
+          "ip_id",
+          "server_id"
+        ]
+      }
+    },
+    {
+      "name": "ip_detach",
+      "description": "Detach a flexible IP from its current server",
+      "method": "GET",
+      "path": "/ip-detach",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "ip_id": {
+            "type": "string",
+            "description": "IP UUID to detach"
+          }
+        },
+        "required": [
+          "ip_id"
+        ]
+      }
+    },
+    {
+      "name": "ip_delete",
+      "description": "Release/delete a flexible IP address",
+      "method": "GET",
+      "path": "/ip-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "ip_id": {
+            "type": "string",
+            "description": "IP UUID to delete"
+          }
+        },
+        "required": [
+          "ip_id"
+        ]
+      }
+    },
+    {
+      "name": "security_group_list",
+      "description": "List all security groups in a Scaleway zone",
+      "method": "GET",
+      "path": "/security-group-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page"
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by name"
+          },
+          "project": {
+            "type": "string",
+            "description": "Filter by project ID"
+          }
+        }
+      }
+    },
+    {
+      "name": "security_group_get",
+      "description": "Get details of a specific Scaleway security group",
+      "method": "GET",
+      "path": "/security-group-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "security_group_id": {
+            "type": "string",
+            "description": "Security group UUID"
+          }
+        },
+        "required": [
+          "security_group_id"
+        ]
+      }
+    },
+    {
+      "name": "security_group_create",
+      "description": "Create a new security group in Scaleway",
+      "method": "GET",
+      "path": "/security-group-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "name": {
+            "type": "string",
+            "description": "Security group name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description"
+          },
+          "stateful": {
+            "type": "boolean",
+            "description": "Whether the security group is stateful",
+            "default": true
+          },
+          "inbound_default_policy": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "drop"
+            ],
+            "description": "Default policy for inbound traffic",
+            "default": "accept"
+          },
+          "outbound_default_policy": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "drop"
+            ],
+            "description": "Default policy for outbound traffic",
+            "default": "accept"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "security_group_delete",
+      "description": "Delete a Scaleway security group",
+      "method": "GET",
+      "path": "/security-group-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "security_group_id": {
+            "type": "string",
+            "description": "Security group UUID to delete"
+          }
+        },
+        "required": [
+          "security_group_id"
+        ]
+      }
+    },
+    {
+      "name": "security_group_rules_list",
+      "description": "List all rules in a Scaleway security group",
+      "method": "GET",
+      "path": "/security-group-rules-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "security_group_id": {
+            "type": "string",
+            "description": "Security group UUID"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page"
+          }
+        },
+        "required": [
+          "security_group_id"
+        ]
+      }
+    },
+    {
+      "name": "security_group_rule_create",
+      "description": "Create a new rule in a Scaleway security group",
+      "method": "GET",
+      "path": "/security-group-rule-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "security_group_id": {
+            "type": "string",
+            "description": "Security group UUID"
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "TCP",
+              "UDP",
+              "ICMP",
+              "ANY"
+            ],
+            "description": "Protocol for the rule"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ],
+            "description": "Direction of traffic"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "drop"
+            ],
+            "description": "Action to take"
+          },
+          "ip_range": {
+            "type": "string",
+            "description": "IP range in CIDR notation (e.g., 0.0.0.0/0)"
+          },
+          "dest_port_from": {
+            "type": "integer",
+            "description": "Start of port range"
+          },
+          "dest_port_to": {
+            "type": "integer",
+            "description": "End of port range"
+          },
+          "position": {
+            "type": "integer",
+            "description": "Position of the rule (lower = higher priority)",
+            "default": 0
+          }
+        },
+        "required": [
+          "security_group_id",
+          "protocol",
+          "direction",
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "security_group_rule_delete",
+      "description": "Delete a rule from a Scaleway security group",
+      "method": "GET",
+      "path": "/security-group-rule-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "security_group_id": {
+            "type": "string",
+            "description": "Security group UUID"
+          },
+          "rule_id": {
+            "type": "string",
+            "description": "Rule UUID to delete"
+          }
+        },
+        "required": [
+          "security_group_id",
+          "rule_id"
+        ]
+      }
+    },
+    {
+      "name": "image_list",
+      "description": "List available Scaleway images for creating servers",
+      "method": "GET",
+      "path": "/image-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page"
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by image name"
+          },
+          "arch": {
+            "type": "string",
+            "description": "Filter by architecture (x86_64, arm64)"
+          },
+          "public": {
+            "type": "boolean",
+            "description": "Filter public images only"
+          }
+        }
+      }
+    },
+    {
+      "name": "image_get",
+      "description": "Get details of a specific Scaleway image",
+      "method": "GET",
+      "path": "/image-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "image_id": {
+            "type": "string",
+            "description": "Image UUID"
+          }
+        },
+        "required": [
+          "image_id"
+        ]
+      }
+    },
+    {
+      "name": "snapshot_list",
+      "description": "List all snapshots in a Scaleway zone",
+      "method": "GET",
+      "path": "/snapshot-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page"
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by name"
+          },
+          "project": {
+            "type": "string",
+            "description": "Filter by project ID"
+          }
+        }
+      }
+    },
+    {
+      "name": "snapshot_get",
+      "description": "Get details of a specific Scaleway snapshot",
+      "method": "GET",
+      "path": "/snapshot-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "snapshot_id": {
+            "type": "string",
+            "description": "Snapshot UUID"
+          }
+        },
+        "required": [
+          "snapshot_id"
+        ]
+      }
+    },
+    {
+      "name": "snapshot_create",
+      "description": "Create a snapshot of a Scaleway volume",
+      "method": "GET",
+      "path": "/snapshot-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "name": {
+            "type": "string",
+            "description": "Snapshot name"
+          },
+          "volume_id": {
+            "type": "string",
+            "description": "Volume UUID to snapshot"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags for the snapshot"
+          }
+        },
+        "required": [
+          "volume_id"
+        ]
+      }
+    },
+    {
+      "name": "snapshot_delete",
+      "description": "Delete a Scaleway snapshot",
+      "method": "GET",
+      "path": "/snapshot-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "snapshot_id": {
+            "type": "string",
+            "description": "Snapshot UUID to delete"
+          }
+        },
+        "required": [
+          "snapshot_id"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,94 @@
+{
+  "slug": "brightdata",
+  "name": "Bright Data",
+  "description": "Industrial-grade web data platform: Web Unlocker (scrape any site through their proxy + CAPTCHA-solving stack), SERP API (Google/Bing/etc structured), and Dataset API (pre-built scrapers for LinkedIn, Crunchbase, Indeed, Google Maps, Amazon, etc — ~437 collectors). Best fallback for sites Firecrawl can't crack.",
+  "logo": "https://www.google.com/s2/favicons?domain=brightdata.com&sz=128",
+  "categories": ["scraping", "proxy", "linkedin", "serp", "datasets", "anti-bot", "prospecting"],
+  "base_url": "https://api.brightdata.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API token",
+        "description": "Bright Data API token from brightdata.com → Account Settings → API Tokens"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "web_unlocker",
+      "description": "Fetch any URL through Bright Data's anti-bot proxy stack. Handles CAPTCHA, JS rendering, fingerprinting. Returns raw HTML (or JSON).",
+      "method": "POST",
+      "path": "/request",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "description": "Your Web Unlocker zone name (configured in the Bright Data dashboard)" },
+          "url": { "type": "string", "description": "Target URL to fetch" },
+          "format": { "type": "string", "enum": ["raw", "json"], "default": "raw" },
+          "method": { "type": "string", "enum": ["GET", "POST", "PUT", "DELETE"], "default": "GET" },
+          "country": { "type": "string", "description": "2-letter country code for the egress proxy" },
+          "data_format": { "type": "string", "enum": ["html", "markdown", "screenshot"], "description": "Server-side post-processing of the response" }
+        },
+        "required": ["zone", "url"]
+      }
+    },
+    {
+      "name": "serp_search",
+      "description": "Structured SERP results from Google/Bing/Yandex/DuckDuckGo via Bright Data's SERP API. Pass a Google search URL.",
+      "method": "POST",
+      "path": "/request",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "description": "Your SERP zone name" },
+          "url": { "type": "string", "description": "Full search URL, e.g. 'https://www.google.com/search?q=marketing+agency+lyon&gl=fr'" },
+          "format": { "type": "string", "enum": ["json", "raw"], "default": "json" }
+        },
+        "required": ["zone", "url"]
+      }
+    },
+    {
+      "name": "dataset_trigger",
+      "description": "Trigger a pre-built scraper (dataset) for a given input list. Examples of dataset_id: 'gd_l1viktl72bvl7bjuj0' (LinkedIn profiles), 'gd_lpfll7v5hcqtkxl6l' (LinkedIn jobs), 'gd_l1vikfnt1wgvvqz95w' (Crunchbase), 'gd_lk5ns7kz21pck8jpis' (Google Maps). Returns a snapshot_id — poll dataset_snapshot.",
+      "method": "POST",
+      "path": "/datasets/v3/trigger",
+      "query_params": ["dataset_id", "include_errors"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dataset_id": { "type": "string", "description": "Dataset/collector id, e.g. 'gd_l1viktl72bvl7bjuj0' for LinkedIn profiles" },
+          "include_errors": { "type": "string", "enum": ["true", "false"], "default": "true" },
+          "input": { "type": "array", "items": { "type": "object" }, "description": "Array of input rows. Schema varies per dataset — most accept { url } or { name, location } objects." }
+        },
+        "required": ["dataset_id", "input"]
+      }
+    },
+    {
+      "name": "dataset_snapshot",
+      "description": "Poll a dataset trigger by snapshot_id. Returns status + records once ready.",
+      "method": "GET",
+      "path": "/datasets/v3/snapshot/{snapshot_id}",
+      "query_params": ["format"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": { "type": "string" },
+          "format": { "type": "string", "enum": ["json", "ndjson", "csv"], "default": "json" }
+        },
+        "required": ["snapshot_id"]
+      }
+    },
+    {
+      "name": "list_datasets",
+      "description": "List all available pre-built datasets/collectors.",
+      "method": "GET",
+      "path": "/datasets/list",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

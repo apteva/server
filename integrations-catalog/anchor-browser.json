@@ -1,0 +1,173 @@
+{
+  "slug": "anchor-browser",
+  "name": "Anchor Browser",
+  "description": "Anchor Browser cloud automation API for AI agents. Spin up browser sessions and persist authenticated state via reusable Profiles (cookies, localStorage, auth tokens) so agents stay logged in across runs.",
+  "logo": "https://www.google.com/s2/favicons?domain=anchorbrowser.io&sz=128",
+  "categories": [
+    "browser-automation",
+    "ai-agents",
+    "headless-browser",
+    "scraping",
+    "authentication"
+  ],
+  "base_url": "https://api.anchorbrowser.io/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "anchor-api-key": "{{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "description": "Anchor API key from https://app.anchorbrowser.io (Settings > API Keys)."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_session",
+      "description": "Create a new browser session. Returns a session ID, websocket connection URL for Playwright/Puppeteer, and a live-view URL. Optionally attach a saved Profile to start the session already logged in.",
+      "method": "POST",
+      "path": "/sessions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string",
+            "description": "Name of a saved profile to load. The session inherits that profile's cookies, localStorage, and auth tokens."
+          },
+          "recording": {
+            "type": "object",
+            "description": "Recording options: { active: boolean }."
+          },
+          "proxy": {
+            "type": "object",
+            "description": "Proxy config: { active: boolean, type: 'anchor_residential' | 'custom', url, username, password }."
+          },
+          "max_duration": {
+            "type": "integer",
+            "description": "Maximum session duration in seconds."
+          },
+          "idle_timeout": {
+            "type": "integer",
+            "description": "Idle-shutdown timeout in seconds."
+          },
+          "viewport": {
+            "type": "object",
+            "description": "Viewport size: { width, height }."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_sessions",
+      "description": "List browser sessions for the account.",
+      "method": "GET",
+      "path": "/sessions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Filter by session status."
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_session",
+      "description": "Get details for a specific session: status, ws URL, live-view URL, recording URL when available.",
+      "method": "GET",
+      "path": "/sessions/{session_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ]
+      }
+    },
+    {
+      "name": "end_session",
+      "description": "End a live browser session and release its resources.",
+      "method": "DELETE",
+      "path": "/sessions/{session_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ]
+      }
+    },
+    {
+      "name": "create_profile",
+      "description": "Save the current state of a browser session as a reusable Profile. Profiles capture cookies, localStorage, sessionStorage, and IndexedDB — i.e. everything that defines an authenticated identity. Future sessions can load this profile to skip login.",
+      "method": "POST",
+      "path": "/profiles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Profile name (used to reference it in create_session.profile)."
+          },
+          "session_id": {
+            "type": "string",
+            "description": "Session to capture state from. The session must still be live."
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "session_id"
+        ]
+      }
+    },
+    {
+      "name": "list_profiles",
+      "description": "List saved profiles for the account.",
+      "method": "GET",
+      "path": "/profiles",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "delete_profile",
+      "description": "Delete a saved profile. Sessions that referenced it will no longer be able to load it but already-live sessions are unaffected.",
+      "method": "DELETE",
+      "path": "/profiles/{name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Profile name to delete."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,108 @@
+{
+  "slug": "onesignal",
+  "name": "OneSignal",
+  "description": "MCP server for OneSignal - push, email, and SMS notifications, apps, and segments via the OneSignal REST API",
+  "logo": "https://www.google.com/s2/favicons?domain=onesignal.com&sz=128",
+  "categories": ["push-notifications", "messaging", "marketing", "engagement"],
+  "base_url": "https://api.onesignal.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Basic {{api_key}}" },
+    "credential_fields": [
+      { "name": "api_key", "label": "REST API Key", "description": "App-specific REST API Key from Settings → Keys & IDs" },
+      { "name": "app_id", "label": "App ID", "description": "OneSignal App ID from Settings → Keys & IDs", "type": "text" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_notification",
+      "description": "Send a push, email, or SMS notification to segments, aliases, or specific subscriber IDs",
+      "method": "POST",
+      "path": "/notifications",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": { "type": "string" },
+          "contents": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Map of language code → body, e.g. {\"en\": \"Hello\"}" },
+          "headings": { "type": "object", "additionalProperties": { "type": "string" } },
+          "included_segments": { "type": "array", "items": { "type": "string" } },
+          "excluded_segments": { "type": "array", "items": { "type": "string" } },
+          "include_aliases": { "type": "object" },
+          "include_player_ids": { "type": "array", "items": { "type": "string" } },
+          "url": { "type": "string" },
+          "data": { "type": "object" },
+          "send_after": { "type": "string", "description": "ISO 8601 timestamp" }
+        },
+        "required": ["app_id", "contents"]
+      }
+    },
+    {
+      "name": "view_notifications",
+      "description": "List recent notifications for an app",
+      "method": "GET",
+      "path": "/notifications",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": { "type": "string" },
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" }
+        },
+        "required": ["app_id"]
+      },
+      "query_params": ["app_id", "limit", "offset"]
+    },
+    {
+      "name": "view_notification",
+      "description": "Get details of a single notification",
+      "method": "GET",
+      "path": "/notifications/{notification_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "notification_id": { "type": "string" },
+          "app_id": { "type": "string" }
+        },
+        "required": ["notification_id", "app_id"]
+      },
+      "query_params": ["app_id"]
+    },
+    {
+      "name": "cancel_notification",
+      "description": "Cancel a scheduled notification before it sends",
+      "method": "DELETE",
+      "path": "/notifications/{notification_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "notification_id": { "type": "string" },
+          "app_id": { "type": "string" }
+        },
+        "required": ["notification_id", "app_id"]
+      },
+      "query_params": ["app_id"]
+    },
+    {
+      "name": "view_apps",
+      "description": "List apps accessible to the API key",
+      "method": "GET",
+      "path": "/apps",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_segment",
+      "description": "Create a segment of users matching given filters",
+      "method": "POST",
+      "path": "/apps/{app_id}/segments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": { "type": "string" },
+          "name": { "type": "string" },
+          "filters": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["app_id", "name", "filters"]
+      }
+    }
+  ]
+}

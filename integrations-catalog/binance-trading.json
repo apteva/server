@@ -1,0 +1,569 @@
+{
+  "slug": "binance-trading",
+  "name": "Binance",
+  "description": "MCP server for Binance cryptocurrency trading, market data, account management, and order execution via direct HTTP calls to the Binance REST API v3",
+  "logo": "https://www.google.com/s2/favicons?domain=binance.com&sz=128",
+  "categories": [
+    "trading",
+    "crypto",
+    "cryptocurrency",
+    "market-data",
+    "orders",
+    "binance"
+  ],
+  "base_url": "https://api.binance.com/api/v3",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-MBX-APIKEY": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Your Binance API Key"
+      },
+      {
+        "name": "api_secret",
+        "label": "Api_secret",
+        "description": "Your Binance Secret Key"
+      },
+      {
+        "name": "testnet",
+        "label": "Testnet",
+        "description": "Use testnet (true) or live trading (false)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_ticker",
+      "description": "Get 24-hour rolling price change statistics for a trading pair. Returns price, volume, high, low, and change percentage.",
+      "method": "GET",
+      "path": "/ticker/24hr",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading pair symbol in uppercase (e.g., BTCUSDT, ETHUSDT, SOLUSDT)"
+          }
+        },
+        "required": [
+          "symbol"
+        ]
+      }
+    },
+    {
+      "name": "get_price",
+      "description": "Get the latest price for a symbol. Lightweight alternative to full ticker \u2014 use this when you only need current price.",
+      "method": "GET",
+      "path": "/ticker/price",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading pair symbol (e.g., BTCUSDT, ETHUSDT)"
+          }
+        },
+        "required": [
+          "symbol"
+        ]
+      }
+    },
+    {
+      "name": "get_avg_price",
+      "description": "Get the current average price for a symbol (5-minute rolling average).",
+      "method": "GET",
+      "path": "/avgPrice",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading pair symbol (e.g., BTCUSDT)"
+          }
+        },
+        "required": [
+          "symbol"
+        ]
+      }
+    },
+    {
+      "name": "get_book_ticker",
+      "description": "Get the best bid and ask price/quantity for a symbol. Fastest way to check current spread.",
+      "method": "GET",
+      "path": "/ticker/bookTicker",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading pair symbol (e.g., BTCUSDT)"
+          }
+        },
+        "required": [
+          "symbol"
+        ]
+      }
+    },
+    {
+      "name": "get_orderbook",
+      "description": "Get the current order book (bids and asks) for a trading pair. Use limit to control depth.",
+      "method": "GET",
+      "path": "/depth",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading pair symbol (e.g., BTCUSDT)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Order book depth. Valid: 5, 10, 20, 50, 100, 500, 1000, 5000",
+            "default": 100
+          }
+        },
+        "required": [
+          "symbol"
+        ]
+      }
+    },
+    {
+      "name": "get_klines",
+      "description": "Get candlestick/OHLCV data for a trading pair. Each kline returns: open time, open, high, low, close, volume, close time, quote volume, trades count.",
+      "method": "GET",
+      "path": "/klines",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading pair symbol (e.g., BTCUSDT)"
+          },
+          "interval": {
+            "type": "string",
+            "description": "Kline interval",
+            "enum": [
+              "1m",
+              "3m",
+              "5m",
+              "15m",
+              "30m",
+              "1h",
+              "2h",
+              "4h",
+              "6h",
+              "8h",
+              "12h",
+              "1d",
+              "3d",
+              "1w",
+              "1M"
+            ],
+            "default": "1h"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of klines (max 1000)",
+            "default": 500
+          },
+          "startTime": {
+            "type": "integer",
+            "description": "Start time in milliseconds since epoch"
+          },
+          "endTime": {
+            "type": "integer",
+            "description": "End time in milliseconds since epoch"
+          }
+        },
+        "required": [
+          "symbol"
+        ]
+      }
+    },
+    {
+      "name": "get_recent_trades",
+      "description": "Get the most recent trades for a symbol. Returns price, quantity, time, and whether buyer was maker.",
+      "method": "GET",
+      "path": "/trades",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading pair symbol (e.g., BTCUSDT)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of trades to return (max 1000)",
+            "default": 500
+          }
+        },
+        "required": [
+          "symbol"
+        ]
+      }
+    },
+    {
+      "name": "get_exchange_info",
+      "description": "Get exchange trading rules, symbol info, and filters. Use to check available pairs, lot sizes, price precision, and trading status. Pass symbol to get info for a specific pair.",
+      "method": "GET",
+      "path": "/exchangeInfo",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading pair symbol (e.g., BTCUSDT). Omit to get all symbols (large response)."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_account",
+      "description": "Get account information including all asset balances, trading permissions, and commission rates. Requires HMAC signing.",
+      "method": "GET",
+      "path": "/account",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_commission",
+      "description": "Get current trading commission rates for a specific symbol.",
+      "method": "GET",
+      "path": "/account/commission",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading pair symbol (e.g., BTCUSDT)"
+          }
+        },
+        "required": [
+          "symbol"
+        ]
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Place a new buy or sell order. For MARKET orders, specify quantity or quoteOrderQty. For LIMIT orders, also specify price and timeInForce.",
+      "method": "POST",
+      "path": "/order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading pair (e.g., BTCUSDT)"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "BUY",
+              "SELL"
+            ],
+            "description": "Order side"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "LIMIT",
+              "MARKET",
+              "STOP_LOSS",
+              "STOP_LOSS_LIMIT",
+              "TAKE_PROFIT",
+              "TAKE_PROFIT_LIMIT",
+              "LIMIT_MAKER"
+            ],
+            "description": "Order type"
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Order quantity in base asset (e.g., 0.001 BTC)"
+          },
+          "quoteOrderQty": {
+            "type": "number",
+            "description": "Order quantity in quote asset (e.g., 100 USDT). For MARKET orders only."
+          },
+          "price": {
+            "type": "number",
+            "description": "Limit price (required for LIMIT orders)"
+          },
+          "timeInForce": {
+            "type": "string",
+            "enum": [
+              "GTC",
+              "IOC",
+              "FOK"
+            ],
+            "description": "Time in force. GTC=Good Til Canceled, IOC=Immediate Or Cancel, FOK=Fill Or Kill. Required for LIMIT."
+          },
+          "stopPrice": {
+            "type": "number",
+            "description": "Stop/trigger price (for STOP_LOSS, TAKE_PROFIT orders)"
+          },
+          "newClientOrderId": {
+            "type": "string",
+            "description": "Custom order ID for tracking"
+          },
+          "newOrderRespType": {
+            "type": "string",
+            "enum": [
+              "ACK",
+              "RESULT",
+              "FULL"
+            ],
+            "default": "FULL",
+            "description": "Response detail level. FULL returns fills."
+          }
+        },
+        "required": [
+          "symbol",
+          "side",
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "test_order",
+      "description": "Test order placement without actually executing. Validates parameters and permissions. Same params as create-order.",
+      "method": "POST",
+      "path": "/order/test",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading pair (e.g., BTCUSDT)"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "BUY",
+              "SELL"
+            ],
+            "description": "Order side"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "LIMIT",
+              "MARKET",
+              "STOP_LOSS",
+              "STOP_LOSS_LIMIT",
+              "TAKE_PROFIT",
+              "TAKE_PROFIT_LIMIT"
+            ],
+            "description": "Order type"
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Order quantity in base asset"
+          },
+          "quoteOrderQty": {
+            "type": "number",
+            "description": "Order quantity in quote asset (MARKET only)"
+          },
+          "price": {
+            "type": "number",
+            "description": "Limit price"
+          },
+          "timeInForce": {
+            "type": "string",
+            "enum": [
+              "GTC",
+              "IOC",
+              "FOK"
+            ],
+            "description": "Time in force"
+          },
+          "stopPrice": {
+            "type": "number",
+            "description": "Stop price"
+          }
+        },
+        "required": [
+          "symbol",
+          "side",
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Check the status of a specific order by orderId or origClientOrderId.",
+      "method": "GET",
+      "path": "/order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading pair (e.g., BTCUSDT)"
+          },
+          "orderId": {
+            "type": "integer",
+            "description": "Binance order ID"
+          },
+          "origClientOrderId": {
+            "type": "string",
+            "description": "Your custom client order ID"
+          }
+        },
+        "required": [
+          "symbol"
+        ]
+      }
+    },
+    {
+      "name": "get_open_orders",
+      "description": "Get all currently open (active) orders. Optionally filter by symbol.",
+      "method": "GET",
+      "path": "/openOrders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading pair (e.g., BTCUSDT). Omit to get open orders for all symbols."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_all_orders",
+      "description": "Get all orders for a symbol \u2014 active, canceled, and filled. Use for order history.",
+      "method": "GET",
+      "path": "/allOrders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading pair (e.g., BTCUSDT)"
+          },
+          "orderId": {
+            "type": "integer",
+            "description": "Return orders starting from this ID"
+          },
+          "startTime": {
+            "type": "integer",
+            "description": "Start time in ms"
+          },
+          "endTime": {
+            "type": "integer",
+            "description": "End time in ms"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 500,
+            "description": "Max orders to return (max 1000)"
+          }
+        },
+        "required": [
+          "symbol"
+        ]
+      }
+    },
+    {
+      "name": "cancel_order",
+      "description": "Cancel an active order by orderId or origClientOrderId.",
+      "method": "DELETE",
+      "path": "/order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading pair (e.g., BTCUSDT)"
+          },
+          "orderId": {
+            "type": "integer",
+            "description": "Binance order ID to cancel"
+          },
+          "origClientOrderId": {
+            "type": "string",
+            "description": "Your custom order ID to cancel"
+          }
+        },
+        "required": [
+          "symbol"
+        ]
+      }
+    },
+    {
+      "name": "cancel_all_orders",
+      "description": "DANGEROUS: Cancel ALL open orders on a symbol at once.",
+      "method": "DELETE",
+      "path": "/openOrders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading pair to cancel all orders for (e.g., BTCUSDT)"
+          }
+        },
+        "required": [
+          "symbol"
+        ]
+      }
+    },
+    {
+      "name": "get_my_trades",
+      "description": "Get executed trade history for a symbol. Shows fills, commissions, and whether you were maker or taker.",
+      "method": "GET",
+      "path": "/myTrades",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading pair (e.g., BTCUSDT)"
+          },
+          "orderId": {
+            "type": "integer",
+            "description": "Filter trades by order ID"
+          },
+          "startTime": {
+            "type": "integer",
+            "description": "Start time in ms"
+          },
+          "endTime": {
+            "type": "integer",
+            "description": "End time in ms"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 500,
+            "description": "Max trades to return (max 1000)"
+          }
+        },
+        "required": [
+          "symbol"
+        ]
+      }
+    },
+    {
+      "name": "get_order_rate_limit",
+      "description": "Check your current unfilled order count for all rate limit intervals. Useful to avoid hitting order rate limits.",
+      "method": "GET",
+      "path": "/rateLimit/order",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_account"
+  }
+}

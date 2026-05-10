@@ -1,0 +1,111 @@
+{
+  "slug": "launchdarkly",
+  "name": "LaunchDarkly",
+  "description": "MCP server for LaunchDarkly - feature flags, environments, segments, and projects via the LaunchDarkly REST API",
+  "logo": "https://www.google.com/s2/favicons?domain=launchdarkly.com&sz=128",
+  "categories": ["feature-flags", "experimentation", "developer-tools"],
+  "base_url": "https://app.launchdarkly.com/api/v2",
+  "auth": {
+    "types": ["api_key"],
+    "headers": { "Authorization": "{{api_key}}" },
+    "credential_fields": [
+      { "name": "api_key", "label": "API Access Token", "description": "API access token from Account Settings → Authorization. Use a Reader role for read-only access." }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_projects",
+      "description": "List all projects in the account",
+      "method": "GET",
+      "path": "/projects",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_flags",
+      "description": "List feature flags in a project",
+      "method": "GET",
+      "path": "/flags/{projectKey}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectKey": { "type": "string" },
+          "env": { "type": "string", "description": "Environment key — include flag state for this environment" },
+          "tag": { "type": "string" },
+          "limit": { "type": "integer" }
+        },
+        "required": ["projectKey"]
+      },
+      "query_params": ["env", "tag", "limit"]
+    },
+    {
+      "name": "get_flag",
+      "description": "Get a single feature flag",
+      "method": "GET",
+      "path": "/flags/{projectKey}/{featureFlagKey}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectKey": { "type": "string" },
+          "featureFlagKey": { "type": "string" }
+        },
+        "required": ["projectKey", "featureFlagKey"]
+      }
+    },
+    {
+      "name": "create_flag",
+      "description": "Create a new feature flag in a project",
+      "method": "POST",
+      "path": "/flags/{projectKey}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectKey": { "type": "string" },
+          "key": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "kind": { "type": "string", "enum": ["boolean", "multivariate"] },
+          "variations": { "type": "array", "items": { "type": "object" }, "description": "e.g. [{\"value\": true}, {\"value\": false}]" },
+          "temporary": { "type": "boolean" },
+          "tags": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["projectKey", "key", "name", "variations"]
+      }
+    },
+    {
+      "name": "list_environments",
+      "description": "List environments in a project",
+      "method": "GET",
+      "path": "/projects/{projectKey}/environments",
+      "input_schema": {
+        "type": "object",
+        "properties": { "projectKey": { "type": "string" } },
+        "required": ["projectKey"]
+      }
+    },
+    {
+      "name": "list_segments",
+      "description": "List user segments in a project environment",
+      "method": "GET",
+      "path": "/segments/{projectKey}/{environmentKey}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectKey": { "type": "string" },
+          "environmentKey": { "type": "string" }
+        },
+        "required": ["projectKey", "environmentKey"]
+      }
+    },
+    {
+      "name": "list_metrics",
+      "description": "List experimentation metrics in a project",
+      "method": "GET",
+      "path": "/metrics/{projectKey}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "projectKey": { "type": "string" } },
+        "required": ["projectKey"]
+      }
+    }
+  ]
+}

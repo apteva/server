@@ -1,0 +1,126 @@
+{
+  "slug": "auth0",
+  "name": "Auth0",
+  "description": "MCP server for Auth0 - users, roles, applications, connections, tenants via Management API",
+  "logo": "https://www.google.com/s2/favicons?domain=auth0.com&sz=128",
+  "categories": ["auth", "identity", "security", "sso"],
+  "base_url": "https://{{domain}}/api/v2",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "domain", "label": "Tenant Domain", "description": "e.g. my-tenant.us.auth0.com" },
+      { "name": "token", "label": "Management API Token" },
+      { "name": "clientId", "label": "Client ID" },
+      { "name": "clientSecret", "label": "Client Secret" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_users",
+      "description": "Search and list users",
+      "method": "GET",
+      "path": "/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string" },
+          "page": { "type": "number" },
+          "per_page": { "type": "number" },
+          "search_engine": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "Get a user by ID",
+      "method": "GET",
+      "path": "/users/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "create_user",
+      "description": "Create a new user",
+      "method": "POST",
+      "path": "/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string" },
+          "password": { "type": "string" },
+          "connection": { "type": "string" },
+          "user_metadata": { "type": "object" },
+          "app_metadata": { "type": "object" }
+        },
+        "required": ["email", "connection"]
+      }
+    },
+    {
+      "name": "update_user",
+      "description": "Update a user",
+      "method": "PATCH",
+      "path": "/users/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "email": { "type": "string" },
+          "blocked": { "type": "boolean" },
+          "user_metadata": { "type": "object" },
+          "app_metadata": { "type": "object" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "delete_user",
+      "description": "Delete a user",
+      "method": "DELETE",
+      "path": "/users/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "assign_roles",
+      "description": "Assign roles to a user",
+      "method": "POST",
+      "path": "/users/{id}/roles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "roles": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["id", "roles"]
+      }
+    },
+    {
+      "name": "list_roles",
+      "description": "List all roles",
+      "method": "GET",
+      "path": "/roles",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_applications",
+      "description": "List clients/applications",
+      "method": "GET",
+      "path": "/clients",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_connections",
+      "description": "List database/social connections",
+      "method": "GET",
+      "path": "/connections",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

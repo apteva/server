@@ -1,0 +1,98 @@
+{
+  "slug": "grafana-cloud",
+  "name": "Grafana Cloud",
+  "description": "MCP server for Grafana - dashboards, data sources, folders, and alert rules via the Grafana HTTP API. Works against Grafana Cloud stacks (<stack>.grafana.net) or self-hosted instances.",
+  "logo": "https://www.google.com/s2/favicons?domain=grafana.com&sz=128",
+  "categories": ["monitoring", "observability", "dashboards", "devops"],
+  "base_url": "https://{{credential.stack_slug}}.grafana.net/api",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{api_key}}" },
+    "credential_fields": [
+      { "name": "stack_slug", "label": "Stack Slug", "description": "Subdomain of your Grafana Cloud stack — the part before .grafana.net (e.g. \"acme\" for acme.grafana.net)", "type": "text" },
+      { "name": "api_key", "label": "Service Account Token", "description": "Service account token created under Administration → Users and access → Service accounts" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search_dashboards",
+      "description": "Search dashboards and folders",
+      "method": "GET",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "tag": { "type": "array", "items": { "type": "string" } },
+          "type": { "type": "string", "enum": ["dash-db", "dash-folder"] },
+          "folderIds": { "type": "array", "items": { "type": "integer" } },
+          "limit": { "type": "integer" }
+        }
+      },
+      "query_params": ["query", "tag", "type", "folderIds", "limit"]
+    },
+    {
+      "name": "get_dashboard",
+      "description": "Get a dashboard by UID",
+      "method": "GET",
+      "path": "/dashboards/uid/{uid}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "uid": { "type": "string" } },
+        "required": ["uid"]
+      }
+    },
+    {
+      "name": "create_or_update_dashboard",
+      "description": "Create a new dashboard or overwrite an existing one (set overwrite: true)",
+      "method": "POST",
+      "path": "/dashboards/db",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dashboard": { "type": "object" },
+          "folderUid": { "type": "string" },
+          "message": { "type": "string" },
+          "overwrite": { "type": "boolean" }
+        },
+        "required": ["dashboard"]
+      }
+    },
+    {
+      "name": "delete_dashboard",
+      "description": "Delete a dashboard by UID",
+      "method": "DELETE",
+      "path": "/dashboards/uid/{uid}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "uid": { "type": "string" } },
+        "required": ["uid"]
+      }
+    },
+    {
+      "name": "list_data_sources",
+      "description": "List configured data sources",
+      "method": "GET",
+      "path": "/datasources",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_folders",
+      "description": "List dashboard folders",
+      "method": "GET",
+      "path": "/folders",
+      "input_schema": {
+        "type": "object",
+        "properties": { "limit": { "type": "integer" } }
+      },
+      "query_params": ["limit"]
+    },
+    {
+      "name": "list_alert_rules",
+      "description": "List unified alerting rules (provisioning API)",
+      "method": "GET",
+      "path": "/v1/provisioning/alert-rules",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

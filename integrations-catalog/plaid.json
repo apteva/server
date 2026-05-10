@@ -1,0 +1,697 @@
+{
+  "slug": "plaid",
+  "name": "Plaid",
+  "description": "MCP server for Plaid financial data - bank accounts, transactions, balances, identity, investments, liabilities, income, and payment initiation",
+  "logo": "https://www.google.com/s2/favicons?domain=plaid.com&sz=128",
+  "categories": [
+    "finance",
+    "banking",
+    "transactions",
+    "accounts",
+    "plaid",
+    "payments"
+  ],
+  "base_url": "https://production.plaid.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      },
+      {
+        "name": "environment",
+        "label": "Environment"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_link_token",
+      "description": "Create a Link token to initialize Plaid Link for connecting a user's bank account. Required before launching the Link flow.",
+      "method": "POST",
+      "path": "/create-link-token",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "client_name": {
+            "type": "string",
+            "description": "Name of your application shown to users in Link"
+          },
+          "language": {
+            "type": "string",
+            "description": "Language for Link (en, fr, es, nl, de)",
+            "default": "en"
+          },
+          "country_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Country codes (US, GB, ES, NL, FR, IE, CA, DE, IT, PL, DK, NO, SE, EE, LT, LV, PT, BE)"
+          },
+          "user": {
+            "type": "object",
+            "description": "User object with client_user_id",
+            "properties": {
+              "client_user_id": {
+                "type": "string",
+                "description": "Unique user identifier"
+              }
+            },
+            "required": [
+              "client_user_id"
+            ]
+          },
+          "products": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Products to enable: auth, transactions, identity, investments, liabilities, payment_initiation, assets, income_verification"
+          },
+          "redirect_uri": {
+            "type": "string",
+            "description": "OAuth redirect URI (required for OAuth institutions)"
+          },
+          "webhook": {
+            "type": "string",
+            "description": "Webhook URL for transaction and item updates"
+          }
+        },
+        "required": [
+          "client_name",
+          "country_codes",
+          "user",
+          "products"
+        ]
+      }
+    },
+    {
+      "name": "exchange_public_token",
+      "description": "Exchange a public_token from Plaid Link for a persistent access_token to access the user's financial data",
+      "method": "POST",
+      "path": "/exchange-public-token",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "public_token": {
+            "type": "string",
+            "description": "The public_token returned by Plaid Link"
+          }
+        },
+        "required": [
+          "public_token"
+        ]
+      }
+    },
+    {
+      "name": "get_accounts",
+      "description": "Get all bank accounts linked to an access token including account names, types, balances, and masks",
+      "method": "POST",
+      "path": "/get-accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional list of account_ids to filter"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_balances",
+      "description": "Get real-time account balances for all or specific accounts. Returns current, available, and limit balances.",
+      "method": "POST",
+      "path": "/get-balances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional list of account_ids to filter"
+          }
+        }
+      }
+    },
+    {
+      "name": "sync_transactions",
+      "description": "Get incremental transaction updates using cursor-based sync. Returns added, modified, and removed transactions since last sync.",
+      "method": "POST",
+      "path": "/sync-transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "description": "Cursor from previous sync response. Omit for initial sync."
+          },
+          "count": {
+            "type": "integer",
+            "description": "Number of transactions to return (max 500)"
+          },
+          "account_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional account IDs to filter"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_transactions",
+      "description": "Get transactions for a date range. Returns transaction details including amount, date, merchant, category, and location.",
+      "method": "POST",
+      "path": "/get-transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "account_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional account IDs to filter"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Number of transactions to return (max 500)"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset for pagination"
+          }
+        },
+        "required": [
+          "start_date",
+          "end_date"
+        ]
+      }
+    },
+    {
+      "name": "get_recurring_transactions",
+      "description": "Get recurring transactions (subscriptions, bills) detected by Plaid with frequency, amount, and merchant info",
+      "method": "POST",
+      "path": "/get-recurring-transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional account IDs to filter"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_identity",
+      "description": "Get identity information (name, email, phone, address) for account holders as reported by the financial institution",
+      "method": "POST",
+      "path": "/get-identity",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional account IDs to filter"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_auth",
+      "description": "Get bank account and routing numbers for ACH or EFT transfers",
+      "method": "POST",
+      "path": "/get-auth",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional account IDs to filter"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_investments_holdings",
+      "description": "Get current investment holdings including securities, quantities, cost basis, and current values",
+      "method": "POST",
+      "path": "/get-investments-holdings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional account IDs to filter"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_investments_transactions",
+      "description": "Get investment transactions (buys, sells, dividends, transfers) for a date range",
+      "method": "POST",
+      "path": "/get-investments-transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "account_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional account IDs to filter"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Number of transactions to return (max 500)"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset for pagination"
+          }
+        },
+        "required": [
+          "start_date",
+          "end_date"
+        ]
+      }
+    },
+    {
+      "name": "get_liabilities",
+      "description": "Get liability details for credit cards, mortgages, and student loans including balances, interest rates, and payment schedules",
+      "method": "POST",
+      "path": "/get-liabilities",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional account IDs to filter"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_item",
+      "description": "Get information about a connected Item including institution, available products, webhook, and consent expiration",
+      "method": "POST",
+      "path": "/get-item",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "remove_item",
+      "description": "Remove a connected Item, revoking the access_token and disconnecting the bank",
+      "method": "POST",
+      "path": "/remove-item",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "update_item_webhook",
+      "description": "Update the webhook URL for an Item",
+      "method": "POST",
+      "path": "/update-item-webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook": {
+            "type": "string",
+            "description": "New webhook URL"
+          }
+        },
+        "required": [
+          "webhook"
+        ]
+      }
+    },
+    {
+      "name": "search_institutions",
+      "description": "Search for financial institutions by name or ID, with optional country and product filters",
+      "method": "POST",
+      "path": "/search-institutions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query (institution name)"
+          },
+          "products": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter by supported products"
+          },
+          "country_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter by country codes"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Number of results (max 500)"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset for pagination"
+          }
+        },
+        "required": [
+          "query",
+          "country_codes"
+        ]
+      }
+    },
+    {
+      "name": "get_institution",
+      "description": "Get details about a specific financial institution by ID including products, URL, logo, and status",
+      "method": "POST",
+      "path": "/get-institution",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "institution_id": {
+            "type": "string",
+            "description": "The Plaid institution ID (ins_xxx)"
+          },
+          "country_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Country codes for the institution"
+          }
+        },
+        "required": [
+          "institution_id",
+          "country_codes"
+        ]
+      }
+    },
+    {
+      "name": "get_categories",
+      "description": "Get the full list of Plaid transaction categories",
+      "method": "POST",
+      "path": "/get-categories",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_payment_recipient",
+      "description": "Create a payment recipient for payment initiation (UK/EU). Supports IBAN and BACS.",
+      "method": "POST",
+      "path": "/create-payment-recipient",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Recipient name"
+          },
+          "iban": {
+            "type": "string",
+            "description": "IBAN for the recipient"
+          },
+          "bacs": {
+            "type": "object",
+            "description": "UK BACS details",
+            "properties": {
+              "account": {
+                "type": "string"
+              },
+              "sort_code": {
+                "type": "string"
+              }
+            }
+          },
+          "address": {
+            "type": "object",
+            "description": "Recipient address",
+            "properties": {
+              "street": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "city": {
+                "type": "string"
+              },
+              "postal_code": {
+                "type": "string"
+              },
+              "country": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "create_payment",
+      "description": "Initiate a payment to a recipient. Creates a payment_id to use with Link for user authorization.",
+      "method": "POST",
+      "path": "/create-payment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "recipient_id": {
+            "type": "string",
+            "description": "The recipient_id from create-payment-recipient"
+          },
+          "reference": {
+            "type": "string",
+            "description": "Payment reference (max 18 chars for UK)"
+          },
+          "amount": {
+            "type": "object",
+            "description": "Payment amount",
+            "properties": {
+              "currency": {
+                "type": "string",
+                "description": "ISO 4217 currency code (GBP, EUR)"
+              },
+              "value": {
+                "type": "number",
+                "description": "Amount in major currency units"
+              }
+            },
+            "required": [
+              "currency",
+              "value"
+            ]
+          }
+        },
+        "required": [
+          "recipient_id",
+          "reference",
+          "amount"
+        ]
+      }
+    },
+    {
+      "name": "get_payment",
+      "description": "Get the status and details of a payment",
+      "method": "POST",
+      "path": "/get-payment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_id": {
+            "type": "string",
+            "description": "The payment_id to check"
+          }
+        },
+        "required": [
+          "payment_id"
+        ]
+      }
+    },
+    {
+      "name": "list_payments",
+      "description": "List all payments with their statuses",
+      "method": "POST",
+      "path": "/list-payments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "description": "Number of payments to return (max 200)"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_transfer_authorization",
+      "description": "Create an authorization for an ACH transfer. Must be authorized before creating the transfer.",
+      "method": "POST",
+      "path": "/create-transfer-authorization",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The account_id to transfer from/to"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "debit",
+              "credit"
+            ],
+            "description": "Transfer type: debit (pull money) or credit (push money)"
+          },
+          "network": {
+            "type": "string",
+            "enum": [
+              "ach",
+              "same-day-ach",
+              "rtp"
+            ],
+            "description": "Transfer network"
+          },
+          "amount": {
+            "type": "string",
+            "description": "Transfer amount as decimal string (e.g. '100.00')"
+          },
+          "ach_class": {
+            "type": "string",
+            "description": "ACH class: ppd, ccd, web",
+            "default": "ppd"
+          },
+          "user": {
+            "type": "object",
+            "description": "Transfer user details",
+            "properties": {
+              "legal_name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "legal_name"
+            ]
+          }
+        },
+        "required": [
+          "account_id",
+          "type",
+          "network",
+          "amount",
+          "user"
+        ]
+      }
+    },
+    {
+      "name": "create_transfer",
+      "description": "Create an ACH transfer after authorization. Moves money between bank accounts.",
+      "method": "POST",
+      "path": "/create-transfer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The account_id"
+          },
+          "authorization_id": {
+            "type": "string",
+            "description": "The authorization_id from create-transfer-authorization"
+          },
+          "description": {
+            "type": "string",
+            "description": "Transfer description (max 10 chars for ACH)"
+          }
+        },
+        "required": [
+          "account_id",
+          "authorization_id",
+          "description"
+        ]
+      }
+    },
+    {
+      "name": "get_transfer",
+      "description": "Get the status and details of a transfer",
+      "method": "POST",
+      "path": "/get-transfer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transfer_id": {
+            "type": "string",
+            "description": "The transfer_id to check"
+          }
+        },
+        "required": [
+          "transfer_id"
+        ]
+      }
+    }
+  ]
+}

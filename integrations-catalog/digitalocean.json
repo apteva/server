@@ -1,0 +1,115 @@
+{
+  "slug": "digitalocean",
+  "name": "DigitalOcean",
+  "description": "MCP server for DigitalOcean - droplets, apps, databases, kubernetes, spaces, domains",
+  "logo": "https://www.google.com/s2/favicons?domain=digitalocean.com&sz=128",
+  "categories": ["hosting", "cloud", "infrastructure", "devops"],
+  "base_url": "https://api.digitalocean.com/v2",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Personal Access Token" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_droplets",
+      "description": "List droplets",
+      "method": "GET",
+      "path": "/droplets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tag_name": { "type": "string" },
+          "per_page": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "create_droplet",
+      "description": "Create a droplet",
+      "method": "POST",
+      "path": "/droplets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "region": { "type": "string" },
+          "size": { "type": "string" },
+          "image": { "type": "string" },
+          "ssh_keys": { "type": "array" },
+          "backups": { "type": "boolean" }
+        },
+        "required": ["name", "region", "size", "image"]
+      }
+    },
+    {
+      "name": "delete_droplet",
+      "description": "Delete a droplet",
+      "method": "DELETE",
+      "path": "/droplets/{droplet_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "droplet_id": { "type": "string" } },
+        "required": ["droplet_id"]
+      }
+    },
+    {
+      "name": "droplet_action",
+      "description": "Perform an action on a droplet (reboot, power_off, etc.)",
+      "method": "POST",
+      "path": "/droplets/{droplet_id}/actions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "droplet_id": { "type": "string" },
+          "type": { "type": "string" }
+        },
+        "required": ["droplet_id", "type"]
+      }
+    },
+    {
+      "name": "list_apps",
+      "description": "List App Platform apps",
+      "method": "GET",
+      "path": "/apps",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_app_deployment",
+      "description": "Trigger an app deployment",
+      "method": "POST",
+      "path": "/apps/{app_id}/deployments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": { "type": "string" },
+          "force_build": { "type": "boolean" }
+        },
+        "required": ["app_id"]
+      }
+    },
+    {
+      "name": "list_databases",
+      "description": "List managed databases",
+      "method": "GET",
+      "path": "/databases",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_k8s_clusters",
+      "description": "List Kubernetes clusters",
+      "method": "GET",
+      "path": "/kubernetes/clusters",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_domains",
+      "description": "List domains",
+      "method": "GET",
+      "path": "/domains",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

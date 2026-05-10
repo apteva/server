@@ -1,0 +1,257 @@
+{
+  "slug": "xero",
+  "name": "Xero",
+  "description": "Xero integration for accounting with invoices, contacts, accounts, and payments",
+  "logo": "https://www.google.com/s2/favicons?domain=xero.com&sz=128",
+  "categories": [
+    "accounting",
+    "invoices",
+    "xero",
+    "finance",
+    "payments"
+  ],
+  "base_url": "https://api.xero.com/api.xro/2.0",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_invoices",
+      "description": "List invoices from Xero",
+      "method": "GET",
+      "path": "/list-invoices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "description": "Xero tenant ID"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status: DRAFT, SUBMITTED, AUTHORISED, PAID, VOIDED"
+          },
+          "where": {
+            "type": "string",
+            "description": "Filter expression"
+          }
+        },
+        "required": [
+          "tenant_id"
+        ]
+      }
+    },
+    {
+      "name": "create_invoice",
+      "description": "Create a new invoice",
+      "method": "POST",
+      "path": "/create-invoice",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "description": "Xero tenant ID"
+          },
+          "type": {
+            "type": "string",
+            "description": "Invoice type: ACCREC (sales) or ACCPAY (bills)"
+          },
+          "contact_id": {
+            "type": "string",
+            "description": "Contact ID"
+          },
+          "line_items": {
+            "type": "array",
+            "description": "Line items with description, quantity, unit_amount, account_code"
+          },
+          "date": {
+            "type": "string",
+            "description": "Invoice date (YYYY-MM-DD)"
+          },
+          "due_date": {
+            "type": "string",
+            "description": "Due date (YYYY-MM-DD)"
+          },
+          "reference": {
+            "type": "string",
+            "description": "Reference number"
+          },
+          "status": {
+            "type": "string",
+            "description": "Status: DRAFT, SUBMITTED, AUTHORISED"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "type",
+          "contact_id",
+          "line_items"
+        ]
+      }
+    },
+    {
+      "name": "list_contacts",
+      "description": "List contacts from Xero",
+      "method": "GET",
+      "path": "/list-contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "description": "Xero tenant ID"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "where": {
+            "type": "string",
+            "description": "Filter expression"
+          },
+          "is_customer": {
+            "type": "boolean",
+            "description": "Filter to customers only"
+          },
+          "is_supplier": {
+            "type": "boolean",
+            "description": "Filter to suppliers only"
+          }
+        },
+        "required": [
+          "tenant_id"
+        ]
+      }
+    },
+    {
+      "name": "create_contact",
+      "description": "Create a new contact",
+      "method": "POST",
+      "path": "/create-contact",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "description": "Xero tenant ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Contact name"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email address"
+          },
+          "first_name": {
+            "type": "string",
+            "description": "First name"
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Last name"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Phone number"
+          },
+          "is_customer": {
+            "type": "boolean",
+            "description": "Mark as customer"
+          },
+          "is_supplier": {
+            "type": "boolean",
+            "description": "Mark as supplier"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_accounts",
+      "description": "List chart of accounts from Xero",
+      "method": "GET",
+      "path": "/list-accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "description": "Xero tenant ID"
+          },
+          "where": {
+            "type": "string",
+            "description": "Filter expression"
+          },
+          "class": {
+            "type": "string",
+            "description": "Filter by class: ASSET, EQUITY, EXPENSE, LIABILITY, REVENUE"
+          }
+        },
+        "required": [
+          "tenant_id"
+        ]
+      }
+    },
+    {
+      "name": "create_payment",
+      "description": "Create a payment for an invoice",
+      "method": "POST",
+      "path": "/create-payment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "description": "Xero tenant ID"
+          },
+          "invoice_id": {
+            "type": "string",
+            "description": "Invoice ID"
+          },
+          "account_id": {
+            "type": "string",
+            "description": "Bank account ID"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Payment amount"
+          },
+          "date": {
+            "type": "string",
+            "description": "Payment date (YYYY-MM-DD)"
+          },
+          "reference": {
+            "type": "string",
+            "description": "Payment reference"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "invoice_id",
+          "account_id",
+          "amount"
+        ]
+      }
+    }
+  ]
+}

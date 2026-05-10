@@ -1,0 +1,109 @@
+{
+  "slug": "replicate",
+  "name": "Replicate",
+  "description": "MCP server for Replicate AI model hosting - predictions, models",
+  "logo": "https://www.google.com/s2/favicons?domain=replicate.com&sz=128",
+  "categories": [
+    "ai",
+    "ml",
+    "models",
+    "inference"
+  ],
+  "base_url": "https://api.replicate.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Token {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "apiToken",
+        "label": "Api Token",
+        "description": "Your Replicate API Token"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "predict",
+      "description": "Run a model prediction",
+      "method": "GET",
+      "path": "/predict",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Model in owner/name format"
+          },
+          "version": {
+            "type": "string"
+          },
+          "input": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "model",
+          "input"
+        ]
+      }
+    },
+    {
+      "name": "get_prediction",
+      "description": "Get prediction status and results",
+      "method": "GET",
+      "path": "/get-prediction",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prediction_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prediction_id"
+        ]
+      }
+    },
+    {
+      "name": "cancel_prediction",
+      "description": "Cancel a running prediction",
+      "method": "GET",
+      "path": "/cancel-prediction",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prediction_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prediction_id"
+        ]
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List available models",
+      "method": "GET",
+      "path": "/list-models",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_models"
+  }
+}

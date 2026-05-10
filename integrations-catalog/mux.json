@@ -1,0 +1,201 @@
+{
+  "slug": "mux",
+  "name": "Mux Video",
+  "description": "Mux Video — managed video infrastructure. Ingest source URLs as Assets, get HLS playback URLs back, request MP4 static renditions, run live streams. Strong on transcode + delivery + thumbnails; this integration covers the Video v1 API surface most useful as a render executor for the media app.",
+  "logo": "https://www.google.com/s2/favicons?domain=mux.com&sz=128",
+  "categories": ["video", "streaming", "media", "live", "transcoding"],
+  "base_url": "https://api.mux.com",
+  "auth": {
+    "types": ["basic"],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}"
+    },
+    "credential_fields": [
+      {
+        "name": "username",
+        "label": "Access Token ID",
+        "description": "Mux Access Token ID — issued from the Settings → Access Tokens page. Acts as the username for HTTP Basic auth.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "password",
+        "label": "Secret Key",
+        "description": "Paired secret. Acts as the password for HTTP Basic auth.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_asset",
+      "description": "Create a new asset by ingesting one or more source URLs. Mux fetches the input(s), transcodes them, and exposes HLS via playback_ids. Returns asset id + initial state (`preparing`); poll get_asset until ready/errored. To enable downloadable MP4s, pass `mp4_support: capped-1080p` (or `audio-only`).",
+      "method": "POST",
+      "path": "/video/v1/assets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inputs": {
+            "type": "array",
+            "description": "Array of input objects, each at minimum {url}. Single-input is the common case; multi-input is for stitching subtitle + audio + video tracks. Mux's deprecated `input` (singular) alias still works but new code should use `inputs`.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": { "type": "string", "description": "HTTPS URL Mux can fetch the source from." },
+                "overlay_settings": { "type": "object" },
+                "generated_subtitles": { "type": "array" },
+                "type": { "type": "string", "enum": ["video", "audio", "text"] }
+              },
+              "required": ["url"]
+            }
+          },
+          "playback_policies": {
+            "type": "array",
+            "description": "Playback access modes. Use [\"public\"] for unsigned playback, [\"signed\"] when you need per-viewer JWTs. Required for the asset to be playable.",
+            "items": { "type": "string", "enum": ["public", "signed", "drm"] }
+          },
+          "video_quality": {
+            "type": "string",
+            "enum": ["basic", "plus", "premium"],
+            "description": "Replaces the deprecated `encoding_tier`. `basic` is cheapest single-rendition; `plus`/`premium` enable adaptive bitrate ladders."
+          },
+          "mp4_support": {
+            "type": "string",
+            "enum": ["none", "capped-1080p", "audio-only", "audio-only,capped-1080p"],
+            "description": "Generate downloadable MP4 renditions alongside HLS. Useful when you want a single-file output (matches our render contract) instead of streaming."
+          },
+          "normalize_audio": { "type": "boolean" },
+          "passthrough": { "type": "string", "description": "Free-form metadata Mux echoes back in webhooks. Good for round-tripping our render_id." },
+          "master_access": { "type": "string", "enum": ["none", "temporary"] },
+          "test": { "type": "boolean", "description": "Asset is purged after 24h; useful for development without burning storage." }
+        },
+        "required": ["inputs", "playback_policies"]
+      }
+    },
+    {
+      "name": "list_assets",
+      "description": "Paginate through assets. Useful for sync or housekeeping.",
+      "method": "GET",
+      "path": "/video/v1/assets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "default": 25, "maximum": 100 },
+          "page": { "type": "integer", "default": 1 }
+        }
+      }
+    },
+    {
+      "name": "get_asset",
+      "description": "Fetch one asset's metadata + state. Poll this after create_asset until status=`ready` (or `errored`).",
+      "method": "GET",
+      "path": "/video/v1/assets/{ASSET_ID}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ASSET_ID": { "type": "string" }
+        },
+        "required": ["ASSET_ID"]
+      }
+    },
+    {
+      "name": "delete_asset",
+      "description": "Permanently delete an asset and stop billing for its storage.",
+      "method": "DELETE",
+      "path": "/video/v1/assets/{ASSET_ID}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "ASSET_ID": { "type": "string" } },
+        "required": ["ASSET_ID"]
+      }
+    },
+    {
+      "name": "create_playback_id",
+      "description": "Mint an additional playback id on an asset — useful for revoking access to one URL while keeping others alive (signed mode).",
+      "method": "POST",
+      "path": "/video/v1/assets/{ASSET_ID}/playback-ids",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ASSET_ID": { "type": "string" },
+          "policy": { "type": "string", "enum": ["public", "signed"] }
+        },
+        "required": ["ASSET_ID", "policy"]
+      }
+    },
+    {
+      "name": "create_static_rendition",
+      "description": "Request an MP4 static rendition of an asset at a specific resolution. Useful as a render-executor primitive: the asset = source, the rendition = output mp4. Poll the asset to see when the rendition is ready (it appears under `static_renditions.files`).",
+      "method": "POST",
+      "path": "/video/v1/assets/{ASSET_ID}/static-renditions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ASSET_ID": { "type": "string" },
+          "resolution": {
+            "type": "string",
+            "enum": ["highest", "audio-only", "2160p", "1440p", "1080p", "720p", "540p", "360p", "270p"],
+            "description": "Output resolution. `highest` matches the source."
+          },
+          "passthrough": { "type": "string" }
+        },
+        "required": ["ASSET_ID", "resolution"]
+      }
+    },
+    {
+      "name": "create_direct_upload",
+      "description": "Provision a one-time signed PUT URL the client can use to upload bytes directly to Mux's storage, bypassing your server. Returns {url, asset_id}; client uploads to `url`, Mux ingests into `asset_id`.",
+      "method": "POST",
+      "path": "/video/v1/uploads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "new_asset_settings": {
+            "type": "object",
+            "description": "Same shape as create_asset's body (minus `inputs`, since the upload IS the input). At minimum needs `playback_policies`."
+          },
+          "cors_origin": {
+            "type": "string",
+            "description": "Origin allowed to PUT. Use \"*\" to allow any browser; pin to your domain in production."
+          },
+          "timeout": {
+            "type": "integer",
+            "default": 3600,
+            "description": "Seconds the upload URL stays valid."
+          },
+          "test": { "type": "boolean" }
+        },
+        "required": ["new_asset_settings"]
+      }
+    },
+    {
+      "name": "create_live_stream",
+      "description": "Create a live stream endpoint. Returns a `stream_key` for the broadcaster + `playback_ids` for viewers. Out of scope for media's render executor needs but useful when this integration is bound for live-streaming workflows.",
+      "method": "POST",
+      "path": "/video/v1/live-streams",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "playback_policies": { "type": "array", "items": { "type": "string" } },
+          "new_asset_settings": { "type": "object", "description": "Settings for the recorded asset Mux creates from the stream." },
+          "reconnect_window": { "type": "integer", "description": "Seconds Mux waits for the stream to come back before ending it. 0 disables." },
+          "latency_mode": { "type": "string", "enum": ["standard", "low", "reduced"] },
+          "test": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "list_live_streams",
+      "method": "GET",
+      "path": "/video/v1/live-streams",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "default": 25 },
+          "page": { "type": "integer", "default": 1 }
+        }
+      }
+    }
+  ]
+}

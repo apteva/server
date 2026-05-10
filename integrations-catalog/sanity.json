@@ -1,0 +1,89 @@
+{
+  "slug": "sanity",
+  "name": "Sanity",
+  "description": "MCP server for Sanity.io - headless CMS with GROQ queries, mutations, assets",
+  "logo": "https://www.google.com/s2/favicons?domain=sanity.io&sz=128",
+  "categories": ["cms", "headless", "content", "structured-content"],
+  "base_url": "https://{{projectId}}.api.sanity.io/v2024-01-01",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Token" },
+      { "name": "projectId", "label": "Project ID" },
+      { "name": "dataset", "label": "Dataset", "description": "e.g. production" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "query",
+      "description": "Run a GROQ query",
+      "method": "GET",
+      "path": "/data/query/{dataset}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dataset": { "type": "string" },
+          "query": { "type": "string" },
+          "params": { "type": "object" }
+        },
+        "required": ["dataset", "query"]
+      }
+    },
+    {
+      "name": "get_document",
+      "description": "Get a document by ID",
+      "method": "GET",
+      "path": "/data/doc/{dataset}/{document_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dataset": { "type": "string" },
+          "document_id": { "type": "string" }
+        },
+        "required": ["dataset", "document_id"]
+      }
+    },
+    {
+      "name": "mutate",
+      "description": "Create, update, patch, or delete documents",
+      "method": "POST",
+      "path": "/data/mutate/{dataset}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dataset": { "type": "string" },
+          "mutations": { "type": "array" },
+          "returnIds": { "type": "boolean" },
+          "returnDocuments": { "type": "boolean" }
+        },
+        "required": ["dataset", "mutations"]
+      }
+    },
+    {
+      "name": "list_datasets",
+      "description": "List datasets in the project",
+      "method": "GET",
+      "path": "/projects/{project_id}/datasets",
+      "input_schema": {
+        "type": "object",
+        "properties": { "project_id": { "type": "string" } },
+        "required": ["project_id"]
+      }
+    },
+    {
+      "name": "upload_asset",
+      "description": "Upload an image or file asset",
+      "method": "POST",
+      "path": "/assets/images/{dataset}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dataset": { "type": "string" },
+          "body": { "type": "string" }
+        },
+        "required": ["dataset", "body"]
+      }
+    }
+  ]
+}

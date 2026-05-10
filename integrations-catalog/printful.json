@@ -1,0 +1,278 @@
+{
+  "slug": "printful",
+  "name": "Printful",
+  "description": "MCP server for Printful print-on-demand - products, orders, mockups",
+  "logo": "https://www.google.com/s2/favicons?domain=printful.com&sz=128",
+  "categories": [
+    "ecommerce",
+    "print-on-demand",
+    "products",
+    "fulfillment"
+  ],
+  "base_url": "https://api.printful.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Your Printful API access token (from Dashboard > Settings > API)"
+      },
+      {
+        "name": "store_id",
+        "label": "Store_id",
+        "description": "Optional store ID if you have multiple Printful stores"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_products",
+      "description": "Get store products",
+      "method": "GET",
+      "path": "/get-products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "store_id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_product",
+      "description": "Create a new product",
+      "method": "POST",
+      "path": "/create-product",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sync_product": {
+            "type": "object"
+          },
+          "sync_variants": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "sync_product",
+          "sync_variants"
+        ]
+      }
+    },
+    {
+      "name": "update_product",
+      "description": "Update a product",
+      "method": "PUT",
+      "path": "/update-product",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sync_product": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Create a new order",
+      "method": "POST",
+      "path": "/create-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "recipient": {
+            "type": "object"
+          },
+          "items": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "recipient",
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get order details",
+      "method": "GET",
+      "path": "/get-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_shipping_rates",
+      "description": "Get shipping rates",
+      "method": "GET",
+      "path": "/get-shipping-rates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "recipient": {
+            "type": "object"
+          },
+          "items": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "recipient",
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "estimate_costs",
+      "description": "Estimate order costs",
+      "method": "GET",
+      "path": "/estimate-costs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "recipient": {
+            "type": "object"
+          },
+          "items": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "recipient",
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "generate_mockup",
+      "description": "Generate product mockup",
+      "method": "GET",
+      "path": "/generate-mockup",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "number"
+          },
+          "variant_ids": {
+            "type": "array"
+          },
+          "files": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "product_id",
+          "files"
+        ]
+      }
+    },
+    {
+      "name": "get_mockup",
+      "description": "Get mockup task result",
+      "method": "GET",
+      "path": "/get-mockup",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_key"
+        ]
+      }
+    },
+    {
+      "name": "get_blueprint_details",
+      "description": "Get product blueprint details",
+      "method": "GET",
+      "path": "/get-blueprint-details",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_print_providers",
+      "description": "Get available print providers",
+      "method": "GET",
+      "path": "/get-print-providers",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "upload_file",
+      "description": "Upload a file",
+      "method": "POST",
+      "path": "/upload-file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "webhook_setup",
+      "description": "Setup webhooks",
+      "method": "GET",
+      "path": "/webhook-setup",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "types": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,249 @@
+{
+  "slug": "amazon-ads",
+  "name": "Amazon Ads",
+  "description": "Amazon Advertising API v3 — Sponsored Products, Sponsored Brands, and Sponsored Display campaigns plus Amazon DSP. LWA OAuth2; every call requires Amazon-Advertising-API-ClientId and (after profile selection) Amazon-Advertising-API-Scope (the profile_id).",
+  "logo": "https://www.google.com/s2/favicons?domain=advertising.amazon.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "amazon",
+    "retail-media",
+    "dsp",
+    "sponsored-ads"
+  ],
+  "base_url": "https://advertising-api.amazon.com",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Amazon-Advertising-API-ClientId": "{{client_id}}",
+      "Amazon-Advertising-API-Scope": "{{profile_id}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token",
+        "type": "password",
+        "description": "LWA access token (1-hour TTL — refresh with refresh_token)"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token",
+        "type": "password"
+      },
+      {
+        "name": "client_id",
+        "label": "LWA Client ID",
+        "description": "Client ID from your Login with Amazon security profile"
+      },
+      {
+        "name": "profile_id",
+        "label": "Profile ID",
+        "description": "Default Amazon-Advertising-API-Scope value. Discover via list_profiles."
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://www.amazon.com/ap/oa",
+      "token_url": "https://api.amazon.com/auth/o2/token",
+      "scopes": [
+        "advertising::campaign_management",
+        "advertising::account_management"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "list_profiles",
+      "description": "List advertiser profiles the authenticated user has access to. Each profile carries a profileId (used as Amazon-Advertising-API-Scope on all subsequent calls), countryCode, currencyCode, accountInfo (advertiser type and marketplace).",
+      "method": "GET",
+      "path": "/v2/profiles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiProgram": { "type": "string", "enum": ["billing", "campaign", "paymentMethods", "store", "account", "posts"] },
+          "accessLevel": { "type": "string", "enum": ["edit", "view"] },
+          "profileTypeFilter": { "type": "string", "description": "Comma-separated, e.g. seller,vendor,agency" },
+          "validPaymentMethodFilter": { "type": "string", "enum": ["true", "false"] }
+        }
+      }
+    },
+    {
+      "name": "sp_list_campaigns",
+      "description": "Sponsored Products: list campaigns. Filter by campaignId, name, state (enabled|paused|archived), portfolioId. Returns up to maxResults per page; use nextToken from response for paging.",
+      "method": "POST",
+      "path": "/sp/campaigns/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignIdFilter": { "type": "object", "description": "{\"include\": [\"123\", \"456\"]}" },
+          "stateFilter": { "type": "object", "description": "{\"include\": [\"ENABLED\"]}" },
+          "nameFilter": { "type": "object", "description": "{\"queryTermMatchType\": \"BROAD_MATCH\", \"include\": [\"summer\"]}" },
+          "portfolioIdFilter": { "type": "object" },
+          "maxResults": { "type": "integer", "default": 50, "description": "Max 5000" },
+          "nextToken": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "sp_create_campaign",
+      "description": "Sponsored Products: create one or more campaigns. Each campaign requires name, targetingType (MANUAL|AUTO), state (ENABLED|PAUSED), startDate (YYYY-MM-DD), budget {budgetType: DAILY, budget: number}, dynamicBidding {strategy: LEGACY_FOR_SALES|AUTO_FOR_SALES|MANUAL|RULE_BASED}.",
+      "method": "POST",
+      "path": "/sp/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaigns": {
+            "type": "array",
+            "items": { "type": "object" }
+          }
+        },
+        "required": ["campaigns"]
+      }
+    },
+    {
+      "name": "sp_update_campaign",
+      "description": "Sponsored Products: update existing campaigns. Each item must include campaignId; only provided fields are mutated.",
+      "method": "PUT",
+      "path": "/sp/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaigns": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["campaigns"]
+      }
+    },
+    {
+      "name": "sp_list_ad_groups",
+      "description": "Sponsored Products: list ad groups. Filter by campaignId, state, name.",
+      "method": "POST",
+      "path": "/sp/adGroups/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignIdFilter": { "type": "object" },
+          "adGroupIdFilter": { "type": "object" },
+          "stateFilter": { "type": "object" },
+          "maxResults": { "type": "integer", "default": 50 },
+          "nextToken": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "sp_create_ad_group",
+      "description": "Sponsored Products: create one or more ad groups. Each requires campaignId, name, defaultBid, state.",
+      "method": "POST",
+      "path": "/sp/adGroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adGroups": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["adGroups"]
+      }
+    },
+    {
+      "name": "sp_list_keywords",
+      "description": "Sponsored Products: list keywords. Filter by adGroupId or campaignId, matchType (EXACT|PHRASE|BROAD), state.",
+      "method": "POST",
+      "path": "/sp/keywords/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignIdFilter": { "type": "object" },
+          "adGroupIdFilter": { "type": "object" },
+          "stateFilter": { "type": "object" },
+          "matchTypeFilter": { "type": "array", "items": { "type": "string", "enum": ["EXACT", "PHRASE", "BROAD"] } },
+          "maxResults": { "type": "integer", "default": 50 },
+          "nextToken": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "sp_create_keywords",
+      "description": "Sponsored Products: bid keywords into an ad group. Each requires campaignId, adGroupId, keywordText, matchType, state, bid.",
+      "method": "POST",
+      "path": "/sp/keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["keywords"]
+      }
+    },
+    {
+      "name": "sb_list_campaigns",
+      "description": "Sponsored Brands: list campaigns. Same filtering shape as Sponsored Products.",
+      "method": "POST",
+      "path": "/sb/v4/campaigns/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignIdFilter": { "type": "object" },
+          "stateFilter": { "type": "object" },
+          "maxResults": { "type": "integer", "default": 50 },
+          "nextToken": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "sd_list_campaigns",
+      "description": "Sponsored Display: list campaigns.",
+      "method": "GET",
+      "path": "/sd/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "startIndex": { "type": "integer", "default": 0 },
+          "count": { "type": "integer", "default": 100 },
+          "stateFilter": { "type": "string", "description": "Comma-separated states: enabled,paused,archived" },
+          "campaignIdFilter": { "type": "string", "description": "Comma-separated campaign IDs" },
+          "name": { "type": "string", "description": "Filter by name (exact match)" }
+        }
+      }
+    },
+    {
+      "name": "create_report",
+      "description": "v3 Reporting: request an async performance report. configuration determines reportTypeId (e.g. spCampaigns, spTargeting, sbCampaigns, sdCampaigns), groupBy, columns, filters, timeUnit (DAILY|SUMMARY), format (GZIP_JSON), and reportTypeId. Polled via get_report.",
+      "method": "POST",
+      "path": "/reporting/reports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "Optional report name" },
+          "startDate": { "type": "string", "description": "YYYY-MM-DD" },
+          "endDate": { "type": "string", "description": "YYYY-MM-DD" },
+          "configuration": {
+            "type": "object",
+            "description": "{\"adProduct\": \"SPONSORED_PRODUCTS\", \"groupBy\": [\"campaign\"], \"columns\": [\"impressions\",\"clicks\",\"cost\",\"sales\",\"purchases\"], \"reportTypeId\": \"spCampaigns\", \"timeUnit\": \"DAILY\", \"format\": \"GZIP_JSON\"}"
+          }
+        },
+        "required": ["startDate", "endDate", "configuration"]
+      }
+    },
+    {
+      "name": "get_report",
+      "description": "Poll an async report by reportId. When status=COMPLETED, the response contains url (a presigned S3 link, valid 60s) for the gzipped JSON output.",
+      "method": "GET",
+      "path": "/reporting/reports/{reportId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "reportId": { "type": "string" }
+        },
+        "required": ["reportId"]
+      }
+    }
+  ]
+}

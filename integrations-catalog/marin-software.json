@@ -1,0 +1,843 @@
+{
+  "slug": "marin-software",
+  "name": "Marin Software",
+  "description": "MCP server for Marin Software - cross-channel ad management platform. Single API to manage campaigns, ad groups, keywords, ads, and bidding strategies across Google, Meta, Amazon, Microsoft, and 12+ other publishers. Eliminates the need to integrate with each publisher API separately.",
+  "logo": "https://www.google.com/s2/favicons?domain=marinsoftware.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "cross-channel",
+    "marin",
+    "ppc",
+    "bid-management"
+  ],
+  "base_url": "https://api.marinsoftware.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Basic {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "username",
+        "label": "Username",
+        "description": "Your Marin Software API username"
+      },
+      {
+        "name": "password",
+        "label": "Password",
+        "description": "Your Marin Software API password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "marin_campaigns_create",
+      "description": "Create one or more campaigns across any connected publisher via the Marin bulk API. A single request can create campaigns across multiple publisher accounts. Supports Google Ads, Meta, Amazon, Microsoft Ads, and more.",
+      "method": "POST",
+      "path": "/open-api/0.1/bulk/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "description": "Marin client ID (found in M1 > Accounts > Publishers grid)"
+          },
+          "customerId": {
+            "type": "string",
+            "description": "Marin customer ID"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Marin user ID"
+          },
+          "userCustomerId": {
+            "type": "string",
+            "description": "User customer ID"
+          },
+          "data": {
+            "type": "array",
+            "description": "Array of campaign objects to create. Each object contains field-value pairs like name, publisher, status, dailyBudget, startDate, endDate.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Campaign name"
+                },
+                "publisher": {
+                  "type": "string",
+                  "description": "Publisher name (e.g., Google, Facebook, Amazon, Microsoft)"
+                },
+                "publisherAccountId": {
+                  "type": "string",
+                  "description": "Publisher account ID"
+                },
+                "status": {
+                  "type": "string",
+                  "description": "Campaign status",
+                  "enum": [
+                    "Active",
+                    "Paused",
+                    "Deleted"
+                  ]
+                },
+                "dailyBudget": {
+                  "type": "number",
+                  "description": "Daily budget amount"
+                },
+                "startDate": {
+                  "type": "string",
+                  "description": "Start date (YYYY-MM-DD)"
+                },
+                "endDate": {
+                  "type": "string",
+                  "description": "End date (YYYY-MM-DD)"
+                },
+                "campaignType": {
+                  "type": "string",
+                  "description": "Campaign type (Search, Display, Shopping, Video, etc.)"
+                }
+              },
+              "required": [
+                "name",
+                "publisher"
+              ]
+            }
+          }
+        },
+        "required": [
+          "clientId",
+          "customerId",
+          "userId",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "marin_campaigns_update",
+      "description": "Edit one or more existing campaigns. Update name, status, budget, dates, or any campaign-level setting. Changes are pushed to the connected publisher accounts.",
+      "method": "POST",
+      "path": "/open-api/0.1/bulk/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "description": "Marin client ID"
+          },
+          "customerId": {
+            "type": "string",
+            "description": "Marin customer ID"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Marin user ID"
+          },
+          "userCustomerId": {
+            "type": "string",
+            "description": "User customer ID"
+          },
+          "data": {
+            "type": "array",
+            "description": "Array of campaign updates. Each object must include the campaign identifier and fields to update.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Marin campaign ID"
+                },
+                "publisherCampaignId": {
+                  "type": "string",
+                  "description": "Publisher campaign ID (alternative to Marin ID)"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Updated campaign name"
+                },
+                "status": {
+                  "type": "string",
+                  "description": "Updated status",
+                  "enum": [
+                    "Active",
+                    "Paused",
+                    "Deleted"
+                  ]
+                },
+                "dailyBudget": {
+                  "type": "number",
+                  "description": "Updated daily budget"
+                },
+                "endDate": {
+                  "type": "string",
+                  "description": "Updated end date"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "clientId",
+          "customerId",
+          "userId",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "marin_groups_create",
+      "description": "Create one or more ad groups across connected publishers. Set targeting, bids, and ad group settings.",
+      "method": "POST",
+      "path": "/open-api/0.1/bulk/groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "description": "Marin client ID"
+          },
+          "customerId": {
+            "type": "string",
+            "description": "Marin customer ID"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Marin user ID"
+          },
+          "userCustomerId": {
+            "type": "string",
+            "description": "User customer ID"
+          },
+          "data": {
+            "type": "array",
+            "description": "Array of ad group objects to create",
+            "items": {
+              "type": "object",
+              "properties": {
+                "campaignId": {
+                  "type": "string",
+                  "description": "Marin campaign ID or publisher campaign ID"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Ad group name"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "Active",
+                    "Paused",
+                    "Deleted"
+                  ]
+                },
+                "defaultBid": {
+                  "type": "number",
+                  "description": "Default bid amount"
+                },
+                "maxCpc": {
+                  "type": "number",
+                  "description": "Maximum CPC bid"
+                }
+              },
+              "required": [
+                "campaignId",
+                "name"
+              ]
+            }
+          }
+        },
+        "required": [
+          "clientId",
+          "customerId",
+          "userId",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "marin_groups_update",
+      "description": "Edit one or more existing ad groups. Update name, status, bids, or targeting settings.",
+      "method": "POST",
+      "path": "/open-api/0.1/bulk/groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "description": "Marin client ID"
+          },
+          "customerId": {
+            "type": "string",
+            "description": "Marin customer ID"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Marin user ID"
+          },
+          "userCustomerId": {
+            "type": "string",
+            "description": "User customer ID"
+          },
+          "data": {
+            "type": "array",
+            "description": "Array of ad group updates",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Marin ad group ID"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Updated name"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "Active",
+                    "Paused",
+                    "Deleted"
+                  ]
+                },
+                "defaultBid": {
+                  "type": "number",
+                  "description": "Updated default bid"
+                },
+                "maxCpc": {
+                  "type": "number",
+                  "description": "Updated max CPC"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "clientId",
+          "customerId",
+          "userId",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "marin_keywords_create",
+      "description": "Create one or more keywords across connected search publishers (Google Ads, Microsoft Ads). Set match types, bids, and destination URLs.",
+      "method": "POST",
+      "path": "/open-api/0.1/bulk/keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "description": "Marin client ID"
+          },
+          "customerId": {
+            "type": "string",
+            "description": "Marin customer ID"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Marin user ID"
+          },
+          "userCustomerId": {
+            "type": "string",
+            "description": "User customer ID"
+          },
+          "data": {
+            "type": "array",
+            "description": "Array of keyword objects to create",
+            "items": {
+              "type": "object",
+              "properties": {
+                "groupId": {
+                  "type": "string",
+                  "description": "Ad group ID"
+                },
+                "keyword": {
+                  "type": "string",
+                  "description": "Keyword text"
+                },
+                "matchType": {
+                  "type": "string",
+                  "description": "Match type",
+                  "enum": [
+                    "Broad",
+                    "Phrase",
+                    "Exact"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "Active",
+                    "Paused",
+                    "Deleted"
+                  ]
+                },
+                "maxCpc": {
+                  "type": "number",
+                  "description": "Max CPC bid"
+                },
+                "destinationUrl": {
+                  "type": "string",
+                  "description": "Destination URL"
+                }
+              },
+              "required": [
+                "groupId",
+                "keyword",
+                "matchType"
+              ]
+            }
+          }
+        },
+        "required": [
+          "clientId",
+          "customerId",
+          "userId",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "marin_keywords_update",
+      "description": "Edit one or more existing keywords. Update bids, status, match types, or destination URLs.",
+      "method": "POST",
+      "path": "/open-api/0.1/bulk/keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "description": "Marin client ID"
+          },
+          "customerId": {
+            "type": "string",
+            "description": "Marin customer ID"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Marin user ID"
+          },
+          "userCustomerId": {
+            "type": "string",
+            "description": "User customer ID"
+          },
+          "data": {
+            "type": "array",
+            "description": "Array of keyword updates",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Marin keyword ID"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "Active",
+                    "Paused",
+                    "Deleted"
+                  ]
+                },
+                "maxCpc": {
+                  "type": "number",
+                  "description": "Updated max CPC"
+                },
+                "destinationUrl": {
+                  "type": "string",
+                  "description": "Updated destination URL"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "clientId",
+          "customerId",
+          "userId",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "marin_ads_create",
+      "description": "Create one or more ads across connected publishers. Supports text ads, responsive ads, and display ads across Google, Meta, Amazon, and more.",
+      "method": "POST",
+      "path": "/open-api/0.1/bulk/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "description": "Marin client ID"
+          },
+          "customerId": {
+            "type": "string",
+            "description": "Marin customer ID"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Marin user ID"
+          },
+          "userCustomerId": {
+            "type": "string",
+            "description": "User customer ID"
+          },
+          "data": {
+            "type": "array",
+            "description": "Array of ad objects to create",
+            "items": {
+              "type": "object",
+              "properties": {
+                "groupId": {
+                  "type": "string",
+                  "description": "Ad group ID"
+                },
+                "headline": {
+                  "type": "string",
+                  "description": "Ad headline"
+                },
+                "headline2": {
+                  "type": "string",
+                  "description": "Second headline (for expanded text ads)"
+                },
+                "headline3": {
+                  "type": "string",
+                  "description": "Third headline (for responsive search ads)"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Ad description"
+                },
+                "description2": {
+                  "type": "string",
+                  "description": "Second description"
+                },
+                "finalUrl": {
+                  "type": "string",
+                  "description": "Landing page URL"
+                },
+                "path1": {
+                  "type": "string",
+                  "description": "Display path 1"
+                },
+                "path2": {
+                  "type": "string",
+                  "description": "Display path 2"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "Active",
+                    "Paused",
+                    "Deleted"
+                  ]
+                },
+                "adType": {
+                  "type": "string",
+                  "description": "Ad type (TextAd, ResponsiveSearchAd, etc.)"
+                }
+              },
+              "required": [
+                "groupId",
+                "headline",
+                "finalUrl"
+              ]
+            }
+          }
+        },
+        "required": [
+          "clientId",
+          "customerId",
+          "userId",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "marin_ads_update",
+      "description": "Edit one or more existing ads. Update headlines, descriptions, URLs, or status.",
+      "method": "POST",
+      "path": "/open-api/0.1/bulk/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "description": "Marin client ID"
+          },
+          "customerId": {
+            "type": "string",
+            "description": "Marin customer ID"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Marin user ID"
+          },
+          "userCustomerId": {
+            "type": "string",
+            "description": "User customer ID"
+          },
+          "data": {
+            "type": "array",
+            "description": "Array of ad updates",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Marin ad ID"
+                },
+                "headline": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "finalUrl": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "Active",
+                    "Paused",
+                    "Deleted"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "clientId",
+          "customerId",
+          "userId",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "marin_strategies_create",
+      "description": "Create automated bidding strategies in Marin. Strategies control bid optimization across campaigns and ad groups based on rules, targets, and performance data.",
+      "method": "POST",
+      "path": "/open-api/0.1/bulk/strategies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "description": "Marin client ID"
+          },
+          "customerId": {
+            "type": "string",
+            "description": "Marin customer ID"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Marin user ID"
+          },
+          "userCustomerId": {
+            "type": "string",
+            "description": "User customer ID"
+          },
+          "data": {
+            "type": "array",
+            "description": "Array of strategy objects to create",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Strategy name"
+                },
+                "type": {
+                  "type": "string",
+                  "description": "Strategy type (e.g., TargetCPA, TargetROAS, MaxClicks, MaxConversions)"
+                },
+                "targetValue": {
+                  "type": "number",
+                  "description": "Target value (CPA amount, ROAS percentage, etc.)"
+                },
+                "minBid": {
+                  "type": "number",
+                  "description": "Minimum bid floor"
+                },
+                "maxBid": {
+                  "type": "number",
+                  "description": "Maximum bid ceiling"
+                },
+                "campaignIds": {
+                  "type": "array",
+                  "description": "Campaign IDs to apply the strategy to",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "type"
+              ]
+            }
+          }
+        },
+        "required": [
+          "clientId",
+          "customerId",
+          "userId",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "marin_strategies_update",
+      "description": "Edit existing bidding strategies. Update targets, bid floors/ceilings, or campaign assignments.",
+      "method": "POST",
+      "path": "/open-api/0.1/bulk/strategies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "description": "Marin client ID"
+          },
+          "customerId": {
+            "type": "string",
+            "description": "Marin customer ID"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Marin user ID"
+          },
+          "userCustomerId": {
+            "type": "string",
+            "description": "User customer ID"
+          },
+          "data": {
+            "type": "array",
+            "description": "Array of strategy updates",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Strategy ID"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Updated name"
+                },
+                "targetValue": {
+                  "type": "number",
+                  "description": "Updated target value"
+                },
+                "minBid": {
+                  "type": "number"
+                },
+                "maxBid": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "clientId",
+          "customerId",
+          "userId",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "marin_job_status",
+      "description": "Check the status of a bulk operation job. Bulk creates and updates are processed asynchronously and return a job_id.",
+      "method": "GET",
+      "path": "/open-api/0.1/jobs/{job_id}/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "Job ID returned from a bulk operation"
+          },
+          "clientId": {
+            "type": "string",
+            "description": "Marin client ID"
+          },
+          "customerId": {
+            "type": "string",
+            "description": "Marin customer ID"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Marin user ID"
+          }
+        },
+        "required": [
+          "job_id",
+          "clientId"
+        ]
+      }
+    },
+    {
+      "name": "marin_social_stats",
+      "description": "Retrieve Meta/Facebook advertising statistics via the Marin Social API. Get advertiser data, campaign metrics, and media plan information.",
+      "method": "GET",
+      "path": "/social-api/v1/advertisers/{advertiserId}/stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserId": {
+            "type": "string",
+            "description": "Marin advertiser ID for Meta"
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "endDate": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "metrics": {
+            "type": "array",
+            "description": "Metrics to retrieve: impressions, clicks, spend, conversions, ctr, cpc, cpm",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "impressions",
+              "clicks",
+              "spend",
+              "conversions"
+            ]
+          },
+          "level": {
+            "type": "string",
+            "description": "Aggregation level",
+            "enum": [
+              "campaign",
+              "adgroup",
+              "ad"
+            ],
+            "default": "campaign"
+          }
+        },
+        "required": [
+          "advertiserId",
+          "startDate",
+          "endDate"
+        ]
+      }
+    }
+  ]
+}

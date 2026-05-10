@@ -1,0 +1,95 @@
+{
+  "slug": "serpapi",
+  "name": "SerpApi",
+  "description": "Real-time SERP API with the broadest engine coverage — Google, Bing, Yahoo, DuckDuckGo, Yandex, Baidu, Naver, plus YouTube, Walmart, Apple App Store, eBay, and more. Free tier: 100 searches/month.",
+  "logo": "https://www.google.com/s2/favicons?domain=serpapi.com&sz=128",
+  "categories": ["seo", "serp", "search", "scraping", "google", "bing", "yandex", "baidu", "naver"],
+  "base_url": "https://serpapi.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {},
+    "credential_fields": [
+      { "name": "api_key", "label": "API Key", "description": "Get from serpapi.com/manage-api-key" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "Run a SERP query against any supported engine",
+      "method": "GET",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_key": { "type": "string" },
+          "engine": { "type": "string", "description": "google|bing|yahoo|duckduckgo|yandex|baidu|naver|youtube|walmart|apple_app_store|ebay|google_maps|google_news|google_shopping|google_scholar|google_jobs|google_images" },
+          "q": { "type": "string", "description": "Query string" },
+          "location": { "type": "string" },
+          "google_domain": { "type": "string" },
+          "gl": { "type": "string", "description": "Country code, e.g. us, vn, sg, br" },
+          "hl": { "type": "string", "description": "UI language" },
+          "num": { "type": "number" },
+          "start": { "type": "number" },
+          "device": { "type": "string", "description": "desktop|mobile|tablet" },
+          "safe": { "type": "string", "description": "active|off" }
+        },
+        "required": ["api_key", "engine", "q"]
+      }
+    },
+    {
+      "name": "locations",
+      "description": "Resolve location names to canonical SerpApi locations",
+      "method": "GET",
+      "path": "/locations.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string" },
+          "limit": { "type": "number" }
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "account",
+      "description": "Account info — plan, search quota remaining, monthly usage",
+      "method": "GET",
+      "path": "/account",
+      "input_schema": {
+        "type": "object",
+        "properties": { "api_key": { "type": "string" } },
+        "required": ["api_key"]
+      }
+    },
+    {
+      "name": "searches_archive",
+      "description": "List past searches from the archive",
+      "method": "GET",
+      "path": "/searches",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_key": { "type": "string" },
+          "q": { "type": "string" },
+          "engine": { "type": "string" },
+          "limit": { "type": "number" }
+        },
+        "required": ["api_key"]
+      }
+    },
+    {
+      "name": "get_search",
+      "description": "Retrieve cached results for a previous search by ID",
+      "method": "GET",
+      "path": "/searches/{search_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_key": { "type": "string" },
+          "search_id": { "type": "string" }
+        },
+        "required": ["api_key", "search_id"]
+      }
+    }
+  ]
+}

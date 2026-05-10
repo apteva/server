@@ -1,0 +1,342 @@
+{
+  "slug": "omnikit-webhooks",
+  "name": "OmniKit Webhooks",
+  "description": "Register webhooks to receive real-time event notifications. AI agents can subscribe to platform events (user actions, payments, emails, etc.) and receive them at their HTTP endpoints.",
+  "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+  "categories": [
+    "webhooks",
+    "events",
+    "realtime",
+    "notifications",
+    "subscriptions"
+  ],
+  "base_url": "https://api.omnikit.co",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your OmniKit API key (starts with 'okt_'). The project is determined automatically from the key."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "omnikit_webhook_register",
+      "description": "Register a webhook to receive events at your HTTP endpoint. When matching events occur, they will be POSTed to your endpoint_url with signature verification.",
+      "method": "POST",
+      "path": "/webhooks-register",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization_id": {
+            "type": "integer",
+            "description": "Organization ID for organization-wide webhooks (receives events from ALL projects in the org). Use this OR project_id, not both."
+          },
+          "name": {
+            "type": "string",
+            "description": "Friendly name for this webhook (e.g., 'My Agent Events')"
+          },
+          "endpoint_url": {
+            "type": "string",
+            "description": "Your HTTP endpoint URL that will receive webhook POSTs (must be HTTPS in production)"
+          },
+          "event_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Event types to subscribe to (e.g., ['user.created', 'order.completed']). Use ['*'] for all events."
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "outgoing"
+            ],
+            "description": "Webhook direction - always 'outgoing' for agent subscriptions",
+            "default": "outgoing"
+          },
+          "provider": {
+            "type": "string",
+            "description": "Provider type (default: 'custom' for agent webhooks)",
+            "default": "custom"
+          },
+          "secret_key": {
+            "type": "string",
+            "description": "Secret key for HMAC signature verification. Generate a random string and use it to verify incoming webhooks."
+          },
+          "auth_type": {
+            "type": "string",
+            "enum": [
+              "hmac-sha256",
+              "bearer",
+              "basic",
+              "none"
+            ],
+            "description": "Authentication method for webhook delivery",
+            "default": "hmac-sha256"
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description of what this webhook is used for"
+          },
+          "headers": {
+            "type": "object",
+            "description": "Optional custom headers to include in webhook requests"
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "description": "Timeout for webhook delivery in milliseconds (default: 30000)",
+            "default": 30000
+          },
+          "retry_config": {
+            "type": "object",
+            "description": "Retry configuration",
+            "properties": {
+              "max_attempts": {
+                "type": "integer",
+                "default": 3
+              },
+              "backoff_type": {
+                "type": "string",
+                "enum": [
+                  "exponential",
+                  "linear",
+                  "fixed"
+                ],
+                "default": "exponential"
+              }
+            }
+          }
+        },
+        "required": [
+          "name",
+          "endpoint_url",
+          "event_types",
+          "direction"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_webhook_list",
+      "description": "List webhooks. Filter by direction, active status, provider, or omit filters to list all accessible webhooks.",
+      "method": "GET",
+      "path": "/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": [
+              "incoming",
+              "outgoing",
+              "all"
+            ],
+            "description": "Filter by webhook direction",
+            "default": "all"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Filter by active status"
+          },
+          "provider": {
+            "type": "string",
+            "description": "Filter by provider (e.g., 'custom', 'stripe', 'github')"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of webhooks to return",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset for pagination",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "omnikit_webhook_get",
+      "description": "Get details of a specific webhook by ID, including configuration, status, and recent delivery stats.",
+      "method": "GET",
+      "path": "/webhooks/{webhook_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook_id": {
+            "type": "string",
+            "description": "Webhook ID (UUID)"
+          }
+        },
+        "required": [
+          "webhook_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_webhook_update",
+      "description": "Update an existing webhook configuration. Change endpoint URL, event types, filters, or enable/disable.",
+      "method": "PUT",
+      "path": "/webhooks/{webhook_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook_id": {
+            "type": "string",
+            "description": "Webhook ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New name for the webhook"
+          },
+          "endpoint_url": {
+            "type": "string",
+            "description": "New endpoint URL"
+          },
+          "event_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "New list of event types to subscribe to"
+          },
+          "event_filters": {
+            "type": "object",
+            "description": "New event filters"
+          },
+          "secret_key": {
+            "type": "string",
+            "description": "New secret key for signature verification"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Enable or disable the webhook"
+          },
+          "headers": {
+            "type": "object",
+            "description": "Custom headers to include"
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "description": "New timeout in milliseconds"
+          }
+        },
+        "required": [
+          "webhook_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_webhook_delete",
+      "description": "Delete a webhook subscription. You will no longer receive events at the registered endpoint.",
+      "method": "DELETE",
+      "path": "/webhooks/{webhook_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook_id": {
+            "type": "string",
+            "description": "Webhook ID to delete"
+          }
+        },
+        "required": [
+          "webhook_id"
+        ]
+      }
+    },
+    {
+      "name": "omnikit_event_types_list",
+      "description": "Get all available event types you can subscribe to for webhooks. Returns event names like 'user.created', 'email.sent', 'billing.payment_received', etc.",
+      "method": "GET",
+      "path": "/event-types",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "Optional: filter by category prefix (e.g., 'user', 'email', 'billing')"
+          }
+        }
+      }
+    }
+  ],
+  "credential_group": {
+    "id": "omnikit",
+    "name": "OmniKit",
+    "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+    "description": "One key unlocks the whole OmniKit suite. Account keys can manage many projects; project keys are scoped to one.",
+    "discovery": {
+      "list_projects": {
+        "method": "GET",
+        "path": "/projects",
+        "response_path": "data",
+        "id_field": "id",
+        "label_field": "name"
+      },
+      "api_lookup": {
+        "method": "GET",
+        "path": "/apis",
+        "response_path": "data",
+        "match_field": "base_path",
+        "match_value": "omnikit",
+        "id_field": "id"
+      },
+      "provision_project_key": {
+        "method": "POST",
+        "path": "/api-keys",
+        "body": {
+          "name": "Apteva \u00b7 {{label}}",
+          "api_id": "{{api_lookup_id}}",
+          "target_project_id": "{{external_project_id}}",
+          "scopes": [
+            "read",
+            "write"
+          ]
+        },
+        "response_key_path": "data.key",
+        "id_response_path": "data.id",
+        "credential_field": "api_key"
+      }
+    }
+  },
+  "scopes": {
+    "account": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Account API Key",
+          "description": "Starts with okt_acc_ \u2014 operates across every project in the account.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      },
+      "project_binding": {
+        "type": "header",
+        "name": "X-Project-Id",
+        "value": "{{project_id}}"
+      }
+    },
+    "project": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Project API Key",
+          "description": "Starts with okt_ \u2014 already scoped to a single project.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      }
+    }
+  }
+}

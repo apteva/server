@@ -1,0 +1,860 @@
+{
+  "slug": "omnikit-storage",
+  "name": "OmniKit Storage",
+  "description": "File storage, folders, buckets, transcripts, thumbnails, search, and document generation. Upload, organize, transcribe, and manage media files with CDN delivery.",
+  "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+  "categories": [
+    "storage",
+    "files",
+    "folders",
+    "buckets",
+    "upload",
+    "download",
+    "transcripts",
+    "thumbnails",
+    "search",
+    "cdn",
+    "media"
+  ],
+  "base_url": "https://api.omnikit.co",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your OmniKit API key (starts with 'okt_'). The project is determined automatically from the key."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_file",
+      "description": "Get detailed file metadata including size, dimensions, duration, MIME type, URLs, and optionally transcripts with segments. Use include_transcripts=true to get transcript text, include_transcript_segments=true for timestamped segments, include_thumbnails=true for video thumbnails.",
+      "method": "GET",
+      "path": "/storage/files/{file_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the file to retrieve"
+          },
+          "include_transcripts": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include transcript full text for audio/video files"
+          },
+          "include_transcript_segments": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include timestamped transcript segments with start/end times and confidence scores"
+          },
+          "include_thumbnails": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include video thumbnail list with timestamps"
+          },
+          "include_storage_info": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include storage bucket details and availability info"
+          },
+          "include_entity_tracks": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include entity tracking data for videos (persons, objects)"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "list_files",
+      "description": "List files in a project with optional filtering by bucket, folder, file type, and pagination",
+      "method": "GET",
+      "path": "/storage/files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket_id": {
+            "type": "integer",
+            "description": "Filter by storage bucket ID"
+          },
+          "folder_id": {
+            "type": "integer",
+            "description": "Filter by folder ID"
+          },
+          "file_type": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video",
+              "audio",
+              "document",
+              "archive",
+              "other"
+            ],
+            "description": "Filter by file type"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of files to return (max 1000)"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "upload_file",
+      "description": "Upload a file with base64-encoded data. Auto-generates thumbnails for images/videos and transcripts for audio/video files.",
+      "method": "POST",
+      "path": "/storage/upload",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_name": {
+            "type": "string",
+            "description": "Name for the uploaded file"
+          },
+          "file_data": {
+            "type": "string",
+            "description": "Base64-encoded file content"
+          },
+          "mime_type": {
+            "type": "string",
+            "description": "MIME type (e.g., image/png, video/mp4, audio/mp3)"
+          },
+          "folder_id": {
+            "type": "integer",
+            "description": "Target folder ID"
+          },
+          "description": {
+            "type": "string",
+            "description": "File description"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags for organizing the file"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public",
+            "description": "File access level"
+          },
+          "auto_transcribe": {
+            "type": "boolean",
+            "default": true,
+            "description": "Auto-generate transcripts for audio/video files"
+          }
+        },
+        "required": [
+          "file_name",
+          "file_data",
+          "mime_type"
+        ]
+      }
+    },
+    {
+      "name": "update_file",
+      "description": "Update file metadata: name, description, tags, access level, or move to a different folder",
+      "method": "PUT",
+      "path": "/storage/files/{file_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the file to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New file name"
+          },
+          "description": {
+            "type": "string",
+            "description": "New description"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "New tags"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "description": "New access level"
+          },
+          "folder_id": {
+            "type": "integer",
+            "description": "Move file to this folder"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "search",
+      "description": "Search files in storage. For oldest content: sort_by=uploaded_at, sort_order=asc. For newest: sort_by=uploaded_at, sort_order=desc. For portrait videos: file_type=video, format=portrait. For safe content: content_rating=sfw. For random files: sort_by=random.",
+      "method": "GET",
+      "path": "/storage/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_type": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video",
+              "audio",
+              "document"
+            ],
+            "description": "Filter by file type"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "portrait",
+              "landscape",
+              "square"
+            ],
+            "description": "Filter by aspect ratio. portrait = vertical/mobile, landscape = horizontal/widescreen"
+          },
+          "content_rating": {
+            "type": "string",
+            "enum": [
+              "sfw",
+              "nsfw",
+              "suggestive",
+              "adult",
+              "explicit"
+            ],
+            "description": "Filter by content rating. sfw = safe only, nsfw = everything except safe"
+          },
+          "folder": {
+            "type": "string",
+            "description": "Search within a folder by name (includes subfolders)"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search in file names, descriptions, and tags"
+          },
+          "uploaded_after": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Content from after this date (e.g. 2024-01-01T00:00:00Z). This is the original content date, not upload date."
+          },
+          "uploaded_before": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Content from before this date. This is the original content date, not upload date."
+          },
+          "max_duration": {
+            "type": "number",
+            "description": "Maximum duration in seconds (video/audio)"
+          },
+          "min_duration": {
+            "type": "number",
+            "description": "Minimum duration in seconds (video/audio)"
+          },
+          "sort_by": {
+            "type": "string",
+            "enum": [
+              "uploaded_at",
+              "created_at",
+              "name",
+              "size",
+              "duration",
+              "random"
+            ],
+            "default": "uploaded_at",
+            "description": "Sort field. uploaded_at = content date (use for oldest/newest). random = random order."
+          },
+          "sort_order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc",
+            "description": "asc = oldest/smallest first, desc = newest/largest first"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 10,
+            "maximum": 50,
+            "description": "Number of results to return (default 10, max 50)"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          },
+          "include_metadata": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include file metadata in response"
+          },
+          "include_storage_info": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include storage bucket info and the full public/CDN URLs for each file. Enabled by default \u2014 disable only if you need a minimal response and will fetch files individually."
+          },
+          "include_thumbnails": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include thumbnail data in response"
+          }
+        }
+      }
+    },
+    {
+      "name": "generate_document",
+      "description": "Generate PDF, DOCX, or XLSX documents from HTML content or templates and upload to storage",
+      "method": "POST",
+      "path": "/storage/files/generate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "HTML content or template content to convert"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "pdf",
+              "docx",
+              "xlsx"
+            ],
+            "default": "pdf",
+            "description": "Output format"
+          },
+          "file_name": {
+            "type": "string",
+            "description": "Output file name"
+          },
+          "folder_id": {
+            "type": "integer",
+            "description": "Target folder ID"
+          }
+        },
+        "required": [
+          "content",
+          "file_name"
+        ]
+      }
+    },
+    {
+      "name": "confirm_upload",
+      "description": "Confirm that a presigned URL upload completed. Triggers post-processing: thumbnail generation, transcription, and AI description.",
+      "method": "POST",
+      "path": "/storage/confirm-upload",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the file to confirm"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "list_thumbnails",
+      "description": "List all generated thumbnails for a video file with timestamps and dimensions",
+      "method": "GET",
+      "path": "/storage/files/{file_id}/thumbnails",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the video file"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "generate_transcript",
+      "description": "Generate a transcript for an audio/video file using OpenAI Whisper. Supports language auto-detection or manual language specification.",
+      "method": "POST",
+      "path": "/storage/files/{file_id}/transcripts/generate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the audio/video file to transcribe"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., en, fr, es). Auto-detected if not specified."
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "list_transcripts",
+      "description": "List all transcripts for a specific file with optional segment data",
+      "method": "GET",
+      "path": "/storage/files/{file_id}/transcripts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the file"
+          },
+          "include_segments": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include timestamped segments"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Filter by language code"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "get_transcript",
+      "description": "Get a transcript by ID with optional format conversion (JSON, VTT, SRT, TXT) and segment data",
+      "method": "GET",
+      "path": "/storage/transcripts/{transcript_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transcript_id": {
+            "type": "integer",
+            "description": "ID of the transcript"
+          },
+          "include_segments": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include timestamped segments"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "vtt",
+              "srt",
+              "txt"
+            ],
+            "default": "json",
+            "description": "Output format"
+          }
+        },
+        "required": [
+          "transcript_id"
+        ]
+      }
+    },
+    {
+      "name": "translate_transcript",
+      "description": "Translate a transcript to another language using AI (GPT-4). Creates a new transcript in the target language.",
+      "method": "POST",
+      "path": "/storage/transcripts/{transcript_id}/translate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transcript_id": {
+            "type": "integer",
+            "description": "ID of the transcript to translate"
+          },
+          "target_language": {
+            "type": "string",
+            "description": "Target language (e.g., french, spanish, german)"
+          }
+        },
+        "required": [
+          "transcript_id",
+          "target_language"
+        ]
+      }
+    },
+    {
+      "name": "upload_transcript",
+      "description": "Upload an existing transcript file (SRT, VTT, JSON, or TXT format) for a file",
+      "method": "POST",
+      "path": "/storage/transcripts/upload",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "ID of the audio/video file"
+          },
+          "content": {
+            "type": "string",
+            "description": "Transcript content (SRT, VTT, JSON, or plain text)"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "srt",
+              "vtt",
+              "json",
+              "txt"
+            ],
+            "description": "Format of the transcript content"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., en, fr)"
+          }
+        },
+        "required": [
+          "file_id",
+          "content",
+          "format"
+        ]
+      }
+    },
+    {
+      "name": "list_folders",
+      "description": "List folders with optional parent folder filter and recursive listing",
+      "method": "GET",
+      "path": "/storage/folders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "parent_folder_id": {
+            "type": "integer",
+            "description": "Filter by parent folder (omit for root folders)"
+          },
+          "include_children": {
+            "type": "boolean",
+            "default": false,
+            "description": "Recursively include child folders"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_folder",
+      "description": "Create a new folder with optional parent folder and description",
+      "method": "POST",
+      "path": "/storage/folders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Folder name"
+          },
+          "parent_folder_id": {
+            "type": "integer",
+            "description": "Parent folder ID (omit for root)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Folder description"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_folder",
+      "description": "Update folder name, description, or move to a different parent",
+      "method": "PUT",
+      "path": "/storage/folders/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "New folder name"
+          },
+          "description": {
+            "type": "string",
+            "description": "New description"
+          },
+          "parent_folder_id": {
+            "type": "integer",
+            "description": "Move to this parent folder"
+          },
+          "id": {
+            "type": "integer",
+            "description": "ID of the folder to update"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_folder",
+      "description": "Delete a folder. Use recursive=true to delete all contents.",
+      "method": "DELETE",
+      "path": "/storage/folders/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "recursive": {
+            "type": "boolean",
+            "default": false,
+            "description": "Delete folder contents recursively"
+          },
+          "id": {
+            "type": "integer",
+            "description": "ID of the folder to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_buckets",
+      "description": "List storage buckets for the project with optional statistics",
+      "method": "GET",
+      "path": "/storage/buckets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "include_stats": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include file count and size statistics"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_bucket",
+      "description": "Get storage bucket details with optional statistics",
+      "method": "GET",
+      "path": "/storage/buckets/{bucket_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket_id": {
+            "type": "integer",
+            "description": "ID of the bucket"
+          },
+          "include_stats": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include statistics"
+          }
+        },
+        "required": [
+          "bucket_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_file",
+      "description": "Delete a file from storage",
+      "method": "DELETE",
+      "path": "/storage/files/{file_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "File ID to delete"
+          },
+          "force": {
+            "type": "boolean",
+            "default": false,
+            "description": "Force delete without trash"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "create_bucket",
+      "description": "Create a new storage bucket",
+      "method": "POST",
+      "path": "/storage/buckets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Bucket name (must be unique)"
+          },
+          "region": {
+            "type": "string",
+            "default": "us-east-1",
+            "description": "Storage region"
+          },
+          "is_default": {
+            "type": "boolean",
+            "default": false,
+            "description": "Set as default bucket"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "delete_bucket",
+      "description": "Delete a storage bucket (must be empty)",
+      "method": "DELETE",
+      "path": "/storage/buckets/{bucket_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket_id": {
+            "type": "integer",
+            "description": "Bucket ID to delete"
+          }
+        },
+        "required": [
+          "bucket_id"
+        ]
+      }
+    },
+    {
+      "name": "update_bucket",
+      "description": "Update storage bucket settings",
+      "method": "PUT",
+      "path": "/storage/buckets/{bucket_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket_id": {
+            "type": "integer",
+            "description": "Bucket ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New bucket name"
+          },
+          "is_default": {
+            "type": "boolean",
+            "description": "Set as default bucket"
+          }
+        },
+        "required": [
+          "bucket_id"
+        ]
+      }
+    }
+  ],
+  "credential_group": {
+    "id": "omnikit",
+    "name": "OmniKit",
+    "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+    "description": "One key unlocks the whole OmniKit suite. Account keys can manage many projects; project keys are scoped to one.",
+    "discovery": {
+      "list_projects": {
+        "method": "GET",
+        "path": "/projects",
+        "response_path": "data",
+        "id_field": "id",
+        "label_field": "name"
+      },
+      "api_lookup": {
+        "method": "GET",
+        "path": "/apis",
+        "response_path": "data",
+        "match_field": "base_path",
+        "match_value": "omnikit",
+        "id_field": "id"
+      },
+      "provision_project_key": {
+        "method": "POST",
+        "path": "/api-keys",
+        "body": {
+          "name": "Apteva \u00b7 {{label}}",
+          "api_id": "{{api_lookup_id}}",
+          "target_project_id": "{{external_project_id}}",
+          "scopes": [
+            "read",
+            "write"
+          ]
+        },
+        "response_key_path": "data.key",
+        "id_response_path": "data.id",
+        "credential_field": "api_key"
+      }
+    }
+  },
+  "scopes": {
+    "account": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Account API Key",
+          "description": "Starts with okt_acc_ \u2014 operates across every project in the account.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      },
+      "project_binding": {
+        "type": "header",
+        "name": "X-Project-Id",
+        "value": "{{project_id}}"
+      }
+    },
+    "project": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Project API Key",
+          "description": "Starts with okt_ \u2014 already scoped to a single project.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      }
+    }
+  }
+}

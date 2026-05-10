@@ -1,0 +1,128 @@
+{
+  "slug": "axiom",
+  "name": "Axiom",
+  "description": "Axiom log management and observability platform. Query datasets using APL (Axiom Processing Language), ingest events, and manage datasets for structured log analysis.",
+  "logo": "https://www.google.com/s2/favicons?domain=axiom.co&sz=128",
+  "categories": [
+    "observability",
+    "logging",
+    "analytics",
+    "monitoring",
+    "apl"
+  ],
+  "base_url": "https://api.axiom.co/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "apiToken",
+        "label": "Api Token",
+        "description": "Axiom API token (generate at app.axiom.co/settings/api-tokens)"
+      },
+      {
+        "name": "orgId",
+        "label": "Org Id",
+        "description": "Axiom organization ID"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "query_dataset",
+      "description": "Execute an APL (Axiom Processing Language) query against your datasets. Supports filtering, aggregation, and time-range queries. Use the 'format' parameter to control output format.",
+      "method": "POST",
+      "path": "/datasets/_apl",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apl": {
+            "type": "string",
+            "description": "The APL query string to execute. Example: \"['my-dataset'] | where status == 500 | count\""
+          },
+          "startTime": {
+            "type": "string",
+            "description": "Start time for the query range in ISO 8601 format (e.g. '2025-01-01T00:00:00Z'). Optional."
+          },
+          "endTime": {
+            "type": "string",
+            "description": "End time for the query range in ISO 8601 format (e.g. '2025-01-02T00:00:00Z'). Optional."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "legacy",
+              "tabular"
+            ],
+            "description": "Response format. Use 'tabular' for a table-like response. Defaults to 'legacy'."
+          }
+        },
+        "required": [
+          "apl"
+        ]
+      }
+    },
+    {
+      "name": "ingest_events",
+      "description": "Ingest one or more events into a specified Axiom dataset. Send an array of JSON objects to be stored as log/event entries.",
+      "method": "POST",
+      "path": "/datasets/{{param.dataset}}/ingest",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dataset": {
+            "type": "string",
+            "description": "The name of the dataset to ingest events into."
+          },
+          "events": {
+            "type": "array",
+            "description": "Array of event objects to ingest. Each object is a JSON record with arbitrary fields.",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "dataset",
+          "events"
+        ]
+      }
+    },
+    {
+      "name": "list_datasets",
+      "description": "Retrieve a list of all datasets in your Axiom organization. Returns dataset names, descriptions, creation dates, and field information.",
+      "method": "GET",
+      "path": "/datasets",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_dataset",
+      "description": "Create a new dataset in your Axiom organization. Specify the dataset name and an optional description.",
+      "method": "POST",
+      "path": "/datasets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the dataset to create. Must be unique within the organization."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description for the dataset."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    }
+  ]
+}

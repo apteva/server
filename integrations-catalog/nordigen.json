@@ -1,0 +1,512 @@
+{
+  "slug": "nordigen",
+  "name": "Nordigen (GoCardless)",
+  "description": "MCP server for GoCardless Bank Account Data API (formerly Nordigen) - PSD2-compliant open banking for EU/UK. Connect bank accounts, fetch transactions, balances, and account details from 2500+ banks.",
+  "logo": "https://www.google.com/s2/favicons?domain=gocardless.com&sz=128",
+  "categories": [
+    "banking",
+    "open-banking",
+    "psd2",
+    "transactions",
+    "accounts",
+    "eu",
+    "nordigen",
+    "gocardless"
+  ],
+  "base_url": "https://bankaccountdata.gocardless.com/api/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_token",
+      "description": "Obtain a new access token and refresh token using your secret_id and secret_key. Access tokens expire after 24 hours.",
+      "method": "POST",
+      "path": "/token/new/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "secret_id": {
+            "type": "string",
+            "description": "Your GoCardless/Nordigen secret_id (will use credential if not provided)"
+          },
+          "secret_key": {
+            "type": "string",
+            "description": "Your GoCardless/Nordigen secret_key (will use credential if not provided)"
+          }
+        }
+      }
+    },
+    {
+      "name": "refresh_token",
+      "description": "Refresh an expired access token using a refresh token. Refresh tokens expire after 30 days.",
+      "method": "POST",
+      "path": "/token/refresh/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "refresh": {
+            "type": "string",
+            "description": "The refresh token from create-token response"
+          }
+        },
+        "required": [
+          "refresh"
+        ]
+      }
+    },
+    {
+      "name": "list_institutions",
+      "description": "List all available banking institutions for a given country. Returns institution IDs, names, logos, BICs, and supported features.",
+      "method": "GET",
+      "path": "/institutions/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code (e.g. GB, DE, FR, NL, ES, IT, SE, NO, DK, FI, PL, PT, BE, AT, IE, LT, LV, EE)"
+          },
+          "payments_enabled": {
+            "type": "boolean",
+            "description": "Filter institutions that support payment initiation"
+          }
+        },
+        "required": [
+          "country"
+        ]
+      }
+    },
+    {
+      "name": "get_institution",
+      "description": "Get details about a specific banking institution including supported features, transaction history days, and countries",
+      "method": "GET",
+      "path": "/institutions/{institution_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "institution_id": {
+            "type": "string",
+            "description": "Institution ID (e.g. REVOLUT_REVOGB21, DEUTSCHE_BANK_DEUTDEFF)"
+          }
+        },
+        "required": [
+          "institution_id"
+        ]
+      }
+    },
+    {
+      "name": "create_agreement",
+      "description": "Create an end user agreement (EUA) specifying data access scope and duration for a bank connection. Controls what data is shared and for how long (max 90 days).",
+      "method": "POST",
+      "path": "/agreements/enduser/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "institution_id": {
+            "type": "string",
+            "description": "Institution ID to create agreement for"
+          },
+          "max_historical_days": {
+            "type": "integer",
+            "description": "Maximum number of days of transaction history (default 90, max depends on institution)"
+          },
+          "access_valid_for_days": {
+            "type": "integer",
+            "description": "Number of days the access is valid (default 90, max 180)"
+          },
+          "access_scope": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Data access scope: balances, details, transactions"
+          }
+        },
+        "required": [
+          "institution_id"
+        ]
+      }
+    },
+    {
+      "name": "get_agreement",
+      "description": "Get details of a specific end user agreement by ID",
+      "method": "GET",
+      "path": "/agreements/enduser/{agreement_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "agreement_id": {
+            "type": "string",
+            "description": "The UUID of the agreement"
+          }
+        },
+        "required": [
+          "agreement_id"
+        ]
+      }
+    },
+    {
+      "name": "list_agreements",
+      "description": "List all end user agreements with pagination",
+      "method": "GET",
+      "path": "/agreements/enduser/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Number of results per page (max 100)"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_agreement",
+      "description": "Delete an end user agreement by ID, revoking consent",
+      "method": "DELETE",
+      "path": "/agreements/enduser/{agreement_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "agreement_id": {
+            "type": "string",
+            "description": "The UUID of the agreement to delete"
+          }
+        },
+        "required": [
+          "agreement_id"
+        ]
+      }
+    },
+    {
+      "name": "accept_agreement",
+      "description": "Accept an end user agreement (for use with SSN verification flow). Sets the agreement status to accepted.",
+      "method": "PUT",
+      "path": "/agreements/enduser/{agreement_id}/accept/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "agreement_id": {
+            "type": "string",
+            "description": "The UUID of the agreement to accept"
+          },
+          "user_agent": {
+            "type": "string",
+            "description": "User agent string of the end user's browser"
+          },
+          "ip_address": {
+            "type": "string",
+            "description": "IP address of the end user"
+          }
+        },
+        "required": [
+          "agreement_id",
+          "user_agent",
+          "ip_address"
+        ]
+      }
+    },
+    {
+      "name": "create_requisition",
+      "description": "Create a requisition (bank connection link) that the end user will use to authorize access to their bank account. Returns a link URL to redirect the user to.",
+      "method": "POST",
+      "path": "/requisitions/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "redirect": {
+            "type": "string",
+            "description": "URL to redirect the user to after bank authorization"
+          },
+          "institution_id": {
+            "type": "string",
+            "description": "Institution ID to connect to"
+          },
+          "agreement": {
+            "type": "string",
+            "description": "Optional end user agreement UUID. If not provided, default agreement is created."
+          },
+          "reference": {
+            "type": "string",
+            "description": "Your internal reference for this requisition (unique per requisition)"
+          },
+          "user_language": {
+            "type": "string",
+            "description": "Language for the bank authorization flow (EN, DE, FR, ES, etc.)"
+          },
+          "ssn": {
+            "type": "string",
+            "description": "Social Security Number (required by some Nordic banks)"
+          },
+          "account_selection": {
+            "type": "boolean",
+            "description": "Enable account selection step in the authorization flow"
+          },
+          "redirect_immediate": {
+            "type": "boolean",
+            "description": "Redirect immediately after authorization without confirmation screen"
+          }
+        },
+        "required": [
+          "redirect",
+          "institution_id"
+        ]
+      }
+    },
+    {
+      "name": "get_requisition",
+      "description": "Get the status and linked account IDs of a requisition. Status can be: CR (created), LN (linked), EX (expired), RJ (rejected), SA (suspended), GA (granting access).",
+      "method": "GET",
+      "path": "/requisitions/{requisition_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "requisition_id": {
+            "type": "string",
+            "description": "The UUID of the requisition"
+          }
+        },
+        "required": [
+          "requisition_id"
+        ]
+      }
+    },
+    {
+      "name": "list_requisitions",
+      "description": "List all requisitions with their statuses and linked accounts",
+      "method": "GET",
+      "path": "/requisitions/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Number of results per page (max 100)"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_requisition",
+      "description": "Delete a requisition and revoke access to all linked accounts",
+      "method": "DELETE",
+      "path": "/requisitions/{requisition_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "requisition_id": {
+            "type": "string",
+            "description": "The UUID of the requisition to delete"
+          }
+        },
+        "required": [
+          "requisition_id"
+        ]
+      }
+    },
+    {
+      "name": "get_account_metadata",
+      "description": "Get metadata for a linked bank account including IBAN, institution, owner name, status, and creation date",
+      "method": "GET",
+      "path": "/accounts/{account_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The UUID of the linked bank account (from requisition.accounts)"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "get_account_details",
+      "description": "Get detailed account information including IBAN, currency, account type (CACC, SVGS, etc.), product name, and owner details",
+      "method": "GET",
+      "path": "/accounts/{account_id}/details/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The UUID of the linked bank account"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "get_account_balances",
+      "description": "Get current balances for a linked bank account. Returns closingBooked, expected, interimAvailable, and other balance types depending on the bank.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/balances/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The UUID of the linked bank account"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "get_account_transactions",
+      "description": "Get transactions for a linked bank account. Returns booked and pending transactions with remittance info, creditor/debtor details, and amounts.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/transactions/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The UUID of the linked bank account"
+          },
+          "date_from": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD). Defaults to 90 days ago."
+          },
+          "date_to": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD). Defaults to today."
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "get_premium_transactions",
+      "description": "Get enriched/categorized transactions with merchant info, categories, and clean descriptions (premium feature)",
+      "method": "GET",
+      "path": "/accounts/premium/{account_id}/transactions/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The UUID of the linked bank account"
+          },
+          "date_from": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "date_to": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "initiate_payment",
+      "description": "Initiate a SEPA or domestic payment from a bank account (requires payment_initiation support from the institution)",
+      "method": "POST",
+      "path": "/payments/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "institution_id": {
+            "type": "string",
+            "description": "Institution ID that supports payment initiation"
+          },
+          "redirect": {
+            "type": "string",
+            "description": "URL to redirect user after payment authorization"
+          },
+          "creditor_account": {
+            "type": "string",
+            "description": "Creditor (recipient) IBAN"
+          },
+          "creditor_name": {
+            "type": "string",
+            "description": "Creditor (recipient) name"
+          },
+          "debtor_account": {
+            "type": "string",
+            "description": "Debtor (sender) IBAN"
+          },
+          "instructed_amount": {
+            "type": "object",
+            "description": "Payment amount",
+            "properties": {
+              "currency": {
+                "type": "string",
+                "description": "ISO 4217 currency code (EUR, GBP)"
+              },
+              "amount": {
+                "type": "string",
+                "description": "Amount as string (e.g. '100.00')"
+              }
+            },
+            "required": [
+              "currency",
+              "amount"
+            ]
+          },
+          "remittance_information": {
+            "type": "string",
+            "description": "Payment reference/description"
+          }
+        },
+        "required": [
+          "institution_id",
+          "redirect",
+          "creditor_account",
+          "creditor_name",
+          "instructed_amount"
+        ]
+      }
+    },
+    {
+      "name": "get_payment",
+      "description": "Get the status and details of a payment initiation",
+      "method": "GET",
+      "path": "/payments/{payment_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_id": {
+            "type": "string",
+            "description": "The UUID of the payment"
+          }
+        },
+        "required": [
+          "payment_id"
+        ]
+      }
+    }
+  ]
+}

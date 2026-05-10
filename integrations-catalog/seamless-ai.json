@@ -1,0 +1,91 @@
+{
+  "slug": "seamless-ai",
+  "name": "Seamless.AI",
+  "description": "Real-time B2B contact search engine. Unlike Apollo/ZoomInfo (static DBs), Seamless looks up contacts on-demand by description — fresher data for niche/SMB targets that larger DBs miss.",
+  "logo": "https://www.google.com/s2/favicons?domain=seamless.ai&sz=128",
+  "categories": ["sales", "leads", "enrichment", "prospecting", "b2b"],
+  "base_url": "https://api.seamless.ai/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Seamless.AI API key from your account settings (requires API add-on)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "people_search",
+      "description": "Search for contacts by job title, seniority, department, company size, industry, location, or company domain.",
+      "method": "POST",
+      "path": "/people/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "titles": { "type": "array", "items": { "type": "string" } },
+          "seniorities": { "type": "array", "items": { "type": "string" } },
+          "departments": { "type": "array", "items": { "type": "string" } },
+          "industries": { "type": "array", "items": { "type": "string" } },
+          "company_domains": { "type": "array", "items": { "type": "string" } },
+          "company_sizes": { "type": "array", "items": { "type": "string" }, "description": "e.g. ['1-10','11-50','51-200']" },
+          "locations": { "type": "array", "items": { "type": "string" } },
+          "limit": { "type": "integer", "default": 25, "maximum": 100 },
+          "page": { "type": "integer", "default": 1 }
+        }
+      }
+    },
+    {
+      "name": "person_enrich",
+      "description": "Enrich a single person by name+company, email, or LinkedIn URL.",
+      "method": "POST",
+      "path": "/people/enrich",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "first_name": { "type": "string" },
+          "last_name": { "type": "string" },
+          "company_domain": { "type": "string" },
+          "email": { "type": "string" },
+          "linkedin_url": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "company_search",
+      "description": "Search companies by industry, size, location, revenue, tech.",
+      "method": "POST",
+      "path": "/companies/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "industries": { "type": "array", "items": { "type": "string" } },
+          "company_sizes": { "type": "array", "items": { "type": "string" } },
+          "locations": { "type": "array", "items": { "type": "string" } },
+          "revenue_ranges": { "type": "array", "items": { "type": "string" } },
+          "technologies": { "type": "array", "items": { "type": "string" } },
+          "keywords": { "type": "array", "items": { "type": "string" } },
+          "limit": { "type": "integer", "default": 25 },
+          "page": { "type": "integer", "default": 1 }
+        }
+      }
+    },
+    {
+      "name": "company_enrich",
+      "description": "Enrich a company by domain or name.",
+      "method": "POST",
+      "path": "/companies/enrich",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": { "type": "string" },
+          "name": { "type": "string" }
+        }
+      }
+    }
+  ]
+}

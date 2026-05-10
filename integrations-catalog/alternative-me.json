@@ -1,0 +1,55 @@
+{
+  "slug": "alternative-me",
+  "name": "Alternative.me Crypto",
+  "description": "Crypto Fear & Greed Index and global market data. Free, no API key needed.",
+  "logo": "https://www.google.com/s2/favicons?domain=alternative.me&sz=128",
+  "categories": [
+    "sentiment",
+    "fear-greed",
+    "crypto",
+    "market-data"
+  ],
+  "base_url": "https://api.alternative.me/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Token"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "fear_greed",
+      "description": "Get the current Crypto Fear & Greed Index (0-100). Factors: volatility, volume, social media, dominance, trends.",
+      "method": "GET",
+      "path": "/fng/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Number of days of data (default 1, max ~3000 for full history)",
+            "default": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "global",
+      "description": "Get global crypto market cap, BTC dominance, and active currencies count.",
+      "method": "GET",
+      "path": "/global/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

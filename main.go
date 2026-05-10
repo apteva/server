@@ -321,38 +321,75 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Catalog loading priority (most → least specific):
+	//
+	//   1. APPS_DIR env override        — operator-provided path.
+	//   2. Dev path (sibling monorepo)  — only present when running
+	//                                     `apteva` from the source
+	//                                     tree; lets a developer
+	//                                     edit JSONs without
+	//                                     rebuilding.
+	//   3. Embedded snapshot            — apteva-server's binary
+	//                                     ships with the catalog as
+	//                                     of release time. Means
+	//                                     `apteva update` brings a
+	//                                     fresh catalog along with
+	//                                     the new binary; pre-v0.13.1
+	//                                     this was missing and prod
+	//                                     boxes saw stale JSONs.
+	//   4. Downloaded path (legacy)     — ~/.apteva/integrations/
+	//                                     from a first-boot tarball
+	//                                     pull. Only relevant on
+	//                                     installs that pre-date the
+	//                                     embedded catalog and
+	//                                     haven't been re-downloaded.
+	//   5. GitHub auto-download          — last-resort safety net for
+	//                                     installs without an embed
+	//                                     and without a prior
+	//                                     download.
 	catalog := NewAppCatalog()
 	appsDir := os.Getenv("APPS_DIR")
-	if appsDir == "" {
-		// Try dev path first (relative to repo), then downloaded path
+	source := ""
+	if appsDir != "" {
+		source = "APPS_DIR=" + appsDir
+		if err := catalog.LoadFromDir(appsDir); err != nil {
+			fmt.Fprintf(os.Stderr, "catalog: APPS_DIR load failed: %v\n", err)
+		}
+	}
+	if catalog.Count() == 0 {
 		devPath := filepath.Join(dataDir, "..", "..", "integrations", "src", "apps")
-		downloadedPath := filepath.Join(dataDir, "integrations")
 		if info, err := os.Stat(devPath); err == nil && info.IsDir() {
-			appsDir = devPath
-		} else {
+			if err := catalog.LoadFromDir(devPath); err == nil && catalog.Count() > 0 {
+				source = "dev path " + devPath
+				appsDir = devPath
+			}
+		}
+	}
+	if catalog.Count() == 0 {
+		// Embedded snapshot — the canonical source for prod releases.
+		// LoadFromFS returns (count, error). Empty embed dir is fine
+		// (count=0 falls through), missing dir is an error we ignore.
+		if n, _ := catalog.LoadFromFS(integrationsCatalogEmbeddedFS); n > 0 {
+			source = "embedded (binary)"
+		}
+	}
+	if catalog.Count() == 0 {
+		downloadedPath := filepath.Join(dataDir, "integrations")
+		if err := catalog.LoadFromDir(downloadedPath); err == nil && catalog.Count() > 0 {
+			source = "downloaded " + downloadedPath
 			appsDir = downloadedPath
 		}
 	}
-	loadErr := catalog.LoadFromDir(appsDir)
-	// First-boot fallback: catalog isn't on disk OR is empty. We
-	// have to check both because filepath.Glob (used inside
-	// LoadFromDir) returns (nil, nil) for a missing directory
-	// rather than an error, so a fresh install whose data dir has
-	// never been populated would silently pass the err-only check
-	// and the dashboard would show "No apps found" forever.
-	// Pull the latest tarball from apteva/integrations on github so
-	// the dashboard's Integrations page has data to render. Fail-
-	// open: if github is unreachable we log + continue with an
-	// empty catalog (the dashboard surfaces a retry path at
-	// /api/integrations/catalog/download for power users).
-	if loadErr != nil || catalog.Count() == 0 {
-		fmt.Fprintf(os.Stderr, "no integration catalog on disk — auto-downloading from %s\n", catalogRepo)
+	if catalog.Count() == 0 {
+		fmt.Fprintf(os.Stderr, "no integration catalog found locally — auto-downloading from %s\n", catalogRepo)
 		if _, _, derr := downloadIntegrationCatalog(catalog, dataDir); derr != nil {
 			fmt.Fprintf(os.Stderr, "catalog auto-download failed: %v (server starting with empty catalog)\n", derr)
+		} else {
+			source = "downloaded from " + catalogRepo
+			appsDir = filepath.Join(dataDir, "integrations")
 		}
-	} else {
-		fmt.Fprintf(os.Stderr, "loaded %d integrations from catalog\n", catalog.Count())
 	}
+	fmt.Fprintf(os.Stderr, "loaded %d integrations from catalog (source: %s)\n", catalog.Count(), source)
 
 	// Resolve the integrations UI bundle dir — built by
 	// integrations/scripts/build-ui.ts and served by

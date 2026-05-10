@@ -1,0 +1,194 @@
+{
+  "slug": "debugbear",
+  "name": "DebugBear",
+  "description": "Lighthouse + Core Web Vitals monitoring service. Run on-demand audits, track scheduled monitoring of pages over time, get full Lighthouse reports, network waterfalls, RUM metrics from real users, and timeline annotations for deploys/marketing pushes. Designed for ongoing performance monitoring rather than one-off audits.",
+  "logo": "https://www.google.com/s2/favicons?domain=debugbear.com&sz=128",
+  "categories": ["performance", "lighthouse", "monitoring", "web-vitals", "audit"],
+  "base_url": "https://www.debugbear.com/api/v1",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "x-api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      { "name": "api_key", "label": "DebugBear API key" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "analyze_page",
+      "description": "Trigger a fresh Lighthouse + WPT-style analysis on a registered page. Returns an analysis ID. The analysis runs in the background — poll get_lighthouse_report or check the page's metrics endpoint for completion. Optional `url` lets you override the page's default URL for this run; useful for testing PR preview deployments. `buildTitle` and `commitHash` tag the run for correlating with a deploy.",
+      "method": "POST",
+      "path": "/page/{pageId}/analyze",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": { "type": "string", "description": "DebugBear page id (from the dashboard)" },
+          "url": { "type": "string", "description": "Override URL — useful for PR previews. Defaults to the page's configured URL." },
+          "buildTitle": { "type": "string", "description": "Free-text label for this run (e.g. 'PR #1234 - new pricing page')" },
+          "commitHash": { "type": "string", "description": "Git commit hash for correlation with a deploy" },
+          "customHeaders": {
+            "type": "object",
+            "description": "Custom HTTP headers to send to the target page (e.g. {'X-Bypass-Cache': '1'})"
+          },
+          "cookies": {
+            "type": "array",
+            "items": { "type": "object" },
+            "description": "Cookies to set before the audit (for testing logged-in pages)"
+          }
+        },
+        "required": ["pageId"]
+      }
+    },
+    {
+      "name": "get_lighthouse_report",
+      "description": "Get the full Lighthouse JSON report for a completed analysis. The report contains every Lighthouse audit, all five category scores, the trace, and the full timeline. Same shape as a local Lighthouse run.",
+      "method": "GET",
+      "path": "/analysis/{analysisId}/lhr",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "analysisId": { "type": "string", "description": "Analysis id returned by analyze_page" }
+        },
+        "required": ["analysisId"]
+      }
+    },
+    {
+      "name": "get_network_requests",
+      "description": "Get the full network waterfall for an analysis — every request the browser made, with timings, sizes, and headers. Useful for finding render-blocking resources, large payloads, and slow third-party scripts.",
+      "method": "GET",
+      "path": "/analysis/{analysisId}/requests",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "analysisId": { "type": "string" }
+        },
+        "required": ["analysisId"]
+      }
+    },
+    {
+      "name": "get_page_metrics",
+      "description": "Get the time series of Lighthouse + Web Vitals metrics for a single page, over a date range. Use this to spot regressions and trends without pulling individual analyses.",
+      "method": "GET",
+      "path": "/page/{pageId}/metrics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": { "type": "string" },
+          "from": { "type": "string", "description": "ISO-8601 start date (e.g. '2026-04-01')" },
+          "to": { "type": "string", "description": "ISO-8601 end date" }
+        },
+        "required": ["pageId"]
+      },
+      "query_params": ["from", "to"]
+    },
+    {
+      "name": "get_project",
+      "description": "Get a project's metadata including the list of pages it contains. Use this to discover the page IDs you need for analyze_page.",
+      "method": "GET",
+      "path": "/projects/{projectId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" }
+        },
+        "required": ["projectId"]
+      }
+    },
+    {
+      "name": "get_project_page_metrics",
+      "description": "Get aggregated Lighthouse / Web Vitals metrics across every page in a project. Useful for project-wide dashboards and 'is the whole site getting slower' checks.",
+      "method": "GET",
+      "path": "/projects/{projectId}/pageMetrics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "before": { "type": "string", "description": "ISO-8601 cutoff — return metrics from before this timestamp" },
+          "environments": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Filter to specific environments (e.g. ['production', 'staging'])"
+          }
+        },
+        "required": ["projectId"]
+      },
+      "query_params": ["before", "environments"]
+    },
+    {
+      "name": "get_rum_metrics",
+      "description": "Get Real User Monitoring metrics — actual Web Vitals (LCP, INP, CLS) collected from real visitors via DebugBear's RUM beacon. Powerful filters: groupBy by url/country/device, filter by url/country, choose statistic (p75 by default), pick which metrics to return.",
+      "method": "GET",
+      "path": "/project/{projectId}/rumMetrics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "groupBy": {
+            "type": "string",
+            "enum": ["url", "country", "deviceType", "browser", "connectionType"],
+            "description": "Dimension to group results by"
+          },
+          "filters": {
+            "type": "object",
+            "description": "Filter criteria (e.g. {'country': 'US', 'deviceType': 'mobile'})"
+          },
+          "stat": {
+            "type": "string",
+            "enum": ["p50", "p75", "p90", "p95", "p99", "avg"],
+            "default": "p75",
+            "description": "Statistic to compute over the matching events"
+          },
+          "metrics": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["lcp", "inp", "cls", "fcp", "ttfb", "fid"] },
+            "description": "Which Web Vitals to return"
+          },
+          "from": { "type": "string", "description": "ISO-8601 start date" },
+          "to": { "type": "string", "description": "ISO-8601 end date" },
+          "maxCategories": { "type": "integer", "default": 10, "description": "Cap on the number of groups returned (when groupBy is set)" },
+          "orderBy": { "type": "string", "description": "Field to sort the result groups by" }
+        },
+        "required": ["projectId"]
+      },
+      "query_params": ["groupBy", "filters", "stat", "metrics", "from", "to", "maxCategories", "orderBy"]
+    },
+    {
+      "name": "create_annotation",
+      "description": "Add a timeline annotation to a project — a deploy marker, a marketing campaign launch, an A/B test, etc. Annotations show up on the metrics charts so you can correlate performance changes with what shipped.",
+      "method": "POST",
+      "path": "/project/{projectId}/annotation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "title": { "type": "string", "description": "Short label shown on the chart" },
+          "description": { "type": "string", "description": "Longer note shown on hover" },
+          "timestamp": { "type": "string", "description": "ISO-8601 timestamp (defaults to now)" },
+          "type": {
+            "type": "string",
+            "enum": ["deploy", "experiment", "campaign", "incident", "other"],
+            "default": "deploy"
+          }
+        },
+        "required": ["projectId", "title"]
+      }
+    },
+    {
+      "name": "list_annotations",
+      "description": "List previously-created timeline annotations for a project.",
+      "method": "GET",
+      "path": "/project/{projectId}/annotations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "from": { "type": "string" },
+          "to": { "type": "string" }
+        },
+        "required": ["projectId"]
+      },
+      "query_params": ["from", "to"]
+    }
+  ]
+}

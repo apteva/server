@@ -1,0 +1,246 @@
+{
+  "slug": "microsoft-ads",
+  "name": "Microsoft Advertising",
+  "description": "Microsoft Advertising (formerly Bing Ads) v13 — Customer Management, Campaign Management, Bulk, and Reporting services. The Bing Ads API is primarily SOAP; these tools call the REST/JSON edge plus customer-management OData endpoints. OAuth2 via Microsoft identity (login.microsoftonline.com), Developer Token required for every call.",
+  "logo": "https://www.google.com/s2/favicons?domain=ads.microsoft.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "search-ads",
+    "microsoft",
+    "bing-ads",
+    "ppc"
+  ],
+  "base_url": "https://campaign.api.bingads.microsoft.com/CampaignManagement/v13",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "DeveloperToken": "{{developer_token}}",
+      "CustomerId": "{{customer_id}}",
+      "CustomerAccountId": "{{account_id}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token",
+        "type": "password"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token",
+        "type": "password"
+      },
+      {
+        "name": "developer_token",
+        "label": "Developer Token",
+        "description": "Required on every Bing Ads API request. Apply at https://developers.ads.microsoft.com/.",
+        "type": "password"
+      },
+      {
+        "name": "customer_id",
+        "label": "CustomerId",
+        "description": "Manager (Customer) ID — sent in the CustomerId header"
+      },
+      {
+        "name": "account_id",
+        "label": "CustomerAccountId",
+        "description": "Default Account ID — sent in the CustomerAccountId header"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+      "scopes": [
+        "https://ads.microsoft.com/msads.manage",
+        "offline_access"
+      ],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "response_mode": "query",
+        "prompt": "consent"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "get_user",
+      "description": "Get the authenticated user (Customer Management). UserId=0 returns the current user. Returns user info, customer roles, and accessible accounts.",
+      "method": "POST",
+      "path": "/CustomerManagement/v13/User/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "UserId": { "type": "integer", "default": 0 }
+        }
+      }
+    },
+    {
+      "name": "list_accounts",
+      "description": "List accounts the authenticated user can access. Use SearchAccounts with optional Predicates to filter by name, AccountLifeCycleStatus, or ParentCustomerId. Ordering and Pagination supported.",
+      "method": "POST",
+      "path": "/CustomerManagement/v13/Accounts/Search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Predicates": {
+            "type": "array",
+            "items": { "type": "object" },
+            "description": "Array of {Field, Operator, Value} predicates"
+          },
+          "Ordering": { "type": "array", "items": { "type": "object" } },
+          "PageInfo": {
+            "type": "object",
+            "description": "{\"Index\": 0, \"Size\": 100}"
+          },
+          "ReturnAdditionalFields": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_campaigns_by_account",
+      "description": "Get all campaigns under an account. CampaignType is a flags string: 'Search Shopping DynamicSearchAds Audience'.",
+      "method": "POST",
+      "path": "/CampaignsByAccountId/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": { "type": "integer" },
+          "CampaignType": {
+            "type": "string",
+            "default": "Search Shopping DynamicSearchAds Audience",
+            "description": "Space-separated flags"
+          },
+          "ReturnAdditionalFields": { "type": "string" }
+        },
+        "required": ["AccountId"]
+      }
+    },
+    {
+      "name": "add_campaigns",
+      "description": "Add one or more campaigns. Each campaign requires Name, BudgetType (DailyBudgetStandard|DailyBudgetAccelerated|MonthlyBudgetSpendUntilDepleted), DailyBudget, Languages, TimeZone, Status (Active|Paused), CampaignType (Search|Shopping|DynamicSearchAds|Audience).",
+      "method": "POST",
+      "path": "/Campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": { "type": "integer" },
+          "Campaigns": {
+            "type": "array",
+            "items": { "type": "object" },
+            "description": "Array of Campaign objects"
+          }
+        },
+        "required": ["AccountId", "Campaigns"]
+      }
+    },
+    {
+      "name": "update_campaigns",
+      "description": "Update one or more campaigns. Pass full Campaign objects with Id set. Fields not specified are left unchanged when UpdateAuditInfo=false.",
+      "method": "PUT",
+      "path": "/Campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": { "type": "integer" },
+          "Campaigns": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["AccountId", "Campaigns"]
+      }
+    },
+    {
+      "name": "get_ad_groups_by_campaign",
+      "description": "Get all ad groups under a campaign.",
+      "method": "POST",
+      "path": "/AdGroupsByCampaignId/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CampaignId": { "type": "integer" },
+          "ReturnAdditionalFields": { "type": "string" }
+        },
+        "required": ["CampaignId"]
+      }
+    },
+    {
+      "name": "add_ad_groups",
+      "description": "Add one or more ad groups under a campaign. Each ad group requires Name, StartDate, EndDate, Language, CpcBid, AdRotation, Status, Network.",
+      "method": "POST",
+      "path": "/AdGroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CampaignId": { "type": "integer" },
+          "AdGroups": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["CampaignId", "AdGroups"]
+      }
+    },
+    {
+      "name": "get_ads_by_ad_group",
+      "description": "Get all ads under an ad group. AdTypes is a flags string e.g. 'Text ResponsiveSearch ProductAd App ExpandedText DynamicSearch ResponsiveAd'.",
+      "method": "POST",
+      "path": "/AdsByAdGroupId/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AdGroupId": { "type": "integer" },
+          "AdTypes": {
+            "type": "string",
+            "default": "ResponsiveSearch ResponsiveAd Text ExpandedText"
+          }
+        },
+        "required": ["AdGroupId"]
+      }
+    },
+    {
+      "name": "add_keywords",
+      "description": "Add keywords to an ad group. Each keyword requires Text, MatchType (Broad|Phrase|Exact), Status; optional Bid, Param1/2/3, FinalUrls.",
+      "method": "POST",
+      "path": "/Keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AdGroupId": { "type": "integer" },
+          "Keywords": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["AdGroupId", "Keywords"]
+      }
+    },
+    {
+      "name": "submit_report",
+      "description": "Queue a performance report (Reporting service). ReportRequest selects type — KeywordPerformanceReportRequest, CampaignPerformanceReportRequest, AdPerformanceReportRequest, AccountPerformanceReportRequest, AdGroupPerformanceReportRequest. Specify Aggregation (Daily|Hourly|Weekly|Monthly|Summary), Time (date range or LastSevenDays etc.), Columns (string array of metrics).",
+      "method": "POST",
+      "path": "/Reporting/v13/GenerateReport/Submit",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ReportRequest": {
+            "type": "object",
+            "description": "Typed report request with @odata.type field, e.g. \"#Microsoft.Advertising.Reporting.Api.CampaignPerformanceReportRequest\""
+          }
+        },
+        "required": ["ReportRequest"]
+      }
+    },
+    {
+      "name": "poll_report",
+      "description": "Poll a queued report request by ReportRequestId until Status=Success, then download from ReportDownloadUrl.",
+      "method": "POST",
+      "path": "/Reporting/v13/GenerateReport/Poll",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ReportRequestId": { "type": "string" }
+        },
+        "required": ["ReportRequestId"]
+      }
+    }
+  ]
+}

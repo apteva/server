@@ -1,0 +1,168 @@
+{
+  "slug": "browserless",
+  "name": "Browserless",
+  "description": "Hosted Chrome / Puppeteer / Playwright as a service. Single-endpoint REST APIs for screenshots, PDFs, scraping, function execution, and full browser automation. Use this when you need more control than a screenshot-only API but don't want to run your own browser farm.",
+  "logo": "https://www.google.com/s2/favicons?domain=browserless.io&sz=128",
+  "categories": ["browser", "screenshots", "rendering", "automation", "pdf", "scraping"],
+  "base_url": "https://chrome.browserless.io",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {},
+    "query_params": {
+      "token": "{{api_key}}"
+    },
+    "credential_fields": [
+      { "name": "api_key", "label": "Browserless API token" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "screenshot",
+      "description": "Take a screenshot of a URL. POST body is a Puppeteer-shaped options object — { url, options: { fullPage, type, quality, omitBackground, clip }, gotoOptions: { waitUntil, timeout } }. Returns the binary image directly.",
+      "method": "POST",
+      "path": "/screenshot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "The URL to screenshot" },
+          "html": { "type": "string", "description": "Render raw HTML instead (mutually exclusive with url)" },
+          "options": {
+            "type": "object",
+            "description": "Puppeteer screenshot options",
+            "properties": {
+              "fullPage": { "type": "boolean", "default": false },
+              "type": { "type": "string", "enum": ["png", "jpeg", "webp"], "default": "png" },
+              "quality": { "type": "integer", "minimum": 0, "maximum": 100 },
+              "omitBackground": { "type": "boolean", "default": false },
+              "clip": {
+                "type": "object",
+                "properties": {
+                  "x": { "type": "integer" },
+                  "y": { "type": "integer" },
+                  "width": { "type": "integer" },
+                  "height": { "type": "integer" }
+                }
+              }
+            }
+          },
+          "viewport": {
+            "type": "object",
+            "properties": {
+              "width": { "type": "integer", "default": 1280 },
+              "height": { "type": "integer", "default": 720 },
+              "deviceScaleFactor": { "type": "number", "default": 1 },
+              "isMobile": { "type": "boolean", "default": false }
+            }
+          },
+          "gotoOptions": {
+            "type": "object",
+            "properties": {
+              "waitUntil": {
+                "type": "string",
+                "enum": ["load", "domcontentloaded", "networkidle0", "networkidle2"],
+                "default": "networkidle2"
+              },
+              "timeout": { "type": "integer", "default": 30000 }
+            }
+          },
+          "waitFor": { "type": ["string", "integer"], "description": "CSS selector to wait for, or ms to wait" },
+          "addStyleTag": { "type": "array", "items": { "type": "object" }, "description": "CSS to inject before capture" },
+          "addScriptTag": { "type": "array", "items": { "type": "object" }, "description": "JS to inject before capture" },
+          "rejectResourceTypes": { "type": "array", "items": { "type": "string" }, "description": "Block resource types: image, stylesheet, font, media, etc." },
+          "userAgent": { "type": "string" },
+          "cookies": { "type": "array", "items": { "type": "object" } },
+          "authenticate": { "type": "object", "description": "{ username, password } for HTTP Basic auth on the target site" }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "pdf",
+      "description": "Generate a PDF from a URL or HTML. Same options shape as screenshot, plus PDF-specific options.",
+      "method": "POST",
+      "path": "/pdf",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" },
+          "html": { "type": "string" },
+          "options": {
+            "type": "object",
+            "properties": {
+              "format": { "type": "string", "enum": ["Letter", "Legal", "Tabloid", "Ledger", "A0", "A1", "A2", "A3", "A4", "A5", "A6"], "default": "A4" },
+              "landscape": { "type": "boolean", "default": false },
+              "printBackground": { "type": "boolean", "default": false },
+              "displayHeaderFooter": { "type": "boolean", "default": false },
+              "headerTemplate": { "type": "string" },
+              "footerTemplate": { "type": "string" },
+              "scale": { "type": "number", "default": 1 },
+              "margin": { "type": "object" }
+            }
+          },
+          "gotoOptions": { "type": "object" }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "content",
+      "description": "Get the rendered HTML of a URL after JavaScript execution. Like a curl that runs JS first.",
+      "method": "POST",
+      "path": "/content",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" },
+          "gotoOptions": { "type": "object" },
+          "waitFor": { "type": ["string", "integer"] }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "function",
+      "description": "Execute arbitrary Puppeteer code against a fresh browser instance. Send `{ code: 'module.exports = async ({ page, context }) => { ... return data; }' }` and the return value comes back as the response body. Powerful but slow.",
+      "method": "POST",
+      "path": "/function",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string", "description": "Puppeteer function source — must export an async ({page, context}) => any" },
+          "context": { "type": "object", "description": "Variables passed into the function" }
+        },
+        "required": ["code"]
+      }
+    },
+    {
+      "name": "scrape",
+      "description": "Extract structured data from a page using a list of element selectors. Returns one entry per selector with text, attributes, and HTML.",
+      "method": "POST",
+      "path": "/scrape",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" },
+          "elements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "selector": { "type": "string" },
+                "timeout": { "type": "integer" }
+              }
+            }
+          },
+          "gotoOptions": { "type": "object" }
+        },
+        "required": ["url", "elements"]
+      }
+    },
+    {
+      "name": "stats",
+      "description": "Get account / session stats — credits used, concurrency, queue depth.",
+      "method": "GET",
+      "path": "/stats",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

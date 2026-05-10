@@ -1,0 +1,278 @@
+{
+  "slug": "clicksend",
+  "name": "ClickSend",
+  "description": "Multi-channel communications platform. Send SMS, email, and voice messages via the ClickSend API. Includes delivery tracking and message history.",
+  "logo": "https://www.google.com/s2/favicons?domain=clicksend.com&sz=128",
+  "categories": [
+    "sms",
+    "email",
+    "voice",
+    "communications",
+    "messaging",
+    "notifications"
+  ],
+  "base_url": "https://rest.clicksend.com/v3",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "authToken",
+        "label": "Auth Token",
+        "description": "ClickSend Basic auth token (base64 of username:apikey)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "send_sms",
+      "description": "Send one or more SMS messages to recipients. Each message requires a recipient phone number (in E.164 international format) and message body. Supports scheduling, custom strings, and sender ID.",
+      "method": "POST",
+      "path": "/sms/send",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "description": "Array of SMS message objects to send.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "to": {
+                  "type": "string",
+                  "description": "Recipient phone number in E.164 format (e.g. '+61411111111')."
+                },
+                "body": {
+                  "type": "string",
+                  "description": "The SMS message text content."
+                },
+                "source": {
+                  "type": "string",
+                  "description": "Source/origin identifier for tracking (e.g. 'mcp', 'api').",
+                  "default": "mcp"
+                },
+                "from": {
+                  "type": "string",
+                  "description": "Sender ID or phone number to send from (optional)."
+                },
+                "schedule": {
+                  "type": "integer",
+                  "description": "Unix timestamp to schedule the message for future delivery."
+                },
+                "custom_string": {
+                  "type": "string",
+                  "description": "Custom reference string for tracking purposes."
+                }
+              },
+              "required": [
+                "to",
+                "body"
+              ]
+            }
+          }
+        },
+        "required": [
+          "messages"
+        ]
+      }
+    },
+    {
+      "name": "send_email",
+      "description": "Send a transactional email to one or more recipients. Supports HTML body content, attachments, and custom sender information.",
+      "method": "POST",
+      "path": "/email/send",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "array",
+            "description": "Array of recipient objects.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string",
+                  "description": "Recipient email address."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Recipient display name."
+                }
+              },
+              "required": [
+                "email"
+              ]
+            }
+          },
+          "from": {
+            "type": "object",
+            "description": "Sender information.",
+            "properties": {
+              "email_address_id": {
+                "type": "string",
+                "description": "The ID of a verified sender email address in your ClickSend account."
+              },
+              "name": {
+                "type": "string",
+                "description": "Sender display name."
+              }
+            },
+            "required": [
+              "email_address_id"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject line."
+          },
+          "body": {
+            "type": "string",
+            "description": "Email body content (supports HTML)."
+          }
+        },
+        "required": [
+          "to",
+          "from",
+          "subject",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "list_sms_history",
+      "description": "Retrieve SMS message history with optional filtering by date range, status, and custom query. Supports pagination. All timestamps are returned in Unix time.",
+      "method": "GET",
+      "path": "/sms/history",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number for pagination (default 1).",
+            "default": 1
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of records per page (default 10).",
+            "default": 10
+          },
+          "q": {
+            "type": "string",
+            "description": "Custom query filter (e.g. 'from:{number},status_code:201')."
+          },
+          "date_from": {
+            "type": "integer",
+            "description": "Start date as Unix timestamp to filter messages from."
+          },
+          "date_to": {
+            "type": "integer",
+            "description": "End date as Unix timestamp to filter messages until."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_sms_delivery_status",
+      "description": "Retrieve SMS delivery receipts to check the delivery status of sent messages. Supports pagination and filtering by date range.",
+      "method": "GET",
+      "path": "/sms/receipts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number for pagination (default 1).",
+            "default": 1
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of records per page (default 10).",
+            "default": 10
+          }
+        }
+      }
+    },
+    {
+      "name": "send_voice_message",
+      "description": "Send one or more text-to-speech voice messages to phone numbers. The message body is converted to speech and delivered as a phone call. Supports language, voice gender, scheduling, and machine detection.",
+      "method": "POST",
+      "path": "/voice/send",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "description": "Array of voice message objects to send.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "to": {
+                  "type": "string",
+                  "description": "Recipient phone number in E.164 format (e.g. '+61411111111')."
+                },
+                "body": {
+                  "type": "string",
+                  "description": "The text content that will be converted to speech and spoken in the call."
+                },
+                "source": {
+                  "type": "string",
+                  "description": "Source/origin identifier for tracking.",
+                  "default": "mcp"
+                },
+                "lang": {
+                  "type": "string",
+                  "description": "Language code for the voice (e.g. 'en-us', 'en-au', 'en-gb').",
+                  "default": "en-us"
+                },
+                "voice": {
+                  "type": "string",
+                  "enum": [
+                    "male",
+                    "female"
+                  ],
+                  "description": "Voice gender for text-to-speech.",
+                  "default": "female"
+                },
+                "schedule": {
+                  "type": "integer",
+                  "description": "Unix timestamp to schedule the voice call for future delivery."
+                },
+                "custom_string": {
+                  "type": "string",
+                  "description": "Custom reference string for tracking purposes."
+                },
+                "require_input": {
+                  "type": "integer",
+                  "enum": [
+                    0,
+                    1
+                  ],
+                  "description": "Set to 1 to require the recipient to press a key to hear the message."
+                },
+                "machine_detection": {
+                  "type": "integer",
+                  "enum": [
+                    0,
+                    1
+                  ],
+                  "description": "Set to 1 to enable answering machine detection."
+                }
+              },
+              "required": [
+                "to",
+                "body"
+              ]
+            }
+          }
+        },
+        "required": [
+          "messages"
+        ]
+      }
+    }
+  ]
+}

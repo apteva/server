@@ -1,0 +1,268 @@
+{
+  "slug": "coinbase",
+  "name": "Coinbase",
+  "description": "MCP server for Coinbase cryptocurrency exchange - trading, accounts, market data",
+  "logo": "https://www.google.com/s2/favicons?domain=coinbase.com&sz=128",
+  "categories": [
+    "crypto",
+    "trading",
+    "exchange",
+    "finance"
+  ],
+  "base_url": "https://api.coinbase.com/api/v3/brokerage",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "Coinbase API Key"
+      },
+      {
+        "name": "apiSecret",
+        "label": "Api Secret",
+        "description": "Coinbase API Secret"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_accounts",
+      "description": "Get all trading accounts",
+      "method": "GET",
+      "path": "/get-accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_portfolio",
+      "description": "Get portfolio breakdown",
+      "method": "GET",
+      "path": "/get-portfolio",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "portfolio_uuid": {
+            "type": "string",
+            "description": "Portfolio UUID (optional)"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_ticker",
+      "description": "Get current price ticker for a product",
+      "method": "GET",
+      "path": "/get-ticker",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "description": "Product ID (e.g., BTC-USD)"
+          }
+        },
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "get_candles",
+      "description": "Get historical candlestick data",
+      "method": "GET",
+      "path": "/get-candles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "description": "Product ID (e.g., BTC-USD)"
+          },
+          "granularity": {
+            "type": "string",
+            "enum": [
+              "ONE_MINUTE",
+              "FIVE_MINUTE",
+              "FIFTEEN_MINUTE",
+              "ONE_HOUR",
+              "SIX_HOUR",
+              "ONE_DAY"
+            ],
+            "description": "Candle granularity"
+          },
+          "start": {
+            "type": "string",
+            "description": "Start time (ISO 8601)"
+          },
+          "end": {
+            "type": "string",
+            "description": "End time (ISO 8601)"
+          }
+        },
+        "required": [
+          "product_id",
+          "granularity"
+        ]
+      }
+    },
+    {
+      "name": "get_trades",
+      "description": "Get recent trades for a product",
+      "method": "GET",
+      "path": "/get-trades",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "description": "Product ID"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Number of trades to return"
+          }
+        },
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Create a new order",
+      "method": "POST",
+      "path": "/create-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "description": "Product ID (e.g., BTC-USD)"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "BUY",
+              "SELL"
+            ],
+            "description": "Order side"
+          },
+          "order_type": {
+            "type": "string",
+            "enum": [
+              "MARKET",
+              "LIMIT"
+            ],
+            "description": "Order type"
+          },
+          "size": {
+            "type": "string",
+            "description": "Order size in base currency"
+          },
+          "price": {
+            "type": "string",
+            "description": "Limit price (for limit orders)"
+          }
+        },
+        "required": [
+          "product_id",
+          "side",
+          "order_type"
+        ]
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get order details",
+      "method": "GET",
+      "path": "/get-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order ID"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "get_orders",
+      "description": "List orders",
+      "method": "GET",
+      "path": "/get-orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "description": "Filter by product ID"
+          },
+          "order_status": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter by status"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Number of orders to return"
+          }
+        }
+      }
+    },
+    {
+      "name": "cancel_order",
+      "description": "Cancel an order",
+      "method": "GET",
+      "path": "/cancel-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order ID to cancel"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "get_fills",
+      "description": "Get order fills/executions",
+      "method": "GET",
+      "path": "/get-fills",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Filter by order ID"
+          },
+          "product_id": {
+            "type": "string",
+            "description": "Filter by product ID"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Number of fills to return"
+          }
+        }
+      }
+    }
+  ]
+}

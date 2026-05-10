@@ -1,0 +1,447 @@
+{
+  "slug": "telegram",
+  "name": "Telegram",
+  "description": "MCP server for Telegram Bot API - messages, media, webhooks",
+  "logo": "https://www.google.com/s2/favicons?domain=telegram.org&sz=128",
+  "categories": [
+    "messaging",
+    "bots",
+    "chat",
+    "notifications"
+  ],
+  "base_url": "https://api.telegram.org/bot{apiKey}",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "botToken",
+        "label": "Bot Token",
+        "description": "Telegram Bot Token from @BotFather"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_me",
+      "description": "Get information about the bot",
+      "method": "GET",
+      "path": "/get-me",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "Send a text message",
+      "method": "POST",
+      "path": "/send-message",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "description": "Chat ID to send message to"
+          },
+          "text": {
+            "type": "string",
+            "description": "Message text"
+          },
+          "parse_mode": {
+            "type": "string",
+            "enum": [
+              "HTML",
+              "Markdown",
+              "MarkdownV2"
+            ],
+            "description": "Parse mode for formatting"
+          },
+          "disable_notification": {
+            "type": "boolean",
+            "description": "Send silently"
+          }
+        },
+        "required": [
+          "chat_id",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "send_photo",
+      "description": "Send a photo",
+      "method": "POST",
+      "path": "/send-photo",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "description": "Chat ID"
+          },
+          "photo": {
+            "type": "string",
+            "description": "Photo URL or file_id"
+          },
+          "caption": {
+            "type": "string",
+            "description": "Photo caption"
+          }
+        },
+        "required": [
+          "chat_id",
+          "photo"
+        ]
+      }
+    },
+    {
+      "name": "send_document",
+      "description": "Send a document/file",
+      "method": "POST",
+      "path": "/send-document",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "description": "Chat ID"
+          },
+          "document": {
+            "type": "string",
+            "description": "Document URL or file_id"
+          },
+          "caption": {
+            "type": "string",
+            "description": "Document caption"
+          }
+        },
+        "required": [
+          "chat_id",
+          "document"
+        ]
+      }
+    },
+    {
+      "name": "send_location",
+      "description": "Send a location",
+      "method": "POST",
+      "path": "/send-location",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "description": "Chat ID"
+          },
+          "latitude": {
+            "type": "number",
+            "description": "Latitude"
+          },
+          "longitude": {
+            "type": "number",
+            "description": "Longitude"
+          }
+        },
+        "required": [
+          "chat_id",
+          "latitude",
+          "longitude"
+        ]
+      }
+    },
+    {
+      "name": "send_poll",
+      "description": "Send a poll",
+      "method": "POST",
+      "path": "/send-poll",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "description": "Chat ID"
+          },
+          "question": {
+            "type": "string",
+            "description": "Poll question"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Poll options"
+          },
+          "is_anonymous": {
+            "type": "boolean",
+            "description": "Whether poll is anonymous"
+          }
+        },
+        "required": [
+          "chat_id",
+          "question",
+          "options"
+        ]
+      }
+    },
+    {
+      "name": "send_media_group",
+      "description": "Send a group of photos or videos as an album",
+      "method": "POST",
+      "path": "/send-media-group",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "description": "Chat ID"
+          },
+          "media": {
+            "type": "array",
+            "description": "Array of media objects"
+          }
+        },
+        "required": [
+          "chat_id",
+          "media"
+        ]
+      }
+    },
+    {
+      "name": "send_inline_keyboard",
+      "description": "Send message with inline keyboard",
+      "method": "POST",
+      "path": "/send-inline-keyboard",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "description": "Chat ID"
+          },
+          "text": {
+            "type": "string",
+            "description": "Message text"
+          },
+          "inline_keyboard": {
+            "type": "array",
+            "description": "Inline keyboard buttons"
+          }
+        },
+        "required": [
+          "chat_id",
+          "text",
+          "inline_keyboard"
+        ]
+      }
+    },
+    {
+      "name": "edit_message_text",
+      "description": "Edit a message's text",
+      "method": "PUT",
+      "path": "/edit-message-text",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "description": "Chat ID"
+          },
+          "message_id": {
+            "type": "number",
+            "description": "Message ID to edit"
+          },
+          "text": {
+            "type": "string",
+            "description": "New message text"
+          }
+        },
+        "required": [
+          "chat_id",
+          "message_id",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "delete_message",
+      "description": "Delete a message",
+      "method": "DELETE",
+      "path": "/delete-message",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "description": "Chat ID"
+          },
+          "message_id": {
+            "type": "number",
+            "description": "Message ID to delete"
+          }
+        },
+        "required": [
+          "chat_id",
+          "message_id"
+        ]
+      }
+    },
+    {
+      "name": "forward_message",
+      "description": "Forward a message",
+      "method": "GET",
+      "path": "/forward-message",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "description": "Destination chat ID"
+          },
+          "from_chat_id": {
+            "type": "string",
+            "description": "Source chat ID"
+          },
+          "message_id": {
+            "type": "number",
+            "description": "Message ID to forward"
+          }
+        },
+        "required": [
+          "chat_id",
+          "from_chat_id",
+          "message_id"
+        ]
+      }
+    },
+    {
+      "name": "get_chat",
+      "description": "Get chat information",
+      "method": "GET",
+      "path": "/get-chat",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "description": "Chat ID"
+          }
+        },
+        "required": [
+          "chat_id"
+        ]
+      }
+    },
+    {
+      "name": "get_updates",
+      "description": "Get bot updates (messages, callbacks, etc.)",
+      "method": "GET",
+      "path": "/get-updates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "number",
+            "description": "Offset for updates"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of updates"
+          }
+        }
+      }
+    },
+    {
+      "name": "set_webhook",
+      "description": "Set webhook URL for updates",
+      "method": "GET",
+      "path": "/set-webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Webhook URL"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Remove webhook",
+      "method": "DELETE",
+      "path": "/delete-webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "send_chat_action",
+      "description": "Send typing indicator or similar action",
+      "method": "POST",
+      "path": "/send-chat-action",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": {
+            "type": "string",
+            "description": "Chat ID"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "typing",
+              "upload_photo",
+              "upload_video",
+              "upload_document",
+              "find_location"
+            ],
+            "description": "Action type"
+          }
+        },
+        "required": [
+          "chat_id",
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "answer_callback_query",
+      "description": "Answer a callback query from inline keyboard",
+      "method": "GET",
+      "path": "/answer-callback-query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "callback_query_id": {
+            "type": "string",
+            "description": "Callback query ID"
+          },
+          "text": {
+            "type": "string",
+            "description": "Notification text"
+          },
+          "show_alert": {
+            "type": "boolean",
+            "description": "Show as alert"
+          }
+        },
+        "required": [
+          "callback_query_id"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_me"
+  }
+}

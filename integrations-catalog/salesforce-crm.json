@@ -1,0 +1,267 @@
+{
+  "slug": "salesforce-crm",
+  "name": "Salesforce",
+  "description": "MCP server for Salesforce CRM operations including leads, accounts, opportunities, and custom objects",
+  "logo": "https://www.google.com/s2/favicons?domain=www.salesforce.com&sz=128",
+  "categories": [
+    "salesforce",
+    "crm",
+    "sales",
+    "leads",
+    "opportunities",
+    "accounts"
+  ],
+  "base_url": "{{instance_url}}/services/data/v60.0",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "accessToken"
+      },
+      {
+        "name": "instanceUrl",
+        "label": "instanceUrl"
+      },
+      {
+        "name": "refreshToken",
+        "label": "refreshToken"
+      },
+      {
+        "name": "id",
+        "label": "id"
+      },
+      {
+        "name": "tokenType",
+        "label": "tokenType"
+      },
+      {
+        "name": "issuedAt",
+        "label": "issuedAt"
+      },
+      {
+        "name": "signature",
+        "label": "signature"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://login.salesforce.com/services/oauth2/authorize",
+      "token_url": "https://login.salesforce.com/services/oauth2/token",
+      "scopes": [
+        "api",
+        "refresh_token",
+        "offline_access",
+        "openid",
+        "profile",
+        "email",
+        "address",
+        "phone",
+        "full",
+        "chatter_api",
+        "custom_permissions",
+        "wave_api",
+        "cdp_query_api",
+        "cdp_profile_api",
+        "lightning",
+        "content",
+        "visualforce",
+        "web"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "create_lead",
+      "description": "Create a new lead in Salesforce",
+      "method": "POST",
+      "path": "/create-lead",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "first_name": {
+            "type": "string",
+            "description": "Lead first name"
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Lead last name"
+          },
+          "email": {
+            "type": "string",
+            "description": "Lead email address"
+          },
+          "company": {
+            "type": "string",
+            "description": "Company name"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Phone number"
+          },
+          "status": {
+            "type": "string",
+            "description": "Lead status"
+          },
+          "source": {
+            "type": "string",
+            "description": "Lead source"
+          }
+        },
+        "required": [
+          "last_name",
+          "company"
+        ]
+      }
+    },
+    {
+      "name": "query_records",
+      "description": "Query Salesforce records using SOQL",
+      "method": "GET",
+      "path": "/query-records",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "soql": {
+            "type": "string",
+            "description": "SOQL query string"
+          },
+          "object_type": {
+            "type": "string",
+            "description": "Salesforce object type (Lead, Account, Contact, etc.)"
+          },
+          "fields": {
+            "type": "array",
+            "description": "Fields to retrieve",
+            "items": {
+              "type": "string"
+            }
+          },
+          "where_clause": {
+            "type": "string",
+            "description": "WHERE clause conditions"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of records",
+            "default": 100,
+            "maximum": 2000
+          }
+        }
+      }
+    },
+    {
+      "name": "create_account",
+      "description": "Create a new account in Salesforce",
+      "method": "POST",
+      "path": "/create-account",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Account name"
+          },
+          "type": {
+            "type": "string",
+            "description": "Account type"
+          },
+          "industry": {
+            "type": "string",
+            "description": "Industry"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Phone number"
+          },
+          "website": {
+            "type": "string",
+            "description": "Website URL"
+          },
+          "billing_address": {
+            "type": "object",
+            "description": "Billing address"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "create_opportunity",
+      "description": "Create a new opportunity in Salesforce",
+      "method": "POST",
+      "path": "/create-opportunity",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Opportunity name"
+          },
+          "account_id": {
+            "type": "string",
+            "description": "Related account ID"
+          },
+          "stage_name": {
+            "type": "string",
+            "description": "Opportunity stage"
+          },
+          "close_date": {
+            "type": "string",
+            "description": "Expected close date"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Opportunity amount"
+          },
+          "probability": {
+            "type": "number",
+            "description": "Probability percentage"
+          }
+        },
+        "required": [
+          "name",
+          "stage_name",
+          "close_date"
+        ]
+      }
+    },
+    {
+      "name": "update_record",
+      "description": "Update a Salesforce record",
+      "method": "PUT",
+      "path": "/update-record",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "object_type": {
+            "type": "string",
+            "description": "Salesforce object type"
+          },
+          "record_id": {
+            "type": "string",
+            "description": "Record ID to update"
+          },
+          "fields": {
+            "type": "object",
+            "description": "Fields and values to update"
+          }
+        },
+        "required": [
+          "object_type",
+          "record_id",
+          "fields"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,101 @@
+{
+  "slug": "builtwith",
+  "name": "BuiltWith",
+  "description": "Tech-stack profiler for any website. Critical signal for AI prospection — knowing whether a target uses Intercom (no AI), Salesforce (enterprise), Shopify (SMB), or no analytics at all tells you exactly what to pitch. Also lists tech relationships (e.g. 'all sites using HubSpot in France').",
+  "logo": "https://www.google.com/s2/favicons?domain=builtwith.com&sz=128",
+  "categories": ["technographics", "enrichment", "tech-stack", "prospecting", "intel"],
+  "base_url": "https://api.builtwith.com",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "KEY": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "BuiltWith API key from api.builtwith.com (Domain API + Lists API plan recommended)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "domain_lookup",
+      "description": "Get the full technology profile of a domain: every tracked tech, when it was first/last seen, category. Use to qualify a prospect ('do they use any AI tooling?').",
+      "method": "GET",
+      "path": "/v21/api.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "LOOKUP": { "type": "string", "description": "Domain to look up, e.g. 'example.com'" },
+          "HIDETEXT": { "type": "string", "enum": ["yes", "no"], "default": "yes", "description": "Strip raw HTML evidence to reduce response size" },
+          "HIDEDL": { "type": "string", "enum": ["yes", "no"], "default": "yes" },
+          "NOMETA": { "type": "string", "enum": ["yes", "no"], "default": "yes" },
+          "NOATTR": { "type": "string", "enum": ["yes", "no"], "default": "no" },
+          "NOLIVE": { "type": "string", "enum": ["yes", "no"], "default": "no", "description": "Skip live-site checking" }
+        },
+        "required": ["LOOKUP"]
+      }
+    },
+    {
+      "name": "list_sites_by_tech",
+      "description": "List of websites that use a given technology. The single best lead-gen query: 'all SMBs in France using Calendly but no live-chat tool'. Costs more credits than a domain lookup.",
+      "method": "GET",
+      "path": "/lists7/api.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TECH": { "type": "string", "description": "BuiltWith tech name, e.g. 'HubSpot', 'Shopify', 'Calendly'" },
+          "META": { "type": "string", "enum": ["yes", "no"], "default": "no" },
+          "INCLUDE": { "type": "string", "description": "Comma-separated tech names to require" },
+          "EXCLUDE": { "type": "string", "description": "Comma-separated tech names to exclude" },
+          "COUNTRY": { "type": "string", "description": "ISO country code, e.g. 'FR'" },
+          "OFFSET": { "type": "string", "description": "Continuation token from previous response" },
+          "SINCE": { "type": "string", "description": "ISO date — only sites first detected after this" },
+          "LIVEONLY": { "type": "string", "enum": ["yes", "no"], "default": "yes" }
+        },
+        "required": ["TECH"]
+      }
+    },
+    {
+      "name": "relationships",
+      "description": "Get sister/parent/child sites that share infrastructure (Google Analytics ID, AdSense, etc.) with the lookup domain. Useful for finding portfolio companies of a single owner.",
+      "method": "GET",
+      "path": "/rv1/api.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "LOOKUP": { "type": "string" }
+        },
+        "required": ["LOOKUP"]
+      }
+    },
+    {
+      "name": "trends",
+      "description": "Adoption trend (popularity over time) for a single technology.",
+      "method": "GET",
+      "path": "/trends/v6/api.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TECH": { "type": "string" },
+          "DATE": { "type": "string", "description": "YYYYMMDD optional date" }
+        },
+        "required": ["TECH"]
+      }
+    },
+    {
+      "name": "keywords",
+      "description": "Keywords detected on a domain (meta keywords, headings) — use for ICP language research.",
+      "method": "GET",
+      "path": "/keywords2/api.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "LOOKUP": { "type": "string" }
+        },
+        "required": ["LOOKUP"]
+      }
+    }
+  ]
+}

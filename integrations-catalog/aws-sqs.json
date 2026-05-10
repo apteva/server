@@ -1,0 +1,250 @@
+{
+  "slug": "aws-sqs",
+  "name": "AWS SQS",
+  "description": "MCP server for AWS SQS - message queues, FIFO queues",
+  "logo": "https://www.google.com/s2/favicons?domain=aws.amazon.com&sz=128",
+  "categories": [
+    "aws",
+    "sqs",
+    "queues",
+    "messaging",
+    "async"
+  ],
+  "base_url": "https://sqs.{region}.amazonaws.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "access_key_id",
+        "label": "Access_key_id",
+        "description": "Your AWS Access Key ID"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "Secret_access_key",
+        "description": "Your AWS Secret Access Key"
+      },
+      {
+        "name": "region",
+        "label": "Region",
+        "description": "AWS Region (e.g., us-east-1)"
+      },
+      {
+        "name": "session_token",
+        "label": "Session_token",
+        "description": "Temporary session token (for temporary credentials)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_queues",
+      "description": "List SQS queues",
+      "method": "GET",
+      "path": "/list-queues",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "queue_name_prefix": {
+            "type": "string"
+          },
+          "max_results": {
+            "type": "number"
+          },
+          "next_token": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_queue",
+      "description": "Create an SQS queue",
+      "method": "POST",
+      "path": "/create-queue",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "queue_name": {
+            "type": "string"
+          },
+          "fifo": {
+            "type": "boolean"
+          },
+          "delay_seconds": {
+            "type": "number"
+          },
+          "message_retention_period": {
+            "type": "number"
+          },
+          "visibility_timeout": {
+            "type": "number"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "queue_name"
+        ]
+      }
+    },
+    {
+      "name": "delete_queue",
+      "description": "Delete an SQS queue",
+      "method": "DELETE",
+      "path": "/delete-queue",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "queue_url": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "queue_url"
+        ]
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "Send a message to a queue",
+      "method": "POST",
+      "path": "/send-message",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "queue_url": {
+            "type": "string"
+          },
+          "message_body": {
+            "type": "string"
+          },
+          "delay_seconds": {
+            "type": "number"
+          },
+          "message_attributes": {
+            "type": "object"
+          },
+          "message_group_id": {
+            "type": "string"
+          },
+          "message_deduplication_id": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "queue_url",
+          "message_body"
+        ]
+      }
+    },
+    {
+      "name": "receive_messages",
+      "description": "Receive messages from a queue",
+      "method": "GET",
+      "path": "/receive-messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "queue_url": {
+            "type": "string"
+          },
+          "max_number_of_messages": {
+            "type": "number"
+          },
+          "visibility_timeout": {
+            "type": "number"
+          },
+          "wait_time_seconds": {
+            "type": "number"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "queue_url"
+        ]
+      }
+    },
+    {
+      "name": "delete_message",
+      "description": "Delete a message from a queue",
+      "method": "DELETE",
+      "path": "/delete-message",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "queue_url": {
+            "type": "string"
+          },
+          "receipt_handle": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "queue_url",
+          "receipt_handle"
+        ]
+      }
+    },
+    {
+      "name": "get_queue_attributes",
+      "description": "Get queue attributes",
+      "method": "GET",
+      "path": "/get-queue-attributes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "queue_url": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "queue_url"
+        ]
+      }
+    },
+    {
+      "name": "purge_queue",
+      "description": "Purge all messages from a queue",
+      "method": "GET",
+      "path": "/purge-queue",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "queue_url": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "queue_url"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,792 @@
+{
+  "slug": "saltedge",
+  "name": "Salt Edge",
+  "description": "MCP server for Salt Edge bank account aggregation API - connect to 5000+ banks worldwide, fetch accounts, transactions, and balances. Supports PSD2/open banking.",
+  "logo": "https://www.google.com/s2/favicons?domain=saltedge.com&sz=128",
+  "categories": [
+    "banking",
+    "aggregation",
+    "open-banking",
+    "psd2",
+    "transactions",
+    "accounts",
+    "saltedge"
+  ],
+  "base_url": "https://www.saltedge.com/api/v6",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "App-id": "{{app_id}}",
+      "Secret": "{{secret}}"
+    },
+    "credential_fields": [
+      {
+        "name": "app_id",
+        "label": "App Id"
+      },
+      {
+        "name": "secret",
+        "label": "Secret"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_countries",
+      "description": "List all supported countries with their codes",
+      "method": "GET",
+      "path": "/countries",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_providers",
+      "description": "List available financial providers (banks) with filtering by country. Returns provider codes, names, modes, and supported features.",
+      "method": "GET",
+      "path": "/providers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country_code": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code to filter by (e.g. DE, GB, FR)"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "oauth",
+              "web",
+              "api",
+              "file"
+            ],
+            "description": "Filter by connection mode"
+          },
+          "include_fake_providers": {
+            "type": "boolean",
+            "description": "Include test/fake providers for sandbox testing"
+          },
+          "from_id": {
+            "type": "string",
+            "description": "Pagination cursor - fetch providers after this ID"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_provider",
+      "description": "Get details of a specific financial provider including required credentials, supported features, and instruction text",
+      "method": "GET",
+      "path": "/providers/{provider_code}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "provider_code": {
+            "type": "string",
+            "description": "The provider code (e.g. fakebank_simple_xf, revolut_business_eu)"
+          }
+        },
+        "required": [
+          "provider_code"
+        ]
+      }
+    },
+    {
+      "name": "create_customer",
+      "description": "Create a Salt Edge customer (represents an end user). Required before creating connections. The identifier must be unique.",
+      "method": "POST",
+      "path": "/customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string",
+            "description": "Unique customer identifier (your internal user ID or reference)"
+          }
+        },
+        "required": [
+          "identifier"
+        ]
+      }
+    },
+    {
+      "name": "get_customer",
+      "description": "Get details of a customer by ID",
+      "method": "GET",
+      "path": "/customers/{customer_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "The Salt Edge customer ID"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_customer",
+      "description": "Delete a customer and all their connections, accounts, and transactions",
+      "method": "DELETE",
+      "path": "/customers/{customer_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "The Salt Edge customer ID to delete"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "create_connect_session",
+      "description": "Create a Salt Edge Connect session URL. Redirect the user to this URL to authorize bank access through Salt Edge's hosted UI.",
+      "method": "POST",
+      "path": "/connect_sessions/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "The customer ID to connect for"
+          },
+          "consent": {
+            "type": "object",
+            "description": "Consent configuration",
+            "properties": {
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Data scopes: account_details, balance, transactions"
+              },
+              "from_date": {
+                "type": "string",
+                "description": "Transaction history start date (YYYY-MM-DD)"
+              }
+            },
+            "required": [
+              "scopes"
+            ]
+          },
+          "attempt": {
+            "type": "object",
+            "description": "Connection attempt settings",
+            "properties": {
+              "return_to": {
+                "type": "string",
+                "description": "URL to redirect user after connection"
+              },
+              "fetch_scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "What to fetch: accounts, transactions"
+              }
+            }
+          },
+          "allowed_countries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Limit to specific country codes"
+          },
+          "provider_code": {
+            "type": "string",
+            "description": "Pre-select a specific provider/bank"
+          },
+          "daily_refresh": {
+            "type": "boolean",
+            "description": "Enable automatic daily refresh of account data"
+          },
+          "include_fake_providers": {
+            "type": "boolean",
+            "description": "Show test/sandbox providers"
+          }
+        },
+        "required": [
+          "customer_id",
+          "consent"
+        ]
+      }
+    },
+    {
+      "name": "create_reconnect_session",
+      "description": "Create a reconnect session to update expired bank credentials or renew consent for an existing connection",
+      "method": "POST",
+      "path": "/connect_sessions/reconnect",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "description": "The connection ID to reconnect"
+          },
+          "consent": {
+            "type": "object",
+            "description": "Consent configuration",
+            "properties": {
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Data scopes: account_details, balance, transactions"
+              },
+              "from_date": {
+                "type": "string",
+                "description": "Transaction history start date"
+              }
+            },
+            "required": [
+              "scopes"
+            ]
+          },
+          "attempt": {
+            "type": "object",
+            "description": "Reconnect attempt settings",
+            "properties": {
+              "return_to": {
+                "type": "string",
+                "description": "URL to redirect user after reconnection"
+              }
+            }
+          }
+        },
+        "required": [
+          "connection_id",
+          "consent"
+        ]
+      }
+    },
+    {
+      "name": "create_refresh_session",
+      "description": "Create a refresh session to pull the latest account data and transactions for an active connection",
+      "method": "POST",
+      "path": "/connect_sessions/refresh",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "description": "The connection ID to refresh"
+          },
+          "attempt": {
+            "type": "object",
+            "description": "Refresh settings",
+            "properties": {
+              "fetch_scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "What to refresh: accounts, transactions"
+              }
+            }
+          }
+        },
+        "required": [
+          "connection_id"
+        ]
+      }
+    },
+    {
+      "name": "list_connections",
+      "description": "List all bank connections for a customer with their statuses, provider info, and last sync times",
+      "method": "GET",
+      "path": "/connections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "The customer ID"
+          },
+          "from_id": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "get_connection",
+      "description": "Get details of a specific bank connection including status, provider, last success/fail times, and next refresh date",
+      "method": "GET",
+      "path": "/connections/{connection_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "description": "The connection ID"
+          }
+        },
+        "required": [
+          "connection_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_connection",
+      "description": "Delete a bank connection and all its associated accounts and transactions",
+      "method": "DELETE",
+      "path": "/connections/{connection_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "description": "The connection ID to delete"
+          }
+        },
+        "required": [
+          "connection_id"
+        ]
+      }
+    },
+    {
+      "name": "list_consents",
+      "description": "List all consents for a connection with their status and expiration dates",
+      "method": "GET",
+      "path": "/consents",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "description": "The connection ID"
+          },
+          "from_id": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        },
+        "required": [
+          "connection_id"
+        ]
+      }
+    },
+    {
+      "name": "revoke_consent",
+      "description": "Revoke a specific consent, stopping data access for that scope",
+      "method": "PUT",
+      "path": "/consents/{consent_id}/revoke",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "consent_id": {
+            "type": "string",
+            "description": "The consent ID to revoke"
+          }
+        },
+        "required": [
+          "consent_id"
+        ]
+      }
+    },
+    {
+      "name": "list_accounts",
+      "description": "List all bank accounts for a connection including account names, types (account, card, loan, mortgage), balances, currency, and IBAN",
+      "method": "GET",
+      "path": "/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "description": "The connection ID"
+          },
+          "from_id": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        },
+        "required": [
+          "connection_id"
+        ]
+      }
+    },
+    {
+      "name": "list_transactions",
+      "description": "List transactions for a connection with optional filtering by account, date range, and status (posted, pending). Returns amount, currency, description, category, merchant, and dates.",
+      "method": "GET",
+      "path": "/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "description": "The connection ID"
+          },
+          "account_id": {
+            "type": "string",
+            "description": "Filter by specific account ID"
+          },
+          "from_id": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "made_on_from": {
+            "type": "string",
+            "description": "Filter transactions from this date (YYYY-MM-DD)"
+          },
+          "made_on_to": {
+            "type": "string",
+            "description": "Filter transactions up to this date (YYYY-MM-DD)"
+          }
+        },
+        "required": [
+          "connection_id"
+        ]
+      }
+    },
+    {
+      "name": "list_pending_transactions",
+      "description": "List pending (not yet cleared) transactions for a connection",
+      "method": "GET",
+      "path": "/transactions/pending",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "description": "The connection ID"
+          },
+          "account_id": {
+            "type": "string",
+            "description": "Filter by specific account ID"
+          },
+          "from_id": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        },
+        "required": [
+          "connection_id"
+        ]
+      }
+    },
+    {
+      "name": "duplicate_transactions",
+      "description": "List transactions that were flagged as potential duplicates during import",
+      "method": "GET",
+      "path": "/transactions/duplicates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "description": "The connection ID"
+          },
+          "account_id": {
+            "type": "string",
+            "description": "Filter by specific account ID"
+          },
+          "from_id": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        },
+        "required": [
+          "connection_id"
+        ]
+      }
+    },
+    {
+      "name": "list_categories",
+      "description": "Get the full list of transaction categories used by Salt Edge for automatic categorization",
+      "method": "GET",
+      "path": "/categories",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_currencies",
+      "description": "Get all supported currencies with their codes and names",
+      "method": "GET",
+      "path": "/currencies",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_rates",
+      "description": "Get current exchange rates for all supported currency pairs",
+      "method": "GET",
+      "path": "/rates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "Date for historical rates (YYYY-MM-DD). Defaults to today."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_attempts",
+      "description": "List all connection attempts for a connection, showing success/failure status and stages",
+      "method": "GET",
+      "path": "/attempts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "description": "The connection ID"
+          },
+          "from_id": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        },
+        "required": [
+          "connection_id"
+        ]
+      }
+    },
+    {
+      "name": "get_attempt",
+      "description": "Get details of a specific connection attempt including stages and error info",
+      "method": "GET",
+      "path": "/attempts/{attempt_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "description": "The attempt ID"
+          }
+        },
+        "required": [
+          "attempt_id"
+        ]
+      }
+    },
+    {
+      "name": "list_holder_info",
+      "description": "Get account holder information (name, email, phone, addresses) for a connection where available",
+      "method": "GET",
+      "path": "/holder_info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "description": "The connection ID"
+          }
+        },
+        "required": [
+          "connection_id"
+        ]
+      }
+    },
+    {
+      "name": "refresh_connection",
+      "description": "Directly refresh/re-fetch data for an active connection without creating a connect session",
+      "method": "PUT",
+      "path": "/connections/{connection_id}/refresh",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "description": "The connection ID to refresh"
+          },
+          "fetch_scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What to refresh: accounts, transactions"
+          }
+        },
+        "required": [
+          "connection_id"
+        ]
+      }
+    },
+    {
+      "name": "reconnect_connection",
+      "description": "Directly reconnect a failed/expired connection with new credentials without creating a connect session",
+      "method": "PUT",
+      "path": "/connections/{connection_id}/reconnect",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "description": "The connection ID to reconnect"
+          },
+          "credentials": {
+            "type": "object",
+            "description": "Provider-specific login credentials"
+          },
+          "consent": {
+            "type": "object",
+            "description": "Consent configuration with scopes and date range"
+          }
+        },
+        "required": [
+          "connection_id"
+        ]
+      }
+    },
+    {
+      "name": "submit_interactive",
+      "description": "Submit interactive credentials (MFA code, OTP, SMS code) during a connection that requires multi-factor authentication",
+      "method": "PUT",
+      "path": "/connections/{connection_id}/interactive",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "description": "The connection ID requiring interactive input"
+          },
+          "credentials": {
+            "type": "object",
+            "description": "Interactive field responses (e.g. {\"sms\": \"123456\"})"
+          }
+        },
+        "required": [
+          "connection_id",
+          "credentials"
+        ]
+      }
+    },
+    {
+      "name": "lookup_merchants",
+      "description": "Look up merchant details by their IDs from transaction data",
+      "method": "POST",
+      "path": "/merchants",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "merchant_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of merchant IDs to look up"
+          }
+        },
+        "required": [
+          "merchant_ids"
+        ]
+      }
+    },
+    {
+      "name": "create_report",
+      "description": "Create a financial insights report for a customer with spending analysis, income detection, and more",
+      "method": "POST",
+      "path": "/reports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "The customer ID to generate report for"
+          },
+          "report_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Types of reports to generate"
+          },
+          "currency_code": {
+            "type": "string",
+            "description": "Currency for the report (ISO 4217)"
+          },
+          "from_date": {
+            "type": "string",
+            "description": "Report start date (YYYY-MM-DD)"
+          },
+          "to_date": {
+            "type": "string",
+            "description": "Report end date (YYYY-MM-DD)"
+          }
+        },
+        "required": [
+          "customer_id",
+          "report_types",
+          "currency_code",
+          "from_date",
+          "to_date"
+        ]
+      }
+    },
+    {
+      "name": "list_reports",
+      "description": "List all financial reports for a customer",
+      "method": "GET",
+      "path": "/reports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "The customer ID"
+          },
+          "from_id": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "get_report",
+      "description": "Get a specific financial report with full details and analysis",
+      "method": "GET",
+      "path": "/reports/{report_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "report_id": {
+            "type": "string",
+            "description": "The report ID"
+          }
+        },
+        "required": [
+          "report_id"
+        ]
+      }
+    },
+    {
+      "name": "list_assets",
+      "description": "Get all supported assets (crypto and other non-fiat assets)",
+      "method": "GET",
+      "path": "/assets",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

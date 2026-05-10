@@ -1,0 +1,188 @@
+{
+  "slug": "shapeways",
+  "name": "Shapeways",
+  "description": "MCP server for Shapeways 3D printing marketplace - upload models, validate designs, get pricing, and manage orders",
+  "logo": "https://www.google.com/s2/favicons?domain=shapeways.com&sz=128",
+  "categories": [
+    "3d-printing",
+    "shapeways",
+    "marketplace",
+    "materials",
+    "orders"
+  ],
+  "base_url": "https://api.shapeways.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "Access Token",
+        "description": "Shapeways OAuth2 access token for API authentication"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "upload_and_validate",
+      "description": "Upload 3D model to Shapeways with instant printability validation across 30+ materials",
+      "method": "POST",
+      "path": "/upload-and-validate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Base64 encoded 3D model file"
+          },
+          "modelName": {
+            "type": "string",
+            "description": "Name for the model"
+          },
+          "description": {
+            "type": "string",
+            "description": "Model description"
+          },
+          "isPublic": {
+            "type": "boolean",
+            "description": "Make model publicly visible",
+            "default": false
+          },
+          "validateForMaterials": {
+            "type": "array",
+            "description": "Material IDs to validate against",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "file",
+          "modelName"
+        ]
+      }
+    },
+    {
+      "name": "get_material_pricing",
+      "description": "Get pricing information for a model in different materials",
+      "method": "GET",
+      "path": "/get-material-pricing",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modelId": {
+            "type": "string",
+            "description": "ID of the uploaded model"
+          },
+          "materialIds": {
+            "type": "array",
+            "description": "Array of material IDs to get pricing for",
+            "items": {
+              "type": "string"
+            }
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Quantity to price",
+            "default": 1
+          }
+        },
+        "required": [
+          "modelId"
+        ]
+      }
+    },
+    {
+      "name": "place_order",
+      "description": "Place an order for 3D printed models",
+      "method": "GET",
+      "path": "/place-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "description": "Array of items to order",
+            "items": {
+              "type": "object",
+              "properties": {
+                "modelId": {
+                  "type": "string"
+                },
+                "materialId": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number",
+                  "default": 1
+                }
+              },
+              "required": [
+                "modelId",
+                "materialId"
+              ]
+            }
+          },
+          "shippingAddress": {
+            "type": "object",
+            "description": "Shipping address",
+            "properties": {
+              "firstName": {
+                "type": "string"
+              },
+              "lastName": {
+                "type": "string"
+              },
+              "address1": {
+                "type": "string"
+              },
+              "city": {
+                "type": "string"
+              },
+              "postalCode": {
+                "type": "string"
+              },
+              "countryCode": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "firstName",
+              "lastName",
+              "address1",
+              "city",
+              "postalCode",
+              "countryCode"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "shippingAddress"
+        ]
+      }
+    },
+    {
+      "name": "get_order_status",
+      "description": "Check the status of a Shapeways order",
+      "method": "GET",
+      "path": "/get-order-status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "Order ID to check"
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      }
+    }
+  ]
+}

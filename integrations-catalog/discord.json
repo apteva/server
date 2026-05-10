@@ -1,0 +1,255 @@
+{
+  "slug": "discord",
+  "name": "Discord",
+  "description": "MCP server for Discord - messages, channels, webhooks, moderation",
+  "logo": "https://www.google.com/s2/favicons?domain=discord.com&sz=128",
+  "categories": [
+    "messaging",
+    "gaming",
+    "community",
+    "chat"
+  ],
+  "base_url": "https://discord.com/api/v10",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "token_type",
+        "label": "token_type"
+      },
+      {
+        "name": "scope",
+        "label": "scope"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://discord.com/api/oauth2/authorize",
+      "token_url": "https://discord.com/api/oauth2/token",
+      "scopes": [
+        "identify",
+        "email",
+        "connections",
+        "guilds",
+        "guilds.join",
+        "guilds.members.read",
+        "gdm.join",
+        "rpc",
+        "rpc.notifications.read",
+        "rpc.voice.read",
+        "rpc.voice.write",
+        "rpc.activities.write",
+        "bot",
+        "webhook.incoming",
+        "messages.read",
+        "applications.builds.upload",
+        "applications.builds.read",
+        "applications.commands",
+        "applications.store.update",
+        "applications.entitlements",
+        "activities.read",
+        "activities.write",
+        "relationships.read",
+        "voice",
+        "dm_channels.read",
+        "role_connections.write"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "send_message",
+      "description": "Send a message to a channel",
+      "method": "POST",
+      "path": "/send-message",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "embeds": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "channel_id",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "send_embed",
+      "description": "Send an embedded message",
+      "method": "POST",
+      "path": "/send-embed",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "embed": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "channel_id",
+          "embed"
+        ]
+      }
+    },
+    {
+      "name": "create_channel",
+      "description": "Create a new channel",
+      "method": "POST",
+      "path": "/create-channel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "guild_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "guild_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a webhook",
+      "method": "POST",
+      "path": "/create-webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "manage_role",
+      "description": "Manage user roles",
+      "method": "GET",
+      "path": "/manage-role",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "guild_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "role_id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "guild_id",
+          "user_id",
+          "role_id",
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "ban_user",
+      "description": "Ban a user from server",
+      "method": "GET",
+      "path": "/ban-user",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "guild_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "guild_id",
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "get_messages",
+      "description": "Retrieve messages from a Discord channel",
+      "method": "GET",
+      "path": "/get-messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string",
+            "description": "Discord channel ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of messages to retrieve",
+            "default": 50,
+            "maximum": 100
+          },
+          "before": {
+            "type": "string",
+            "description": "Get messages before this message ID"
+          },
+          "after": {
+            "type": "string",
+            "description": "Get messages after this message ID"
+          }
+        },
+        "required": [
+          "channel_id"
+        ]
+      }
+    }
+  ]
+}

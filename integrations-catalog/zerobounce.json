@@ -1,0 +1,80 @@
+{
+  "slug": "zerobounce",
+  "name": "ZeroBounce",
+  "description": "Email verification + spam-trap detection + activity scoring. Cheaper-per-email than NeverBounce at scale, includes data appends (gender, IP geolocation).",
+  "logo": "https://www.google.com/s2/favicons?domain=zerobounce.net&sz=128",
+  "categories": ["email", "verification", "deliverability"],
+  "base_url": "https://api.zerobounce.net/v2",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "api_key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "ZeroBounce API key from app.zerobounce.net"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "validate",
+      "description": "Validate a single email. Returns status: valid, invalid, catch-all, unknown, spamtrap, abuse, do_not_mail.",
+      "method": "GET",
+      "path": "/validate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string" },
+          "ip_address": { "type": "string", "description": "Optional IP to also geolocate" }
+        },
+        "required": ["email"]
+      }
+    },
+    {
+      "name": "validate_batch",
+      "description": "Validate up to 100 emails in a single call.",
+      "method": "POST",
+      "path": "/validatebatch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email_batch": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "email_address": { "type": "string" },
+                "ip_address": { "type": "string" }
+              },
+              "required": ["email_address"]
+            }
+          }
+        },
+        "required": ["email_batch"]
+      }
+    },
+    {
+      "name": "credits",
+      "description": "Get remaining credits.",
+      "method": "GET",
+      "path": "/getcredits",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "activity",
+      "description": "Check the email activity score (recent engagement signal — useful before mailing dormant lists).",
+      "method": "GET",
+      "path": "/activity",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string" }
+        },
+        "required": ["email"]
+      }
+    }
+  ]
+}

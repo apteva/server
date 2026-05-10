@@ -1,0 +1,1069 @@
+{
+  "slug": "twilio",
+  "name": "Twilio",
+  "description": "Twilio communications platform \u2014 SMS, MMS, voice calls, WhatsApp, phone numbers, recordings, usage, and verification",
+  "logo": "https://www.google.com/s2/favicons?domain=twilio.com&sz=128",
+  "categories": [
+    "messaging",
+    "sms",
+    "voice",
+    "whatsapp",
+    "communications",
+    "phone"
+  ],
+  "base_url": "https://api.twilio.com/2010-04-01",
+  "auth": {
+    "types": [
+      "basic"
+    ],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    "credential_fields": [
+      {
+        "name": "account_sid",
+        "label": "Account SID",
+        "description": "Your Twilio Account SID (used as the HTTP Basic username)",
+        "required": true
+      },
+      {
+        "name": "auth_token",
+        "label": "Auth Token",
+        "description": "Your Twilio Auth Token (used as the HTTP Basic password)",
+        "required": true,
+        "type": "password"
+      },
+      {
+        "name": "phone_number",
+        "label": "Default Phone Number",
+        "description": "Optional default From number in E.164 (e.g. +15551234567)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "send_sms",
+      "description": "Send an SMS or MMS message via Twilio. Supports text, media attachments, content templates, and status callbacks.",
+      "method": "POST",
+      "path": "/Accounts/{{account_sid}}/Messages.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "To": {
+            "type": "string",
+            "description": "Recipient phone number in E.164 format (e.g., +15558675310)"
+          },
+          "From": {
+            "type": "string",
+            "description": "Twilio phone number to send from in E.164 format"
+          },
+          "Body": {
+            "type": "string",
+            "description": "Message text (up to 1600 characters). Required unless using ContentSid."
+          },
+          "ContentSid": {
+            "type": "string",
+            "description": "Content template SID (HXxxxxxxxx) for sending pre-approved templates instead of free-form text"
+          },
+          "ContentVariables": {
+            "type": "string",
+            "description": "JSON string of template variables, e.g. {\"1\":\"John\",\"2\":\"tomorrow\"}"
+          },
+          "MediaUrl": {
+            "type": "string",
+            "description": "URL of media to include (for MMS)"
+          },
+          "StatusCallback": {
+            "type": "string",
+            "description": "URL for delivery status webhooks"
+          }
+        },
+        "required": [
+          "To",
+          "From"
+        ]
+      }
+    },
+    {
+      "name": "send_whatsapp",
+      "description": "Send a WhatsApp message via Twilio. Use whatsapp: prefix on phone numbers. For business-initiated conversations (user hasn't messaged you in 24h), you MUST use a ContentSid (approved template) instead of Body. Free-form Body only works within the 24-hour window after the user messages you.",
+      "method": "POST",
+      "path": "/Accounts/{{account_sid}}/Messages.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "To": {
+            "type": "string",
+            "description": "Recipient WhatsApp number with prefix (e.g., whatsapp:+15558675310)"
+          },
+          "From": {
+            "type": "string",
+            "description": "Your Twilio WhatsApp sender number with prefix (e.g., whatsapp:+14155238886)"
+          },
+          "Body": {
+            "type": "string",
+            "description": "Message text. Only works within 24h window after user messages you first. For business-initiated, use ContentSid instead."
+          },
+          "ContentSid": {
+            "type": "string",
+            "description": "Content template SID (HXxxxxxxxx) for sending approved WhatsApp templates. Required for business-initiated conversations."
+          },
+          "ContentVariables": {
+            "type": "string",
+            "description": "JSON string of template variables, e.g. {\"1\":\"John\",\"2\":\"tomorrow\"}"
+          },
+          "MediaUrl": {
+            "type": "string",
+            "description": "URL of media to include"
+          }
+        },
+        "required": [
+          "To",
+          "From"
+        ]
+      }
+    },
+    {
+      "name": "whatsapp_typing_indicator",
+      "description": "Show a 'typing...' indicator in the WhatsApp chat and automatically mark the referenced message as read (blue ticks). The indicator disappears when your response is delivered or after 25 seconds. Use this before replying to make the conversation feel more natural.",
+      "method": "POST",
+      "path": "/v2/Indicators/Typing.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string",
+            "description": "The SID of the message you're responding to (SMxxxxxxxx or MMxxxxxxxx)"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "whatsapp"
+            ],
+            "default": "whatsapp",
+            "description": "Channel type \u2014 must be 'whatsapp'"
+          }
+        },
+        "required": [
+          "messageId",
+          "channel"
+        ]
+      }
+    },
+    {
+      "name": "get_message",
+      "description": "Retrieve details of a specific message by SID.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Messages/{MessageSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "MessageSid": {
+            "type": "string",
+            "description": "Message SID (e.g., SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)"
+          }
+        },
+        "required": [
+          "MessageSid"
+        ]
+      }
+    },
+    {
+      "name": "list_messages",
+      "description": "List sent and received messages with optional filters.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Messages.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "To": {
+            "type": "string",
+            "description": "Filter by recipient number"
+          },
+          "From": {
+            "type": "string",
+            "description": "Filter by sender number"
+          },
+          "DateSent": {
+            "type": "string",
+            "description": "Filter by date sent (YYYY-MM-DD)"
+          },
+          "PageSize": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of messages to return (max 1000)"
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_message",
+      "description": "Delete a message by SID. This removes the message body and media but keeps the log entry.",
+      "method": "DELETE",
+      "path": "/Accounts/{{account_sid}}/Messages/{MessageSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "MessageSid": {
+            "type": "string",
+            "description": "Message SID to delete"
+          }
+        },
+        "required": [
+          "MessageSid"
+        ]
+      }
+    },
+    {
+      "name": "make_call",
+      "description": "Initiate an outbound phone call. Provide either a TwiML URL or inline TwiML instructions.",
+      "method": "POST",
+      "path": "/Accounts/{{account_sid}}/Calls.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "To": {
+            "type": "string",
+            "description": "Phone number to call in E.164 format"
+          },
+          "From": {
+            "type": "string",
+            "description": "Twilio phone number to call from"
+          },
+          "Url": {
+            "type": "string",
+            "description": "TwiML URL with call instructions"
+          },
+          "Twiml": {
+            "type": "string",
+            "description": "Inline TwiML instructions (e.g., <Response><Say>Hello!</Say></Response>)"
+          },
+          "Timeout": {
+            "type": "integer",
+            "default": 60,
+            "description": "Ring timeout in seconds"
+          },
+          "Record": {
+            "type": "boolean",
+            "description": "Record the call"
+          },
+          "StatusCallback": {
+            "type": "string",
+            "description": "URL for call status webhooks"
+          },
+          "MachineDetection": {
+            "type": "string",
+            "enum": [
+              "Enable",
+              "DetectMessageEnd"
+            ],
+            "description": "Enable answering machine detection"
+          }
+        },
+        "required": [
+          "To",
+          "From"
+        ]
+      }
+    },
+    {
+      "name": "get_call",
+      "description": "Retrieve details of a specific call by SID.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Calls/{CallSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CallSid": {
+            "type": "string",
+            "description": "Call SID"
+          }
+        },
+        "required": [
+          "CallSid"
+        ]
+      }
+    },
+    {
+      "name": "list_calls",
+      "description": "List call logs with optional filters for status, date, and phone numbers.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Calls.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "To": {
+            "type": "string",
+            "description": "Filter by called number"
+          },
+          "From": {
+            "type": "string",
+            "description": "Filter by caller number"
+          },
+          "Status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "ringing",
+              "in-progress",
+              "completed",
+              "busy",
+              "no-answer",
+              "failed",
+              "canceled"
+            ],
+            "description": "Filter by call status"
+          },
+          "StartTime": {
+            "type": "string",
+            "description": "Filter by start time (YYYY-MM-DD)"
+          },
+          "PageSize": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of calls to return (max 1000)"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_call",
+      "description": "Modify an in-progress call \u2014 redirect to new TwiML, end the call, or pause/resume recording.",
+      "method": "POST",
+      "path": "/Accounts/{{account_sid}}/Calls/{CallSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CallSid": {
+            "type": "string",
+            "description": "Call SID to update"
+          },
+          "Url": {
+            "type": "string",
+            "description": "New TwiML URL to redirect the call to"
+          },
+          "Twiml": {
+            "type": "string",
+            "description": "Inline TwiML to redirect the call to"
+          },
+          "Status": {
+            "type": "string",
+            "enum": [
+              "canceled",
+              "completed"
+            ],
+            "description": "Set to 'completed' to end the call"
+          }
+        },
+        "required": [
+          "CallSid"
+        ]
+      }
+    },
+    {
+      "name": "list_phone_numbers",
+      "description": "List all phone numbers in your Twilio account with their capabilities and configuration.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/IncomingPhoneNumbers.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PhoneNumber": {
+            "type": "string",
+            "description": "Filter by phone number"
+          },
+          "FriendlyName": {
+            "type": "string",
+            "description": "Filter by friendly name"
+          },
+          "PageSize": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of results (max 1000)"
+          }
+        }
+      }
+    },
+    {
+      "name": "buy_phone_number",
+      "description": "Purchase a phone number for your Twilio account.",
+      "method": "POST",
+      "path": "/Accounts/{{account_sid}}/IncomingPhoneNumbers.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PhoneNumber": {
+            "type": "string",
+            "description": "Phone number to purchase in E.164 format"
+          },
+          "FriendlyName": {
+            "type": "string",
+            "description": "Friendly name for the number"
+          },
+          "SmsUrl": {
+            "type": "string",
+            "description": "Webhook URL for incoming SMS"
+          },
+          "VoiceUrl": {
+            "type": "string",
+            "description": "Webhook URL for incoming calls"
+          }
+        },
+        "required": [
+          "PhoneNumber"
+        ]
+      }
+    },
+    {
+      "name": "update_phone_number",
+      "description": "Update configuration for a phone number \u2014 webhooks, friendly name, voice/SMS settings.",
+      "method": "POST",
+      "path": "/Accounts/{{account_sid}}/IncomingPhoneNumbers/{PhoneNumberSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PhoneNumberSid": {
+            "type": "string",
+            "description": "Phone Number SID (PNxxxxxxxx)"
+          },
+          "FriendlyName": {
+            "type": "string",
+            "description": "Friendly name"
+          },
+          "SmsUrl": {
+            "type": "string",
+            "description": "Webhook URL for incoming SMS"
+          },
+          "VoiceUrl": {
+            "type": "string",
+            "description": "Webhook URL for incoming calls"
+          },
+          "StatusCallback": {
+            "type": "string",
+            "description": "Status callback URL"
+          }
+        },
+        "required": [
+          "PhoneNumberSid"
+        ]
+      }
+    },
+    {
+      "name": "release_phone_number",
+      "description": "Release (delete) a phone number from your Twilio account.",
+      "method": "DELETE",
+      "path": "/Accounts/{{account_sid}}/IncomingPhoneNumbers/{PhoneNumberSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PhoneNumberSid": {
+            "type": "string",
+            "description": "Phone Number SID to release"
+          }
+        },
+        "required": [
+          "PhoneNumberSid"
+        ]
+      }
+    },
+    {
+      "name": "search_available_numbers",
+      "description": "Search for available phone numbers to purchase by country, area code, or capabilities.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/AvailablePhoneNumbers/{Country}/Local.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Country": {
+            "type": "string",
+            "default": "US",
+            "description": "ISO country code (e.g., US, GB, CA)"
+          },
+          "AreaCode": {
+            "type": "string",
+            "description": "Filter by area code (e.g., 415)"
+          },
+          "Contains": {
+            "type": "string",
+            "description": "Pattern to match (e.g., 555**** for numbers starting with 555)"
+          },
+          "SmsEnabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Must support SMS"
+          },
+          "VoiceEnabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Must support voice"
+          },
+          "MmsEnabled": {
+            "type": "boolean",
+            "description": "Must support MMS"
+          },
+          "PageSize": {
+            "type": "integer",
+            "default": 20,
+            "description": "Number of results"
+          }
+        },
+        "required": [
+          "Country"
+        ]
+      }
+    },
+    {
+      "name": "search_toll_free_numbers",
+      "description": "Search for available toll-free phone numbers to purchase.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/AvailablePhoneNumbers/{Country}/TollFree.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Country": {
+            "type": "string",
+            "default": "US",
+            "description": "ISO country code"
+          },
+          "Contains": {
+            "type": "string",
+            "description": "Pattern to match"
+          },
+          "SmsEnabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Must support SMS"
+          },
+          "VoiceEnabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Must support voice"
+          },
+          "PageSize": {
+            "type": "integer",
+            "default": 20,
+            "description": "Number of results"
+          }
+        },
+        "required": [
+          "Country"
+        ]
+      }
+    },
+    {
+      "name": "list_recordings",
+      "description": "List call recordings with optional filters.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Recordings.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CallSid": {
+            "type": "string",
+            "description": "Filter by call SID"
+          },
+          "DateCreated": {
+            "type": "string",
+            "description": "Filter by date (YYYY-MM-DD)"
+          },
+          "PageSize": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of recordings to return"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_recording",
+      "description": "Retrieve details of a specific recording.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Recordings/{RecordingSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "RecordingSid": {
+            "type": "string",
+            "description": "Recording SID"
+          }
+        },
+        "required": [
+          "RecordingSid"
+        ]
+      }
+    },
+    {
+      "name": "delete_recording",
+      "description": "Delete a call recording.",
+      "method": "DELETE",
+      "path": "/Accounts/{{account_sid}}/Recordings/{RecordingSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "RecordingSid": {
+            "type": "string",
+            "description": "Recording SID to delete"
+          }
+        },
+        "required": [
+          "RecordingSid"
+        ]
+      }
+    },
+    {
+      "name": "get_account",
+      "description": "Retrieve your Twilio account details including balance, status, and type.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_balance",
+      "description": "Retrieve your Twilio account balance and currency.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Balance.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_usage",
+      "description": "Retrieve usage records for your account \u2014 see costs per category (calls, SMS, numbers, etc.).",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Usage/Records.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Category": {
+            "type": "string",
+            "description": "Filter by category (e.g., sms, calls, phonenumbers, recordings)"
+          },
+          "StartDate": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "EndDate": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "PageSize": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of results"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_whatsapp_senders",
+      "description": "List all WhatsApp Business senders (phone numbers) registered in your Twilio account. Shows sender status, phone number, and WhatsApp Business profile details.",
+      "method": "GET",
+      "path": "/v2/Channels/Senders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PageSize": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of senders to return"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_whatsapp_sender",
+      "description": "Get details of a specific WhatsApp Business sender by SID \u2014 status, phone number, profile info, and capabilities.",
+      "method": "GET",
+      "path": "/v2/Channels/Senders/{SenderSid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SenderSid": {
+            "type": "string",
+            "description": "WhatsApp Sender SID"
+          }
+        },
+        "required": [
+          "SenderSid"
+        ]
+      }
+    },
+    {
+      "name": "register_whatsapp_sender",
+      "description": "Register a phone number as a WhatsApp Business sender. For SMS-capable Twilio numbers, verification is automatic. For voice-only or non-Twilio numbers, OTP verification is required separately.",
+      "method": "POST",
+      "path": "/v2/Channels/Senders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sender_id": {
+            "type": "string",
+            "description": "Phone number in E.164 format with whatsapp prefix (e.g., whatsapp:+15017122661)"
+          },
+          "profile": {
+            "type": "object",
+            "description": "WhatsApp Business profile",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "WhatsApp display name (must comply with Meta guidelines)"
+              },
+              "about": {
+                "type": "string",
+                "description": "Business description shown in WhatsApp profile"
+              },
+              "address": {
+                "type": "string",
+                "description": "Business address"
+              },
+              "description": {
+                "type": "string",
+                "description": "Detailed business description"
+              },
+              "vertical": {
+                "type": "string",
+                "description": "Business category (e.g., PROFESSIONAL_SERVICES, RETAIL, EDUCATION)"
+              },
+              "logo_url": {
+                "type": "string",
+                "description": "URL to business logo image"
+              },
+              "emails": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Business email addresses"
+              },
+              "websites": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Business website URLs"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "webhook": {
+            "type": "object",
+            "description": "Webhook configuration for status notifications",
+            "properties": {
+              "callback_url": {
+                "type": "string",
+                "description": "Webhook URL for sender status notifications"
+              },
+              "callback_method": {
+                "type": "string",
+                "enum": [
+                  "POST",
+                  "GET"
+                ],
+                "default": "POST",
+                "description": "HTTP method for webhook callbacks"
+              }
+            }
+          }
+        },
+        "required": [
+          "sender_id",
+          "profile"
+        ]
+      }
+    },
+    {
+      "name": "list_content_templates",
+      "description": "List WhatsApp content templates with their approval status. Use this to see all message templates, their types, and whether they're approved for WhatsApp.",
+      "method": "GET",
+      "path": "/v2/ContentAndApprovals",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PageSize": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of templates to return"
+          },
+          "Language": {
+            "type": "string",
+            "description": "Filter by language (e.g., en, es, de)"
+          },
+          "ContentName": {
+            "type": "string",
+            "description": "Search by template friendly name"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_content_template",
+      "description": "Retrieve details of a specific content template by SID \u2014 body, variables, type, and approval status.",
+      "method": "GET",
+      "path": "/v1/Content/{ContentSid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ContentSid": {
+            "type": "string",
+            "description": "Content template SID (HXxxxxxxxx)"
+          }
+        },
+        "required": [
+          "ContentSid"
+        ]
+      }
+    },
+    {
+      "name": "create_content_template",
+      "description": "Create a new content template for WhatsApp messaging. Templates must be submitted for approval before use. Supports text, media, quick reply, call-to-action, and card types.",
+      "method": "POST",
+      "path": "/v1/Content",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "friendly_name": {
+            "type": "string",
+            "description": "Human-readable name for this template"
+          },
+          "language": {
+            "type": "string",
+            "default": "en",
+            "description": "Template language code (e.g., en, es, de, fr)"
+          },
+          "variables": {
+            "type": "object",
+            "description": "Variable definitions, e.g. {\"1\": \"John\", \"2\": \"Acme Corp\"}"
+          },
+          "types": {
+            "type": "object",
+            "description": "Content type definition. Use one key like 'twilio/text', 'twilio/media', 'twilio/quick-reply', 'twilio/call-to-action', 'twilio/card'. Example for text: {\"twilio/text\": {\"body\": \"Hello {{1}}, welcome to {{2}}!\"}}"
+          }
+        },
+        "required": [
+          "friendly_name",
+          "language",
+          "types"
+        ]
+      }
+    },
+    {
+      "name": "submit_content_template_approval",
+      "description": "Submit a content template for WhatsApp approval. Once approved by Meta, the template can be used to initiate conversations outside the 24-hour window.",
+      "method": "POST",
+      "path": "/v1/Content/{ContentSid}/ApprovalRequests/whatsapp",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ContentSid": {
+            "type": "string",
+            "description": "Content template SID (HXxxxxxxxx) to submit for approval"
+          },
+          "name": {
+            "type": "string",
+            "description": "Template name for WhatsApp (lowercase, underscores, no spaces)"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "UTILITY",
+              "MARKETING",
+              "AUTHENTICATION"
+            ],
+            "description": "WhatsApp template category"
+          }
+        },
+        "required": [
+          "ContentSid",
+          "name",
+          "category"
+        ]
+      }
+    },
+    {
+      "name": "delete_content_template",
+      "description": "Delete a content template. Cannot delete templates that have been submitted for WhatsApp approval.",
+      "method": "DELETE",
+      "path": "/v1/Content/{ContentSid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ContentSid": {
+            "type": "string",
+            "description": "Content template SID (HXxxxxxxxx) to delete"
+          }
+        },
+        "required": [
+          "ContentSid"
+        ]
+      }
+    },
+    {
+      "name": "lookup_phone_number",
+      "description": "Look up information about a phone number \u2014 carrier, caller name, line type (mobile/landline/voip).",
+      "method": "GET",
+      "path": "/v2/PhoneNumbers/{PhoneNumber}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PhoneNumber": {
+            "type": "string",
+            "description": "Phone number in E.164 format"
+          },
+          "Fields": {
+            "type": "string",
+            "default": "line_type_intelligence",
+            "description": "Comma-separated fields: line_type_intelligence, caller_name, sim_swap, call_forwarding, live_activity"
+          }
+        },
+        "required": [
+          "PhoneNumber"
+        ]
+      }
+    },
+    {
+      "name": "create_verify_service",
+      "description": "Create a Twilio Verify service for phone number verification (OTP via SMS, call, or email).",
+      "method": "POST",
+      "path": "/v2/Services",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FriendlyName": {
+            "type": "string",
+            "description": "Name for the verify service"
+          },
+          "CodeLength": {
+            "type": "integer",
+            "default": 6,
+            "description": "Length of verification code (4-10)"
+          }
+        },
+        "required": [
+          "FriendlyName"
+        ]
+      }
+    },
+    {
+      "name": "send_verification",
+      "description": "Send a verification code to a phone number via SMS, call, or email.",
+      "method": "POST",
+      "path": "/v2/Services/{ServiceSid}/Verifications",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ServiceSid": {
+            "type": "string",
+            "description": "Verify Service SID"
+          },
+          "To": {
+            "type": "string",
+            "description": "Phone number or email to verify"
+          },
+          "Channel": {
+            "type": "string",
+            "enum": [
+              "sms",
+              "call",
+              "email",
+              "whatsapp"
+            ],
+            "default": "sms",
+            "description": "Verification channel"
+          }
+        },
+        "required": [
+          "ServiceSid",
+          "To",
+          "Channel"
+        ]
+      }
+    },
+    {
+      "name": "check_verification",
+      "description": "Verify a code submitted by the user against the one sent.",
+      "method": "POST",
+      "path": "/v2/Services/{ServiceSid}/VerificationCheck",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ServiceSid": {
+            "type": "string",
+            "description": "Verify Service SID"
+          },
+          "To": {
+            "type": "string",
+            "description": "Phone number or email that was verified"
+          },
+          "Code": {
+            "type": "string",
+            "description": "Verification code entered by user"
+          }
+        },
+        "required": [
+          "ServiceSid",
+          "To",
+          "Code"
+        ]
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-twilio-signature",
+    "events": [
+      {
+        "name": "sms.received",
+        "description": "Inbound SMS message received"
+      },
+      {
+        "name": "sms.delivered",
+        "description": "SMS delivery confirmed"
+      },
+      {
+        "name": "sms.failed",
+        "description": "SMS delivery failed"
+      },
+      {
+        "name": "whatsapp.received",
+        "description": "Inbound WhatsApp message received"
+      },
+      {
+        "name": "whatsapp.delivered",
+        "description": "WhatsApp message delivery confirmed"
+      },
+      {
+        "name": "whatsapp.failed",
+        "description": "WhatsApp message delivery failed"
+      },
+      {
+        "name": "call.initiated",
+        "description": "Phone call initiated"
+      },
+      {
+        "name": "call.ringing",
+        "description": "Phone call ringing"
+      },
+      {
+        "name": "call.completed",
+        "description": "Phone call completed"
+      },
+      {
+        "name": "call.failed",
+        "description": "Phone call failed"
+      },
+      {
+        "name": "recording.completed",
+        "description": "Call recording ready"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_account"
+  }
+}

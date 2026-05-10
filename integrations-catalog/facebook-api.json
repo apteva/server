@@ -1,0 +1,486 @@
+{
+  "slug": "facebook-api",
+  "name": "Facebook & Instagram",
+  "description": "Meta Graph API operations for Facebook Pages and Instagram Business: page/post management, photo + video publishing, Instagram Reels containers, and social analytics. One OAuth grant covers both surfaces.",
+  "logo": "https://www.google.com/s2/favicons?domain=www.facebook.com&sz=128",
+  "categories": [
+    "facebook",
+    "instagram",
+    "meta",
+    "social-media",
+    "pages",
+    "posts"
+  ],
+  "base_url": "https://graph.facebook.com/v25.0",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "accessToken"
+      },
+      {
+        "name": "refreshToken",
+        "label": "refreshToken"
+      },
+      {
+        "name": "expiresIn",
+        "label": "expiresIn"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://www.facebook.com/v25.0/dialog/oauth",
+      "token_url": "https://graph.facebook.com/v25.0/oauth/access_token",
+      "scopes": [
+        "email",
+        "public_profile",
+        "pages_show_list",
+        "pages_read_engagement",
+        "pages_manage_posts",
+        "pages_manage_metadata",
+        "instagram_basic",
+        "instagram_content_publish",
+        "ads_management",
+        "business_management"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "post_to_page",
+      "description": "Post text, links, or photos to a Facebook page. For IMAGE/PHOTO posts, use the 'image' parameter with a public URL - do NOT use 'link' for images. The 'link' parameter is only for sharing webpage URLs. For video uploads, use facebook-api-post-video instead. Caller MUST also include access_token=<page-level token from list_pages> — Facebook rejects the user token for /feed writes (error 210).",
+      "method": "POST",
+      "path": "/{pageId}/feed",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook page ID"
+          },
+          "message": {
+            "type": "string",
+            "description": "Post message content (used as caption for photos)"
+          },
+          "image": {
+            "type": "string",
+            "description": "Image/photo URL to post (must be publicly accessible). Use this for posting images - NOT the 'link' parameter."
+          },
+          "link": {
+            "type": "string",
+            "description": "Webpage URL to share (NOT for images - use 'image' parameter for photos)"
+          },
+          "photos": {
+            "type": "array",
+            "description": "Array of photo URLs for multi-image posts (must be publicly accessible)",
+            "items": {
+              "type": "string"
+            }
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required: Facebook rejects user-level tokens for /feed writes."
+          }
+        },
+        "required": [
+          "pageId"
+        ]
+      }
+    },
+    {
+      "name": "post_photo_to_page",
+      "description": "Upload and post a photo to a Facebook page using a publicly accessible image URL. Use this (not post_to_page) whenever you have an image — /feed only renders link previews and ignores image fields. Caller MUST include access_token=<page-level token from list_pages>.",
+      "method": "POST",
+      "path": "/{pageId}/photos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook page ID"
+          },
+          "url": {
+            "type": "string",
+            "description": "Publicly accessible image URL (Graph API will fetch + attach)."
+          },
+          "caption": {
+            "type": "string",
+            "description": "Caption text for the photo (rendered as the post body)."
+          },
+          "published": {
+            "type": "boolean",
+            "description": "Whether the photo is published immediately (true) or staged (false). Defaults to true.",
+            "default": true
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "pageId",
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "post_video",
+      "description": "Upload and post a video to a Facebook page using a publicly accessible URL. Videos must be under 1GB and 20 minutes. Caller MUST include access_token=<page-level token from list_pages> — Facebook rejects user tokens for /videos writes (error 210).",
+      "method": "POST",
+      "path": "/{pageId}/videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook page ID"
+          },
+          "file_url": {
+            "type": "string",
+            "description": "Publicly accessible URL to the video file (MP4, MOV, AVI, WMV, FLV supported)"
+          },
+          "title": {
+            "type": "string",
+            "description": "Video title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Video description text"
+          },
+          "thumb": {
+            "type": "string",
+            "description": "URL to custom thumbnail image"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required: Facebook rejects user-level tokens for /videos writes."
+          }
+        },
+        "required": [
+          "pageId",
+          "file_url"
+        ]
+      }
+    },
+    {
+      "name": "get_page_posts",
+      "description": "List posts from a Facebook page. Calls GET /{pageId}/posts on the Graph API. Page-level access_token is required (user-level tokens are rejected for /posts on Pages). Returns posts with message content, images (full_picture URL), permalink_url, and engagement metrics (reactions/comments/shares.summary.total_count when included in fields).",
+      "method": "GET",
+      "path": "/{pageId}/posts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook page ID"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of posts to retrieve",
+            "default": 25,
+            "maximum": 100
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated list of fields to include",
+            "default": "id,message,created_time,full_picture,permalink_url,shares,reactions.summary(true),comments.summary(true)"
+          },
+          "since": {
+            "type": "string",
+            "description": "Unix timestamp or date string to filter posts from"
+          },
+          "until": {
+            "type": "string",
+            "description": "Unix timestamp or date string to filter posts until"
+          },
+          "includeHidden": {
+            "type": "boolean",
+            "description": "Whether to include hidden posts",
+            "default": false
+          }
+        },
+        "required": [
+          "pageId"
+        ]
+      }
+    },
+    {
+      "name": "get_page_insights",
+      "description": "Get analytics data for a Facebook page",
+      "method": "GET",
+      "path": "/get-page-insights",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook page ID"
+          },
+          "metrics": {
+            "type": "array",
+            "description": "Metrics to retrieve",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "page_fans"
+            ]
+          },
+          "period": {
+            "type": "string",
+            "description": "Time period",
+            "enum": [
+              "day",
+              "week",
+              "days_28"
+            ],
+            "default": "day"
+          },
+          "since": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD or Unix timestamp)"
+          },
+          "until": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD or Unix timestamp)"
+          },
+          "datePreset": {
+            "type": "string",
+            "description": "Predefined date range",
+            "enum": [
+              "today",
+              "yesterday",
+              "this_week",
+              "last_week",
+              "this_month",
+              "last_month"
+            ]
+          }
+        },
+        "required": [
+          "pageId"
+        ]
+      }
+    },
+    {
+      "name": "list_pages",
+      "description": "List all Facebook pages managed by the authenticated user with details like name, category, fan count, and verification status",
+      "method": "GET",
+      "path": "/me/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated list of fields to include",
+            "default": "id,name,category,access_token,tasks,fan_count,verification_status,website"
+          }
+        }
+      }
+    },
+    {
+      "name": "facebook_get_post",
+      "description": "Get a Facebook post by id, including engagement counts when fields are requested. Calls GET /{postId}?fields=... on the Graph API; postId must be the full pageId_postId format. Page-level access_token is required (user-level tokens are rejected with error 210, same as the write endpoints). Common fields for metrics: 'likes.summary(true),comments.summary(true),shares,reactions.summary(true)' — counts come back under the .summary.total_count of each.",
+      "method": "GET",
+      "path": "/{postId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "description": "Facebook post ID in pageId_postId format"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated list of fields. For engagement counts use 'likes.summary(true),comments.summary(true),shares,reactions.summary(true)'.",
+            "default": "id,message,created_time,updated_time"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required for posts owned by Pages."
+          }
+        },
+        "required": ["postId"]
+      }
+    },
+    {
+      "name": "facebook_update_post",
+      "description": "Edit the message of a Facebook post. Calls POST /{postId} on the Graph API; postId is the full pageId_postId format. Page-level access_token required (user-level tokens are rejected with error 210, same as the write endpoints).",
+      "method": "POST",
+      "path": "/{postId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "description": "Facebook post ID in pageId_postId format"
+          },
+          "message": {
+            "type": "string",
+            "description": "New message body for the post"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token)."
+          }
+        },
+        "required": ["postId", "message"]
+      }
+    },
+    {
+      "name": "facebook_delete_post",
+      "description": "Permanently delete a Facebook post from a page. Calls DELETE /{postId} on the Graph API; postId must be the full pageId_postId format that post_to_page / post_photo_to_page / post_video return as `id`. Page-level access_token is required (user-level tokens are rejected with error 210, same as the write endpoints).",
+      "method": "DELETE",
+      "path": "/{postId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "description": "Facebook post ID in pageId_postId format (the `id` value returned by the post_to_page family)."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required: Facebook rejects user-level tokens for delete on page posts."
+          }
+        },
+        "required": [
+          "postId"
+        ]
+      }
+    },
+    {
+      "name": "create_media_container",
+      "description": "Instagram step 1 of 2: create a media container with image/video URL and caption. Returns containerId for step 2 (publish_media_container). For videos, sync=true (default) waits for processing to complete. The IG Business account must be linked to a Facebook Page that this connection has access to (instagramAccountId comes from list_pages with fields=...,instagram_business_account{id}).",
+      "method": "POST",
+      "path": "/{instagramAccountId}/media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Instagram Business Account ID (from the linked FB Page's instagram_business_account.id)"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "URL of image to post (for IMAGE/CAROUSEL). Snake_case is canonical per Graph API."
+          },
+          "video_url": {
+            "type": "string",
+            "description": "URL of video to post (for REELS). Snake_case is canonical per Graph API."
+          },
+          "caption": {
+            "type": "string",
+            "description": "Caption text for the media"
+          },
+          "media_type": {
+            "type": "string",
+            "description": "Type of media (VIDEO is deprecated, use REELS for videos)",
+            "enum": ["IMAGE", "REELS", "STORIES"],
+            "default": "IMAGE"
+          },
+          "sync": {
+            "type": "boolean",
+            "description": "For videos/reels: wait for processing before returning. Default true.",
+            "default": true
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token of the FB Page that owns this IG account). Required for IG Business writes."
+          }
+        },
+        "required": ["instagramAccountId"]
+      }
+    },
+    {
+      "name": "get_container_status",
+      "description": "Poll an Instagram media container's processing status before publishing. Returns {id, status_code, status}. status_code values: FINISHED (ready to publish), IN_PROGRESS (still processing — Reels especially take time), ERROR (transcode/validation failed), EXPIRED (container older than 24h, must recreate). Calls GET /{containerId}?fields=status_code,status on the Graph API.",
+      "method": "GET",
+      "path": "/{containerId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "containerId": {
+            "type": "string",
+            "description": "Container ID returned by create_media_container."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields to retrieve.",
+            "default": "id,status_code,status"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (the same one used to create the container)."
+          }
+        },
+        "required": ["containerId"]
+      }
+    },
+    {
+      "name": "publish_media_container",
+      "description": "Instagram step 2 of 2: publish the container created in step 1. Returns the published media id.",
+      "method": "POST",
+      "path": "/{instagramAccountId}/media_publish",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Instagram Business Account ID"
+          },
+          "containerId": {
+            "type": "string",
+            "description": "The 'id' returned from create_media_container."
+          },
+          "creation_id": {
+            "type": "string",
+            "description": "Alias for containerId — Graph API expects this field name."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages). Required for IG Business writes."
+          }
+        },
+        "required": ["instagramAccountId", "containerId"]
+      }
+    },
+    {
+      "name": "get_media_insights",
+      "description": "Fetch Instagram Business media insights (per-post metrics). Calls GET /{mediaId}/insights?metric=...&access_token=PAGE_TOKEN on the Graph API. Returns {data: [{name, period, values: [{value: N}]}]} — one entry per requested metric. Common metrics for FEED posts: reach, likes, comments, saves, shares (where supported). Metric availability varies by media type — REELS exposes plays, IG VIDEO ones differ.",
+      "method": "GET",
+      "path": "/{mediaId}/insights",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "description": "IG media id — the platform_post_id returned by publish_media_container."
+          },
+          "metric": {
+            "type": "string",
+            "description": "Comma-separated metric names (no spaces). Default covers the engagement basics.",
+            "default": "reach,likes,comments,saves,shares"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (the same token that owns the IG Business account)."
+          }
+        },
+        "required": ["mediaId"]
+      }
+    }
+  ]
+}

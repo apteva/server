@@ -1,0 +1,790 @@
+{
+  "slug": "aws-ses",
+  "name": "AWS SES",
+  "description": "Amazon Simple Email Service (SES) v2 — send transactional and marketing email, manage identities, templates, configuration sets, and event destinations. Authenticates via AWS Signature V4.",
+  "logo": "https://a0.awsstatic.com/libra-css/images/logos/aws_logo_smile_1200x630.png",
+  "categories": [
+    "aws",
+    "email",
+    "messaging",
+    "transactional"
+  ],
+  "base_url": "https://email.{{region}}.amazonaws.com",
+  "auth": {
+    "types": [
+      "aws_sigv4"
+    ],
+    "aws_sigv4": {
+      "service": "ses"
+    },
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "access_key_id",
+        "label": "AWS Access Key ID",
+        "description": "IAM access key with ses:* permissions on the target account",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "AWS Secret Access Key",
+        "required": true,
+        "type": "password"
+      },
+      {
+        "name": "region",
+        "label": "AWS Region",
+        "description": "Region where SES is configured (e.g. us-east-1, eu-west-1). Must be a region in which SES is enabled for your account.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "session_token",
+        "label": "AWS Session Token",
+        "description": "Only required when using temporary credentials issued by STS (assume-role, federated identities). Leave blank for long-lived IAM user keys.",
+        "required": false,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "send_email",
+      "description": "Send a single email with HTML and/or plain-text body to one or more recipients. Uses the SES v2 Simple content format. The From address (and the domain it belongs to, for non-sandbox accounts) must be a verified identity in the target region.",
+      "method": "POST",
+      "path": "/v2/email/outbound-emails",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FromEmailAddress": {
+            "type": "string",
+            "description": "Sender address in 'Display Name <email@domain.com>' or 'email@domain.com' form. Must be a verified SES identity (or belong to a verified domain)."
+          },
+          "Destination": {
+            "type": "object",
+            "description": "Recipient lists",
+            "properties": {
+              "ToAddresses": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Primary recipient addresses"
+              },
+              "CcAddresses": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "BccAddresses": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          },
+          "ReplyToAddresses": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Reply-To addresses (defaults to FromEmailAddress when omitted)"
+          },
+          "Content": {
+            "type": "object",
+            "description": "Email content. For send_email always use Simple. Subject is required; Body must contain at least one of Html or Text.",
+            "properties": {
+              "Simple": {
+                "type": "object",
+                "properties": {
+                  "Subject": {
+                    "type": "object",
+                    "properties": {
+                      "Data": { "type": "string", "description": "Subject line (UTF-8)" },
+                      "Charset": { "type": "string", "default": "UTF-8" }
+                    },
+                    "required": ["Data"]
+                  },
+                  "Body": {
+                    "type": "object",
+                    "properties": {
+                      "Html": {
+                        "type": "object",
+                        "properties": {
+                          "Data": { "type": "string" },
+                          "Charset": { "type": "string", "default": "UTF-8" }
+                        },
+                        "required": ["Data"]
+                      },
+                      "Text": {
+                        "type": "object",
+                        "properties": {
+                          "Data": { "type": "string" },
+                          "Charset": { "type": "string", "default": "UTF-8" }
+                        },
+                        "required": ["Data"]
+                      }
+                    }
+                  }
+                },
+                "required": ["Subject", "Body"]
+              }
+            },
+            "required": ["Simple"]
+          },
+          "ConfigurationSetName": {
+            "type": "string",
+            "description": "Optional configuration set for tracking opens/clicks/bounces"
+          },
+          "EmailTags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "Name": { "type": "string" },
+                "Value": { "type": "string" }
+              },
+              "required": ["Name", "Value"]
+            },
+            "description": "Tags forwarded to event destinations (max 10)"
+          }
+        },
+        "required": ["FromEmailAddress", "Destination", "Content"]
+      }
+    },
+    {
+      "name": "send_templated",
+      "description": "Send a templated email using a previously created SES template. TemplateData is a JSON-encoded STRING (not an object) of the values to substitute into the template's {{placeholders}}.",
+      "method": "POST",
+      "path": "/v2/email/outbound-emails",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FromEmailAddress": { "type": "string" },
+          "Destination": {
+            "type": "object",
+            "properties": {
+              "ToAddresses": { "type": "array", "items": { "type": "string" } },
+              "CcAddresses": { "type": "array", "items": { "type": "string" } },
+              "BccAddresses": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "ReplyToAddresses": { "type": "array", "items": { "type": "string" } },
+          "Content": {
+            "type": "object",
+            "properties": {
+              "Template": {
+                "type": "object",
+                "properties": {
+                  "TemplateName": {
+                    "type": "string",
+                    "description": "Name of an existing SES template (created via create_template)"
+                  },
+                  "TemplateArn": {
+                    "type": "string",
+                    "description": "ARN of the template; alternative to TemplateName for cross-account templates"
+                  },
+                  "TemplateData": {
+                    "type": "string",
+                    "description": "JSON-encoded string of placeholder values, e.g. '{\"name\":\"Alice\",\"orderId\":\"42\"}'"
+                  }
+                },
+                "required": ["TemplateData"]
+              }
+            },
+            "required": ["Template"]
+          },
+          "ConfigurationSetName": { "type": "string" }
+        },
+        "required": ["FromEmailAddress", "Destination", "Content"]
+      }
+    },
+    {
+      "name": "send_bulk_templated",
+      "description": "Send the same templated email to up to 50 recipients in one call, with per-recipient TemplateData substitutions. Cheaper than 50 individual SendEmail calls; each recipient gets a separate message.",
+      "method": "POST",
+      "path": "/v2/email/outbound-bulk-emails",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FromEmailAddress": { "type": "string" },
+          "ReplyToAddresses": { "type": "array", "items": { "type": "string" } },
+          "DefaultContent": {
+            "type": "object",
+            "properties": {
+              "Template": {
+                "type": "object",
+                "properties": {
+                  "TemplateName": { "type": "string" },
+                  "TemplateArn": { "type": "string" },
+                  "TemplateData": {
+                    "type": "string",
+                    "description": "JSON string of fallback placeholder values used when a BulkEmailEntry omits ReplacementTemplateData"
+                  }
+                }
+              }
+            },
+            "required": ["Template"]
+          },
+          "BulkEmailEntries": {
+            "type": "array",
+            "description": "Per-recipient destinations and replacement data (1-50 entries)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "Destination": {
+                  "type": "object",
+                  "properties": {
+                    "ToAddresses": { "type": "array", "items": { "type": "string" } },
+                    "CcAddresses": { "type": "array", "items": { "type": "string" } },
+                    "BccAddresses": { "type": "array", "items": { "type": "string" } }
+                  },
+                  "required": ["ToAddresses"]
+                },
+                "ReplacementEmailContent": {
+                  "type": "object",
+                  "properties": {
+                    "ReplacementTemplate": {
+                      "type": "object",
+                      "properties": {
+                        "ReplacementTemplateData": {
+                          "type": "string",
+                          "description": "JSON string of per-recipient placeholder overrides"
+                        }
+                      }
+                    }
+                  }
+                },
+                "ReplacementTags": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "Name": { "type": "string" },
+                      "Value": { "type": "string" }
+                    }
+                  }
+                }
+              },
+              "required": ["Destination"]
+            }
+          },
+          "ConfigurationSetName": { "type": "string" }
+        },
+        "required": ["FromEmailAddress", "DefaultContent", "BulkEmailEntries"]
+      }
+    },
+    {
+      "name": "send_raw_email",
+      "description": "Send a pre-built MIME message (with custom headers, attachments, multipart bodies, etc.). The Data field MUST be the base64-encoded raw RFC 5322 message — including headers like From, To, Subject, MIME-Version, and the body. SES does not parse or modify headers other than to record/sign them.",
+      "method": "POST",
+      "path": "/v2/email/outbound-emails",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FromEmailAddress": {
+            "type": "string",
+            "description": "Envelope sender (used for SMTP MAIL FROM and bounce routing). The From: header inside the raw message can differ but must be a verified identity."
+          },
+          "Destination": {
+            "type": "object",
+            "properties": {
+              "ToAddresses": { "type": "array", "items": { "type": "string" } },
+              "CcAddresses": { "type": "array", "items": { "type": "string" } },
+              "BccAddresses": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "Content": {
+            "type": "object",
+            "properties": {
+              "Raw": {
+                "type": "object",
+                "properties": {
+                  "Data": {
+                    "type": "string",
+                    "description": "Base64-encoded raw MIME message (RFC 5322). Must include all headers and body."
+                  }
+                },
+                "required": ["Data"]
+              }
+            },
+            "required": ["Raw"]
+          },
+          "ConfigurationSetName": { "type": "string" }
+        },
+        "required": ["FromEmailAddress", "Content"]
+      }
+    },
+    {
+      "name": "create_template",
+      "description": "Create a reusable email template with placeholders ({{handlebars}}-style substitution). Subject, Html, and Text all support placeholders.",
+      "method": "POST",
+      "path": "/v2/email/templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TemplateName": {
+            "type": "string",
+            "description": "Unique template name (1-64 chars, alphanumeric + dash/underscore)"
+          },
+          "TemplateContent": {
+            "type": "object",
+            "properties": {
+              "Subject": { "type": "string", "description": "Subject template; placeholders allowed" },
+              "Html": { "type": "string", "description": "HTML body template" },
+              "Text": { "type": "string", "description": "Plain-text body template" }
+            },
+            "required": ["Subject"]
+          }
+        },
+        "required": ["TemplateName", "TemplateContent"]
+      }
+    },
+    {
+      "name": "get_template",
+      "description": "Fetch a template's Subject, Html, and Text by name.",
+      "method": "GET",
+      "path": "/v2/email/templates/{TemplateName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TemplateName": { "type": "string" }
+        },
+        "required": ["TemplateName"]
+      }
+    },
+    {
+      "name": "update_template",
+      "description": "Replace an existing template's content. ⚠️ Full replacement: TemplateContent overwrites the existing Subject/Html/Text completely — to keep an existing field, you must include it explicitly.",
+      "method": "PUT",
+      "path": "/v2/email/templates/{TemplateName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TemplateName": { "type": "string" },
+          "TemplateContent": {
+            "type": "object",
+            "properties": {
+              "Subject": { "type": "string" },
+              "Html": { "type": "string" },
+              "Text": { "type": "string" }
+            },
+            "required": ["Subject"]
+          }
+        },
+        "required": ["TemplateName", "TemplateContent"]
+      }
+    },
+    {
+      "name": "delete_template",
+      "description": "Permanently delete a template. Cannot be undone; existing scheduled sends referencing this template by name will fail.",
+      "method": "DELETE",
+      "path": "/v2/email/templates/{TemplateName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TemplateName": { "type": "string" }
+        },
+        "required": ["TemplateName"]
+      }
+    },
+    {
+      "name": "list_templates",
+      "description": "List all templates in the current region.",
+      "method": "GET",
+      "path": "/v2/email/templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PageSize": {
+            "type": "integer",
+            "description": "Max items per page (1-100)",
+            "default": 50
+          },
+          "NextToken": {
+            "type": "string",
+            "description": "Pagination token from a previous response"
+          }
+        }
+      }
+    },
+    {
+      "name": "test_render_template",
+      "description": "Render a template against the supplied TemplateData and return the rendered Subject/Html/Text without sending. Useful for smoke-testing template syntax and substitutions.",
+      "method": "POST",
+      "path": "/v2/email/templates/{TemplateName}/render",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TemplateName": { "type": "string" },
+          "TemplateData": {
+            "type": "string",
+            "description": "JSON-encoded string of placeholder values"
+          }
+        },
+        "required": ["TemplateName", "TemplateData"]
+      }
+    },
+    {
+      "name": "verify_email",
+      "description": "Add an email address as a sending identity. SES sends a verification link to that address; the identity stays in 'pending' status until the recipient clicks it. Use list_identities or get_identity_verification to poll status.",
+      "method": "POST",
+      "path": "/v2/email/identities",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "EmailIdentity": {
+            "type": "string",
+            "description": "Email address to verify (e.g. sender@example.com)"
+          },
+          "Tags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "Key": { "type": "string" },
+                "Value": { "type": "string" }
+              }
+            }
+          }
+        },
+        "required": ["EmailIdentity"]
+      }
+    },
+    {
+      "name": "verify_domain",
+      "description": "Add a domain as a sending identity. The response includes DkimAttributes.Tokens — three CNAME records you must publish in DNS to complete verification (and to enable Easy DKIM signing). Without those records the domain stays in 'pending' indefinitely.",
+      "method": "POST",
+      "path": "/v2/email/identities",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "EmailIdentity": {
+            "type": "string",
+            "description": "Domain to verify (e.g. example.com)"
+          },
+          "DkimSigningAttributes": {
+            "type": "object",
+            "description": "Optional: bring-your-own DKIM key. Omit for SES-managed Easy DKIM (recommended).",
+            "properties": {
+              "DomainSigningSelector": { "type": "string" },
+              "DomainSigningPrivateKey": { "type": "string" },
+              "NextSigningKeyLength": {
+                "type": "string",
+                "enum": ["RSA_1024_BIT", "RSA_2048_BIT"]
+              }
+            }
+          },
+          "Tags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "Key": { "type": "string" },
+                "Value": { "type": "string" }
+              }
+            }
+          }
+        },
+        "required": ["EmailIdentity"]
+      }
+    },
+    {
+      "name": "list_identities",
+      "description": "List all sending identities (email addresses + domains) in the current region with their verification statuses.",
+      "method": "GET",
+      "path": "/v2/email/identities",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PageSize": {
+            "type": "integer",
+            "description": "Max items per page",
+            "default": 100
+          },
+          "NextToken": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "delete_identity",
+      "description": "Remove a sending identity. Pending verification (if any) is cancelled; future sends from this identity will fail.",
+      "method": "DELETE",
+      "path": "/v2/email/identities/{EmailIdentity}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "EmailIdentity": {
+            "type": "string",
+            "description": "Email address or domain to delete"
+          }
+        },
+        "required": ["EmailIdentity"]
+      }
+    },
+    {
+      "name": "get_identity_verification",
+      "description": "Get full verification status, DKIM attributes (including the CNAME tokens for domain identities), feedback-forwarding settings, and policies for a single identity.",
+      "method": "GET",
+      "path": "/v2/email/identities/{EmailIdentity}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "EmailIdentity": { "type": "string" }
+        },
+        "required": ["EmailIdentity"]
+      }
+    },
+    {
+      "name": "set_identity_dkim",
+      "description": "Enable or disable DKIM signing for an identity. For domains using Easy DKIM, signing only takes effect once the three CNAME tokens have propagated in DNS.",
+      "method": "PUT",
+      "path": "/v2/email/identities/{EmailIdentity}/dkim",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "EmailIdentity": { "type": "string" },
+          "SigningEnabled": {
+            "type": "boolean",
+            "description": "true to enable DKIM signing, false to disable"
+          }
+        },
+        "required": ["EmailIdentity", "SigningEnabled"]
+      }
+    },
+    {
+      "name": "set_identity_feedback",
+      "description": "Enable or disable email feedback forwarding (bounces and complaints sent back to the From address). Disabling is only allowed when an SNS event destination is configured to capture them instead.",
+      "method": "PUT",
+      "path": "/v2/email/identities/{EmailIdentity}/feedback",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "EmailIdentity": { "type": "string" },
+          "EmailForwardingEnabled": {
+            "type": "boolean",
+            "description": "true to forward bounces/complaints to the From address"
+          }
+        },
+        "required": ["EmailIdentity", "EmailForwardingEnabled"]
+      }
+    },
+    {
+      "name": "create_config_set",
+      "description": "Create a configuration set — a named container for tracking, reputation, and event-destination settings that can be applied per-message via ConfigurationSetName.",
+      "method": "POST",
+      "path": "/v2/email/configuration-sets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ConfigurationSetName": { "type": "string" },
+          "TrackingOptions": {
+            "type": "object",
+            "properties": {
+              "CustomRedirectDomain": {
+                "type": "string",
+                "description": "Custom domain for open/click tracking links (must be a verified subdomain)"
+              }
+            }
+          },
+          "DeliveryOptions": {
+            "type": "object",
+            "properties": {
+              "TlsPolicy": { "type": "string", "enum": ["REQUIRE", "OPTIONAL"] },
+              "SendingPoolName": { "type": "string" }
+            }
+          },
+          "ReputationOptions": {
+            "type": "object",
+            "properties": {
+              "ReputationMetricsEnabled": { "type": "boolean" }
+            }
+          },
+          "SendingOptions": {
+            "type": "object",
+            "properties": {
+              "SendingEnabled": { "type": "boolean" }
+            }
+          },
+          "Tags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "Key": { "type": "string" },
+                "Value": { "type": "string" }
+              }
+            }
+          }
+        },
+        "required": ["ConfigurationSetName"]
+      }
+    },
+    {
+      "name": "delete_config_set",
+      "description": "Delete a configuration set. Messages already in transit referencing it complete normally; future sends with this name fail.",
+      "method": "DELETE",
+      "path": "/v2/email/configuration-sets/{ConfigurationSetName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ConfigurationSetName": { "type": "string" }
+        },
+        "required": ["ConfigurationSetName"]
+      }
+    },
+    {
+      "name": "list_config_sets",
+      "description": "List all configuration sets in the region.",
+      "method": "GET",
+      "path": "/v2/email/configuration-sets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PageSize": { "type": "integer", "default": 50 },
+          "NextToken": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "add_event_destination",
+      "description": "Attach an event destination (CloudWatch, Kinesis Firehose, SNS, Pinpoint) to a configuration set. SES routes the selected MatchingEventTypes (send, delivery, bounce, complaint, etc.) to the destination.",
+      "method": "POST",
+      "path": "/v2/email/configuration-sets/{ConfigurationSetName}/event-destinations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ConfigurationSetName": { "type": "string" },
+          "EventDestinationName": { "type": "string" },
+          "EventDestination": {
+            "type": "object",
+            "properties": {
+              "Enabled": { "type": "boolean", "default": true },
+              "MatchingEventTypes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "SEND",
+                    "REJECT",
+                    "BOUNCE",
+                    "COMPLAINT",
+                    "DELIVERY",
+                    "OPEN",
+                    "CLICK",
+                    "RENDERING_FAILURE",
+                    "DELIVERY_DELAY",
+                    "SUBSCRIPTION"
+                  ]
+                }
+              },
+              "CloudWatchDestination": {
+                "type": "object",
+                "properties": {
+                  "DimensionConfigurations": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "DimensionName": { "type": "string" },
+                        "DimensionValueSource": {
+                          "type": "string",
+                          "enum": ["MESSAGE_TAG", "EMAIL_HEADER", "LINK_TAG"]
+                        },
+                        "DefaultDimensionValue": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              },
+              "KinesisFirehoseDestination": {
+                "type": "object",
+                "properties": {
+                  "IamRoleArn": { "type": "string" },
+                  "DeliveryStreamArn": { "type": "string" }
+                }
+              },
+              "SnsDestination": {
+                "type": "object",
+                "properties": {
+                  "TopicArn": { "type": "string" }
+                }
+              },
+              "PinpointDestination": {
+                "type": "object",
+                "properties": {
+                  "ApplicationArn": { "type": "string" }
+                }
+              }
+            },
+            "required": ["MatchingEventTypes"]
+          }
+        },
+        "required": ["ConfigurationSetName", "EventDestinationName", "EventDestination"]
+      }
+    },
+    {
+      "name": "update_event_destination",
+      "description": "Update an existing event destination. Replaces the entire EventDestination object — fields you omit revert to their defaults.",
+      "method": "PUT",
+      "path": "/v2/email/configuration-sets/{ConfigurationSetName}/event-destinations/{EventDestinationName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ConfigurationSetName": { "type": "string" },
+          "EventDestinationName": { "type": "string" },
+          "EventDestination": {
+            "type": "object",
+            "properties": {
+              "Enabled": { "type": "boolean" },
+              "MatchingEventTypes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "SEND",
+                    "REJECT",
+                    "BOUNCE",
+                    "COMPLAINT",
+                    "DELIVERY",
+                    "OPEN",
+                    "CLICK",
+                    "RENDERING_FAILURE",
+                    "DELIVERY_DELAY",
+                    "SUBSCRIPTION"
+                  ]
+                }
+              },
+              "CloudWatchDestination": { "type": "object" },
+              "KinesisFirehoseDestination": { "type": "object" },
+              "SnsDestination": { "type": "object" },
+              "PinpointDestination": { "type": "object" }
+            }
+          }
+        },
+        "required": ["ConfigurationSetName", "EventDestinationName", "EventDestination"]
+      }
+    },
+    {
+      "name": "set_reputation_tracking",
+      "description": "Enable or disable reputation metrics (bounce/complaint rate publishing to CloudWatch) for a configuration set. Reputation metrics are required for monitoring sending health on accounts out of the sandbox.",
+      "method": "PUT",
+      "path": "/v2/email/configuration-sets/{ConfigurationSetName}/reputation-options",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ConfigurationSetName": { "type": "string" },
+          "ReputationMetricsEnabled": { "type": "boolean" }
+        },
+        "required": ["ConfigurationSetName", "ReputationMetricsEnabled"]
+      }
+    },
+    {
+      "name": "get_quota",
+      "description": "Get account-level sending stats: 24-hour send quota, send rate per second, current usage, sandbox status, suppression-list configuration, and DKIM/MailFrom defaults.",
+      "method": "GET",
+      "path": "/v2/email/account",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

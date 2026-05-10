@@ -1,0 +1,238 @@
+{
+  "slug": "snapchat-ads",
+  "name": "Snapchat Ads",
+  "description": "Snap Marketing API — manage organizations, ad accounts, campaigns, ad squads (ad sets), ads, audiences, and pull stats for Snapchat advertising",
+  "logo": "https://www.google.com/s2/favicons?domain=ads.snapchat.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "social-ads",
+    "snapchat",
+    "video-ads",
+    "ar-ads"
+  ],
+  "base_url": "https://adsapi.snapchat.com/v1",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token",
+        "type": "password"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token",
+        "type": "password"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "ad_account_id",
+        "label": "Default Ad Account ID",
+        "description": "UUID of default ad account"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://accounts.snapchat.com/login/oauth2/authorize",
+      "token_url": "https://accounts.snapchat.com/login/oauth2/access_token",
+      "scopes": [
+        "snapchat-marketing-api"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "list_organizations",
+      "description": "List organizations the authenticated user belongs to. Each organization owns ad accounts and funding sources.",
+      "method": "GET",
+      "path": "/me/organizations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "with_ad_accounts": { "type": "boolean", "default": false }
+        }
+      }
+    },
+    {
+      "name": "list_ad_accounts",
+      "description": "List ad accounts under an organization.",
+      "method": "GET",
+      "path": "/organizations/{organization_id}/adaccounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization_id": { "type": "string" },
+          "limit": { "type": "integer", "default": 50 },
+          "cursor": { "type": "string" }
+        },
+        "required": ["organization_id"]
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List campaigns under an ad account.",
+      "method": "GET",
+      "path": "/adaccounts/{ad_account_id}/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "limit": { "type": "integer", "default": 50 },
+          "cursor": { "type": "string" },
+          "read_deleted_entities": { "type": "boolean", "default": false }
+        },
+        "required": ["ad_account_id"]
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create one or more campaigns. Body: {\"campaigns\": [{name, ad_account_id, status (ACTIVE|PAUSED), start_time (ISO8601), end_time?, objective (BRAND_AWARENESS|APP_INSTALL|VIDEO_VIEW|WEB_VIEW|WEB_CONVERSION|LEAD_GENERATION|APP_REENGAGEMENT|PROMOTE_PLACES|CATALOG_SALES|ENGAGEMENT), daily_budget_micro?, lifetime_spend_cap_micro?}]}.",
+      "method": "POST",
+      "path": "/adaccounts/{ad_account_id}/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "campaigns": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["ad_account_id", "campaigns"]
+      }
+    },
+    {
+      "name": "update_campaign",
+      "description": "Update one or more campaigns by id. Body: {\"campaigns\": [{id, ...fields to mutate}]}.",
+      "method": "PUT",
+      "path": "/adaccounts/{ad_account_id}/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "campaigns": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["ad_account_id", "campaigns"]
+      }
+    },
+    {
+      "name": "list_ad_squads",
+      "description": "List ad squads (Snap's ad-set abstraction) under a campaign or under an ad account.",
+      "method": "GET",
+      "path": "/campaigns/{campaign_id}/adsquads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": { "type": "string" },
+          "limit": { "type": "integer", "default": 50 },
+          "cursor": { "type": "string" }
+        },
+        "required": ["campaign_id"]
+      }
+    },
+    {
+      "name": "create_ad_squad",
+      "description": "Create one or more ad squads under a campaign. Each requires name, campaign_id, type (SNAP_ADS|STORY|COLLECTION), targeting object, billing_event (IMPRESSION|SWIPES), bid_micro, daily_budget_micro, start_time, optimization_goal (IMPRESSIONS|SWIPES|APP_INSTALLS|VIDEO_VIEWS|VIDEO_VIEWS_15_SEC|PIXEL_PURCHASE|PIXEL_SIGNUP|...).",
+      "method": "POST",
+      "path": "/campaigns/{campaign_id}/adsquads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": { "type": "string" },
+          "adsquads": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["campaign_id", "adsquads"]
+      }
+    },
+    {
+      "name": "list_ads",
+      "description": "List ads under an ad squad.",
+      "method": "GET",
+      "path": "/adsquads/{ad_squad_id}/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_squad_id": { "type": "string" },
+          "limit": { "type": "integer", "default": 50 },
+          "cursor": { "type": "string" }
+        },
+        "required": ["ad_squad_id"]
+      }
+    },
+    {
+      "name": "create_ad",
+      "description": "Create one or more ads under an ad squad. Each requires name, ad_squad_id, creative_id (pre-created creative), status, type (SNAP_AD|STORY_AD|COLLECTION_AD|...).",
+      "method": "POST",
+      "path": "/adsquads/{ad_squad_id}/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_squad_id": { "type": "string" },
+          "ads": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["ad_squad_id", "ads"]
+      }
+    },
+    {
+      "name": "list_creatives",
+      "description": "List creatives under an ad account.",
+      "method": "GET",
+      "path": "/adaccounts/{ad_account_id}/creatives",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "limit": { "type": "integer", "default": 50 },
+          "cursor": { "type": "string" }
+        },
+        "required": ["ad_account_id"]
+      }
+    },
+    {
+      "name": "campaign_stats",
+      "description": "Pull campaign performance stats. granularity: TOTAL|DAY|HOUR. fields: comma-separated metrics (impressions,swipes,spend,video_views,quartile_1/2/3,view_completion,saves,shares,screen_time_millis,conversion_purchases,conversion_sign_ups, etc.). Time window: start_time / end_time as ISO8601.",
+      "method": "GET",
+      "path": "/campaigns/{campaign_id}/stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": { "type": "string" },
+          "granularity": { "type": "string", "enum": ["TOTAL", "DAY", "HOUR"], "default": "DAY" },
+          "fields": { "type": "string", "description": "Comma-separated metric names" },
+          "start_time": { "type": "string" },
+          "end_time": { "type": "string" },
+          "swipe_up_attribution_window": { "type": "string", "enum": ["1_DAY", "7_DAY", "28_DAY"], "default": "28_DAY" },
+          "view_attribution_window": { "type": "string", "enum": ["1_HOUR", "3_HOUR", "6_HOUR", "1_DAY", "7_DAY"], "default": "1_DAY" }
+        },
+        "required": ["campaign_id"]
+      }
+    },
+    {
+      "name": "ad_account_stats",
+      "description": "Pull ad-account-level performance stats with the same granularity / fields / window options as campaign_stats.",
+      "method": "GET",
+      "path": "/adaccounts/{ad_account_id}/stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "granularity": { "type": "string", "enum": ["TOTAL", "DAY", "HOUR"], "default": "DAY" },
+          "fields": { "type": "string" },
+          "start_time": { "type": "string" },
+          "end_time": { "type": "string" },
+          "breakdown": { "type": "string", "description": "e.g. country, region, gender, age, os, placement" }
+        },
+        "required": ["ad_account_id"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,117 @@
+{
+  "slug": "majestic",
+  "name": "Majestic",
+  "description": "Majestic API — Trust Flow, Citation Flow, backlinks, referring domains, anchor text, top pages. Strong link index, especially for historic data. Self-serve API with subscription.",
+  "logo": "https://www.google.com/s2/favicons?domain=majestic.com&sz=128",
+  "categories": ["seo", "backlinks", "trust-flow", "citation-flow", "link-analysis", "competitive-research"],
+  "base_url": "https://api.majestic.com/api/json",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {},
+    "credential_fields": [
+      { "name": "app_api_key", "label": "App API Key", "description": "Generated at majestic.com/account/api (OpenApp authentication)" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_index_item_info",
+      "description": "Trust Flow, Citation Flow, ext backlinks, refdomains for one or more items (cmd=GetIndexItemInfo)",
+      "method": "GET",
+      "path": "",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_api_key": { "type": "string" },
+          "cmd": { "type": "string", "description": "GetIndexItemInfo" },
+          "items": { "type": "number", "description": "Number of items being queried" },
+          "item0": { "type": "string", "description": "First URL/domain (also item1, item2, ...)" },
+          "datasource": { "type": "string", "description": "fresh|historic" }
+        },
+        "required": ["app_api_key", "cmd", "items", "item0"]
+      }
+    },
+    {
+      "name": "get_top_back_links",
+      "description": "Top backlinks pointing to an item (cmd=GetTopBackLinks)",
+      "method": "GET",
+      "path": "",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_api_key": { "type": "string" },
+          "cmd": { "type": "string", "description": "GetTopBackLinks" },
+          "item": { "type": "string" },
+          "Count": { "type": "number" },
+          "datasource": { "type": "string" },
+          "Mode": { "type": "number", "description": "0|1|2 — domain/subdomain/page" }
+        },
+        "required": ["app_api_key", "cmd", "item"]
+      }
+    },
+    {
+      "name": "get_ref_domains",
+      "description": "Referring domains for an item (cmd=GetRefDomains)",
+      "method": "GET",
+      "path": "",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_api_key": { "type": "string" },
+          "cmd": { "type": "string", "description": "GetRefDomains" },
+          "item": { "type": "string" },
+          "Count": { "type": "number" },
+          "datasource": { "type": "string" }
+        },
+        "required": ["app_api_key", "cmd", "item"]
+      }
+    },
+    {
+      "name": "get_anchor_text",
+      "description": "Anchor text distribution (cmd=GetAnchorText)",
+      "method": "GET",
+      "path": "",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_api_key": { "type": "string" },
+          "cmd": { "type": "string", "description": "GetAnchorText" },
+          "item": { "type": "string" },
+          "Count": { "type": "number" },
+          "datasource": { "type": "string" }
+        },
+        "required": ["app_api_key", "cmd", "item"]
+      }
+    },
+    {
+      "name": "get_top_pages",
+      "description": "Top pages on a domain by backlinks (cmd=GetTopPages)",
+      "method": "GET",
+      "path": "",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_api_key": { "type": "string" },
+          "cmd": { "type": "string", "description": "GetTopPages" },
+          "item": { "type": "string" },
+          "Count": { "type": "number" },
+          "datasource": { "type": "string" }
+        },
+        "required": ["app_api_key", "cmd", "item"]
+      }
+    },
+    {
+      "name": "get_subscription_info",
+      "description": "Account subscription and remaining resources (cmd=GetSubscriptionInfo)",
+      "method": "GET",
+      "path": "",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_api_key": { "type": "string" },
+          "cmd": { "type": "string", "description": "GetSubscriptionInfo" }
+        },
+        "required": ["app_api_key", "cmd"]
+      }
+    }
+  ]
+}

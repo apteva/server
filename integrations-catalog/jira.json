@@ -1,0 +1,287 @@
+{
+  "slug": "jira",
+  "name": "Jira",
+  "description": "MCP server for Jira project management - issues, sprints, workflows",
+  "logo": "https://www.google.com/s2/favicons?domain=atlassian.com&sz=128",
+  "categories": [
+    "project-management",
+    "issues",
+    "agile",
+    "sprints"
+  ],
+  "base_url": "https://{domain}.atlassian.net/rest/api/3",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "token_type",
+        "label": "token_type"
+      },
+      {
+        "name": "scope",
+        "label": "scope"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://auth.atlassian.com/authorize",
+      "token_url": "https://auth.atlassian.com/oauth/token",
+      "scopes": [
+        "read:jira-work",
+        "write:jira-work",
+        "read:jira-user",
+        "write:jira-user",
+        "manage:jira-project",
+        "manage:jira-configuration",
+        "read:audit-log:jira",
+        "manage:jira-webhook",
+        "manage:jira-data-provider",
+        "offline_access"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "create_issue",
+      "description": "Create a new Jira issue",
+      "method": "POST",
+      "path": "/create-issue",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_key": {
+            "type": "string",
+            "description": "Project key (e.g., PROJ)"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Issue summary"
+          },
+          "description": {
+            "type": "string",
+            "description": "Issue description"
+          },
+          "issue_type": {
+            "type": "string",
+            "description": "Issue type (Bug, Story, Task, etc.)"
+          },
+          "priority": {
+            "type": "string",
+            "description": "Priority level"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Issue labels"
+          }
+        },
+        "required": [
+          "project_key",
+          "summary",
+          "issue_type"
+        ]
+      }
+    },
+    {
+      "name": "update_status",
+      "description": "Transition an issue to a new status",
+      "method": "PUT",
+      "path": "/update-status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "issue_key": {
+            "type": "string",
+            "description": "Issue key (e.g., PROJ-123)"
+          },
+          "transition_id": {
+            "type": "string",
+            "description": "Transition ID"
+          },
+          "transition_name": {
+            "type": "string",
+            "description": "Transition name (alternative to ID)"
+          }
+        },
+        "required": [
+          "issue_key"
+        ]
+      }
+    },
+    {
+      "name": "assign_issue",
+      "description": "Assign an issue to a user",
+      "method": "GET",
+      "path": "/assign-issue",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "issue_key": {
+            "type": "string",
+            "description": "Issue key"
+          },
+          "assignee": {
+            "type": "string",
+            "description": "Assignee account ID or email"
+          }
+        },
+        "required": [
+          "issue_key",
+          "assignee"
+        ]
+      }
+    },
+    {
+      "name": "add_comment",
+      "description": "Add a comment to an issue",
+      "method": "GET",
+      "path": "/add-comment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "issue_key": {
+            "type": "string",
+            "description": "Issue key"
+          },
+          "body": {
+            "type": "string",
+            "description": "Comment body"
+          }
+        },
+        "required": [
+          "issue_key",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "link_issues",
+      "description": "Create a link between two issues",
+      "method": "GET",
+      "path": "/link-issues",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inward_issue": {
+            "type": "string",
+            "description": "Inward issue key"
+          },
+          "outward_issue": {
+            "type": "string",
+            "description": "Outward issue key"
+          },
+          "link_type": {
+            "type": "string",
+            "description": "Link type (Blocks, Relates, Duplicates, etc.)"
+          }
+        },
+        "required": [
+          "inward_issue",
+          "outward_issue",
+          "link_type"
+        ]
+      }
+    },
+    {
+      "name": "create_sprint",
+      "description": "Create a new sprint",
+      "method": "POST",
+      "path": "/create-sprint",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "type": "number",
+            "description": "Board ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Sprint name"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Sprint start date (ISO 8601)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "Sprint end date (ISO 8601)"
+          },
+          "goal": {
+            "type": "string",
+            "description": "Sprint goal"
+          }
+        },
+        "required": [
+          "board_id",
+          "name"
+        ]
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-atlassian-webhook-identifier",
+    "events": [
+      {
+        "name": "jira:issue_created",
+        "description": "New issue created"
+      },
+      {
+        "name": "jira:issue_updated",
+        "description": "Issue fields changed"
+      },
+      {
+        "name": "jira:issue_deleted",
+        "description": "Issue deleted"
+      },
+      {
+        "name": "comment_created",
+        "description": "Comment added to issue"
+      },
+      {
+        "name": "comment_updated",
+        "description": "Comment edited"
+      },
+      {
+        "name": "sprint_started",
+        "description": "Sprint started"
+      },
+      {
+        "name": "sprint_closed",
+        "description": "Sprint completed"
+      },
+      {
+        "name": "board_created",
+        "description": "New board created"
+      },
+      {
+        "name": "project_created",
+        "description": "New project created"
+      },
+      {
+        "name": "worklog_created",
+        "description": "Work log entry added"
+      }
+    ]
+  }
+}

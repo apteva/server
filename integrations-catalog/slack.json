@@ -1,0 +1,331 @@
+{
+  "slug": "slack",
+  "name": "Slack",
+  "description": "MCP server for Slack - messages, channels, users, reactions",
+  "logo": "https://www.google.com/s2/favicons?domain=slack.com&sz=128",
+  "categories": [
+    "messaging",
+    "collaboration",
+    "chat",
+    "team"
+  ],
+  "base_url": "https://slack.com/api",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "team",
+        "label": "team"
+      },
+      {
+        "name": "team_id",
+        "label": "team_id"
+      },
+      {
+        "name": "scope",
+        "label": "scope"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://slack.com/oauth/v2/authorize",
+      "token_url": "https://slack.com/api/oauth.v2.access",
+      "scopes": [
+        "channels:history",
+        "channels:read",
+        "channels:write",
+        "chat:write",
+        "chat:write.public",
+        "chat:write.customize",
+        "commands",
+        "files:read",
+        "files:write",
+        "groups:history",
+        "groups:read",
+        "groups:write",
+        "im:history",
+        "im:read",
+        "im:write",
+        "mpim:history",
+        "mpim:read",
+        "mpim:write",
+        "pins:read",
+        "pins:write",
+        "reactions:read",
+        "reactions:write",
+        "reminders:read",
+        "reminders:write",
+        "team:read",
+        "usergroups:read",
+        "usergroups:write",
+        "users:read",
+        "users:read.email",
+        "users:write",
+        "users.profile:read",
+        "users.profile:write",
+        "workflow.steps:execute"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "send_message",
+      "description": "Send a message to a channel",
+      "method": "POST",
+      "path": "/send-message",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "blocks": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "channel",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "post_webhook",
+      "description": "Post to webhook URL",
+      "method": "POST",
+      "path": "/post-webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook_url": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "blocks": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "webhook_url",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "create_channel",
+      "description": "Create a new channel",
+      "method": "POST",
+      "path": "/create-channel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "is_private": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_users",
+      "description": "List workspace users",
+      "method": "GET",
+      "path": "/list-users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "add_reaction",
+      "description": "Add emoji reaction to message",
+      "method": "GET",
+      "path": "/add-reaction",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel",
+          "timestamp",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "upload_file",
+      "description": "Upload a file",
+      "method": "POST",
+      "path": "/upload-file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channels": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channels"
+        ]
+      }
+    },
+    {
+      "name": "list_channels",
+      "description": "List all channels in the workspace",
+      "method": "GET",
+      "path": "/list-channels",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "types": {
+            "type": "string",
+            "description": "Comma-separated list of channel types",
+            "default": "public_channel,private_channel"
+          },
+          "exclude_archived": {
+            "type": "boolean",
+            "description": "Exclude archived channels",
+            "default": true
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of channels to return",
+            "default": 100,
+            "maximum": 1000
+          }
+        }
+      }
+    },
+    {
+      "name": "create_thread_reply",
+      "description": "Reply to a message thread in Slack",
+      "method": "POST",
+      "path": "/create-thread-reply",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "description": "Channel ID or name"
+          },
+          "thread_ts": {
+            "type": "string",
+            "description": "Timestamp of the parent message"
+          },
+          "text": {
+            "type": "string",
+            "description": "Reply message text"
+          },
+          "blocks": {
+            "type": "array",
+            "description": "Slack block kit blocks",
+            "items": {
+              "type": "object"
+            }
+          },
+          "broadcast": {
+            "type": "boolean",
+            "description": "Also send to channel (not just thread)",
+            "default": false
+          }
+        },
+        "required": [
+          "channel",
+          "thread_ts",
+          "text"
+        ]
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-slack-signature",
+    "events": [
+      {
+        "name": "message.received",
+        "description": "Message posted in a channel"
+      },
+      {
+        "name": "message.updated",
+        "description": "Message was edited"
+      },
+      {
+        "name": "message.deleted",
+        "description": "Message was deleted"
+      },
+      {
+        "name": "channel.created",
+        "description": "New channel created"
+      },
+      {
+        "name": "channel.archived",
+        "description": "Channel archived"
+      },
+      {
+        "name": "member.joined",
+        "description": "User joined a channel"
+      },
+      {
+        "name": "reaction.added",
+        "description": "Reaction added to message"
+      },
+      {
+        "name": "reaction.removed",
+        "description": "Reaction removed from message"
+      },
+      {
+        "name": "app.mention",
+        "description": "Bot was mentioned"
+      },
+      {
+        "name": "team.join",
+        "description": "New user joined workspace"
+      }
+    ]
+  }
+}

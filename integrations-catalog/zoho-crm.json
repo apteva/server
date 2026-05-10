@@ -1,0 +1,386 @@
+{
+  "slug": "zoho-crm",
+  "name": "Zoho CRM",
+  "description": "MCP server for Zoho CRM operations - contacts, leads, deals, and accounts",
+  "logo": "https://www.google.com/s2/favicons?domain=zoho.com&sz=128",
+  "categories": [
+    "crm",
+    "zoho",
+    "leads",
+    "contacts",
+    "sales"
+  ],
+  "base_url": "https://www.zohoapis.com/crm/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_contacts",
+      "description": "List contacts from Zoho CRM",
+      "method": "GET",
+      "path": "/list-contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "perPage": {
+            "type": "number",
+            "description": "Records per page",
+            "default": 200
+          },
+          "sortBy": {
+            "type": "string",
+            "description": "Field to sort by"
+          },
+          "sortOrder": {
+            "type": "string",
+            "description": "Sort order (asc/desc)"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields to return"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_contact",
+      "description": "Get a specific contact from Zoho CRM",
+      "method": "GET",
+      "path": "/get-contact",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contactId": {
+            "type": "string",
+            "description": "ID of the contact"
+          }
+        },
+        "required": [
+          "contactId"
+        ]
+      }
+    },
+    {
+      "name": "create_contact",
+      "description": "Create a new contact in Zoho CRM",
+      "method": "POST",
+      "path": "/create-contact",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "First_Name": {
+            "type": "string",
+            "description": "First name"
+          },
+          "Last_Name": {
+            "type": "string",
+            "description": "Last name"
+          },
+          "Email": {
+            "type": "string",
+            "description": "Email address"
+          },
+          "Phone": {
+            "type": "string",
+            "description": "Phone number"
+          },
+          "Account_Name": {
+            "type": "object",
+            "description": "Account reference"
+          }
+        },
+        "required": [
+          "Last_Name"
+        ]
+      }
+    },
+    {
+      "name": "update_contact",
+      "description": "Update an existing contact in Zoho CRM",
+      "method": "PUT",
+      "path": "/update-contact",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contactId": {
+            "type": "string",
+            "description": "ID of the contact to update"
+          },
+          "First_Name": {
+            "type": "string",
+            "description": "First name"
+          },
+          "Last_Name": {
+            "type": "string",
+            "description": "Last name"
+          },
+          "Email": {
+            "type": "string",
+            "description": "Email address"
+          },
+          "Phone": {
+            "type": "string",
+            "description": "Phone number"
+          }
+        },
+        "required": [
+          "contactId"
+        ]
+      }
+    },
+    {
+      "name": "list_leads",
+      "description": "List leads from Zoho CRM",
+      "method": "GET",
+      "path": "/list-leads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "perPage": {
+            "type": "number",
+            "description": "Records per page",
+            "default": 200
+          },
+          "sortBy": {
+            "type": "string",
+            "description": "Field to sort by"
+          },
+          "sortOrder": {
+            "type": "string",
+            "description": "Sort order (asc/desc)"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_lead",
+      "description": "Create a new lead in Zoho CRM",
+      "method": "POST",
+      "path": "/create-lead",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "First_Name": {
+            "type": "string",
+            "description": "First name"
+          },
+          "Last_Name": {
+            "type": "string",
+            "description": "Last name"
+          },
+          "Email": {
+            "type": "string",
+            "description": "Email address"
+          },
+          "Phone": {
+            "type": "string",
+            "description": "Phone number"
+          },
+          "Company": {
+            "type": "string",
+            "description": "Company name"
+          },
+          "Lead_Source": {
+            "type": "string",
+            "description": "Lead source"
+          }
+        },
+        "required": [
+          "Last_Name",
+          "Company"
+        ]
+      }
+    },
+    {
+      "name": "list_deals",
+      "description": "List deals from Zoho CRM",
+      "method": "GET",
+      "path": "/list-deals",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "perPage": {
+            "type": "number",
+            "description": "Records per page",
+            "default": 200
+          },
+          "sortBy": {
+            "type": "string",
+            "description": "Field to sort by"
+          },
+          "sortOrder": {
+            "type": "string",
+            "description": "Sort order (asc/desc)"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_deal",
+      "description": "Create a new deal in Zoho CRM",
+      "method": "POST",
+      "path": "/create-deal",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Deal_Name": {
+            "type": "string",
+            "description": "Deal name"
+          },
+          "Stage": {
+            "type": "string",
+            "description": "Deal stage"
+          },
+          "Amount": {
+            "type": "number",
+            "description": "Deal amount"
+          },
+          "Closing_Date": {
+            "type": "string",
+            "description": "Expected closing date"
+          },
+          "Account_Name": {
+            "type": "object",
+            "description": "Account reference"
+          },
+          "Contact_Name": {
+            "type": "object",
+            "description": "Contact reference"
+          }
+        },
+        "required": [
+          "Deal_Name",
+          "Stage"
+        ]
+      }
+    },
+    {
+      "name": "list_accounts",
+      "description": "List accounts from Zoho CRM",
+      "method": "GET",
+      "path": "/list-accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "perPage": {
+            "type": "number",
+            "description": "Records per page",
+            "default": 200
+          },
+          "sortBy": {
+            "type": "string",
+            "description": "Field to sort by"
+          },
+          "sortOrder": {
+            "type": "string",
+            "description": "Sort order (asc/desc)"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_account",
+      "description": "Create a new account in Zoho CRM",
+      "method": "POST",
+      "path": "/create-account",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Account_Name": {
+            "type": "string",
+            "description": "Account name"
+          },
+          "Phone": {
+            "type": "string",
+            "description": "Phone number"
+          },
+          "Website": {
+            "type": "string",
+            "description": "Website URL"
+          },
+          "Industry": {
+            "type": "string",
+            "description": "Industry"
+          },
+          "Billing_City": {
+            "type": "string",
+            "description": "Billing city"
+          },
+          "Billing_Country": {
+            "type": "string",
+            "description": "Billing country"
+          }
+        },
+        "required": [
+          "Account_Name"
+        ]
+      }
+    },
+    {
+      "name": "search_records",
+      "description": "Search records across modules in Zoho CRM",
+      "method": "GET",
+      "path": "/search-records",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "type": "string",
+            "description": "Module to search (Contacts, Leads, Deals, Accounts)"
+          },
+          "criteria": {
+            "type": "string",
+            "description": "Search criteria"
+          },
+          "email": {
+            "type": "string",
+            "description": "Search by email"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Search by phone"
+          },
+          "word": {
+            "type": "string",
+            "description": "Search by keyword"
+          }
+        },
+        "required": [
+          "module"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,311 @@
+{
+  "slug": "google-analytics",
+  "name": "Google Analytics",
+  "description": "Google Analytics 4 (GA4) Data API — run reports, realtime queries, pivot reports, and inspect property metadata. Pull metrics like activeUsers, sessions, conversions, eventCount across any dimension (date, country, source, eventName, etc.).",
+  "logo": "https://www.google.com/s2/favicons?domain=analytics.google.com&sz=128",
+  "categories": [
+    "analytics",
+    "web-analytics",
+    "ga4",
+    "google",
+    "metrics",
+    "reporting",
+    "marketing"
+  ],
+  "base_url": "https://analyticsdata.googleapis.com/v1beta",
+  "auth": {
+    "types": [
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+      "token_url": "https://oauth2.googleapis.com/token",
+      "scopes": [
+        "https://www.googleapis.com/auth/analytics.readonly"
+      ],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "access_type": "offline",
+        "prompt": "consent",
+        "include_granted_scopes": "true"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "run_report",
+      "description": "Run a GA4 report. Specify the property and one or more dimensions + metrics with date ranges. Returns rows of [dimensionValues, metricValues]. Common dimensions: date, country, sessionSource, deviceCategory, eventName, pagePath. Common metrics: activeUsers, sessions, screenPageViews, eventCount, conversions, totalRevenue.",
+      "method": "POST",
+      "path": "/properties/{property_id}:runReport",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string",
+            "description": "GA4 property ID (numeric, e.g. '123456789'). Find it under Admin → Property Settings."
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Dimension objects, e.g. [{ name: 'date' }, { name: 'country' }]."
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Metric objects, e.g. [{ name: 'activeUsers' }, { name: 'sessions' }]."
+          },
+          "dateRanges": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Date ranges, e.g. [{ startDate: '7daysAgo', endDate: 'today' }] or [{ startDate: '2025-01-01', endDate: '2025-01-31', name: 'jan' }]."
+          },
+          "dimensionFilter": {
+            "type": "object",
+            "description": "Filter expression on dimension values. Example: { filter: { fieldName: 'country', stringFilter: { value: 'United States' } } }."
+          },
+          "metricFilter": {
+            "type": "object",
+            "description": "Filter on metric values."
+          },
+          "orderBys": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Sort directives, e.g. [{ metric: { metricName: 'sessions' }, desc: true }]."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max rows (default 10000)."
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "keepEmptyRows": {
+            "type": "boolean"
+          },
+          "currencyCode": {
+            "type": "string",
+            "description": "Override property currency (ISO-4217)."
+          }
+        },
+        "required": [
+          "property_id",
+          "metrics",
+          "dateRanges"
+        ]
+      }
+    },
+    {
+      "name": "run_realtime_report",
+      "description": "Run a realtime report over the past 30 minutes of traffic. Same shape as run_report but with a smaller dimension/metric set (no dateRanges — always now).",
+      "method": "POST",
+      "path": "/properties/{property_id}:runRealtimeReport",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string"
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "dimensionFilter": {
+            "type": "object"
+          },
+          "metricFilter": {
+            "type": "object"
+          },
+          "orderBys": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "minuteRanges": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "[{ startMinutesAgo, endMinutesAgo, name? }]. Default is the last 30 minutes."
+          }
+        },
+        "required": [
+          "property_id",
+          "metrics"
+        ]
+      }
+    },
+    {
+      "name": "run_pivot_report",
+      "description": "Run a pivot report — produces multiple cross-tabulated tables for the same dimensions/metrics in one call.",
+      "method": "POST",
+      "path": "/properties/{property_id}:runPivotReport",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string"
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "dateRanges": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "pivots": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Pivot specs, each with fieldNames + orderBys + offset + limit."
+          },
+          "dimensionFilter": {
+            "type": "object"
+          },
+          "metricFilter": {
+            "type": "object"
+          },
+          "currencyCode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "property_id",
+          "metrics",
+          "dateRanges",
+          "pivots"
+        ]
+      }
+    },
+    {
+      "name": "batch_run_reports",
+      "description": "Run multiple GA4 reports against the same property in a single request — saves round-trips when building dashboards.",
+      "method": "POST",
+      "path": "/properties/{property_id}:batchRunReports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string"
+          },
+          "requests": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Array of run_report request bodies (max 5 per batch)."
+          }
+        },
+        "required": [
+          "property_id",
+          "requests"
+        ]
+      }
+    },
+    {
+      "name": "get_metadata",
+      "description": "List every dimension and metric available for a property — names, descriptions, categories, deprecation status, custom-event dimensions. Essential for discovering what you can query.",
+      "method": "GET",
+      "path": "/properties/{property_id}/metadata",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string",
+            "description": "GA4 property ID. Use '0' to fetch the universal (non-property-scoped) metadata schema."
+          }
+        },
+        "required": [
+          "property_id"
+        ]
+      }
+    },
+    {
+      "name": "check_compatibility",
+      "description": "Check whether a set of dimensions/metrics can be used together in a report. GA4 has compatibility constraints; this tells you up front.",
+      "method": "POST",
+      "path": "/properties/{property_id}:checkCompatibility",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string"
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "dimensionFilter": {
+            "type": "object"
+          },
+          "metricFilter": {
+            "type": "object"
+          },
+          "compatibilityFilter": {
+            "type": "string",
+            "enum": [
+              "COMPATIBLE",
+              "INCOMPATIBLE"
+            ]
+          }
+        },
+        "required": [
+          "property_id"
+        ]
+      }
+    }
+  ]
+}

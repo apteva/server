@@ -1,0 +1,338 @@
+{
+  "slug": "strapi",
+  "name": "Strapi",
+  "description": "MCP server for Strapi headless CMS operations - entries, content types, and file uploads",
+  "logo": "https://www.google.com/s2/favicons?domain=strapi.io&sz=128",
+  "categories": [
+    "cms",
+    "strapi",
+    "headless",
+    "content",
+    "api"
+  ],
+  "base_url": "configurable",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_entries",
+      "description": "List entries from a Strapi content type",
+      "method": "GET",
+      "path": "/list-entries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "baseUrl": {
+            "type": "string",
+            "description": "Strapi base URL"
+          },
+          "contentType": {
+            "type": "string",
+            "description": "Content type API name"
+          },
+          "filters": {
+            "type": "object",
+            "description": "Filter conditions"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field and direction"
+          },
+          "pagination": {
+            "type": "object",
+            "description": "Pagination options"
+          },
+          "populate": {
+            "type": "string",
+            "description": "Relations to populate"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Fields to return"
+          }
+        },
+        "required": [
+          "baseUrl",
+          "contentType"
+        ]
+      }
+    },
+    {
+      "name": "get_entry",
+      "description": "Get a specific entry from Strapi",
+      "method": "GET",
+      "path": "/get-entry",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "baseUrl": {
+            "type": "string",
+            "description": "Strapi base URL"
+          },
+          "contentType": {
+            "type": "string",
+            "description": "Content type API name"
+          },
+          "entryId": {
+            "type": "string",
+            "description": "Entry ID"
+          },
+          "populate": {
+            "type": "string",
+            "description": "Relations to populate"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Fields to return"
+          }
+        },
+        "required": [
+          "baseUrl",
+          "contentType",
+          "entryId"
+        ]
+      }
+    },
+    {
+      "name": "create_entry",
+      "description": "Create a new entry in Strapi",
+      "method": "POST",
+      "path": "/create-entry",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "baseUrl": {
+            "type": "string",
+            "description": "Strapi base URL"
+          },
+          "contentType": {
+            "type": "string",
+            "description": "Content type API name"
+          },
+          "data": {
+            "type": "object",
+            "description": "Entry data"
+          }
+        },
+        "required": [
+          "baseUrl",
+          "contentType",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "update_entry",
+      "description": "Update an entry in Strapi",
+      "method": "PUT",
+      "path": "/update-entry",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "baseUrl": {
+            "type": "string",
+            "description": "Strapi base URL"
+          },
+          "contentType": {
+            "type": "string",
+            "description": "Content type API name"
+          },
+          "entryId": {
+            "type": "string",
+            "description": "Entry ID"
+          },
+          "data": {
+            "type": "object",
+            "description": "Entry data"
+          }
+        },
+        "required": [
+          "baseUrl",
+          "contentType",
+          "entryId",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "delete_entry",
+      "description": "Delete an entry from Strapi",
+      "method": "DELETE",
+      "path": "/delete-entry",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "baseUrl": {
+            "type": "string",
+            "description": "Strapi base URL"
+          },
+          "contentType": {
+            "type": "string",
+            "description": "Content type API name"
+          },
+          "entryId": {
+            "type": "string",
+            "description": "Entry ID"
+          }
+        },
+        "required": [
+          "baseUrl",
+          "contentType",
+          "entryId"
+        ]
+      }
+    },
+    {
+      "name": "list_content_types",
+      "description": "List content types from Strapi",
+      "method": "GET",
+      "path": "/list-content-types",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "baseUrl": {
+            "type": "string",
+            "description": "Strapi base URL"
+          }
+        },
+        "required": [
+          "baseUrl"
+        ]
+      }
+    },
+    {
+      "name": "upload_file",
+      "description": "Upload a file to Strapi",
+      "method": "POST",
+      "path": "/upload-file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "baseUrl": {
+            "type": "string",
+            "description": "Strapi base URL"
+          },
+          "fileUrl": {
+            "type": "string",
+            "description": "URL of file to upload"
+          },
+          "fileName": {
+            "type": "string",
+            "description": "File name"
+          },
+          "refId": {
+            "type": "string",
+            "description": "Reference ID"
+          },
+          "ref": {
+            "type": "string",
+            "description": "Reference content type"
+          },
+          "field": {
+            "type": "string",
+            "description": "Reference field"
+          }
+        },
+        "required": [
+          "baseUrl",
+          "fileUrl"
+        ]
+      }
+    },
+    {
+      "name": "list_files",
+      "description": "List uploaded files from Strapi",
+      "method": "GET",
+      "path": "/list-files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "baseUrl": {
+            "type": "string",
+            "description": "Strapi base URL"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "pageSize": {
+            "type": "number",
+            "description": "Results per page",
+            "default": 25
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort order"
+          },
+          "filters": {
+            "type": "object",
+            "description": "Filter conditions"
+          }
+        },
+        "required": [
+          "baseUrl"
+        ]
+      }
+    },
+    {
+      "name": "delete_file",
+      "description": "Delete a file from Strapi",
+      "method": "DELETE",
+      "path": "/delete-file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "baseUrl": {
+            "type": "string",
+            "description": "Strapi base URL"
+          },
+          "fileId": {
+            "type": "string",
+            "description": "File ID"
+          }
+        },
+        "required": [
+          "baseUrl",
+          "fileId"
+        ]
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "Get current user from Strapi",
+      "method": "GET",
+      "path": "/get-user",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "baseUrl": {
+            "type": "string",
+            "description": "Strapi base URL"
+          }
+        },
+        "required": [
+          "baseUrl"
+        ]
+      }
+    }
+  ]
+}

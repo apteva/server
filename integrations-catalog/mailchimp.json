@@ -1,0 +1,275 @@
+{
+  "slug": "mailchimp",
+  "name": "Mailchimp",
+  "description": "MCP server for Mailchimp email marketing, campaigns, and audience management",
+  "logo": "https://www.google.com/s2/favicons?domain=mailchimp.com&sz=128",
+  "categories": [
+    "email",
+    "marketing",
+    "campaigns",
+    "automation",
+    "audiences"
+  ],
+  "base_url": "https://us1.api.mailchimp.com/3.0",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "scope",
+        "label": "scope"
+      },
+      {
+        "name": "metadata",
+        "label": "metadata"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://login.mailchimp.com/oauth2/authorize",
+      "token_url": "https://login.mailchimp.com/oauth2/token",
+      "scopes": [],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "add_subscriber",
+      "description": "Add a new subscriber to a Mailchimp audience/list",
+      "method": "GET",
+      "path": "/add-subscriber",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "list_id": {
+            "type": "string",
+            "description": "Audience/List ID"
+          },
+          "email_address": {
+            "type": "string",
+            "description": "Email address"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "subscribed",
+              "unsubscribed",
+              "cleaned",
+              "pending"
+            ],
+            "description": "Subscription status"
+          },
+          "merge_fields": {
+            "type": "object",
+            "description": "Merge fields (FNAME, LNAME, etc.)"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags to apply to the subscriber"
+          }
+        },
+        "required": [
+          "list_id",
+          "email_address",
+          "status"
+        ]
+      }
+    },
+    {
+      "name": "create_automation",
+      "description": "Create an automation workflow",
+      "method": "POST",
+      "path": "/create-automation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "recipients": {
+            "type": "object",
+            "properties": {
+              "list_id": {
+                "type": "string"
+              }
+            }
+          },
+          "trigger_settings": {
+            "type": "object",
+            "description": "Automation trigger settings"
+          },
+          "settings": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "from_name": {
+                "type": "string"
+              },
+              "reply_to": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "recipients",
+          "settings"
+        ]
+      }
+    },
+    {
+      "name": "create_segment",
+      "description": "Create a segment within an audience/list",
+      "method": "POST",
+      "path": "/create-segment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "list_id": {
+            "type": "string",
+            "description": "Audience/List ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Segment name"
+          },
+          "static_segment": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of email addresses for static segment"
+          },
+          "options": {
+            "type": "object",
+            "properties": {
+              "match": {
+                "type": "string",
+                "enum": [
+                  "any",
+                  "all"
+                ],
+                "description": "Match type for conditions"
+              },
+              "conditions": {
+                "type": "array",
+                "description": "Array of segment conditions"
+              }
+            }
+          }
+        },
+        "required": [
+          "list_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "get_analytics",
+      "description": "Get overall account analytics and statistics",
+      "method": "GET",
+      "path": "/get-analytics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "description": "Start date for analytics (ISO 8601)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date for analytics (ISO 8601)"
+          }
+        }
+      }
+    },
+    {
+      "name": "send_campaign",
+      "description": "Send an email campaign",
+      "method": "POST",
+      "path": "/send-campaign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": {
+            "type": "string",
+            "description": "Campaign ID to send"
+          }
+        },
+        "required": [
+          "campaign_id"
+        ]
+      }
+    },
+    {
+      "name": "update_template",
+      "description": "Update an existing email template",
+      "method": "PUT",
+      "path": "/update-template",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "template_id": {
+            "type": "string",
+            "description": "Template ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "Template name"
+          },
+          "html": {
+            "type": "string",
+            "description": "HTML content"
+          },
+          "folder_id": {
+            "type": "string",
+            "description": "Folder ID to store template"
+          }
+        },
+        "required": [
+          "template_id"
+        ]
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-mailchimp-signature",
+    "events": [
+      {
+        "name": "subscribe",
+        "description": "New subscriber added to audience"
+      },
+      {
+        "name": "unsubscribe",
+        "description": "Subscriber removed from audience"
+      },
+      {
+        "name": "campaign.sent",
+        "description": "Campaign sent to audience"
+      },
+      {
+        "name": "email.cleaned",
+        "description": "Email address cleaned from audience"
+      },
+      {
+        "name": "profile.updated",
+        "description": "Subscriber profile changed"
+      }
+    ]
+  }
+}

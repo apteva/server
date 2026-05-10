@@ -1,0 +1,396 @@
+{
+  "slug": "omnikit-workflows",
+  "name": "OmniKit Workflows",
+  "description": "Visual workflow automation platform with node-based flow builder, event triggers, and seamless function integration",
+  "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+  "categories": [
+    "workflows",
+    "automation",
+    "visual-builder",
+    "no-code",
+    "triggers",
+    "integration",
+    "orchestration"
+  ],
+  "base_url": "https://api.omnikit.co",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your OmniKit API key (starts with 'okt_'). The project is determined automatically from the key."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create",
+      "description": "Create a new visual workflow with nodes, edges, and triggers",
+      "method": "POST",
+      "path": "/workflows",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Workflow name (required)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Workflow description"
+          },
+          "definition": {
+            "type": "object",
+            "description": "Workflow definition with trigger, nodes, and edges",
+            "properties": {
+              "trigger": {
+                "type": "object",
+                "description": "Trigger configuration"
+              },
+              "nodes": {
+                "type": "array",
+                "description": "Array of workflow nodes (function calls, conditions, etc.)"
+              },
+              "edges": {
+                "type": "array",
+                "description": "Array of connections between nodes"
+              }
+            }
+          },
+          "trigger_type": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "event",
+              "cron",
+              "http"
+            ],
+            "description": "Type of trigger"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Workflow tags"
+          },
+          "config": {
+            "type": "object",
+            "description": "Additional configuration"
+          },
+          "created_by": {
+            "type": "integer",
+            "description": "Creator user ID"
+          }
+        },
+        "required": [
+          "name",
+          "definition"
+        ]
+      }
+    },
+    {
+      "name": "update",
+      "description": "Update an existing workflow's definition, status, or metadata",
+      "method": "PUT",
+      "path": "/workflows/update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Workflow ID (required)"
+          },
+          "name": {
+            "type": "string",
+            "description": "New workflow name"
+          },
+          "description": {
+            "type": "string",
+            "description": "New workflow description"
+          },
+          "definition": {
+            "type": "object",
+            "description": "Updated workflow definition"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "draft"
+            ],
+            "description": "Workflow status"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Updated tags"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete",
+      "description": "Delete a workflow and all its execution history (cannot be undone)",
+      "method": "DELETE",
+      "path": "/workflows/delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Workflow ID to delete (required)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get",
+      "description": "Get full workflow definition and metadata by ID",
+      "method": "GET",
+      "path": "/workflows/get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Workflow ID (required)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list",
+      "description": "List all workflows with filtering and pagination",
+      "method": "GET",
+      "path": "/workflows",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "draft"
+            ],
+            "description": "Filter by status"
+          },
+          "trigger_type": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "event",
+              "cron",
+              "http"
+            ],
+            "description": "Filter by trigger type"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search in workflow name and description"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50,
+            "description": "Number of workflows to return"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0,
+            "description": "Number of workflows to skip"
+          }
+        }
+      }
+    },
+    {
+      "name": "execute",
+      "description": "Execute a workflow asynchronously with input data and get execution ID",
+      "method": "POST",
+      "path": "/workflows/execute",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "description": "Workflow ID to execute (required)"
+          },
+          "input": {
+            "type": "object",
+            "description": "Input data for the workflow"
+          },
+          "context_data": {
+            "type": "object",
+            "description": "Additional context for execution"
+          },
+          "trigger_source": {
+            "type": "string",
+            "default": "api",
+            "description": "Source of the trigger (api, event, cron, http)"
+          },
+          "trigger_event_id": {
+            "type": "string",
+            "description": "Event ID if triggered by an event"
+          }
+        },
+        "required": [
+          "workflow_id"
+        ]
+      }
+    },
+    {
+      "name": "create_trigger",
+      "description": "Create event, cron, or HTTP trigger for a workflow",
+      "method": "POST",
+      "path": "/workflows/triggers/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "description": "Workflow ID (required)"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "event",
+              "cron",
+              "http"
+            ],
+            "description": "Trigger type (required)"
+          },
+          "event_type": {
+            "type": "string",
+            "description": "Event type name for event triggers"
+          },
+          "event_type_id": {
+            "type": "integer",
+            "description": "Direct event type ID"
+          },
+          "event_filter": {
+            "type": "object",
+            "description": "Filter conditions for event triggers"
+          },
+          "cron_expression": {
+            "type": "string",
+            "description": "Cron expression for cron triggers (e.g., '0 0 * * *')"
+          },
+          "timezone": {
+            "type": "string",
+            "default": "UTC",
+            "description": "Timezone for cron triggers"
+          },
+          "webhook_path": {
+            "type": "string",
+            "description": "Custom webhook path for HTTP triggers"
+          },
+          "webhook_secret": {
+            "type": "string",
+            "description": "Secret for webhook verification"
+          },
+          "config": {
+            "type": "object",
+            "description": "Additional trigger configuration"
+          }
+        },
+        "required": [
+          "workflow_id",
+          "type"
+        ]
+      }
+    }
+  ],
+  "credential_group": {
+    "id": "omnikit",
+    "name": "OmniKit",
+    "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+    "description": "One key unlocks the whole OmniKit suite. Account keys can manage many projects; project keys are scoped to one.",
+    "discovery": {
+      "list_projects": {
+        "method": "GET",
+        "path": "/projects",
+        "response_path": "data",
+        "id_field": "id",
+        "label_field": "name"
+      },
+      "api_lookup": {
+        "method": "GET",
+        "path": "/apis",
+        "response_path": "data",
+        "match_field": "base_path",
+        "match_value": "omnikit",
+        "id_field": "id"
+      },
+      "provision_project_key": {
+        "method": "POST",
+        "path": "/api-keys",
+        "body": {
+          "name": "Apteva \u00b7 {{label}}",
+          "api_id": "{{api_lookup_id}}",
+          "target_project_id": "{{external_project_id}}",
+          "scopes": [
+            "read",
+            "write"
+          ]
+        },
+        "response_key_path": "data.key",
+        "id_response_path": "data.id",
+        "credential_field": "api_key"
+      }
+    }
+  },
+  "scopes": {
+    "account": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Account API Key",
+          "description": "Starts with okt_acc_ \u2014 operates across every project in the account.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      },
+      "project_binding": {
+        "type": "header",
+        "name": "X-Project-Id",
+        "value": "{{project_id}}"
+      }
+    },
+    "project": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Project API Key",
+          "description": "Starts with okt_ \u2014 already scoped to a single project.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      }
+    }
+  }
+}

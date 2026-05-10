@@ -1,0 +1,136 @@
+{
+  "slug": "listen-notes",
+  "name": "Listen Notes",
+  "description": "MCP server for Listen Notes - podcast search, episodes, genres",
+  "logo": "https://www.google.com/s2/favicons?domain=listennotes.com&sz=128",
+  "categories": [
+    "podcasts",
+    "audio",
+    "search",
+    "api"
+  ],
+  "base_url": "https://listen-api.listennotes.com/api/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "Search podcasts and episodes",
+      "method": "GET",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "q"
+        ]
+      }
+    },
+    {
+      "name": "get_podcast",
+      "description": "Get podcast details",
+      "method": "GET",
+      "path": "/get-podcast",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_episode",
+      "description": "Get episode details",
+      "method": "GET",
+      "path": "/get-episode",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_genres",
+      "description": "Get podcast genres",
+      "method": "GET",
+      "path": "/get-genres",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "best_podcasts",
+      "description": "Get best podcasts by genre",
+      "method": "GET",
+      "path": "/best-podcasts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "genre_id": {
+            "type": "number"
+          },
+          "region": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "typeahead",
+      "description": "Typeahead search suggestions",
+      "method": "GET",
+      "path": "/typeahead",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string"
+          },
+          "show_podcasts": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "q"
+        ]
+      }
+    }
+  ]
+}

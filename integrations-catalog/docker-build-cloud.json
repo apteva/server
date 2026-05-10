@@ -1,0 +1,68 @@
+{
+  "slug": "docker-build-cloud",
+  "name": "Docker Build Cloud",
+  "description": "Docker Inc's managed remote BuildKit service. Same idea as Depot — buildx-compatible cloud builders with persistent cache. $0.04/min after the included tier (500 min on Team, 1500 on Business). The HTTP API surface is the standard Docker Hub API extended with build-cloud endpoints; auth is a Docker Hub PAT.",
+  "logo": "https://www.google.com/s2/favicons?domain=docker.com&sz=128",
+  "categories": ["build", "docker", "buildkit", "ci", "devops"],
+  "base_url": "https://hub.docker.com/v2",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Docker Hub PAT", "description": "Personal access token from hub.docker.com → Account Settings → Security", "required": true, "type": "password" },
+      { "name": "namespace", "label": "Namespace", "description": "Docker Hub org / user namespace that owns the cloud builders", "required": true, "type": "text" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_builders",
+      "description": "List cloud builders for a namespace. Args: namespace.",
+      "method": "GET",
+      "path": "/build/v1/orgs/{{namespace}}/builders",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_builder",
+      "description": "Provision a cloud builder. Args: name, region (us-east-1|eu-west-1|ap-southeast-1), instance_type? (small|medium|large).",
+      "method": "POST",
+      "path": "/build/v1/orgs/{{namespace}}/builders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "region": { "type": "string" },
+          "instance_type": { "type": "string" }
+        },
+        "required": ["name", "region"]
+      }
+    },
+    {
+      "name": "delete_builder",
+      "description": "Delete a cloud builder. Args: name.",
+      "method": "DELETE",
+      "path": "/build/v1/orgs/{{namespace}}/builders/{name}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "name": { "type": "string" } },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "get_usage",
+      "description": "Get build-minute usage for the current billing period. Args: period? (current|last|YYYY-MM).",
+      "method": "GET",
+      "path": "/billing/v1/orgs/{{namespace}}/usage?period={period}&metric=build_minutes",
+      "input_schema": {
+        "type": "object",
+        "properties": { "period": { "type": "string" } }
+      }
+    },
+    {
+      "name": "list_repositories",
+      "description": "List image repositories the builder can push to. Args: namespace.",
+      "method": "GET",
+      "path": "/repositories/{{namespace}}",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

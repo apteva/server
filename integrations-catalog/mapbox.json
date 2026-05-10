@@ -1,0 +1,118 @@
+{
+  "slug": "mapbox",
+  "name": "Mapbox",
+  "description": "MCP server for Mapbox - geocoding, directions, matrix, isochrone, static maps",
+  "logo": "https://www.google.com/s2/favicons?domain=mapbox.com&sz=128",
+  "categories": ["maps", "geocoding", "routing", "location"],
+  "base_url": "https://api.mapbox.com",
+  "auth": {
+    "types": ["query"],
+    "query": { "access_token": "{{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Access Token", "description": "Mapbox public or secret token" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "geocode_forward",
+      "description": "Forward geocoding - place name to coordinates",
+      "method": "GET",
+      "path": "/geocoding/v5/mapbox.places/{search_text}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search_text": { "type": "string" },
+          "country": { "type": "string" },
+          "proximity": { "type": "string" },
+          "types": { "type": "string" },
+          "limit": { "type": "number" }
+        },
+        "required": ["search_text"]
+      }
+    },
+    {
+      "name": "geocode_reverse",
+      "description": "Reverse geocoding - coordinates to place name",
+      "method": "GET",
+      "path": "/geocoding/v5/mapbox.places/{longitude},{latitude}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "longitude": { "type": "number" },
+          "latitude": { "type": "number" },
+          "types": { "type": "string" }
+        },
+        "required": ["longitude", "latitude"]
+      }
+    },
+    {
+      "name": "directions",
+      "description": "Get directions between coordinates",
+      "method": "GET",
+      "path": "/directions/v5/mapbox/{profile}/{coordinates}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile": { "type": "string", "enum": ["driving", "walking", "cycling", "driving-traffic"] },
+          "coordinates": { "type": "string", "description": "Semicolon-separated lon,lat pairs" },
+          "geometries": { "type": "string" },
+          "steps": { "type": "boolean" },
+          "alternatives": { "type": "boolean" }
+        },
+        "required": ["profile", "coordinates"]
+      }
+    },
+    {
+      "name": "matrix",
+      "description": "Travel time/distance matrix between many points",
+      "method": "GET",
+      "path": "/directions-matrix/v1/mapbox/{profile}/{coordinates}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile": { "type": "string" },
+          "coordinates": { "type": "string" },
+          "sources": { "type": "string" },
+          "destinations": { "type": "string" },
+          "annotations": { "type": "string" }
+        },
+        "required": ["profile", "coordinates"]
+      }
+    },
+    {
+      "name": "isochrone",
+      "description": "Compute reachability isochrones",
+      "method": "GET",
+      "path": "/isochrone/v1/mapbox/{profile}/{coordinates}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile": { "type": "string" },
+          "coordinates": { "type": "string" },
+          "contours_minutes": { "type": "string" },
+          "polygons": { "type": "boolean" }
+        },
+        "required": ["profile", "coordinates"]
+      }
+    },
+    {
+      "name": "static_image",
+      "description": "Generate a static map image URL",
+      "method": "GET",
+      "path": "/styles/v1/{username}/{style_id}/static/{lon},{lat},{zoom}/{width}x{height}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": { "type": "string" },
+          "style_id": { "type": "string" },
+          "lon": { "type": "number" },
+          "lat": { "type": "number" },
+          "zoom": { "type": "number" },
+          "width": { "type": "number" },
+          "height": { "type": "number" }
+        },
+        "required": ["username", "style_id", "lon", "lat", "zoom", "width", "height"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,295 @@
+{
+  "slug": "zendesk",
+  "name": "Zendesk",
+  "description": "Zendesk integration for customer support with tickets, users, and search",
+  "logo": "https://www.google.com/s2/favicons?domain=zendesk.com&sz=128",
+  "categories": [
+    "customer-support",
+    "tickets",
+    "zendesk",
+    "helpdesk",
+    "crm"
+  ],
+  "base_url": "{{subdomain}}.zendesk.com/api/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_tickets",
+      "description": "List tickets from Zendesk",
+      "method": "GET",
+      "path": "/list-tickets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subdomain": {
+            "type": "string",
+            "description": "Zendesk subdomain"
+          },
+          "email": {
+            "type": "string",
+            "description": "Admin email"
+          },
+          "api_token": {
+            "type": "string",
+            "description": "API token"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Results per page (max 100)"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "sort_by": {
+            "type": "string",
+            "description": "Sort field"
+          },
+          "sort_order": {
+            "type": "string",
+            "description": "Sort order: asc or desc"
+          }
+        },
+        "required": [
+          "subdomain",
+          "email",
+          "api_token"
+        ]
+      }
+    },
+    {
+      "name": "create_ticket",
+      "description": "Create a new ticket",
+      "method": "POST",
+      "path": "/create-ticket",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subdomain": {
+            "type": "string",
+            "description": "Zendesk subdomain"
+          },
+          "email": {
+            "type": "string",
+            "description": "Admin email"
+          },
+          "api_token": {
+            "type": "string",
+            "description": "API token"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Ticket subject"
+          },
+          "description": {
+            "type": "string",
+            "description": "Ticket description"
+          },
+          "requester_email": {
+            "type": "string",
+            "description": "Requester email"
+          },
+          "priority": {
+            "type": "string",
+            "description": "Priority: urgent, high, normal, low"
+          },
+          "type": {
+            "type": "string",
+            "description": "Type: problem, incident, question, task"
+          },
+          "tags": {
+            "type": "array",
+            "description": "Tags to add"
+          }
+        },
+        "required": [
+          "subdomain",
+          "email",
+          "api_token",
+          "subject",
+          "description"
+        ]
+      }
+    },
+    {
+      "name": "update_ticket",
+      "description": "Update an existing ticket",
+      "method": "PUT",
+      "path": "/update-ticket",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subdomain": {
+            "type": "string",
+            "description": "Zendesk subdomain"
+          },
+          "email": {
+            "type": "string",
+            "description": "Admin email"
+          },
+          "api_token": {
+            "type": "string",
+            "description": "API token"
+          },
+          "ticket_id": {
+            "type": "number",
+            "description": "Ticket ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "New status"
+          },
+          "priority": {
+            "type": "string",
+            "description": "New priority"
+          },
+          "assignee_id": {
+            "type": "number",
+            "description": "Assignee user ID"
+          },
+          "comment": {
+            "type": "string",
+            "description": "Comment to add"
+          },
+          "public": {
+            "type": "boolean",
+            "description": "Make comment public"
+          }
+        },
+        "required": [
+          "subdomain",
+          "email",
+          "api_token",
+          "ticket_id"
+        ]
+      }
+    },
+    {
+      "name": "get_ticket",
+      "description": "Get a single ticket by ID",
+      "method": "GET",
+      "path": "/get-ticket",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subdomain": {
+            "type": "string",
+            "description": "Zendesk subdomain"
+          },
+          "email": {
+            "type": "string",
+            "description": "Admin email"
+          },
+          "api_token": {
+            "type": "string",
+            "description": "API token"
+          },
+          "ticket_id": {
+            "type": "number",
+            "description": "Ticket ID"
+          }
+        },
+        "required": [
+          "subdomain",
+          "email",
+          "api_token",
+          "ticket_id"
+        ]
+      }
+    },
+    {
+      "name": "list_users",
+      "description": "List users from Zendesk",
+      "method": "GET",
+      "path": "/list-users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subdomain": {
+            "type": "string",
+            "description": "Zendesk subdomain"
+          },
+          "email": {
+            "type": "string",
+            "description": "Admin email"
+          },
+          "api_token": {
+            "type": "string",
+            "description": "API token"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Results per page"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "role": {
+            "type": "string",
+            "description": "Filter by role"
+          }
+        },
+        "required": [
+          "subdomain",
+          "email",
+          "api_token"
+        ]
+      }
+    },
+    {
+      "name": "search",
+      "description": "Search Zendesk for tickets, users, or organizations",
+      "method": "GET",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subdomain": {
+            "type": "string",
+            "description": "Zendesk subdomain"
+          },
+          "email": {
+            "type": "string",
+            "description": "Admin email"
+          },
+          "api_token": {
+            "type": "string",
+            "description": "API token"
+          },
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Results per page"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          }
+        },
+        "required": [
+          "subdomain",
+          "email",
+          "api_token",
+          "query"
+        ]
+      }
+    }
+  ]
+}

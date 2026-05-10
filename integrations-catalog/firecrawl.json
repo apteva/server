@@ -1,0 +1,606 @@
+{
+  "slug": "firecrawl",
+  "name": "Firecrawl",
+  "description": "Web scraping and crawling API. Turns any website into LLM-ready markdown, HTML, screenshots, links, or structured JSON. Handles JavaScript rendering, anti-bot bypass, sitemap discovery, web search, and natural-language structured extraction. v2 API.",
+  "logo": "https://www.google.com/s2/favicons?domain=firecrawl.dev&sz=128",
+  "categories": [
+    "scraping",
+    "crawling",
+    "web",
+    "markdown",
+    "ai",
+    "llm",
+    "search",
+    "extraction"
+  ],
+  "base_url": "https://api.firecrawl.dev/v2",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API key (starts with fc-)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "scrape",
+      "description": "Scrape a single URL and return its content in LLM-ready formats (markdown, HTML, links, screenshots, or structured JSON). Handles JavaScript rendering and anti-bot bypass. Use for one-off page extraction. For multiple URLs, use crawl or batch_scrape.",
+      "method": "POST",
+      "path": "/scrape",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The URL to scrape"
+          },
+          "formats": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["markdown", "html", "rawHtml", "links", "screenshot", "screenshot@fullPage", "json"]
+            },
+            "default": ["markdown"],
+            "description": "Output formats to return. Default is markdown only."
+          },
+          "onlyMainContent": {
+            "type": "boolean",
+            "default": true,
+            "description": "Strip headers, navs, footers, and other boilerplate. Default true."
+          },
+          "includeTags": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "HTML tags or CSS selectors to include (e.g. ['article', 'main', '.post-body'])"
+          },
+          "excludeTags": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "HTML tags or CSS selectors to exclude (e.g. ['nav', 'footer', '.ads'])"
+          },
+          "headers": {
+            "type": "object",
+            "description": "Custom request headers (cookies, user-agent, etc.)"
+          },
+          "waitFor": {
+            "type": "integer",
+            "default": 0,
+            "description": "Milliseconds to wait for JavaScript to finish rendering before scraping"
+          },
+          "mobile": {
+            "type": "boolean",
+            "default": false,
+            "description": "Emulate a mobile device"
+          },
+          "skipTlsVerification": {
+            "type": "boolean",
+            "default": true,
+            "description": "Skip TLS certificate verification"
+          },
+          "timeout": {
+            "type": "integer",
+            "default": 60000,
+            "minimum": 1000,
+            "maximum": 300000,
+            "description": "Request timeout in milliseconds (1000–300000)"
+          },
+          "removeBase64Images": {
+            "type": "boolean",
+            "default": true,
+            "description": "Strip base64-encoded images from the markdown output"
+          },
+          "blockAds": {
+            "type": "boolean",
+            "default": true,
+            "description": "Block ads, trackers, and cookie-consent popups"
+          },
+          "proxy": {
+            "type": "string",
+            "enum": ["basic", "enhanced", "auto"],
+            "default": "auto",
+            "description": "Proxy type. 'enhanced' is best for anti-bot sites; 'auto' picks per-request."
+          },
+          "actions": {
+            "type": "array",
+            "items": { "type": "object" },
+            "description": "Pre-scrape browser actions to perform (click, type, scroll, wait, etc.). See Firecrawl docs for the action schema."
+          },
+          "location": {
+            "type": "object",
+            "description": "Geographic location settings (country, languages) for proxy and emulation"
+          },
+          "maxAge": {
+            "type": "integer",
+            "default": 172800000,
+            "description": "Use cached content if it's no older than N milliseconds. Default 48h."
+          },
+          "storeInCache": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether to store this scrape in Firecrawl's cache"
+          },
+          "jsonOptions": {
+            "type": "object",
+            "description": "When 'json' is in formats, structured-extraction options: { schema, prompt, systemPrompt }"
+          }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "crawl",
+      "description": "Start an asynchronous crawl of an entire website. Returns a job id immediately — poll firecrawl_crawl_status with that id to retrieve scraped pages as they complete. Use for multi-page extraction. For one URL use scrape; for a fixed URL list use batch_scrape.",
+      "method": "POST",
+      "path": "/crawl",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The starting URL to crawl"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Natural-language description of what to crawl. Firecrawl uses this to auto-derive include/exclude paths and depth."
+          },
+          "limit": {
+            "type": "integer",
+            "default": 10000,
+            "description": "Maximum number of pages to crawl"
+          },
+          "maxDiscoveryDepth": {
+            "type": "integer",
+            "description": "Maximum link-discovery depth (independent from page-content depth)"
+          },
+          "includePaths": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Regex patterns of URL pathnames to include (e.g. ['/blog/.*', '/docs/.*'])"
+          },
+          "excludePaths": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Regex patterns of URL pathnames to exclude (e.g. ['/admin/.*', '/login.*'])"
+          },
+          "regexOnFullURL": {
+            "type": "boolean",
+            "default": false,
+            "description": "Match include/exclude regexes against the full URL instead of just the pathname"
+          },
+          "ignoreQueryParameters": {
+            "type": "boolean",
+            "default": false,
+            "description": "Treat URLs that differ only by query string as the same page"
+          },
+          "sitemap": {
+            "type": "string",
+            "enum": ["skip", "include", "only"],
+            "default": "include",
+            "description": "Sitemap handling: 'skip' ignores it, 'include' uses it as a hint, 'only' restricts crawl to sitemap URLs"
+          },
+          "crawlEntireDomain": {
+            "type": "boolean",
+            "default": false,
+            "description": "Allow following sibling and parent URLs, not just children"
+          },
+          "allowSubdomains": {
+            "type": "boolean",
+            "default": false,
+            "description": "Follow links into subdomains of the starting URL"
+          },
+          "allowExternalLinks": {
+            "type": "boolean",
+            "default": false,
+            "description": "Follow links to other domains"
+          },
+          "delay": {
+            "type": "number",
+            "description": "Seconds to wait between scrapes — use this to respect rate limits"
+          },
+          "maxConcurrency": {
+            "type": "integer",
+            "description": "Maximum number of pages scraped in parallel"
+          },
+          "webhook": {
+            "type": "object",
+            "description": "Webhook config for crawl events: { url, headers, metadata }"
+          },
+          "scrapeOptions": {
+            "type": "object",
+            "description": "Per-page scrape options applied to every crawled URL — same shape as the scrape tool's body (formats, onlyMainContent, headers, waitFor, etc.)"
+          }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "crawl_status",
+      "description": "Poll a running crawl job by id. Returns counts (total/completed), status (scraping/completed/failed), credit usage, and any pages scraped so far. Call repeatedly until status='completed'.",
+      "method": "GET",
+      "path": "/crawl/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The crawl job id returned by firecrawl_crawl"
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "crawl_cancel",
+      "description": "Cancel a running crawl job by id. Useful when a crawl is taking longer than expected or hitting unexpected pages.",
+      "method": "DELETE",
+      "path": "/crawl/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The crawl job id returned by firecrawl_crawl"
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "map",
+      "description": "Discover all URLs on a website without scraping their content. Fast — uses sitemap.xml + light crawling. Use this to plan a targeted scrape, audit site structure, or filter by keyword via 'search'. 1 credit per website.",
+      "method": "POST",
+      "path": "/map",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The website URL to map"
+          },
+          "search": {
+            "type": "string",
+            "description": "Filter/order returned URLs by relevance to this search query (e.g. 'pricing', 'blog')"
+          },
+          "sitemap": {
+            "type": "string",
+            "enum": ["skip", "include", "only"],
+            "default": "include",
+            "description": "Sitemap handling: 'skip' bypasses it, 'include' uses it + crawls, 'only' uses sitemap exclusively"
+          },
+          "includeSubdomains": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include URLs from subdomains"
+          },
+          "ignoreQueryParameters": {
+            "type": "boolean",
+            "default": true,
+            "description": "Drop query parameters from returned URLs"
+          },
+          "ignoreCache": {
+            "type": "boolean",
+            "default": false,
+            "description": "Bypass Firecrawl's sitemap cache and re-fetch fresh URLs"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 5000,
+            "maximum": 100000,
+            "description": "Maximum URLs to return"
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Request timeout in milliseconds"
+          },
+          "location": {
+            "type": "object",
+            "description": "Geographic location settings (country, languages) for proxy and emulation"
+          }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "search",
+      "description": "Search the web and optionally scrape result pages in one call. Perfect for research, competitive analysis, lead generation, and SEO. Set scrapeOptions to also receive the full content of each result.",
+      "method": "POST",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query (max 500 characters)"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 5,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Number of results to return (1 credit per result if scrapeOptions is set)"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["web", "images", "news"]
+                }
+              }
+            },
+            "default": [{ "type": "web" }],
+            "description": "Search sources to query. Default is web."
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["github", "research", "pdf"]
+            },
+            "description": "Filter results by category"
+          },
+          "tbs": {
+            "type": "string",
+            "description": "Time-based search filter (Google syntax: 'qdr:d' = past day, 'qdr:w' = past week, 'qdr:m' = past month, 'qdr:y' = past year)"
+          },
+          "country": {
+            "type": "string",
+            "default": "US",
+            "description": "ISO country code for localized results (e.g. 'US', 'GB', 'DE')"
+          },
+          "location": {
+            "type": "string",
+            "description": "Specific location string for local search results (e.g. 'San Francisco, California, United States')"
+          },
+          "timeout": {
+            "type": "integer",
+            "default": 60000,
+            "description": "Request timeout in milliseconds"
+          },
+          "ignoreInvalidURLs": {
+            "type": "boolean",
+            "default": false,
+            "description": "Skip results with invalid URLs instead of erroring"
+          },
+          "scrapeOptions": {
+            "type": "object",
+            "description": "When set, scrape each search result and return its content. Same shape as the scrape tool's body."
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "extract",
+      "description": "Extract structured JSON from one or more URLs using natural language and/or a JSON schema. Returns a job id — poll firecrawl_extract_status to retrieve results. Use this when you want typed data instead of raw markdown.",
+      "method": "POST",
+      "path": "/extract",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "urls": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "URLs to extract from. Glob patterns supported (e.g. 'https://example.com/blog/*')."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Natural-language description of what to extract. Used alongside 'schema' to guide extraction."
+          },
+          "schema": {
+            "type": "object",
+            "description": "JSON Schema describing the structure of the desired output"
+          },
+          "enableWebSearch": {
+            "type": "boolean",
+            "default": false,
+            "description": "Allow Firecrawl to perform supplementary web searches if the target pages don't contain enough info"
+          },
+          "ignoreSitemap": {
+            "type": "boolean",
+            "default": false,
+            "description": "Bypass sitemap.xml when scanning the target sites"
+          },
+          "includeSubdomains": {
+            "type": "boolean",
+            "default": true,
+            "description": "Extend extraction to subdomains of the provided URLs"
+          },
+          "showSources": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include the source URLs that contributed to each extracted field in the response"
+          },
+          "ignoreInvalidURLs": {
+            "type": "boolean",
+            "default": true,
+            "description": "Skip invalid URLs and continue with the rest"
+          },
+          "scrapeOptions": {
+            "type": "object",
+            "description": "Per-page scrape options applied while extracting"
+          }
+        },
+        "required": ["urls"]
+      }
+    },
+    {
+      "name": "extract_status",
+      "description": "Poll an extract job by id. Returns the structured data once status='completed'.",
+      "method": "GET",
+      "path": "/extract/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The extract job id returned by firecrawl_extract"
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "batch_scrape",
+      "description": "Scrape a fixed list of URLs in one job. Returns a job id — poll firecrawl_batch_scrape_status to retrieve results. Use this when you already have the list of URLs (vs crawl, which discovers them).",
+      "method": "POST",
+      "path": "/batch/scrape",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "urls": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "List of URLs to scrape"
+          },
+          "formats": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["markdown", "html", "rawHtml", "links", "screenshot", "screenshot@fullPage", "json"]
+            },
+            "default": ["markdown"],
+            "description": "Output formats applied to every URL"
+          },
+          "onlyMainContent": {
+            "type": "boolean",
+            "default": true,
+            "description": "Strip headers, navs, footers, and other boilerplate"
+          },
+          "includeTags": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "excludeTags": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "headers": { "type": "object" },
+          "waitFor": { "type": "integer", "default": 0 },
+          "timeout": { "type": "integer", "default": 60000 },
+          "blockAds": { "type": "boolean", "default": true },
+          "removeBase64Images": { "type": "boolean", "default": true },
+          "ignoreInvalidURLs": {
+            "type": "boolean",
+            "default": false,
+            "description": "Skip invalid URLs instead of failing the whole batch"
+          },
+          "webhook": {
+            "type": "object",
+            "description": "Webhook config for batch events: { url, headers, metadata }"
+          }
+        },
+        "required": ["urls"]
+      }
+    },
+    {
+      "name": "batch_scrape_status",
+      "description": "Poll a batch scrape job by id. Returns counts and any scraped pages so far.",
+      "method": "GET",
+      "path": "/batch/scrape/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The batch scrape job id returned by firecrawl_batch_scrape"
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "batch_scrape_cancel",
+      "description": "Cancel a running batch scrape job.",
+      "method": "DELETE",
+      "path": "/batch/scrape/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The batch scrape job id returned by firecrawl_batch_scrape"
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "crawl_errors",
+      "description": "Retrieve per-page errors for a crawl job. Use after crawl_status reports failures or when total > completed, to see exactly which URLs failed and why.",
+      "method": "GET",
+      "path": "/crawl/{id}/errors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The crawl job id returned by firecrawl_crawl"
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "batch_scrape_errors",
+      "description": "Retrieve per-URL errors for a batch scrape job. Use after batch_scrape_status reports failures.",
+      "method": "GET",
+      "path": "/batch/scrape/{id}/errors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The batch scrape job id returned by firecrawl_batch_scrape"
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "crawl_active",
+      "description": "List all crawl jobs currently running for this account. No arguments. Useful for monitoring without needing to track job ids yourself.",
+      "method": "GET",
+      "path": "/crawl/active",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "crawl_params_preview",
+      "description": "Preview what a crawl request would do — Firecrawl resolves the prompt/include/exclude/sitemap config into the actual normalized parameters and an estimated page count without spending credits. Use before launching expensive crawls.",
+      "method": "POST",
+      "path": "/crawl/params-preview",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The starting URL to crawl"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Natural-language description of what to crawl"
+          },
+          "limit": { "type": "integer" },
+          "maxDiscoveryDepth": { "type": "integer" },
+          "includePaths": { "type": "array", "items": { "type": "string" } },
+          "excludePaths": { "type": "array", "items": { "type": "string" } },
+          "sitemap": { "type": "string", "enum": ["skip", "include", "only"] },
+          "crawlEntireDomain": { "type": "boolean" },
+          "allowSubdomains": { "type": "boolean" },
+          "allowExternalLinks": { "type": "boolean" }
+        },
+        "required": ["url"]
+      }
+    }
+  ]
+}

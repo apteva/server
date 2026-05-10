@@ -1,0 +1,270 @@
+{
+  "slug": "confluence",
+  "name": "Confluence",
+  "description": "Atlassian Confluence wiki and documentation platform. Search, create, and manage pages and spaces in Confluence Cloud.",
+  "logo": "https://www.google.com/s2/favicons?domain=atlassian.com&sz=128",
+  "categories": [
+    "wiki",
+    "documentation",
+    "collaboration",
+    "atlassian",
+    "knowledge-base"
+  ],
+  "base_url": "{{domain}}/wiki/rest/api",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "authToken",
+        "label": "Auth Token",
+        "description": "Base64 encoded email:api_token (generate API token at id.atlassian.com/manage-profile/security/api-tokens)"
+      },
+      {
+        "name": "domain",
+        "label": "Domain",
+        "description": "Your Atlassian domain (e.g. 'mycompany' from mycompany.atlassian.net)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search_content",
+      "description": "Search Confluence content using CQL (Confluence Query Language). Returns pages, blog posts, and other content matching the query. Note: This uses the v1 search endpoint as v2 does not have a search API. Examples: 'type=page AND space=DEV', 'text~\"project plan\"', 'label=meeting-notes'.",
+      "method": "GET",
+      "path": "/search-content",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cql": {
+            "type": "string",
+            "description": "Confluence Query Language (CQL) query string. Examples: 'type=page AND space=DEV', 'text~\"search term\"', 'label=important AND creator=currentUser()'."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results to return (default 25, max 50).",
+            "default": 25
+          },
+          "start": {
+            "type": "integer",
+            "description": "Offset for pagination (0-based index).",
+            "default": 0
+          }
+        },
+        "required": [
+          "cql"
+        ]
+      }
+    },
+    {
+      "name": "get_page",
+      "description": "Retrieve a specific Confluence page by its ID. Returns page title, body content, version info, and metadata. Use body-format to control content representation.",
+      "method": "GET",
+      "path": "/get-page",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page_id": {
+            "type": "string",
+            "description": "The unique ID of the Confluence page to retrieve."
+          },
+          "body_format": {
+            "type": "string",
+            "enum": [
+              "storage",
+              "atlas_doc_format",
+              "view"
+            ],
+            "description": "The format for the page body content. 'storage' returns XHTML storage format, 'atlas_doc_format' returns Atlassian Document Format (ADF), 'view' returns rendered HTML.",
+            "default": "storage"
+          }
+        },
+        "required": [
+          "page_id"
+        ]
+      }
+    },
+    {
+      "name": "create_page",
+      "description": "Create a new page in a Confluence space. Provide the space ID, page title, and body content. The body can be in storage format (XHTML) or atlas_doc_format (ADF JSON).",
+      "method": "POST",
+      "path": "/create-page",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string",
+            "description": "The ID of the space where the page will be created."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "current",
+              "draft"
+            ],
+            "description": "The status of the page. 'current' publishes immediately, 'draft' saves as draft.",
+            "default": "current"
+          },
+          "title": {
+            "type": "string",
+            "description": "The title of the new page."
+          },
+          "parentId": {
+            "type": "string",
+            "description": "The ID of the parent page. If omitted, the page is created at the root of the space."
+          },
+          "body": {
+            "type": "object",
+            "description": "The body content of the page.",
+            "properties": {
+              "representation": {
+                "type": "string",
+                "enum": [
+                  "storage",
+                  "atlas_doc_format"
+                ],
+                "description": "The content representation format."
+              },
+              "value": {
+                "type": "string",
+                "description": "The body content. For 'storage' format, use XHTML (e.g. '<p>Hello</p>'). For 'atlas_doc_format', use ADF JSON as a string."
+              }
+            },
+            "required": [
+              "representation",
+              "value"
+            ]
+          }
+        },
+        "required": [
+          "spaceId",
+          "title",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "update_page",
+      "description": "Update an existing Confluence page. You must provide the page ID, new title, body content, and a version object with the incremented version number. Fetch the page first to get the current version number.",
+      "method": "PUT",
+      "path": "/update-page",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The ID of the page to update."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "current",
+              "draft"
+            ],
+            "description": "The status of the page.",
+            "default": "current"
+          },
+          "title": {
+            "type": "string",
+            "description": "The updated title of the page."
+          },
+          "body": {
+            "type": "object",
+            "description": "The updated body content.",
+            "properties": {
+              "representation": {
+                "type": "string",
+                "enum": [
+                  "storage",
+                  "atlas_doc_format"
+                ],
+                "description": "The content representation format."
+              },
+              "value": {
+                "type": "string",
+                "description": "The updated body content string."
+              }
+            },
+            "required": [
+              "representation",
+              "value"
+            ]
+          },
+          "version": {
+            "type": "object",
+            "description": "Version information. The number must be incremented from the current version.",
+            "properties": {
+              "number": {
+                "type": "integer",
+                "description": "The new version number (must be current version + 1)."
+              },
+              "message": {
+                "type": "string",
+                "description": "Optional version comment describing the change."
+              }
+            },
+            "required": [
+              "number"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "body",
+          "version"
+        ]
+      }
+    },
+    {
+      "name": "list_spaces",
+      "description": "List all Confluence spaces the authenticated user has access to. Returns space keys, names, types, and descriptions. Supports cursor-based pagination.",
+      "method": "GET",
+      "path": "/list-spaces",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of spaces to return (default 25, max 250).",
+            "default": 25
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response to get the next page of results."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "global",
+              "personal"
+            ],
+            "description": "Filter by space type. 'global' for team spaces, 'personal' for individual user spaces."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_space",
+      "description": "Retrieve details about a specific Confluence space by its ID. Returns the space key, name, type, description, and homepage information.",
+      "method": "GET",
+      "path": "/get-space",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "string",
+            "description": "The unique ID of the Confluence space to retrieve."
+          }
+        },
+        "required": [
+          "space_id"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,492 @@
+{
+  "slug": "openai-api",
+  "name": "OpenAI",
+  "description": "MCP server for OpenAI API operations including chat completions, Responses API, embeddings, DALL-E image generation, Sora video generation, Whisper transcription, and content moderation",
+  "logo": "https://www.google.com/s2/favicons?domain=openai.com&sz=128",
+  "categories": [
+    "ai",
+    "openai",
+    "chat",
+    "embeddings",
+    "image-generation",
+    "video-generation",
+    "sora",
+    "transcription",
+    "moderation"
+  ],
+  "base_url": "https://api.openai.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "Your OpenAI API Key (sk-...)"
+      },
+      {
+        "name": "organizationId",
+        "label": "Organization Id",
+        "description": "Your OpenAI Organization ID (optional)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "chat_completion",
+      "description": "Generate chat completions using OpenAI's language models",
+      "method": "GET",
+      "path": "/chat-completion",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "description": "Array of message objects for the conversation",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "system",
+                    "user",
+                    "assistant"
+                  ]
+                },
+                "content": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "model": {
+            "type": "string",
+            "description": "The OpenAI model to use",
+            "default": "gpt-4"
+          },
+          "temperature": {
+            "type": "number",
+            "description": "Sampling temperature between 0 and 2",
+            "minimum": 0,
+            "maximum": 2,
+            "default": 1
+          },
+          "max_tokens": {
+            "type": "integer",
+            "description": "Maximum number of tokens to generate",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "messages"
+        ]
+      }
+    },
+    {
+      "name": "create_embedding",
+      "description": "Create embeddings for text using OpenAI's embedding models",
+      "method": "POST",
+      "path": "/create-embedding",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Text to create embeddings for"
+          },
+          "model": {
+            "type": "string",
+            "description": "The embedding model to use",
+            "default": "text-embedding-ada-002"
+          }
+        },
+        "required": [
+          "input"
+        ]
+      }
+    },
+    {
+      "name": "generate_image",
+      "description": "Generate images via /v1/images/generations. Supports current GPT Image family (gpt-image-2 default; gpt-image-1.5, gpt-image-1, gpt-image-1-mini legacy) and DALL\u00b7E 3 / DALL\u00b7E 2 (legacy). gpt-image-* always returns base64 (b64_json); DALL\u00b7E returns URLs by default.",
+      "method": "POST",
+      "path": "/images/generations",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Text description of the image to generate."
+          },
+          "model": {
+            "type": "string",
+            "description": "Image generation model. Defaults to gpt-image-2 (current SOTA). dall-e-3 / dall-e-2 retained for legacy callers.",
+            "enum": [
+              "gpt-image-2",
+              "gpt-image-1.5",
+              "gpt-image-1",
+              "gpt-image-1-mini",
+              "dall-e-3",
+              "dall-e-2"
+            ],
+            "default": "gpt-image-2"
+          },
+          "size": {
+            "type": "string",
+            "description": "Image size. gpt-image-2: any WxH where each edge is a multiple of 16, max edge 3840, ratio \u2264 3:1, total pixels 655,360\u20138,294,400 (popular: 1024x1024, 1024x1536, 1536x1024, 2048x2048, 3840x2160, auto). gpt-image-1/1.5/mini: 1024x1024 | 1024x1536 | 1536x1024. dall-e-3: 1024x1024 | 1792x1024 | 1024x1792. dall-e-2: 256x256 | 512x512 | 1024x1024.",
+            "default": "1024x1024"
+          },
+          "quality": {
+            "type": "string",
+            "description": "Quality. gpt-image-*: low | medium | high | auto. dall-e-3: standard | hd. dall-e-2: not supported.",
+            "default": "auto"
+          },
+          "output_format": {
+            "type": "string",
+            "description": "Output format (gpt-image-* only). Ignored by DALL\u00b7E.",
+            "enum": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "default": "png"
+          },
+          "background": {
+            "type": "string",
+            "description": "Background handling (gpt-image-* only). 'auto' lets the model decide; 'transparent' forces RGBA output (png/webp only).",
+            "enum": [
+              "auto",
+              "transparent",
+              "opaque"
+            ]
+          },
+          "n": {
+            "type": "integer",
+            "description": "Number of images to generate.",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 1
+          },
+          "response_format": {
+            "type": "string",
+            "description": "DALL\u00b7E only \u2014 gpt-image-* always returns b64_json. Pick 'b64_json' for inline bytes (no signed URL roundtrip) or 'url' for an OpenAI-hosted URL with a 1-hour TTL.",
+            "enum": [
+              "url",
+              "b64_json"
+            ]
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "transcribe_audio",
+      "description": "Transcribe audio files using OpenAI's Whisper model",
+      "method": "GET",
+      "path": "/transcribe-audio",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Audio file to transcribe (file path or base64)"
+          },
+          "model": {
+            "type": "string",
+            "description": "The transcription model to use",
+            "default": "whisper-1"
+          },
+          "language": {
+            "type": "string",
+            "description": "Language of the audio (ISO-639-1 format)"
+          },
+          "response_format": {
+            "type": "string",
+            "description": "Format of the response",
+            "enum": [
+              "json",
+              "text",
+              "srt",
+              "verbose_json",
+              "vtt"
+            ],
+            "default": "json"
+          }
+        },
+        "required": [
+          "file"
+        ]
+      }
+    },
+    {
+      "name": "moderate_content",
+      "description": "Check content for policy violations using OpenAI's moderation endpoint",
+      "method": "GET",
+      "path": "/moderate-content",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Text content to moderate"
+          }
+        },
+        "required": [
+          "input"
+        ]
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List available OpenAI models",
+      "method": "GET",
+      "path": "/list-models",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_response",
+      "description": "Create responses using OpenAI's Responses API. Supports multimodal input/output, tool use, and streaming. Can continue conversations using responseId.",
+      "method": "POST",
+      "path": "/create-response",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "array",
+            "description": "Array of input items (text, images, audio, etc.)",
+            "items": {
+              "type": "object"
+            }
+          },
+          "model": {
+            "type": "string",
+            "description": "Model to use (e.g., gpt-4o, gpt-4o-mini)",
+            "default": "gpt-4o"
+          },
+          "responseId": {
+            "type": "string",
+            "description": "Response ID to continue a conversation"
+          },
+          "modalities": {
+            "type": "array",
+            "description": "Output modalities: text, audio",
+            "items": {
+              "type": "string",
+              "enum": [
+                "text",
+                "audio"
+              ]
+            },
+            "default": [
+              "text"
+            ]
+          },
+          "instructions": {
+            "type": "string",
+            "description": "System instructions for the model"
+          },
+          "tools": {
+            "type": "array",
+            "description": "Tools available to the model",
+            "items": {
+              "type": "object"
+            }
+          },
+          "toolChoice": {
+            "type": "string",
+            "description": "Tool choice strategy: auto, none, required, or specific tool name"
+          },
+          "temperature": {
+            "type": "number",
+            "description": "Sampling temperature (0-2)",
+            "minimum": 0,
+            "maximum": 2
+          },
+          "maxOutputTokens": {
+            "type": "integer",
+            "description": "Maximum tokens to generate"
+          },
+          "stream": {
+            "type": "boolean",
+            "description": "Enable streaming response",
+            "default": false
+          }
+        },
+        "required": [
+          "input"
+        ]
+      }
+    },
+    {
+      "name": "create_video",
+      "description": "Generate videos using OpenAI's Sora model. Create AI-generated videos from text prompts with customizable duration and resolution.",
+      "method": "POST",
+      "path": "/create-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Text description of the video to generate"
+          },
+          "model": {
+            "type": "string",
+            "description": "Video generation model",
+            "enum": [
+              "sora-2"
+            ],
+            "default": "sora-2"
+          },
+          "seconds": {
+            "type": "string",
+            "description": "Video duration in seconds (4-20)",
+            "default": "4"
+          },
+          "size": {
+            "type": "string",
+            "description": "Video resolution",
+            "enum": [
+              "720x1280",
+              "1280x720",
+              "1080x1920",
+              "1920x1080"
+            ],
+            "default": "720x1280"
+          },
+          "inputReference": {
+            "type": "string",
+            "description": "Reference image or video ID for style/content guidance"
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "list_videos",
+      "description": "List all generated Sora videos. Returns video IDs, status, progress, and metadata with pagination support.",
+      "method": "GET",
+      "path": "/list-videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "after": {
+            "type": "string",
+            "description": "Cursor for pagination (video ID to start after)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of videos to return (1-100)",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20
+          },
+          "order": {
+            "type": "string",
+            "description": "Sort order by creation time",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          }
+        }
+      }
+    },
+    {
+      "name": "retrieve_video",
+      "description": "Retrieve details and status of a Sora video generation job. Check progress, completion status, and video metadata.",
+      "method": "GET",
+      "path": "/retrieve-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Video ID to retrieve"
+          }
+        },
+        "required": [
+          "videoId"
+        ]
+      }
+    },
+    {
+      "name": "delete_video",
+      "description": "Delete a generated Sora video. This permanently removes the video and frees up storage.",
+      "method": "DELETE",
+      "path": "/delete-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Video ID to delete"
+          }
+        },
+        "required": [
+          "videoId"
+        ]
+      }
+    },
+    {
+      "name": "remix_video",
+      "description": "Create a new video by remixing an existing Sora video with a new prompt. Maintains style/content continuity while applying changes.",
+      "method": "GET",
+      "path": "/remix-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Source video ID to remix"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "New prompt describing the desired changes"
+          }
+        },
+        "required": [
+          "videoId",
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "download_video",
+      "description": "Download the actual video content of a completed Sora video as base64-encoded data.",
+      "method": "GET",
+      "path": "/download-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Video ID to download"
+          },
+          "variant": {
+            "type": "string",
+            "description": "Video variant to download (if multiple available)"
+          }
+        },
+        "required": [
+          "videoId"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_models"
+  }
+}

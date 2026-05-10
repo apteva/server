@@ -1,0 +1,87 @@
+{
+  "slug": "urlbox",
+  "name": "Urlbox",
+  "description": "Best-in-class URL → screenshot/PDF/MP4 rendering API. Handles JS rendering, custom viewports (incl. retina), mobile emulation, dark mode, ad blocking, custom CSS/JS injection, full-page captures, and PDF export. Synchronous and async render endpoints.",
+  "logo": "https://www.google.com/s2/favicons?domain=urlbox.com&sz=128",
+  "categories": ["screenshots", "rendering", "pdf", "automation", "scraping"],
+  "base_url": "https://api.urlbox.com/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      { "name": "token", "label": "Urlbox secret API key" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "render_sync",
+      "description": "Capture a screenshot or PDF synchronously and return the render URL immediately. Use this for small, fast renders. For large pages or PDFs, use render_async + poll. Common formats: png, jpeg, webp, pdf, html, mhtml.",
+      "method": "POST",
+      "path": "/render/sync",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "The URL to render" },
+          "html": { "type": "string", "description": "Render raw HTML instead of a URL — mutually exclusive with `url`" },
+          "format": {
+            "type": "string",
+            "enum": ["png", "jpeg", "webp", "avif", "pdf", "html", "mhtml", "mp4", "webm"],
+            "default": "png",
+            "description": "Output format"
+          },
+          "full_page": { "type": "boolean", "default": false, "description": "Capture the entire scrollable page, not just the viewport" },
+          "width": { "type": "integer", "default": 1280, "description": "Viewport width in CSS pixels" },
+          "height": { "type": "integer", "default": 1024, "description": "Viewport height in CSS pixels" },
+          "retina": { "type": "boolean", "default": false, "description": "Render at 2x device pixel ratio" },
+          "thumb_width": { "type": "integer", "description": "Resize the output to this width (preserves aspect)" },
+          "thumb_height": { "type": "integer", "description": "Resize the output to this height (preserves aspect)" },
+          "mobile": { "type": "boolean", "default": false, "description": "Use a mobile user agent + viewport" },
+          "dark_mode": { "type": "boolean", "default": false, "description": "Force prefers-color-scheme: dark" },
+          "block_ads": { "type": "boolean", "default": false, "description": "Block ad networks via uBlock-style filters" },
+          "block_cookie_banners": { "type": "boolean", "default": false, "description": "Auto-dismiss cookie consent banners" },
+          "wait_until": {
+            "type": "string",
+            "enum": ["load", "domloaded", "networkidle", "mostrequestsfinished"],
+            "default": "networkidle",
+            "description": "When to consider the page 'ready' before capturing"
+          },
+          "wait_for": { "type": "string", "description": "CSS selector to wait for before capturing" },
+          "delay": { "type": "integer", "description": "Extra delay in ms after wait_until is satisfied" },
+          "click": { "type": "string", "description": "CSS selector to click before capturing" },
+          "css": { "type": "string", "description": "Custom CSS to inject into the page" },
+          "js": { "type": "string", "description": "Custom JavaScript to execute on the page" },
+          "selector": { "type": "string", "description": "Capture only the element matching this CSS selector" },
+          "user_agent": { "type": "string", "description": "Override the user agent string" },
+          "accept_lang": { "type": "string", "description": "Accept-Language header (e.g. 'en-US')" },
+          "timezone": { "type": "string", "description": "IANA timezone (e.g. 'America/New_York')" },
+          "authorization": { "type": "string", "description": "HTTP Authorization header value to send to the target site" },
+          "cookie": { "type": "string", "description": "Cookie header to send to the target site" }
+        }
+      }
+    },
+    {
+      "name": "render_async",
+      "description": "Submit a render job asynchronously. Returns a job id immediately — poll the status URL in the response to retrieve the render. Use this for slow renders (large PDFs, full-page captures of complex sites, MP4 captures).",
+      "method": "POST",
+      "path": "/render/async",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" },
+          "html": { "type": "string" },
+          "format": {
+            "type": "string",
+            "enum": ["png", "jpeg", "webp", "avif", "pdf", "html", "mhtml", "mp4", "webm"],
+            "default": "png"
+          },
+          "full_page": { "type": "boolean", "default": false },
+          "width": { "type": "integer" },
+          "height": { "type": "integer" },
+          "webhook_url": { "type": "string", "description": "URL to POST to when the render is complete" }
+        }
+      }
+    }
+  ]
+}

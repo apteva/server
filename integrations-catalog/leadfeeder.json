@@ -1,0 +1,89 @@
+{
+  "slug": "leadfeeder",
+  "name": "Leadfeeder",
+  "description": "Reverse-IP visitor identification — turns anonymous website traffic into named B2B accounts. Killer signal: companies actively researching you = warm AI-prospection target.",
+  "logo": "https://www.google.com/s2/favicons?domain=leadfeeder.com&sz=128",
+  "categories": ["intent", "visitor-id", "prospecting", "b2b", "analytics"],
+  "base_url": "https://api.leadfeeder.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Token token={{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API token",
+        "description": "Leadfeeder API token from app.leadfeeder.com → Account → Personal API token"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_accounts",
+      "description": "List Leadfeeder accounts (subscriptions) accessible by the token.",
+      "method": "GET",
+      "path": "/accounts",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_leads",
+      "description": "List identified visitor companies (leads) for an account, with filters.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/leads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "start_date": { "type": "string", "description": "YYYY-MM-DD" },
+          "end_date": { "type": "string" },
+          "view_id": { "type": "string", "description": "Filter view (Custom Feed) id" },
+          "page[size]": { "type": "integer", "default": 25, "maximum": 100 },
+          "page[number]": { "type": "integer", "default": 1 }
+        },
+        "required": ["account_id"]
+      }
+    },
+    {
+      "name": "lead_visits",
+      "description": "Get the visits (page-by-page) for a single lead. Strong context for the outreach intro.",
+      "method": "GET",
+      "path": "/leads/{lead_id}/visits",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lead_id": { "type": "string" },
+          "start_date": { "type": "string" },
+          "end_date": { "type": "string" }
+        },
+        "required": ["lead_id"]
+      }
+    },
+    {
+      "name": "lead_contacts",
+      "description": "Get available contacts (employees) for an identified company-lead.",
+      "method": "GET",
+      "path": "/leads/{lead_id}/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lead_id": { "type": "string" }
+        },
+        "required": ["lead_id"]
+      }
+    },
+    {
+      "name": "list_custom_feeds",
+      "description": "List custom views (saved filters) for an account.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/custom_feeds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" }
+        },
+        "required": ["account_id"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,138 @@
+{
+  "slug": "transloadit",
+  "name": "Transloadit",
+  "description": "File processing pipelines — ffmpeg, ImageMagick, and ~200 other tools chained as Assembly steps. Each Assembly is a JSON document with steps[] declaring import + processing + export operations. Best fit for media's render executor when you want full ffmpeg flexibility (any operation, any combination) without managing the worker. Auth uses an Auth Key in the params JSON; signed Assemblies (recommended for production) add an HMAC-SHA384 signature, but the simpler unsigned mode (with templates locked down server-side) is supported here.",
+  "logo": "https://www.google.com/s2/favicons?domain=transloadit.com&sz=128",
+  "categories": ["media", "video", "audio", "images", "transcoding", "pipelines"],
+  "base_url": "https://api2.transloadit.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {},
+    "credential_fields": [
+      {
+        "name": "auth_key",
+        "label": "Auth Key",
+        "description": "Public Auth Key from https://transloadit.com/c/template-credentials/. Embedded in the request's `params` JSON as `auth.key`. Pair with Auth Secret only when signing assemblies.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "auth_secret",
+        "label": "Auth Secret",
+        "description": "Optional. Required only when sending signed Assemblies (recommended for production — signs the params JSON with HMAC-SHA384). The integration runtime does not currently auto-sign; for signed Assemblies, compute the signature client-side and pass it via the `signature` field on create_assembly.",
+        "required": false,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_assembly",
+      "description": "Create a new Assembly — a pipeline run. The `params` field is a JSON-encoded object containing `auth.key` plus EITHER inline `steps` (ad-hoc pipeline) OR a `template_id` (recommended; reusable, server-locked). Returns the Assembly object including `assembly_id` and `status` (ASSEMBLY_UPLOADING, ASSEMBLY_EXECUTING, ASSEMBLY_COMPLETED, ASSEMBLY_CANCELED, REQUEST_ABORTED). For long-running jobs, poll get_assembly_status. Multipart form encoding is required by Transloadit.",
+      "method": "POST",
+      "path": "/assemblies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "type": "string",
+            "description": "JSON-encoded string. Minimum shape with template:\n  {\"auth\": {\"key\": \"YOUR_AUTH_KEY\"}, \"template_id\": \"...\", \"fields\": {...}}\nMinimum shape inline:\n  {\"auth\": {\"key\": \"...\", \"expires\": \"2026-12-31T23:59:00.000Z\"}, \"steps\": {\"imported\": {\"robot\": \"/http/import\", \"url\": \"...\"}, \"encoded\": {\"use\": \"imported\", \"robot\": \"/video/encode\", \"preset\": \"ipad-high\"}, \"exported\": {\"use\": \"encoded\", \"robot\": \"/s3/store\", \"credentials\": \"my-aws\"}}}\nFor signed Assemblies, also include \"auth.expires\" (ISO 8601, future). The `signature` form field then carries hex(HMAC-SHA384(params, secret))."
+          },
+          "signature": {
+            "type": "string",
+            "description": "Required only for signed Assemblies. Format: \"sha384:HEX\" — hex-encoded HMAC-SHA384 of the EXACT params JSON string, computed with auth_secret. Older signatures used plain hex without the prefix and are still accepted."
+          },
+          "num_expected_upload_files": {
+            "type": "integer",
+            "description": "Required when this Assembly will receive direct file uploads (multipart form). For URL-based imports (/http/import robot), omit."
+          },
+          "fields": {
+            "type": "object",
+            "description": "Free-form key/value pairs available as ${fields.<key>} inside steps. Use this to inject per-call parameters like file_id or output paths into a template-based assembly."
+          }
+        },
+        "required": ["params"]
+      }
+    },
+    {
+      "name": "get_assembly_status",
+      "description": "Poll an Assembly's status + results. When status=ASSEMBLY_COMPLETED, the response's `results` map keys are step names from the Assembly; values are arrays of result-file objects with `ssl_url`, `mime`, `meta` (probe data), `cost`, etc.",
+      "method": "GET",
+      "path": "/assemblies/{ASSEMBLY_ID}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ASSEMBLY_ID": { "type": "string" }
+        },
+        "required": ["ASSEMBLY_ID"]
+      }
+    },
+    {
+      "name": "list_assemblies",
+      "description": "Paginate past Assemblies for this account. Filter by date range, type (uploading|executing|completed|canceled|failed), or by template_id.",
+      "method": "GET",
+      "path": "/assemblies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "default": 1 },
+          "pagesize": { "type": "integer", "default": 50, "maximum": 5000 },
+          "type": {
+            "type": "string",
+            "enum": ["uploading", "executing", "canceled", "completed", "failed", "request_aborted"]
+          },
+          "fromdate": { "type": "string", "description": "YYYY-MM-DD HH:MM:SS in account TZ." },
+          "todate": { "type": "string" },
+          "keywords": { "type": "string" },
+          "all_assemblies_for_template_id": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "cancel_assembly",
+      "description": "Request cancellation of an in-flight Assembly. The Assembly moves to ASSEMBLY_CANCELED once Transloadit acks. Already-completed Assemblies stay completed.",
+      "method": "DELETE",
+      "path": "/assemblies/{ASSEMBLY_ID}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ASSEMBLY_ID": { "type": "string" }
+        },
+        "required": ["ASSEMBLY_ID"]
+      }
+    },
+    {
+      "name": "replay_assembly",
+      "description": "Re-run a completed Assembly with the same inputs + steps. Useful for retrying after a transient failure or after fixing a bug in the steps.",
+      "method": "POST",
+      "path": "/assemblies/{ASSEMBLY_ID}/replay",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ASSEMBLY_ID": { "type": "string" },
+          "steps": {
+            "type": "object",
+            "description": "Optional. Override steps for the replay (e.g. fix a bad encode preset)."
+          },
+          "notify_url": { "type": "string" }
+        },
+        "required": ["ASSEMBLY_ID"]
+      }
+    },
+    {
+      "name": "list_templates",
+      "description": "List server-side Assembly Templates. Templates encode reusable pipelines so callers can fire `create_assembly` with just `{template_id, fields}`.",
+      "method": "GET",
+      "path": "/templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "default": 1 },
+          "pagesize": { "type": "integer", "default": 50 },
+          "fromdate": { "type": "string" },
+          "todate": { "type": "string" }
+        }
+      }
+    }
+  ]
+}

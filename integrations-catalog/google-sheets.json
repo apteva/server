@@ -1,0 +1,696 @@
+{
+  "slug": "google-sheets",
+  "name": "Google Sheets",
+  "description": "Google Sheets API v4 \u2014 read, write, append, clear, and batch-mutate spreadsheets. Includes the generic spreadsheets:batchUpdate endpoint which exposes every formatting / sheet-management / find-replace operation Google supports.",
+  "logo": "https://upload.wikimedia.org/wikipedia/commons/3/30/Google_Sheets_logo_%282014-2020%29.svg",
+  "categories": [
+    "spreadsheets",
+    "google",
+    "data",
+    "productivity"
+  ],
+  "base_url": "https://sheets.googleapis.com/v4",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "accessToken"
+      },
+      {
+        "name": "refreshToken",
+        "label": "refreshToken"
+      },
+      {
+        "name": "expiresIn",
+        "label": "expiresIn"
+      },
+      {
+        "name": "tokenType",
+        "label": "tokenType"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+      "token_url": "https://oauth2.googleapis.com/token",
+      "scopes": [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/spreadsheets.readonly"
+      ],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "access_type": "offline",
+        "prompt": "consent",
+        "include_granted_scopes": "true"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "create_spreadsheet",
+      "description": "Create a new Google Sheets spreadsheet. Pass `properties.title` to set the name. Optionally pre-create sheets with `sheets[]`. Returns the full Spreadsheet object including spreadsheetId.",
+      "method": "POST",
+      "path": "/spreadsheets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "properties": {
+            "type": "object",
+            "description": "Spreadsheet-level properties. Most useful: { title: string, locale: string, timeZone: string }."
+          },
+          "sheets": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Optional initial sheet definitions. Each entry is a Sheet object \u2014 minimum { properties: { title: 'Sheet1' } }."
+          }
+        },
+        "required": [
+          "properties"
+        ]
+      }
+    },
+    {
+      "name": "get_spreadsheet",
+      "description": "Get spreadsheet metadata: sheet names, sheet IDs, named ranges, properties. Use the `fields` mask to limit response size \u2014 for just sheet names, set `fields=sheets.properties`.",
+      "method": "GET",
+      "path": "/spreadsheets/{spreadsheetId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": {
+            "type": "string"
+          },
+          "ranges": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional A1 ranges to include grid data for. Without this only metadata is returned."
+          },
+          "includeGridData": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include cell values + formatting in the response. Heavy \u2014 only set when needed."
+          },
+          "fields": {
+            "type": "string",
+            "default": "spreadsheetId,properties,sheets.properties,namedRanges",
+            "description": "Comma-separated FieldMask to limit response size."
+          }
+        },
+        "required": [
+          "spreadsheetId"
+        ]
+      },
+      "query_params": [
+        "ranges",
+        "includeGridData",
+        "fields"
+      ]
+    },
+    {
+      "name": "get_by_filter",
+      "description": "Get spreadsheet by data filters \u2014 narrows the response to specific A1 ranges, GridRanges, or developer-metadata-tagged cells without including the entire grid. Use this when you know which cells you want but don't have a single contiguous A1 range.",
+      "method": "POST",
+      "path": "/spreadsheets/{spreadsheetId}:getByDataFilter",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": {
+            "type": "string"
+          },
+          "dataFilters": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Array of DataFilter objects. Each is one of: { a1Range: 'Sheet1!A1:B10' }, { gridRange: { sheetId, startRowIndex, endRowIndex, startColumnIndex, endColumnIndex } }, or { developerMetadataLookup: {...} }."
+          },
+          "includeGridData": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "spreadsheetId",
+          "dataFilters"
+        ]
+      }
+    },
+    {
+      "name": "batch_update",
+      "description": "Generic spreadsheet batchUpdate \u2014 the catch-all endpoint for every spreadsheet mutation Google supports. The agent passes a list of Request objects; each Request has exactly one operation key. Common operations: addSheet, deleteSheet, updateSheetProperties, updateSpreadsheetProperties, findReplace, insertDimension, deleteDimension, appendDimension, autoResizeDimensions, updateDimensionProperties, repeatCell (formatting), updateCells, mergeCells, unmergeCells, setBasicFilter, clearBasicFilter, addChart, addConditionalFormatRule, updateConditionalFormatRule, deleteConditionalFormatRule, setDataValidation, addProtectedRange, deleteProtectedRange, addNamedRange, deleteNamedRange, addBanding, deleteBanding, addFilterView, sortRange, cutPaste, copyPaste, randomizeRange, pasteData. Example for find/replace across all sheets: { spreadsheetId, requests: [{ findReplace: { find: 'old', replacement: 'new', allSheets: true, matchCase: false } }] }. See https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets/request for the full Request schema.",
+      "method": "POST",
+      "path": "/spreadsheets/{spreadsheetId}:batchUpdate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": {
+            "type": "string"
+          },
+          "requests": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Array of Request objects. Each Request has exactly one operation key (e.g. addSheet, findReplace, repeatCell, \u2026)."
+          },
+          "includeSpreadsheetInResponse": {
+            "type": "boolean",
+            "default": false,
+            "description": "Return the updated spreadsheet in the response."
+          },
+          "responseRanges": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "responseIncludeGridData": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "spreadsheetId",
+          "requests"
+        ]
+      }
+    },
+    {
+      "name": "read_range",
+      "description": "Read values from a single A1 range, e.g. 'Sheet1!A1:D10' or 'Sheet1!A:A' for a whole column. Returns a 2D array of cell values. For multiple ranges in one call use batch_get.",
+      "method": "GET",
+      "path": "/spreadsheets/{spreadsheetId}/values/{range}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": {
+            "type": "string"
+          },
+          "range": {
+            "type": "string",
+            "description": "A1 notation, e.g. 'Sheet1!A1:D10' or 'Sheet1!A:A'."
+          },
+          "valueRenderOption": {
+            "type": "string",
+            "enum": [
+              "FORMATTED_VALUE",
+              "UNFORMATTED_VALUE",
+              "FORMULA"
+            ],
+            "default": "FORMATTED_VALUE",
+            "description": "How values should be represented. FORMULA returns the literal cell formula instead of the computed value."
+          },
+          "dateTimeRenderOption": {
+            "type": "string",
+            "enum": [
+              "SERIAL_NUMBER",
+              "FORMATTED_STRING"
+            ],
+            "default": "FORMATTED_STRING"
+          },
+          "majorDimension": {
+            "type": "string",
+            "enum": [
+              "ROWS",
+              "COLUMNS"
+            ],
+            "default": "ROWS"
+          }
+        },
+        "required": [
+          "spreadsheetId",
+          "range"
+        ]
+      }
+    },
+    {
+      "name": "write_range",
+      "description": "Write values to a single A1 range. Overwrites existing data in the range. Pass `values` as a 2D array of rows. Use valueInputOption='USER_ENTERED' (default) so '=SUM(A1:A10)' becomes a real formula and '12.5%' becomes a percentage; use 'RAW' to write strings literally with no parsing.",
+      "method": "PUT",
+      "path": "/spreadsheets/{spreadsheetId}/values/{range}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": {
+            "type": "string"
+          },
+          "range": {
+            "type": "string",
+            "description": "A1 notation, e.g. 'Sheet1!A1:D10'."
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "array"
+            },
+            "description": "2D array of rows. Each row is an array of cell values (strings, numbers, booleans, or formula strings starting with '=')."
+          },
+          "majorDimension": {
+            "type": "string",
+            "enum": [
+              "ROWS",
+              "COLUMNS"
+            ],
+            "default": "ROWS"
+          },
+          "valueInputOption": {
+            "type": "string",
+            "enum": [
+              "RAW",
+              "USER_ENTERED"
+            ],
+            "default": "USER_ENTERED",
+            "description": "How input is interpreted. USER_ENTERED parses formulas, dates, percentages, etc. like a human typing into the UI. RAW writes the exact string."
+          },
+          "includeValuesInResponse": {
+            "type": "boolean",
+            "default": false
+          },
+          "responseValueRenderOption": {
+            "type": "string",
+            "enum": [
+              "FORMATTED_VALUE",
+              "UNFORMATTED_VALUE",
+              "FORMULA"
+            ]
+          },
+          "responseDateTimeRenderOption": {
+            "type": "string",
+            "enum": [
+              "SERIAL_NUMBER",
+              "FORMATTED_STRING"
+            ]
+          }
+        },
+        "required": [
+          "spreadsheetId",
+          "range",
+          "values"
+        ]
+      },
+      "query_params": [
+        "valueInputOption",
+        "includeValuesInResponse",
+        "responseValueRenderOption",
+        "responseDateTimeRenderOption"
+      ]
+    },
+    {
+      "name": "append_rows",
+      "description": "Append rows after the last row containing data in a sheet. Unlike write_range, this finds the next empty row automatically. Use insertDataOption='INSERT_ROWS' (default) to push existing rows down, or 'OVERWRITE' to replace.",
+      "method": "POST",
+      "path": "/spreadsheets/{spreadsheetId}/values/{range}:append",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": {
+            "type": "string"
+          },
+          "range": {
+            "type": "string",
+            "description": "A1 notation of any cell in the table to append to. Google walks down the column to find the last data row."
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "array"
+            },
+            "description": "2D array of rows to append."
+          },
+          "majorDimension": {
+            "type": "string",
+            "enum": [
+              "ROWS",
+              "COLUMNS"
+            ],
+            "default": "ROWS"
+          },
+          "valueInputOption": {
+            "type": "string",
+            "enum": [
+              "RAW",
+              "USER_ENTERED"
+            ],
+            "default": "USER_ENTERED"
+          },
+          "insertDataOption": {
+            "type": "string",
+            "enum": [
+              "OVERWRITE",
+              "INSERT_ROWS"
+            ],
+            "default": "INSERT_ROWS"
+          },
+          "includeValuesInResponse": {
+            "type": "boolean",
+            "default": false
+          },
+          "responseValueRenderOption": {
+            "type": "string",
+            "enum": [
+              "FORMATTED_VALUE",
+              "UNFORMATTED_VALUE",
+              "FORMULA"
+            ]
+          },
+          "responseDateTimeRenderOption": {
+            "type": "string",
+            "enum": [
+              "SERIAL_NUMBER",
+              "FORMATTED_STRING"
+            ]
+          }
+        },
+        "required": [
+          "spreadsheetId",
+          "range",
+          "values"
+        ]
+      },
+      "query_params": [
+        "valueInputOption",
+        "insertDataOption",
+        "includeValuesInResponse",
+        "responseValueRenderOption",
+        "responseDateTimeRenderOption"
+      ]
+    },
+    {
+      "name": "clear_range",
+      "description": "Clear values from a single A1 range. Keeps formatting and other cell properties \u2014 only the values are wiped.",
+      "method": "POST",
+      "path": "/spreadsheets/{spreadsheetId}/values/{range}:clear",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": {
+            "type": "string"
+          },
+          "range": {
+            "type": "string",
+            "description": "A1 notation, e.g. 'Sheet1!A1:D10'."
+          }
+        },
+        "required": [
+          "spreadsheetId",
+          "range"
+        ]
+      }
+    },
+    {
+      "name": "batch_get",
+      "description": "Read multiple A1 ranges in a single request. Pass `ranges` as an array of A1 strings. Returns one ValueRange per requested range.",
+      "method": "GET",
+      "path": "/spreadsheets/{spreadsheetId}/values:batchGet",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": {
+            "type": "string"
+          },
+          "ranges": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of A1 ranges, e.g. ['Sheet1!A1:B10', 'Sheet2!C1:C100']."
+          },
+          "valueRenderOption": {
+            "type": "string",
+            "enum": [
+              "FORMATTED_VALUE",
+              "UNFORMATTED_VALUE",
+              "FORMULA"
+            ],
+            "default": "FORMATTED_VALUE"
+          },
+          "dateTimeRenderOption": {
+            "type": "string",
+            "enum": [
+              "SERIAL_NUMBER",
+              "FORMATTED_STRING"
+            ],
+            "default": "FORMATTED_STRING"
+          },
+          "majorDimension": {
+            "type": "string",
+            "enum": [
+              "ROWS",
+              "COLUMNS"
+            ],
+            "default": "ROWS"
+          }
+        },
+        "required": [
+          "spreadsheetId",
+          "ranges"
+        ]
+      }
+    },
+    {
+      "name": "batch_get_by_filter",
+      "description": "Read multiple ranges selected by data filters (A1, GridRange, or developer metadata) in a single request. Use this when you want filter-style selection rather than a literal list of A1 ranges.",
+      "method": "POST",
+      "path": "/spreadsheets/{spreadsheetId}/values:batchGetByDataFilter",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": {
+            "type": "string"
+          },
+          "dataFilters": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Array of DataFilter objects."
+          },
+          "valueRenderOption": {
+            "type": "string",
+            "enum": [
+              "FORMATTED_VALUE",
+              "UNFORMATTED_VALUE",
+              "FORMULA"
+            ],
+            "default": "FORMATTED_VALUE"
+          },
+          "dateTimeRenderOption": {
+            "type": "string",
+            "enum": [
+              "SERIAL_NUMBER",
+              "FORMATTED_STRING"
+            ],
+            "default": "FORMATTED_STRING"
+          },
+          "majorDimension": {
+            "type": "string",
+            "enum": [
+              "ROWS",
+              "COLUMNS"
+            ],
+            "default": "ROWS"
+          }
+        },
+        "required": [
+          "spreadsheetId",
+          "dataFilters"
+        ]
+      }
+    },
+    {
+      "name": "batch_update_values",
+      "description": "Atomically write to multiple ranges in one request. Use when several updates need to land together. Pass `data` as an array of ValueRange objects ({ range, values, majorDimension? }).",
+      "method": "POST",
+      "path": "/spreadsheets/{spreadsheetId}/values:batchUpdate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Array of ValueRange objects. Example: [{ range: 'Sheet1!A1', values: [['hello']] }, { range: 'Sheet2!B2', values: [['world']] }]."
+          },
+          "valueInputOption": {
+            "type": "string",
+            "enum": [
+              "RAW",
+              "USER_ENTERED"
+            ],
+            "default": "USER_ENTERED",
+            "description": "Required by the API. Note: lives in the BODY for batchUpdate (unlike single-range update where it's a query param)."
+          },
+          "includeValuesInResponse": {
+            "type": "boolean",
+            "default": false
+          },
+          "responseValueRenderOption": {
+            "type": "string",
+            "enum": [
+              "FORMATTED_VALUE",
+              "UNFORMATTED_VALUE",
+              "FORMULA"
+            ]
+          },
+          "responseDateTimeRenderOption": {
+            "type": "string",
+            "enum": [
+              "SERIAL_NUMBER",
+              "FORMATTED_STRING"
+            ]
+          }
+        },
+        "required": [
+          "spreadsheetId",
+          "data",
+          "valueInputOption"
+        ]
+      }
+    },
+    {
+      "name": "batch_update_values_by_filter",
+      "description": "Atomically write to multiple ranges selected by data filters. Pass `data` as an array of DataFilterValueRange objects ({ dataFilter, values, majorDimension? }).",
+      "method": "POST",
+      "path": "/spreadsheets/{spreadsheetId}/values:batchUpdateByDataFilter",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Array of DataFilterValueRange objects. Example: [{ dataFilter: { a1Range: 'Sheet1!A1:B2' }, values: [['x','y'],['z','w']] }]."
+          },
+          "valueInputOption": {
+            "type": "string",
+            "enum": [
+              "RAW",
+              "USER_ENTERED"
+            ],
+            "default": "USER_ENTERED"
+          },
+          "includeValuesInResponse": {
+            "type": "boolean",
+            "default": false
+          },
+          "responseValueRenderOption": {
+            "type": "string",
+            "enum": [
+              "FORMATTED_VALUE",
+              "UNFORMATTED_VALUE",
+              "FORMULA"
+            ]
+          },
+          "responseDateTimeRenderOption": {
+            "type": "string",
+            "enum": [
+              "SERIAL_NUMBER",
+              "FORMATTED_STRING"
+            ]
+          }
+        },
+        "required": [
+          "spreadsheetId",
+          "data",
+          "valueInputOption"
+        ]
+      }
+    },
+    {
+      "name": "batch_clear_values",
+      "description": "Atomically clear values from multiple A1 ranges in one request. Keeps formatting.",
+      "method": "POST",
+      "path": "/spreadsheets/{spreadsheetId}/values:batchClear",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": {
+            "type": "string"
+          },
+          "ranges": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of A1 ranges, e.g. ['Sheet1!A1:B10', 'Sheet2!C:C']."
+          }
+        },
+        "required": [
+          "spreadsheetId",
+          "ranges"
+        ]
+      }
+    },
+    {
+      "name": "batch_clear_values_by_filter",
+      "description": "Atomically clear values from multiple ranges selected by data filters.",
+      "method": "POST",
+      "path": "/spreadsheets/{spreadsheetId}/values:batchClearByDataFilter",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": {
+            "type": "string"
+          },
+          "dataFilters": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "spreadsheetId",
+          "dataFilters"
+        ]
+      }
+    },
+    {
+      "name": "copy_sheet",
+      "description": "Copy a single sheet (tab) from one spreadsheet to another. Useful for templates: create a master sheet, then copy it into per-customer files. Returns the new sheet's properties (sheetId, title, etc.) in the destination spreadsheet.",
+      "method": "POST",
+      "path": "/spreadsheets/{spreadsheetId}/sheets/{sheetId}:copyTo",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": {
+            "type": "string",
+            "description": "Source spreadsheet ID."
+          },
+          "sheetId": {
+            "type": "integer",
+            "description": "Numeric sheet ID of the tab to copy (NOT the sheet title). Get it from get_spreadsheet \u2192 sheets[].properties.sheetId."
+          },
+          "destinationSpreadsheetId": {
+            "type": "string",
+            "description": "Target spreadsheet ID where the sheet will be copied to."
+          }
+        },
+        "required": [
+          "spreadsheetId",
+          "sheetId",
+          "destinationSpreadsheetId"
+        ]
+      }
+    }
+  ]
+}

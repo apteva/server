@@ -1,0 +1,160 @@
+{
+  "slug": "linode",
+  "name": "Linode (Akamai Cloud)",
+  "description": "MCP server for Linode / Akamai Cloud - instances, types, regions, images, volumes, SSH keys, snapshots",
+  "logo": "https://www.google.com/s2/favicons?domain=linode.com&sz=128",
+  "categories": ["cloud", "servers", "vps", "infrastructure", "akamai"],
+  "base_url": "https://api.linode.com/v4",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Personal Access Token", "description": "Generate at cloud.linode.com/profile/tokens" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_instances",
+      "description": "List Linode instances",
+      "method": "GET",
+      "path": "/linode/instances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "number" },
+          "page_size": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "get_instance",
+      "description": "Get a Linode instance by ID",
+      "method": "GET",
+      "path": "/linode/instances/{linodeId}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "linodeId": { "type": "string" } },
+        "required": ["linodeId"]
+      }
+    },
+    {
+      "name": "create_instance",
+      "description": "Create a new Linode instance",
+      "method": "POST",
+      "path": "/linode/instances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "description": "e.g. g6-nanode-1" },
+          "region": { "type": "string", "description": "e.g. us-east, ap-south" },
+          "image": { "type": "string", "description": "e.g. linode/ubuntu24.04" },
+          "label": { "type": "string" },
+          "root_pass": { "type": "string" },
+          "authorized_keys": { "type": "array" },
+          "backups_enabled": { "type": "boolean" }
+        },
+        "required": ["type", "region"]
+      }
+    },
+    {
+      "name": "delete_instance",
+      "description": "Delete a Linode instance",
+      "method": "DELETE",
+      "path": "/linode/instances/{linodeId}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "linodeId": { "type": "string" } },
+        "required": ["linodeId"]
+      }
+    },
+    {
+      "name": "boot_instance",
+      "description": "Boot a Linode instance",
+      "method": "POST",
+      "path": "/linode/instances/{linodeId}/boot",
+      "input_schema": {
+        "type": "object",
+        "properties": { "linodeId": { "type": "string" } },
+        "required": ["linodeId"]
+      }
+    },
+    {
+      "name": "shutdown_instance",
+      "description": "Shut down a Linode instance",
+      "method": "POST",
+      "path": "/linode/instances/{linodeId}/shutdown",
+      "input_schema": {
+        "type": "object",
+        "properties": { "linodeId": { "type": "string" } },
+        "required": ["linodeId"]
+      }
+    },
+    {
+      "name": "reboot_instance",
+      "description": "Reboot a Linode instance",
+      "method": "POST",
+      "path": "/linode/instances/{linodeId}/reboot",
+      "input_schema": {
+        "type": "object",
+        "properties": { "linodeId": { "type": "string" } },
+        "required": ["linodeId"]
+      }
+    },
+    {
+      "name": "list_types",
+      "description": "List instance types (sizes)",
+      "method": "GET",
+      "path": "/linode/types",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_regions",
+      "description": "List regions",
+      "method": "GET",
+      "path": "/regions",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_images",
+      "description": "List available images",
+      "method": "GET",
+      "path": "/images",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_volumes",
+      "description": "List block storage volumes",
+      "method": "GET",
+      "path": "/volumes",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_snapshot",
+      "description": "Create a snapshot of a Linode instance",
+      "method": "POST",
+      "path": "/linode/instances/{linodeId}/backups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "linodeId": { "type": "string" },
+          "label": { "type": "string" }
+        },
+        "required": ["linodeId"]
+      }
+    },
+    {
+      "name": "list_ssh_keys",
+      "description": "List SSH keys on the account profile",
+      "method": "GET",
+      "path": "/profile/sshkeys",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_kubernetes_clusters",
+      "description": "List LKE Kubernetes clusters",
+      "method": "GET",
+      "path": "/lke/clusters",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

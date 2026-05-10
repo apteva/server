@@ -1,0 +1,151 @@
+{
+  "slug": "pagerduty",
+  "name": "PagerDuty",
+  "description": "MCP server for PagerDuty - incidents, services, schedules, on-calls, and users via the PagerDuty REST API",
+  "logo": "https://www.google.com/s2/favicons?domain=pagerduty.com&sz=128",
+  "categories": ["devops", "incident-management", "alerting", "monitoring"],
+  "base_url": "https://api.pagerduty.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Token token={{token}}",
+      "Accept": "application/vnd.pagerduty+json;version=2"
+    },
+    "credential_fields": [
+      { "name": "token", "label": "API Token", "description": "Personal API token (User Settings → User API Tokens) or General Access Key (Integrations → API Access Keys)" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_incidents",
+      "description": "List incidents, filtered by status, urgency, service, or time range",
+      "method": "GET",
+      "path": "/incidents",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "statuses[]": { "type": "array", "items": { "type": "string", "enum": ["triggered", "acknowledged", "resolved"] } },
+          "urgencies[]": { "type": "array", "items": { "type": "string", "enum": ["high", "low"] } },
+          "service_ids[]": { "type": "array", "items": { "type": "string" } },
+          "since": { "type": "string", "description": "ISO 8601 datetime" },
+          "until": { "type": "string", "description": "ISO 8601 datetime" },
+          "limit": { "type": "integer" }
+        }
+      },
+      "query_params": ["statuses[]", "urgencies[]", "service_ids[]", "since", "until", "limit"]
+    },
+    {
+      "name": "get_incident",
+      "description": "Get an incident by ID",
+      "method": "GET",
+      "path": "/incidents/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "create_incident",
+      "description": "Create a new incident on a service. Caller's email must be set as the From header upstream — pass via `from_email`.",
+      "method": "POST",
+      "path": "/incidents",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "incident": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "default": "incident" },
+              "title": { "type": "string" },
+              "service": {
+                "type": "object",
+                "properties": {
+                  "id": { "type": "string" },
+                  "type": { "type": "string", "default": "service_reference" }
+                },
+                "required": ["id"]
+              },
+              "urgency": { "type": "string", "enum": ["high", "low"] },
+              "body": {
+                "type": "object",
+                "properties": {
+                  "type": { "type": "string", "default": "incident_body" },
+                  "details": { "type": "string" }
+                }
+              }
+            },
+            "required": ["title", "service"]
+          }
+        },
+        "required": ["incident"]
+      }
+    },
+    {
+      "name": "update_incident",
+      "description": "Update an incident — acknowledge, resolve, or change urgency",
+      "method": "PUT",
+      "path": "/incidents/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "incident": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "default": "incident_reference" },
+              "status": { "type": "string", "enum": ["acknowledged", "resolved"] },
+              "urgency": { "type": "string", "enum": ["high", "low"] },
+              "resolution": { "type": "string" }
+            }
+          }
+        },
+        "required": ["id", "incident"]
+      }
+    },
+    {
+      "name": "list_services",
+      "description": "List PagerDuty services",
+      "method": "GET",
+      "path": "/services",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "limit": { "type": "integer" }
+        }
+      },
+      "query_params": ["query", "limit"]
+    },
+    {
+      "name": "list_oncalls",
+      "description": "List who is currently on call across schedules and escalation policies",
+      "method": "GET",
+      "path": "/oncalls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "schedule_ids[]": { "type": "array", "items": { "type": "string" } },
+          "escalation_policy_ids[]": { "type": "array", "items": { "type": "string" } },
+          "since": { "type": "string" },
+          "until": { "type": "string" }
+        }
+      },
+      "query_params": ["schedule_ids[]", "escalation_policy_ids[]", "since", "until"]
+    },
+    {
+      "name": "list_users",
+      "description": "List users in the PagerDuty account",
+      "method": "GET",
+      "path": "/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "limit": { "type": "integer" }
+        }
+      },
+      "query_params": ["query", "limit"]
+    }
+  ]
+}

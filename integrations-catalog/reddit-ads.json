@@ -1,0 +1,238 @@
+{
+  "slug": "reddit-ads",
+  "name": "Reddit Ads",
+  "description": "Reddit Ads API v3 — manage ad accounts, campaigns, ad groups, ads, custom audiences, and pull performance reports for Reddit's promoted-post and conversation-targeted ads",
+  "logo": "https://www.google.com/s2/favicons?domain=ads.reddit.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "social-ads",
+    "reddit",
+    "community-ads"
+  ],
+  "base_url": "https://ads-api.reddit.com/api/v3",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "User-Agent": "{{user_agent}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token",
+        "type": "password"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token",
+        "type": "password"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "user_agent",
+        "label": "User-Agent",
+        "description": "Required by Reddit on every request. Use format \"<platform>:<app id>:<version> (by /u/<reddit_username>)\""
+      },
+      {
+        "name": "ad_account_id",
+        "label": "Default Ad Account ID",
+        "description": "Format a2_xxxxx"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://www.reddit.com/api/v1/authorize",
+      "token_url": "https://www.reddit.com/api/v1/access_token",
+      "scopes": [
+        "adsread",
+        "adsedit",
+        "adsconversions",
+        "identity"
+      ],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "duration": "permanent"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "list_ad_accounts",
+      "description": "List ad accounts the authenticated user has access to.",
+      "method": "GET",
+      "path": "/me/ad_accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page.size": { "type": "integer", "default": 25, "description": "Max 200" },
+          "after": { "type": "string", "description": "Cursor from previous response" }
+        }
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List campaigns under an ad account.",
+      "method": "GET",
+      "path": "/ad_accounts/{ad_account_id}/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "page.size": { "type": "integer", "default": 25 },
+          "after": { "type": "string" },
+          "filter[id]": { "type": "string", "description": "Comma-separated campaign IDs" },
+          "filter[effective_status]": { "type": "string", "description": "Comma-separated: ACTIVE,PAUSED,ARCHIVED,DRAFT" }
+        },
+        "required": ["ad_account_id"]
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create a campaign. Required: name, objective (TRAFFIC|CONVERSIONS|APP_INSTALLS|VIDEO_VIEWABLE_IMPRESSIONS|IMPRESSIONS|REACH|CATALOG_SALES|LEAD_GENERATION). Optional: spend_cap (micros), goal_type (LIFETIME_SPEND|DAILY_SPEND), goal_value, configured_status (ACTIVE|PAUSED|DELETED).",
+      "method": "POST",
+      "path": "/ad_accounts/{ad_account_id}/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "data": {
+            "type": "object",
+            "description": "Campaign fields under the data wrapper"
+          }
+        },
+        "required": ["ad_account_id", "data"]
+      }
+    },
+    {
+      "name": "update_campaign",
+      "description": "Update a single campaign by id.",
+      "method": "PATCH",
+      "path": "/ad_accounts/{ad_account_id}/campaigns/{campaign_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "campaign_id": { "type": "string" },
+          "data": { "type": "object" }
+        },
+        "required": ["ad_account_id", "campaign_id", "data"]
+      }
+    },
+    {
+      "name": "list_ad_groups",
+      "description": "List ad groups under an ad account, optionally filtered by campaign id.",
+      "method": "GET",
+      "path": "/ad_accounts/{ad_account_id}/ad_groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "page.size": { "type": "integer", "default": 25 },
+          "after": { "type": "string" },
+          "filter[campaign_id]": { "type": "string", "description": "Comma-separated campaign IDs" },
+          "filter[effective_status]": { "type": "string" }
+        },
+        "required": ["ad_account_id"]
+      }
+    },
+    {
+      "name": "create_ad_group",
+      "description": "Create an ad group. Required: campaign_id, name, bid_strategy (MANUAL|AUTOMATIC|TARGET_CPA), bid_value (micros), goal_type (DAILY_SPEND|LIFETIME_SPEND), goal_value, optimization_goal (CLICKS|IMPRESSIONS|VIDEO_VIEWABLE_IMPRESSIONS|CONVERSIONS|APP_INSTALLS|LEAD_GEN_FORM_SUBMITS|REACH), targeting object, schedule {start_time, end_time?}.",
+      "method": "POST",
+      "path": "/ad_accounts/{ad_account_id}/ad_groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "data": { "type": "object" }
+        },
+        "required": ["ad_account_id", "data"]
+      }
+    },
+    {
+      "name": "list_ads",
+      "description": "List ads under an ad account, optionally filtered by ad_group_id or campaign_id.",
+      "method": "GET",
+      "path": "/ad_accounts/{ad_account_id}/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "page.size": { "type": "integer", "default": 25 },
+          "after": { "type": "string" },
+          "filter[ad_group_id]": { "type": "string" },
+          "filter[campaign_id]": { "type": "string" }
+        },
+        "required": ["ad_account_id"]
+      }
+    },
+    {
+      "name": "create_ad",
+      "description": "Create an ad under an ad group. type: TEXT_POST_AD|IMAGE_POST_AD|LINK_POST_AD|VIDEO_POST_AD|CAROUSEL_POST_AD|CONVERSATION_AD. post_url references an existing Reddit post (or new promoted-only post created via create_post_ad). Required: ad_group_id, name, type, configured_status, post (post_id|post_url) or creative.",
+      "method": "POST",
+      "path": "/ad_accounts/{ad_account_id}/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "data": { "type": "object" }
+        },
+        "required": ["ad_account_id", "data"]
+      }
+    },
+    {
+      "name": "list_custom_audiences",
+      "description": "List custom audiences (CRM upload, website visitor, engagement).",
+      "method": "GET",
+      "path": "/ad_accounts/{ad_account_id}/custom_audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "page.size": { "type": "integer", "default": 25 },
+          "after": { "type": "string" }
+        },
+        "required": ["ad_account_id"]
+      }
+    },
+    {
+      "name": "create_custom_audience",
+      "description": "Create a custom audience. type: CUSTOMER_LIST|PIXEL|ENGAGEMENT|MOBILE_APP. For CUSTOMER_LIST, populate via the audiences/{id}/users endpoint after creation.",
+      "method": "POST",
+      "path": "/ad_accounts/{ad_account_id}/custom_audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "data": { "type": "object" }
+        },
+        "required": ["ad_account_id", "data"]
+      }
+    },
+    {
+      "name": "report",
+      "description": "Pull performance metrics. breakdowns (DATE|CAMPAIGN_ID|AD_GROUP_ID|AD_ID|COUNTRY|PLACEMENT|DEVICE|...) and fields (e.g. impressions,clicks,spend,ctr,cpc,conversions,video_started,video_completed,viewable_impressions). time_zone_id defaults to advertiser TZ.",
+      "method": "POST",
+      "path": "/ad_accounts/{ad_account_id}/reports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "data": {
+            "type": "object",
+            "description": "{\"breakdowns\": [\"DATE\",\"CAMPAIGN_ID\"], \"starts_at\": \"2026-01-01T00:00:00Z\", \"ends_at\": \"2026-01-31T00:00:00Z\", \"fields\": [\"impressions\",\"clicks\",\"spend\"], \"time_zone_id\": \"GMT\"}"
+          }
+        },
+        "required": ["ad_account_id", "data"]
+      }
+    }
+  ]
+}

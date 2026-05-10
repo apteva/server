@@ -1,0 +1,94 @@
+{
+  "slug": "databricks",
+  "name": "Databricks",
+  "description": "MCP server for Databricks - SQL warehouses, jobs, clusters, notebooks, Unity Catalog",
+  "logo": "https://www.google.com/s2/favicons?domain=databricks.com&sz=128",
+  "categories": ["data-warehouse", "ml", "analytics", "spark"],
+  "base_url": "https://{{workspaceHost}}/api/2.0",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Personal Access Token" },
+      { "name": "workspaceHost", "label": "Workspace Host", "description": "e.g. dbc-1234.cloud.databricks.com" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "execute_statement",
+      "description": "Execute a SQL statement on a warehouse",
+      "method": "POST",
+      "path": "/sql/statements",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "statement": { "type": "string" },
+          "warehouse_id": { "type": "string" },
+          "catalog": { "type": "string" },
+          "schema": { "type": "string" },
+          "parameters": { "type": "array" },
+          "wait_timeout": { "type": "string" }
+        },
+        "required": ["statement", "warehouse_id"]
+      }
+    },
+    {
+      "name": "get_statement",
+      "description": "Poll statement status",
+      "method": "GET",
+      "path": "/sql/statements/{statement_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "statement_id": { "type": "string" } },
+        "required": ["statement_id"]
+      }
+    },
+    {
+      "name": "list_warehouses",
+      "description": "List SQL warehouses",
+      "method": "GET",
+      "path": "/sql/warehouses",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_clusters",
+      "description": "List clusters",
+      "method": "GET",
+      "path": "/clusters/list",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "start_cluster",
+      "description": "Start a cluster",
+      "method": "POST",
+      "path": "/clusters/start",
+      "input_schema": {
+        "type": "object",
+        "properties": { "cluster_id": { "type": "string" } },
+        "required": ["cluster_id"]
+      }
+    },
+    {
+      "name": "list_jobs",
+      "description": "List jobs",
+      "method": "GET",
+      "path": "/jobs/list",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "run_job",
+      "description": "Trigger a job run",
+      "method": "POST",
+      "path": "/jobs/run-now",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "job_id": { "type": "number" },
+          "notebook_params": { "type": "object" },
+          "python_params": { "type": "array" }
+        },
+        "required": ["job_id"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "slug": "ubicloud",
+  "name": "Ubicloud",
+  "description": "Open-source AWS alternative running on bare metal. Cheapest GitHub Actions runners on the market (~$0.0008/min for 2 vCPU/8 GB) plus elastic compute, managed Postgres, K8s. Bearer-token API; resources are split into global (project-wide) and location-scoped (eu-central-h1, us-east-a2, etc.).",
+  "logo": "https://www.google.com/s2/favicons?domain=ubicloud.com&sz=128",
+  "categories": ["build", "ci", "github-actions", "compute", "infrastructure", "devops"],
+  "base_url": "https://api.ubicloud.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Personal Access Token", "description": "Create from console.ubicloud.com → project → Tokens", "required": true, "type": "password" },
+      { "name": "project_id", "label": "Project ID", "description": "Ubicloud project UUID the token is scoped to", "required": true, "type": "text" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_projects",
+      "description": "List projects the token has access to.",
+      "method": "GET",
+      "path": "/project",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_vms",
+      "description": "List VMs in a location. Args: location (e.g. eu-central-h1).",
+      "method": "GET",
+      "path": "/project/{{project_id}}/location/{location}/vm",
+      "input_schema": {
+        "type": "object",
+        "properties": { "location": { "type": "string" } },
+        "required": ["location"]
+      }
+    },
+    {
+      "name": "create_vm",
+      "description": "Provision a VM. Args: location, name, public_key (SSH), size (standard-2|standard-4|...), boot_image?, storage_size_gib?.",
+      "method": "POST",
+      "path": "/project/{{project_id}}/location/{location}/vm/{name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": { "type": "string" },
+          "name": { "type": "string" },
+          "public_key": { "type": "string" },
+          "size": { "type": "string" },
+          "boot_image": { "type": "string" },
+          "storage_size_gib": { "type": "integer" }
+        },
+        "required": ["location", "name", "public_key", "size"]
+      }
+    },
+    {
+      "name": "delete_vm",
+      "description": "Destroy a VM. Args: location, name.",
+      "method": "DELETE",
+      "path": "/project/{{project_id}}/location/{location}/vm/{name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location": { "type": "string" },
+          "name": { "type": "string" }
+        },
+        "required": ["location", "name"]
+      }
+    },
+    {
+      "name": "list_github_runners",
+      "description": "List GitHub Actions runner installations.",
+      "method": "GET",
+      "path": "/project/{{project_id}}/github-runner",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_firewalls",
+      "description": "List global firewalls.",
+      "method": "GET",
+      "path": "/project/{{project_id}}/firewall",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

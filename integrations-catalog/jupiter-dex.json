@@ -1,0 +1,91 @@
+{
+  "slug": "jupiter-dex",
+  "name": "Jupiter (Solana DEX)",
+  "description": "Solana DEX aggregator — get best swap quotes, token prices, and route information across all Solana DEXs. Free, no API key.",
+  "logo": "https://www.google.com/s2/favicons?domain=jup.ag&sz=128",
+  "categories": [
+    "solana",
+    "dex",
+    "swap",
+    "defi",
+    "aggregator"
+  ],
+  "base_url": "https://token.jup.ag",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Token"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "jupiter_get_quote",
+      "description": "Get the best swap quote across all Solana DEXs. Returns route, price impact, and fees. Use mint addresses for tokens.",
+      "method": "GET",
+      "path": "/v6/quote",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inputMint": {
+            "type": "string",
+            "description": "Input token mint address (SOL: So11111111111111111111111111111111111111112, USDC: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v)"
+          },
+          "outputMint": {
+            "type": "string",
+            "description": "Output token mint address"
+          },
+          "amount": {
+            "type": "string",
+            "description": "Amount in smallest unit (lamports for SOL, 1 SOL = 1000000000)"
+          },
+          "slippageBps": {
+            "type": "integer",
+            "description": "Slippage tolerance in basis points (50 = 0.5%)",
+            "default": 50
+          }
+        },
+        "required": [
+          "inputMint",
+          "outputMint",
+          "amount"
+        ]
+      }
+    },
+    {
+      "name": "jupiter_get_tokens",
+      "description": "Get all tradeable tokens on Jupiter with mint addresses, symbols, and decimals.",
+      "method": "GET",
+      "path": "/all",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "jupiter_get_price",
+      "description": "Get USD price for one or more Solana tokens by mint address or symbol.",
+      "method": "GET",
+      "path": "/v6/price",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "string",
+            "description": "Comma-separated mint addresses or symbols (e.g., SOL,USDC,JUP)"
+          }
+        },
+        "required": [
+          "ids"
+        ]
+      }
+    }
+  ]
+}

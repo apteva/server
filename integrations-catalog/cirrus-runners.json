@@ -1,0 +1,75 @@
+{
+  "slug": "cirrus-runners",
+  "name": "Cirrus Runners",
+  "description": "Flat-rate hosted GitHub Actions runners from the Cirrus CI team — $150/mo per concurrent runner, unlimited minutes, all platforms (Linux x86 + arm64, macOS, Windows). Wins for very high build volume where per-minute pricing stops making sense. The HTTP API exposes account, runners, and job inventory.",
+  "logo": "https://www.google.com/s2/favicons?domain=cirrus-runners.app&sz=128",
+  "categories": ["build", "ci", "github-actions", "runners", "macos", "devops"],
+  "base_url": "https://api.cirrus-ci.com/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Token", "description": "Cirrus CI personal access token (cirrus-ci.com/settings/profile)", "required": true, "type": "password" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_runners",
+      "description": "List configured persistent runners.",
+      "method": "GET",
+      "path": "/runners",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_jobs",
+      "description": "List recent jobs across all runners. Args: status? (TRIGGERED|EXECUTING|COMPLETED|FAILED), limit?.",
+      "method": "GET",
+      "path": "/jobs?status={status}&limit={limit}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" },
+          "limit": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "get_job",
+      "description": "Get a single job + its execution timeline. Args: job_id.",
+      "method": "GET",
+      "path": "/jobs/{job_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "job_id": { "type": "string" } },
+        "required": ["job_id"]
+      }
+    },
+    {
+      "name": "rerun_job",
+      "description": "Re-trigger a job. Args: job_id.",
+      "method": "POST",
+      "path": "/jobs/{job_id}/rerun",
+      "input_schema": {
+        "type": "object",
+        "properties": { "job_id": { "type": "string" } },
+        "required": ["job_id"]
+      }
+    },
+    {
+      "name": "list_builds",
+      "description": "List builds for a repository. Args: owner, repo, branch?, limit?.",
+      "method": "GET",
+      "path": "/builds?owner={owner}&repo={repo}&branch={branch}&limit={limit}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" },
+          "repo": { "type": "string" },
+          "branch": { "type": "string" },
+          "limit": { "type": "integer" }
+        },
+        "required": ["owner", "repo"]
+      }
+    }
+  ]
+}
