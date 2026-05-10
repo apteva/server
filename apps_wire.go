@@ -403,7 +403,14 @@ func (s *Server) seedBuiltinInstalls(reg *framework.Registry) {
 		// the row already exists, so we re-select to get the id either
 		// way. Source='builtin' is the dashboard's signal to hide the
 		// uninstall control.
-		if _, err := s.store.db.Exec(
+		//
+		// Retry on SQLITE_BUSY: with WAL + busy_timeout(5000) on every
+		// pooled connection (see store.go) this should rarely fire,
+		// but seed runs at supervisor-restart startup when the prior
+		// process's WAL is still settling and the busy_timeout could
+		// in theory expire. Three short retries cover that without
+		// blocking boot for an actually-broken DB.
+		if err := execWithBusyRetry(s.store.db,
 			`INSERT OR IGNORE INTO apps (name, source, repo, ref, manifest_json)
 			 VALUES (?, 'builtin', '', '', ?)`,
 			fm.Slug, string(manifestJSON),
@@ -413,7 +420,7 @@ func (s *Server) seedBuiltinInstalls(reg *framework.Registry) {
 		}
 		// Always re-write manifest_json — keeps the row in sync with
 		// the bundled code if Slug/Name/UISlots changed across versions.
-		if _, err := s.store.db.Exec(
+		if err := execWithBusyRetry(s.store.db,
 			`UPDATE apps SET manifest_json = ? WHERE name = ?`,
 			string(manifestJSON), fm.Slug,
 		); err != nil {
@@ -429,7 +436,7 @@ func (s *Server) seedBuiltinInstalls(reg *framework.Registry) {
 		// Global install row. UNIQUE(app_id, project_id) makes this a
 		// no-op once seeded; on every boot we still bump status back to
 		// 'running' since the bundled app is always running.
-		if _, err := s.store.db.Exec(
+		if err := execWithBusyRetry(s.store.db,
 			`INSERT OR IGNORE INTO app_installs
 				(app_id, project_id, status, version, upgrade_policy, permissions_json)
 			 VALUES (?, '', 'running', ?, 'manual', '[]')`,
@@ -443,7 +450,7 @@ func (s *Server) seedBuiltinInstalls(reg *framework.Registry) {
 		// for built-ins. Version flips on explicit upgrade only
 		// (POST /api/apps/installs/{id}/upgrade). The seed INSERT above
 		// sets the initial version when the row is first created.
-		s.store.db.Exec(
+		_ = execWithBusyRetry(s.store.db,
 			`UPDATE app_installs SET status='running' WHERE app_id=? AND project_id=''`,
 			appID,
 		)

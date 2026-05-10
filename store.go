@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -56,12 +57,37 @@ type Store struct {
 }
 
 func NewStore(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	// _pragma= in the DSN applies to EVERY new connection
+	// modernc.org/sqlite opens, not just the one that happens to
+	// run an initial PRAGMA Exec. Pre-v0.12.4 the bare PRAGMA
+	// statements below only configured whichever connection from
+	// the database/sql pool ran them; a SECOND connection (and
+	// the pool always opens a second under any concurrency) had
+	// busy_timeout=0 and would return SQLITE_BUSY immediately
+	// rather than waiting for the lock. Symptom: during a
+	// supervisor restart, the boot's "[APPS] seed builtin
+	// channel-chat" insert would race the prior process's WAL
+	// settle and return "database is locked (5)" instead of
+	// blocking for the full 5 seconds the timeout was supposed
+	// to grant. Soft race — the next read found the row and the
+	// boot continued — but on a slower box or larger DB it could
+	// fail loud. URI form fixes it for every pooled connection.
+	dsn := path
+	if !strings.Contains(dsn, "?") {
+		dsn += "?"
+	} else {
+		dsn += "&"
+	}
+	dsn += "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
 
-	// WAL mode allows concurrent reads + writes (server + mcp-gateway subprocess)
+	// Belt-and-suspenders: also fire the pragmas via Exec so the
+	// initial connection has them even if the DSN parsing changes
+	// in some future modernc.org/sqlite version. No-op for an
+	// already-configured connection.
 	db.Exec("PRAGMA journal_mode=WAL")
 	db.Exec("PRAGMA busy_timeout=5000")
 
@@ -70,6 +96,44 @@ func NewStore(path string) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// execWithBusyRetry wraps db.Exec with a small retry budget for
+// SQLITE_BUSY (5). The DSN already configures busy_timeout(5000)
+// per-connection, which usually absorbs lock contention inside the
+// driver. This helper exists for the boot-time-sensitive paths
+// (apps seed, migrations) where:
+//
+//   - the prior process's WAL is still settling at supervisor
+//     restart, AND
+//   - we'd rather block 1-2 seconds than log a soft error and
+//     potentially miss the seed.
+//
+// 3 attempts × 250ms backoff = at most 750ms of additional wait
+// on top of the busy_timeout. Cheap insurance for boot. Errors
+// other than SQLITE_BUSY return immediately.
+func execWithBusyRetry(db *sql.DB, query string, args ...any) error {
+	const maxAttempts = 3
+	const backoff = 250 * time.Millisecond
+	var lastErr error
+	for i := 0; i < maxAttempts; i++ {
+		_, err := db.Exec(query, args...)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		// modernc.org/sqlite returns the SQLITE_BUSY message in the
+		// error string. We don't unwrap to its concrete type here
+		// because that would leak driver internals into a helper
+		// that's already pretty mechanical; substring match is
+		// good enough — false positives just retry harmlessly.
+		s := err.Error()
+		if !strings.Contains(s, "database is locked") && !strings.Contains(s, "SQLITE_BUSY") {
+			return err
+		}
+		time.Sleep(backoff)
+	}
+	return lastErr
 }
 
 func (s *Store) migrate() error {
