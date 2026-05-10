@@ -254,11 +254,23 @@ func goBuild(srcDir, entry, binPath, cacheDir string, progress func(string)) err
 	defer cancel()
 	cmd := exec.CommandContext(ctx, goBin, "build", "-o", binPath, ".")
 	cmd.Dir = buildDir
+	// GOCACHE / GOMODCACHE MUST be absolute — Go rejects relative
+	// values with "GOMODCACHE entry is relative; must be absolute
+	// path". The caller (apps_source.go's NewLocalSupervisor wiring)
+	// already absolutises cacheBase, but a malformed env or a
+	// future caller passing a relative path would shadow that. One
+	// extra filepath.Abs call here costs nothing and keeps the
+	// failure mode "fail loudly during go build" instead of "every
+	// install error is the same opaque message."
+	absCache := cacheDir
+	if a, err := filepath.Abs(cacheDir); err == nil {
+		absCache = a
+	}
 	envv := os.Environ()
 	envv = append(envv,
 		"CGO_ENABLED=0",
-		"GOCACHE="+filepath.Join(cacheDir, "gocache"),
-		"GOMODCACHE="+filepath.Join(cacheDir, "gomodcache"),
+		"GOCACHE="+filepath.Join(absCache, "gocache"),
+		"GOMODCACHE="+filepath.Join(absCache, "gomodcache"),
 	)
 	cmd.Env = envv
 

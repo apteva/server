@@ -1146,11 +1146,32 @@ func main() {
 	if s.orchestratorURL == "" {
 		s.orchestratorURL = "http://46.224.26.45:8099"
 	}
-	// Local-spawn supervisor: cache binaries under ~/.apteva/apps so
-	// installs survive process restarts and uninstall is a clean rm.
-	cacheBase := filepath.Join(os.Getenv("HOME"), ".apteva", "apps")
-	if cb := os.Getenv("APTEVA_APPS_CACHE"); cb != "" {
-		cacheBase = cb
+	// Local-spawn supervisor: cache binaries under
+	// $APTEVA_HOME/apps (with $HOME/.apteva/apps as the legacy
+	// fallback). Both kept-then-absolutised below — Go's GOMODCACHE
+	// rejects relative paths with
+	//
+	//   go: GOMODCACHE entry is relative; must be absolute path
+	//
+	// and a systemd unit without an explicit HOME= would otherwise
+	// silently produce ".apteva/apps" because os.Getenv("HOME")
+	// returns "" inside the unit, joined to a relative path that
+	// only works as long as cwd happens to be the parent of the
+	// install root. Bit our prod operator on v0.12.0 installs.
+	cacheBase := os.Getenv("APTEVA_APPS_CACHE")
+	if cacheBase == "" {
+		if h := os.Getenv("APTEVA_HOME"); h != "" {
+			cacheBase = filepath.Join(h, "apps")
+		} else if uh, err := os.UserHomeDir(); err == nil && uh != "" {
+			cacheBase = filepath.Join(uh, ".apteva", "apps")
+		} else {
+			// Last resort: cwd-rooted. Not ideal but at least we
+			// can absolutise it before handing to Go.
+			cacheBase = ".apteva/apps"
+		}
+	}
+	if abs, err := filepath.Abs(cacheBase); err == nil {
+		cacheBase = abs
 	}
 	s.localApps = NewLocalSupervisor(cacheBase)
 	s.RegisterBuiltinApps()
