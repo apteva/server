@@ -785,6 +785,129 @@
         "type": "object",
         "properties": {}
       }
+    },
+    {
+      "name": "create_receipt_rule_set",
+      "description": "Create a named receipt rule set for SES email receiving. A rule set is a container for ordered receipt rules; only one rule set is active per region at a time. Returns 200 / empty XML on success; 400 AlreadyExistsException is the idempotent-success case (treat as ok). Hits the SES v1 Query API on the same host as v2.",
+      "method": "GET",
+      "path": "/?Action=CreateReceiptRuleSet&Version=2010-12-01",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "RuleSetName": {
+            "type": "string",
+            "description": "1–64 chars, alphanumeric + hyphen / underscore / period."
+          }
+        },
+        "required": ["RuleSetName"]
+      }
+    },
+    {
+      "name": "describe_active_receipt_rule_set",
+      "description": "Fetch the currently active receipt rule set, including its rules. Returns 200 with empty body when no rule set is active. Use this in a bootstrap flow to detect 'already configured' before overwriting.",
+      "method": "GET",
+      "path": "/?Action=DescribeActiveReceiptRuleSet&Version=2010-12-01",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "set_active_receipt_rule_set",
+      "description": "Set the active receipt rule set for the region. Pass an empty RuleSetName to deactivate (no rule set active = SES rejects all inbound). Only one rule set is active at a time.",
+      "method": "GET",
+      "path": "/?Action=SetActiveReceiptRuleSet&Version=2010-12-01",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "RuleSetName": {
+            "type": "string",
+            "description": "Name of the rule set to activate. Omit / empty to deactivate."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_receipt_rule",
+      "description": "Append a receipt rule to an existing rule set. The rule shape uses AWS Query-API flat-key encoding — pass the per-field params alongside the documented ones (e.g. Rule.Recipients.member.1, Rule.Actions.member.1.S3Action.BucketName). additionalProperties is true so any AWS Query field can be supplied. Typical inbound bootstrap: one rule with two actions (S3Action → bucket + topic, SNSAction → notification topic).",
+      "method": "GET",
+      "path": "/?Action=CreateReceiptRule&Version=2010-12-01",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "RuleSetName": {
+            "type": "string",
+            "description": "Name of the rule set to append to."
+          },
+          "After": {
+            "type": "string",
+            "description": "Optional name of an existing rule. The new rule is inserted right after it; without this, it goes to the start."
+          },
+          "Rule.Name": {
+            "type": "string",
+            "description": "1–64 chars."
+          },
+          "Rule.Enabled": {
+            "type": "string",
+            "description": "'true' or 'false'.",
+            "default": "true"
+          },
+          "Rule.ScanEnabled": {
+            "type": "string",
+            "description": "Run SES spam + virus scanning. 'true' or 'false'.",
+            "default": "true"
+          },
+          "Rule.TlsPolicy": {
+            "type": "string",
+            "description": "'Optional' (default) or 'Require'."
+          },
+          "Rule.Recipients.member.1": {
+            "type": "string",
+            "description": "First recipient pattern (e.g. 'yourdomain.com' or 'support@yourdomain.com'). Use .member.2, .member.3 for additional recipients."
+          },
+          "Rule.Actions.member.1.S3Action.BucketName": {
+            "type": "string",
+            "description": "S3 bucket where SES drops the raw .eml. Bucket must allow ses.amazonaws.com s3:PutObject."
+          },
+          "Rule.Actions.member.1.S3Action.ObjectKeyPrefix": {
+            "type": "string",
+            "description": "Optional key prefix inside the bucket (e.g. 'inbound/')."
+          },
+          "Rule.Actions.member.1.S3Action.TopicArn": {
+            "type": "string",
+            "description": "Optional. SNS topic to notify after the .eml lands in S3."
+          },
+          "Rule.Actions.member.2.SNSAction.TopicArn": {
+            "type": "string",
+            "description": "SNS topic for the inbound notification. Topic policy must allow ses.amazonaws.com sns:Publish."
+          },
+          "Rule.Actions.member.2.SNSAction.Encoding": {
+            "type": "string",
+            "description": "'UTF-8' (default) or 'Base64'.",
+            "default": "UTF-8"
+          }
+        },
+        "required": ["RuleSetName", "Rule.Name"],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "delete_receipt_rule",
+      "description": "Delete a single rule from a rule set. Idempotent. Use to undo a bootstrap or rotate a misconfigured rule.",
+      "method": "GET",
+      "path": "/?Action=DeleteReceiptRule&Version=2010-12-01",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "RuleSetName": {
+            "type": "string"
+          },
+          "RuleName": {
+            "type": "string"
+          }
+        },
+        "required": ["RuleSetName", "RuleName"]
+      }
     }
   ]
 }

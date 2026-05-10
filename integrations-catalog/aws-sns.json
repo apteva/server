@@ -1,233 +1,255 @@
 {
   "slug": "aws-sns",
   "name": "AWS SNS",
-  "description": "MCP server for Amazon SNS - topics, subscriptions, notifications",
+  "description": "Amazon Simple Notification Service — pub/sub topics, HTTP/Email/SQS subscriptions, message publishing. Authenticates via AWS Signature V4. Speaks the AWS Query API on https://sns.{region}.amazonaws.com/?Action=... — every tool here is a thin wrapper over one Query action.",
   "logo": "https://www.google.com/s2/favicons?domain=aws.amazon.com&sz=128",
   "categories": [
     "aws",
-    "sns",
-    "notifications",
     "messaging",
-    "pubsub"
+    "notifications",
+    "pubsub",
+    "infrastructure"
   ],
-  "base_url": "https://sns.{region}.amazonaws.com",
+  "base_url": "https://sns.{{region}}.amazonaws.com",
   "auth": {
     "types": [
-      "bearer"
+      "aws_sigv4"
     ],
-    "headers": {
-      "Authorization": "Bearer {{token}}"
+    "aws_sigv4": {
+      "service": "sns"
     },
     "credential_fields": [
       {
         "name": "access_key_id",
-        "label": "Access_key_id",
-        "description": "Your AWS Access Key ID"
+        "label": "AWS Access Key ID",
+        "description": "IAM access key with sns:* permissions on the topics this app will create / manage. Bootstrap setup needs CreateTopic, Subscribe, ConfirmSubscription, SetTopicAttributes; runtime publish only needs sns:Publish.",
+        "required": true,
+        "type": "text"
       },
       {
         "name": "secret_access_key",
-        "label": "Secret_access_key",
-        "description": "Your AWS Secret Access Key"
+        "label": "AWS Secret Access Key",
+        "required": true,
+        "type": "password"
       },
       {
         "name": "region",
-        "label": "Region",
-        "description": "AWS Region (e.g., us-east-1)"
+        "label": "AWS Region",
+        "description": "Region the SNS topics live in. Must match the region where SES (or any other producer) publishes to them — cross-region SNS is not supported as an SES destination.",
+        "required": true,
+        "type": "text"
       },
       {
         "name": "session_token",
-        "label": "Session_token",
-        "description": "Temporary session token (for temporary credentials)"
+        "label": "AWS Session Token",
+        "description": "Only required when using temporary credentials issued by STS (assume-role, federated identities). Leave blank for long-lived IAM user keys.",
+        "required": false,
+        "type": "password"
       }
     ]
   },
   "tools": [
     {
       "name": "create_topic",
-      "description": "Create an SNS topic",
-      "method": "POST",
-      "path": "/create-topic",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "attributes": {
-            "type": "object"
-          }
-        },
-        "required": [
-          "name"
-        ]
-      }
-    },
-    {
-      "name": "subscribe_webhook",
-      "description": "Subscribe webhook to topic",
+      "description": "Create a new SNS topic (idempotent — calling with the same Name returns the existing topic's ARN unchanged). Response XML contains CreateTopicResponse.CreateTopicResult.TopicArn.",
       "method": "GET",
-      "path": "/subscribe-webhook",
+      "path": "/?Action=CreateTopic",
       "input_schema": {
         "type": "object",
         "properties": {
-          "topic_arn": {
-            "type": "string"
+          "Name": {
+            "type": "string",
+            "description": "Topic name (1–256 alphanumeric / hyphen / underscore chars). Must be unique within the AWS account + region."
           },
-          "endpoint": {
-            "type": "string"
+          "Attributes.entry.1.key": {
+            "type": "string",
+            "description": "Optional. First attribute key (e.g. 'Policy', 'DisplayName'). Use the .entry.N.key/.value pattern for additional attributes."
           },
-          "protocol": {
+          "Attributes.entry.1.value": {
             "type": "string"
           }
         },
-        "required": [
-          "topic_arn",
-          "endpoint"
-        ]
+        "required": ["Name"],
+        "additionalProperties": true
       }
     },
     {
-      "name": "confirm_subscription",
-      "description": "Confirm SNS subscription",
+      "name": "delete_topic",
+      "description": "Permanently delete a topic and all of its subscriptions. Idempotent — deleting a non-existent topic returns success. Use with care; subscribers receive no further messages.",
       "method": "GET",
-      "path": "/confirm-subscription",
+      "path": "/?Action=DeleteTopic",
       "input_schema": {
         "type": "object",
         "properties": {
-          "topic_arn": {
+          "TopicArn": {
             "type": "string"
           }
         },
-        "required": [
-          "topic_arn"
-        ]
+        "required": ["TopicArn"]
       }
     },
     {
-      "name": "list_subscriptions",
-      "description": "List SNS subscriptions",
+      "name": "list_topics",
+      "description": "List all topics in the account + region. Paginated via NextToken. Response XML root: ListTopicsResponse.ListTopicsResult.Topics.member[].",
       "method": "GET",
-      "path": "/list-subscriptions",
+      "path": "/?Action=ListTopics",
       "input_schema": {
         "type": "object",
         "properties": {
-          "topic_arn": {
+          "NextToken": {
             "type": "string"
           }
         }
       }
     },
     {
+      "name": "get_topic_attributes",
+      "description": "Fetch a topic's attributes (Owner, Policy, DisplayName, SubscriptionsConfirmed, SubscriptionsPending, etc.). Useful for idempotent bootstrap — read the current Policy before deciding whether to overwrite via set_topic_attributes.",
+      "method": "GET",
+      "path": "/?Action=GetTopicAttributes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TopicArn": {
+            "type": "string"
+          }
+        },
+        "required": ["TopicArn"]
+      }
+    },
+    {
+      "name": "set_topic_attributes",
+      "description": "Set a single topic attribute. The most common use is `AttributeName=Policy` with `AttributeValue` as the access-policy JSON string — e.g. allowing ses.amazonaws.com to publish to the topic so SES inbound notifications can land there. Other supported attributes: DisplayName, DeliveryPolicy, KmsMasterKeyId, ContentBasedDeduplication.",
+      "method": "GET",
+      "path": "/?Action=SetTopicAttributes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TopicArn": {
+            "type": "string"
+          },
+          "AttributeName": {
+            "type": "string",
+            "description": "One of: Policy, DisplayName, DeliveryPolicy, KmsMasterKeyId, ContentBasedDeduplication."
+          },
+          "AttributeValue": {
+            "type": "string",
+            "description": "Stringified attribute value. For Policy, this is the JSON access-policy doc."
+          }
+        },
+        "required": ["TopicArn", "AttributeName", "AttributeValue"]
+      }
+    },
+    {
+      "name": "subscribe",
+      "description": "Create a subscription on a topic. For HTTPS subscribers (Apteva webhooks) AWS sends a SubscriptionConfirmation message to the endpoint first; the endpoint must POST a confirm_subscription. Pass ReturnSubscriptionArn=true so the response includes a real ARN immediately even when confirmation is still pending.",
+      "method": "GET",
+      "path": "/?Action=Subscribe",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TopicArn": {
+            "type": "string"
+          },
+          "Protocol": {
+            "type": "string",
+            "description": "One of: http, https, email, email-json, sms, sqs, application, lambda, firehose."
+          },
+          "Endpoint": {
+            "type": "string",
+            "description": "URL / phone / email / ARN appropriate to Protocol."
+          },
+          "ReturnSubscriptionArn": {
+            "type": "string",
+            "description": "Pass 'true' to get the SubscriptionArn back immediately (otherwise PendingConfirmation until the endpoint confirms).",
+            "default": "true"
+          }
+        },
+        "required": ["TopicArn", "Protocol", "Endpoint"]
+      }
+    },
+    {
+      "name": "confirm_subscription",
+      "description": "Confirm a pending subscription. Used when the platform is acting on the subscriber's behalf (rare — normally the subscriber endpoint does this itself when AWS POSTs the SubscriptionConfirmation message to it). Token comes from the SubscriptionConfirmation payload.",
+      "method": "GET",
+      "path": "/?Action=ConfirmSubscription",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TopicArn": {
+            "type": "string"
+          },
+          "Token": {
+            "type": "string"
+          },
+          "AuthenticateOnUnsubscribe": {
+            "type": "string",
+            "description": "Pass 'true' to require AWS auth for unsubscription. Defaults to false."
+          }
+        },
+        "required": ["TopicArn", "Token"]
+      }
+    },
+    {
+      "name": "list_subscriptions_by_topic",
+      "description": "List subscriptions on a topic. Paginated via NextToken. Response XML root: ListSubscriptionsByTopicResponse.ListSubscriptionsByTopicResult.Subscriptions.member[].",
+      "method": "GET",
+      "path": "/?Action=ListSubscriptionsByTopic",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TopicArn": {
+            "type": "string"
+          },
+          "NextToken": {
+            "type": "string"
+          }
+        },
+        "required": ["TopicArn"]
+      }
+    },
+    {
       "name": "unsubscribe",
-      "description": "Unsubscribe from topic",
+      "description": "Cancel a subscription. Idempotent. Pass the SubscriptionArn returned from subscribe / list_subscriptions_by_topic.",
       "method": "GET",
-      "path": "/unsubscribe",
+      "path": "/?Action=Unsubscribe",
       "input_schema": {
         "type": "object",
         "properties": {
-          "subscription_arn": {
+          "SubscriptionArn": {
             "type": "string"
           }
         },
-        "required": [
-          "subscription_arn"
-        ]
+        "required": ["SubscriptionArn"]
       }
     },
     {
-      "name": "set_notification_topics",
-      "description": "Configure SES notification topics",
+      "name": "publish",
+      "description": "Publish a message to a topic (or directly to a phone number / endpoint). Useful for fanout patterns and for one-off test notifications.",
       "method": "GET",
-      "path": "/set-notification-topics",
+      "path": "/?Action=Publish",
       "input_schema": {
         "type": "object",
         "properties": {
-          "identity": {
+          "TopicArn": {
             "type": "string"
           },
-          "bounce_topic": {
+          "Message": {
             "type": "string"
           },
-          "complaint_topic": {
+          "Subject": {
             "type": "string"
           },
-          "delivery_topic": {
-            "type": "string"
+          "MessageStructure": {
+            "type": "string",
+            "description": "Pass 'json' when Message is itself a JSON object keyed by protocol (default, http, email, sms, sqs)."
           }
         },
-        "required": [
-          "identity"
-        ]
-      }
-    },
-    {
-      "name": "configure_event_publishing",
-      "description": "Configure SES event publishing to SNS",
-      "method": "GET",
-      "path": "/configure-event-publishing",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "config_set_name": {
-            "type": "string"
-          },
-          "event_destination_name": {
-            "type": "string"
-          },
-          "sns_topic_arn": {
-            "type": "string"
-          },
-          "matching_event_types": {
-            "type": "array"
-          }
-        },
-        "required": [
-          "config_set_name",
-          "event_destination_name",
-          "sns_topic_arn"
-        ]
-      }
-    },
-    {
-      "name": "configure_tracking",
-      "description": "Configure SES tracking",
-      "method": "GET",
-      "path": "/configure-tracking",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "config_set_name": {
-            "type": "string"
-          },
-          "custom_redirect_domain": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "config_set_name"
-        ]
-      }
-    },
-    {
-      "name": "verify_event_destination",
-      "description": "Verify event destination configuration",
-      "method": "GET",
-      "path": "/verify-event-destination",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "config_set_name": {
-            "type": "string"
-          },
-          "event_destination_name": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "config_set_name",
-          "event_destination_name"
-        ]
+        "required": ["Message"]
       }
     }
-  ]
+  ],
+  "health_check": {
+    "tool": "list_topics"
+  }
 }

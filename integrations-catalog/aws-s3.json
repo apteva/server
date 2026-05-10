@@ -168,6 +168,62 @@
         "type": "object",
         "properties": {}
       }
+    },
+    {
+      "name": "create_bucket",
+      "description": "Create an S3 bucket. The body field carries the optional CreateBucketConfiguration XML — leave it empty for us-east-1 (the default region for the API), and pass `<CreateBucketConfiguration xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><LocationConstraint>REGION</LocationConstraint></CreateBucketConfiguration>` for any other region. Bucket names are globally unique, 3–63 chars, lowercase + DNS-safe. Returns 200 with empty body on success; 409 BucketAlreadyOwnedByYou is the idempotent-success case (treat as ok).",
+      "method": "PUT",
+      "path": "/{bucket}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "description": "Bucket name. Must be globally unique, lowercase, 3–63 DNS-safe chars."
+          },
+          "body": {
+            "type": "string",
+            "description": "CreateBucketConfiguration XML for non-us-east-1 regions, or empty string for us-east-1."
+          }
+        },
+        "required": ["bucket"]
+      },
+      "body_input": "body"
+    },
+    {
+      "name": "put_bucket_policy",
+      "description": "Attach (or replace) the bucket policy. Body is the policy as a JSON string — pass it via the `policy` input. Used to grant external AWS services (e.g. ses.amazonaws.com s3:PutObject) write access to the bucket. Returns 204 on success.",
+      "method": "PUT",
+      "path": "/{bucket}?policy",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string",
+            "description": "Bucket policy as a JSON string. Example for SES inbound: {\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"AllowSESPuts\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"ses.amazonaws.com\"},\"Action\":\"s3:PutObject\",\"Resource\":\"arn:aws:s3:::BUCKET/*\",\"Condition\":{\"StringEquals\":{\"AWS:SourceAccount\":\"ACCOUNT_ID\"}}}]}"
+          }
+        },
+        "required": ["bucket", "policy"]
+      },
+      "body_input": "policy"
+    },
+    {
+      "name": "get_bucket_policy",
+      "description": "Fetch the current bucket policy as a JSON string. Useful for idempotent bootstrap — read first, decide whether to upsert. Returns 404 NoSuchBucketPolicy when no policy is attached.",
+      "method": "GET",
+      "path": "/{bucket}?policy",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          }
+        },
+        "required": ["bucket"]
+      }
     }
   ],
   "health_check": {
