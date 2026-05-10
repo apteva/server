@@ -1574,6 +1574,45 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "encryption failed", http.StatusInternalServerError)
 		return
 	}
+
+	// Pre-flight: if the catalog declares a health_check, run it
+	// against the encrypted blob BEFORE persisting. The motivation
+	// is operator UX — pre-v0.13 the user could type a wrong API
+	// key, see "active" instantly, and only learn the creds were
+	// bogus when an agent failed days later. Now the dashboard's
+	// create form gets back a 400 with a human-readable error
+	// ("HTTP 401: invalid_token") and nothing is saved. The OAuth
+	// branch above doesn't go through this path because the
+	// callback-time token exchange already serves as proof-of-life.
+	//
+	// Skip when there's no health_check: 0-arg probes aren't
+	// universally available across 431 catalog entries; absence is
+	// the catalog author's signal of "I haven't characterised a
+	// safe probe for this app yet" rather than an error.
+	if app.HealthCheck != nil && (app.HealthCheck.Tool != "" || app.HealthCheck.Path != "") {
+		probe := s.runHealthCheck(app, encrypted)
+		if !probe.OK && !probe.Skipped {
+			log.Printf("[CONN] preflight FAILED slug=%s status=%d err=%q",
+				body.AppSlug, probe.StatusCode, probe.Error)
+			// Return JSON so the dashboard can render the error
+			// inline next to the credential fields rather than
+			// surfacing a generic toast. 400 is conventional for
+			// "your input was rejected by the upstream"; 502 would
+			// imply the failure was on our side.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error":         "credential check failed",
+				"detail":        probe.Error,
+				"status_code":   probe.StatusCode,
+				"latency_ms":    probe.LatencyMS,
+				"health_check":  true,
+			})
+			return
+		}
+		log.Printf("[CONN] preflight OK slug=%s latency_ms=%d", body.AppSlug, probe.LatencyMS)
+	}
+
 	conn, err := s.store.CreateConnectionExt(ConnectionInput{
 		UserID:         userID,
 		AppSlug:        body.AppSlug,

@@ -42,6 +42,79 @@ type AppTemplate struct {
 	// provides.ui_components. Each entry's Entry path resolves under
 	// /api/integrations/<slug>/<entry> at runtime.
 	UIComponents []IntegrationUIComponent `json:"ui_components,omitempty"`
+	// HealthCheck — cheap probe used by `apteva connection test` /
+	// the dashboard's "Test" button. Optional. When set, the runner
+	// builds a synthetic AppToolDef from these fields and reuses
+	// executeIntegrationTool so credential templating, AWS-SigV4
+	// signing, header building, and base_url resolution all behave
+	// identically to a real tool call. The probe should be
+	// read-only and zero-arg (e.g. /me, /whoami, S3 list_buckets,
+	// Slack auth.test). Apps without a health_check fall back to
+	// "no validation possible" — the test endpoint replies with
+	// `skipped: true`. See integrations/src/types.ts AppHealthCheck.
+	HealthCheck *AppHealthCheck `json:"health_check,omitempty"`
+}
+
+// AppHealthCheck is the catalog-side shape of a per-app probe.
+// Pre-v0.13 connections were never validated; an operator could
+// type a wrong API key, click save, and only learn it was bogus
+// when an agent failed three days later. The probe runs the same
+// pipeline as a real tool call so a failing health check predicts
+// a failing tool call (modulo upstream rate limits).
+//
+// Two forms — pick whichever fits the app:
+//
+//   1. Reference an existing tool by name. The runner looks the
+//      tool up in app.Tools[] and reuses its method, path,
+//      query_params, etc. DRY: a fix to the tool propagates to
+//      the probe automatically. Use this when there's a natural
+//      read-only zero-arg tool (S3 list_buckets, GitHub /user,
+//      Slack auth.test).
+//
+//        "health_check": { "tool": "list_buckets" }
+//
+//      Pass `input` if the tool needs parameters:
+//        "health_check": { "tool": "me", "input": { "scope": "read" } }
+//
+//   2. Synthetic HTTP request. Use when the probe URL doesn't
+//      correspond to any exposed tool (a dedicated /healthz, a
+//      different host, etc.):
+//
+//        "health_check": { "method": "GET", "path": "/healthz" }
+//
+// ExpectStatus defaults to [200] when empty. BaseURL overrides
+// app.BaseURL for this single probe — useful when the auth-
+// introspection endpoint lives on a different host than the
+// data-plane (e.g. AWS STS sts.amazonaws.com vs. the per-service
+// S3 host).
+type AppHealthCheck struct {
+	// Form 1 fields — reference an existing tool.
+	Tool  string         `json:"tool,omitempty"`
+	Input map[string]any `json:"input,omitempty"`
+
+	// Form 2 fields — synthetic HTTP request.
+	Method  string `json:"method,omitempty"`
+	Path    string `json:"path,omitempty"`
+	BaseURL string `json:"base_url,omitempty"`
+
+	// Expected upstream status. Empty = [200]. Applies to both forms.
+	ExpectStatus []int `json:"expect_status,omitempty"`
+
+	// AuthOKWhenBodyContains lets a probe treat a 4xx response as
+	// "auth valid, permission denied" rather than "auth invalid",
+	// so long as the response body contains one of the listed
+	// substrings. Designed for S3-compatible APIs where
+	// bucket-scoped tokens (the production-best-practice setup)
+	// cannot ListBuckets at account level — R2 returns
+	// `403 <Code>AccessDenied</Code>` for valid bucket-only tokens
+	// while still returning `403 <Code>InvalidAccessKeyId</Code>`
+	// for typo'd ones. Listing "AccessDenied" here lets us pass
+	// the former and fail the latter from the same probe.
+	//
+	// Semantics: if status ∈ expect_status → OK. Else if status is
+	// 401 or 403 AND body contains any listed substring → OK.
+	// Otherwise fail. Empty list = strict (only expect_status).
+	AuthOKWhenBodyContains []string `json:"auth_ok_when_body_contains,omitempty"`
 }
 
 // IntegrationUIComponent mirrors @apteva/integrations/src/types.ts

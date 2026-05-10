@@ -719,6 +719,12 @@ func main() {
 			// for local. Used by the dashboard subscription create form
 			// to populate the trigger picker.
 			s.handleConnectionTriggers(w, r)
+		} else if strings.HasSuffix(path, "/test") {
+			// POST /api/connections/:id/test — run the app's
+			// health_check probe against the stored credentials and
+			// return {ok, latency_ms, status_code, error}. Wired to
+			// the dashboard's per-connection "Test" button.
+			s.handleTestConnection(w, r)
 		} else if r.Method == http.MethodGet {
 			s.handleGetConnection(w, r)
 		} else if r.Method == http.MethodPatch {
