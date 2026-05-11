@@ -1239,9 +1239,33 @@ func main() {
 	// this race.
 	hostRouter := NewHostRouter(s, mux)
 	hostRouter.Start(5 * time.Second)
+	// Bind interface. Explicit APTEVA_BIND env wins. When unset, we
+	// default by context:
+	//
+	//   - System service install (root + APTEVA_HOME set, the
+	//     v0.12+ systemd-system shape) → 0.0.0.0. This is the
+	//     "real server on a VPS" case; binding loopback only
+	//     would leave the dashboard unreachable from outside the
+	//     box, which is the bug we're fixing in v0.14.4 for any
+	//     v0.14.x install that upgrades without re-running
+	//     `apteva service install` (whose generated unit now
+	//     sets APTEVA_BIND explicitly).
+	//
+	//   - Anything else (foreground `apteva`, user-scope launchd /
+	//     systemd, docker without explicit bind) → 127.0.0.1.
+	//     Safe-by-default: don't publish to a network nobody
+	//     asked us to.
+	//
+	// Auth gates every /api/ route + the dashboard, and the setup
+	// token gates the first registration, so binding 0.0.0.0 on a
+	// system service is the expected shape rather than a footgun.
 	bindAddr := strings.TrimSpace(os.Getenv("APTEVA_BIND"))
 	if bindAddr == "" {
-		bindAddr = "127.0.0.1"
+		if os.Getenv("APTEVA_HOME") != "" && os.Geteuid() == 0 {
+			bindAddr = "0.0.0.0"
+		} else {
+			bindAddr = "127.0.0.1"
+		}
 	}
 	listenAddr := bindAddr + ":" + port
 	listener, err := net.Listen("tcp", listenAddr)
