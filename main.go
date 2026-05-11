@@ -762,6 +762,12 @@ func main() {
 			// return {ok, latency_ms, status_code, error}. Wired to
 			// the dashboard's per-connection "Test" button.
 			s.handleTestConnection(w, r)
+		} else if strings.HasSuffix(path, "/scope") && r.Method == http.MethodPatch {
+			// PATCH /api/connections/:id/scope — move a connection
+			// between project and global scope. Mirror of the app
+			// install scope-move endpoint (v0.14.5). See
+			// connections_scope.go for the contract.
+			s.handleSetConnectionScope(w, r)
 		} else if r.Method == http.MethodGet {
 			s.handleGetConnection(w, r)
 		} else if r.Method == http.MethodPatch {

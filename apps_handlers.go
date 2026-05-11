@@ -1416,8 +1416,17 @@ func (s *Server) buildPreflightRoles(manifest *sdk.Manifest, projectID string, u
 				if !contains(dep.CompatibleSlugs, c.AppSlug) {
 					continue
 				}
+				// Tag candidates so the dashboard's role-picker
+				// can render a "global" badge — pre-v0.15.0 every
+				// candidate was project-scoped so the field didn't
+				// need to exist; now an operator picking between
+				// a project Slack and a global one needs the cue.
+				scope := "project"
+				if c.ProjectID == "" {
+					scope = "global"
+				}
 				row.IntegrationCands = append(row.IntegrationCands, preflightIntegrationCandidate{
-					ConnectionID: c.ID, AppSlug: c.AppSlug, Name: c.Name, Status: c.Status,
+					ConnectionID: c.ID, AppSlug: c.AppSlug, Name: c.Name, Status: c.Status, Scope: scope,
 				})
 			}
 		} else if kind == "app" {
@@ -1486,6 +1495,11 @@ type preflightIntegrationCandidate struct {
 	AppSlug      string `json:"app_slug"`
 	Name         string `json:"name"`
 	Status       string `json:"status"`
+	// Scope is "project" or "global"; the dashboard's role-picker
+	// renders a badge so an operator binding the storage backend
+	// can tell at a glance whether they're picking the project-
+	// scoped R2 or the global one.
+	Scope string `json:"scope,omitempty"`
 }
 
 type preflightAppCandidate struct {

@@ -167,9 +167,16 @@ func (s *Store) ListConnections(userID int64, projectID ...string) ([]Connection
 	var rows *sql.Rows
 	var err error
 	if len(projectID) > 0 && projectID[0] != "" {
+		// "Visible from project X" = X-scoped rows + global rows
+		// (project_id = ''). The global tier was creatable only via
+		// the API pre-v0.15.0, so this OR is additive — existing
+		// installs without global connections see the same result
+		// set. With the v0.15.0 UI, an operator who promotes a
+		// connection to global gets it appearing in every project's
+		// list, which is the whole point.
 		rows, err = s.db.Query(
 			`SELECT id, app_slug, app_name, name, auth_type, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''), created_at
-			 FROM connections WHERE user_id = ? AND project_id = ?`, userID, projectID[0])
+			 FROM connections WHERE user_id = ? AND (project_id = ? OR project_id = '')`, userID, projectID[0])
 	} else {
 		rows, err = s.db.Query(
 			`SELECT id, app_slug, app_name, name, auth_type, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''), created_at
