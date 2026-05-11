@@ -886,6 +886,10 @@ func main() {
 			s.handleGetInstallConfig(w, r)
 		case strings.HasSuffix(path, "/config") && r.Method == http.MethodPut:
 			s.handleSetInstallConfig(w, r)
+		case strings.HasSuffix(path, "/scope") && r.Method == http.MethodPatch:
+			// Move an install between project / global scope without
+			// destroying its data. See apps_scope.go for the contract.
+			s.handleSetInstallScope(w, r)
 		case strings.HasSuffix(path, "/permissions"),
 			strings.HasSuffix(path, "/default-effect"),
 			strings.Contains(path, "/grants"):
