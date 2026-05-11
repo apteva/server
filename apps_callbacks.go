@@ -107,12 +107,18 @@ func (s *Server) handleCallbackProjects(w http.ResponseWriter, r *http.Request, 
 	// Look up the install's project + owner. Project-scoped installs
 	// return only their own project — apps can't enumerate sibling
 	// projects via the SDK; that's a global-only privilege.
+	//
+	// The owner column on app_installs is `installed_by`, NOT
+	// `user_id` — a stale schema mismatch from an earlier rename. An
+	// errant `user_id` here makes every call return 404 "install not
+	// found" since the column doesn't exist, which silently neuters
+	// every global-install worker's per-project fan-out.
 	var (
 		installProject string
 		userID         int64
 	)
 	if err := s.store.db.QueryRow(
-		`SELECT COALESCE(project_id,''), user_id FROM app_installs WHERE id=?`, installID,
+		`SELECT COALESCE(project_id,''), COALESCE(installed_by, 0) FROM app_installs WHERE id=?`, installID,
 	).Scan(&installProject, &userID); err != nil {
 		http.Error(w, "install not found", http.StatusNotFound)
 		return

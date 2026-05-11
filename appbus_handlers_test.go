@@ -192,6 +192,125 @@ func TestEmitHandler_CannotSpoofAppName(t *testing.T) {
 	}
 }
 
+// Global install: body.project_id is honoured and validated against
+// install owner's project ownership. The motivating scenario — global
+// storage emits a file event tagged with the FILE's project, not the
+// install's (empty) project.
+func TestEmitHandler_GlobalInstallHonoursBodyProjectID(t *testing.T) {
+	s := newBusServer(t)
+	// Global install: project_id="".
+	installID := seedInstall(t, s, "storage", "")
+	// Owner user (id=1) — seedInstall left installed_by=NULL by
+	// default; we set it explicitly so the validation query has a row.
+	if _, err := s.store.db.Exec(
+		`UPDATE app_installs SET installed_by=1 WHERE id=?`, installID,
+	); err != nil {
+		t.Fatalf("set installed_by: %v", err)
+	}
+	seedProject(t, s, "proj-X") // user_id=1, name=test
+	// Subscribe to the per-project lane (where the event should land).
+	ch, _, cancel := s.appBus.Subscribe("storage", "proj-X", 0)
+	defer cancel()
+
+	body := `{"topic":"file.added","project_id":"proj-X","data":{"id":99}}`
+	req := httptest.NewRequest("POST", "/app-events/internal/emit", strings.NewReader(body))
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	rec := httptest.NewRecorder()
+	s.handleAppEventEmit(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	select {
+	case ev := <-ch:
+		if ev.ProjectID != "proj-X" {
+			t.Errorf("ProjectID = %q, want proj-X (from body)", ev.ProjectID)
+		}
+		if ev.InstallID != installID {
+			t.Errorf("InstallID = %d, want %d", ev.InstallID, installID)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("subscriber didn't receive event")
+	}
+}
+
+// Project-scoped install can't spoof events into another project —
+// even if body.project_id claims one, the server pins to the install's
+// own project_id.
+func TestEmitHandler_ProjectScopedInstallPinsToOwnProject(t *testing.T) {
+	s := newBusServer(t)
+	installID := seedInstall(t, s, "storage", "proj-A")
+	if _, err := s.store.db.Exec(
+		`UPDATE app_installs SET installed_by=1 WHERE id=?`, installID,
+	); err != nil {
+		t.Fatalf("set installed_by: %v", err)
+	}
+	seedProject(t, s, "proj-A")
+	seedProject(t, s, "proj-B")
+
+	chA, _, cancelA := s.appBus.Subscribe("storage", "proj-A", 0)
+	defer cancelA()
+	chB, _, cancelB := s.appBus.Subscribe("storage", "proj-B", 0)
+	defer cancelB()
+
+	body := `{"topic":"file.added","project_id":"proj-B","data":{}}`
+	req := httptest.NewRequest("POST", "/app-events/internal/emit", strings.NewReader(body))
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	rec := httptest.NewRecorder()
+	s.handleAppEventEmit(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	select {
+	case ev := <-chA:
+		if ev.ProjectID != "proj-A" {
+			t.Errorf("got project=%q, expected pin to install's proj-A", ev.ProjectID)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("install's own project lane never received the event")
+	}
+	select {
+	case ev := <-chB:
+		t.Fatalf("proj-B lane received event — install spoofed it: %+v", ev)
+	case <-time.After(50 * time.Millisecond):
+		// expected — body.project_id was overridden
+	}
+}
+
+// Global install can't emit for a project it doesn't own.
+func TestEmitHandler_GlobalRejectsForeignProject(t *testing.T) {
+	s := newBusServer(t)
+	installID := seedInstall(t, s, "storage", "")
+	if _, err := s.store.db.Exec(
+		`UPDATE app_installs SET installed_by=1 WHERE id=?`, installID,
+	); err != nil {
+		t.Fatalf("set installed_by: %v", err)
+	}
+	// Project owned by a DIFFERENT user.
+	if _, err := s.store.db.Exec(
+		`INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (?, ?, ?)`,
+		2, "other@test.local", "x",
+	); err != nil {
+		t.Fatalf("seed other user: %v", err)
+	}
+	if _, err := s.store.db.Exec(
+		`INSERT INTO projects (id, user_id, name) VALUES (?, ?, ?)`,
+		"someone-elses-project", 2, "their proj",
+	); err != nil {
+		t.Fatalf("seed foreign project: %v", err)
+	}
+
+	body := `{"topic":"file.added","project_id":"someone-elses-project","data":{}}`
+	req := httptest.NewRequest("POST", "/app-events/internal/emit", strings.NewReader(body))
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	rec := httptest.NewRecorder()
+	s.handleAppEventEmit(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for foreign project, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestEmitHandler_UnknownInstallReturns404(t *testing.T) {
 	s := newBusServer(t)
 	body := strings.NewReader(`{"topic":"x","data":{}}`)

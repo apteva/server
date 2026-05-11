@@ -15,8 +15,22 @@ package main
 //     was bespoke. This bus generalises it so every app gets the
 //     same shape via ctx.Emit() with no per-app server code.
 //
-// Subscription key: (app_name, project_id). Topics are free-form
-// strings; the dashboard filters client-side.
+// Two subscription kinds:
+//
+//   - Per-project (lanes map, keyed by busKey{app, projectID} with
+//     projectID always non-empty). Project-scoped dashboard tabs +
+//     project-scoped sidecars attach here.
+//
+//   - Wildcard (wildcards map, keyed by app). Global sidecars that
+//     want every project's events for one app attach here. Each
+//     wildcard has its own seq counter + ring buffer so reconnect-
+//     with-since works independently of any per-project lane.
+//
+// Publish writes to the (app, project) lane (when projectID is set)
+// AND copies the event onto the wildcard lane with the wildcard's
+// own seq. The two paths never share a busKey so there is no lane
+// collision when a global install emits an event for a specific
+// project (the bug that motivated this refactor).
 //
 // Per (app, project) we keep a small ring buffer (256 events) so a
 // flapping reconnect can replay the gap via since=<seq>. Longer
@@ -41,7 +55,9 @@ type AppEvent struct {
 	Data      json.RawMessage `json:"data"`
 }
 
-// busKey identifies a single (app, project) channel.
+// busKey identifies a single (app, project) channel. Used for the
+// per-project lanes map only; wildcards use the app name directly
+// as the map key.
 type busKey struct {
 	app       string
 	projectID string
@@ -74,25 +90,23 @@ func newBusLane() *busLane {
 }
 
 // AppEventBus — top-level bus, one per server.
-//
-// Firehose lanes. A second lane class keyed by busKey{app, ""}
-// receives every event for `app` regardless of project — the
-// destination for SDK-driven global subscribers (worker dispatch +
-// cross-project event handlers). Each Publish stamps both the
-// per-project lane and the firehose lane so subscribers on either
-// side see the event, with no per-publisher coordination.
 type AppEventBus struct {
-	mu     sync.Mutex
-	lanes  map[busKey]*busLane
-	nextID atomic.Uint64
+	mu        sync.Mutex
+	lanes     map[busKey]*busLane // (app, project) — project ALWAYS non-empty
+	wildcards map[string]*busLane // keyed by app — cross-project subscribers
+	nextID    atomic.Uint64
 }
 
 func NewAppEventBus() *AppEventBus {
-	return &AppEventBus{lanes: make(map[busKey]*busLane)}
+	return &AppEventBus{
+		lanes:     make(map[busKey]*busLane),
+		wildcards: make(map[string]*busLane),
+	}
 }
 
-// laneFor returns (and lazily creates) the lane for the given key.
-// Caller does not hold lane.mu.
+// laneFor returns (and lazily creates) the per-project lane for the
+// given (app, projectID). Caller must pass a non-empty projectID;
+// the caller decides whether a project lane is needed.
 func (b *AppEventBus) laneFor(app, projectID string) *busLane {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -105,78 +119,112 @@ func (b *AppEventBus) laneFor(app, projectID string) *busLane {
 	return l
 }
 
-// Publish stamps the event with seq + time, writes it to the ring,
-// and fans out to every subscriber. Drop-on-overflow per subscriber:
-// the slow consumer recovers via since=<lastSeq> on reconnect.
+// wildcardFor returns (and lazily creates) the per-app wildcard lane.
+func (b *AppEventBus) wildcardFor(app string) *busLane {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	l, ok := b.wildcards[app]
+	if !ok {
+		l = newBusLane()
+		b.wildcards[app] = l
+	}
+	return l
+}
+
+// Publish stamps the event with seq + time, writes it to the
+// per-project lane (if projectID is non-empty), fans out to per-
+// project subscribers, and ALSO copies the event onto the wildcard
+// lane for the app with that lane's own seq.
 //
-// Each event lands on two lanes:
+// Drop-on-overflow per subscriber: the slow consumer recovers via
+// since=<lastSeq> on reconnect.
 //
-//   - the per-project lane (app, projectID) — today's behaviour
-//   - the firehose lane (app, "") — feeds SDK-driven global
-//     subscribers that want every project's events for this app
+// projectID semantics:
 //
-// The firehose lane has its own seq counter (so consumers can resume
-// independently of any one project) and its own ring; the
-// per-project lane stamps the event's `seq` field (preserves
-// resume-by-seq for project-scoped consumers), then the firehose
-// lane appends with its own seq independently.
+//   - Non-empty: per-project lane gets the canonical event with the
+//     lane's seq; wildcard lane gets a copy with the wildcard's own
+//     seq. The event surfaced to a per-project subscriber carries
+//     the lane seq; the event surfaced to a wildcard subscriber
+//     carries the wildcard seq.
+//   - Empty: no per-project lane is written. The event still lands
+//     on the wildcard lane (for global subscribers that want every
+//     cross-project event). Project-scoped dashboard tabs never see
+//     unanchored events.
 func (b *AppEventBus) Publish(app, projectID string, installID int64, topic string, data json.RawMessage) AppEvent {
-	lane := b.laneFor(app, projectID)
-	lane.mu.Lock()
-	lane.nextSeq++
-	ev := AppEvent{
+	now := time.Now().UTC()
+	base := AppEvent{
 		Topic:     topic,
 		App:       app,
 		ProjectID: projectID,
 		InstallID: installID,
-		Seq:       lane.nextSeq,
-		Time:      time.Now().UTC(),
+		Time:      now,
 		Data:      data,
 	}
-	// Append to the ring. ringSize caps at ringCap; ringHead wraps.
-	lane.ring[lane.ringHead] = ev
-	lane.ringHead = (lane.ringHead + 1) % ringCap
-	if lane.ringSize < ringCap {
-		lane.ringSize++
-	}
-	subs := make([]*busSubscriber, 0, len(lane.subs))
-	for _, s := range lane.subs {
-		subs = append(subs, s)
-	}
-	lane.mu.Unlock()
-	delivered := 0
-	dropped := 0
-	for _, s := range subs {
-		select {
-		case s.ch <- ev:
-			delivered++
-		default:
-			// drop — subscriber will replay via since= on reconnect.
-			dropped++
+
+	var (
+		projectEv             AppEvent
+		projectSubs           int
+		projectDelivered      int
+		projectDropped        int
+	)
+	if projectID != "" {
+		lane := b.laneFor(app, projectID)
+		lane.mu.Lock()
+		lane.nextSeq++
+		projectEv = base
+		projectEv.Seq = lane.nextSeq
+		lane.ring[lane.ringHead] = projectEv
+		lane.ringHead = (lane.ringHead + 1) % ringCap
+		if lane.ringSize < ringCap {
+			lane.ringSize++
+		}
+		subs := make([]*busSubscriber, 0, len(lane.subs))
+		for _, s := range lane.subs {
+			subs = append(subs, s)
+		}
+		lane.mu.Unlock()
+		projectSubs = len(subs)
+		for _, s := range subs {
+			select {
+			case s.ch <- projectEv:
+				projectDelivered++
+			default:
+				projectDropped++
+			}
 		}
 	}
-	// Firehose fanout — same event, separate (app,"") lane with
-	// its own seq + ring. Project-scoped consumers don't see this
-	// path; firehose consumers see this event plus events for
-	// every other project of the same app.
-	firehoseDelivered, firehoseDropped, firehoseSubs := b.publishFirehose(app, ev)
-	// Visibility log: the user asked to be sure the bus is wired up.
-	// One line per published event with the lane key + fanout count.
-	log.Printf("[APPBUS] publish app=%s project=%s topic=%s seq=%d install=%d subs=%d delivered=%d dropped=%d firehose_subs=%d firehose_delivered=%d firehose_dropped=%d",
-		app, projectID, topic, ev.Seq, installID, len(subs), delivered, dropped,
-		firehoseSubs, firehoseDelivered, firehoseDropped)
-	return ev
+
+	wildcardDelivered, wildcardDropped, wildcardSubs := b.publishWildcard(app, base)
+
+	log.Printf("[APPBUS] publish app=%s project=%s topic=%s install=%d project_subs=%d project_delivered=%d project_dropped=%d wildcard_subs=%d wildcard_delivered=%d wildcard_dropped=%d",
+		app, projectID, topic, installID,
+		projectSubs, projectDelivered, projectDropped,
+		wildcardSubs, wildcardDelivered, wildcardDropped)
+
+	if projectID != "" {
+		return projectEv
+	}
+	// Wildcard-only event — return the version that landed on the
+	// wildcard lane so callers can read its seq.
+	wcLane := b.wildcardFor(app)
+	wcLane.mu.Lock()
+	defer wcLane.mu.Unlock()
+	if wcLane.ringSize > 0 {
+		idx := (wcLane.ringHead - 1 + ringCap) % ringCap
+		return wcLane.ring[idx]
+	}
+	return base
 }
 
-// publishFirehose appends the event onto the (app, "") lane with the
-// firehose's own seq. Mirrors Publish's per-project fan-out logic.
-// Keeping it in its own method makes the locking discipline easy to
-// read — never holds two lane locks at once.
-func (b *AppEventBus) publishFirehose(app string, original AppEvent) (delivered, dropped, subCount int) {
-	lane := b.laneFor(app, "")
+// publishWildcard appends the event onto the (app, *) wildcard lane
+// with the wildcard's own seq + ring. Mirrors the per-project lane's
+// fan-out logic. Keeping it in its own method makes the locking
+// discipline easy to read — never holds two lane locks at once.
+func (b *AppEventBus) publishWildcard(app string, base AppEvent) (delivered, dropped, subCount int) {
+	lane := b.wildcardFor(app)
 	lane.mu.Lock()
 	lane.nextSeq++
-	ev := original
+	ev := base
 	ev.Seq = lane.nextSeq
 	lane.ring[lane.ringHead] = ev
 	lane.ringHead = (lane.ringHead + 1) % ringCap
@@ -204,8 +252,21 @@ func (b *AppEventBus) publishFirehose(app string, original AppEvent) (delivered,
 // than since= from the ring buffer. Returns the channel + cancel fn.
 // since=0 means "live from now"; the dashboard sends the largest seq
 // it has seen so reconnect after a brief drop is gap-free.
+//
+// projectID="" subscribes to the wildcard lane for `app`: every
+// project's events for that app, each tagged with its origin
+// project_id. The seq + ring are wildcard-scoped so reconnect-with-
+// since works independently of any per-project lane.
 func (b *AppEventBus) Subscribe(app, projectID string, since uint64) (chan AppEvent, []AppEvent, func()) {
-	lane := b.laneFor(app, projectID)
+	var lane *busLane
+	var laneTag string
+	if projectID == "" {
+		lane = b.wildcardFor(app)
+		laneTag = "wildcard"
+	} else {
+		lane = b.laneFor(app, projectID)
+		laneTag = "project"
+	}
 	lane.mu.Lock()
 	id := b.nextID.Add(1)
 	sub := &busSubscriber{id: id, ch: make(chan AppEvent, 64)}
@@ -227,8 +288,8 @@ func (b *AppEventBus) Subscribe(app, projectID string, since uint64) (chan AppEv
 		}
 	}
 	lane.mu.Unlock()
-	log.Printf("[APPBUS] subscribe app=%s project=%s since=%d sub_id=%d replay=%d total_subs=%d",
-		app, projectID, since, id, len(replay), len(lane.subs))
+	log.Printf("[APPBUS] subscribe lane=%s app=%s project=%s since=%d sub_id=%d replay=%d total_subs=%d",
+		laneTag, app, projectID, since, id, len(replay), len(lane.subs))
 	cancel := func() {
 		lane.mu.Lock()
 		if existing, ok := lane.subs[id]; ok && existing == sub {
@@ -237,8 +298,8 @@ func (b *AppEventBus) Subscribe(app, projectID string, since uint64) (chan AppEv
 		}
 		remaining := len(lane.subs)
 		lane.mu.Unlock()
-		log.Printf("[APPBUS] unsubscribe app=%s project=%s sub_id=%d remaining=%d",
-			app, projectID, id, remaining)
+		log.Printf("[APPBUS] unsubscribe lane=%s app=%s project=%s sub_id=%d remaining=%d",
+			laneTag, app, projectID, id, remaining)
 	}
 	return sub.ch, replay, cancel
 }

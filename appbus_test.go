@@ -324,23 +324,98 @@ func TestAppBus_CancelClosesChannel(t *testing.T) {
 }
 
 func TestAppBus_LaneCreatedLazily(t *testing.T) {
-	// Each publish lazily creates two lanes: the per-(app,project)
-	// lane and the per-app firehose lane (app, ""). Counts below
-	// reflect that — one publish to (storage, p1) yields {storage,p1}
-	// + {storage,""}.
+	// Each publish lazily creates one per-(app,project) lane in the
+	// `lanes` map AND one per-app wildcard lane in the `wildcards`
+	// map. The two maps are namespaced separately so (app, "") in
+	// `lanes` no longer collides with the wildcard for `app` — the
+	// bug that motivated the refactor.
 	b := NewAppEventBus()
-	if len(b.lanes) != 0 {
-		t.Fatalf("expected zero lanes at construction, got %d", len(b.lanes))
+	if len(b.lanes) != 0 || len(b.wildcards) != 0 {
+		t.Fatalf("expected zero lanes at construction, got lanes=%d wildcards=%d", len(b.lanes), len(b.wildcards))
 	}
 	b.Publish("storage", "p1", 1, "file.added", json.RawMessage(`{}`))
-	if len(b.lanes) != 2 {
-		t.Fatalf("expected 2 lanes after publish (per-project + firehose), got %d", len(b.lanes))
+	if len(b.lanes) != 1 || len(b.wildcards) != 1 {
+		t.Fatalf("expected 1 per-project lane + 1 wildcard, got lanes=%d wildcards=%d", len(b.lanes), len(b.wildcards))
 	}
 	b.Publish("storage", "p2", 1, "file.added", json.RawMessage(`{}`))
 	b.Publish("crm", "p1", 1, "contact.added", json.RawMessage(`{}`))
-	// Now lanes: (storage,p1), (storage,p2), (storage,""), (crm,p1), (crm,"").
-	if len(b.lanes) != 5 {
-		t.Fatalf("expected 5 lanes (3 per-project + 2 firehose), got %d", len(b.lanes))
+	// Now: lanes = (storage,p1), (storage,p2), (crm,p1) → 3.
+	//      wildcards = storage, crm → 2.
+	if len(b.lanes) != 3 {
+		t.Fatalf("expected 3 per-project lanes, got %d", len(b.lanes))
+	}
+	if len(b.wildcards) != 2 {
+		t.Fatalf("expected 2 wildcard lanes, got %d", len(b.wildcards))
+	}
+}
+
+func TestAppBus_GlobalEmitterNoLaneCollision(t *testing.T) {
+	// The motivating bug: a global install emits an event with
+	// project_id="" — under the old design both the per-project lane
+	// key and the firehose key resolved to busKey{app,""}, so each
+	// event was written twice to the same lane and seq incremented
+	// twice. After the refactor, a project="" publish writes ONLY to
+	// the wildcard lane.
+	b := NewAppEventBus()
+
+	ch, _, cancel := b.Subscribe("storage", "", 0)
+	defer cancel()
+
+	b.Publish("storage", "", 16, "file.added", json.RawMessage(`{"id":1}`))
+	b.Publish("storage", "", 16, "file.deleted", json.RawMessage(`{"id":1}`))
+
+	var got []AppEvent
+	deadline := time.After(200 * time.Millisecond)
+loop:
+	for {
+		select {
+		case ev := <-ch:
+			got = append(got, ev)
+		case <-deadline:
+			break loop
+		}
+	}
+	if len(got) != 2 {
+		t.Fatalf("wildcard sub: expected exactly 2 events, got %d (no duplicates)", len(got))
+	}
+	if got[0].Seq != 1 || got[1].Seq != 2 {
+		t.Fatalf("wildcard seq expected 1,2; got %d,%d", got[0].Seq, got[1].Seq)
+	}
+	// And the per-project lanes map should be empty — no lane was
+	// created for (storage, "").
+	if len(b.lanes) != 0 {
+		t.Fatalf("expected no per-project lanes for project=\"\" emit, got %d", len(b.lanes))
+	}
+}
+
+func TestAppBus_PerProjectAndWildcardDeliverIndependently(t *testing.T) {
+	// One event published to (storage, p1) should reach both the
+	// per-project subscriber AND the wildcard subscriber, each with
+	// its lane's own seq.
+	b := NewAppEventBus()
+
+	projCh, _, projCancel := b.Subscribe("storage", "p1", 0)
+	defer projCancel()
+	wildCh, _, wildCancel := b.Subscribe("storage", "", 0)
+	defer wildCancel()
+
+	b.Publish("storage", "p1", 16, "file.added", json.RawMessage(`{"id":42}`))
+
+	select {
+	case ev := <-projCh:
+		if ev.ProjectID != "p1" || ev.Seq != 1 {
+			t.Errorf("project sub: got project=%q seq=%d", ev.ProjectID, ev.Seq)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("project sub: no event")
+	}
+	select {
+	case ev := <-wildCh:
+		if ev.ProjectID != "p1" || ev.Seq != 1 {
+			t.Errorf("wildcard sub: got project=%q seq=%d (want carries origin project)", ev.ProjectID, ev.Seq)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("wildcard sub: no event")
 	}
 }
 

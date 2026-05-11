@@ -26,6 +26,22 @@ import (
 )
 
 // POST /api/app-events/internal/emit
+//
+// Resolution rules for the event's project_id:
+//
+//   - Project-scoped install (install row's project_id is set): server
+//     pins the event to the install's project, ignoring body.project_id.
+//     Prevents a project-scoped sidecar from spoofing events into
+//     another project.
+//
+//   - Global install (install row's project_id is empty): server reads
+//     body.project_id from the sidecar's emit payload. Validated to
+//     belong to the install's owner (installed_by user). An empty
+//     body.project_id is allowed and produces a wildcard-only event
+//     (rare; most domain events should anchor to a project).
+//
+// Either way the app's bus key is derived from app_installs.app_id,
+// so the sidecar can't spoof a sibling app's lane.
 func (s *Server) handleAppEventEmit(w http.ResponseWriter, r *http.Request) {
 	installIDStr := r.Header.Get("X-Apteva-App-Install-ID")
 	if installIDStr == "" {
@@ -38,8 +54,9 @@ func (s *Server) handleAppEventEmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Topic string          `json:"topic"`
-		Data  json.RawMessage `json:"data"`
+		Topic     string          `json:"topic"`
+		ProjectID string          `json:"project_id,omitempty"`
+		Data      json.RawMessage `json:"data"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 256*1024)).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -49,26 +66,41 @@ func (s *Server) handleAppEventEmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "topic required", http.StatusBadRequest)
 		return
 	}
-	// Look up the install — derive app name + project_id server-side
-	// so the sidecar can never spoof a different app's lane.
 	var (
-		appName   string
-		projectID string
+		appName        string
+		installProject string
+		ownerID        int64
 	)
 	err = s.store.db.QueryRow(
-		`SELECT a.name, COALESCE(i.project_id, '')
+		`SELECT a.name, COALESCE(i.project_id, ''), COALESCE(i.installed_by, 0)
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.id = ?`, installID,
-	).Scan(&appName, &projectID)
+	).Scan(&appName, &installProject, &ownerID)
 	if err != nil {
 		http.Error(w, "install not found", http.StatusNotFound)
 		return
+	}
+	resolvedProject := installProject
+	if resolvedProject == "" {
+		// Global install — caller specifies per-event project.
+		resolvedProject = strings.TrimSpace(body.ProjectID)
+		if resolvedProject != "" && ownerID > 0 {
+			var ok int
+			s.store.db.QueryRow(
+				`SELECT 1 FROM projects WHERE id=? AND user_id=?`,
+				resolvedProject, ownerID,
+			).Scan(&ok)
+			if ok != 1 {
+				http.Error(w, "project_id not owned by install", http.StatusForbidden)
+				return
+			}
+		}
 	}
 	data := body.Data
 	if len(data) == 0 {
 		data = json.RawMessage(`null`)
 	}
-	ev := s.appBus.Publish(appName, projectID, installID, body.Topic, data)
+	ev := s.appBus.Publish(appName, resolvedProject, installID, body.Topic, data)
 	writeJSON(w, map[string]any{
 		"ok":  true,
 		"seq": ev.Seq,
