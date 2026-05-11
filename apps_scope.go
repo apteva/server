@@ -191,6 +191,19 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 	}
 	tx = nil // suppress the deferred rollback
 
+	// Rebuild the in-memory installedApps registry from the DB.
+	// The reverse proxy at /api/apps/<name>/... reads
+	// `entry.ProjectID` off this cache to dispatch project-scoped
+	// requests; without the refresh the post-flip install is still
+	// indexed with its OLD ProjectID, so a request from a project
+	// where the install is now global routes nowhere and the
+	// dashboard's StoragePanel sees 404 "app not installed".
+	// LoadInstalledApps is cheap (one query, in-memory rebuild)
+	// and is the canonical reload path used by install + upgrade
+	// + uninstall — re-using it keeps scope-change consistent with
+	// every other lifecycle event.
+	s.LoadInstalledApps()
+
 	// Re-register the install's MCP row. registerAppMCP re-reads
 	// app_installs (now with the new project_id) and rewrites
 	// mcp_servers.project_id accordingly. Errors here don't roll
