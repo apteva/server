@@ -149,6 +149,16 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 		}
 		env["APTEVA_MIGRATIONS_DIR"] = migrations
 	}
+	// Materialize declared native-binary deps (ffmpeg / ffprobe / …)
+	// and prepend their cache dirs to PATH so the spawned sidecar's
+	// exec.LookPath / exec.Command calls resolve to the bundled
+	// versions. No-op for apps that don't declare requires.binaries.
+	if binPathPrefix, err := EnsureBinaries(m, progress); err != nil {
+		return 0, "", fmt.Errorf("native binary dep: %w", err)
+	} else if binPathPrefix != "" {
+		existing := os.Getenv("PATH")
+		env["PATH"] = binPathPrefix + string(os.PathListSeparator) + existing
+	}
 	if err := sup.spawn(installID, m.Name, binPath, port, env); err != nil {
 		return 0, "", err
 	}
