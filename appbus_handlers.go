@@ -84,14 +84,18 @@ func (s *Server) handleAppEventStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	projectID := r.URL.Query().Get("project_id")
-	// project_id is required because subscriptions are scoped per
-	// project. A global subscription would need a different auth
-	// boundary — punted to a follow-up if a real use case shows up.
+	// project_id="" is the firehose subscription — events for the
+	// given app across every project. Restricted to sidecars whose
+	// install is global-scope, so a project-scoped sidecar (or a
+	// browser session that hasn't picked a project) cannot read
+	// sibling projects' events. Browser sessions still need a
+	// project_id; the dashboard's per-project pages always carry one.
 	if projectID == "" {
-		http.Error(w, "project_id required", http.StatusBadRequest)
-		return
-	}
-	if err := s.checkProjectAccess(r, projectID); err != nil {
+		if err := s.checkFirehoseAccess(r); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+	} else if err := s.checkProjectAccess(r, projectID); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
@@ -138,6 +142,33 @@ func (s *Server) handleAppEventStream(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// checkFirehoseAccess gates the cross-project subscription
+// (project_id=""). Only sidecars whose install is global-scope are
+// allowed — that's the install class the SDK's per-project event
+// dispatcher runs from. Browsers and project-scoped sidecars are
+// refused so they can't accidentally read events outside their
+// project boundary.
+func (s *Server) checkFirehoseAccess(r *http.Request) error {
+	installStr := r.Header.Get("X-Apteva-App-Install-ID")
+	if installStr == "" {
+		return errors.New("firehose subscription requires a sidecar install token")
+	}
+	installID, err := strconv.ParseInt(installStr, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid install id")
+	}
+	var installProject string
+	if err := s.store.db.QueryRow(
+		`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID,
+	).Scan(&installProject); err != nil {
+		return fmt.Errorf("install not found")
+	}
+	if installProject != "" {
+		return fmt.Errorf("firehose subscription is global-only; install %d is scoped to project %s", installID, installProject)
+	}
+	return nil
 }
 
 // checkProjectAccess returns nil if the requesting principal is

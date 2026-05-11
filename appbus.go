@@ -74,6 +74,13 @@ func newBusLane() *busLane {
 }
 
 // AppEventBus — top-level bus, one per server.
+//
+// Firehose lanes. A second lane class keyed by busKey{app, ""}
+// receives every event for `app` regardless of project — the
+// destination for SDK-driven global subscribers (worker dispatch +
+// cross-project event handlers). Each Publish stamps both the
+// per-project lane and the firehose lane so subscribers on either
+// side see the event, with no per-publisher coordination.
 type AppEventBus struct {
 	mu     sync.Mutex
 	lanes  map[busKey]*busLane
@@ -101,6 +108,18 @@ func (b *AppEventBus) laneFor(app, projectID string) *busLane {
 // Publish stamps the event with seq + time, writes it to the ring,
 // and fans out to every subscriber. Drop-on-overflow per subscriber:
 // the slow consumer recovers via since=<lastSeq> on reconnect.
+//
+// Each event lands on two lanes:
+//
+//   - the per-project lane (app, projectID) — today's behaviour
+//   - the firehose lane (app, "") — feeds SDK-driven global
+//     subscribers that want every project's events for this app
+//
+// The firehose lane has its own seq counter (so consumers can resume
+// independently of any one project) and its own ring; the
+// per-project lane stamps the event's `seq` field (preserves
+// resume-by-seq for project-scoped consumers), then the firehose
+// lane appends with its own seq independently.
 func (b *AppEventBus) Publish(app, projectID string, installID int64, topic string, data json.RawMessage) AppEvent {
 	lane := b.laneFor(app, projectID)
 	lane.mu.Lock()
@@ -136,11 +155,49 @@ func (b *AppEventBus) Publish(app, projectID string, installID int64, topic stri
 			dropped++
 		}
 	}
+	// Firehose fanout — same event, separate (app,"") lane with
+	// its own seq + ring. Project-scoped consumers don't see this
+	// path; firehose consumers see this event plus events for
+	// every other project of the same app.
+	firehoseDelivered, firehoseDropped, firehoseSubs := b.publishFirehose(app, ev)
 	// Visibility log: the user asked to be sure the bus is wired up.
 	// One line per published event with the lane key + fanout count.
-	log.Printf("[APPBUS] publish app=%s project=%s topic=%s seq=%d install=%d subs=%d delivered=%d dropped=%d",
-		app, projectID, topic, ev.Seq, installID, len(subs), delivered, dropped)
+	log.Printf("[APPBUS] publish app=%s project=%s topic=%s seq=%d install=%d subs=%d delivered=%d dropped=%d firehose_subs=%d firehose_delivered=%d firehose_dropped=%d",
+		app, projectID, topic, ev.Seq, installID, len(subs), delivered, dropped,
+		firehoseSubs, firehoseDelivered, firehoseDropped)
 	return ev
+}
+
+// publishFirehose appends the event onto the (app, "") lane with the
+// firehose's own seq. Mirrors Publish's per-project fan-out logic.
+// Keeping it in its own method makes the locking discipline easy to
+// read — never holds two lane locks at once.
+func (b *AppEventBus) publishFirehose(app string, original AppEvent) (delivered, dropped, subCount int) {
+	lane := b.laneFor(app, "")
+	lane.mu.Lock()
+	lane.nextSeq++
+	ev := original
+	ev.Seq = lane.nextSeq
+	lane.ring[lane.ringHead] = ev
+	lane.ringHead = (lane.ringHead + 1) % ringCap
+	if lane.ringSize < ringCap {
+		lane.ringSize++
+	}
+	subs := make([]*busSubscriber, 0, len(lane.subs))
+	for _, s := range lane.subs {
+		subs = append(subs, s)
+	}
+	lane.mu.Unlock()
+	for _, s := range subs {
+		select {
+		case s.ch <- ev:
+			delivered++
+		default:
+			dropped++
+		}
+	}
+	subCount = len(subs)
+	return
 }
 
 // Subscribe attaches a listener, optionally replaying events newer

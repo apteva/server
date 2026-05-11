@@ -58,6 +58,61 @@ func TestAppBus_FanoutToAllSubscribers(t *testing.T) {
 	}
 }
 
+func TestAppBus_FirehoseReceivesAllProjects(t *testing.T) {
+	// A subscriber on (app, "") is the firehose — it should see every
+	// event published to any project of the same app, with its own
+	// monotonic seq.
+	b := NewAppEventBus()
+	fh, _, cancel := b.Subscribe("storage", "", 0)
+	defer cancel()
+
+	b.Publish("storage", "p1", 1, "file.added", json.RawMessage(`{"id":1}`))
+	b.Publish("storage", "p2", 1, "file.added", json.RawMessage(`{"id":2}`))
+	b.Publish("crm", "p1", 1, "contact.added", json.RawMessage(`{"id":3}`))
+
+	got := drainEvents(t, fh, 2, 300*time.Millisecond)
+	if len(got) != 2 {
+		t.Fatalf("firehose: expected 2 storage events, got %d", len(got))
+	}
+	if got[0].ProjectID != "p1" || got[1].ProjectID != "p2" {
+		t.Fatalf("firehose ordering wrong: %+v", got)
+	}
+	if got[0].Seq == 0 || got[1].Seq != got[0].Seq+1 {
+		t.Fatalf("firehose seq must be monotonic and dense, got %d → %d", got[0].Seq, got[1].Seq)
+	}
+}
+
+func TestAppBus_FirehoseDoesntLeakOtherApps(t *testing.T) {
+	// Firehose is per-app — a (storage, "") subscriber must not see
+	// (crm, *) events. Different app, different lane.
+	b := NewAppEventBus()
+	storageFH, _, cancel := b.Subscribe("storage", "", 0)
+	defer cancel()
+	b.Publish("crm", "p1", 1, "contact.added", json.RawMessage(`{"id":1}`))
+	select {
+	case ev := <-storageFH:
+		t.Fatalf("firehose leaked across apps: got %+v", ev)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// drainEvents reads up to n events off ch within deadline, returning
+// the slice. Used by firehose tests; not chatty in any one test.
+func drainEvents(t *testing.T, ch chan AppEvent, n int, deadline time.Duration) []AppEvent {
+	t.Helper()
+	out := make([]AppEvent, 0, n)
+	end := time.After(deadline)
+	for len(out) < n {
+		select {
+		case ev := <-ch:
+			out = append(out, ev)
+		case <-end:
+			return out
+		}
+	}
+	return out
+}
+
 func TestAppBus_LaneIsolation(t *testing.T) {
 	b := NewAppEventBus()
 	chSameApp, _, cancel1 := b.Subscribe("storage", "p2", 0)
@@ -269,18 +324,23 @@ func TestAppBus_CancelClosesChannel(t *testing.T) {
 }
 
 func TestAppBus_LaneCreatedLazily(t *testing.T) {
+	// Each publish lazily creates two lanes: the per-(app,project)
+	// lane and the per-app firehose lane (app, ""). Counts below
+	// reflect that — one publish to (storage, p1) yields {storage,p1}
+	// + {storage,""}.
 	b := NewAppEventBus()
 	if len(b.lanes) != 0 {
 		t.Fatalf("expected zero lanes at construction, got %d", len(b.lanes))
 	}
 	b.Publish("storage", "p1", 1, "file.added", json.RawMessage(`{}`))
-	if len(b.lanes) != 1 {
-		t.Fatalf("expected 1 lane after publish, got %d", len(b.lanes))
+	if len(b.lanes) != 2 {
+		t.Fatalf("expected 2 lanes after publish (per-project + firehose), got %d", len(b.lanes))
 	}
 	b.Publish("storage", "p2", 1, "file.added", json.RawMessage(`{}`))
 	b.Publish("crm", "p1", 1, "contact.added", json.RawMessage(`{}`))
-	if len(b.lanes) != 3 {
-		t.Fatalf("expected 3 lanes, got %d", len(b.lanes))
+	// Now lanes: (storage,p1), (storage,p2), (storage,""), (crm,p1), (crm,"").
+	if len(b.lanes) != 5 {
+		t.Fatalf("expected 5 lanes (3 per-project + 2 firehose), got %d", len(b.lanes))
 	}
 }
 

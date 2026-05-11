@@ -70,9 +70,74 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		s.handleCallbackOAuth(w, r, parts[1:])
 	case "grants":
 		s.handleCallbackGrants(w, r, parts[1:])
+	case "projects":
+		s.handleCallbackProjects(w, r, parts[1:])
 	default:
 		http.Error(w, "unknown callback: "+parts[0], http.StatusNotFound)
 	}
+}
+
+// ─── /projects ─────────────────────────────────────────────────────
+//
+// GET /api/apps/callback/projects — returns the projects this install
+// can dispatch against. Project-scoped installs see a singleton list
+// holding only their pinned project; global installs see every
+// project the owning user has access to. The SDK's worker dispatcher
+// uses this to fan workers out per project.
+//
+// No declared permission required — every install is allowed to
+// enumerate its own projection. The listing is scoped server-side
+// to the install's project (project-scoped) or the install's owner
+// (global).
+
+func (s *Server) handleCallbackProjects(w http.ResponseWriter, r *http.Request, parts []string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	if len(parts) > 0 && parts[0] != "" {
+		http.Error(w, "unexpected sub-path", http.StatusNotFound)
+		return
+	}
+	installID, err := requireInstallID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	// Look up the install's project + owner. Project-scoped installs
+	// return only their own project — apps can't enumerate sibling
+	// projects via the SDK; that's a global-only privilege.
+	var (
+		installProject string
+		userID         int64
+	)
+	if err := s.store.db.QueryRow(
+		`SELECT COALESCE(project_id,''), user_id FROM app_installs WHERE id=?`, installID,
+	).Scan(&installProject, &userID); err != nil {
+		http.Error(w, "install not found", http.StatusNotFound)
+		return
+	}
+	if installProject != "" {
+		// Singleton — same project as the install.
+		var name string
+		_ = s.store.db.QueryRow(
+			`SELECT COALESCE(name,'') FROM projects WHERE id=?`, installProject,
+		).Scan(&name)
+		writeJSON(w, []map[string]any{{"id": installProject, "name": name}})
+		return
+	}
+	// Global install — return every project belonging to the owning
+	// user. The SDK will fan workers out across this list.
+	projects, err := s.store.ListProjects(userID)
+	if err != nil {
+		http.Error(w, "list projects: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	out := make([]map[string]any, 0, len(projects))
+	for _, p := range projects {
+		out = append(out, map[string]any{"id": p.ID, "name": p.Name})
+	}
+	writeJSON(w, out)
 }
 
 // ─── /whoami ───────────────────────────────────────────────────────

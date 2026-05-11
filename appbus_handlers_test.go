@@ -207,13 +207,17 @@ func TestEmitHandler_UnknownInstallReturns404(t *testing.T) {
 // --- GET /<app>?project_id=&since= -----------------------------------
 
 func TestStreamHandler_RequiresProjectID(t *testing.T) {
+	// Browser-style request (X-User-ID set, no install token) without
+	// project_id must be refused — the firehose carve-out is sidecar-
+	// only. The handler returns 403 rather than 400 because checkFirehoseAccess
+	// is the gate that fires; the message is what the user sees.
 	s := newBusServer(t)
 	req := httptest.NewRequest("GET", "/app-events/storage", nil)
 	req.Header.Set("X-User-ID", "1")
 	rec := httptest.NewRecorder()
 	s.handleAppEventStream(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 without project_id, got %d", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 without project_id (firehose denied for browser), got %d", rec.Code)
 	}
 }
 
