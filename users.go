@@ -177,12 +177,12 @@ func (s *Server) handleUserByID(w http.ResponseWriter, r *http.Request) {
 
 		// Stop any running cores owned by the target user BEFORE
 		// deleting DB rows — otherwise the reaper will try to update
-		// an instances row that no longer exists. ListInstances
+		// an instances row that no longer exists. ListAgents
 		// scoped to the target user across all projects is good
 		// enough (empty projectID = all projects).
-		insts, _ := s.store.ListInstances(targetID, "")
+		insts, _ := s.store.ListAgents(targetID, "")
 		for _, inst := range insts {
-			s.instances.Stop(inst.ID)
+			s.agents.Stop(inst.ID)
 		}
 
 		if err := s.store.DeleteUser(targetID); err != nil {

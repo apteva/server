@@ -72,7 +72,7 @@ func (s *Server) initSlack() {
 // for all running instances across all projects.
 func (s *Server) restoreAllSlackMappings() {
 	rows, err := s.store.db.Query(
-		"SELECT id, user_id, instance_id, COALESCE(project_id,''), encrypted_config FROM channels WHERE type = 'slack' AND status = 'active' AND instance_id > 0",
+		"SELECT id, user_id, agent_id, COALESCE(project_id,''), encrypted_config FROM channels WHERE type = 'slack' AND status = 'active' AND agent_id > 0",
 	)
 	if err != nil {
 		return
@@ -99,22 +99,22 @@ func (s *Server) restoreAllSlackMappings() {
 			continue
 		}
 
-		ic := s.instances.GetChannels(instanceID)
+		ic := s.agents.GetChannels(instanceID)
 		if ic == nil {
 			continue
 		}
-		port := s.instances.GetPort(instanceID)
+		port := s.agents.GetPort(instanceID)
 		if port == 0 {
 			continue
 		}
 
 		// Look up instance name for display
 		instName := ""
-		if inst, err := s.store.GetInstanceByID(instanceID); err == nil {
+		if inst, err := s.store.GetAgentByID(instanceID); err == nil {
 			instName = inst.Name
 		}
 
-		coreKey := s.instances.GetCoreAPIKey(instanceID)
+		coreKey := s.agents.GetCoreAPIKey(instanceID)
 		sendEvent := makeSendEvent(port, coreKey)
 		gw.MapChannel(instanceID, cfg["slack_channel_id"], cfg["channel_name"], instName, ic.registry, sendEvent)
 	}
@@ -122,20 +122,20 @@ func (s *Server) restoreAllSlackMappings() {
 
 // restoreSlackForInstance re-maps slack channels for a single instance
 // that just started.
-func (s *Server) restoreSlackForInstance(inst *Instance) {
+func (s *Server) restoreSlackForInstance(inst *Agent) {
 	records, err := s.store.ListChannels(inst.ID)
 	if err != nil {
 		return
 	}
-	ic := s.instances.GetChannels(inst.ID)
+	ic := s.agents.GetChannels(inst.ID)
 	if ic == nil {
 		return
 	}
-	port := s.instances.GetPort(inst.ID)
+	port := s.agents.GetPort(inst.ID)
 	if port == 0 {
 		return
 	}
-	coreKey := s.instances.GetCoreAPIKey(inst.ID)
+	coreKey := s.agents.GetCoreAPIKey(inst.ID)
 	sendEvent := makeSendEvent(port, coreKey)
 
 	for _, r := range records {
@@ -237,7 +237,7 @@ func (s *Server) handleSlackConfigure(w http.ResponseWriter, r *http.Request) {
 		s.store.DeleteChannel(ch.ID)
 	}
 
-	// Persist as a project-level channel (instance_id=0)
+	// Persist as a project-level channel (agent_id=0)
 	configJSON, _ := json.Marshal(map[string]string{
 		"bot_token": body.BotToken,
 		"app_token": body.AppToken,
@@ -296,7 +296,7 @@ func (s *Server) handleChannelList(w http.ResponseWriter, r *http.Request) {
 
 	type channelInfo struct {
 		ID         int64  `json:"id"`
-		InstanceID int64  `json:"instance_id"`
+		AgentID int64  `json:"instance_id"`
 		Type       string `json:"type"`
 		Name       string `json:"name"`
 		Status     string `json:"status"`
@@ -305,13 +305,13 @@ func (s *Server) handleChannelList(w http.ResponseWriter, r *http.Request) {
 	// By instance
 	if idStr := q.Get("instance_id"); idStr != "" {
 		instanceID, _ := atoi64(idStr)
-		inst, err := s.store.GetInstance(userID, instanceID)
+		inst, err := s.store.GetAgent(userID, instanceID)
 		if err != nil {
 			http.Error(w, "instance not found", http.StatusNotFound)
 			return
 		}
 		records, _ := s.store.ListChannels(inst.ID)
-		ic := s.instances.GetChannels(inst.ID)
+		ic := s.agents.GetChannels(inst.ID)
 
 		var out []channelInfo
 		// CLI is always present
@@ -328,7 +328,7 @@ func (s *Server) handleChannelList(w http.ResponseWriter, r *http.Request) {
 			} else if r.Type == "email" && getEmailGateway(inst.ProjectID) == nil {
 				status = "disconnected"
 			}
-			out = append(out, channelInfo{ID: r.ID, InstanceID: r.InstanceID, Type: r.Type, Name: r.Name, Status: status})
+			out = append(out, channelInfo{ID: r.ID, AgentID: r.AgentID, Type: r.Type, Name: r.Name, Status: status})
 		}
 		writeJSON(w, out)
 		return
@@ -336,7 +336,7 @@ func (s *Server) handleChannelList(w http.ResponseWriter, r *http.Request) {
 
 	// By project — return all non-cli channels across all instances
 	projectID := q.Get("project_id")
-	instances, err := s.store.ListInstances(userID, projectID)
+	instances, err := s.store.ListAgents(userID, projectID)
 	if err != nil {
 		writeJSON(w, []channelInfo{})
 		return
@@ -351,7 +351,7 @@ func (s *Server) handleChannelList(w http.ResponseWriter, r *http.Request) {
 			} else if r.Type == "email" && getEmailGateway(inst.ProjectID) == nil {
 				status = "disconnected"
 			}
-			out = append(out, channelInfo{ID: r.ID, InstanceID: r.InstanceID, Type: r.Type, Name: r.Name, Status: status})
+			out = append(out, channelInfo{ID: r.ID, AgentID: r.AgentID, Type: r.Type, Name: r.Name, Status: status})
 		}
 	}
 	writeJSON(w, out)
@@ -370,7 +370,8 @@ func (s *Server) handleChannelConnect(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
 
 	var body struct {
-		InstanceID  int64  `json:"instance_id"`
+		AgentID     int64  `json:"agent_id"`     // Phase 2 canonical
+		InstanceID  int64  `json:"instance_id"`  // legacy alias
 		Type        string `json:"type"`
 		Token       string `json:"token"`        // telegram
 		ChannelID   string `json:"channel_id"`    // slack
@@ -380,7 +381,10 @@ func (s *Server) handleChannelConnect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	inst, err := s.store.GetInstance(userID, body.InstanceID)
+	if body.AgentID == 0 {
+		body.AgentID = body.InstanceID
+	}
+	inst, err := s.store.GetAgent(userID, body.AgentID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -392,7 +396,7 @@ func (s *Server) handleChannelConnect(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "token required", http.StatusBadRequest)
 			return
 		}
-		botName, err := s.instances.StartTelegram(inst.ID, body.Token)
+		botName, err := s.agents.StartTelegram(inst.ID, body.Token)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -409,8 +413,8 @@ func (s *Server) handleChannelConnect(w http.ResponseWriter, r *http.Request) {
 		encrypted, _ := Encrypt(s.secret, string(configJSON))
 		s.store.CreateChannel(userID, inst.ID, "telegram", "@"+botName, encrypted, inst.ProjectID)
 		// Notify core
-		port := s.instances.GetPort(inst.ID)
-		coreKey := s.instances.GetCoreAPIKey(inst.ID)
+		port := s.agents.GetPort(inst.ID)
+		coreKey := s.agents.GetCoreAPIKey(inst.ID)
 		if port > 0 {
 			ev := fmt.Sprintf("[telegram] gateway connected. Bot @%s online.", botName)
 			makeSendEvent(port, coreKey)(ev, "main")
@@ -450,10 +454,10 @@ func (s *Server) handleChannelConnect(w http.ResponseWriter, r *http.Request) {
 		encrypted, _ := Encrypt(s.secret, string(configJSON))
 		s.store.CreateChannel(userID, inst.ID, "slack", "#"+body.ChannelName, encrypted, inst.ProjectID)
 		// Wire up live mapping
-		ic := s.instances.GetChannels(inst.ID)
-		port := s.instances.GetPort(inst.ID)
+		ic := s.agents.GetChannels(inst.ID)
+		port := s.agents.GetPort(inst.ID)
 		if ic != nil && port > 0 {
-			coreKey := s.instances.GetCoreAPIKey(inst.ID)
+			coreKey := s.agents.GetCoreAPIKey(inst.ID)
 			sendEvent := makeSendEvent(port, coreKey)
 			gw.MapChannel(inst.ID, body.ChannelID, body.ChannelName, inst.Name, ic.registry, sendEvent)
 			sendEvent(fmt.Sprintf("[slack] channel #%s connected.", body.ChannelName), "main")
@@ -491,10 +495,10 @@ func (s *Server) handleChannelConnect(w http.ResponseWriter, r *http.Request) {
 		encrypted, _ := Encrypt(s.secret, string(configJSON))
 		s.store.CreateChannel(userID, inst.ID, "email", email, encrypted, inst.ProjectID)
 		// Wire up live
-		ic := s.instances.GetChannels(inst.ID)
-		port := s.instances.GetPort(inst.ID)
+		ic := s.agents.GetChannels(inst.ID)
+		port := s.agents.GetPort(inst.ID)
 		if ic != nil && port > 0 {
-			coreKey := s.instances.GetCoreAPIKey(inst.ID)
+			coreKey := s.agents.GetCoreAPIKey(inst.ID)
 			sendEvent := makeSendEvent(port, coreKey)
 			gw.MapInbox(inst.ID, inboxID, email, ic.registry, sendEvent)
 			sendEvent(fmt.Sprintf("[email] inbox %s created.", email), "main")
@@ -529,7 +533,7 @@ func (s *Server) handleChannelDisconnect(w http.ResponseWriter, r *http.Request)
 	var instanceID int64
 	var projectID string
 	err = s.store.db.QueryRow(
-		"SELECT type, instance_id, COALESCE(project_id,''), encrypted_config FROM channels WHERE id = ? AND user_id = ?",
+		"SELECT type, agent_id, COALESCE(project_id,''), encrypted_config FROM channels WHERE id = ? AND user_id = ?",
 		channelID, userID,
 	).Scan(&chType, &instanceID, &projectID, &enc)
 	if err != nil {
@@ -549,7 +553,7 @@ func (s *Server) handleChannelDisconnect(w http.ResponseWriter, r *http.Request)
 			}
 		}
 	case "telegram":
-		if ic := s.instances.GetChannels(instanceID); ic != nil && ic.telegram != nil {
+		if ic := s.agents.GetChannels(instanceID); ic != nil && ic.telegram != nil {
 			ic.telegram.Stop()
 			ic.telegram = nil
 		}

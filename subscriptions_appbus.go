@@ -194,11 +194,11 @@ func (d *AppEventDispatcher) dispatch(lane *appEventLane, ev AppEvent) {
 // same authorization, same payload shape — the only difference is
 // the prefix tag.
 func (d *AppEventDispatcher) deliver(sub *Subscription, ev AppEvent) error {
-	inst, err := d.server.store.GetInstance(sub.UserID, sub.InstanceID)
+	inst, err := d.server.store.GetAgent(sub.UserID, sub.AgentID)
 	if err != nil {
-		return fmt.Errorf("instance %d not found: %w", sub.InstanceID, err)
+		return fmt.Errorf("instance %d not found: %w", sub.AgentID, err)
 	}
-	port := d.server.instances.GetPort(inst.ID)
+	port := d.server.agents.GetPort(inst.ID)
 	if port == 0 {
 		return fmt.Errorf("instance %d not running", inst.ID)
 	}
@@ -218,7 +218,7 @@ func (d *AppEventDispatcher) deliver(sub *Subscription, ev AppEvent) error {
 	url := fmt.Sprintf("http://127.0.0.1:%d/event", port)
 	req, _ := http.NewRequest("POST", url, strings.NewReader(string(bodyJSON)))
 	req.Header.Set("Content-Type", "application/json")
-	if k := d.server.instances.GetCoreAPIKey(inst.ID); k != "" {
+	if k := d.server.agents.GetCoreAPIKey(inst.ID); k != "" {
 		req.Header.Set("Authorization", "Bearer "+k)
 	}
 	client := &http.Client{Timeout: 10 * time.Second}

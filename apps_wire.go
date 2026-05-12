@@ -16,7 +16,7 @@ import (
 
 // Bridges between apteva-server internals and the Apteva Apps
 // framework. The framework is designed to know nothing about
-// Server/Store/InstanceManager — this file is where we translate.
+// Server/Store/AgentManager — this file is where we translate.
 
 // startApps constructs the framework Registry, loads every built-in
 // app, runs their migrations + OnMount, and mounts their HTTP routes
@@ -56,12 +56,12 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 
 	// Hook into per-instance startup so new instances get app
 	// channels registered automatically. Runs inside
-	// InstanceManager.Start after the CLI bridge is registered —
+	// AgentManager.Start after the CLI bridge is registered —
 	// while im.mu is held write-locked. The hook path must NOT
-	// touch any InstanceManager accessor that takes the mutex
-	// (GetPort, GetCoreAPIKey, etc.); we pass the Instance
+	// touch any AgentManager accessor that takes the mutex
+	// (GetPort, GetCoreAPIKey, etc.); we pass the Agent
 	// directly so everything we need is already in hand.
-	s.instances.PostChannelsInit = func(inst *Instance, ic *InstanceChannels) {
+	s.agents.PostChannelsInit = func(inst *Agent, ic *AgentChannels) {
 		s.attachAppChannelsDuringStart(reg, inst, ic)
 	}
 
@@ -69,7 +69,7 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 	// `respond` tool description carries a live list of UI components
 	// installed apps declare. Each turn the description regenerates
 	// from this; no separate discovery tool needed.
-	s.instances.ComponentCatalog = func(projectID string, attachedMCPNames []string) []componentEntry {
+	s.agents.ComponentCatalog = func(projectID string, attachedMCPNames []string) []componentEntry {
 		return s.componentCatalogFor(projectID, attachedMCPNames)
 	}
 
@@ -184,15 +184,15 @@ func (s *Server) componentCatalogFor(projectID string, attachedMCPNames []string
 	return out
 }
 
-// attachAppChannelsDuringStart runs INSIDE InstanceManager.Start while
+// attachAppChannelsDuringStart runs INSIDE AgentManager.Start while
 // im.mu is held — so it builds the app-facing InstanceInfo from the
-// Instance pointer directly rather than looking it up via accessors
+// Agent pointer directly rather than looking it up via accessors
 // that would re-acquire the mutex and deadlock. Port and CoreAPIKey
 // are left zero-valued: the core process hasn't been spawned yet,
 // and the app facets that fire at attach time (OnInstanceAttach,
 // Channel factory Build) don't need them. Anything that needs them
 // happens later, through the registry's NotifyInstanceAttach path.
-func (s *Server) attachAppChannelsDuringStart(reg *framework.Registry, inst *Instance, ic *InstanceChannels) {
+func (s *Server) attachAppChannelsDuringStart(reg *framework.Registry, inst *Agent, ic *AgentChannels) {
 	info := framework.InstanceInfo{
 		ID:        inst.ID,
 		Name:      inst.Name,
@@ -217,7 +217,7 @@ func (s *Server) attachAppChannelsDuringStart(reg *framework.Registry, inst *Ins
 // attachAppChannelsToInstance is the OUTSIDE-of-Start variant used by
 // notifyAppsAboutExistingInstances — safe to use accessors here
 // because we are NOT holding im.mu.
-func (s *Server) attachAppChannelsToInstance(reg *framework.Registry, instanceID int64, ic *InstanceChannels) {
+func (s *Server) attachAppChannelsToInstance(reg *framework.Registry, instanceID int64, ic *AgentChannels) {
 	info := s.buildInstanceInfo(instanceID)
 	if info == nil {
 		return
@@ -241,15 +241,15 @@ func (s *Server) attachAppChannelsToInstance(reg *framework.Registry, instanceID
 // nil if the instance row doesn't exist (racy deletion case).
 func (s *Server) buildInstanceInfo(instanceID int64) *framework.InstanceInfo {
 	row := s.store.db.QueryRow(
-		`SELECT id, name, user_id, COALESCE(project_id,'') FROM instances WHERE id = ?`,
+		`SELECT id, name, user_id, COALESCE(project_id,'') FROM agents WHERE id = ?`,
 		instanceID,
 	)
 	var info framework.InstanceInfo
 	if err := row.Scan(&info.ID, &info.Name, &info.UserID, &info.ProjectID); err != nil {
 		return nil
 	}
-	info.Port = s.instances.GetPort(info.ID)
-	info.CoreAPIKey = s.instances.GetCoreAPIKey(info.ID)
+	info.Port = s.agents.GetPort(info.ID)
+	info.CoreAPIKey = s.agents.GetCoreAPIKey(info.ID)
 	return &info
 }
 
@@ -269,7 +269,7 @@ func (s *Server) stopApps(reg *framework.Registry) {
 // and stopped ones (so default rows like chat exist ahead of first use).
 func (s *Server) notifyAppsAboutExistingInstances(reg *framework.Registry) {
 	rows, err := s.store.db.Query(
-		`SELECT id FROM instances`,
+		`SELECT id FROM agents`,
 	)
 	if err != nil {
 		return
@@ -287,13 +287,13 @@ func (s *Server) notifyAppsAboutExistingInstances(reg *framework.Registry) {
 		if info == nil {
 			continue
 		}
-		// For running instances whose InstanceChannels already
+		// For running instances whose AgentChannels already
 		// exists, attach the channels to that live registry. For
 		// stopped ones, OnInstanceAttach still runs (to create
 		// default rows), but Build is skipped since there's no
 		// registry yet — their channels will be built when they
 		// start via PostChannelsInit.
-		ic := s.instances.GetChannels(id)
+		ic := s.agents.GetChannels(id)
 		if ic != nil {
 			s.attachAppChannelsToInstance(reg, id, ic)
 		} else {
@@ -315,7 +315,7 @@ type serverResolver struct {
 }
 
 func (r *serverResolver) OwnedInstance(userID, instanceID int64) (framework.InstanceInfo, error) {
-	inst, err := r.srv.store.GetInstance(userID, instanceID)
+	inst, err := r.srv.store.GetAgent(userID, instanceID)
 	if err != nil {
 		return framework.InstanceInfo{}, err
 	}
@@ -324,8 +324,8 @@ func (r *serverResolver) OwnedInstance(userID, instanceID int64) (framework.Inst
 		Name:       inst.Name,
 		UserID:     inst.UserID,
 		ProjectID:  inst.ProjectID,
-		Port:       r.srv.instances.GetPort(inst.ID),
-		CoreAPIKey: r.srv.instances.GetCoreAPIKey(inst.ID),
+		Port:       r.srv.agents.GetPort(inst.ID),
+		CoreAPIKey: r.srv.agents.GetCoreAPIKey(inst.ID),
 	}, nil
 }
 
@@ -337,7 +337,7 @@ func (r *serverResolver) LookupUserID(req *http.Request) int64 {
 // channel-chat's notifications-tray endpoints to scope global SSE +
 // unread-summary to "this user's chats".
 func (r *serverResolver) InstanceIDsForUser(userID int64) ([]int64, error) {
-	insts, err := r.srv.store.ListInstances(userID, "")
+	insts, err := r.srv.store.ListAgents(userID, "")
 	if err != nil {
 		return nil, err
 	}

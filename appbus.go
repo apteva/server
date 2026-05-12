@@ -4,7 +4,7 @@ package main
 //
 // Separate from TelemetryBroadcaster on purpose:
 //
-//   - Telemetry is agent-shaped (instance_id, thread_id, type) and
+//   - Telemetry is agent-shaped (agent_id, thread_id, type) and
 //     durable (every event lands in the telemetry table). App events
 //     are app/project-scoped, fanout-only, and the source-of-truth
 //     lives in the app's own DB. Forcing app fanout through telemetry

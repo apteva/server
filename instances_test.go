@@ -67,7 +67,7 @@ func TestCreateInstance_NoStart(t *testing.T) {
 	s.handleCreateInstance(w, req)
 
 	// May fail to start core, but instance should be in DB
-	instances, _ := s.store.ListInstances(1, "")
+	instances, _ := s.store.ListAgents(1, "")
 	if len(instances) != 1 {
 		t.Fatalf("expected 1 instance in DB, got %d", len(instances))
 	}
@@ -79,7 +79,7 @@ func TestCreateInstance_NoStart(t *testing.T) {
 func TestGetInstance(t *testing.T) {
 	s := newTestServer(t)
 	registerAndLogin(t, s)
-	s.store.CreateInstance(1, "agent", "directive", "autonomous", "{}", "")
+	s.store.CreateAgent(1, "agent", "directive", "autonomous", "{}", "")
 
 	req := authedRequest(t, "GET", "/instances/1", "", nil)
 	w := httptest.NewRecorder()
@@ -110,7 +110,7 @@ func TestGetInstance_NotFound(t *testing.T) {
 func TestDeleteInstance(t *testing.T) {
 	s := newTestServer(t)
 	registerAndLogin(t, s)
-	s.store.CreateInstance(1, "agent", "dir", "autonomous", "{}", "")
+	s.store.CreateAgent(1, "agent", "dir", "autonomous", "{}", "")
 
 	req := authedRequest(t, "DELETE", "/instances/1", "", nil)
 	w := httptest.NewRecorder()
@@ -120,7 +120,7 @@ func TestDeleteInstance(t *testing.T) {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 
-	instances, _ := s.store.ListInstances(1, "")
+	instances, _ := s.store.ListAgents(1, "")
 	if len(instances) != 0 {
 		t.Errorf("expected 0 after delete, got %d", len(instances))
 	}
@@ -129,7 +129,7 @@ func TestDeleteInstance(t *testing.T) {
 func TestUpdateConfig(t *testing.T) {
 	s := newTestServer(t)
 	registerAndLogin(t, s)
-	s.store.CreateInstance(1, "agent", "old directive", "autonomous", "{}", "")
+	s.store.CreateAgent(1, "agent", "old directive", "autonomous", "{}", "")
 
 	req := authedRequest(t, "PUT", "/instances/1/config", "", map[string]string{
 		"directive": "new directive",
@@ -141,14 +141,14 @@ func TestUpdateConfig(t *testing.T) {
 		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	inst, _ := s.store.GetInstance(1, 1)
+	inst, _ := s.store.GetAgent(1, 1)
 	if inst.Directive != "new directive" {
 		t.Errorf("expected new directive, got %s", inst.Directive)
 	}
 }
 
 func TestInstanceManager_PortTracking(t *testing.T) {
-	im := NewInstanceManager(t.TempDir(), "sleep")
+	im := NewAgentManager(t.TempDir(), "sleep")
 
 	// Not running initially
 	if im.IsRunning(1) {
@@ -164,7 +164,7 @@ func TestInstanceManager_PortTracking(t *testing.T) {
 	defer cmd.Process.Kill()
 
 	im.mu.Lock()
-	im.processes[1] = &runningInstance{cmd: cmd, port: 5001}
+	im.processes[1] = &runningAgent{cmd: cmd, port: 5001}
 	im.mu.Unlock()
 
 	if !im.IsRunning(1) {
@@ -185,7 +185,7 @@ func TestInstanceManager_PortTracking(t *testing.T) {
 }
 
 func TestInstanceManager_StopNotRunning(t *testing.T) {
-	im := NewInstanceManager(t.TempDir(), "sleep")
+	im := NewAgentManager(t.TempDir(), "sleep")
 	// Should not panic
 	im.Stop(999)
 }
@@ -202,25 +202,25 @@ func TestInstanceIsolation(t *testing.T) {
 	})
 
 	// Alice creates an instance
-	s.store.CreateInstance(1, "alice-agent", "alice stuff", "autonomous", "{}", "")
+	s.store.CreateAgent(1, "alice-agent", "alice stuff", "autonomous", "{}", "")
 
 	// Bob creates an instance
-	s.store.CreateInstance(2, "bob-agent", "bob stuff", "autonomous", "{}", "")
+	s.store.CreateAgent(2, "bob-agent", "bob stuff", "autonomous", "{}", "")
 
 	// Alice should see only her instance
-	aliceInstances, _ := s.store.ListInstances(1, "")
+	aliceInstances, _ := s.store.ListAgents(1, "")
 	if len(aliceInstances) != 1 || aliceInstances[0].Name != "alice-agent" {
 		t.Errorf("alice should see only alice-agent, got %v", aliceInstances)
 	}
 
 	// Bob should see only his
-	bobInstances, _ := s.store.ListInstances(2, "")
+	bobInstances, _ := s.store.ListAgents(2, "")
 	if len(bobInstances) != 1 || bobInstances[0].Name != "bob-agent" {
 		t.Errorf("bob should see only bob-agent, got %v", bobInstances)
 	}
 
 	// Alice can't access Bob's instance
-	_, err := s.store.GetInstance(1, 2)
+	_, err := s.store.GetAgent(1, 2)
 	if err == nil {
 		t.Error("alice should not see bob's instance")
 	}

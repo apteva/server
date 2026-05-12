@@ -58,7 +58,11 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		s.handleCallbackWhoami(w, r)
 	case "connections":
 		s.handleCallbackConnections(w, r, parts[1:])
-	case "instances":
+	case "instances", "agents":
+		// Phase 2 alias — sidecars can call /api/apps/callback/agents/:id
+		// or the original /instances/:id; the handler treats them as
+		// identical. Apps are migrating from PlatformInstance to
+		// PlatformAgent and the SDK's GetAgent helper points here.
 		s.handleCallbackInstances(w, r, parts[1:])
 	case "channels":
 		s.handleCallbackChannels(w, r, parts[1:])
@@ -438,7 +442,7 @@ func (s *Server) handleCallbackInstances(w http.ResponseWriter, r *http.Request,
 			http.Error(w, "GET only", http.StatusMethodNotAllowed)
 			return
 		}
-		inst, err := s.store.GetInstanceByID(id)
+		inst, err := s.store.GetAgentByID(id)
 		if err != nil || inst == nil {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
@@ -460,7 +464,7 @@ func (s *Server) handleCallbackInstances(w http.ResponseWriter, r *http.Request,
 		// Defer to whatever the platform's existing inject path is —
 		// for now we accept the call and surface it through the
 		// telemetry broadcaster so the dashboard sees activity.
-		// Full instance-event injection lives in instances.go and
+		// Full instance-event injection lives in agents.go and
 		// can be wired here in a follow-up.
 		writeJSON(w, map[string]any{"queued": true, "message": body.Message})
 		return

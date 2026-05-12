@@ -52,7 +52,7 @@ func (c *ConsoleLogger) instanceName(id int64) string {
 	if name, ok := c.names[id]; ok {
 		return name
 	}
-	name, err := c.store.GetInstanceName(id)
+	name, err := c.store.GetAgentName(id)
 	if err != nil || name == "" {
 		name = fmt.Sprintf("instance-%d", id)
 	}
@@ -77,7 +77,7 @@ func (c *ConsoleLogger) render(ev TelemetryEvent) {
 		return
 	}
 
-	name := c.instanceName(ev.InstanceID)
+	name := c.instanceName(ev.AgentID)
 	threadLabel := ev.ThreadID
 	if threadLabel == "" {
 		threadLabel = "main"

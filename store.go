@@ -38,7 +38,7 @@ type Project struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-type Instance struct {
+type Agent struct {
 	ID        int64     `json:"id"`
 	UserID    int64     `json:"user_id"`
 	Name      string    `json:"name"`
@@ -136,7 +136,59 @@ func execWithBusyRetry(db *sql.DB, query string, args ...any) error {
 	return lastErr
 }
 
+// renameInstanceTablesToAgents migrates schemas that pre-date the
+// instance → agent rename (Phase 1 — server-internal only). Runs
+// before the CREATE TABLE block so the IF NOT EXISTS clauses don't
+// accidentally create a second, empty `agents` table while the data
+// stays in `instances`.
+//
+// Idempotent — every step checks the source artifact still exists.
+// Wire-facing names (JSON keys, env vars, HTTP query params, the
+// X-Instance-Secret header) are deliberately NOT touched; those are
+// Phase 2 work coordinated with apteva-core + apps.
+//
+// SQLite ≥ 3.25 RENAME COLUMN auto-updates indexes that reference
+// the renamed column; we still DROP + CREATE on the index name itself
+// since renaming an index isn't supported in the same statement.
+func (s *Store) renameInstanceTablesToAgents() {
+	// Rename the main agent table.
+	if tableExists(s.db, "instances") && !tableExists(s.db, "agents") {
+		s.db.Exec("ALTER TABLE instances RENAME TO agents")
+	}
+	// Rename FK columns in dependent tables.
+	for _, t := range []string{"subscriptions", "channels", "telemetry", "app_grants"} {
+		if columnExists(s.db, t, "instance_id") && !columnExists(s.db, t, "agent_id") {
+			s.db.Exec("ALTER TABLE " + t + " RENAME COLUMN instance_id TO agent_id")
+		}
+	}
+	// The binding table itself was renamed.
+	if tableExists(s.db, "app_instance_bindings") && !tableExists(s.db, "app_agent_bindings") {
+		s.db.Exec("ALTER TABLE app_instance_bindings RENAME TO app_agent_bindings")
+	}
+	if columnExists(s.db, "app_agent_bindings", "instance_id") && !columnExists(s.db, "app_agent_bindings", "agent_id") {
+		s.db.Exec("ALTER TABLE app_agent_bindings RENAME COLUMN instance_id TO agent_id")
+	}
+	// Index name swap. RENAME COLUMN keeps the old index alive
+	// (pointing at the new column) — the rename below just gets the
+	// name consistent with the new conventions, no data movement.
+	s.db.Exec("DROP INDEX IF EXISTS idx_telem_instance_time")
+}
+
+// tableExists checks whether `name` is a table in the connected DB.
+// Used by the rename migration to skip steps already applied.
+func tableExists(db *sql.DB, name string) bool {
+	var n int
+	_ = db.QueryRow(
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, name,
+	).Scan(&n)
+	return n > 0
+}
+
 func (s *Store) migrate() error {
+	// Phase 1 rename runs first so the CREATE TABLE IF NOT EXISTS
+	// block below sees a freshly-renamed schema.
+	s.renameInstanceTablesToAgents()
+
 	_, err := s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -231,7 +283,7 @@ func (s *Store) migrate() error {
 		CREATE TABLE IF NOT EXISTS subscriptions (
 			id TEXT PRIMARY KEY,
 			user_id INTEGER NOT NULL REFERENCES users(id),
-			instance_id INTEGER NOT NULL DEFAULT 0,
+			agent_id INTEGER NOT NULL DEFAULT 0,
 			connection_id INTEGER NOT NULL DEFAULT 0,
 			name TEXT NOT NULL,
 			slug TEXT NOT NULL DEFAULT '',
@@ -247,7 +299,7 @@ func (s *Store) migrate() error {
 		CREATE TABLE IF NOT EXISTS channels (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id INTEGER NOT NULL REFERENCES users(id),
-			instance_id INTEGER NOT NULL DEFAULT 0,
+			agent_id INTEGER NOT NULL DEFAULT 0,
 			type TEXT NOT NULL,
 			name TEXT NOT NULL DEFAULT '',
 			encrypted_config TEXT DEFAULT '',
@@ -257,17 +309,17 @@ func (s *Store) migrate() error {
 
 		CREATE TABLE IF NOT EXISTS telemetry (
 			id TEXT PRIMARY KEY,
-			instance_id INTEGER NOT NULL,
+			agent_id INTEGER NOT NULL,
 			thread_id TEXT NOT NULL DEFAULT 'main',
 			type TEXT NOT NULL,
 			time DATETIME NOT NULL,
 			data TEXT NOT NULL DEFAULT '{}',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
-		CREATE INDEX IF NOT EXISTS idx_telem_instance_time ON telemetry(instance_id, time);
+		CREATE INDEX IF NOT EXISTS idx_telem_agent_time ON telemetry(agent_id, time);
 		CREATE INDEX IF NOT EXISTS idx_telem_type ON telemetry(type, time);
 
-		CREATE TABLE IF NOT EXISTS instances (
+		CREATE TABLE IF NOT EXISTS agents (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			user_id INTEGER NOT NULL REFERENCES users(id),
 			name TEXT NOT NULL,
@@ -310,11 +362,11 @@ func (s *Store) migrate() error {
 	s.db.Exec("ALTER TABLE connections ADD COLUMN project_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN project_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN project_id TEXT DEFAULT ''")
-	s.db.Exec("ALTER TABLE instances ADD COLUMN project_id TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE agents ADD COLUMN project_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE providers ADD COLUMN project_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE channels ADD COLUMN project_id TEXT DEFAULT ''")
-	// is_default removed — default is per-instance, stored in instances.config
-	s.db.Exec("ALTER TABLE instances ADD COLUMN mode TEXT DEFAULT 'autonomous'")
+	// is_default removed — default is per-instance, stored in agents.config
+	s.db.Exec("ALTER TABLE agents ADD COLUMN mode TEXT DEFAULT 'autonomous'")
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN external_webhook_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN events TEXT DEFAULT ''")
 	// Source discriminator for the subscription. Default 'webhook'
@@ -557,11 +609,11 @@ func (s *Store) migrate() error {
 	// no auto-MCP).
 	s.db.Exec(`ALTER TABLE connections ADD COLUMN created_via TEXT NOT NULL DEFAULT 'integration'`)
 	s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS app_instance_bindings (
+		CREATE TABLE IF NOT EXISTS app_agent_bindings (
 			install_id   INTEGER NOT NULL REFERENCES app_installs(id),
-			instance_id  INTEGER NOT NULL REFERENCES instances(id),
+			agent_id  INTEGER NOT NULL REFERENCES instances(id),
 			enabled      INTEGER NOT NULL DEFAULT 1,
-			PRIMARY KEY (install_id, instance_id)
+			PRIMARY KEY (install_id, agent_id)
 		)
 	`)
 
@@ -613,16 +665,16 @@ func (s *Store) migrate() error {
 		CREATE TABLE IF NOT EXISTS app_grants (
 			id           INTEGER PRIMARY KEY AUTOINCREMENT,
 			install_id   INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE,
-			instance_id  INTEGER NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+			agent_id  INTEGER NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
 			effect       TEXT NOT NULL CHECK (effect IN ('allow','deny')),
 			permission   TEXT NOT NULL,
 			resource     TEXT NOT NULL DEFAULT '*',
 			created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
 			created_by   TEXT NOT NULL DEFAULT '',
-			UNIQUE(install_id, instance_id, effect, permission, resource)
+			UNIQUE(install_id, agent_id, effect, permission, resource)
 		)
 	`)
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_app_grants_lookup ON app_grants(install_id, instance_id)`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_app_grants_lookup ON app_grants(install_id, agent_id)`)
 	// default_effect — 'allow' (default, full back-compat) or 'deny'
 	// for fail-closed installs. Per-install knob; the dashboard's
 	// "Access" tab flips it.
@@ -761,7 +813,7 @@ type UserResourceCounts struct {
 
 func (s *Store) CountUserResources(userID int64) UserResourceCounts {
 	var c UserResourceCounts
-	s.db.QueryRow("SELECT COUNT(*) FROM instances WHERE user_id=?", userID).Scan(&c.Agents)
+	s.db.QueryRow("SELECT COUNT(*) FROM agents WHERE user_id=?", userID).Scan(&c.Agents)
 	s.db.QueryRow("SELECT COUNT(*) FROM api_keys WHERE user_id=?", userID).Scan(&c.APIKeys)
 	s.db.QueryRow("SELECT COUNT(*) FROM projects WHERE user_id=?", userID).Scan(&c.Projects)
 	s.db.QueryRow("SELECT COUNT(*) FROM providers WHERE user_id=?", userID).Scan(&c.Providers)
@@ -784,12 +836,12 @@ func (s *Store) DeleteUser(userID int64) error {
 	}
 	defer tx.Rollback()
 	// Order matters only for readability; none of these have FKs to
-	// each other, only to users(id). Telemetry is keyed by instance_id,
+	// each other, only to users(id). Telemetry is keyed by agent_id,
 	// not user_id, so it goes away transitively once instances do —
 	// but we clean it up anyway for explicit hygiene.
 	for _, q := range []string{
-		"DELETE FROM telemetry WHERE instance_id IN (SELECT id FROM instances WHERE user_id = ?)",
-		"DELETE FROM instances WHERE user_id = ?",
+		"DELETE FROM telemetry WHERE agent_id IN (SELECT id FROM agents WHERE user_id = ?)",
+		"DELETE FROM agents WHERE user_id = ?",
 		"DELETE FROM api_keys WHERE user_id = ?",
 		"DELETE FROM sessions WHERE user_id = ?",
 		"DELETE FROM providers WHERE user_id = ?",
@@ -891,35 +943,35 @@ func (s *Store) DeleteAPIKey(userID, keyID int64) error {
 
 // --- Instances ---
 
-func (s *Store) CreateInstance(userID int64, name, directive, mode, config, projectID string) (*Instance, error) {
+func (s *Store) CreateAgent(userID int64, name, directive, mode, config, projectID string) (*Agent, error) {
 	if mode == "" {
 		mode = "autonomous"
 	}
 	result, err := s.db.Exec(
-		"INSERT INTO instances (user_id, name, directive, mode, config, project_id) VALUES (?, ?, ?, ?, ?, ?)",
+		"INSERT INTO agents (user_id, name, directive, mode, config, project_id) VALUES (?, ?, ?, ?, ?, ?)",
 		userID, name, directive, mode, config, projectID,
 	)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := result.LastInsertId()
-	return &Instance{ID: id, UserID: userID, Name: name, Directive: directive, Mode: mode, Config: config, Status: "stopped", ProjectID: projectID, CreatedAt: time.Now()}, nil
+	return &Agent{ID: id, UserID: userID, Name: name, Directive: directive, Mode: mode, Config: config, Status: "stopped", ProjectID: projectID, CreatedAt: time.Now()}, nil
 }
 
-// GetInstanceName returns the name of an instance by ID (no user check).
+// GetAgentName returns the name of an instance by ID (no user check).
 // Used by the console logger to resolve instance names from telemetry events.
-func (s *Store) GetInstanceName(instanceID int64) (string, error) {
+func (s *Store) GetAgentName(instanceID int64) (string, error) {
 	var name string
-	err := s.db.QueryRow("SELECT name FROM instances WHERE id = ?", instanceID).Scan(&name)
+	err := s.db.QueryRow("SELECT name FROM agents WHERE id = ?", instanceID).Scan(&name)
 	return name, err
 }
 
-// GetInstanceByID returns an instance by ID without user check (for server-internal use).
-func (s *Store) GetInstanceByID(instanceID int64) (*Instance, error) {
-	var inst Instance
+// GetAgentByID returns an instance by ID without user check (for server-internal use).
+func (s *Store) GetAgentByID(instanceID int64) (*Agent, error) {
+	var inst Agent
 	var createdAt string
 	err := s.db.QueryRow(
-		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, status, COALESCE(project_id,''), created_at FROM instances WHERE id = ?",
+		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, status, COALESCE(project_id,''), created_at FROM agents WHERE id = ?",
 		instanceID,
 	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &createdAt)
 	if err != nil {
@@ -929,11 +981,11 @@ func (s *Store) GetInstanceByID(instanceID int64) (*Instance, error) {
 	return &inst, nil
 }
 
-func (s *Store) GetInstance(userID, instanceID int64) (*Instance, error) {
-	var inst Instance
+func (s *Store) GetAgent(userID, instanceID int64) (*Agent, error) {
+	var inst Agent
 	var createdAt string
 	err := s.db.QueryRow(
-		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, status, COALESCE(project_id,''), created_at FROM instances WHERE id = ? AND user_id = ?",
+		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, status, COALESCE(project_id,''), created_at FROM agents WHERE id = ? AND user_id = ?",
 		instanceID, userID,
 	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &createdAt)
 	if err != nil {
@@ -943,24 +995,24 @@ func (s *Store) GetInstance(userID, instanceID int64) (*Instance, error) {
 	return &inst, nil
 }
 
-func (s *Store) ListInstances(userID int64, projectID string) ([]Instance, error) {
+func (s *Store) ListAgents(userID int64, projectID string) ([]Agent, error) {
 	var rows *sql.Rows
 	var err error
 	if projectID != "" {
 		rows, err = s.db.Query(
-			"SELECT id, name, directive, COALESCE(mode,'autonomous'), port, pid, status, COALESCE(project_id,''), created_at FROM instances WHERE user_id = ? AND project_id = ?", userID, projectID)
+			"SELECT id, name, directive, COALESCE(mode,'autonomous'), port, pid, status, COALESCE(project_id,''), created_at FROM agents WHERE user_id = ? AND project_id = ?", userID, projectID)
 	} else {
 		rows, err = s.db.Query(
-			"SELECT id, name, directive, COALESCE(mode,'autonomous'), port, pid, status, COALESCE(project_id,''), created_at FROM instances WHERE user_id = ?", userID)
+			"SELECT id, name, directive, COALESCE(mode,'autonomous'), port, pid, status, COALESCE(project_id,''), created_at FROM agents WHERE user_id = ?", userID)
 	}
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var instances []Instance
+	var instances []Agent
 	for rows.Next() {
-		var inst Instance
+		var inst Agent
 		var createdAt string
 		rows.Scan(&inst.ID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &createdAt)
 		inst.UserID = userID
@@ -970,22 +1022,22 @@ func (s *Store) ListInstances(userID int64, projectID string) ([]Instance, error
 	return instances, nil
 }
 
-func (s *Store) UpdateInstance(inst *Instance) error {
+func (s *Store) UpdateAgent(inst *Agent) error {
 	_, err := s.db.Exec(
-		"UPDATE instances SET name=?, directive=?, mode=?, config=?, port=?, pid=?, status=?, project_id=? WHERE id=?",
+		"UPDATE agents SET name=?, directive=?, mode=?, config=?, port=?, pid=?, status=?, project_id=? WHERE id=?",
 		inst.Name, inst.Directive, inst.Mode, inst.Config, inst.Port, inst.Pid, inst.Status, inst.ProjectID, inst.ID,
 	)
 	return err
 }
 
-// ListInstancesByStatus scans every user's instances for ones in the given
+// ListAgentsByStatus scans every user's instances for ones in the given
 // status. Used by the server's boot-time resume path to find everything
 // that was `running` before the last shutdown and re-spawn those cores.
 // The result is unsorted; callers that need ordering should sort themselves.
-func (s *Store) ListInstancesByStatus(status string) ([]Instance, error) {
+func (s *Store) ListAgentsByStatus(status string) ([]Agent, error) {
 	rows, err := s.db.Query(
 		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, status, COALESCE(project_id,''), created_at
-		 FROM instances WHERE status = ?`,
+		 FROM agents WHERE status = ?`,
 		status,
 	)
 	if err != nil {
@@ -993,9 +1045,9 @@ func (s *Store) ListInstancesByStatus(status string) ([]Instance, error) {
 	}
 	defer rows.Close()
 
-	var instances []Instance
+	var instances []Agent
 	for rows.Next() {
-		var inst Instance
+		var inst Agent
 		var createdAt string
 		rows.Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &createdAt)
 		inst.CreatedAt, _ = parseTime(createdAt)
@@ -1004,9 +1056,9 @@ func (s *Store) ListInstancesByStatus(status string) ([]Instance, error) {
 	return instances, nil
 }
 
-// DeleteInstance removes an instance row plus every per-instance row
+// DeleteAgent removes an instance row plus every per-instance row
 // in the server's own DB. Tables here lack ON DELETE CASCADE, so a
-// naive `DELETE FROM instances` left telemetry/channels/subscriptions/
+// naive `DELETE FROM agents` left telemetry/channels/subscriptions/
 // bindings behind — we found ~100 orphan instance_ids in telemetry
 // alone in production. Each child delete is its own statement
 // (rather than a single CTE) because the server's sqlite driver
@@ -1014,14 +1066,14 @@ func (s *Store) ListInstancesByStatus(status string) ([]Instance, error) {
 //
 // App-side state (channel-chat chats/messages, future helpdesk
 // tickets, etc.) is NOT touched here — that's the apps registry's
-// job via NotifyInstanceDetach. The caller in instances.go fires
+// job via NotifyInstanceDetach. The caller in agents.go fires
 // that hook before invoking us.
-func (s *Store) DeleteInstance(userID, instanceID int64) error {
+func (s *Store) DeleteAgent(userID, instanceID int64) error {
 	// Verify ownership first — the deletes below are unscoped by
 	// user_id, so a missing ownership check would let any caller
 	// blow away another tenant's data if they knew the id.
 	var owner int64
-	if err := s.db.QueryRow("SELECT user_id FROM instances WHERE id = ?", instanceID).Scan(&owner); err != nil {
+	if err := s.db.QueryRow("SELECT user_id FROM agents WHERE id = ?", instanceID).Scan(&owner); err != nil {
 		if err == sql.ErrNoRows {
 			return nil // already gone — idempotent
 		}
@@ -1032,11 +1084,11 @@ func (s *Store) DeleteInstance(userID, instanceID int64) error {
 	}
 
 	stmts := []string{
-		"DELETE FROM telemetry             WHERE instance_id = ?",
-		"DELETE FROM channels              WHERE instance_id = ?",
-		"DELETE FROM subscriptions         WHERE instance_id = ?",
-		"DELETE FROM app_instance_bindings WHERE instance_id = ?",
-		"DELETE FROM instances             WHERE id = ? AND user_id = ?",
+		"DELETE FROM telemetry             WHERE agent_id = ?",
+		"DELETE FROM channels              WHERE agent_id = ?",
+		"DELETE FROM subscriptions         WHERE agent_id = ?",
+		"DELETE FROM app_agent_bindings WHERE agent_id = ?",
+		"DELETE FROM agents             WHERE id = ? AND user_id = ?",
 	}
 	for i, q := range stmts {
 		var err error
@@ -1199,7 +1251,7 @@ func columnExists(db *sql.DB, table, col string) bool {
 type ChannelRecord struct {
 	ID         int64  `json:"id"`
 	UserID     int64  `json:"user_id"`
-	InstanceID int64  `json:"instance_id"`
+	AgentID int64  `json:"instance_id"`
 	ProjectID  string `json:"project_id,omitempty"`
 	Type       string `json:"type"`
 	Name       string `json:"name"`
@@ -1213,18 +1265,18 @@ func (s *Store) CreateChannel(userID, instanceID int64, chType, name, encryptedC
 		pid = projectID[0]
 	}
 	res, err := s.db.Exec(
-		"INSERT INTO channels (user_id, instance_id, type, name, encrypted_config, project_id) VALUES (?, ?, ?, ?, ?, ?)",
+		"INSERT INTO channels (user_id, agent_id, type, name, encrypted_config, project_id) VALUES (?, ?, ?, ?, ?, ?)",
 		userID, instanceID, chType, name, encryptedConfig, pid,
 	)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
-	return &ChannelRecord{ID: id, UserID: userID, InstanceID: instanceID, ProjectID: pid, Type: chType, Name: name, Status: "active"}, nil
+	return &ChannelRecord{ID: id, UserID: userID, AgentID: instanceID, ProjectID: pid, Type: chType, Name: name, Status: "active"}, nil
 }
 
 func (s *Store) ListChannels(instanceID int64) ([]ChannelRecord, error) {
-	rows, err := s.db.Query("SELECT id, user_id, instance_id, COALESCE(project_id,''), type, name, status, created_at FROM channels WHERE instance_id = ? AND status = 'active'", instanceID)
+	rows, err := s.db.Query("SELECT id, user_id, agent_id, COALESCE(project_id,''), type, name, status, created_at FROM channels WHERE agent_id = ? AND status = 'active'", instanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -1232,16 +1284,16 @@ func (s *Store) ListChannels(instanceID int64) ([]ChannelRecord, error) {
 	var out []ChannelRecord
 	for rows.Next() {
 		var c ChannelRecord
-		rows.Scan(&c.ID, &c.UserID, &c.InstanceID, &c.ProjectID, &c.Type, &c.Name, &c.Status, &c.CreatedAt)
+		rows.Scan(&c.ID, &c.UserID, &c.AgentID, &c.ProjectID, &c.Type, &c.Name, &c.Status, &c.CreatedAt)
 		out = append(out, c)
 	}
 	return out, nil
 }
 
-// ListChannelsByProject returns all channels for a project (including project-level ones with instance_id=0).
+// ListChannelsByProject returns all channels for a project (including project-level ones with agent_id=0).
 func (s *Store) ListChannelsByProject(projectID string, chType string) ([]ChannelRecord, error) {
 	rows, err := s.db.Query(
-		"SELECT id, user_id, instance_id, COALESCE(project_id,''), type, name, encrypted_config, status, created_at FROM channels WHERE project_id = ? AND type = ? AND status = 'active'",
+		"SELECT id, user_id, agent_id, COALESCE(project_id,''), type, name, encrypted_config, status, created_at FROM channels WHERE project_id = ? AND type = ? AND status = 'active'",
 		projectID, chType,
 	)
 	if err != nil {
@@ -1252,7 +1304,7 @@ func (s *Store) ListChannelsByProject(projectID string, chType string) ([]Channe
 	for rows.Next() {
 		var c ChannelRecord
 		var enc string
-		rows.Scan(&c.ID, &c.UserID, &c.InstanceID, &c.ProjectID, &c.Type, &c.Name, &enc, &c.Status, &c.CreatedAt)
+		rows.Scan(&c.ID, &c.UserID, &c.AgentID, &c.ProjectID, &c.Type, &c.Name, &enc, &c.Status, &c.CreatedAt)
 		out = append(out, c)
 	}
 	return out, nil

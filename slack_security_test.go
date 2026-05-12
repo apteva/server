@@ -63,7 +63,7 @@ func TestChannelDisconnect_CannotDeleteOtherUsersChannel(t *testing.T) {
 		}
 	}
 	if !found {
-		// ListChannels(0) returns all channels with instance_id=0 — sanity
+		// ListChannels(0) returns all channels with agent_id=0 — sanity
 		// check it still matches the row we inserted.
 		t.Fatal("Alice's channel was deleted by Bob's request — IDOR still open")
 	}

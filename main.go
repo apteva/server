@@ -57,7 +57,7 @@ func loadOrMintInstanceSecret(store *Store) string {
 		// Fall back to the generated token — next boot will mint a
 		// new one and rotate cores, but that's still better than a
 		// panic here on a write failure.
-		log.Printf("[BOOT] failed to persist instance_secret: %v", err)
+		log.Printf("[BOOT] failed to persist agent_secret: %v", err)
 	}
 	return v
 }
@@ -65,7 +65,7 @@ func loadOrMintInstanceSecret(store *Store) string {
 type Server struct {
 	store       *Store
 	dbPath      string  // path to apteva-server.db on disk (needed for staged restore)
-	instances   *InstanceManager
+	agents   *AgentManager
 	mcpManager  *MCPManager
 	catalog     *AppCatalog
 	secret      []byte  // AES-256 key for encrypting provider data
@@ -442,7 +442,7 @@ func main() {
 	s := &Server{
 		store:       store,
 		dbPath:      dbPath,
-		instances:   NewInstanceManager(dataDir, coreCmd),
+		agents:   NewAgentManager(dataDir, coreCmd),
 		mcpManager:  NewMCPManager(),
 		catalog:     catalog,
 		appsDir:     appsDir,
@@ -456,7 +456,7 @@ func main() {
 		regMode:        regMode,
 		// instanceSecret gates both the /api/telemetry ingest path and
 		// the MCP gateway's instance auth. Cores we spawn receive it as
-		// INSTANCE_SECRET and send it back in X-Instance-Secret on every
+		// INSTANCE_SECRET and send it back in X-Agent-Secret on every
 		// telemetry POST. Regenerating it on every server start breaks
 		// already-running cores (they keep using their old env value
 		// and hit 401 forever until re-spawned), so we persist it in
@@ -1004,7 +1004,7 @@ func main() {
 		}
 	}))
 
-	apiMux.HandleFunc("/instances", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	instancesCollectionHandler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			s.handleListInstances(w, r)
@@ -1013,10 +1013,24 @@ func main() {
 		default:
 			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
 		}
-	}))
+	})
+	apiMux.HandleFunc("/instances", instancesCollectionHandler)
+	// Phase 2 alias — /agents is the canonical name going forward.
+	// Both prefixes hit the same handler; internal path parsing below
+	// normalises /agents/... back to /instances/... so handlers that
+	// strings.TrimPrefix on "/instances/" keep working unchanged.
+	apiMux.HandleFunc("/agents", instancesCollectionHandler)
 
-	// Instance routes — need to distinguish /instances/:id from /instances/:id/...
-	apiMux.HandleFunc("/instances/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	// Agent routes — need to distinguish /instances/:id from /instances/:id/...
+	instancesItemHandler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		// Normalize /agents/... → /instances/... so the sub-path
+		// dispatch below (and downstream handlers that re-parse the
+		// path) only ever has to know one shape. The redirect is
+		// invisible to the client: same URL on the response, same
+		// handler logic, just rewritten before strings.TrimPrefix.
+		if strings.HasPrefix(r.URL.Path, "/agents/") {
+			r.URL.Path = "/instances/" + strings.TrimPrefix(r.URL.Path, "/agents/")
+		}
 		path := strings.TrimPrefix(r.URL.Path, "/instances/")
 
 		// /instances/:id/config
@@ -1085,7 +1099,10 @@ func main() {
 
 		// /instances/:id
 		s.handleInstance(w, r)
-	}))
+	})
+	apiMux.HandleFunc("/instances/", instancesItemHandler)
+	// Phase 2 alias for /agents/<id>[/subroute].
+	apiMux.HandleFunc("/agents/", instancesItemHandler)
 
 	// Mount the API sub-mux under /api. http.StripPrefix rewrites r.URL.Path
 	// before the sub-mux runs, so handlers that parse paths (e.g.
@@ -1164,7 +1181,7 @@ func main() {
 	// are sitting in the process table holding ports" situation. The
 	// StopAll handler uses SIGTERM → wait 5s → SIGKILL, which gives
 	// cores a chance to flush session state to disk. Port-0
-	// allocation (see instances.go allocPort) already ensures the
+	// allocation (see agents.go allocPort) already ensures the
 	// surviving zombie scenario no longer CAUSES new bugs; this
 	// handler stops the zombies from existing at all on clean exit.
 	sigCh := make(chan os.Signal, 1)
@@ -1316,7 +1333,7 @@ func main() {
 		sig := <-sigCh
 		fmt.Fprintf(os.Stderr, "\napteva-server received %s — stopping children\n", sig)
 		s.stopApps(appsReg)
-		s.instances.StopAll(5 * time.Second)
+		s.agents.StopAll(5 * time.Second)
 		// Sidecars are spawned with Setpgid; StopAll fans out SIGTERM
 		// and falls back to SIGKILL after the grace window. Without
 		// this, every clean apteva-server exit leaves the running

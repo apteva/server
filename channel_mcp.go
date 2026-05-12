@@ -19,7 +19,7 @@ type channelMCPServer struct {
 	port     int
 	listener net.Listener
 	registry *ChannelRegistry
-	ic       *InstanceChannels // parent — for listing available channels
+	ic       *AgentChannels // parent — for listing available channels
 
 	// componentCatalog returns the UI components installed apps in
 	// this instance's project declare. Used to enumerate them in the

@@ -45,8 +45,8 @@ func seedStorageInstall(t *testing.T, s *Server) int64 {
 	}
 	id := seedInstallWithBindings(t, s, "storage", manifest, nil)
 	// Need an instances row for FK.
-	s.store.db.Exec(`INSERT OR IGNORE INTO instances (id, project_id, name, status) VALUES (7, 'proj-1', 'agent-A', 'running')`)
-	s.store.db.Exec(`INSERT OR IGNORE INTO instances (id, project_id, name, status) VALUES (8, 'proj-1', 'agent-B', 'running')`)
+	s.store.db.Exec(`INSERT OR IGNORE INTO agents (id, project_id, name, status) VALUES (7, 'proj-1', 'agent-A', 'running')`)
+	s.store.db.Exec(`INSERT OR IGNORE INTO agents (id, project_id, name, status) VALUES (8, 'proj-1', 'agent-B', 'running')`)
 	return id
 }
 
@@ -165,7 +165,7 @@ func TestGrants_Evaluate(t *testing.T) {
 	installID := seedStorageInstall(t, s)
 	// Seed a deny-default install with an allow on invoices/**.
 	s.store.db.Exec(`UPDATE app_installs SET default_effect='deny' WHERE id=?`, installID)
-	s.store.db.Exec(`INSERT INTO app_grants (install_id, instance_id, effect, permission, resource)
+	s.store.db.Exec(`INSERT INTO app_grants (install_id, agent_id, effect, permission, resource)
 		VALUES (?, 7, 'allow', 'files.read', 'folder/invoices/**')`, installID)
 
 	cases := []struct {

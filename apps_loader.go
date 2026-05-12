@@ -261,7 +261,7 @@ func (s *Server) resolveSidecarURL(serviceName string) string {
 	var body struct {
 		Data struct {
 			Containers []struct {
-				InstanceID string `json:"instance_id"`
+				AgentID string `json:"instance_id"`
 				Ports      []struct {
 					HostPort      int `json:"host_port"`
 					ContainerPort int `json:"container_port"`
@@ -276,7 +276,7 @@ func (s *Server) resolveSidecarURL(serviceName string) string {
 		return ""
 	}
 	c := body.Data.Containers[0]
-	ip := s.workerIP(c.InstanceID)
+	ip := s.workerIP(c.AgentID)
 	if ip == "" {
 		return ""
 	}

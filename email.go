@@ -66,7 +66,7 @@ func (s *Server) initEmail() {
 // restoreAllEmailMappings wires up persisted email channel mappings.
 func (s *Server) restoreAllEmailMappings() {
 	rows, err := s.store.db.Query(
-		"SELECT id, user_id, instance_id, COALESCE(project_id,''), encrypted_config FROM channels WHERE type = 'email' AND status = 'active' AND instance_id > 0",
+		"SELECT id, user_id, agent_id, COALESCE(project_id,''), encrypted_config FROM channels WHERE type = 'email' AND status = 'active' AND agent_id > 0",
 	)
 	if err != nil {
 		return
@@ -93,35 +93,35 @@ func (s *Server) restoreAllEmailMappings() {
 			continue
 		}
 
-		ic := s.instances.GetChannels(instanceID)
+		ic := s.agents.GetChannels(instanceID)
 		if ic == nil {
 			continue
 		}
-		port := s.instances.GetPort(instanceID)
+		port := s.agents.GetPort(instanceID)
 		if port == 0 {
 			continue
 		}
-		coreKey := s.instances.GetCoreAPIKey(instanceID)
+		coreKey := s.agents.GetCoreAPIKey(instanceID)
 		sendEvent := makeSendEvent(port, coreKey)
 		gw.MapInbox(instanceID, cfg["inbox_id"], cfg["email"], ic.registry, sendEvent)
 	}
 }
 
 // restoreEmailForInstance re-maps email channels for a single instance.
-func (s *Server) restoreEmailForInstance(inst *Instance) {
+func (s *Server) restoreEmailForInstance(inst *Agent) {
 	records, err := s.store.ListChannels(inst.ID)
 	if err != nil {
 		return
 	}
-	ic := s.instances.GetChannels(inst.ID)
+	ic := s.agents.GetChannels(inst.ID)
 	if ic == nil {
 		return
 	}
-	port := s.instances.GetPort(inst.ID)
+	port := s.agents.GetPort(inst.ID)
 	if port == 0 {
 		return
 	}
-	coreKey := s.instances.GetCoreAPIKey(inst.ID)
+	coreKey := s.agents.GetCoreAPIKey(inst.ID)
 	sendEvent := makeSendEvent(port, coreKey)
 
 	for _, r := range records {

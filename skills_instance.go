@@ -51,7 +51,7 @@ func (s *Server) handleInstanceSkills(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid instance ID", http.StatusBadRequest)
 		return
 	}
-	inst, err := s.store.GetInstance(userID, instanceID)
+	inst, err := s.store.GetAgent(userID, instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -93,8 +93,8 @@ func (s *Server) handleInstanceSkills(w http.ResponseWriter, r *http.Request) {
 // orphaned journal record. Reads the journal from disk (works for
 // running and stopped instances; the runtime is single-writer per
 // file so a concurrent-append race at worst returns N-1 rows).
-func (s *Server) handleListInstanceSkills(w http.ResponseWriter, r *http.Request, inst *Instance) {
-	dir := s.instances.instanceDir(inst.ID)
+func (s *Server) handleListInstanceSkills(w http.ResponseWriter, r *http.Request, inst *Agent) {
+	dir := s.agents.instanceDir(inst.ID)
 	journalPath := filepath.Join(dir, "memory.jsonl")
 
 	active, err := journalActiveSkillRecords(journalPath)
@@ -165,7 +165,7 @@ func computeInstanceSkillView(cat []Skill, active map[string]journalRecord) []in
 }
 
 // POST /instances/:id/skills/:skill_id — assign.
-func (s *Server) handleAssignInstanceSkill(w http.ResponseWriter, r *http.Request, inst *Instance, skillID int64) {
+func (s *Server) handleAssignInstanceSkill(w http.ResponseWriter, r *http.Request, inst *Agent, skillID int64) {
 	sk, err := s.getSkillForProject(skillID, inst.ProjectID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -180,11 +180,11 @@ func (s *Server) handleAssignInstanceSkill(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := s.PushSkillToInstance(inst.ID, sk); err != nil {
-		log.Printf("[SKILLS] assign instance=%d skill=%d failed: %v", inst.ID, skillID, err)
+		log.Printf("[SKILLS] assign agent=%d skill=%d failed: %v", inst.ID, skillID, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	log.Printf("[SKILLS] assigned skill=%d (%s) to instance=%d", sk.ID, sk.Slug, inst.ID)
+	log.Printf("[SKILLS] assigned skill=%d (%s) to agent=%d", sk.ID, sk.Slug, inst.ID)
 	writeJSON(w, map[string]any{
 		"ok":        true,
 		"memory_id": skillMemoryID(sk.ID),
@@ -193,7 +193,7 @@ func (s *Server) handleAssignInstanceSkill(w http.ResponseWriter, r *http.Reques
 }
 
 // DELETE /instances/:id/skills/:skill_id — unassign.
-func (s *Server) handleUnassignInstanceSkill(w http.ResponseWriter, r *http.Request, inst *Instance, skillID int64) {
+func (s *Server) handleUnassignInstanceSkill(w http.ResponseWriter, r *http.Request, inst *Agent, skillID int64) {
 	// We don't require the skill to still exist in the catalog —
 	// unassign should work for orphaned records too. Best-effort
 	// look-up just for logging.
@@ -206,11 +206,11 @@ func (s *Server) handleUnassignInstanceSkill(w http.ResponseWriter, r *http.Requ
 		reason = "unassigned via dashboard"
 	}
 	if err := s.RemoveSkillFromInstance(inst.ID, skillID, reason); err != nil {
-		log.Printf("[SKILLS] unassign instance=%d skill=%d failed: %v", inst.ID, skillID, err)
+		log.Printf("[SKILLS] unassign agent=%d skill=%d failed: %v", inst.ID, skillID, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	log.Printf("[SKILLS] unassigned skill=%d (%s) from instance=%d", skillID, slug, inst.ID)
+	log.Printf("[SKILLS] unassigned skill=%d (%s) from agent=%d", skillID, slug, inst.ID)
 	writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -272,8 +272,8 @@ func (s *Server) getSkillForProject(skillID int64, projectID string) (Skill, err
 // listInstancesInProject returns every instance the user owns whose
 // project_id matches. Used by skill-level fan-out hooks (catalog edits
 // can re-push to every assigned instance) and by cleanup hooks.
-func (s *Server) listInstancesInProject(userID int64, projectID string) ([]Instance, error) {
-	insts, err := s.store.ListInstances(userID, projectID)
+func (s *Server) listInstancesInProject(userID int64, projectID string) ([]Agent, error) {
+	insts, err := s.store.ListAgents(userID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list instances: %w", err)
 	}

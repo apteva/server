@@ -144,7 +144,7 @@ func TestStore_CreateInstance(t *testing.T) {
 	store := newTestStore(t)
 	user, _ := store.CreateUser("alice@test.com", "hash")
 
-	inst, err := store.CreateInstance(user.ID, "my-agent", "do stuff", "autonomous", "{}", "")
+	inst, err := store.CreateAgent(user.ID, "my-agent", "do stuff", "autonomous", "{}", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,9 +159,9 @@ func TestStore_CreateInstance(t *testing.T) {
 func TestStore_GetInstance(t *testing.T) {
 	store := newTestStore(t)
 	user, _ := store.CreateUser("alice@test.com", "hash")
-	created, _ := store.CreateInstance(user.ID, "my-agent", "directive", "autonomous", `{"key":"val"}`, "")
+	created, _ := store.CreateAgent(user.ID, "my-agent", "directive", "autonomous", `{"key":"val"}`, "")
 
-	inst, err := store.GetInstance(user.ID, created.ID)
+	inst, err := store.GetAgent(user.ID, created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,9 +177,9 @@ func TestStore_GetInstance_WrongUser(t *testing.T) {
 	store := newTestStore(t)
 	alice, _ := store.CreateUser("alice@test.com", "hash")
 	bob, _ := store.CreateUser("bob@test.com", "hash")
-	inst, _ := store.CreateInstance(alice.ID, "agent", "dir", "autonomous", "{}", "")
+	inst, _ := store.CreateAgent(alice.ID, "agent", "dir", "autonomous", "{}", "")
 
-	_, err := store.GetInstance(bob.ID, inst.ID)
+	_, err := store.GetAgent(bob.ID, inst.ID)
 	if err == nil {
 		t.Error("bob should not see alice's instance")
 	}
@@ -188,10 +188,10 @@ func TestStore_GetInstance_WrongUser(t *testing.T) {
 func TestStore_ListInstances(t *testing.T) {
 	store := newTestStore(t)
 	user, _ := store.CreateUser("alice@test.com", "hash")
-	store.CreateInstance(user.ID, "agent1", "dir1", "autonomous", "{}", "")
-	store.CreateInstance(user.ID, "agent2", "dir2", "autonomous", "{}", "")
+	store.CreateAgent(user.ID, "agent1", "dir1", "autonomous", "{}", "")
+	store.CreateAgent(user.ID, "agent2", "dir2", "autonomous", "{}", "")
 
-	instances, err := store.ListInstances(user.ID, "")
+	instances, err := store.ListAgents(user.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,15 +203,15 @@ func TestStore_ListInstances(t *testing.T) {
 func TestStore_UpdateInstance(t *testing.T) {
 	store := newTestStore(t)
 	user, _ := store.CreateUser("alice@test.com", "hash")
-	inst, _ := store.CreateInstance(user.ID, "agent", "old", "autonomous", "{}", "")
+	inst, _ := store.CreateAgent(user.ID, "agent", "old", "autonomous", "{}", "")
 
 	inst.Directive = "new directive"
 	inst.Status = "running"
 	inst.Port = 3211
 	inst.Pid = 12345
-	store.UpdateInstance(inst)
+	store.UpdateAgent(inst)
 
-	updated, _ := store.GetInstance(user.ID, inst.ID)
+	updated, _ := store.GetAgent(user.ID, inst.ID)
 	if updated.Directive != "new directive" {
 		t.Errorf("expected new directive, got %s", updated.Directive)
 	}
@@ -226,11 +226,11 @@ func TestStore_UpdateInstance(t *testing.T) {
 func TestStore_DeleteInstance(t *testing.T) {
 	store := newTestStore(t)
 	user, _ := store.CreateUser("alice@test.com", "hash")
-	inst, _ := store.CreateInstance(user.ID, "agent", "dir", "autonomous", "{}", "")
+	inst, _ := store.CreateAgent(user.ID, "agent", "dir", "autonomous", "{}", "")
 
-	store.DeleteInstance(user.ID, inst.ID)
+	store.DeleteAgent(user.ID, inst.ID)
 
-	instances, _ := store.ListInstances(user.ID, "")
+	instances, _ := store.ListAgents(user.ID, "")
 	if len(instances) != 0 {
 		t.Errorf("expected 0 after delete, got %d", len(instances))
 	}
@@ -240,12 +240,12 @@ func TestStore_DeleteInstance_WrongUser(t *testing.T) {
 	store := newTestStore(t)
 	alice, _ := store.CreateUser("alice@test.com", "hash")
 	bob, _ := store.CreateUser("bob@test.com", "hash")
-	inst, _ := store.CreateInstance(alice.ID, "agent", "dir", "autonomous", "{}", "")
+	inst, _ := store.CreateAgent(alice.ID, "agent", "dir", "autonomous", "{}", "")
 
-	store.DeleteInstance(bob.ID, inst.ID)
+	store.DeleteAgent(bob.ID, inst.ID)
 
 	// Alice's instance should still exist
-	instances, _ := store.ListInstances(alice.ID, "")
+	instances, _ := store.ListAgents(alice.ID, "")
 	if len(instances) != 1 {
 		t.Errorf("bob should not delete alice's instance")
 	}
@@ -302,22 +302,22 @@ func TestStore_ProjectIsolation(t *testing.T) {
 	projB, _ := store.CreateProject(user.ID, "Business B", "", "")
 
 	// Create instances in each project
-	store.CreateInstance(user.ID, "agent-a", "dir-a", "autonomous", "{}", projA.ID)
-	store.CreateInstance(user.ID, "agent-b", "dir-b", "autonomous", "{}", projB.ID)
+	store.CreateAgent(user.ID, "agent-a", "dir-a", "autonomous", "{}", projA.ID)
+	store.CreateAgent(user.ID, "agent-b", "dir-b", "autonomous", "{}", projB.ID)
 
 	// List with project filter
-	listA, _ := store.ListInstances(user.ID, projA.ID)
+	listA, _ := store.ListAgents(user.ID, projA.ID)
 	if len(listA) != 1 || listA[0].Name != "agent-a" {
 		t.Errorf("project A should only see agent-a, got %v", listA)
 	}
 
-	listB, _ := store.ListInstances(user.ID, projB.ID)
+	listB, _ := store.ListAgents(user.ID, projB.ID)
 	if len(listB) != 1 || listB[0].Name != "agent-b" {
 		t.Errorf("project B should only see agent-b, got %v", listB)
 	}
 
 	// List all (no filter) should see both
-	listAll, _ := store.ListInstances(user.ID, "")
+	listAll, _ := store.ListAgents(user.ID, "")
 	if len(listAll) != 2 {
 		t.Errorf("expected 2 total instances, got %d", len(listAll))
 	}

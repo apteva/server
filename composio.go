@@ -615,7 +615,7 @@ func (c *ComposioClient) UpdateMCPServer(serverID string, allowedTools []string)
 func (c *ComposioClient) ListMCPInstances(serverID string) ([]string, error) {
 	var resp struct {
 		Instances []struct {
-			InstanceID string `json:"instance_id"`
+			AgentID string `json:"instance_id"`
 		} `json:"instances"`
 	}
 	if err := c.do("GET", "/api/v3/mcp/servers/"+serverID+"/instances?limit=100", nil, &resp); err != nil {
@@ -623,7 +623,7 @@ func (c *ComposioClient) ListMCPInstances(serverID string) ([]string, error) {
 	}
 	out := make([]string, 0, len(resp.Instances))
 	for _, it := range resp.Instances {
-		out = append(out, it.InstanceID)
+		out = append(out, it.AgentID)
 	}
 	return out, nil
 }

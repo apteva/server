@@ -13,7 +13,7 @@ func makeTelemetryEvent(eventType, threadID string, data map[string]any) Telemet
 	d, _ := json.Marshal(data)
 	return TelemetryEvent{
 		ID:         generateID(),
-		InstanceID: 1,
+		AgentID: 1,
 		ThreadID:   threadID,
 		Type:       eventType,
 		Time:       time.Now(),

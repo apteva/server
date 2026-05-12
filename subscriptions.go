@@ -18,7 +18,7 @@ import (
 type Subscription struct {
 	ID                string    `json:"id"`
 	UserID            int64     `json:"user_id"`
-	InstanceID        int64     `json:"instance_id"`
+	AgentID        int64     `json:"instance_id"`
 	ConnectionID      int64     `json:"connection_id"`
 	Name              string    `json:"name"`
 	Slug              string    `json:"slug"`
@@ -44,7 +44,7 @@ type Subscription struct {
 // by lane key, not by ownership.
 func (s *Store) ListAllAppEventSubscriptions() ([]*Subscription, error) {
 	rows, err := s.db.Query(
-		`SELECT id, user_id, instance_id, connection_id, name, slug, description,
+		`SELECT id, user_id, agent_id, connection_id, name, slug, description,
 			webhook_path, enabled, COALESCE(thread_id,''), COALESCE(events,''),
 			COALESCE(project_id,''), COALESCE(source,'webhook'),
 			COALESCE(last_seq_delivered,0)
@@ -61,7 +61,7 @@ func (s *Store) ListAllAppEventSubscriptions() ([]*Subscription, error) {
 		var enabled int
 		var eventsJSON string
 		if err := rows.Scan(
-			&sub.ID, &sub.UserID, &sub.InstanceID, &sub.ConnectionID,
+			&sub.ID, &sub.UserID, &sub.AgentID, &sub.ConnectionID,
 			&sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath,
 			&enabled, &sub.ThreadID, &eventsJSON, &sub.ProjectID,
 			&sub.Source, &sub.LastSeqDelivered,
@@ -83,7 +83,7 @@ func (s *Store) ListAllAppEventSubscriptions() ([]*Subscription, error) {
 // so we can unregister each upstream webhook and then remove the rows.
 func (s *Store) ListSubscriptionsByConnection(userID, connectionID int64) ([]Subscription, error) {
 	rows, err := s.db.Query(
-		"SELECT id, instance_id, name, slug, webhook_path, COALESCE(external_webhook_id,'') FROM subscriptions WHERE user_id = ? AND connection_id = ?",
+		"SELECT id, agent_id, name, slug, webhook_path, COALESCE(external_webhook_id,'') FROM subscriptions WHERE user_id = ? AND connection_id = ?",
 		userID, connectionID,
 	)
 	if err != nil {
@@ -93,7 +93,7 @@ func (s *Store) ListSubscriptionsByConnection(userID, connectionID int64) ([]Sub
 	var subs []Subscription
 	for rows.Next() {
 		var sub Subscription
-		rows.Scan(&sub.ID, &sub.InstanceID, &sub.Name, &sub.Slug, &sub.WebhookPath, &sub.ExternalWebhookID)
+		rows.Scan(&sub.ID, &sub.AgentID, &sub.Name, &sub.Slug, &sub.WebhookPath, &sub.ExternalWebhookID)
 		sub.UserID = userID
 		sub.ConnectionID = connectionID
 		subs = append(subs, sub)
@@ -112,13 +112,13 @@ func (s *Store) CreateSubscription(userID, instanceID, connectionID int64, name,
 		}
 	}
 	_, err := s.db.Exec(
-		"INSERT INTO subscriptions (id, user_id, instance_id, connection_id, name, slug, description, webhook_path, encrypted_hmac_secret, thread_id, project_id, events) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO subscriptions (id, user_id, agent_id, connection_id, name, slug, description, webhook_path, encrypted_hmac_secret, thread_id, project_id, events) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		id, userID, instanceID, connectionID, name, slug, description, webhookPath, encryptedSecret, threadID, projectID, eventsJSON,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &Subscription{ID: id, UserID: userID, InstanceID: instanceID, ConnectionID: connectionID, Name: name, Slug: slug, Description: description, WebhookPath: webhookPath, Enabled: true, ThreadID: threadID, ProjectID: projectID, Events: events, Source: "webhook", CreatedAt: time.Now()}, nil
+	return &Subscription{ID: id, UserID: userID, AgentID: instanceID, ConnectionID: connectionID, Name: name, Slug: slug, Description: description, WebhookPath: webhookPath, Enabled: true, ThreadID: threadID, ProjectID: projectID, Events: events, Source: "webhook", CreatedAt: time.Now()}, nil
 }
 
 // CreateAppEventSubscription is the source='app_event' counterpart
@@ -130,7 +130,7 @@ func (s *Store) CreateAppEventSubscription(userID, instanceID int64, name, slug,
 	id := generateID()
 	_, err := s.db.Exec(
 		`INSERT INTO subscriptions
-			(id, user_id, instance_id, connection_id, name, slug, description,
+			(id, user_id, agent_id, connection_id, name, slug, description,
 			 webhook_path, encrypted_hmac_secret, thread_id, project_id, events, source)
 		 VALUES (?, ?, 0, ?, ?, ?, '', '', ?, ?, '', 'app_event')`,
 		id, userID, instanceID, name, slug, description, threadID, projectID,
@@ -139,7 +139,7 @@ func (s *Store) CreateAppEventSubscription(userID, instanceID int64, name, slug,
 		return nil, err
 	}
 	return &Subscription{
-		ID: id, UserID: userID, InstanceID: instanceID,
+		ID: id, UserID: userID, AgentID: instanceID,
 		Name: name, Slug: slug, Description: description,
 		Enabled: true, ThreadID: threadID, ProjectID: projectID,
 		Source: "app_event", CreatedAt: time.Now(),
@@ -149,7 +149,7 @@ func (s *Store) CreateAppEventSubscription(userID, instanceID int64, name, slug,
 func (s *Store) ListSubscriptions(userID int64, projectID ...string) ([]Subscription, error) {
 	var rows *sql.Rows
 	var err error
-	const cols = "id, instance_id, connection_id, name, slug, description, webhook_path, enabled, COALESCE(thread_id,''), COALESCE(events,''), created_at"
+	const cols = "id, agent_id, connection_id, name, slug, description, webhook_path, enabled, COALESCE(thread_id,''), COALESCE(events,''), created_at"
 	if len(projectID) > 0 && projectID[0] != "" {
 		rows, err = s.db.Query(
 			"SELECT "+cols+" FROM subscriptions WHERE user_id = ? AND (project_id = ? OR project_id = '')", userID, projectID[0])
@@ -167,7 +167,7 @@ func (s *Store) ListSubscriptions(userID int64, projectID ...string) ([]Subscrip
 		var sub Subscription
 		var enabled int
 		var createdAt, eventsJSON string
-		rows.Scan(&sub.ID, &sub.InstanceID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath, &enabled, &sub.ThreadID, &eventsJSON, &createdAt)
+		rows.Scan(&sub.ID, &sub.AgentID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath, &enabled, &sub.ThreadID, &eventsJSON, &createdAt)
 		sub.UserID = userID
 		sub.Enabled = enabled == 1
 		sub.CreatedAt, _ = parseTime(createdAt)
@@ -184,9 +184,9 @@ func (s *Store) GetSubscription(userID int64, id string) (*Subscription, error) 
 	var enabled int
 	var createdAt string
 	err := s.db.QueryRow(
-		"SELECT id, instance_id, connection_id, name, slug, description, webhook_path, enabled, COALESCE(thread_id,''), created_at FROM subscriptions WHERE id = ? AND user_id = ?",
+		"SELECT id, agent_id, connection_id, name, slug, description, webhook_path, enabled, COALESCE(thread_id,''), created_at FROM subscriptions WHERE id = ? AND user_id = ?",
 		id, userID,
-	).Scan(&sub.ID, &sub.InstanceID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath, &enabled, &sub.ThreadID, &createdAt)
+	).Scan(&sub.ID, &sub.AgentID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath, &enabled, &sub.ThreadID, &createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -201,9 +201,9 @@ func (s *Store) GetSubscriptionByPath(webhookPath string) (*Subscription, string
 	var enabled int
 	var encSecret, createdAt string
 	err := s.db.QueryRow(
-		"SELECT id, user_id, instance_id, connection_id, name, slug, description, webhook_path, encrypted_hmac_secret, enabled, COALESCE(thread_id,''), created_at FROM subscriptions WHERE webhook_path = ?",
+		"SELECT id, user_id, agent_id, connection_id, name, slug, description, webhook_path, encrypted_hmac_secret, enabled, COALESCE(thread_id,''), created_at FROM subscriptions WHERE webhook_path = ?",
 		webhookPath,
-	).Scan(&sub.ID, &sub.UserID, &sub.InstanceID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath, &encSecret, &enabled, &sub.ThreadID, &createdAt)
+	).Scan(&sub.ID, &sub.UserID, &sub.AgentID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath, &encSecret, &enabled, &sub.ThreadID, &createdAt)
 	if err != nil {
 		return nil, "", err
 	}
@@ -233,7 +233,7 @@ func (s *Store) GetSubscriptionExternalID(id string) string {
 // the right apteva subscription, and by the local webhook delete path
 // when we only know the upstream id.
 func (s *Store) GetSubscriptionByExternalID(userID int64, externalID string) (*Subscription, error) {
-	const cols = "id, user_id, instance_id, connection_id, name, slug, description, webhook_path, enabled, COALESCE(thread_id,''), COALESCE(events,''), COALESCE(project_id,''), created_at"
+	const cols = "id, user_id, agent_id, connection_id, name, slug, description, webhook_path, enabled, COALESCE(thread_id,''), COALESCE(events,''), COALESCE(project_id,''), created_at"
 	var (
 		sub       Subscription
 		enabled   int
@@ -245,12 +245,12 @@ func (s *Store) GetSubscriptionByExternalID(userID int64, externalID string) (*S
 		err = s.db.QueryRow(
 			"SELECT "+cols+" FROM subscriptions WHERE external_webhook_id = ? AND user_id = ?",
 			externalID, userID,
-		).Scan(&sub.ID, &sub.UserID, &sub.InstanceID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath, &enabled, &sub.ThreadID, &eventsJSON, &sub.ProjectID, &createdAt)
+		).Scan(&sub.ID, &sub.UserID, &sub.AgentID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath, &enabled, &sub.ThreadID, &eventsJSON, &sub.ProjectID, &createdAt)
 	} else {
 		err = s.db.QueryRow(
 			"SELECT "+cols+" FROM subscriptions WHERE external_webhook_id = ?",
 			externalID,
-		).Scan(&sub.ID, &sub.UserID, &sub.InstanceID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath, &enabled, &sub.ThreadID, &eventsJSON, &sub.ProjectID, &createdAt)
+		).Scan(&sub.ID, &sub.UserID, &sub.AgentID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath, &enabled, &sub.ThreadID, &eventsJSON, &sub.ProjectID, &createdAt)
 	}
 	if err != nil {
 		return nil, err
@@ -454,19 +454,19 @@ func (s *Server) handleSubscriptionWebhook(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Find the target instance
-	if sub.InstanceID == 0 {
+	if sub.AgentID == 0 {
 		log.Printf("[WEBHOOK] sub %s: no instance configured", sub.ID)
 		http.Error(w, "no instance configured", http.StatusBadRequest)
 		return
 	}
 
-	inst, err := s.store.GetInstance(sub.UserID, sub.InstanceID)
+	inst, err := s.store.GetAgent(sub.UserID, sub.AgentID)
 	if err != nil {
-		log.Printf("[WEBHOOK] sub %s: instance %d not found: %v", sub.ID, sub.InstanceID, err)
+		log.Printf("[WEBHOOK] sub %s: instance %d not found: %v", sub.ID, sub.AgentID, err)
 		http.Error(w, "instance not found", http.StatusServiceUnavailable)
 		return
 	}
-	port := s.instances.GetPort(inst.ID)
+	port := s.agents.GetPort(inst.ID)
 	if port == 0 {
 		log.Printf("[WEBHOOK] sub %s: instance %d not running", sub.ID, inst.ID)
 		http.Error(w, "instance not running", http.StatusServiceUnavailable)
@@ -493,7 +493,7 @@ func (s *Server) handleSubscriptionWebhook(w http.ResponseWriter, r *http.Reques
 	targetURL := fmt.Sprintf("http://127.0.0.1:%d/event", port)
 	req, _ := http.NewRequest("POST", targetURL, strings.NewReader(string(eventBody)))
 	req.Header.Set("Content-Type", "application/json")
-	if ck := s.instances.GetCoreAPIKey(inst.ID); ck != "" {
+	if ck := s.agents.GetCoreAPIKey(inst.ID); ck != "" {
 		req.Header.Set("Authorization", "Bearer "+ck)
 	}
 	resp, err := http.DefaultClient.Do(req)
@@ -631,17 +631,17 @@ func (s *Server) handleProviderTriggerWebhook(w http.ResponseWriter, r *http.Req
 	}
 
 	// Find the target instance + its local core port + auth key.
-	if sub.InstanceID == 0 {
+	if sub.AgentID == 0 {
 		log.Printf("[COMPOSIO-HOOK] sub %s has no instance", sub.ID)
 		http.Error(w, "no instance configured", http.StatusBadRequest)
 		return
 	}
-	inst, err := s.store.GetInstance(sub.UserID, sub.InstanceID)
+	inst, err := s.store.GetAgent(sub.UserID, sub.AgentID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusServiceUnavailable)
 		return
 	}
-	port := s.instances.GetPort(inst.ID)
+	port := s.agents.GetPort(inst.ID)
 	if port == 0 {
 		log.Printf("[COMPOSIO-HOOK] instance %d not running", inst.ID)
 		http.Error(w, "instance not running", http.StatusServiceUnavailable)
@@ -674,7 +674,7 @@ func (s *Server) handleProviderTriggerWebhook(w http.ResponseWriter, r *http.Req
 	targetURL := fmt.Sprintf("http://127.0.0.1:%d/event", port)
 	req, _ := http.NewRequest("POST", targetURL, strings.NewReader(string(eventBody)))
 	req.Header.Set("Content-Type", "application/json")
-	if ck := s.instances.GetCoreAPIKey(inst.ID); ck != "" {
+	if ck := s.agents.GetCoreAPIKey(inst.ID); ck != "" {
 		req.Header.Set("Authorization", "Bearer "+ck)
 	}
 	resp, err := http.DefaultClient.Do(req)
@@ -699,15 +699,16 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 	userID := getUserID(r)
 
 	var body struct {
-		InstanceID   int64          `json:"instance_id"`
-		ConnectionID int64          `json:"connection_id"`
-		Name         string         `json:"name"`
-		Slug         string         `json:"slug"`
-		Description  string         `json:"description"`
-		HMACSecret   string         `json:"hmac_secret"`
-		Events       []string       `json:"events"`
-		ThreadID     string         `json:"thread_id"`
-		ProjectID    string         `json:"project_id"`
+		AgentID         int64          `json:"agent_id"`     // Phase 2 canonical
+		InstanceID      int64          `json:"instance_id"`  // legacy alias
+		ConnectionID    int64          `json:"connection_id"`
+		Name            string         `json:"name"`
+		Slug            string         `json:"slug"`
+		Description     string         `json:"description"`
+		HMACSecret      string         `json:"hmac_secret"`
+		Events          []string       `json:"events"`
+		ThreadID        string         `json:"thread_id"`
+		ProjectID       string         `json:"project_id"`
 		// Source: 'webhook' (default) or 'app_event'. The two paths
 		// share this handler so the dashboard's create form can
 		// switch between them without learning two URLs.
@@ -721,6 +722,9 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
+	}
+	if body.AgentID == 0 {
+		body.AgentID = body.InstanceID
 	}
 	if body.Name == "" {
 		http.Error(w, "name required", http.StatusBadRequest)
@@ -738,15 +742,15 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 			return
 		}
 		sub, err := s.store.CreateAppEventSubscription(
-			userID, body.InstanceID, body.Name, body.Slug, body.Description,
+			userID, body.AgentID, body.Name, body.Slug, body.Description,
 			body.ThreadID, body.ProjectID,
 		)
 		if err != nil {
 			http.Error(w, "failed to create: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		log.Printf("[SUB-CREATE] sub=%s source=app_event slug=%q instance=%d project=%q",
-			sub.ID, body.Slug, body.InstanceID, body.ProjectID)
+		log.Printf("[SUB-CREATE] sub=%s source=app_event slug=%q agent=%d project=%q",
+			sub.ID, body.Slug, body.AgentID, body.ProjectID)
 		if s.appEventDispatcher != nil {
 			if err := s.appEventDispatcher.Reconcile(); err != nil {
 				log.Printf("[SUB-CREATE] dispatcher reconcile after create: %v", err)
@@ -764,7 +768,7 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 	// level signing secret.
 	if body.ConnectionID > 0 {
 		if conn, _, cerr := s.store.GetConnection(userID, body.ConnectionID); cerr == nil && conn != nil && conn.Source == "composio" {
-			s.createComposioSubscription(w, userID, body.InstanceID, body.ConnectionID, body.Name, body.Slug, body.Description, body.ThreadID, body.ProjectID, body.TriggerSlug, body.TriggerConfig, conn)
+			s.createComposioSubscription(w, userID, body.AgentID, body.ConnectionID, body.Name, body.Slug, body.Description, body.ThreadID, body.ProjectID, body.TriggerSlug, body.TriggerConfig, conn)
 			return
 		}
 	}
@@ -785,15 +789,15 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	sub, err := s.store.CreateSubscription(userID, body.InstanceID, body.ConnectionID, body.Name, body.Slug, body.Description, webhookPath, encSecret, body.ThreadID, body.ProjectID, body.Events)
+	sub, err := s.store.CreateSubscription(userID, body.AgentID, body.ConnectionID, body.Name, body.Slug, body.Description, webhookPath, encSecret, body.ThreadID, body.ProjectID, body.Events)
 	if err != nil {
 		http.Error(w, "failed to create", http.StatusInternalServerError)
 		return
 	}
 
 	webhookURL := s.webhookURL(webhookPath)
-	log.Printf("[SUB-CREATE] sub=%s name=%q slug=%q conn=%d instance=%d webhook_url=%s events=%v",
-		sub.ID, body.Name, body.Slug, body.ConnectionID, body.InstanceID, webhookURL, body.Events)
+	log.Printf("[SUB-CREATE] sub=%s name=%q slug=%q conn=%d agent=%d webhook_url=%s events=%v",
+		sub.ID, body.Name, body.Slug, body.ConnectionID, body.AgentID, webhookURL, body.Events)
 
 	// Auto-register webhook with the external service if it has registration config
 	var autoRegistered bool
@@ -1232,7 +1236,7 @@ func (s *Server) handleTestSubscription(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "subscription not found", http.StatusNotFound)
 		return
 	}
-	log.Printf("[SUB-TEST] sub=%s name=%q slug=%q instance=%d thread=%q", sub.ID, sub.Name, sub.Slug, sub.InstanceID, sub.ThreadID)
+	log.Printf("[SUB-TEST] sub=%s name=%q slug=%q agent=%d thread=%q", sub.ID, sub.Name, sub.Slug, sub.AgentID, sub.ThreadID)
 
 	// Parse optional body: { "event": "content.created", "payload": { ... } }
 	var reqBody struct {
@@ -1242,20 +1246,20 @@ func (s *Server) handleTestSubscription(w http.ResponseWriter, r *http.Request) 
 	json.NewDecoder(r.Body).Decode(&reqBody) // ignore errors — all fields optional
 	log.Printf("[SUB-TEST] request body event=%q custom_payload=%v", reqBody.Event, reqBody.Payload != nil)
 
-	if sub.InstanceID == 0 {
-		log.Printf("[SUB-TEST] sub=%s has no instance_id configured", sub.ID)
+	if sub.AgentID == 0 {
+		log.Printf("[SUB-TEST] sub=%s has no agent_id configured", sub.ID)
 		http.Error(w, "no instance configured", http.StatusBadRequest)
 		return
 	}
 
-	inst, err := s.store.GetInstance(sub.UserID, sub.InstanceID)
+	inst, err := s.store.GetAgent(sub.UserID, sub.AgentID)
 	if err != nil {
-		log.Printf("[SUB-TEST] instance %d not found for user %d: %v", sub.InstanceID, sub.UserID, err)
+		log.Printf("[SUB-TEST] instance %d not found for user %d: %v", sub.AgentID, sub.UserID, err)
 		http.Error(w, "instance not found", http.StatusServiceUnavailable)
 		return
 	}
 	log.Printf("[SUB-TEST] instance %d → name=%q status=%q", inst.ID, inst.Name, inst.Status)
-	testPort := s.instances.GetPort(inst.ID)
+	testPort := s.agents.GetPort(inst.ID)
 	if testPort == 0 {
 		log.Printf("[SUB-TEST] instance %d has no local port — core not running or not tracked", inst.ID)
 		http.Error(w, "instance not running", http.StatusServiceUnavailable)
@@ -1298,7 +1302,7 @@ func (s *Server) handleTestSubscription(w http.ResponseWriter, r *http.Request) 
 	}
 	eventBody, _ := json.Marshal(testEventPayload)
 	targetURL := fmt.Sprintf("http://127.0.0.1:%d/event", testPort)
-	coreKey := s.instances.GetCoreAPIKey(inst.ID)
+	coreKey := s.agents.GetCoreAPIKey(inst.ID)
 	log.Printf("[SUB-TEST] → POST %s thread=%q msg_len=%d has_auth=%v", targetURL, sub.ThreadID, len(eventMsg), coreKey != "")
 
 	req, _ := http.NewRequest("POST", targetURL, strings.NewReader(string(eventBody)))

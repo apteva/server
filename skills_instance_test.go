@@ -105,7 +105,7 @@ func TestComputeInstanceSkillView_EmptyJournal(t *testing.T) {
 
 func TestPushSkillToInstance_StoppedWritesToJournal(t *testing.T) {
 	s := newTestServer(t)
-	inst, err := s.store.CreateInstance(1, "test", "directive", "autonomous", "{}", "proj-a")
+	inst, err := s.store.CreateAgent(1, "test", "directive", "autonomous", "{}", "proj-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestPushSkillToInstance_StoppedWritesToJournal(t *testing.T) {
 	}
 
 	// Verify the journal contains the expected record.
-	dir := s.instances.instanceDir(inst.ID)
+	dir := s.agents.instanceDir(inst.ID)
 	active, err := journalActiveSkillRecords(dir + "/memory.jsonl")
 	if err != nil {
 		t.Fatal(err)
@@ -141,7 +141,7 @@ func TestPushSkillToInstance_StoppedWritesToJournal(t *testing.T) {
 
 func TestPushSkillToInstance_StoppedUpsertsOnRePush(t *testing.T) {
 	s := newTestServer(t)
-	inst, err := s.store.CreateInstance(1, "test", "directive", "autonomous", "{}", "")
+	inst, err := s.store.CreateAgent(1, "test", "directive", "autonomous", "{}", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestPushSkillToInstance_StoppedUpsertsOnRePush(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dir := s.instances.instanceDir(inst.ID)
+	dir := s.agents.instanceDir(inst.ID)
 	active, err := journalActiveSkillRecords(dir + "/memory.jsonl")
 	if err != nil {
 		t.Fatal(err)
@@ -173,9 +173,9 @@ func TestPushSkillToInstance_StoppedUpsertsOnRePush(t *testing.T) {
 func TestSweepSkillFromProject_DropsAcrossAllInstances(t *testing.T) {
 	s := newTestServer(t)
 	// Two instances in the same project + one in a different project.
-	a, _ := s.store.CreateInstance(1, "a", "d", "autonomous", "{}", "proj-x")
-	b, _ := s.store.CreateInstance(1, "b", "d", "autonomous", "{}", "proj-x")
-	c, _ := s.store.CreateInstance(1, "c", "d", "autonomous", "{}", "proj-y")
+	a, _ := s.store.CreateAgent(1, "a", "d", "autonomous", "{}", "proj-x")
+	b, _ := s.store.CreateAgent(1, "b", "d", "autonomous", "{}", "proj-x")
+	c, _ := s.store.CreateAgent(1, "c", "d", "autonomous", "{}", "proj-y")
 
 	sk := Skill{ID: 50, Slug: "user:shared", Name: "Shared", Source: "user", Body: "x", Enabled: true}
 	if err := s.PushSkillToInstance(a.ID, sk); err != nil {
@@ -190,8 +190,8 @@ func TestSweepSkillFromProject_DropsAcrossAllInstances(t *testing.T) {
 
 	s.sweepSkillFromProject(1, "proj-x", sk.ID, sk.Slug, "test sweep")
 
-	for _, inst := range []*Instance{a, b} {
-		path := s.instances.instanceDir(inst.ID) + "/memory.jsonl"
+	for _, inst := range []*Agent{a, b} {
+		path := s.agents.instanceDir(inst.ID) + "/memory.jsonl"
 		got, err := journalActiveSkillRecords(path)
 		if err != nil {
 			t.Fatal(err)
@@ -201,7 +201,7 @@ func TestSweepSkillFromProject_DropsAcrossAllInstances(t *testing.T) {
 		}
 	}
 	// proj-y is untouched.
-	cPath := s.instances.instanceDir(c.ID) + "/memory.jsonl"
+	cPath := s.agents.instanceDir(c.ID) + "/memory.jsonl"
 	got, err := journalActiveSkillRecords(cPath)
 	if err != nil {
 		t.Fatal(err)
@@ -213,7 +213,7 @@ func TestSweepSkillFromProject_DropsAcrossAllInstances(t *testing.T) {
 
 func TestRemoveSkillFromInstance_StoppedTombstones(t *testing.T) {
 	s := newTestServer(t)
-	inst, err := s.store.CreateInstance(1, "test", "directive", "autonomous", "{}", "")
+	inst, err := s.store.CreateAgent(1, "test", "directive", "autonomous", "{}", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +224,7 @@ func TestRemoveSkillFromInstance_StoppedTombstones(t *testing.T) {
 	if err := s.RemoveSkillFromInstance(inst.ID, sk.ID, "test"); err != nil {
 		t.Fatalf("RemoveSkillFromInstance: %v", err)
 	}
-	dir := s.instances.instanceDir(inst.ID)
+	dir := s.agents.instanceDir(inst.ID)
 	active, err := journalActiveSkillRecords(dir + "/memory.jsonl")
 	if err != nil {
 		t.Fatal(err)

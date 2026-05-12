@@ -1,7 +1,7 @@
 package main
 
 // HTTP handlers for /api/apps — list installed apps, install from a
-// manifest URL, configure / uninstall / bind to instances. The actual
+// manifest URL, configure / uninstall / bind to agents. The actual
 // sidecar deploy goes through the existing orchestrator (POST
 // /api/v1/services).
 
@@ -1046,7 +1046,7 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 	if s.localApps != nil {
 		_ = s.localApps.Stop(installID)
 	}
-	if _, err := s.store.db.Exec(`DELETE FROM app_instance_bindings WHERE install_id = ?`, installID); err != nil {
+	if _, err := s.store.db.Exec(`DELETE FROM app_agent_bindings WHERE install_id = ?`, installID); err != nil {
 		log.Printf("[APPS] delete bindings: %v", err)
 	}
 	// Cascade-protect: refuse uninstall if other installs depend on
@@ -1726,13 +1726,13 @@ func (s *Server) handleSetInstallBindings(w http.ResponseWriter, r *http.Request
 		return
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM app_instance_bindings WHERE install_id = ?`, installID); err != nil {
+	if _, err := tx.Exec(`DELETE FROM app_agent_bindings WHERE install_id = ?`, installID); err != nil {
 		http.Error(w, "clear bindings: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	for _, iid := range body.InstanceIDs {
 		if _, err := tx.Exec(
-			`INSERT INTO app_instance_bindings (install_id, instance_id, enabled) VALUES (?, ?, 1)`,
+			`INSERT INTO app_agent_bindings (install_id, agent_id, enabled) VALUES (?, ?, 1)`,
 			installID, iid); err != nil {
 			http.Error(w, "insert binding: "+err.Error(), http.StatusInternalServerError)
 			return

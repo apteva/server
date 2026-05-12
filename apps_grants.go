@@ -54,7 +54,7 @@ type grantsResponse struct {
 // ─── Sidecar-facing: GET /api/apps/callback/grants?instance_id=N ───
 //
 // Called by app-sdk's mcpHandler.buildCaller on every tool call where
-// X-Apteva-Caller-Instance was forwarded. Returns the policy for the
+// X-Apteva-Caller-Agent was forwarded. Returns the policy for the
 // (calling install, requested instance) pair, including default_effect
 // from the install row. Empty rules + default 'allow' = full access
 // (the back-compat default).
@@ -73,14 +73,15 @@ func (s *Server) handleCallbackGrants(w http.ResponseWriter, r *http.Request, pa
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
-	instanceIDStr := r.URL.Query().Get("instance_id")
+	// Phase 2 — accept agent_id (canonical) and instance_id (legacy).
+	instanceIDStr := readAgentIDParam(r)
 	if instanceIDStr == "" {
-		http.Error(w, "instance_id required", http.StatusBadRequest)
+		http.Error(w, "agent_id required", http.StatusBadRequest)
 		return
 	}
 	instanceID, err := strconv.ParseInt(instanceIDStr, 10, 64)
 	if err != nil || instanceID <= 0 {
-		http.Error(w, "invalid instance_id", http.StatusBadRequest)
+		http.Error(w, "agent_id required", http.StatusBadRequest)
 		return
 	}
 	resp, err := s.fetchGrants(installID, instanceID)
@@ -209,10 +210,12 @@ func (s *Server) handleListGrants(w http.ResponseWriter, r *http.Request, instal
 	writeJSON(w, grantsResponse{DefaultEffect: defaultEffect, Grants: rules})
 }
 
-// POST /grants — add one rule. Body: {instance_id, effect, permission, resource}.
+// POST /grants — add one rule. Body: {agent_id, effect, permission, resource}.
+// instance_id is accepted as a legacy alias for back-compat.
 func (s *Server) handleAddGrant(w http.ResponseWriter, r *http.Request, installID int64) {
 	var body struct {
-		InstanceID int64  `json:"instance_id"`
+		AgentID    int64  `json:"agent_id"`
+		InstanceID int64  `json:"instance_id"` // legacy alias
 		Effect     string `json:"effect"`
 		Permission string `json:"permission"`
 		Resource   string `json:"resource"`
@@ -221,8 +224,11 @@ func (s *Server) handleAddGrant(w http.ResponseWriter, r *http.Request, installI
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if body.InstanceID <= 0 {
-		http.Error(w, "instance_id required", http.StatusBadRequest)
+	if body.AgentID == 0 {
+		body.AgentID = body.InstanceID
+	}
+	if body.AgentID <= 0 {
+		http.Error(w, "agent_id required", http.StatusBadRequest)
 		return
 	}
 	manifest, err := s.loadInstallManifest(installID)
@@ -238,9 +244,9 @@ func (s *Server) handleAddGrant(w http.ResponseWriter, r *http.Request, installI
 		body.Resource = "*"
 	}
 	res, err := s.store.db.Exec(
-		`INSERT OR IGNORE INTO app_grants(install_id, instance_id, effect, permission, resource, created_by)
+		`INSERT OR IGNORE INTO app_grants(install_id, agent_id, effect, permission, resource, created_by)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
-		installID, body.InstanceID, body.Effect, body.Permission, body.Resource, getUserName(r),
+		installID, body.AgentID, body.Effect, body.Permission, body.Resource, getUserName(r),
 	)
 	if err != nil {
 		http.Error(w, "insert: "+err.Error(), http.StatusInternalServerError)
@@ -284,7 +290,7 @@ func (s *Server) handleReplaceGrantsByInstance(w http.ResponseWriter, r *http.Re
 		return
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM app_grants WHERE install_id = ? AND instance_id = ?`, installID, instanceID); err != nil {
+	if _, err := tx.Exec(`DELETE FROM app_grants WHERE install_id = ? AND agent_id = ?`, installID, instanceID); err != nil {
 		http.Error(w, "delete: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -295,7 +301,7 @@ func (s *Server) handleReplaceGrantsByInstance(w http.ResponseWriter, r *http.Re
 			resource = "*"
 		}
 		if _, err := tx.Exec(
-			`INSERT OR IGNORE INTO app_grants(install_id, instance_id, effect, permission, resource, created_by)
+			`INSERT OR IGNORE INTO app_grants(install_id, agent_id, effect, permission, resource, created_by)
 			 VALUES (?, ?, ?, ?, ?, ?)`,
 			installID, instanceID, rule.Effect, rule.Permission, resource, creator,
 		); err != nil {
@@ -346,10 +352,12 @@ func (s *Server) handleDeleteGrant(w http.ResponseWriter, r *http.Request, insta
 
 // POST /grants/evaluate — dry-run a (permission, resource) check
 // without persisting anything. Powers the dashboard's "Test grant"
-// probe. Body: {instance_id, permission, resource}.
+// probe. Body: {agent_id, permission, resource}. instance_id accepted
+// as legacy alias.
 func (s *Server) handleEvaluateGrant(w http.ResponseWriter, r *http.Request, installID int64) {
 	var body struct {
-		InstanceID int64  `json:"instance_id"`
+		AgentID    int64  `json:"agent_id"`
+		InstanceID int64  `json:"instance_id"` // legacy alias
 		Permission string `json:"permission"`
 		Resource   string `json:"resource"`
 	}
@@ -357,8 +365,11 @@ func (s *Server) handleEvaluateGrant(w http.ResponseWriter, r *http.Request, ins
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if body.InstanceID <= 0 {
-		http.Error(w, "instance_id required", http.StatusBadRequest)
+	if body.AgentID == 0 {
+		body.AgentID = body.InstanceID
+	}
+	if body.AgentID <= 0 {
+		http.Error(w, "agent_id required", http.StatusBadRequest)
 		return
 	}
 	manifest, err := s.loadInstallManifest(installID)
@@ -366,7 +377,7 @@ func (s *Server) handleEvaluateGrant(w http.ResponseWriter, r *http.Request, ins
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	resp, err := s.fetchGrantsForInstance(installID, body.InstanceID)
+	resp, err := s.fetchGrantsForInstance(installID, body.AgentID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -407,14 +418,29 @@ func (s *Server) handleSetDefaultEffect(w http.ResponseWriter, r *http.Request, 
 
 // ─── Helpers ───────────────────────────────────────────────────────
 
+// readAgentIDParam returns the agent identifier from the request,
+// preferring the canonical `agent_id` query param and falling back to
+// the legacy `instance_id` for older SDKs / clients. Returns "" when
+// neither is set; the caller decides whether absence is an error.
+//
+// This lives in apps_grants.go because it's the first handler that
+// hit the dual-name need; future handlers in this package should
+// share it instead of re-implementing the precedence rule.
+func readAgentIDParam(r *http.Request) string {
+	if v := r.URL.Query().Get("agent_id"); v != "" {
+		return v
+	}
+	return r.URL.Query().Get("instance_id")
+}
+
 func optionalInstanceID(r *http.Request) (int64, error) {
-	v := r.URL.Query().Get("instance_id")
+	v := readAgentIDParam(r)
 	if v == "" {
 		return 0, nil
 	}
 	id, err := strconv.ParseInt(v, 10, 64)
 	if err != nil || id <= 0 {
-		return 0, errors.New("invalid instance_id")
+		return 0, errors.New("agent_id required")
 	}
 	return id, nil
 }
@@ -432,7 +458,7 @@ func (s *Server) queryGrants(installID, instanceID int64) ([]grantRow, error) {
 	q := `SELECT id, effect, permission, resource FROM app_grants WHERE install_id = ?`
 	args := []any{installID}
 	if instanceID > 0 {
-		q += ` AND instance_id = ?`
+		q += ` AND agent_id = ?`
 		args = append(args, instanceID)
 	}
 	q += ` ORDER BY id`

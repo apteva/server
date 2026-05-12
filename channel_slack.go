@@ -15,7 +15,7 @@ import (
 )
 
 // SlackGateway manages a single Slack app connection shared across all
-// instances. Uses Socket Mode (WebSocket) for receiving messages and
+// agents. Uses Socket Mode (WebSocket) for receiving messages and
 // the Web API for sending. One bot token, many channels — each Slack
 // channel is mapped to a different agent instance.
 type SlackGateway struct {

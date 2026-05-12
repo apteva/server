@@ -168,7 +168,7 @@ func (s *Server) PushSkillToInstance(instanceID int64, sk Skill) error {
 		// record, whatever its id happens to be.
 		payload.ID = activeID
 	}
-	if s.instances.IsRunning(instanceID) {
+	if s.agents.IsRunning(instanceID) {
 		return s.pushPayloadHTTP(instanceID, payload)
 	}
 	return s.pushPayloadDisk(instanceID, payload, activeID != "")
@@ -196,7 +196,7 @@ func (s *Server) RemoveSkillFromInstance(instanceID int64, skillID int64, reason
 			targetID = id
 		}
 	}
-	if s.instances.IsRunning(instanceID) {
+	if s.agents.IsRunning(instanceID) {
 		return s.deleteMemoryHTTP(instanceID, targetID, reason)
 	}
 	return s.tombstoneOnDisk(instanceID, targetID, reason)
@@ -207,15 +207,15 @@ func (s *Server) RemoveSkillFromInstance(instanceID int64, skillID int64, reason
 // Running instance → GET /memory via HTTP. Stopped instance → scan
 // memory.jsonl on disk.
 func (s *Server) findActiveSkillRecordID(instanceID int64, slug string) (string, error) {
-	if s.instances.IsRunning(instanceID) {
+	if s.agents.IsRunning(instanceID) {
 		return s.findActiveSkillRecordIDHTTP(instanceID, slug)
 	}
 	return s.findActiveSkillRecordIDDisk(instanceID, slug)
 }
 
 func (s *Server) findActiveSkillRecordIDHTTP(instanceID int64, slug string) (string, error) {
-	port := s.instances.GetPort(instanceID)
-	coreKey := s.instances.GetCoreAPIKey(instanceID)
+	port := s.agents.GetPort(instanceID)
+	coreKey := s.agents.GetCoreAPIKey(instanceID)
 	if port == 0 {
 		return "", fmt.Errorf("instance %d not running", instanceID)
 	}
@@ -226,12 +226,12 @@ func (s *Server) findActiveSkillRecordIDHTTP(instanceID int64, slug string) (str
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("get /memory instance=%d: %w", instanceID, err)
+		return "", fmt.Errorf("get /memory agent=%d: %w", instanceID, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("get /memory instance=%d: status=%d body=%s", instanceID, resp.StatusCode, string(b))
+		return "", fmt.Errorf("get /memory agent=%d: status=%d body=%s", instanceID, resp.StatusCode, string(b))
 	}
 	var items []struct {
 		ID   string   `json:"id"`
@@ -252,7 +252,7 @@ func (s *Server) findActiveSkillRecordIDHTTP(instanceID int64, slug string) (str
 }
 
 func (s *Server) findActiveSkillRecordIDDisk(instanceID int64, slug string) (string, error) {
-	dir := s.instances.instanceDir(instanceID)
+	dir := s.agents.instanceDir(instanceID)
 	active, err := journalActiveSkillRecords(filepath.Join(dir, "memory.jsonl"))
 	if err != nil {
 		return "", err
@@ -266,8 +266,8 @@ func (s *Server) findActiveSkillRecordIDDisk(instanceID int64, slug string) (str
 // ---- transport: running instance (HTTP to core) -----------------------
 
 func (s *Server) pushPayloadHTTP(instanceID int64, payload pushPayload) error {
-	port := s.instances.GetPort(instanceID)
-	coreKey := s.instances.GetCoreAPIKey(instanceID)
+	port := s.agents.GetPort(instanceID)
+	coreKey := s.agents.GetCoreAPIKey(instanceID)
 	if port == 0 {
 		return fmt.Errorf("instance %d not running", instanceID)
 	}
@@ -281,19 +281,19 @@ func (s *Server) pushPayloadHTTP(instanceID int64, payload pushPayload) error {
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("push instance=%d: %w", instanceID, err)
+		return fmt.Errorf("push agent=%d: %w", instanceID, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("push instance=%d: status=%d body=%s", instanceID, resp.StatusCode, string(b))
+		return fmt.Errorf("push agent=%d: status=%d body=%s", instanceID, resp.StatusCode, string(b))
 	}
 	return nil
 }
 
 func (s *Server) deleteMemoryHTTP(instanceID int64, id, reason string) error {
-	port := s.instances.GetPort(instanceID)
-	coreKey := s.instances.GetCoreAPIKey(instanceID)
+	port := s.agents.GetPort(instanceID)
+	coreKey := s.agents.GetCoreAPIKey(instanceID)
 	if port == 0 {
 		return fmt.Errorf("instance %d not running", instanceID)
 	}
@@ -307,12 +307,12 @@ func (s *Server) deleteMemoryHTTP(instanceID int64, id, reason string) error {
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("delete instance=%d id=%s: %w", instanceID, id, err)
+		return fmt.Errorf("delete agent=%d id=%s: %w", instanceID, id, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete instance=%d: status=%d body=%s", instanceID, resp.StatusCode, string(b))
+		return fmt.Errorf("delete agent=%d: status=%d body=%s", instanceID, resp.StatusCode, string(b))
 	}
 	return nil
 }
@@ -326,7 +326,7 @@ func (s *Server) deleteMemoryHTTP(instanceID int64, id, reason string) error {
 // When supersede==false, this is the first push: write a new record
 // with payload.ID as-is (the deterministic skill_<id>_0).
 func (s *Server) pushPayloadDisk(instanceID int64, payload pushPayload, supersede bool) error {
-	dir := s.instances.instanceDir(instanceID)
+	dir := s.agents.instanceDir(instanceID)
 	path := filepath.Join(dir, "memory.jsonl")
 
 	if supersede {
@@ -367,7 +367,7 @@ func (s *Server) pushPayloadDisk(instanceID int64, payload pushPayload, supersed
 // active-set computation simply ignores tombstones with no IDTarget
 // match).
 func (s *Server) tombstoneOnDisk(instanceID int64, id, reason string) error {
-	dir := s.instances.instanceDir(instanceID)
+	dir := s.agents.instanceDir(instanceID)
 	path := filepath.Join(dir, "memory.jsonl")
 	rec := journalRecord{
 		ID:        newServerULID(),
@@ -463,7 +463,7 @@ func journalHasID(path, id string) (bool, error) {
 // dashboard then joins each slug back to the skills table.
 //
 // Reading from disk (rather than calling core's GET /memory) lets a
-// single code path serve both running and stopped instances. The
+// single code path serve both running and stopped agents. The
 // runtime is single-writer per file, so an append-while-reading race
 // at worst returns N-1 records with a torn last line; the next refresh
 // picks it up.
@@ -515,7 +515,7 @@ func journalActiveSkillRecords(path string) (map[string]journalRecord, error) {
 // sweep path) or about to be deleted in the same transaction. With
 // the slug we can target by tag rather than catalog row.
 func (s *Server) sweepSkillFromProject(userID int64, projectID string, skillID int64, slug, reason string) {
-	insts, err := s.store.ListInstances(userID, projectID)
+	insts, err := s.store.ListAgents(userID, projectID)
 	if err != nil {
 		// log and bail — sweep is best-effort
 		fmt.Printf("[SKILLS-SWEEP] list instances for user=%d project=%q: %v\n", userID, projectID, err)
@@ -528,19 +528,19 @@ func (s *Server) sweepSkillFromProject(userID int64, projectID string, skillID i
 		// to the deterministic id lookup.
 		id, err := s.findActiveSkillRecordID(inst.ID, slug)
 		if err != nil {
-			fmt.Printf("[SKILLS-SWEEP] find active instance=%d slug=%s: %v\n", inst.ID, slug, err)
+			fmt.Printf("[SKILLS-SWEEP] find active agent=%d slug=%s: %v\n", inst.ID, slug, err)
 			continue
 		}
 		if id == "" {
 			continue // not assigned, nothing to do
 		}
-		if s.instances.IsRunning(inst.ID) {
+		if s.agents.IsRunning(inst.ID) {
 			if err := s.deleteMemoryHTTP(inst.ID, id, reason); err != nil {
-				fmt.Printf("[SKILLS-SWEEP] delete instance=%d skill=%d: %v\n", inst.ID, skillID, err)
+				fmt.Printf("[SKILLS-SWEEP] delete agent=%d skill=%d: %v\n", inst.ID, skillID, err)
 			}
 		} else {
 			if err := s.tombstoneOnDisk(inst.ID, id, reason); err != nil {
-				fmt.Printf("[SKILLS-SWEEP] tombstone instance=%d skill=%d: %v\n", inst.ID, skillID, err)
+				fmt.Printf("[SKILLS-SWEEP] tombstone agent=%d skill=%d: %v\n", inst.ID, skillID, err)
 			}
 		}
 	}

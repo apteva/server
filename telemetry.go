@@ -50,7 +50,7 @@ func (b *TelemetryBroadcaster) Unsubscribe(instanceID int64, ch chan TelemetryEv
 	}
 }
 
-// SubscribeAll returns a channel that receives events for all instances.
+// SubscribeAll returns a channel that receives events for all agents.
 // Used by the console logger to render all activity, and by the dashboard's
 // Instances list page to render a per-row live activity strip without
 // opening N concurrent SSE connections.
@@ -84,7 +84,7 @@ func (b *TelemetryBroadcaster) Broadcast(events []TelemetryEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, ev := range events {
-		for _, ch := range b.subscribers[ev.InstanceID] {
+		for _, ch := range b.subscribers[ev.AgentID] {
 			select {
 			case ch <- ev:
 			default:
@@ -103,7 +103,7 @@ func (b *TelemetryBroadcaster) Broadcast(events []TelemetryEvent) {
 // TelemetryEvent is the unified event format.
 type TelemetryEvent struct {
 	ID         string          `json:"id"`
-	InstanceID int64           `json:"instance_id"`
+	AgentID int64           `json:"instance_id"`
 	ThreadID   string          `json:"thread_id"`
 	Type       string          `json:"type"`
 	Time       time.Time       `json:"time"`
@@ -131,7 +131,7 @@ type TelemetryStats struct {
 // endpoint; the dashboard uses this to render the "biggest spenders"
 // view.
 type InstanceStats struct {
-	InstanceID     int64   `json:"instance_id"`
+	AgentID     int64   `json:"instance_id"`
 	Name           string  `json:"name"`
 	Status         string  `json:"status"`
 	LLMCalls       int     `json:"llm_calls"`
@@ -176,7 +176,7 @@ func (s *Store) InsertTelemetry(events []TelemetryEvent) error {
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(
-		"INSERT OR IGNORE INTO telemetry (id, instance_id, thread_id, type, time, data) VALUES (?, ?, ?, ?, ?, ?)",
+		"INSERT OR IGNORE INTO telemetry (id, agent_id, thread_id, type, time, data) VALUES (?, ?, ?, ?, ?, ?)",
 	)
 	if err != nil {
 		return err
@@ -195,14 +195,14 @@ func (s *Store) InsertTelemetry(events []TelemetryEvent) error {
 		if e.Data != nil {
 			dataStr = string(e.Data)
 		}
-		stmt.Exec(e.ID, e.InstanceID, e.ThreadID, e.Type, timeStr, dataStr)
+		stmt.Exec(e.ID, e.AgentID, e.ThreadID, e.Type, timeStr, dataStr)
 	}
 
 	return tx.Commit()
 }
 
 func (s *Store) QueryTelemetry(instanceID int64, eventType string, since time.Time, limit int, threadID ...string) ([]TelemetryEvent, error) {
-	query := "SELECT id, instance_id, thread_id, type, time, data FROM telemetry WHERE instance_id = ?"
+	query := "SELECT id, agent_id, thread_id, type, time, data FROM telemetry WHERE agent_id = ?"
 	args := []any{instanceID}
 
 	if len(threadID) > 0 && threadID[0] != "" {
@@ -244,7 +244,7 @@ func (s *Store) QueryTelemetry(instanceID int64, eventType string, since time.Ti
 	for rows.Next() {
 		var e TelemetryEvent
 		var timeStr, dataStr string
-		rows.Scan(&e.ID, &e.InstanceID, &e.ThreadID, &e.Type, &timeStr, &dataStr)
+		rows.Scan(&e.ID, &e.AgentID, &e.ThreadID, &e.Type, &timeStr, &dataStr)
 		e.Time, _ = parseTime(timeStr)
 		e.Data = json.RawMessage(dataStr)
 		events = append(events, e)
@@ -279,7 +279,7 @@ func (s *Store) QueryChatHistory(instanceID int64, limit int) ([]ChatHistoryMess
 	//   tool.result (other, main thread) → tool completion
 	rows, err := s.db.Query(`
 		SELECT id, thread_id, type, time, data FROM telemetry
-		WHERE instance_id = ?
+		WHERE agent_id = ?
 		  AND thread_id IN ('main', '')
 		  AND type IN ('event.received', 'tool.call', 'tool.result')
 		ORDER BY time DESC
@@ -408,13 +408,13 @@ func (s *Store) TelemetryStats(instanceID int64, since time.Time) (*TelemetrySta
 
 	// Total events
 	s.db.QueryRow(
-		"SELECT COUNT(*) FROM telemetry WHERE instance_id = ? AND time >= ?",
+		"SELECT COUNT(*) FROM telemetry WHERE agent_id = ? AND time >= ?",
 		instanceID, sinceStr,
 	).Scan(&stats.TotalEvents)
 
 	// LLM calls + token/cost aggregation from llm.done data
 	rows, err := s.db.Query(
-		"SELECT data FROM telemetry WHERE instance_id = ? AND type = 'llm.done' AND time >= ?",
+		"SELECT data FROM telemetry WHERE agent_id = ? AND type = 'llm.done' AND time >= ?",
 		instanceID, sinceStr,
 	)
 	if err == nil {
@@ -447,24 +447,24 @@ func (s *Store) TelemetryStats(instanceID int64, since time.Time) (*TelemetrySta
 
 	// Thread counts
 	s.db.QueryRow(
-		"SELECT COUNT(*) FROM telemetry WHERE instance_id = ? AND type = 'thread.spawn' AND time >= ?",
+		"SELECT COUNT(*) FROM telemetry WHERE agent_id = ? AND type = 'thread.spawn' AND time >= ?",
 		instanceID, sinceStr,
 	).Scan(&stats.ThreadsSpawned)
 
 	s.db.QueryRow(
-		"SELECT COUNT(*) FROM telemetry WHERE instance_id = ? AND type = 'thread.done' AND time >= ?",
+		"SELECT COUNT(*) FROM telemetry WHERE agent_id = ? AND type = 'thread.done' AND time >= ?",
 		instanceID, sinceStr,
 	).Scan(&stats.ThreadsDone)
 
 	// Tool calls
 	s.db.QueryRow(
-		"SELECT COUNT(*) FROM telemetry WHERE instance_id = ? AND type = 'tool.call' AND time >= ?",
+		"SELECT COUNT(*) FROM telemetry WHERE agent_id = ? AND type = 'tool.call' AND time >= ?",
 		instanceID, sinceStr,
 	).Scan(&stats.ToolCalls)
 
 	// Errors
 	s.db.QueryRow(
-		"SELECT COUNT(*) FROM telemetry WHERE instance_id = ? AND type LIKE '%.error' AND time >= ?",
+		"SELECT COUNT(*) FROM telemetry WHERE agent_id = ? AND type LIKE '%.error' AND time >= ?",
 		instanceID, sinceStr,
 	).Scan(&stats.Errors)
 
@@ -497,9 +497,16 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Require instance secret
+	// Require the agent secret. Phase 2: accept either X-Agent-Secret
+	// (canonical) or X-Instance-Secret (legacy alias still written by
+	// older apteva-core builds). One core release switches to writing
+	// X-Agent-Secret first and Phase 4 drops the legacy reader.
 	if s.instanceSecret != "" {
-		if r.Header.Get("X-Instance-Secret") != s.instanceSecret {
+		got := r.Header.Get("X-Agent-Secret")
+		if got == "" {
+			got = r.Header.Get("X-Instance-Secret")
+		}
+		if got != s.instanceSecret {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -529,10 +536,10 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 
 	// React to directive changes — update DB so dashboard sees it immediately
 	for _, ev := range events {
-		if ev.Type == "directive.evolved" && ev.InstanceID > 0 {
+		if ev.Type == "directive.evolved" && ev.AgentID > 0 {
 			var data struct{ New string `json:"new"` }
 			if json.Unmarshal(ev.Data, &data) == nil && data.New != "" {
-				s.store.db.Exec("UPDATE instances SET directive=? WHERE id=?", data.New, ev.InstanceID)
+				s.store.db.Exec("UPDATE agents SET directive=? WHERE id=?", data.New, ev.AgentID)
 			}
 		}
 	}
@@ -550,10 +557,15 @@ func (s *Server) handleLiveTelemetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Require instance secret. Mismatches are silent — if a debugging pass
-	// is needed, re-add a log here scoped to the failing path.
+	// Require the agent secret — accept X-Agent-Secret (canonical) or
+	// X-Instance-Secret (legacy). Mismatches stay silent; add a log
+	// here scoped to the failing path during debugging if needed.
 	if s.instanceSecret != "" {
-		if r.Header.Get("X-Instance-Secret") != s.instanceSecret {
+		got := r.Header.Get("X-Agent-Secret")
+		if got == "" {
+			got = r.Header.Get("X-Instance-Secret")
+		}
+		if got != s.instanceSecret {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -619,7 +631,7 @@ func (s *Server) enrichCostInPlace(events []TelemetryEvent) {
 //
 // Two modes:
 //
-//   1. ?instance_id=N — SSE for one specific instance. Used by per-instance
+//   1. ?agent_id=N — SSE for one specific instance. Used by per-instance
 //      panels that need every event from a single core. The caller must own
 //      the instance (verified against the session user).
 //
@@ -651,10 +663,10 @@ func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	// Mode 2: all-instances stream, scoped to the caller's instances.
+	// Mode 2: all-instances stream, scoped to the caller's agents.
 	if q.Get("all") == "1" {
 		projectID := q.Get("project_id")
-		insts, err := s.store.ListInstances(userID, projectID)
+		insts, err := s.store.ListAgents(userID, projectID)
 		if err != nil {
 			http.Error(w, "failed to list instances: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -682,16 +694,16 @@ func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
 				fmt.Fprintf(w, ": ping\n\n")
 				flusher.Flush()
 			case ev := <-ch:
-				if !allowed[ev.InstanceID] {
+				if !allowed[ev.AgentID] {
 					// New instance created mid-stream — refresh allowed
 					// set lazily before dropping. This catches "user starts
 					// instance after page load" without polling.
-					if newInsts, err := s.store.ListInstances(userID, projectID); err == nil {
+					if newInsts, err := s.store.ListAgents(userID, projectID); err == nil {
 						for _, in := range newInsts {
 							allowed[in.ID] = true
 						}
 					}
-					if !allowed[ev.InstanceID] {
+					if !allowed[ev.AgentID] {
 						continue
 					}
 				}
@@ -705,11 +717,11 @@ func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
 	// Mode 1: single-instance stream.
 	instanceID, _ := strconv.ParseInt(q.Get("instance_id"), 10, 64)
 	if instanceID == 0 {
-		http.Error(w, "instance_id required (or ?all=1 for all-instances stream)", http.StatusBadRequest)
+		http.Error(w, "agent_id required (or ?all=1 for all-instances stream)", http.StatusBadRequest)
 		return
 	}
 	// Verify the caller owns this instance.
-	if _, err := s.store.GetInstance(userID, instanceID); err != nil {
+	if _, err := s.store.GetAgent(userID, instanceID); err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
 	}
@@ -718,7 +730,7 @@ func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
 	defer s.broadcaster.Unsubscribe(instanceID, ch)
 
 	// Track CLI channel connection so the agent knows a user is listening.
-	if ic := s.instances.GetChannels(instanceID); ic != nil && ic.cli != nil {
+	if ic := s.agents.GetChannels(instanceID); ic != nil && ic.cli != nil {
 		ic.cli.Connect()
 		defer ic.cli.Disconnect()
 	}
@@ -742,7 +754,7 @@ func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GET /telemetry?instance_id=1&type=llm.done&since=...&limit=100
+// GET /telemetry?agent_id=1&type=llm.done&since=...&limit=100
 func (s *Server) handleQueryTelemetry(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
@@ -752,7 +764,7 @@ func (s *Server) handleQueryTelemetry(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	instanceID, _ := strconv.ParseInt(q.Get("instance_id"), 10, 64)
 	if instanceID == 0 {
-		http.Error(w, "instance_id required", http.StatusBadRequest)
+		http.Error(w, "agent_id required", http.StatusBadRequest)
 		return
 	}
 
@@ -789,7 +801,7 @@ func (s *Server) handleChatHistory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid instance ID", http.StatusBadRequest)
 		return
 	}
-	if _, err := s.store.GetInstance(userID, instanceID); err != nil {
+	if _, err := s.store.GetAgent(userID, instanceID); err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
 	}
@@ -805,7 +817,7 @@ func (s *Server) handleChatHistory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, msgs)
 }
 
-// GET /telemetry/stats?instance_id=1&period=1h
+// GET /telemetry/stats?agent_id=1&period=1h
 func (s *Server) handleTelemetryStats(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
@@ -815,7 +827,7 @@ func (s *Server) handleTelemetryStats(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	instanceID, _ := strconv.ParseInt(q.Get("instance_id"), 10, 64)
 	if instanceID == 0 {
-		http.Error(w, "instance_id required", http.StatusBadRequest)
+		http.Error(w, "agent_id required", http.StatusBadRequest)
 		return
 	}
 
@@ -854,7 +866,7 @@ type TimelineBucket struct {
 
 func (s *Store) TelemetryTimeline(instanceID int64, since time.Time, bucketMinutes int) ([]TimelineBucket, error) {
 	rows, err := s.db.Query(
-		"SELECT type, thread_id, time, data FROM telemetry WHERE instance_id = ? AND time >= ? ORDER BY time",
+		"SELECT type, thread_id, time, data FROM telemetry WHERE agent_id = ? AND time >= ? ORDER BY time",
 		instanceID, since.UTC().Format(time.RFC3339),
 	)
 	if err != nil {
@@ -919,7 +931,7 @@ func (s *Store) TelemetryTimeline(instanceID int64, since time.Time, bucketMinut
 // do a clean "top N spenders" render. projectID="" means "all projects
 // this user owns".
 func (s *Store) TelemetryStatsByProject(userID int64, projectID string, since time.Time) ([]InstanceStats, error) {
-	insts, err := s.ListInstances(userID, projectID)
+	insts, err := s.ListAgents(userID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -932,7 +944,7 @@ func (s *Store) TelemetryStatsByProject(userID int64, projectID string, since ti
 	placeholders := make([]string, 0, len(insts))
 	for i := range insts {
 		byID[insts[i].ID] = &InstanceStats{
-			InstanceID: insts[i].ID,
+			AgentID: insts[i].ID,
 			Name:       insts[i].Name,
 			Status:     insts[i].Status,
 		}
@@ -943,7 +955,7 @@ func (s *Store) TelemetryStatsByProject(userID int64, projectID string, since ti
 	args := append([]any{}, ids...)
 	args = append(args, since.UTC().Format(time.RFC3339))
 	q := fmt.Sprintf(
-		"SELECT instance_id, thread_id, type, data FROM telemetry WHERE instance_id IN (%s) AND time >= ?",
+		"SELECT agent_id, thread_id, type, data FROM telemetry WHERE agent_id IN (%s) AND time >= ?",
 		strings.Join(placeholders, ","),
 	)
 	rows, err := s.db.Query(q, args...)
@@ -1034,7 +1046,7 @@ func (s *Store) TelemetryStatsByProject(userID int64, projectID string, since ti
 // width. Instances with zero events in the window are omitted from
 // every bucket to keep the payload tight.
 func (s *Store) TelemetryTimelineByProject(userID int64, projectID string, since time.Time, bucketMinutes int) ([]ProjectTimelineBucket, error) {
-	insts, err := s.ListInstances(userID, projectID)
+	insts, err := s.ListAgents(userID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -1050,7 +1062,7 @@ func (s *Store) TelemetryTimelineByProject(userID int64, projectID string, since
 	args := append([]any{}, ids...)
 	args = append(args, since.UTC().Format(time.RFC3339))
 	q := fmt.Sprintf(
-		"SELECT instance_id, type, time, data FROM telemetry WHERE instance_id IN (%s) AND time >= ? ORDER BY time",
+		"SELECT agent_id, type, time, data FROM telemetry WHERE agent_id IN (%s) AND time >= ? ORDER BY time",
 		strings.Join(placeholders, ","),
 	)
 	rows, err := s.db.Query(q, args...)
@@ -1155,7 +1167,7 @@ func (s *Server) handleTelemetryProjectTools(w http.ResponseWriter, r *http.Requ
 	projectID := q.Get("project_id")
 	since := parsePeriod(q.Get("period"))
 
-	insts, err := s.store.ListInstances(userID, projectID)
+	insts, err := s.store.ListAgents(userID, projectID)
 	if err != nil {
 		http.Error(w, "list instances failed", http.StatusInternalServerError)
 		return
@@ -1175,8 +1187,8 @@ func (s *Server) handleTelemetryProjectTools(w http.ResponseWriter, r *http.Requ
 
 	rows, err := s.store.db.Query(
 		fmt.Sprintf(
-			"SELECT instance_id, type, data FROM telemetry "+
-				"WHERE instance_id IN (%s) AND time >= ? "+
+			"SELECT agent_id, type, data FROM telemetry "+
+				"WHERE agent_id IN (%s) AND time >= ? "+
 				"AND type IN ('tool.call','tool.result')",
 			strings.Join(placeholders, ","),
 		),
@@ -1298,7 +1310,7 @@ func bucketWidthFor(p string) int {
 	}
 }
 
-// GET /telemetry/timeline?instance_id=1&period=24h
+// GET /telemetry/timeline?agent_id=1&period=24h
 func (s *Server) handleTelemetryTimeline(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
@@ -1308,7 +1320,7 @@ func (s *Server) handleTelemetryTimeline(w http.ResponseWriter, r *http.Request)
 	q := r.URL.Query()
 	instanceID, _ := strconv.ParseInt(q.Get("instance_id"), 10, 64)
 	if instanceID == 0 {
-		http.Error(w, "instance_id required", http.StatusBadRequest)
+		http.Error(w, "agent_id required", http.StatusBadRequest)
 		return
 	}
 

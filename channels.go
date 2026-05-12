@@ -111,8 +111,8 @@ func (r *ChannelRegistry) CloseAll() {
 	r.channels = make(map[string]Channel)
 }
 
-// InstanceChannels holds all channel infrastructure for a running instance.
-type InstanceChannels struct {
+// AgentChannels holds all channel infrastructure for a running instance.
+type AgentChannels struct {
 	registry *ChannelRegistry
 	mcp      *channelMCPServer
 	telegram *TelegramGateway
@@ -136,7 +136,7 @@ type activeChannel interface {
 // connected and can receive messages right now. The channels MCP uses
 // this at tool-call time to gate respond/status with a clean rejection
 // when nobody's listening.
-func (ic *InstanceChannels) AvailableChannels() []string {
+func (ic *AgentChannels) AvailableChannels() []string {
 	var ids []string
 	if ic.cli != nil && ic.cli.IsConnected() {
 		ids = append(ids, "cli")
@@ -170,7 +170,7 @@ func (ic *InstanceChannels) AvailableChannels() []string {
 // still gets the accurate "is this channel live?" signal at call
 // time, where AvailableChannels is consulted and a clear rejection
 // comes back for dead channels.
-func (ic *InstanceChannels) RegisteredChannels() []string {
+func (ic *AgentChannels) RegisteredChannels() []string {
 	var ids []string
 	// cli is intentionally NOT advertised in the tool description,
 	// even when the bridge object exists. The bridge is created
@@ -199,7 +199,7 @@ func (ic *InstanceChannels) RegisteredChannels() []string {
 }
 
 // Stop shuts down all channels for an instance.
-func (ic *InstanceChannels) Stop() {
+func (ic *AgentChannels) Stop() {
 	if ic.telegram != nil {
 		ic.telegram.Stop()
 	}

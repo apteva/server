@@ -20,7 +20,7 @@ import (
 func TestChannelChatApp_EndToEnd(t *testing.T) {
 	s := newTestServer(t)
 	user := mkUser(t, s, "chat-test@test")
-	inst, err := s.store.CreateInstance(user, "inst-chat", "test directive", "autonomous", "{}", "")
+	inst, err := s.store.CreateAgent(user, "inst-chat", "test directive", "autonomous", "{}", "")
 	if err != nil {
 		t.Fatalf("create instance: %v", err)
 	}
