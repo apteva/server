@@ -191,13 +191,14 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	}
 
 	gateway := map[string]any{
-		"name":        "apteva-server",
-		"command":     serverBin,
-		"args":        []string{"--mcp-gateway", fmt.Sprintf("--user-id=%d", inst.UserID)},
-		"main_access": true,
-		// no_spawn blocks sub-threads from attaching this MCP via
-		// spawn(mcp="apteva-server"). Management capabilities (creating
-		// instances, MCP servers, …) stay on main only.
+		"name":    "apteva-server",
+		"command": serverBin,
+		"args":    []string{"--mcp-gateway", fmt.Sprintf("--user-id=%d", inst.UserID)},
+		// no_spawn hides this server from sub-thread search_tools
+		// results and refuses sub-thread spawn(mcps=[...]) attempts.
+		// Management capabilities (creating agents, MCP servers, …)
+		// stay reachable from main only. Main discovers them via
+		// search_tools or per-turn BM25 preload, like any other MCP.
 		"no_spawn": true,
 	}
 
@@ -347,13 +348,15 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	}
 
 	channelsEntry := map[string]any{
-		"name":        "channels",
-		"url":         channelsMCP.url(),
-		"transport":   "http",
-		"main_access": true,
+		"name":      "channels",
+		"url":       channelsMCP.url(),
+		"transport": "http",
 		// Outbound user-facing chat bridge — main only. A worker that
 		// could attach channels would be able to reply to end users
-		// directly, which we don't want.
+		// directly, which we don't want. Core's per-thread
+		// scaffolding includes channels.respond as an always-loaded
+		// tool, so the bridge is reachable without searching even
+		// when the channels MCP itself is hidden from sub-threads.
 		"no_spawn": true,
 	}
 
