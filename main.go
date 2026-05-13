@@ -128,6 +128,15 @@ type Server struct {
 	// CRUD; gap-free across server restarts via per-row
 	// last_seq_delivered + bus since-cursor.
 	appEventDispatcher *AppEventDispatcher
+
+	// liveTelemetryHook is an optional callback invoked for every
+	// batch of events received on /telemetry/live, after enrichment
+	// and broadcaster fanout. Used by channelchat to tap into the
+	// LLM tool-args stream and surface partial `channels_respond`
+	// text on the chat SSE. Gated by CHANNELCHAT_STREAMING != "0"
+	// so the whole feature can be turned off with a single env var
+	// without redeploying. Set once at startApps boot.
+	liveTelemetryHook func([]TelemetryEvent)
 }
 
 // appsRegistry is a thin alias over framework.Registry so main.go
@@ -476,6 +485,13 @@ func main() {
 	// fires immediately so /api/platform-status has data on the very
 	// first dashboard render after boot.
 	go s.platformStatus.Run()
+
+	// Boot the meta-agent for every user that already has an LLM
+	// provider configured. Done in a background goroutine so a slow
+	// core spawn (~2-3s) doesn't delay HTTP listener start. Users
+	// without a provider configured yet get lazy-start on their
+	// first eval run.
+	go s.bootMetaAgents()
 
 	s.initSlack()
 	s.initEmail()
@@ -992,6 +1008,15 @@ func main() {
 			s.handleProviderModels(w, r)
 			return
 		}
+		// POST /providers/:id/test — run the provider's credential
+		// probe and return a ProviderTestResult. Pairs with the
+		// pre-flight gate in handleCreateProvider so operators get
+		// the same green-tick / red-X feedback after the row was
+		// saved as they did on the create form.
+		if strings.HasSuffix(path, "/test") && r.Method == http.MethodPost {
+			s.handleTestProvider(w, r)
+			return
+		}
 		switch r.Method {
 		case http.MethodGet:
 			s.handleGetProvider(w, r)
@@ -1003,6 +1028,35 @@ func main() {
 			http.Error(w, "GET, PUT, POST, or DELETE", http.StatusMethodNotAllowed)
 		}
 	}))
+
+	// /agent-templates — wizard's starter-config catalog. Builtin
+	// rows are seeded inline in store.migrate(); apps can contribute
+	// rows via their manifest (apps_loader upserts on install/upgrade);
+	// users can save their own rows. See server/agent_templates.go.
+	apiMux.HandleFunc("/agent-templates", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.handleListAgentTemplates(w, r)
+		case http.MethodPost:
+			s.handleCreateAgentTemplate(w, r)
+		default:
+			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
+		}
+	}))
+	apiMux.HandleFunc("/agent-templates/", s.authMiddleware(s.handleAgentTemplateByID))
+
+	// /evals/preview — wizard's Verify step uses this to run an
+	// eval against a draft (uncreated) agent. No DB writes; the
+	// returned EvalRun has ID=0. After the agent is created, the
+	// regular /agents/:id/evals/:evalId/run path persists results.
+	apiMux.HandleFunc("/evals/preview", s.authMiddleware(s.handleEvalPreview))
+
+	// /eval-mock-gateway/<token>[/...] — HTTP MCP endpoint that
+	// spawned eval cores talk to in place of the real gateway.
+	// Authenticates via the token in the path (it IS the credential).
+	// See eval_runner.go for the runner that registers the session
+	// and agent_evals.go for the handler logic.
+	apiMux.HandleFunc("/eval-mock-gateway/", s.handleEvalMockGateway)
 
 	instancesCollectionHandler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -1088,6 +1142,15 @@ func main() {
 		// /instances/:id/skills/:skill — POST assign / DELETE unassign
 		if strings.HasSuffix(path, "/skills") || strings.Contains(path, "/skills/") {
 			s.handleInstanceSkills(w, r)
+			return
+		}
+
+		// /instances/:id/evals                  — list / create
+		// /instances/:id/evals/:evalId          — get / update / delete
+		// /instances/:id/evals/:evalId/run      — POST execute the eval
+		// /instances/:id/evals/:evalId/runs     — GET run history
+		if strings.HasSuffix(path, "/evals") || strings.Contains(path, "/evals/") {
+			s.handleAgentEvals(w, r)
 			return
 		}
 

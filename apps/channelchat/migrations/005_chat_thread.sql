@@ -1,0 +1,13 @@
+-- Per-chat agent thread id. channelchat routes each chat's messages
+-- to a dedicated core thread (e.g. "chat-42") instead of "main", so
+-- a busy main thread can't block user-facing replies. On by default;
+-- set CHANNELCHAT_PER_THREAD=0 to disable.
+--
+-- The thread id is assigned lazily on first message and persisted
+-- here so subsequent messages (and reconnects after agent restart)
+-- reuse the same thread.
+--
+-- Empty string = "no thread assigned yet, route to main". Safe to
+-- leave behind if the feature is reverted: code with the flag off
+-- ignores the column entirely.
+ALTER TABLE channel_chat_chats ADD COLUMN thread_id TEXT NOT NULL DEFAULT '';

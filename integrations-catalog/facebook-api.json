@@ -46,6 +46,7 @@
         "pages_manage_metadata",
         "instagram_basic",
         "instagram_content_publish",
+        "instagram_manage_messages",
         "ads_management",
         "business_management"
       ],
@@ -480,6 +481,214 @@
           }
         },
         "required": ["mediaId"]
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "Send an Instagram DM, sender action (typing/seen), reaction, or private reply to a comment. Single endpoint POST /{instagramAccountId}/messages — body shape switches by intent. (1) Text DM: recipient={id:IGSID}, message={text:'...'}. (2) Media DM: recipient={id:IGSID}, message={attachment:{type:'image'|'video'|'audio'|'file', payload:{url, is_reusable?}}}. (3) Quick replies: message={text, quick_replies:[{content_type:'text', title, payload}]}. (4) Sender action: recipient={id:IGSID}, sender_action='typing_on'|'typing_off'|'mark_seen'. (5) Reaction: recipient={id:IGSID}, sender_action='react'|'unreact', payload={message_id, reaction:'love'}. (6) Private reply to comment: recipient={comment_id:'...'}, message={text:'...'} — 7-day single-use window from the comment, the only way to initiate to a user who hasn't DM'd you. Standard recipients are bound by Meta's 24-hour messaging window unless using an approved message tag. Returns {recipient_id, message_id} for messages; {recipient_id} for sender actions. Page-level access_token required.",
+      "method": "POST",
+      "path": "/{instagramAccountId}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Instagram Business Account ID (sender). From list_pages → data[].instagram_business_account.id."
+          },
+          "recipient": {
+            "type": "object",
+            "description": "Who receives the message. Use {id: '<IGSID>'} for a known Instagram-scoped user (obtained from an inbound webhook event or list_conversations participants). Use {comment_id: '<comment-id>'} for a private reply to a public comment (7-day window from the comment, single-use).",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Instagram-scoped user id (IGSID) of the recipient."
+              },
+              "comment_id": {
+                "type": "string",
+                "description": "Comment id to private-reply to (alternative to id). Single-use, 7-day window."
+              }
+            }
+          },
+          "message": {
+            "type": "object",
+            "description": "Message payload. Omit when sending a sender_action. One of {text}, {attachment}, or {text, quick_replies}.",
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "Message body text. Max 1000 chars."
+              },
+              "attachment": {
+                "type": "object",
+                "description": "Media attachment payload.",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["image", "video", "audio", "file"]
+                  },
+                  "payload": {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string",
+                        "description": "Publicly accessible media URL."
+                      },
+                      "is_reusable": {
+                        "type": "boolean",
+                        "description": "Cache the attachment server-side so it can be reused by id in later sends.",
+                        "default": false
+                      }
+                    },
+                    "required": ["url"]
+                  }
+                },
+                "required": ["type", "payload"]
+              },
+              "quick_replies": {
+                "type": "array",
+                "description": "Tap-to-reply chips shown beneath the message. Max 13.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "content_type": {
+                      "type": "string",
+                      "enum": ["text"],
+                      "default": "text"
+                    },
+                    "title": {
+                      "type": "string",
+                      "description": "Chip label (max 20 chars)."
+                    },
+                    "payload": {
+                      "type": "string",
+                      "description": "Opaque value echoed back in the inbound webhook when tapped."
+                    }
+                  },
+                  "required": ["content_type", "title", "payload"]
+                }
+              }
+            }
+          },
+          "sender_action": {
+            "type": "string",
+            "description": "Use instead of `message` to send a typing indicator, read receipt, or reaction. typing_on/typing_off/mark_seen require no payload; react/unreact require the `payload` field below.",
+            "enum": ["typing_on", "typing_off", "mark_seen", "react", "unreact"]
+          },
+          "payload": {
+            "type": "object",
+            "description": "Reaction payload — only when sender_action is 'react' or 'unreact'.",
+            "properties": {
+              "message_id": {
+                "type": "string",
+                "description": "The inbound message id being reacted to."
+              },
+              "reaction": {
+                "type": "string",
+                "description": "Reaction name. Meta currently supports 'love'.",
+                "default": "love"
+              }
+            },
+            "required": ["message_id"]
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token of the FB Page that owns this IG account). Required."
+          }
+        },
+        "required": ["instagramAccountId", "recipient"]
+      }
+    },
+    {
+      "name": "list_conversations",
+      "description": "List Instagram DM conversations (threads) for an IG Business account. Calls GET /{instagramAccountId}/conversations?platform=instagram on the Graph API. Returns {data:[{id, updated_time, participants:{data:[{id, username}]}}], paging:{cursors, next}}. Pass the next cursor's `after` value to page. Use this to find IGSIDs of users you can message (those who have messaged you) and to drive a conversation list UI.",
+      "method": "GET",
+      "path": "/{instagramAccountId}/conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Instagram Business Account ID (your account, not the participant)."
+          },
+          "platform": {
+            "type": "string",
+            "description": "Must be 'instagram' to scope to IG DMs (vs. Messenger).",
+            "enum": ["instagram"],
+            "default": "instagram"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields. Default surfaces participants inline so callers don't need a second roundtrip.",
+            "default": "id,updated_time,participants{id,username}"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "Optional IGSID filter — return only the conversation with this participant (if it exists)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (Meta caps around 25 by default).",
+            "default": 25
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor from previous response's paging.cursors.after."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages). Required."
+          }
+        },
+        "required": ["instagramAccountId"]
+      }
+    },
+    {
+      "name": "get_conversation",
+      "description": "Fetch a single Instagram DM conversation with its messages inline. Calls GET /{conversationId}?fields=... on the Graph API. Default fields pull the most recent 20 messages with sender/recipient/body/attachments — Meta caps inline message history at ~20; for older messages you must paginate via the messages edge separately.",
+      "method": "GET",
+      "path": "/{conversationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "description": "Conversation id from list_conversations.data[].id."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields selector. Default expands the messages edge with the common per-message fields.",
+            "default": "id,updated_time,participants{id,username},messages{id,from,to,message,created_time,attachments}"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages). Required."
+          }
+        },
+        "required": ["conversationId"]
+      }
+    },
+    {
+      "name": "get_message",
+      "description": "Fetch a single Instagram DM message by id, including attachments and reactions. Calls GET /{messageId}?fields=... on the Graph API. Useful for fetching attachment URLs or reaction details that aren't included in the lightweight conversation listing.",
+      "method": "GET",
+      "path": "/{messageId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string",
+            "description": "Message id (from a conversation's messages edge or an inbound webhook event)."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields selector.",
+            "default": "id,from,to,message,created_time,attachments,reactions"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages). Required."
+          }
+        },
+        "required": ["messageId"]
       }
     }
   ]

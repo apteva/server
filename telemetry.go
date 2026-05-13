@@ -584,6 +584,16 @@ func (s *Server) handleLiveTelemetry(w http.ResponseWriter, r *http.Request) {
 	s.enrichCostInPlace(events)
 
 	s.broadcaster.Broadcast(events)
+
+	// Channelchat streaming tap. Set by startApps when the channelchat
+	// app is loaded. Skipped when CHANNELCHAT_STREAMING=0 (the hook
+	// itself isn't installed in that mode). Runs sync because the
+	// streamer is non-blocking — it parses + publishes to the per-chat
+	// hub, which has drop-on-full semantics.
+	if s.liveTelemetryHook != nil {
+		s.liveTelemetryHook(events)
+	}
+
 	writeJSON(w, map[string]int{"broadcast": len(events)})
 }
 

@@ -8,12 +8,48 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/apteva/server/apps/framework"
 )
+
+// perThreadEnabled gates the "one core thread per chat" routing. On
+// by default — chat messages route to a dedicated per-chat core
+// thread so a busy main can't block user-facing replies. Set
+// CHANNELCHAT_PER_THREAD=0 to revert to the legacy "everything goes
+// to main" behavior (single env-var flip, no DB rollback needed).
+func perThreadEnabled() bool {
+	return os.Getenv("CHANNELCHAT_PER_THREAD") != "0"
+}
+
+// chatThreadDirectiveSuffix is appended to main's directive when
+// spawning a per-chat thread. Tells the chat thread it's the
+// user-facing front and to delegate state-changing work to main via
+// `send`. Kept in one place so the wording can be tuned without
+// chasing call sites.
+const chatThreadDirectiveSuffix = "\n\n---\nYou are this agent's chat-handling thread. The user is talking to you directly. Reply to them by calling respond(channel=\"chat\", text=...). For any action that modifies state (sending messages on other channels, writing files, calling external APIs, updating memory), use send(id=\"main\", text=...) to delegate to the main thread, which has the full tool set. Acknowledge the request to the user immediately and relay main's reply when it arrives."
+
+// chatThreadTools is the minimal local tool set the chat thread gets
+// at spawn time. Read-only by design — anything mutating goes through
+// `send` to main. `pace` is harmless and lets the thread idle between
+// messages without holding the loop hot.
+var chatThreadTools = []string{"send", "pace"}
+
+// chatThreadMCPs is the MCP servers the chat thread connects to. Just
+// `channels` so the thread can call respond(channel="chat", ...) to
+// reply to the user. Anything else (storage, etc.) main handles.
+var chatThreadMCPs = []string{"channels"}
+
+// spawnedChatThreads remembers which (instance, chat) pairs we've
+// already spawned the thread for in this process. The core endpoint
+// is idempotent, but the round-trip is wasted work on every message;
+// this cache turns it into one POST per chat per process. Reset on
+// restart, which is fine — the second call returns status=exists.
+var spawnedChatThreads sync.Map // key: "instID/chatID" → struct{}{}
 
 // REST + SSE surface. Mounted at /api/apps/channel-chat/<path>. Every
 // route is scoped to the authenticated user + the instance owning the
@@ -35,7 +71,7 @@ type handlers struct {
 type InstanceResolver interface {
 	// OwnedInstance returns the instance info IF the user owns it,
 	// else error. Used for ownership checks on chat operations.
-	OwnedInstance(userID, instanceID int64) (framework.InstanceInfo, error)
+	OwnedInstance(userID, agentID int64) (framework.InstanceInfo, error)
 
 	// LookupUserID pulls the user id off the request (via the
 	// server's auth middleware header).
@@ -47,6 +83,13 @@ type InstanceResolver interface {
 	// port/core-key layout.
 	ForwardEvent(inst framework.InstanceInfo, text, threadID string) error
 
+	// SpawnThread idempotently spawns a core thread by id with the
+	// given directive + tool set + MCP servers. Used by channelchat
+	// (when CHANNELCHAT_PER_THREAD is on) to bootstrap a dedicated
+	// chat-handling thread so a busy main can't block user replies.
+	// Returns nil for both newly-created and pre-existing threads.
+	SpawnThread(inst framework.InstanceInfo, threadID, directive string, tools, mcp []string) error
+
 	// InstanceIDsForUser returns every instance id the user owns,
 	// across all projects. Used by the unread-summary endpoint and
 	// the global SSE stream to scope to "this user's chats".
@@ -55,20 +98,26 @@ type InstanceResolver interface {
 
 // --- Chats collection -------------------------------------------------
 
-// GET /api/apps/channel-chat/chats?instance_id=<id>
-// Lists chats for one instance (usually just the default).
+// GET /api/apps/channel-chat/chats?agent_id=<id>
+// Lists chats for one agent (usually just the default). The legacy
+// ?instance_id= name still works during the rename deprecation
+// window; the dashboard switched to ?agent_id= in Phase 3.
 func (h *handlers) listChats(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
 	userID := h.instances.LookupUserID(r)
-	instanceID, err := strconv.ParseInt(r.URL.Query().Get("instance_id"), 10, 64)
+	raw := r.URL.Query().Get("agent_id")
+	if raw == "" {
+		raw = r.URL.Query().Get("instance_id")
+	}
+	agentID, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
-		http.Error(w, "instance_id required", http.StatusBadRequest)
+		http.Error(w, "agent_id required", http.StatusBadRequest)
 		return
 	}
-	if _, err := h.instances.OwnedInstance(userID, instanceID); err != nil {
+	if _, err := h.instances.OwnedInstance(userID, agentID); err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
 	}
-	chats, err := h.store.ListChatsForInstance(instanceID)
+	chats, err := h.store.ListChatsForAgent(agentID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -76,24 +125,30 @@ func (h *handlers) listChats(w http.ResponseWriter, r *http.Request, _ *framewor
 	writeJSON(w, chats)
 }
 
-// POST /api/apps/channel-chat/chats {instance_id, title?}
-// Creates (or returns existing default) chat for an instance. v1
-// always returns the default chat; multi-chat creation is a later UI.
+// POST /api/apps/channel-chat/chats {agent_id, title?}
+// Creates (or returns existing default) chat for an agent. v1 always
+// returns the default chat; multi-chat creation is a later UI. Body
+// also accepts the legacy `instance_id` field during the rename
+// deprecation window.
 func (h *handlers) createChat(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
 	userID := h.instances.LookupUserID(r)
 	var body struct {
-		InstanceID int64  `json:"instance_id"`
-		Title      string `json:"title"`
+		AgentID  int64  `json:"agent_id"`
+		LegacyID int64  `json:"instance_id"` // legacy alias for dual-naming window
+		Title    string `json:"title"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	if _, err := h.instances.OwnedInstance(userID, body.InstanceID); err != nil {
-		http.Error(w, "instance not found", http.StatusNotFound)
+	if body.AgentID == 0 {
+		body.AgentID = body.LegacyID
+	}
+	if _, err := h.instances.OwnedInstance(userID, body.AgentID); err != nil {
+		http.Error(w, "agent not found", http.StatusNotFound)
 		return
 	}
-	chat, err := h.store.EnsureDefaultChat(body.InstanceID)
+	chat, err := h.store.EnsureDefaultChat(body.AgentID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -192,9 +247,10 @@ func (h *handlers) postMessage(w http.ResponseWriter, r *http.Request, _ *framew
 	// instead of an indefinite quiet.
 	go func(inst framework.InstanceInfo, text string, chatID string) {
 		evText := fmt.Sprintf("[chat] %s", text)
-		if err := h.instances.ForwardEvent(inst, evText, "main"); err != nil {
-			log.Printf("[CHAT] ForwardEvent FAILED chat=%s instance=%d: %v",
-				chatID, inst.ID, err)
+		threadID := h.resolveChatThread(inst, chatID)
+		if err := h.instances.ForwardEvent(inst, evText, threadID); err != nil {
+			log.Printf("[CHAT] ForwardEvent FAILED chat=%s instance=%d thread=%s: %v",
+				chatID, inst.ID, threadID, err)
 			// Surface the failure to the user inline. The system row
 			// goes through the same hub/SSE path as a regular message
 			// so the chat panel renders it next to the user's input.
@@ -273,6 +329,13 @@ func (h *handlers) stream(w http.ResponseWriter, r *http.Request, _ *framework.A
 	ch, _, cancel := h.hub.subscribe(chatID)
 	defer cancel()
 
+	// Parallel stream-frame subscription. Ephemeral LLM-args chunks
+	// for in-progress `channels_respond` calls land here. Separate
+	// from the Message channel so reverting streaming = delete this
+	// block (no Message-path side effects).
+	streamCh, _, streamCancel := h.hub.subscribeStream(chatID)
+	defer streamCancel()
+
 	// Keepalive ping every 15s prevents intermediary proxies from
 	// killing an idle connection.
 	ping := time.NewTicker(15 * time.Second)
@@ -299,6 +362,12 @@ func (h *handlers) stream(w http.ResponseWriter, r *http.Request, _ *framework.A
 			}
 			writeSSE(w, m)
 			since = m.ID
+			flusher.Flush()
+		case f, ok := <-streamCh:
+			if !ok {
+				continue
+			}
+			writeSSEStream(w, f)
 			flusher.Flush()
 		}
 	}
@@ -415,7 +484,7 @@ func (h *handlers) markSeen(w http.ResponseWriter, r *http.Request, _ *framework
 		return
 	}
 	userID := h.instances.LookupUserID(r)
-	if _, err := h.instances.OwnedInstance(userID, chat.InstanceID); err != nil {
+	if _, err := h.instances.OwnedInstance(userID, chat.AgentID); err != nil {
 		http.Error(w, "chat not found", http.StatusNotFound)
 		return
 	}
@@ -426,6 +495,64 @@ func (h *handlers) markSeen(w http.ResponseWriter, r *http.Request, _ *framework
 		return
 	}
 	writeJSON(w, map[string]int64{"last_seen_id": current})
+}
+
+// presence forwards a "[chat] user connected/disconnected" event to
+// the agent. Routes via resolveChatThread so presence lands on the
+// same thread as the chat's messages — chat thread when the feature
+// is on, main when off (single-flag revert).
+//
+// Used to live in the dashboard as a direct call to /agents/:id/event
+// with thread_id="main" hardcoded, which bypassed the per-chat
+// thread resolution. Moving it here keeps "which thread does this
+// chat go to" decided in exactly one place.
+func (h *handlers) presence(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
+	var body struct {
+		ChatID string `json:"chat_id"`
+		Action string `json:"action"` // "connected" | "disconnected"
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if body.ChatID == "" {
+		http.Error(w, "chat_id required", http.StatusBadRequest)
+		return
+	}
+	var evText string
+	switch body.Action {
+	case "connected":
+		evText = "[chat] user connected to chat"
+	case "disconnected":
+		evText = "[chat] user disconnected from chat"
+	default:
+		http.Error(w, "action must be \"connected\" or \"disconnected\"", http.StatusBadRequest)
+		return
+	}
+	chat, err := h.store.GetChat(body.ChatID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			http.Error(w, "chat not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	userID := h.instances.LookupUserID(r)
+	inst, err := h.instances.OwnedInstance(userID, chat.AgentID)
+	if err != nil {
+		http.Error(w, "chat not found", http.StatusNotFound)
+		return
+	}
+	threadID := h.resolveChatThread(inst, body.ChatID)
+	if err := h.instances.ForwardEvent(inst, evText, threadID); err != nil {
+		log.Printf("[CHAT] presence forward chat=%s thread=%s action=%s: %v",
+			body.ChatID, threadID, body.Action, err)
+		// Don't fail the request — presence is fire-and-forget for the
+		// client, and a transient core unavailability shouldn't surface
+		// as a noisy error in the chat UI.
+	}
+	writeJSON(w, map[string]string{"status": "ok", "thread_id": threadID})
 }
 
 // --- Helpers ----------------------------------------------------------
@@ -449,12 +576,42 @@ func (h *handlers) authorizeChat(w http.ResponseWriter, r *http.Request) (string
 		return "", framework.InstanceInfo{}, false
 	}
 	userID := h.instances.LookupUserID(r)
-	inst, err := h.instances.OwnedInstance(userID, chat.InstanceID)
+	inst, err := h.instances.OwnedInstance(userID, chat.AgentID)
 	if err != nil {
 		http.Error(w, "chat not found", http.StatusNotFound)
 		return "", framework.InstanceInfo{}, false
 	}
 	return chatID, inst, true
+}
+
+// resolveChatThread decides which core thread the chat's events
+// should target. Flag off → "main" (legacy behavior). Flag on →
+// look up (or assign) the chat's persisted thread id and spawn it
+// idempotently on first use this process. Falls back to "main" on
+// any error so a transient DB/network glitch can't drop messages.
+func (h *handlers) resolveChatThread(inst framework.InstanceInfo, chatID string) string {
+	if !perThreadEnabled() {
+		return "main"
+	}
+	threadID, err := h.store.EnsureChatThread(chatID)
+	if err != nil || threadID == "" {
+		log.Printf("[CHAT] EnsureChatThread chat=%s: %v — falling back to main", chatID, err)
+		return "main"
+	}
+	cacheKey := fmt.Sprintf("%d/%s", inst.ID, chatID)
+	if _, alreadySpawned := spawnedChatThreads.Load(cacheKey); alreadySpawned {
+		return threadID
+	}
+	// The "directive" arg flows into core as directive_suffix: the
+	// thread inherits main's directive verbatim and appends this
+	// chat-handling hint. Sending only the suffix avoids round-tripping
+	// to fetch main's directive on the channelchat side.
+	if err := h.instances.SpawnThread(inst, threadID, chatThreadDirectiveSuffix, chatThreadTools, chatThreadMCPs); err != nil {
+		log.Printf("[CHAT] SpawnThread chat=%s thread=%s: %v — falling back to main", chatID, threadID, err)
+		return "main"
+	}
+	spawnedChatThreads.Store(cacheKey, struct{}{})
+	return threadID
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -465,6 +622,18 @@ func writeJSON(w http.ResponseWriter, v any) {
 func writeSSE(w http.ResponseWriter, m Message) {
 	body, _ := json.Marshal(m)
 	_, _ = io.WriteString(w, "data: ")
+	_, _ = w.Write(body)
+	_, _ = io.WriteString(w, "\n\n")
+}
+
+// writeSSEStream emits a stream frame with a distinct event name so
+// the client can branch on `event.type === "stream"` vs falling
+// through to the default Message handler. The default SSE event is
+// "message" — using a named event here keeps the existing handler's
+// `onmessage` callback receiving only real Message rows.
+func writeSSEStream(w http.ResponseWriter, f StreamFrame) {
+	body, _ := json.Marshal(f)
+	_, _ = io.WriteString(w, "event: stream\ndata: ")
 	_, _ = w.Write(body)
 	_, _ = io.WriteString(w, "\n\n")
 }

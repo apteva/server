@@ -330,6 +330,12 @@ func (s *Store) migrate() error {
 			pid INTEGER DEFAULT 0,
 			status TEXT DEFAULT 'stopped',
 			project_id TEXT DEFAULT '',
+			-- kind distinguishes platform-owned agents (the meta-agent,
+			-- eventually onboarding helpers, classifier, etc.) from
+			-- regular user agents. List endpoints filter 'user' by
+			-- default so platform agents don't clutter the dashboard.
+			-- Values: 'user' (default), 'platform_helper' (the meta-agent).
+			kind TEXT NOT NULL DEFAULT 'user',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 
@@ -341,10 +347,143 @@ func (s *Store) migrate() error {
 			color TEXT DEFAULT '#6366f1',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
+
+		-- agent_templates — pre-canned starter configs surfaced in the
+		-- "build your first agent" wizard. Three sources, sharing one
+		-- table:
+		--   source='builtin'  — shipped by apteva, user_id NULL.
+		--                       Seeded inline below. INSERT OR IGNORE
+		--                       protects operator edits across upgrades;
+		--                       new platform-wide updates ship under a
+		--                       fresh id (e.g. 'personal-assistant-v2').
+		--   source='app'      — contributed by an installed app via
+		--                       its manifest. apps_loader upserts these
+		--                       on install/upgrade; uninstall deletes
+		--                       them. id convention '<app_slug>:<id>'.
+		--   source='user'     — operator's own templates (save-from-agent
+		--                       or hand-written). user_id set.
+		CREATE TABLE IF NOT EXISTS agent_templates (
+			id               TEXT PRIMARY KEY,
+			user_id          INTEGER REFERENCES users(id),
+			source           TEXT NOT NULL DEFAULT 'builtin',
+			source_ref       TEXT NOT NULL DEFAULT '',
+			name             TEXT NOT NULL,
+			icon             TEXT NOT NULL DEFAULT '',
+			description      TEXT NOT NULL DEFAULT '',
+			directive        TEXT NOT NULL,
+			mode             TEXT NOT NULL DEFAULT 'learn',
+			unconscious      INTEGER NOT NULL DEFAULT 0,
+			recommended_apps TEXT NOT NULL DEFAULT '[]',
+			-- requirements: JSON array of typed entries declaring what
+			-- the wizard's Setup step needs to install/configure.
+			-- Single source of truth for both the wizard render and
+			-- (eventually) the meta-agent's checklist.
+			-- Shape: [{"kind":"app","slug":"storage","required":true},
+			--        {"kind":"integration","compatible_slugs":["slack"],...}]
+			requirements     TEXT NOT NULL DEFAULT '[]',
+			sort_order       INTEGER NOT NULL DEFAULT 100,
+			created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+
+		-- Per-user hide list. A user who doesn't want "Outbound sales"
+		-- on their wizard inserts a row here; the listing endpoint
+		-- filters it out. Cheaper than forking + deleting per-user
+		-- copies of every builtin.
+		CREATE TABLE IF NOT EXISTS user_template_hidden (
+			user_id     INTEGER NOT NULL REFERENCES users(id),
+			template_id TEXT    NOT NULL,
+			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, template_id)
+		);
+
+		-- agent_evals — per-agent behavioural tests. Each row declares
+		-- a trigger (the situation we drive the agent with), a list of
+		-- plain-English goals the meta-agent grades against, and the
+		-- mocks the gateway uses to fake tool responses during the run.
+		-- Seeded from AgentTemplate.SuggestedEvals at agent-create time
+		-- (source='template'); operators can hand-roll new ones
+		-- (source='user'); future PR adds app-contributed evals
+		-- (source='app').
+		CREATE TABLE IF NOT EXISTS agent_evals (
+			id              TEXT PRIMARY KEY,
+			agent_id        INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+			name            TEXT NOT NULL,
+			trigger_json    TEXT NOT NULL DEFAULT '{}',
+			goals_json      TEXT NOT NULL DEFAULT '[]',
+			mocks_json      TEXT NOT NULL DEFAULT '[]',
+			max_turns       INTEGER NOT NULL DEFAULT 5,
+			-- 'manual' = run only on explicit click. PR-2 introduces
+			-- cron schedules ('@hourly', '@daily', or a cron string).
+			schedule        TEXT NOT NULL DEFAULT 'manual',
+			-- Cached rollup of the latest run so list queries don't
+			-- have to join agent_eval_runs.
+			last_status     TEXT,       -- 'pass' | 'fail' | 'error' | NULL
+			last_run_at     DATETIME,
+			source          TEXT NOT NULL DEFAULT 'user',
+			source_ref      TEXT NOT NULL DEFAULT '',
+			sort_order      INTEGER NOT NULL DEFAULT 100,
+			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_agent_evals_agent
+			ON agent_evals(agent_id, sort_order);
+
+		-- agent_eval_runs — append-only history of every eval run.
+		-- The first run for a wizard-created agent is the wizard's
+		-- Verify-step run; subsequent runs are operator-triggered
+		-- from the agent detail page (or scheduled in PR-2).
+		CREATE TABLE IF NOT EXISTS agent_eval_runs (
+			id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+			eval_id            TEXT NOT NULL REFERENCES agent_evals(id) ON DELETE CASCADE,
+			started_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			finished_at        DATETIME,
+			-- 'pass'  = ran + every goal verdict was pass
+			-- 'fail'  = ran + at least one goal failed
+			-- 'error' = couldn't run at all (no provider, agent
+			--           spawn failed, judge errored, etc.)
+			status             TEXT NOT NULL,
+			trajectory_json    TEXT NOT NULL DEFAULT '{}',
+			judge_verdict_json TEXT,
+			duration_ms        INTEGER,
+			turns_used         INTEGER,
+			error_message      TEXT
+		);
+		CREATE INDEX IF NOT EXISTS idx_agent_eval_runs_eval
+			ON agent_eval_runs(eval_id, started_at DESC);
 	`)
 	if err != nil {
 		return err
 	}
+
+	// Seed the builtin agent templates. Same INSERT-OR-IGNORE pattern
+	// as provider_types — operators can edit shipped rows freely and
+	// upgrades won't trample them. To roll out a new version of a
+	// shipped template, give it a fresh id ('personal-assistant-v2').
+	// Catch-up: rename emoji → icon for DBs created before the
+	// rename. SQLite 3.25+ ALTER COLUMN. Idempotent — if icon
+	// already exists the guard short-circuits.
+	if columnExists(s.db, "agent_templates", "emoji") && !columnExists(s.db, "agent_templates", "icon") {
+		s.db.Exec("ALTER TABLE agent_templates RENAME COLUMN emoji TO icon")
+	}
+	// Catch-up: requirements column for DBs created before the
+	// requirements rollout. Fresh DBs already have it from the
+	// CREATE above. Default '[]' keeps existing rows valid JSON.
+	if !columnExists(s.db, "agent_templates", "requirements") {
+		s.db.Exec("ALTER TABLE agent_templates ADD COLUMN requirements TEXT NOT NULL DEFAULT '[]'")
+	}
+	// Catch-up: kind column for DBs created before the meta-agent
+	// rollout. Existing rows default to 'user' so dashboards keep
+	// listing them as before.
+	if !columnExists(s.db, "agents", "kind") {
+		s.db.Exec("ALTER TABLE agents ADD COLUMN kind TEXT NOT NULL DEFAULT 'user'")
+	}
+
+	// The canonical builtin set lives next to its Go types in
+	// agent_templates.go. Operator edits to existing rows survive
+	// (INSERT OR IGNORE); platform-owned shape (requirements,
+	// sort_order, icon) gets reapplied each boot.
+	seedBuiltinTemplates(s.db)
 
 	// onboarded_at: NULL for users who haven't finished the welcome flow.
 	// First-time deploy of this column backfills pre-existing users from
@@ -995,15 +1134,66 @@ func (s *Store) GetAgent(userID, instanceID int64) (*Agent, error) {
 	return &inst, nil
 }
 
+// GetOrCreatePlatformHelper returns the singleton platform-owned
+// meta-agent row for a user, creating it on first call. Used by the
+// eval judge path so apteva-server always has a real apteva-core
+// process to dispatch judging work to.
+//
+// Idempotent: subsequent calls for the same user return the existing
+// row. The directive is the canonical judgeSystemPrompt — embedded
+// here so the meta-agent always boots into "judge mode" without
+// any extra wiring.
+func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agent, error) {
+	// Look up existing helper for this user.
+	var ag Agent
+	err := s.db.QueryRow(
+		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'),
+		        config, port, pid, status, COALESCE(project_id,''), created_at
+		   FROM agents
+		  WHERE user_id = ? AND kind = 'platform_helper'
+		  ORDER BY id ASC LIMIT 1`,
+		userID,
+	).Scan(&ag.ID, &ag.UserID, &ag.Name, &ag.Directive, &ag.Mode,
+		&ag.Config, &ag.Port, &ag.Pid, &ag.Status, &ag.ProjectID, &ag.CreatedAt)
+	if err == nil {
+		// Refresh the directive if the platform's version has drifted
+		// (we roll new judge prompts under the same row).
+		if ag.Directive != directive {
+			s.db.Exec(`UPDATE agents SET directive = ? WHERE id = ?`, directive, ag.ID)
+			ag.Directive = directive
+		}
+		return &ag, nil
+	}
+	if err != sql.ErrNoRows {
+		return nil, err
+	}
+	// Fresh insert. The helper is autonomous (no learn/cautious
+	// pauses), no project scope, no extra config — a stateless
+	// LLM-judge sidecar.
+	res, err := s.db.Exec(
+		`INSERT INTO agents (user_id, name, directive, mode, config, status, project_id, kind)
+		 VALUES (?, ?, ?, 'autonomous', '{}', 'stopped', '', 'platform_helper')`,
+		userID, "__platform_helper__", directive,
+	)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return s.GetAgentByID(id)
+}
+
 func (s *Store) ListAgents(userID int64, projectID string) ([]Agent, error) {
 	var rows *sql.Rows
 	var err error
+	// Default list filters out platform-owned agents (the meta-agent
+	// and friends) so they don't clutter the operator's dashboard.
+	// Callers needing the platform helpers go through GetPlatformHelper.
 	if projectID != "" {
 		rows, err = s.db.Query(
-			"SELECT id, name, directive, COALESCE(mode,'autonomous'), port, pid, status, COALESCE(project_id,''), created_at FROM agents WHERE user_id = ? AND project_id = ?", userID, projectID)
+			"SELECT id, name, directive, COALESCE(mode,'autonomous'), port, pid, status, COALESCE(project_id,''), created_at FROM agents WHERE user_id = ? AND project_id = ? AND COALESCE(kind,'user') = 'user'", userID, projectID)
 	} else {
 		rows, err = s.db.Query(
-			"SELECT id, name, directive, COALESCE(mode,'autonomous'), port, pid, status, COALESCE(project_id,''), created_at FROM agents WHERE user_id = ?", userID)
+			"SELECT id, name, directive, COALESCE(mode,'autonomous'), port, pid, status, COALESCE(project_id,''), created_at FROM agents WHERE user_id = ? AND COALESCE(kind,'user') = 'user'", userID)
 	}
 	if err != nil {
 		return nil, err

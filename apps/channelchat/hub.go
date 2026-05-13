@@ -26,13 +26,20 @@ type hub struct {
 	mu       sync.RWMutex
 	subs     map[string]map[uint64]chan Message // chatID → subID → channel
 	userSubs map[int64]map[uint64]chan Message  // userID → subID → channel
-	next     atomic.Uint64
+	// streamSubs is a parallel fanout path for ephemeral StreamFrames
+	// (LLM-args-streaming-as-they-arrive). Separate from `subs` so the
+	// existing Message lifecycle is untouched — reverting streaming
+	// = remove this map, publishStream, and the SSE handler's stream
+	// case. No regression risk on the message path.
+	streamSubs map[string]map[uint64]chan StreamFrame
+	next       atomic.Uint64
 }
 
 func newHub() *hub {
 	return &hub{
-		subs:     make(map[string]map[uint64]chan Message),
-		userSubs: make(map[int64]map[uint64]chan Message),
+		subs:       make(map[string]map[uint64]chan Message),
+		userSubs:   make(map[int64]map[uint64]chan Message),
+		streamSubs: make(map[string]map[uint64]chan StreamFrame),
 	}
 }
 
@@ -136,6 +143,57 @@ func (h *hub) unsubscribeUser(userID int64, id uint64) {
 		}
 		if len(m) == 0 {
 			delete(h.userSubs, userID)
+		}
+	}
+}
+
+// subscribeStream attaches a StreamFrame listener for one chat. Mirror
+// of subscribe() for the ephemeral streaming path. Smaller buffer than
+// Messages — streams are high-frequency and pure UI sugar, so dropping
+// frames is benign (the next chunk supersedes anyway).
+func (h *hub) subscribeStream(chatID string) (chan StreamFrame, uint64, func()) {
+	ch := make(chan StreamFrame, 16)
+	id := h.next.Add(1)
+	h.mu.Lock()
+	if h.streamSubs[chatID] == nil {
+		h.streamSubs[chatID] = make(map[uint64]chan StreamFrame)
+	}
+	h.streamSubs[chatID][id] = ch
+	h.mu.Unlock()
+	cancel := func() {
+		h.mu.Lock()
+		if m, ok := h.streamSubs[chatID]; ok {
+			if c, ok := m[id]; ok {
+				close(c)
+				delete(m, id)
+			}
+			if len(m) == 0 {
+				delete(h.streamSubs, chatID)
+			}
+		}
+		h.mu.Unlock()
+	}
+	return ch, id, cancel
+}
+
+// publishStream fans out a streaming frame to every per-chat stream
+// subscriber. No persistence, no user-wildcard fanout — streams are
+// UI-only and only matter when someone is actively watching a chat.
+func (h *hub) publishStream(f StreamFrame) {
+	h.mu.RLock()
+	subs := h.streamSubs[f.ChatID]
+	fanout := make([]chan StreamFrame, 0, len(subs))
+	for _, ch := range subs {
+		fanout = append(fanout, ch)
+	}
+	h.mu.RUnlock()
+	for _, ch := range fanout {
+		select {
+		case ch <- f:
+		default:
+			// Drop — next chunk will supersede this one. Streams
+			// are not the source of truth; the DB message that
+			// lands later is.
 		}
 	}
 }

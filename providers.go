@@ -373,6 +373,29 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		body.Data = map[string]string{}
 	}
 
+	// Pre-flight credential probe. Mirrors handleCreateConnection's
+	// pre-flight: refuse to persist credentials we can't authenticate
+	// against the upstream. Providers without a probe (Apteva Local,
+	// or any new provider whose probe isn't in providerProbes yet)
+	// return Skipped=true and we let the save through.
+	//
+	// On failure we return 400 with the same ProviderTestResult shape
+	// the standalone /test endpoint emits, so the dashboard renders
+	// one error-row component for both paths. Pre-flight bypass is
+	// available via ?skip_health_check=1 for the rare case where an
+	// operator wants to seed creds that won't be usable yet (e.g.
+	// during initial setup before DNS propagates).
+	skipCheck := r.URL.Query().Get("skip_health_check") == "1"
+	if !skipCheck {
+		res := runProviderHealthCheck(body.Name, body.Data)
+		if !res.OK && !res.Skipped {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(res)
+			return
+		}
+	}
+
 	dataJSON, _ := json.Marshal(body.Data)
 	encrypted, err := Encrypt(s.secret, string(dataJSON))
 	if err != nil {

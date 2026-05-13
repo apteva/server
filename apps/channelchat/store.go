@@ -31,10 +31,16 @@ type Message struct {
 // Chat is one conversation — today typically one per instance.
 type Chat struct {
 	ID         string    `json:"id"`
-	InstanceID int64     `json:"instance_id"`
+	AgentID    int64     `json:"instance_id"`
 	Title      string    `json:"title"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+	// ThreadID is the core thread that handles this chat. Empty =
+	// route to "main" (legacy / feature flag off). Assigned lazily
+	// on first message via EnsureChatThread when the feature flag
+	// is on, and persisted so subsequent messages and post-restart
+	// reconnects reuse the same thread.
+	ThreadID string `json:"thread_id,omitempty"`
 }
 
 // ErrNotFound is returned when a chat or message lookup misses.
@@ -46,18 +52,59 @@ type store struct {
 
 func newStore(db *sql.DB) *store { return &store{db: db} }
 
+// renameInstanceIDToAgentID catches up DBs created before the
+// platform's instance → agent rename. The first 001_init.sql on
+// fresh DBs now creates channel_chat_chats with agent_id directly,
+// so this check no-ops there; on legacy DBs it issues the ALTER once.
+// SQLite doesn't have IF EXISTS on ALTER COLUMN, so guard via
+// PRAGMA table_info.
+//
+// Called from App.OnMount — runs on every boot, idempotent. We
+// deliberately don't lean on framework_app_versions for this because
+// the v1 migration's text now produces a post-rename schema, and we
+// don't want fresh installs to fail on a v5 SQL migration that
+// references the legacy column.
+func (s *store) renameInstanceIDToAgentID() {
+	rows, err := s.db.Query(`PRAGMA table_info(channel_chat_chats)`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	var hasLegacy bool
+	for rows.Next() {
+		var (
+			cid          int
+			name, ctype  string
+			notnull, pk  int
+			dflt         sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			continue
+		}
+		if name == "instance_id" {
+			hasLegacy = true
+		}
+	}
+	if !hasLegacy {
+		return
+	}
+	s.db.Exec(`ALTER TABLE channel_chat_chats RENAME COLUMN instance_id TO agent_id`)
+	s.db.Exec(`DROP INDEX IF EXISTS idx_channel_chat_chats_instance`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_channel_chat_chats_agent ON channel_chat_chats(agent_id)`)
+}
+
 // EnsureDefaultChat returns the existing default chat for an instance
-// or creates one. Default chat id convention: "default-<instance_id>"
+// or creates one. Default chat id convention: "default-<agent_id>"
 // — stable across process restarts, and unique across instances so a
 // future multi-instance-per-project UI can still look them up safely.
-func (s *store) EnsureDefaultChat(instanceID int64) (*Chat, error) {
-	chatID := defaultChatID(instanceID)
+func (s *store) EnsureDefaultChat(agentID int64) (*Chat, error) {
+	chatID := defaultChatID(agentID)
 	// Try insert-or-ignore and then read back. Cheaper than
 	// select-then-insert and race-safe.
 	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO channel_chat_chats (id, instance_id, title)
+		`INSERT OR IGNORE INTO channel_chat_chats (id, agent_id, title)
 		 VALUES (?, ?, 'Chat')`,
-		chatID, instanceID,
+		chatID, agentID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("ensure default chat: %w", err)
@@ -65,16 +112,16 @@ func (s *store) EnsureDefaultChat(instanceID int64) (*Chat, error) {
 	return s.GetChat(chatID)
 }
 
-func defaultChatID(instanceID int64) string {
-	return fmt.Sprintf("default-%d", instanceID)
+func defaultChatID(agentID int64) string {
+	return fmt.Sprintf("default-%d", agentID)
 }
 
 func (s *store) GetChat(id string) (*Chat, error) {
 	var c Chat
 	err := s.db.QueryRow(
-		`SELECT id, instance_id, title, created_at, updated_at
+		`SELECT id, agent_id, title, created_at, updated_at, thread_id
 		 FROM channel_chat_chats WHERE id = ?`, id,
-	).Scan(&c.ID, &c.InstanceID, &c.Title, &c.CreatedAt, &c.UpdatedAt)
+	).Scan(&c.ID, &c.AgentID, &c.Title, &c.CreatedAt, &c.UpdatedAt, &c.ThreadID)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -84,11 +131,11 @@ func (s *store) GetChat(id string) (*Chat, error) {
 	return &c, nil
 }
 
-func (s *store) ListChatsForInstance(instanceID int64) ([]Chat, error) {
+func (s *store) ListChatsForAgent(agentID int64) ([]Chat, error) {
 	rows, err := s.db.Query(
-		`SELECT id, instance_id, title, created_at, updated_at
-		 FROM channel_chat_chats WHERE instance_id = ? ORDER BY created_at ASC`,
-		instanceID,
+		`SELECT id, agent_id, title, created_at, updated_at, thread_id
+		 FROM channel_chat_chats WHERE agent_id = ? ORDER BY created_at ASC`,
+		agentID,
 	)
 	if err != nil {
 		return nil, err
@@ -97,12 +144,46 @@ func (s *store) ListChatsForInstance(instanceID int64) ([]Chat, error) {
 	out := []Chat{}
 	for rows.Next() {
 		var c Chat
-		if err := rows.Scan(&c.ID, &c.InstanceID, &c.Title, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.AgentID, &c.Title, &c.CreatedAt, &c.UpdatedAt, &c.ThreadID); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// EnsureChatThread returns the stored thread id for a chat, or
+// assigns "chat-<chatID>" and persists it on first call. Used by the
+// handler when CHANNELCHAT_PER_THREAD is on, so each chat gets its
+// own core thread instead of sharing "main".
+func (s *store) EnsureChatThread(chatID string) (string, error) {
+	var existing string
+	err := s.db.QueryRow(
+		`SELECT thread_id FROM channel_chat_chats WHERE id = ?`, chatID,
+	).Scan(&existing)
+	if err == sql.ErrNoRows {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	if existing != "" {
+		return existing, nil
+	}
+	threadID := "chat-" + chatID
+	if _, err := s.db.Exec(
+		`UPDATE channel_chat_chats SET thread_id = ? WHERE id = ? AND thread_id = ''`,
+		threadID, chatID,
+	); err != nil {
+		return "", err
+	}
+	// Re-read in case a concurrent caller won the race.
+	if err := s.db.QueryRow(
+		`SELECT thread_id FROM channel_chat_chats WHERE id = ?`, chatID,
+	).Scan(&existing); err != nil {
+		return "", err
+	}
+	return existing, nil
 }
 
 // Append inserts a new message and returns it (with the assigned id
@@ -259,8 +340,8 @@ func (s *store) LatestID(chatID string) (int64, error) {
 // max(localStorage, LastSeenID) so reads on any device propagate.
 type ChatLatest struct {
 	ChatID        string    `json:"chat_id"`
-	InstanceID    int64     `json:"instance_id"`
-	InstanceName  string    `json:"instance_name"`
+	AgentID    int64     `json:"instance_id"`
+	AgentName  string    `json:"instance_name"`
 	Title         string    `json:"title"`
 	LatestID      int64     `json:"latest_id"`
 	LatestRole    string    `json:"latest_role"`
@@ -276,7 +357,7 @@ type ChatLatest struct {
 // but they share one SQLite db so the JOIN works.
 //
 // Single query, indexed on (chat_id, id) for the message subquery and
-// instance_id is the primary key. Cheap even with hundreds of chats.
+// agent_id is the primary key. Cheap even with hundreds of chats.
 func (s *store) LatestForOwner(ownerIDs []int64) ([]ChatLatest, error) {
 	if len(ownerIDs) == 0 {
 		return []ChatLatest{}, nil
@@ -288,17 +369,17 @@ func (s *store) LatestForOwner(ownerIDs []int64) ([]ChatLatest, error) {
 		args[i] = id
 	}
 	q := `
-		SELECT c.id, c.instance_id, COALESCE(i.name, ''), c.title,
+		SELECT c.id, c.agent_id, COALESCE(i.name, ''), c.title,
 		       COALESCE(m.id, 0),
 		       COALESCE(m.role, ''),
 		       COALESCE(m.content, ''),
 		       COALESCE(m.created_at, c.updated_at),
 		       c.last_seen_id
 		FROM channel_chat_chats c
-		JOIN instances i ON i.id = c.instance_id
+		JOIN agents i ON i.id = c.agent_id
 		LEFT JOIN channel_chat_messages m
 			ON m.id = (SELECT MAX(id) FROM channel_chat_messages WHERE chat_id = c.id)
-		WHERE c.instance_id IN (` + strings.Join(placeholders, ",") + `)
+		WHERE c.agent_id IN (` + strings.Join(placeholders, ",") + `)
 		ORDER BY COALESCE(m.created_at, c.updated_at) DESC`
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
@@ -311,7 +392,7 @@ func (s *store) LatestForOwner(ownerIDs []int64) ([]ChatLatest, error) {
 		// COALESCE strips the DATETIME type declaration, so the driver
 		// returns the value as string. Scan into string then parse.
 		var latestAtStr string
-		if err := rows.Scan(&cl.ChatID, &cl.InstanceID, &cl.InstanceName, &cl.Title,
+		if err := rows.Scan(&cl.ChatID, &cl.AgentID, &cl.AgentName, &cl.Title,
 			&cl.LatestID, &cl.LatestRole, &cl.LatestPreview, &latestAtStr, &cl.LastSeenID); err != nil {
 			return nil, err
 		}

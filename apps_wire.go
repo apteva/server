@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -35,9 +36,8 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 	// stays in-process for now because it's deeply tied to the channel
 	// dispatch infrastructure; it'll graduate to a sidecar in a follow-up.
 	resolver := &serverResolver{srv: s}
-	apps := []framework.App{
-		channelchat.New(resolver),
-	}
+	cc := channelchat.New(resolver)
+	apps := []framework.App{cc}
 	for _, a := range apps {
 		if err := reg.Load(a); err != nil {
 			return nil, fmt.Errorf("load app: %w", err)
@@ -45,6 +45,26 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 	}
 	if err := reg.Start(); err != nil {
 		return nil, fmt.Errorf("start apps: %w", err)
+	}
+
+	// Wire the channelchat streaming tap. Setting the hook here (after
+	// reg.Start, so OnMount has run and the Streamer is non-nil) means
+	// /telemetry/live will route every event through the streamer.
+	// Single-place disable: CHANNELCHAT_STREAMING=0 leaves the hook
+	// nil and the entire feature is off. Reverting this block reverts
+	// the streaming feature without touching any other code.
+	if os.Getenv("CHANNELCHAT_STREAMING") != "0" {
+		if app, ok := cc.(interface {
+			Streamer() *channelchat.Streamer
+		}); ok {
+			if st := app.Streamer(); st != nil {
+				s.liveTelemetryHook = func(events []TelemetryEvent) {
+					for _, ev := range events {
+						st.Ingest(ev.Type, ev.ThreadID, string(ev.Data), ev.Time)
+					}
+				}
+			}
+		}
 	}
 	// Seed apps + app_installs rows for every built-in so they show up
 	// alongside sidecar apps in the dashboard's Installed tab. Idempotent
@@ -357,6 +377,40 @@ func (r *serverResolver) ForwardEvent(inst framework.InstanceInfo, text, threadI
 	}
 	send := makeSendEvent(inst.Port, inst.CoreAPIKey)
 	send(text, threadID)
+	return nil
+}
+
+// SpawnThread POSTs to core's /threads/{id} endpoint to idempotently
+// create a thread. directive is sent as `directive_suffix` so the
+// thread inherits main's directive verbatim and appends the caller's
+// suffix — gives channelchat the "inherit + role hint" semantic
+// without having to fetch main's directive first.
+func (r *serverResolver) SpawnThread(inst framework.InstanceInfo, threadID, directive string, tools, mcp []string) error {
+	if inst.Port == 0 {
+		return fmt.Errorf("instance %d has no core port — is it running?", inst.ID)
+	}
+	body, _ := json.Marshal(map[string]any{
+		"directive_suffix": directive,
+		"tools":            tools,
+		"mcp":              mcp,
+	})
+	url := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, threadID)
+	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if inst.CoreAPIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("spawn thread %q: HTTP %d", threadID, resp.StatusCode)
+	}
 	return nil
 }
 

@@ -4,14 +4,14 @@
 
 CREATE TABLE IF NOT EXISTS channel_chat_chats (
     id           TEXT    PRIMARY KEY,
-    instance_id  INTEGER NOT NULL,
+    agent_id  INTEGER NOT NULL,
     title        TEXT    NOT NULL DEFAULT 'Chat',
     created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_channel_chat_chats_instance
-    ON channel_chat_chats(instance_id);
+CREATE INDEX IF NOT EXISTS idx_channel_chat_chats_agent
+    ON channel_chat_chats(agent_id);
 
 -- Autoincrement id is the ordering primitive — never reset, never
 -- reused, strictly monotonic. SSE clients reconnect with since=<last_id>

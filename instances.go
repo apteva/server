@@ -979,6 +979,18 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		// a custom gateway.
 		IncludeAptevaServer *bool `json:"include_apteva_server,omitempty"`
 		IncludeChannels     *bool `json:"include_channels,omitempty"`
+		// Unconscious — when true, core spawns the background
+		// memory-consolidation thread (see core/thinker.go
+		// unconsciousDirectiveV2). Toggled per-agent so a fast,
+		// stateless agent can stay out of the memory-write cycle
+		// while a personal-assistant-style agent enables it.
+		Unconscious *bool `json:"unconscious,omitempty"`
+		// TemplateID — when set, the server copies the template's
+		// SuggestedEvals into agent_evals for this new agent so the
+		// wizard's Verify step has a starter test to run. Empty
+		// (e.g. quick-create flow) is fine; the agent just starts
+		// with no evals and the operator can add some by hand.
+		TemplateID string `json:"template_id,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -1010,6 +1022,16 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Seed template-suggested evals if the wizard told us which
+	// template was used. Failures here aren't fatal — the agent
+	// still works, the operator just won't have a starter test in
+	// the Verify step. Suggested-eval lookup pulls from the
+	// in-memory builtinAgentTemplates slice (and, future PR, from
+	// app-contributed templates in the DB).
+	if body.TemplateID != "" {
+		s.seedTemplateEvalsForAgent(inst.ID, body.TemplateID)
+	}
+
 	// Persist the system-MCP opt-out flags on the instance DB row so
 	// Start() picks them up on first (and every subsequent) boot.
 	// Start() reads these from inst.Config, not from disk config.json
@@ -1027,12 +1049,22 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		}
 		instCfg["include_apteva_server"] = includeGateway
 		instCfg["include_channels"] = includeChannels
+		if body.Unconscious != nil {
+			instCfg["unconscious"] = *body.Unconscious
+		}
 		if out, err := json.Marshal(instCfg); err == nil {
 			inst.Config = string(out)
 		}
 	}
 
-	// Start unless explicitly disabled
+	// Start unless explicitly disabled. P1 fix: refuse to start when
+	// the user has no LLM provider configured for this project. The
+	// agent row is still created (status=stopped) so the operator can
+	// fix it up via Settings → Providers and hit Start afterwards
+	// without going through the create form again. Without this gate,
+	// the core child spawns with config["providers"]=[] and every
+	// first-message attempt hangs with a cryptic "no provider" error
+	// hidden in core logs.
 	shouldStart := body.Start == nil || *body.Start
 	if shouldStart {
 		providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret, inst.ProjectID)
@@ -1040,6 +1072,16 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 			providerEnv = map[string]string{}
 		}
 		pool := s.GetProviderPool(userID, inst.ProjectID)
+		if len(pool) == 0 {
+			writeJSON(w, map[string]any{
+				"id":     inst.ID,
+				"name":   inst.Name,
+				"status": "stopped",
+				"warning": "agent created but not started: no LLM provider configured. " +
+					"Add one in Settings → Providers, then click Start.",
+			})
+			return
+		}
 		if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, defaultProviderForInstance(inst), inst.ProjectID), s.loadChannelConfigs(inst.ID)...); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -1249,6 +1291,13 @@ func (s *Server) ResumeRunningInstances() {
 
 	for i := range rows {
 		inst := &rows[i]
+		// Platform-owned agents (the meta-agent, eval-run scratch
+		// rows) are managed by bootMetaAgents / the eval runner —
+		// skip them here so we don't race the dedicated paths.
+		if s.agents.IsRunning(inst.ID) {
+			log.Printf("[RESUME] instance %d (%s): already managed by another boot path, skipping", inst.ID, inst.Name)
+			continue
+		}
 		providerEnv, err := s.store.GetAllProviderEnvVars(inst.UserID, s.secret, inst.ProjectID)
 		if err != nil {
 			providerEnv = map[string]string{}
@@ -1264,6 +1313,13 @@ func (s *Server) ResumeRunningInstances() {
 			s.getBrowserConfig(inst.UserID, defaultProviderForInstance(inst), inst.ProjectID),
 			s.loadChannelConfigs(inst.ID)...,
 		); err != nil {
+			// "already running" is a benign race with another start
+			// path (bootMetaAgents typically) — the process is up,
+			// just not via us. Don't flip status to stopped.
+			if strings.Contains(err.Error(), "already running") {
+				log.Printf("[RESUME] instance %d (%s): already running via another path, leaving as-is", inst.ID, inst.Name)
+				continue
+			}
 			log.Printf("[RESUME] instance %d (%s): start failed: %v — marking stopped", inst.ID, inst.Name, err)
 			inst.Status = "stopped"
 			s.store.UpdateAgent(inst)
@@ -1309,6 +1365,14 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 		providerEnv = map[string]string{}
 	}
 	pool := s.GetProviderPool(userID, inst.ProjectID)
+	// P1 fix — refuse to start with no LLM provider; see the same
+	// gate in handleCreateInstance for the rationale.
+	if len(pool) == 0 {
+		http.Error(w,
+			"no LLM provider configured — add one in Settings → Providers before starting an agent",
+			http.StatusBadRequest)
+		return
+	}
 
 	if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, defaultProviderForInstance(inst), inst.ProjectID), s.loadChannelConfigs(inst.ID)...); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1352,6 +1416,14 @@ func (s *Server) handleRestartInstance(w http.ResponseWriter, r *http.Request) {
 		providerEnv = map[string]string{}
 	}
 	pool := s.GetProviderPool(userID, inst.ProjectID)
+	// P1 fix — refuse to restart with no LLM provider. Same rationale
+	// as handleCreateInstance / handleStartInstance.
+	if len(pool) == 0 {
+		http.Error(w,
+			"no LLM provider configured — add one in Settings → Providers before restarting an agent",
+			http.StatusBadRequest)
+		return
+	}
 
 	if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, defaultProviderForInstance(inst), inst.ProjectID), s.loadChannelConfigs(inst.ID)...); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
