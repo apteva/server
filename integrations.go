@@ -974,6 +974,12 @@ func buildURL(baseURL, path string, input map[string]any) string {
 	return baseURL + resolved
 }
 
+// buildAuthQuery returns the auth credentials encoded as "k=v&k=v" with no
+// leading separator. The caller is responsible for joining with "?" or "&"
+// depending on whether the URL already has a query string — Namecheap and
+// any other integration whose tool.path embeds "?Command=..." would otherwise
+// produce a URL with two "?" separators, which standard parsers split on "&"
+// and so swallow the first auth field into the preceding param's value.
 func buildAuthQuery(queryParams map[string]string, credentials map[string]string) string {
 	if len(queryParams) == 0 {
 		return ""
@@ -985,10 +991,7 @@ func buildAuthQuery(queryParams map[string]string, credentials map[string]string
 			parts = append(parts, key+"="+val)
 		}
 	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return "?" + strings.Join(parts, "&")
+	return strings.Join(parts, "&")
 }
 
 func buildHeaders(authHeaders map[string]string, credentials map[string]string) map[string]string {

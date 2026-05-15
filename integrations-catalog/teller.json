@@ -1,0 +1,187 @@
+{
+  "slug": "teller",
+  "name": "Teller",
+  "description": "MCP server for Teller - the API for US bank accounts. Fetch accounts, balances, transactions, account/routing numbers, and identity. Self-serve signup with a free dev tier (100 live connections + unlimited sandbox). NOTE: Teller's development and production environments require a mutual-TLS client certificate, which this REST integration does not send — only the sandbox environment (api.teller.io against sandbox tokens) works without a certificate.",
+  "logo": "https://www.google.com/s2/favicons?domain=teller.io&sz=128",
+  "categories": [
+    "banking",
+    "open-banking",
+    "transactions",
+    "accounts",
+    "us",
+    "teller"
+  ],
+  "base_url": "https://api.teller.io",
+  "auth": {
+    "types": [
+      "basic"
+    ],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "username",
+        "label": "Access Token",
+        "description": "Teller access_token returned by Teller Connect (token_xxx). Sent as the username in HTTP Basic auth.",
+        "required": true,
+        "type": "password"
+      },
+      {
+        "name": "password",
+        "label": "Password",
+        "description": "Teller uses Basic auth with the access token as the username and ignores the password. Enter the literal value 'x' — the runtime needs a non-empty password to build the Basic header.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_accounts",
+      "description": "List all bank accounts linked to the access token. Returns account id, name, type, subtype, last-four, currency, and institution.",
+      "method": "GET",
+      "path": "/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_account",
+      "description": "Get a single linked bank account by account id.",
+      "method": "GET",
+      "path": "/accounts/{account_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The account id from list_accounts"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_account",
+      "description": "Disconnect a linked bank account, revoking access for the access token.",
+      "method": "DELETE",
+      "path": "/accounts/{account_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The account id to disconnect"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "get_account_details",
+      "description": "Get the account and routing numbers for a linked account (for ACH transfers).",
+      "method": "GET",
+      "path": "/accounts/{account_id}/details",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The account id from list_accounts"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "get_account_balances",
+      "description": "Get the ledger and available balances for a linked account.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/balances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The account id from list_accounts"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "list_transactions",
+      "description": "List transactions for a linked account, newest first. Returns amount, date, description, running balance, and enriched merchant/category details. Use from_id for cursor pagination.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/transactions",
+      "query_params": [
+        "count",
+        "from_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The account id from list_accounts"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Number of transactions to return"
+          },
+          "from_id": {
+            "type": "string",
+            "description": "Return transactions older than this transaction id (cursor pagination)"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "get_transaction",
+      "description": "Get a single transaction for a linked account by transaction id.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/transactions/{transaction_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The account id from list_accounts"
+          },
+          "transaction_id": {
+            "type": "string",
+            "description": "The transaction id from list_transactions"
+          }
+        },
+        "required": [
+          "account_id",
+          "transaction_id"
+        ]
+      }
+    },
+    {
+      "name": "get_identity",
+      "description": "Get account-holder identity information (names, and where available emails, phone numbers, addresses) for all accounts linked to the access token.",
+      "method": "GET",
+      "path": "/identity",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

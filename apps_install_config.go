@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -89,6 +90,9 @@ func (s *Server) handleSetInstallConfig(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "decrypt: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// json.Marshal sorts map keys, so the before/after strings are
+	// directly comparable to detect whether anything actually changed.
+	beforeRaw, _ := json.Marshal(current)
 	for k, v := range body.Config {
 		current[k] = v
 	}
@@ -105,7 +109,25 @@ func (s *Server) handleSetInstallConfig(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"config": current})
+
+	// Config reaches the sidecar only as the APTEVA_APP_CONFIG env var,
+	// read once at process boot — a running sidecar can't see this
+	// change until it's bounced. Respawn it so the new config actually
+	// takes effect. Guarded: only when the value genuinely changed AND
+	// the supervisor is currently running this install. A stopped,
+	// remote, or not-yet-started install just keeps the persisted
+	// config for its next boot. Best-effort — the config is already
+	// saved, so a failed respawn is a warning, not a 500.
+	restarted := false
+	if string(beforeRaw) != string(raw) &&
+		s.localApps != nil && s.localApps.PID(installID) > 0 {
+		if err := s.RespawnLocalInstall(installID); err != nil {
+			log.Printf("[APPS-CONFIG] install %d: config saved but respawn failed: %v", installID, err)
+		} else {
+			restarted = true
+		}
+	}
+	writeJSON(w, map[string]any{"config": current, "restarted": restarted})
 }
 
 // parseInstallIDFromConfigPath extracts the install id from

@@ -963,8 +963,15 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	resolvedPath := resolveTemplate(tool.Path, credentials)
 	url := buildURL(resolvedBase, resolvedPath, input)
 
-	// Add auth query params
-	url += buildAuthQuery(app.Auth.QueryParams, credentials)
+	// Add auth query params. buildAuthQuery returns raw "k=v&k=v" — pick
+	// the separator based on whether tool.path already injected a "?".
+	if authQ := buildAuthQuery(app.Auth.QueryParams, credentials); authQ != "" {
+		sep := "?"
+		if strings.Contains(url, "?") {
+			sep = "&"
+		}
+		url += sep + authQ
+	}
 
 	// Build headers
 	headers := buildHeaders(app.Auth.Headers, credentials)

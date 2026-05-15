@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -207,8 +208,8 @@ func TestBuildURL(t *testing.T) {
 
 func TestBuildAuthQuery(t *testing.T) {
 	q := buildAuthQuery(map[string]string{"token": "{{app_token}}"}, map[string]string{"app_token": "abc123"})
-	if q != "?token=abc123" {
-		t.Errorf("expected ?token=abc123, got %s", q)
+	if q != "token=abc123" {
+		t.Errorf("expected token=abc123, got %s", q)
 	}
 
 	q = buildAuthQuery(nil, map[string]string{})
@@ -706,6 +707,59 @@ func TestIsBinaryContentType(t *testing.T) {
 // Before path A, this test would fail: respBody got coerced to string
 // and the bytes lost on JSON-encoding round-trips. The Code app's
 // GitHub import flow depends on this envelope.
+// Regression: integrations like Namecheap put the command in tool.path as
+// "/?Command=...". Auth credentials must be appended with "&", not a second
+// "?", or downstream parsers swallow the first auth param into the preceding
+// value. See namecheap error 1010101 ("Parameter APIUser is missing").
+func TestExecuteIntegrationTool_AuthQueryWithPathQuery(t *testing.T) {
+	var capturedURI string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedURI = r.RequestURI
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "fake-namecheap",
+		BaseURL: srv.URL,
+		Auth: AppAuthConfig{
+			Types: []string{"api_key"},
+			QueryParams: map[string]string{
+				"ApiUser": "{{api_user}}",
+				"ApiKey":  "{{api_key}}",
+			},
+		},
+	}
+	tool := &AppToolDef{
+		Name:   "get_hosts",
+		Method: "GET",
+		Path:   "/?Command=namecheap.domains.dns.getHosts",
+	}
+	creds := map[string]string{"api_user": "alice", "api_key": "secret"}
+	if _, err := executeIntegrationTool(app, tool, creds, map[string]any{}); err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if strings.Count(capturedURI, "?") != 1 {
+		t.Errorf("expected exactly one '?' in URI, got %q", capturedURI)
+	}
+	// Parse and assert each param landed as its own key.
+	q, err := url.ParseQuery(strings.TrimPrefix(capturedURI[strings.Index(capturedURI, "?")+1:], ""))
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	if got := q.Get("Command"); got != "namecheap.domains.dns.getHosts" {
+		t.Errorf("Command=%q, want namecheap.domains.dns.getHosts", got)
+	}
+	if got := q.Get("ApiUser"); got != "alice" {
+		t.Errorf("ApiUser=%q, want alice", got)
+	}
+	if got := q.Get("ApiKey"); got != "secret" {
+		t.Errorf("ApiKey=%q, want secret", got)
+	}
+}
+
 func TestExecuteIntegrationTool_BinaryResponse(t *testing.T) {
 	payload := []byte{0x1f, 0x8b, 0x08, 0x00, 0xde, 0xad, 0xbe, 0xef, 'a', 'b', 'c'}
 

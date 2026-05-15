@@ -1,0 +1,318 @@
+{
+  "slug": "truelayer",
+  "name": "TrueLayer",
+  "description": "MCP server for TrueLayer open banking Data API - connect UK/EU bank accounts and cards, fetch balances, transactions, direct debits, standing orders, and account-holder identity. Self-serve Console signup with a free sandbox.",
+  "logo": "https://www.google.com/s2/favicons?domain=truelayer.com&sz=128",
+  "categories": [
+    "banking",
+    "open-banking",
+    "psd2",
+    "transactions",
+    "accounts",
+    "uk",
+    "eu",
+    "truelayer"
+  ],
+  "base_url": "https://api.truelayer.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Access Token",
+        "description": "TrueLayer Data API access_token obtained after a user authorizes a bank connection (exchange the auth-code via the exchange_token tool). Access tokens are short-lived; use refresh_token to renew.",
+        "required": true,
+        "type": "password"
+      },
+      {
+        "name": "client_id",
+        "label": "Client ID",
+        "description": "TrueLayer Console client_id (create an app at console.truelayer.com).",
+        "required": false,
+        "type": "text"
+      },
+      {
+        "name": "client_secret",
+        "label": "Client Secret",
+        "description": "TrueLayer Console client_secret.",
+        "required": false,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "exchange_token",
+      "description": "Exchange an authorization code (from the bank-connection redirect) for an access_token and refresh_token. Runs against auth.truelayer.com.",
+      "method": "POST",
+      "path": "https://auth.truelayer.com/connect/token",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "grant_type": {
+            "type": "string",
+            "description": "OAuth grant type",
+            "default": "authorization_code"
+          },
+          "client_id": {
+            "type": "string",
+            "description": "Your TrueLayer client_id (uses credential if omitted)"
+          },
+          "client_secret": {
+            "type": "string",
+            "description": "Your TrueLayer client_secret (uses credential if omitted)"
+          },
+          "code": {
+            "type": "string",
+            "description": "The authorization code returned to your redirect_uri"
+          },
+          "redirect_uri": {
+            "type": "string",
+            "description": "The redirect_uri registered with your TrueLayer app"
+          }
+        },
+        "required": [
+          "code",
+          "redirect_uri"
+        ]
+      }
+    },
+    {
+      "name": "refresh_token",
+      "description": "Renew an expired access_token using a refresh_token. Runs against auth.truelayer.com.",
+      "method": "POST",
+      "path": "https://auth.truelayer.com/connect/token",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "grant_type": {
+            "type": "string",
+            "description": "OAuth grant type",
+            "default": "refresh_token"
+          },
+          "client_id": {
+            "type": "string",
+            "description": "Your TrueLayer client_id (uses credential if omitted)"
+          },
+          "client_secret": {
+            "type": "string",
+            "description": "Your TrueLayer client_secret (uses credential if omitted)"
+          },
+          "refresh_token": {
+            "type": "string",
+            "description": "The refresh_token from a previous exchange_token call"
+          }
+        },
+        "required": [
+          "refresh_token"
+        ]
+      }
+    },
+    {
+      "name": "get_connection_metadata",
+      "description": "Get metadata about the current connection: provider, granted scopes, consent status, and credentials_id.",
+      "method": "GET",
+      "path": "/data/v1/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_identity",
+      "description": "Get account-holder identity information (full name, emails, phone numbers, addresses) as reported by the bank.",
+      "method": "GET",
+      "path": "/data/v1/info",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_accounts",
+      "description": "List all bank accounts the user has connected. Returns account_id, display name, account type, currency, and account numbers (IBAN, sort code).",
+      "method": "GET",
+      "path": "/data/v1/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_account",
+      "description": "Get details for a single connected bank account by account_id.",
+      "method": "GET",
+      "path": "/data/v1/accounts/{account_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The account_id from list_accounts"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "get_account_balance",
+      "description": "Get the current and available balance for a connected bank account.",
+      "method": "GET",
+      "path": "/data/v1/accounts/{account_id}/balance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The account_id from list_accounts"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "get_account_transactions",
+      "description": "Get settled transactions for a connected bank account over a date range. Returns amount, currency, description, merchant, category, and running balance.",
+      "method": "GET",
+      "path": "/data/v1/accounts/{account_id}/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The account_id from list_accounts"
+          },
+          "from": {
+            "type": "string",
+            "description": "Start date-time (ISO 8601, e.g. 2026-01-01)"
+          },
+          "to": {
+            "type": "string",
+            "description": "End date-time (ISO 8601, e.g. 2026-01-31)"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "get_pending_transactions",
+      "description": "Get pending (not yet settled) transactions for a connected bank account.",
+      "method": "GET",
+      "path": "/data/v1/accounts/{account_id}/transactions/pending",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The account_id from list_accounts"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "get_direct_debits",
+      "description": "Get direct debits set up on a connected bank account, including the payee and status.",
+      "method": "GET",
+      "path": "/data/v1/accounts/{account_id}/direct_debits",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The account_id from list_accounts"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "get_standing_orders",
+      "description": "Get standing orders (recurring scheduled payments) on a connected bank account.",
+      "method": "GET",
+      "path": "/data/v1/accounts/{account_id}/standing_orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The account_id from list_accounts"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "list_cards",
+      "description": "List all credit/debit cards the user has connected. Returns account_id, card network, partial card number, and currency.",
+      "method": "GET",
+      "path": "/data/v1/cards",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_card_balance",
+      "description": "Get the current balance, available credit, and credit limit for a connected card.",
+      "method": "GET",
+      "path": "/data/v1/cards/{account_id}/balance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The card account_id from list_cards"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "get_card_transactions",
+      "description": "Get settled transactions for a connected card over a date range.",
+      "method": "GET",
+      "path": "/data/v1/cards/{account_id}/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The card account_id from list_cards"
+          },
+          "from": {
+            "type": "string",
+            "description": "Start date-time (ISO 8601)"
+          },
+          "to": {
+            "type": "string",
+            "description": "End date-time (ISO 8601)"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    }
+  ]
+}
