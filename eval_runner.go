@@ -331,11 +331,14 @@ func (s *Server) runRealEvalCore(
 		"mode":      agent.Mode,
 		"mcp_servers": []any{
 			map[string]any{
-				"name":        "eval-mocks",
-				"url":         fmt.Sprintf("http://127.0.0.1:%s/api/eval-mock-gateway/%s", s.port, token),
-				"transport":   "http",
-				"main_access": true,
-				"no_spawn":    true,
+				"name":      "eval-mocks",
+				"url":       fmt.Sprintf("http://127.0.0.1:%s/api/eval-mock-gateway/%s", s.port, token),
+				"transport": "http",
+				// no_spawn keeps the eval mocks reachable from main only —
+				// sub-threads can't reach the mock gateway. The legacy
+				// main_access field is gone post-discovery refactor; core
+				// would silently drop it anyway.
+				"no_spawn": true,
 			},
 		},
 		// Server-only flags that turn off the auto-injected
