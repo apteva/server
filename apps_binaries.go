@@ -119,6 +119,24 @@ func ensureBinary(dep sdk.BinaryDep, platform, root string, progress func(string
 	if _, err := os.Stat(okPath); err == nil {
 		return dir, nil
 	}
+	// PATH fallback. If every declared executable already resolves on
+	// the operator's PATH (homebrew, apt, etc.), don't bother fetching
+	// a vendored copy — let the sidecar inherit the existing PATH.
+	// Returns "" so EnsureBinaries doesn't prepend an empty cache dir.
+	// Especially useful on darwin-arm64 where we ship no source URLs.
+	if len(dep.Executables) > 0 {
+		allInPath := true
+		for _, exe := range dep.Executables {
+			if _, err := exec.LookPath(exe); err != nil {
+				allInPath = false
+				break
+			}
+		}
+		if allInPath {
+			log.Printf("[APPS-BIN] %s resolved on PATH (executables=%v); skipping fetch", dep.Name, dep.Executables)
+			return "", nil
+		}
+	}
 	src, ok := dep.Sources[platform]
 	if !ok {
 		return "", fmt.Errorf("no source for %s", platform)
