@@ -730,8 +730,18 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 	// originally wired up.
 	targetInstallID := installBoundAppID(s, installID, targetAppName)
 	if targetInstallID == 0 {
-		http.Error(w, "app not bound: "+targetAppName, http.StatusForbidden)
-		return
+		// No static binding — try the dynamic bypass for callers
+		// that declare requires.dynamic_app_calls and are identified
+		// as official (apps_dynamic_call.go). resolveDynamicTarget
+		// returns the correct 403 message on failure so consumers
+		// can tell "not eligible" apart from "eligible but target
+		// absent".
+		id, msg, ok := s.resolveDynamicTarget(installID, targetAppName)
+		if !ok {
+			http.Error(w, msg, http.StatusForbidden)
+			return
+		}
+		targetInstallID = id
 	}
 	target := s.installedApps.Get(targetInstallID)
 	if target == nil {
