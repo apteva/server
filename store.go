@@ -398,23 +398,31 @@ func (s *Store) migrate() error {
 		);
 
 		-- agent_evals — per-agent behavioural tests. Each row declares
-		-- a trigger (the situation we drive the agent with), a list of
+		-- a description (what the agent should do), a list of
 		-- plain-English goals the meta-agent grades against, and the
 		-- mocks the gateway uses to fake tool responses during the run.
 		-- Seeded from AgentTemplate.SuggestedEvals at agent-create time
 		-- (source='template'); operators can hand-roll new ones
 		-- (source='user'); future PR adds app-contributed evals
 		-- (source='app').
+		--
+		-- description supersedes the older trigger_json column. Existing
+		-- rows keep their trigger_json populated and scanEval derives
+		-- description from it on read when description is empty; new
+		-- rows write description directly and leave trigger_json blank.
+		-- trigger_json stays as a nullable column this release and is
+		-- removed in the next one.
 		CREATE TABLE IF NOT EXISTS agent_evals (
 			id              TEXT PRIMARY KEY,
 			agent_id        INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
 			name            TEXT NOT NULL,
+			description     TEXT NOT NULL DEFAULT '',
 			trigger_json    TEXT NOT NULL DEFAULT '{}',
 			goals_json      TEXT NOT NULL DEFAULT '[]',
 			mocks_json      TEXT NOT NULL DEFAULT '[]',
 			max_turns       INTEGER NOT NULL DEFAULT 5,
-			-- 'manual' = run only on explicit click. PR-2 introduces
-			-- cron schedules ('@hourly', '@daily', or a cron string).
+			-- 'manual' = run only on explicit click. Future: cron
+			-- schedules ('@hourly', '@daily', or a cron string).
 			schedule        TEXT NOT NULL DEFAULT 'manual',
 			-- Cached rollup of the latest run so list queries don't
 			-- have to join agent_eval_runs.
@@ -432,7 +440,16 @@ func (s *Store) migrate() error {
 		-- agent_eval_runs — append-only history of every eval run.
 		-- The first run for a wizard-created agent is the wizard's
 		-- Verify-step run; subsequent runs are operator-triggered
-		-- from the agent detail page (or scheduled in PR-2).
+		-- from the agent detail page.
+		--
+		-- iterations_used records how many attempts the run took. For
+		-- strict single-shot runs this is always 1; for improvement
+		-- runs (wizard / explicit opt-in) it counts how many revise
+		-- cycles the agent went through before pass or cap.
+		-- suggestions_json captures the judge's improvement proposals
+		-- across all iterations (directive edits, etc.) so the
+		-- operator can review them after the run and decide whether
+		-- to apply any to the live agent.
 		CREATE TABLE IF NOT EXISTS agent_eval_runs (
 			id                 INTEGER PRIMARY KEY AUTOINCREMENT,
 			eval_id            TEXT NOT NULL REFERENCES agent_evals(id) ON DELETE CASCADE,
@@ -445,12 +462,31 @@ func (s *Store) migrate() error {
 			status             TEXT NOT NULL,
 			trajectory_json    TEXT NOT NULL DEFAULT '{}',
 			judge_verdict_json TEXT,
+			suggestions_json   TEXT,
 			duration_ms        INTEGER,
 			turns_used         INTEGER,
+			iterations_used    INTEGER NOT NULL DEFAULT 1,
 			error_message      TEXT
 		);
 		CREATE INDEX IF NOT EXISTS idx_agent_eval_runs_eval
 			ON agent_eval_runs(eval_id, started_at DESC);
+
+		-- agent_directive_history — audit trail for directive changes,
+		-- in particular ones proposed by the eval judge and accepted by
+		-- the operator. Read by the agent detail UI to surface "your
+		-- directive was last changed by eval suggestion X" provenance.
+		CREATE TABLE IF NOT EXISTS agent_directive_history (
+			id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+			agent_id           INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+			directive_before   TEXT NOT NULL,
+			directive_after    TEXT NOT NULL,
+			source             TEXT NOT NULL,       -- 'eval_suggestion' | 'manual_edit'
+			source_eval_run_id INTEGER,              -- nullable; set when source='eval_suggestion'
+			applied_by_user_id INTEGER NOT NULL,
+			applied_at         DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_agent_directive_history_agent
+			ON agent_directive_history(agent_id, applied_at DESC);
 	`)
 	if err != nil {
 		return err
@@ -562,6 +598,15 @@ func (s *Store) migrate() error {
 	`)
 	s.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_mcp_servers_name ON mcp_servers(user_id, project_id, name)")
 	s.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_connections_name ON connections(user_id, project_id, app_slug, name)")
+
+	// Evals v2: description replaces trigger as the primary input.
+	// trigger_json stays (nullable) for one release so existing rows
+	// keep parsing; scanEval falls back to deriving description from
+	// trigger when description is empty. iterations_used +
+	// suggestions_json capture the new improvement-loop output.
+	s.db.Exec("ALTER TABLE agent_evals ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+	s.db.Exec("ALTER TABLE agent_eval_runs ADD COLUMN iterations_used INTEGER NOT NULL DEFAULT 1")
+	s.db.Exec("ALTER TABLE agent_eval_runs ADD COLUMN suggestions_json TEXT")
 
 	// Unified connections + mcp_servers: source discriminator + hosted-provider refs
 	s.db.Exec("ALTER TABLE connections ADD COLUMN source TEXT DEFAULT 'local'")

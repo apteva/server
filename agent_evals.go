@@ -44,11 +44,19 @@ import (
 // Eval is the wire shape returned by the evals endpoints. Mirrors
 // agent_evals row layout with JSON columns parsed into typed
 // substructures so the dashboard doesn't have to.
+//
+// Description is the primary input — a plain-prose brief the agent
+// reads as its opening event. It replaces the older Trigger field;
+// Trigger stays on the struct (and on the DB row) for one release
+// so existing rows keep parsing. New rows write Description only;
+// reads of legacy rows backfill Description from Trigger via
+// triggerToText so handlers + runner only ever look at Description.
 type Eval struct {
 	ID          string       `json:"id"`
 	AgentID     int64        `json:"agent_id"`
 	Name        string       `json:"name"`
-	Trigger     EvalTrigger  `json:"trigger"`
+	Description string       `json:"description"`
+	Trigger     EvalTrigger  `json:"trigger,omitempty"` // deprecated; backfilled to description on read
 	Goals       []string     `json:"goals"`
 	Mocks       []EvalMock   `json:"mocks"`
 	MaxTurns    int          `json:"max_turns"`
@@ -62,15 +70,36 @@ type Eval struct {
 	UpdatedAt   time.Time    `json:"updated_at"`
 }
 
-// EvalTrigger describes the situation we drive the agent with for
-// this test. PR-1 supports three types; future PRs add more:
-//
-//   type=chat_message   payload: {text, from?, channel?}
-//   type=webhook        payload: {url, method, body}
-//   type=scheduled_tick payload: {iso_time}
+// EvalTrigger is the legacy "situation we drive the agent with"
+// primitive. New evals don't use it; existing rows are converted
+// to Description on read via triggerToText. Removed in the next
+// release once all rows have description populated.
 type EvalTrigger struct {
 	Type    string                 `json:"type"`
 	Payload map[string]any         `json:"payload,omitempty"`
+}
+
+// RunOptions controls a single eval run's execution policy. The
+// eval row stays declarative ("what good looks like"); the caller
+// passes RunOptions to choose strict-verification vs improvement
+// mode at run time. Defaults come from the route:
+//
+//   /evals/preview                  → {MaxIterations: 5, StrictMocks: false}
+//   /agents/:id/evals/:id/run       → {MaxIterations: 1, StrictMocks: false}
+//   (future) continuous monitor     → {MaxIterations: 1, StrictMocks: true}
+//
+// MaxIterations=1 disables the improvement loop entirely: one
+// attempt, one judge pass, final verdict. >1 enables the revise
+// loop — if the judge fails, its per_goal feedback (and any
+// directive_edits it proposes) feed into a follow-up attempt.
+//
+// StrictMocks=true makes any unmocked tool call fail the run with
+// error_message instead of returning the lenient {"ok":true,"_stub":true}
+// default. Used by continuous monitoring where stub-ok would mask
+// drift.
+type RunOptions struct {
+	MaxIterations int  `json:"max_iterations,omitempty"`
+	StrictMocks   bool `json:"strict_mocks,omitempty"`
 }
 
 // EvalMock declares how a single tool should answer in this eval's
@@ -88,18 +117,59 @@ type EvalMock struct {
 
 // EvalRun is one entry in the history. trajectory + verdict are
 // embedded so the dashboard can render a run inline without a
-// second fetch.
+// second fetch. Suggestions captures the judge's improvement
+// proposals across all iterations of an improvement run; nil for
+// strict single-shot runs that passed first try.
 type EvalRun struct {
-	ID            int64           `json:"id"`
-	EvalID        string          `json:"eval_id"`
-	StartedAt     time.Time       `json:"started_at"`
-	FinishedAt    *time.Time      `json:"finished_at,omitempty"`
-	Status        string          `json:"status"`      // 'pass' | 'fail' | 'error'
-	Trajectory    Trajectory      `json:"trajectory"`
-	Verdict       *JudgeVerdict   `json:"verdict,omitempty"`
-	DurationMS    int             `json:"duration_ms"`
-	TurnsUsed     int             `json:"turns_used"`
-	ErrorMessage  string          `json:"error_message,omitempty"`
+	ID             int64           `json:"id"`
+	EvalID         string          `json:"eval_id"`
+	StartedAt      time.Time       `json:"started_at"`
+	FinishedAt     *time.Time      `json:"finished_at,omitempty"`
+	Status         string          `json:"status"`      // 'pass' | 'fail' | 'error'
+	Trajectory     Trajectory      `json:"trajectory"`
+	Verdict        *JudgeVerdict   `json:"verdict,omitempty"`
+	Suggestions    *RunSuggestions `json:"suggestions,omitempty"`
+	DurationMS     int             `json:"duration_ms"`
+	TurnsUsed      int             `json:"turns_used"`
+	IterationsUsed int             `json:"iterations_used"`
+	ErrorMessage   string          `json:"error_message,omitempty"`
+}
+
+// RunSuggestions rolls up everything the judge proposed across the
+// run's iterations into one shape the apply-handler can act on.
+// Each item carries an Applied flag set by the apply-handler when
+// the operator opts to persist it to the live agent.
+type RunSuggestions struct {
+	DirectiveEdits []DirectiveEditSuggestion `json:"directive_edits,omitempty"`
+	// Carry-forward for the future: missing app/capability
+	// suggestions live here once the simulator + marketplace
+	// catalog feed land. Empty in this release.
+	MissingCapabilities []MissingCapabilitySuggestion `json:"missing_capabilities,omitempty"`
+}
+
+// DirectiveEditSuggestion is the judge's proposal for a directive
+// addition. The eval runner applies these ephemerally on respawn
+// during the improvement loop (Helped tracks which ones actually
+// flipped a goal to pass); the operator decides post-run whether
+// to commit any to the live agent's stored directive via the
+// apply-improvements handler.
+type DirectiveEditSuggestion struct {
+	ID     string `json:"id"`                // stable per-run id; "edit-1", "edit-2"
+	Add    string `json:"add"`               // text to append to the directive
+	Reason string `json:"reason,omitempty"`  // judge's rationale (one sentence)
+	Helped bool   `json:"helped,omitempty"`  // true if a subsequent iteration passed after applying
+}
+
+// MissingCapabilitySuggestion is the judge's read on "the agent
+// tried to do X but had no tool for it; consider installing app Y".
+// Placeholder in this release — populated once the simulator and
+// the marketplace-catalog feed to the judge land. Apply-handler
+// will offer to install the app on the live agent.
+type MissingCapabilitySuggestion struct {
+	ID     string `json:"id"`
+	App    string `json:"app"`
+	Reason string `json:"reason,omitempty"`
+	Helped bool   `json:"helped,omitempty"`
 }
 
 // Trajectory is the full record of one eval run. Stitched from
@@ -110,17 +180,22 @@ type Trajectory struct {
 }
 
 // TrajectoryTurn is one event in the run: an agent reply, a tool
-// call attempt, a tool response (mocked or stubbed), or a system
-// note. Role narrows the shape:
-//   role=user   content = the trigger message
-//   role=agent  content = the agent's reply text
-//   role=tool   tool_call = the call + response that just happened
-//   role=system content = a runner note (e.g. "max_turns reached")
+// call attempt, a tool response (mocked or stubbed), a judge
+// feedback message between iterations, or a system note. Role
+// narrows the shape:
+//   role=user      content = the description (opening event)
+//   role=agent     content = the agent's reply text
+//   role=tool      tool_call = the call + response that just happened
+//   role=judge     content = judge feedback fed back between iterations,
+//                  plus iteration = the attempt number it preceded
+//   role=system    content = a runner note (e.g. "max_turns reached",
+//                  "iteration 2 of 5", "applied directive edit: ...")
 type TrajectoryTurn struct {
-	Role     string          `json:"role"`
-	Content  string          `json:"content,omitempty"`
-	ToolCall *ToolCallRecord `json:"tool_call,omitempty"`
-	Timestamp time.Time      `json:"ts"`
+	Role      string          `json:"role"`
+	Content   string          `json:"content,omitempty"`
+	ToolCall  *ToolCallRecord `json:"tool_call,omitempty"`
+	Iteration int             `json:"iteration,omitempty"` // populated on judge + system turns that mark a boundary
+	Timestamp time.Time       `json:"ts"`
 }
 
 // ToolCallRecord captures one MCP call as the gateway saw it.
@@ -140,12 +215,33 @@ type ToolCallRecord struct {
 // JudgeVerdict is the meta-agent's grading output. Overall is a
 // rollup over PerGoal; even one fail makes Overall=fail. Reasoning
 // is a one-paragraph human-readable summary.
+//
+// SuggestedImprovements is the structured proposal the judge emits
+// alongside the verdict when the verdict is fail. The runner reads
+// it to drive the improvement loop:
+//   - InRunFeedback   → posted as a follow-up message in the same
+//                       thread so the agent can address it without
+//                       respawning. Cheap.
+//   - DirectiveEdits  → applied ephemerally on respawn for the next
+//                       iteration (don't touch the live agent).
+//   - MissingCapabilities → reserved for the simulator+catalog pass;
+//                       judge returns []  in this release.
 type JudgeVerdict struct {
-	Overall    string         `json:"overall"`   // 'pass' | 'fail'
-	Reasoning  string         `json:"reasoning"`
-	PerGoal    []GoalVerdict  `json:"per_goal"`
-	JudgeModel string         `json:"judge_model,omitempty"`
-	JudgeTokens *TokenUsage   `json:"judge_tokens,omitempty"`
+	Overall              string                `json:"overall"`   // 'pass' | 'fail'
+	Reasoning            string                `json:"reasoning"`
+	PerGoal              []GoalVerdict         `json:"per_goal"`
+	SuggestedImprovements *JudgeSuggestions    `json:"suggested_improvements,omitempty"`
+	JudgeModel           string                `json:"judge_model,omitempty"`
+	JudgeTokens          *TokenUsage           `json:"judge_tokens,omitempty"`
+}
+
+// JudgeSuggestions is the judge's per-iteration improvement bundle.
+// Distinct from RunSuggestions (which rolls up everything across
+// the run) — this is what the judge emits for one verdict.
+type JudgeSuggestions struct {
+	InRunFeedback       string                          `json:"in_run_feedback,omitempty"`
+	DirectiveEdits      []DirectiveEditSuggestion       `json:"directive_edits,omitempty"`
+	MissingCapabilities []MissingCapabilitySuggestion   `json:"missing_capabilities,omitempty"`
 }
 
 // GoalVerdict is one row of the rubric grading. Why is the
@@ -166,13 +262,19 @@ type TokenUsage struct {
 
 // SuggestedEval is the seed shape on AgentTemplate.SuggestedEvals.
 // Becomes one agent_evals row at agent-create time.
+//
+// Description is the new primary field. Templates that still ship
+// the legacy Trigger get an auto-derived description at seed time
+// via triggerToText; new templates set Description directly and
+// leave Trigger empty.
 type SuggestedEval struct {
-	ID       string        `json:"id"`       // stable per-template; "<template_id>:default"
-	Name     string        `json:"name"`
-	Trigger  EvalTrigger   `json:"trigger"`
-	Goals    []string      `json:"goals"`
-	Mocks    []EvalMock    `json:"mocks"`
-	MaxTurns int           `json:"max_turns,omitempty"`
+	ID          string        `json:"id"`       // stable per-template; "<template_id>:default"
+	Name        string        `json:"name"`
+	Description string        `json:"description,omitempty"`
+	Trigger     EvalTrigger   `json:"trigger,omitempty"` // legacy; backfilled to description at seed time
+	Goals       []string      `json:"goals"`
+	Mocks       []EvalMock    `json:"mocks"`
+	MaxTurns    int           `json:"max_turns,omitempty"`
 }
 
 // ─── Store helpers ─────────────────────────────────────────────────
@@ -182,7 +284,7 @@ type SuggestedEval struct {
 // dashboard renders a green/red dot from it without fetching runs.
 func (s *Store) ListAgentEvals(agentID int64) ([]Eval, error) {
 	rows, err := s.db.Query(`
-		SELECT id, agent_id, name, trigger_json, goals_json, mocks_json,
+		SELECT id, agent_id, name, description, trigger_json, goals_json, mocks_json,
 		       max_turns, schedule, last_status, last_run_at,
 		       source, source_ref, sort_order, created_at, updated_at
 		  FROM agent_evals
@@ -209,7 +311,7 @@ func (s *Store) ListAgentEvals(agentID int64) ([]Eval, error) {
 // implicit at the handler layer (auth + ownership).
 func (s *Store) GetAgentEval(id string) (*Eval, error) {
 	row := s.db.QueryRow(`
-		SELECT id, agent_id, name, trigger_json, goals_json, mocks_json,
+		SELECT id, agent_id, name, description, trigger_json, goals_json, mocks_json,
 		       max_turns, schedule, last_status, last_run_at,
 		       source, source_ref, sort_order, created_at, updated_at
 		  FROM agent_evals
@@ -227,7 +329,15 @@ func (s *Store) GetAgentEval(id string) (*Eval, error) {
 // caller (the runner uses a stable id for template-seeded rows so
 // re-seeds idempotently match; the dashboard's "+ Add eval" call
 // pre-fills an id like "usr-<agent>-<slug>").
+//
+// New rows write Description directly. Trigger is left empty for
+// new rows; legacy code paths that still produce a Trigger get
+// auto-backfilled via triggerToText before insert so the row always
+// has a usable Description.
 func (s *Store) CreateAgentEval(e Eval) (*Eval, error) {
+	if e.Description == "" && e.Trigger.Type != "" {
+		e.Description = triggerToText(e.Trigger)
+	}
 	triggerJSON, _ := json.Marshal(e.Trigger)
 	goalsJSON, _ := json.Marshal(e.Goals)
 	if e.Goals == nil {
@@ -248,10 +358,10 @@ func (s *Store) CreateAgentEval(e Eval) (*Eval, error) {
 	}
 	_, err := s.db.Exec(`
 		INSERT INTO agent_evals
-			(id, agent_id, name, trigger_json, goals_json, mocks_json,
+			(id, agent_id, name, description, trigger_json, goals_json, mocks_json,
 			 max_turns, schedule, source, source_ref, sort_order)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.ID, e.AgentID, e.Name, string(triggerJSON), string(goalsJSON),
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.ID, e.AgentID, e.Name, e.Description, string(triggerJSON), string(goalsJSON),
 		string(mocksJSON), e.MaxTurns, e.Schedule, e.Source, e.SourceRef,
 		e.SortOrder,
 	)
@@ -267,6 +377,9 @@ func (s *Store) CreateAgentEval(e Eval) (*Eval, error) {
 // platform-shipped starter evals (under a fresh id) get added on
 // upgrade.
 func (s *Store) UpsertSeedAgentEval(e Eval) error {
+	if e.Description == "" && e.Trigger.Type != "" {
+		e.Description = triggerToText(e.Trigger)
+	}
 	triggerJSON, _ := json.Marshal(e.Trigger)
 	goalsJSON, _ := json.Marshal(e.Goals)
 	if e.Goals == nil {
@@ -281,20 +394,23 @@ func (s *Store) UpsertSeedAgentEval(e Eval) error {
 	}
 	_, err := s.db.Exec(`
 		INSERT OR IGNORE INTO agent_evals
-			(id, agent_id, name, trigger_json, goals_json, mocks_json,
+			(id, agent_id, name, description, trigger_json, goals_json, mocks_json,
 			 max_turns, schedule, source, source_ref, sort_order)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', 'template', ?, ?)`,
-		e.ID, e.AgentID, e.Name, string(triggerJSON), string(goalsJSON),
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', 'template', ?, ?)`,
+		e.ID, e.AgentID, e.Name, e.Description, string(triggerJSON), string(goalsJSON),
 		string(mocksJSON), e.MaxTurns, e.SourceRef, e.SortOrder,
 	)
 	return err
 }
 
 // UpdateAgentEval saves edits from the wizard or the agent detail
-// page. Touches the JSON columns + name + max_turns + schedule —
-// not source/source_ref (operator can't reassign provenance) and
-// not last_status/last_run_at (those are runner-owned).
+// page. Touches the JSON columns + name + description + max_turns +
+// schedule — not source/source_ref (operator can't reassign provenance)
+// and not last_status/last_run_at (those are runner-owned).
 func (s *Store) UpdateAgentEval(e Eval) error {
+	if e.Description == "" && e.Trigger.Type != "" {
+		e.Description = triggerToText(e.Trigger)
+	}
 	triggerJSON, _ := json.Marshal(e.Trigger)
 	goalsJSON, _ := json.Marshal(e.Goals)
 	if e.Goals == nil {
@@ -309,21 +425,30 @@ func (s *Store) UpdateAgentEval(e Eval) error {
 	}
 	_, err := s.db.Exec(`
 		UPDATE agent_evals
-		   SET name = ?, trigger_json = ?, goals_json = ?, mocks_json = ?,
+		   SET name = ?, description = ?, trigger_json = ?, goals_json = ?, mocks_json = ?,
 		       max_turns = ?, schedule = ?, sort_order = ?,
 		       updated_at = CURRENT_TIMESTAMP
 		 WHERE id = ?`,
-		e.Name, string(triggerJSON), string(goalsJSON), string(mocksJSON),
+		e.Name, e.Description, string(triggerJSON), string(goalsJSON), string(mocksJSON),
 		e.MaxTurns, e.Schedule, e.SortOrder, e.ID,
 	)
 	return err
 }
 
-// DeleteAgentEval removes the row + (via FK cascade) its run
-// history.
+// DeleteAgentEval removes the row + its run history. The schema
+// declares ON DELETE CASCADE on agent_eval_runs.eval_id, but
+// store-wide PRAGMA foreign_keys is OFF (a pre-existing schema bug
+// elsewhere — app_agent_bindings.agent_id REFERENCES instances(id),
+// a long-renamed table — would break unrelated deletes if we
+// enabled it). So the cleanup happens explicitly here.
 func (s *Store) DeleteAgentEval(id string) error {
-	_, err := s.db.Exec(`DELETE FROM agent_evals WHERE id = ?`, id)
-	return err
+	if _, err := s.db.Exec(`DELETE FROM agent_eval_runs WHERE eval_id = ?`, id); err != nil {
+		return fmt.Errorf("delete child runs: %w", err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM agent_evals WHERE id = ?`, id); err != nil {
+		return err
+	}
+	return nil
 }
 
 // RollupEvalLastRun is called by the runner after each run to keep
@@ -337,8 +462,33 @@ func (s *Store) RollupEvalLastRun(evalID, status string, at time.Time) error {
 	return err
 }
 
+// InsertDirectiveHistory writes one row to the agent_directive_history
+// audit trail. Called by the apply-improvements handler whenever an
+// eval-judge directive edit is persisted to a live agent. source is
+// the provenance discriminator ('eval_suggestion' for now; future
+// 'manual_edit' once we route the dashboard's directive editor
+// through this same audit trail). sourceEvalRunID is the run row id
+// that produced the suggestion — 0 for non-eval sources.
+func (s *Store) InsertDirectiveHistory(agentID int64, before, after, source string, sourceEvalRunID int64, appliedByUserID int64) error {
+	var runRef sql.NullInt64
+	if sourceEvalRunID > 0 {
+		runRef = sql.NullInt64{Int64: sourceEvalRunID, Valid: true}
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO agent_directive_history
+			(agent_id, directive_before, directive_after, source,
+			 source_eval_run_id, applied_by_user_id)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		agentID, before, after, source, runRef, appliedByUserID,
+	)
+	return err
+}
+
 // InsertEvalRun writes one history row. Returns the autogenerated
 // id so the runner can include it in the synchronous response.
+// suggestions_json is nullable — strict single-shot runs that pass
+// first try have no suggestions and we keep the column NULL rather
+// than writing an empty JSON object.
 func (s *Store) InsertEvalRun(r EvalRun) (int64, error) {
 	trajectoryJSON, _ := json.Marshal(r.Trajectory)
 	var verdictJSON sql.NullString
@@ -346,13 +496,23 @@ func (s *Store) InsertEvalRun(r EvalRun) (int64, error) {
 		b, _ := json.Marshal(r.Verdict)
 		verdictJSON = sql.NullString{String: string(b), Valid: true}
 	}
+	var suggestionsJSON sql.NullString
+	if r.Suggestions != nil && (len(r.Suggestions.DirectiveEdits) > 0 || len(r.Suggestions.MissingCapabilities) > 0) {
+		b, _ := json.Marshal(r.Suggestions)
+		suggestionsJSON = sql.NullString{String: string(b), Valid: true}
+	}
+	if r.IterationsUsed <= 0 {
+		r.IterationsUsed = 1
+	}
 	res, err := s.db.Exec(`
 		INSERT INTO agent_eval_runs
 			(eval_id, started_at, finished_at, status, trajectory_json,
-			 judge_verdict_json, duration_ms, turns_used, error_message)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 judge_verdict_json, suggestions_json, duration_ms, turns_used,
+			 iterations_used, error_message)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.EvalID, r.StartedAt, r.FinishedAt, r.Status, string(trajectoryJSON),
-		verdictJSON, r.DurationMS, r.TurnsUsed, r.ErrorMessage,
+		verdictJSON, suggestionsJSON, r.DurationMS, r.TurnsUsed,
+		r.IterationsUsed, r.ErrorMessage,
 	)
 	if err != nil {
 		return 0, err
@@ -360,17 +520,36 @@ func (s *Store) InsertEvalRun(r EvalRun) (int64, error) {
 	return res.LastInsertId()
 }
 
+// GetEvalRun fetches one run row by id. Used by the apply-improvements
+// handler to load the suggestions_json the operator is acting on.
+func (s *Store) GetEvalRun(runID int64) (*EvalRun, error) {
+	row := s.db.QueryRow(`
+		SELECT id, eval_id, started_at, finished_at, status,
+		       trajectory_json, judge_verdict_json, suggestions_json,
+		       COALESCE(duration_ms, 0), COALESCE(turns_used, 0),
+		       COALESCE(iterations_used, 1), COALESCE(error_message, '')
+		  FROM agent_eval_runs
+		 WHERE id = ?`,
+		runID,
+	)
+	r, err := scanEvalRun(row)
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
 // ListEvalRuns returns the most-recent runs for one eval. The
-// dashboard caps at 10 in PR-1; PR-2 paginates.
+// dashboard caps at 10 by default; future paginates.
 func (s *Store) ListEvalRuns(evalID string, limit int) ([]EvalRun, error) {
 	if limit <= 0 {
 		limit = 10
 	}
 	rows, err := s.db.Query(`
 		SELECT id, eval_id, started_at, finished_at, status,
-		       trajectory_json, judge_verdict_json,
+		       trajectory_json, judge_verdict_json, suggestions_json,
 		       COALESCE(duration_ms, 0), COALESCE(turns_used, 0),
-		       COALESCE(error_message, '')
+		       COALESCE(iterations_used, 1), COALESCE(error_message, '')
 		  FROM agent_eval_runs
 		 WHERE eval_id = ?
 		 ORDER BY started_at DESC
@@ -383,35 +562,51 @@ func (s *Store) ListEvalRuns(evalID string, limit int) ([]EvalRun, error) {
 	defer rows.Close()
 	out := []EvalRun{}
 	for rows.Next() {
-		var (
-			r              EvalRun
-			startedAt      string
-			finishedAt     sql.NullString
-			trajectoryJSON string
-			verdictJSON    sql.NullString
-		)
-		if err := rows.Scan(
-			&r.ID, &r.EvalID, &startedAt, &finishedAt, &r.Status,
-			&trajectoryJSON, &verdictJSON, &r.DurationMS, &r.TurnsUsed,
-			&r.ErrorMessage,
-		); err != nil {
+		r, err := scanEvalRun(rows)
+		if err != nil {
 			return nil, err
-		}
-		r.StartedAt, _ = parseTime(startedAt)
-		if finishedAt.Valid {
-			t, _ := parseTime(finishedAt.String)
-			r.FinishedAt = &t
-		}
-		_ = json.Unmarshal([]byte(trajectoryJSON), &r.Trajectory)
-		if verdictJSON.Valid {
-			var v JudgeVerdict
-			if err := json.Unmarshal([]byte(verdictJSON.String), &v); err == nil {
-				r.Verdict = &v
-			}
 		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+func scanEvalRun(r rowScanner) (EvalRun, error) {
+	var (
+		run             EvalRun
+		startedAt       string
+		finishedAt      sql.NullString
+		trajectoryJSON  string
+		verdictJSON     sql.NullString
+		suggestionsJSON sql.NullString
+	)
+	if err := r.Scan(
+		&run.ID, &run.EvalID, &startedAt, &finishedAt, &run.Status,
+		&trajectoryJSON, &verdictJSON, &suggestionsJSON,
+		&run.DurationMS, &run.TurnsUsed, &run.IterationsUsed,
+		&run.ErrorMessage,
+	); err != nil {
+		return run, err
+	}
+	run.StartedAt, _ = parseTime(startedAt)
+	if finishedAt.Valid {
+		t, _ := parseTime(finishedAt.String)
+		run.FinishedAt = &t
+	}
+	_ = json.Unmarshal([]byte(trajectoryJSON), &run.Trajectory)
+	if verdictJSON.Valid {
+		var v JudgeVerdict
+		if err := json.Unmarshal([]byte(verdictJSON.String), &v); err == nil {
+			run.Verdict = &v
+		}
+	}
+	if suggestionsJSON.Valid {
+		var sg RunSuggestions
+		if err := json.Unmarshal([]byte(suggestionsJSON.String), &sg); err == nil {
+			run.Suggestions = &sg
+		}
+	}
+	return run, nil
 }
 
 // ─── HTTP handlers ─────────────────────────────────────────────────
@@ -501,20 +696,41 @@ func (s *Server) handleAgentEvals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// /instances/:agentId/evals/:evalId/run/stream — SSE variant of /run
+	// for interactive step-mode. See eval_streaming.go for the framing
+	// and the matching POST /eval-runs/:run_id/step control endpoint.
+	if len(parts) == 5 && parts[3] == "run" && parts[4] == "stream" {
+		s.handleEvalRunStream(w, r, userID, agent, existing)
+		return
+	}
+
 	// /instances/:agentId/evals/:evalId/run
 	if len(parts) == 4 && parts[3] == "run" {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
 			return
 		}
-		// runEval is synchronous — typical 5-30s for the simulated
-		// agent loop + judge pass combined. The request hangs for
-		// the duration; dashboard renders a spinner. The 90s
-		// context cap matches what the operator's wizard step is
-		// willing to wait for before showing a timeout error.
-		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+		// Default: strict single-shot. Operators opting into the
+		// improvement loop pass {max_iterations: N, strict_mocks: bool}
+		// in the body. Caps + safety bounds applied by runRealEvalCore.
+		opts := RunOptions{MaxIterations: 1}
+		if r.ContentLength > 0 {
+			_ = json.NewDecoder(r.Body).Decode(&opts)
+		}
+		// Iteration runs can take much longer than single-shot ones
+		// (each iteration is its own spawn + judge pass). Budget 90s
+		// per iteration up to a ceiling so the operator's wizard
+		// step doesn't hang indefinitely.
+		budget := 90 * time.Second
+		if opts.MaxIterations > 1 {
+			budget = time.Duration(opts.MaxIterations) * 90 * time.Second
+			if budget > 8*time.Minute {
+				budget = 8 * time.Minute
+			}
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), budget)
 		defer cancel()
-		run, err := s.runEval(ctx, userID, agent, existing)
+		run, err := s.runEval(ctx, userID, agent, existing, opts)
 		if err != nil {
 			http.Error(w, "run eval: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -535,6 +751,21 @@ func (s *Server) handleAgentEvals(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, runs)
+		return
+	}
+
+	// /instances/:agentId/evals/:evalId/runs/:runId/apply
+	if len(parts) == 6 && parts[3] == "runs" && parts[5] == "apply" {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		runID, err := strconv.ParseInt(parts[4], 10, 64)
+		if err != nil {
+			http.Error(w, "bad run id", http.StatusBadRequest)
+			return
+		}
+		s.handleApplyEvalSuggestions(w, r, userID, agent, existing, runID)
 		return
 	}
 
@@ -706,8 +937,14 @@ func (s *Server) handleEvalMockGateway(w http.ResponseWriter, r *http.Request) {
 //     "directive": "<wizard's current directive>",
 //     "name":      "<wizard's current name, used only in the system prompt>",
 //     "project_id": "<scope for picking the LLM provider>",
-//     "eval": { "name", "trigger", "goals", "mocks", "max_turns" }
+//     "eval": { "name", "description", "goals", "mocks", "max_turns" },
+//     "options": { "max_iterations": N, "strict_mocks": bool } // optional
 //   }
+//
+// Default RunOptions for preview: MaxIterations=5. The wizard wants
+// the agent to have multiple shots at the spec so the operator sees
+// what improvements would help; if the first attempt passes, the
+// loop exits early on iteration 1.
 //
 // Returns the same EvalRun shape as the persisted runner, with ID=0
 // to signal "not stored — call POST /agents/:id/evals to save and
@@ -719,10 +956,11 @@ func (s *Server) handleEvalPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := getUserID(r)
 	var body struct {
-		Directive string `json:"directive"`
-		Name      string `json:"name"`
-		ProjectID string `json:"project_id"`
-		Eval      Eval   `json:"eval"`
+		Directive string      `json:"directive"`
+		Name      string      `json:"name"`
+		ProjectID string      `json:"project_id"`
+		Eval      Eval        `json:"eval"`
+		Options   *RunOptions `json:"options,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -739,20 +977,134 @@ func (s *Server) handleEvalPreview(w http.ResponseWriter, r *http.Request) {
 	if body.Eval.MaxTurns <= 0 {
 		body.Eval.MaxTurns = 5
 	}
+	// Backfill description from trigger for callers still on the
+	// old wizard payload shape.
+	if body.Eval.Description == "" && body.Eval.Trigger.Type != "" {
+		body.Eval.Description = triggerToText(body.Eval.Trigger)
+	}
+	if strings.TrimSpace(body.Eval.Description) == "" {
+		http.Error(w, "description required for preview", http.StatusBadRequest)
+		return
+	}
+	opts := RunOptions{MaxIterations: 5}
+	if body.Options != nil {
+		if body.Options.MaxIterations > 0 {
+			opts.MaxIterations = body.Options.MaxIterations
+		}
+		opts.StrictMocks = body.Options.StrictMocks
+	}
 	draft := &Agent{
 		Name:      body.Name,
 		Directive: body.Directive,
 		ProjectID: body.ProjectID,
 		UserID:    userID,
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	// Generous budget for the multi-iteration default — 90s per
+	// iteration up to 8 min ceiling. Wizard renders a spinner.
+	budget := time.Duration(opts.MaxIterations) * 90 * time.Second
+	if budget > 8*time.Minute {
+		budget = 8 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), budget)
 	defer cancel()
-	run, err := s.previewEval(ctx, userID, body.ProjectID, draft, &body.Eval)
+	run, err := s.previewEval(ctx, userID, body.ProjectID, draft, &body.Eval, opts)
 	if err != nil {
 		http.Error(w, "preview eval: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, run)
+}
+
+// handleApplyEvalSuggestions persists a selection of the judge's
+// directive-edit suggestions onto the live agent's stored directive.
+// The operator picks which suggestion ids to apply; the rest are
+// discarded. Each applied edit is appended to agent.Directive and
+// a row is written to agent_directive_history for audit.
+//
+// Body shape:
+//   {
+//     "directive_edit_ids": ["edit-1", "edit-3"]   // ids from RunSuggestions.DirectiveEdits
+//   }
+//
+// We do NOT apply MissingCapabilities here — that pathway lands in
+// a follow-up release with the simulator + marketplace catalog.
+// Apply requests that name a missing-capability id return 400 for
+// now so the operator gets an explicit signal rather than silent
+// no-op.
+func (s *Server) handleApplyEvalSuggestions(w http.ResponseWriter, r *http.Request, userID int64, agent *Agent, ev *Eval, runID int64) {
+	run, err := s.store.GetEvalRun(runID)
+	if err != nil || run == nil || run.EvalID != ev.ID {
+		http.NotFound(w, r)
+		return
+	}
+	if run.Suggestions == nil {
+		http.Error(w, "no suggestions on this run", http.StatusBadRequest)
+		return
+	}
+	var body struct {
+		DirectiveEditIDs []string `json:"directive_edit_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if len(body.DirectiveEditIDs) == 0 {
+		http.Error(w, "directive_edit_ids must be non-empty", http.StatusBadRequest)
+		return
+	}
+	wanted := map[string]bool{}
+	for _, id := range body.DirectiveEditIDs {
+		wanted[id] = true
+	}
+	var toAppend []string
+	for _, edit := range run.Suggestions.DirectiveEdits {
+		if wanted[edit.ID] {
+			toAppend = append(toAppend, strings.TrimSpace(edit.Add))
+			delete(wanted, edit.ID)
+		}
+	}
+	if len(wanted) > 0 {
+		// Operator asked for ids that aren't on this run. Reject so
+		// the dashboard rebuilds its UI state instead of half-applying.
+		http.Error(w, "unknown directive_edit_ids on this run", http.StatusBadRequest)
+		return
+	}
+	if len(toAppend) == 0 {
+		http.Error(w, "no directive edits resolved", http.StatusBadRequest)
+		return
+	}
+
+	before := agent.Directive
+	after := before
+	for _, add := range toAppend {
+		if add == "" {
+			continue
+		}
+		if strings.TrimSpace(after) == "" {
+			after = add
+		} else {
+			after = after + "\n\n" + add
+		}
+	}
+	agent.Directive = after
+	if err := s.store.UpdateAgent(agent); err != nil {
+		http.Error(w, "save directive: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.store.InsertDirectiveHistory(agent.ID, before, after, "eval_suggestion", runID, userID); err != nil {
+		// History row failed but directive change succeeded — surface
+		// the failure so the operator knows audit is degraded, don't
+		// roll back the user-visible change.
+		http.Error(w, "directive applied; audit history failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"status":           "applied",
+		"agent_id":         agent.ID,
+		"directive_before": before,
+		"directive_after":  after,
+		"edits_applied":    len(toAppend),
+	})
 }
 
 // seedTemplateEvalsForAgent copies the template's SuggestedEvals
@@ -781,25 +1133,32 @@ func (s *Server) seedTemplateEvalsForAgent(agentID int64, templateID string) {
 		// created from the same template don't share an id.
 		rowID := seedID + ":" + i64s(agentID)
 		_ = s.store.UpsertSeedAgentEval(Eval{
-			ID:        rowID,
-			AgentID:   agentID,
-			Name:      se.Name,
-			Trigger:   se.Trigger,
-			Goals:     se.Goals,
-			Mocks:     se.Mocks,
-			MaxTurns:  se.MaxTurns,
-			Source:    "template",
-			SourceRef: templateID,
-			SortOrder: 100 + i,
+			ID:          rowID,
+			AgentID:     agentID,
+			Name:        se.Name,
+			Description: se.Description,
+			Trigger:     se.Trigger,
+			Goals:       se.Goals,
+			Mocks:       se.Mocks,
+			MaxTurns:    se.MaxTurns,
+			Source:      "template",
+			SourceRef:   templateID,
+			SortOrder:   100 + i,
 		})
 	}
 }
 
 // scanEval reads one agent_evals row. Same rowScanner pattern as
 // scanAgentTemplate so it works for both QueryRow and Query.Next.
+//
+// Legacy-row handling: rows written under the older trigger-only
+// schema have description='' and a populated trigger_json. We derive
+// description from trigger on read so the runner + handlers never
+// have to know about the legacy shape.
 func scanEval(r rowScanner) (Eval, error) {
 	var (
 		e            Eval
+		description  string
 		triggerJSON  string
 		goalsJSON    string
 		mocksJSON    string
@@ -809,15 +1168,19 @@ func scanEval(r rowScanner) (Eval, error) {
 		updatedAt    string
 	)
 	if err := r.Scan(
-		&e.ID, &e.AgentID, &e.Name, &triggerJSON, &goalsJSON, &mocksJSON,
+		&e.ID, &e.AgentID, &e.Name, &description, &triggerJSON, &goalsJSON, &mocksJSON,
 		&e.MaxTurns, &e.Schedule, &lastStatus, &lastRunAt,
 		&e.Source, &e.SourceRef, &e.SortOrder, &createdAt, &updatedAt,
 	); err != nil {
 		return e, err
 	}
+	e.Description = description
 	_ = json.Unmarshal([]byte(triggerJSON), &e.Trigger)
 	if e.Trigger.Payload == nil {
 		e.Trigger.Payload = map[string]any{}
+	}
+	if e.Description == "" && e.Trigger.Type != "" {
+		e.Description = triggerToText(e.Trigger)
 	}
 	_ = json.Unmarshal([]byte(goalsJSON), &e.Goals)
 	if e.Goals == nil {

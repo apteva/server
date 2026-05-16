@@ -39,6 +39,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -98,37 +99,63 @@ func (s *Server) bootMetaAgents() {
 // returned verdict is nil and err carries the reason — callers
 // surface that in the eval run row's error_message so operators see
 // a real cause instead of a silent fail.
+//
+// agentDirective is the directive the spawned eval-core ran with on
+// this iteration (which may include ephemeral edits applied during
+// an improvement loop). The judge sees it so it can propose
+// directive_edits that meaningfully extend it without duplicating
+// existing instructions. allowImprovements gates the "suggest
+// directive edits" half of the system prompt — strict single-shot
+// runs pass false to keep the judge purely descriptive.
 func (s *Server) judgeWithMetaAgent(
 	ctx context.Context,
 	userID int64,
 	projectID string,
 	ev *Eval,
 	trajectory Trajectory,
+	agentDirective string,
+	allowImprovements bool,
 ) (*JudgeVerdict, error) {
 	helper, err := s.ensureMetaAgentRunning(userID)
 	if err != nil {
 		return nil, err
 	}
 
-	threadID := fmt.Sprintf("judge-%d-%d", time.Now().UnixNano(), helper.ID)
-	prompt := buildJudgePrompt(ev, trajectory)
+	// Serialize judge calls against the same helper. We post to thread
+	// "main" (the only thread apteva-core treats as a coordinator;
+	// any other id gets a SUB-THREAD system prompt that makes the
+	// model reply with `pace(sleep=...)` instead of grading), so
+	// concurrent judges would clobber each other's context. The
+	// mutex is keyed by user since each user has their own helper.
+	mu := s.judgeMutexFor(userID)
+	mu.Lock()
+	defer mu.Unlock()
 
-	// POST the prompt to the meta-agent's /event endpoint. Core
-	// lazy-spawns the thread on first event for an unknown id, so
-	// no separate "create thread" call is needed.
 	corePort := s.agents.GetPort(helper.ID)
 	if corePort == 0 {
 		return nil, errors.New("meta-agent core is not listening yet — try again in a moment")
 	}
 	coreAPIKey := s.agents.GetCoreAPIKey(helper.ID)
+	const threadID = "main"
+	prompt := buildJudgePrompt(ev, trajectory, agentDirective, allowImprovements)
+
+	// Wipe any prior conversation so this judge call sees a clean
+	// thread (the autonomous loop on "main" otherwise carries forward
+	// the previous judge's messages — including its pace+sleep — and
+	// the model's next reply is shaped by that, not by the new
+	// prompt).
+	if err := resetMainThread(ctx, corePort, coreAPIKey); err != nil {
+		return nil, fmt.Errorf("reset judge thread: %w", err)
+	}
+
 	if err := postCoreEvent(ctx, corePort, coreAPIKey, threadID, prompt); err != nil {
 		return nil, fmt.Errorf("post judge prompt: %w", err)
 	}
 
-	// Poll the thread context until the meta-agent emits an
-	// assistant reply. We accept the first non-empty assistant
-	// message after our user prompt.
-	reply, err := waitForAssistantReply(ctx, corePort, coreAPIKey, threadID, prompt)
+	// Poll for the first assistant message to appear on main. Since
+	// we reset just above, the pre-call count is 0 — any assistant
+	// message is the judge's verdict reply.
+	reply, err := waitForFirstAssistantReply(ctx, corePort, coreAPIKey, threadID)
 	if err != nil {
 		return nil, fmt.Errorf("wait for judge reply: %w", err)
 	}
@@ -139,6 +166,115 @@ func (s *Server) judgeWithMetaAgent(
 	}
 	verdict.JudgeModel = "meta-agent"
 	return verdict, nil
+}
+
+// judgeMutexFor returns the per-user serialization lock for judge
+// calls against that user's meta-agent helper. Lazily created on
+// first access. The same helper services every judge for one user,
+// and "main" thread context is shared across calls — without
+// serialization, two concurrent eval runs in the same project would
+// race on it.
+func (s *Server) judgeMutexFor(userID int64) *sync.Mutex {
+	s.judgeMutexesOnce.Do(func() {
+		s.judgeMutexes = map[int64]*sync.Mutex{}
+	})
+	s.judgeMutexesMu.Lock()
+	defer s.judgeMutexesMu.Unlock()
+	mu, ok := s.judgeMutexes[userID]
+	if !ok {
+		mu = &sync.Mutex{}
+		s.judgeMutexes[userID] = mu
+	}
+	return mu
+}
+
+// resetMainThread POSTs /threads/main/reset on the meta-agent's core
+// (api.go:216), wiping its in-memory message slice back to just the
+// system prompt. Idempotent; returns nil even on a 404 (means the
+// thread hasn't been touched yet — already clean).
+func resetMainThread(ctx context.Context, port int, apiKey string) error {
+	url := fmt.Sprintf("http://127.0.0.1:%d/threads/main/reset", port)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	if err != nil {
+		return err
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 404 {
+		return nil
+	}
+	if resp.StatusCode/100 != 2 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("http %d: %s", resp.StatusCode, string(raw))
+	}
+	return nil
+}
+
+// waitForFirstAssistantReply polls /threads/<id>/context until at
+// least one assistant message appears, then returns its text. Caller
+// must have reset the thread first so "first assistant message" is
+// unambiguously the reply to the just-posted prompt.
+//
+// Replaces the older waitForAssistantReply, which anchored on
+// exact-text match against the user prompt — but apteva-core wraps
+// inbound events as "[YYYY-MM-DD HH:MM] Events:\n• <prompt>\n", so
+// the match never landed and the search for the post-prompt
+// assistant message never began.
+func waitForFirstAssistantReply(ctx context.Context, port int, apiKey, threadID string) (string, error) {
+	url := fmt.Sprintf("http://127.0.0.1:%d/threads/%s/context", port, threadID)
+	deadline, _ := ctx.Deadline()
+	if deadline.IsZero() {
+		deadline = time.Now().Add(120 * time.Second)
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	for time.Now().Before(deadline) {
+		req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if apiKey != "" {
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			time.Sleep(400 * time.Millisecond)
+			continue
+		}
+		var parsed struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+				Parts   []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"messages"`
+		}
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		resp.Body.Close()
+		_ = json.Unmarshal(raw, &parsed)
+		for _, m := range parsed.Messages {
+			if m.Role != "assistant" {
+				continue
+			}
+			text := m.Content
+			if text == "" {
+				for _, p := range m.Parts {
+					if p.Type == "text" {
+						text += p.Text
+					}
+				}
+			}
+			if strings.TrimSpace(text) != "" {
+				return text, nil
+			}
+		}
+		time.Sleep(400 * time.Millisecond)
+	}
+	return "", errors.New("no assistant reply within timeout")
 }
 
 // ensureMetaAgentRunning makes sure the user's platform_helper
@@ -191,12 +327,21 @@ func (s *Server) ensureMetaAgentRunning(userID int64) (*Agent, error) {
 // prompt strict so parseJudgeReply doesn't have to do prose
 // gymnastics. The "be specific" line catches the most common
 // failure mode of free-form judge LLMs: flat one-word "why" fields.
+//
+// The suggested_improvements section is only honoured when the
+// caller's prompt includes "[improvements: on]" — strict
+// single-shot runs send "[improvements: off]" and the judge
+// should leave suggested_improvements null. We could split this
+// into two system prompts, but a single prompt + a per-request
+// flag keeps the platform_helper resident across both modes.
 const judgeSystemPrompt = `You are the Apteva platform's eval judge.
 
 Each user message you receive is a single eval grading request. The message contains:
-- Trigger: the situation the agent was driven with
-- Goals: a numbered list of plain-English expectations
+- Description: what the agent was asked to do
+- Agent directive: the agent's current standing instructions (so you understand its baseline behaviour)
+- Goals: a numbered list of plain-English expectations to grade against
 - Trajectory: every reply the agent emitted and every tool call it made with its mocked response
+- An improvements flag: either "[improvements: on]" or "[improvements: off]"
 
 Grade each goal independently against the trajectory. A goal passes only when the trajectory directly demonstrates it; "the agent could plausibly do this next" is not pass.
 
@@ -207,22 +352,36 @@ Respond with one JSON object, no surrounding prose, no markdown fences:
   "reasoning": "one short paragraph summarising the run",
   "per_goal": [
     {"goal": "<verbatim goal text>", "verdict": "pass" | "fail", "why": "<one sentence of evidence, citing tool calls or replies>"}
-  ]
+  ],
+  "suggested_improvements": {
+    "in_run_feedback": "<one paragraph the agent can read mid-run to address the failures; null if overall=pass>",
+    "directive_edits": [
+      {"id": "edit-1", "add": "<one sentence to APPEND to the directive>", "reason": "<one sentence why this would help>"}
+    ]
+  }
 }
 
-overall=pass only when every per_goal entry is pass. Be specific in why — quote tool call args or reply text when relevant.
-
-Do not call any tools. Reply with the JSON object only.`
+Rules:
+- overall=pass only when every per_goal entry is pass.
+- Be specific in why — quote tool call args or reply text when relevant.
+- If "[improvements: off]", set suggested_improvements to null.
+- If "[improvements: on]" AND overall=fail, ALWAYS populate suggested_improvements with at least in_run_feedback. Add directive_edits only when a missing standing instruction would prevent this failure class on future runs (not just this one). Keep edits additive and concise — never propose deleting or replacing the directive. Use stable ids ("edit-1", "edit-2", ...) so the run report can track them.
+- If "[improvements: on]" AND overall=pass, set suggested_improvements to null.
+- Do not call any tools. Reply with the JSON object only.`
 
 // buildJudgePrompt assembles the user-side prompt the judge sees.
 // We render the trajectory as plain text (the LLM doesn't need a
 // JSON envelope) and number the goals so the judge's per_goal
 // array is easy to align back.
-func buildJudgePrompt(ev *Eval, trajectory Trajectory) string {
+func buildJudgePrompt(ev *Eval, trajectory Trajectory, agentDirective string, allowImprovements bool) string {
 	var b strings.Builder
-	b.WriteString("# Trigger\n")
-	if trgJSON, err := json.MarshalIndent(ev.Trigger, "", "  "); err == nil {
-		b.Write(trgJSON)
+	b.WriteString("# Description\n")
+	b.WriteString(strings.TrimSpace(ev.Description))
+	b.WriteString("\n\n# Agent directive\n")
+	if strings.TrimSpace(agentDirective) == "" {
+		b.WriteString("(none)")
+	} else {
+		b.WriteString(strings.TrimSpace(agentDirective))
 	}
 	b.WriteString("\n\n# Goals\n")
 	for i, g := range ev.Goals {
@@ -249,9 +408,16 @@ func buildJudgePrompt(ev *Eval, trajectory Trajectory) string {
 			} else if len(tc.Response) > 0 {
 				fmt.Fprintf(&b, "  response: %s%s\n", string(tc.Response), mockedNote(tc.Mocked, tc.Warning))
 			}
+		case "judge":
+			fmt.Fprintf(&b, "JUDGE FEEDBACK (iteration %d): %s\n", turn.Iteration, turn.Content)
 		case "system":
 			fmt.Fprintf(&b, "SYSTEM: %s\n", turn.Content)
 		}
+	}
+	if allowImprovements {
+		b.WriteString("\n[improvements: on]\n")
+	} else {
+		b.WriteString("\n[improvements: off]\n")
 	}
 	b.WriteString("\nGrade the trajectory against the goals. Return the JSON object only.")
 	return b.String()
@@ -333,85 +499,3 @@ func postCoreEvent(ctx context.Context, port int, apiKey, threadID, message stri
 	return nil
 }
 
-// waitForAssistantReply polls core's /threads/<id>/context until
-// it sees an assistant message that wasn't there when the user
-// prompt was posted. Returns the assistant message's text. ctx
-// timeout caps the wait — pass a 30-60s budget for judge work.
-func waitForAssistantReply(ctx context.Context, port int, apiKey, threadID, userPrompt string) (string, error) {
-	url := fmt.Sprintf("http://127.0.0.1:%d/threads/%s/context", port, threadID)
-	deadline, _ := ctx.Deadline()
-	if deadline.IsZero() {
-		deadline = time.Now().Add(60 * time.Second)
-	}
-	client := &http.Client{Timeout: 5 * time.Second}
-	for time.Now().Before(deadline) {
-		req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
-		if apiKey != "" {
-			req.Header.Set("Authorization", "Bearer "+apiKey)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			time.Sleep(300 * time.Millisecond)
-			continue
-		}
-		var parsed struct {
-			Messages []struct {
-				Role    string `json:"role"`
-				Content string `json:"content"`
-				// Some core builds emit Parts[] alongside Content. We
-				// concatenate text parts in that case.
-				Parts []struct {
-					Type string `json:"type"`
-					Text string `json:"text"`
-				} `json:"parts"`
-			} `json:"messages"`
-		}
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		resp.Body.Close()
-		_ = json.Unmarshal(raw, &parsed)
-
-		// Find the latest assistant message that came AFTER our
-		// user prompt. We anchor on the user prompt's exact text
-		// because the thread might already have a system message
-		// (the directive) at the head.
-		userIdx := -1
-		for i, m := range parsed.Messages {
-			if m.Role == "user" && (m.Content == userPrompt || partsContain(m.Parts, userPrompt)) {
-				userIdx = i
-			}
-		}
-		if userIdx >= 0 {
-			for i := len(parsed.Messages) - 1; i > userIdx; i-- {
-				m := parsed.Messages[i]
-				if m.Role != "assistant" {
-					continue
-				}
-				text := m.Content
-				if text == "" {
-					for _, p := range m.Parts {
-						if p.Type == "text" {
-							text += p.Text
-						}
-					}
-				}
-				if strings.TrimSpace(text) != "" {
-					return text, nil
-				}
-			}
-		}
-		time.Sleep(400 * time.Millisecond)
-	}
-	return "", errors.New("no assistant reply within timeout")
-}
-
-func partsContain(parts []struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}, want string) bool {
-	for _, p := range parts {
-		if p.Type == "text" && p.Text == want {
-			return true
-		}
-	}
-	return false
-}

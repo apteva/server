@@ -625,15 +625,22 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	// Resolve catalog tool.
+	// Resolve catalog tool. Accept the same three forms as
+	// handleExecuteTool (the dashboard-facing /connections/:id/execute):
+	// bare name, canonical MCP-prefixed form (what /tools returns), or
+	// the legacy app-slug-prefixed form. Sidecars discovering tools via
+	// /api/connections/:id/tools see the prefixed name, so refusing it
+	// here makes the workflows-builder picker hand back tool names that
+	// the executor rejects.
 	app := s.catalog.Get(conn.AppSlug)
 	if app == nil {
 		http.Error(w, "integration app not in catalog: "+conn.AppSlug, http.StatusBadGateway)
 		return
 	}
+	prefix := s.store.CanonicalMCPNameForConnection(conn.ID)
 	var tool *AppToolDef
 	for i, t := range app.Tools {
-		if t.Name == body.Tool {
+		if t.Name == body.Tool || prefix+"_"+t.Name == body.Tool || conn.AppSlug+"_"+t.Name == body.Tool {
 			tool = &app.Tools[i]
 			break
 		}

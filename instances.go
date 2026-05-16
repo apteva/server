@@ -141,6 +141,35 @@ func (im *AgentManager) instanceDir(id int64) string {
 	return dir
 }
 
+// PreSeedConfig writes a starting config.json into an instance's
+// directory. Start reads disk-first ("Disk config.json is the single
+// source of truth"), so any field the caller wants the spawned core
+// to see — including mcp_servers — has to land on disk before Start
+// runs. The eval runner uses this to inject the eval-mock-gateway
+// MCP for its transient agent rows; live agents don't need it
+// because their disk config persists across spawns.
+func (im *AgentManager) PreSeedConfig(instID int64, cfgJSON string) error {
+	dir := im.instanceDir(instID)
+	return os.WriteFile(filepath.Join(dir, "config.json"), []byte(cfgJSON), 0644)
+}
+
+// WipeInstanceHistory removes the per-thread session history files
+// from an instance's directory. Used by the eval runner between
+// improvement-loop iterations after a directive_edit so the next
+// spawn doesn't load the previous iteration's assistant reply via
+// Session.LoadTail — which would otherwise make the model parrot
+// its prior answer even though the directive changed.
+//
+// Safe to call while the core is stopped (caller's responsibility);
+// no-op if the directory doesn't exist.
+func (im *AgentManager) WipeInstanceHistory(instID int64) error {
+	historyPath := filepath.Join(im.instanceDir(instID), "history")
+	if _, err := os.Stat(historyPath); os.IsNotExist(err) {
+		return nil
+	}
+	return os.RemoveAll(historyPath)
+}
+
 // ProviderInfo holds provider metadata for config.json injection.
 type ProviderInfo struct {
 	Type         string
@@ -994,6 +1023,19 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		// (e.g. quick-create flow) is fine; the agent just starts
 		// with no evals and the operator can add some by hand.
 		TemplateID string `json:"template_id,omitempty"`
+		// BoundAppInstallIDs — installed apps the operator picked
+		// in the wizard's Setup step. We write app_agent_bindings
+		// rows so the gateway's per-agent tool filter (currently
+		// advisory, runtime enforcement coming in a follow-up)
+		// knows which apps this agent is allowed to talk to. nil
+		// or empty means "no explicit selection" — the agent gets
+		// every app in its project (current default behaviour).
+		BoundAppInstallIDs []int64 `json:"bound_app_install_ids,omitempty"`
+		// BoundConnectionIDs — same idea for integration connections
+		// the operator wants attached as MCP servers. Each id is
+		// resolved to its /mcp/<id> URL and appended to the agent's
+		// config.json mcp_servers list so core attaches it at boot.
+		BoundConnectionIDs []int64 `json:"bound_connection_ids,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -1033,6 +1075,63 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	// app-contributed templates in the DB).
 	if body.TemplateID != "" {
 		s.seedTemplateEvalsForAgent(inst.ID, body.TemplateID)
+	}
+
+	// Write the operator's explicit app + integration selections from
+	// the wizard's Setup step. Both are best-effort: failures are
+	// logged but don't abort the agent create — the operator can
+	// re-pick later from the agent detail page.
+	if len(body.BoundAppInstallIDs) > 0 {
+		for _, installID := range body.BoundAppInstallIDs {
+			if _, err := s.store.db.Exec(
+				`INSERT OR IGNORE INTO app_agent_bindings (install_id, agent_id, enabled) VALUES (?, ?, 1)`,
+				installID, inst.ID,
+			); err != nil {
+				log.Printf("[CREATE] bind app install_id=%d to agent=%d: %v", installID, inst.ID, err)
+			}
+		}
+	}
+	if len(body.BoundConnectionIDs) > 0 {
+		// Each selected connection becomes an http-transport MCP
+		// server entry in the agent's config.json. core attaches
+		// it on boot via its mcp_servers list. The URL points at
+		// apteva-server's /mcp/<id> endpoint which proxies to the
+		// connection's tools using the stored credentials.
+		extraServers := []map[string]any{}
+		for _, cid := range body.BoundConnectionIDs {
+			conn, _, err := s.store.GetConnection(userID, cid)
+			if err != nil || conn == nil {
+				log.Printf("[CREATE] skip bound connection id=%d: %v", cid, err)
+				continue
+			}
+			extraServers = append(extraServers, map[string]any{
+				"name":      conn.AppSlug,
+				"transport": "http",
+				"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", s.port, cid),
+				// main_access stays implicit (default true); no_spawn
+				// not set so worker threads can also attach if they
+				// inherit this connection's role.
+			})
+		}
+		if len(extraServers) > 0 {
+			var instCfg map[string]any
+			if inst.Config != "" {
+				json.Unmarshal([]byte(inst.Config), &instCfg)
+			}
+			if instCfg == nil {
+				instCfg = map[string]any{}
+			}
+			// Append rather than replace so the gateway/channels
+			// system entries added later still land on top of these.
+			existing, _ := instCfg["mcp_servers"].([]any)
+			for _, e := range extraServers {
+				existing = append(existing, e)
+			}
+			instCfg["mcp_servers"] = existing
+			if out, err := json.Marshal(instCfg); err == nil {
+				inst.Config = string(out)
+			}
+		}
 	}
 
 	// Persist the system-MCP opt-out flags on the instance DB row so

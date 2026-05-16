@@ -414,6 +414,85 @@ func (r *serverResolver) SpawnThread(inst framework.InstanceInfo, threadID, dire
 	return nil
 }
 
+// SpawnRealtimeThread POSTs to core's /threads/{id} with realtime:true.
+// Core creates the realtime sub-thread, issues a single-use audio
+// token, and returns it alongside the spawn status. Caller composes
+// the audio bridge URL from public_url + token.
+func (r *serverResolver) SpawnRealtimeThread(inst framework.InstanceInfo, req sdk.RealtimeSpawnRequest) (*sdk.RealtimeSpawnResult, error) {
+	if inst.Port == 0 {
+		return nil, fmt.Errorf("instance %d has no core port — is it running?", inst.ID)
+	}
+	body, _ := json.Marshal(map[string]any{
+		"directive": req.Directive,
+		"voice":     req.Voice,
+		"provider":  req.Provider,
+		"tools":     req.Tools,
+		"mcp":       req.MCP,
+		"realtime":  true,
+	})
+	url := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, req.ThreadID)
+	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if inst.CoreAPIKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
+	}
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		buf := make([]byte, 1024)
+		n, _ := resp.Body.Read(buf)
+		return nil, fmt.Errorf("spawn realtime thread %q: HTTP %d %s", req.ThreadID, resp.StatusCode, string(buf[:n]))
+	}
+	var coreResp struct {
+		Status     string `json:"status"`
+		ID         string `json:"id"`
+		AudioToken string `json:"audio_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&coreResp); err != nil {
+		return nil, fmt.Errorf("decode realtime spawn response: %w", err)
+	}
+	return &sdk.RealtimeSpawnResult{
+		Status:     coreResp.Status,
+		ThreadID:   coreResp.ID,
+		AudioToken: coreResp.AudioToken,
+	}, nil
+}
+
+// KillThread DELETEs core's /threads/{id}. Idempotent — 404 is success
+// (the caller's intent, "no live thread by this name", is satisfied
+// either way).
+func (r *serverResolver) KillThread(inst framework.InstanceInfo, threadID string) error {
+	if inst.Port == 0 {
+		return fmt.Errorf("instance %d has no core port — is it running?", inst.ID)
+	}
+	url := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, threadID)
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+	if inst.CoreAPIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("kill thread %q: HTTP %d", threadID, resp.StatusCode)
+	}
+	return nil
+}
+
 // seedBuiltinInstalls writes one apps + app_installs row per bundled
 // app so they appear in the dashboard's Installed tab alongside sidecar
 // installs. Status is hard-coded 'running' since the framework already

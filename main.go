@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -137,6 +138,15 @@ type Server struct {
 	// so the whole feature can be turned off with a single env var
 	// without redeploying. Set once at startApps boot.
 	liveTelemetryHook func([]TelemetryEvent)
+
+	// judgeMutexes serializes judge calls per user. The meta-agent's
+	// "main" thread is shared across calls and we reset+repost on
+	// every call; without this lock, two concurrent evals for the
+	// same user would race on the shared context. See
+	// judgeWithMetaAgent in platform_agent.go.
+	judgeMutexesOnce sync.Once
+	judgeMutexesMu   sync.Mutex
+	judgeMutexes     map[int64]*sync.Mutex
 }
 
 // appsRegistry is a thin alias over framework.Registry so main.go
@@ -1050,6 +1060,16 @@ func main() {
 	// returned EvalRun has ID=0. After the agent is created, the
 	// regular /agents/:id/evals/:evalId/run path persists results.
 	apiMux.HandleFunc("/evals/preview", s.authMiddleware(s.handleEvalPreview))
+
+	// /evals/preview/stream — SSE counterpart of /evals/preview that
+	// emits a per-iteration event so the wizard can pause-and-confirm
+	// between steps. See eval_streaming.go.
+	apiMux.HandleFunc("/evals/preview/stream", s.authMiddleware(s.handleEvalPreviewStream))
+
+	// /eval-runs/:run_id/step — operator's continue/stop signal for an
+	// in-flight streaming run. Paired with /evals/preview/stream and
+	// /agents/:id/evals/:evalId/run/stream.
+	apiMux.HandleFunc("/eval-runs/", s.authMiddleware(s.handleEvalStepControl))
 
 	// /eval-mock-gateway/<token>[/...] — HTTP MCP endpoint that
 	// spawned eval cores talk to in place of the real gateway.

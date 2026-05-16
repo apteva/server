@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -58,13 +59,21 @@ func newHTTPRequest(ctx context.Context, method, url string, body io.Reader, api
 }
 
 // runSession is the per-eval-run state. Looked up by session token
-// in the eval-mock-gateway handler when a tool call lands.
+// in the eval-mock-gateway handler when a tool call lands. State
+// accumulates across iterations of an improvement run — the
+// session token is stable for the whole run, even if the spawned
+// core is torn down + respawned between iterations after a
+// directive edit. Trajectory is one chronological list spanning
+// all iterations; the runner inserts system/judge turns to mark
+// iteration boundaries.
 type runSession struct {
-	eval       *Eval
-	mu         sync.Mutex
-	trajectory []TrajectoryTurn
-	maxTurns   int
-	turnsUsed  int
+	eval             *Eval
+	mu               sync.Mutex
+	trajectory       []TrajectoryTurn
+	maxTurns         int
+	turnsUsed        int
+	strict           bool      // RunOptions.StrictMocks — fail on unmocked tool calls
+	strictViolations []string  // first violation message bubbles up to error_message
 }
 
 func newRunSession(ev *Eval) *runSession {
@@ -77,11 +86,11 @@ func newRunSession(ev *Eval) *runSession {
 	}
 }
 
-// recordUser, recordAgent, recordSystem, resolveToolCall, snapshot —
-// same trajectory buffer used by both the runner and the gateway
-// handler. recordAgent is called by the runner per assistant reply
-// pulled from core's thread context. resolveToolCall is called by
-// the gateway handler when a tool call lands.
+// recordUser, recordAgent, recordJudge, recordSystem, resolveToolCall,
+// snapshot — same trajectory buffer used by both the runner and the
+// gateway handler. recordAgent is called by the runner per assistant
+// reply pulled from core's thread context. resolveToolCall is called
+// by the gateway handler when a tool call lands.
 
 func (s *runSession) recordUser(text string) {
 	s.mu.Lock()
@@ -104,6 +113,17 @@ func (s *runSession) recordAgent(text string) {
 	s.turnsUsed++
 }
 
+func (s *runSession) recordJudge(iteration int, feedback string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.trajectory = append(s.trajectory, TrajectoryTurn{
+		Role:      "judge",
+		Content:   feedback,
+		Iteration: iteration,
+		Timestamp: time.Now(),
+	})
+}
+
 func (s *runSession) recordSystem(note string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -118,6 +138,12 @@ func (s *runSession) recordSystem(note string) {
 // gateway HTTP handler whenever the eval core makes a tool call.
 // Looks up the first matching mock in the eval's mocks[]; falls
 // back to a stub-ok with a warning if no mock matches.
+//
+// Strict mode: if no mock matches and s.strict is true, the call
+// returns an MCP error to the agent AND records the violation onto
+// s.strictViolations so the runner can surface it as the run's
+// error_message after completion. Used by continuous monitoring of
+// live agents where stub-ok would silently mask drift.
 func (s *runSession) resolveToolCall(app, tool string, args json.RawMessage) ToolCallRecord {
 	rec := ToolCallRecord{
 		App:  app,
@@ -132,6 +158,11 @@ func (s *runSession) resolveToolCall(app, tool string, args json.RawMessage) Too
 	case found:
 		rec.Response = mock.Return
 		rec.Mocked = true
+	case s.strict:
+		rec.Error = fmt.Sprintf("strict mocks: no pinned mock for %s.%s", app, tool)
+		s.mu.Lock()
+		s.strictViolations = append(s.strictViolations, rec.Error)
+		s.mu.Unlock()
 	default:
 		rec.Response = json.RawMessage(`{"ok":true,"_stub":true}`)
 		rec.Warning = "unmocked tool call — eval is using a stub-ok default"
@@ -224,35 +255,77 @@ func unregisterEvalSession(token string) {
 
 // runEval is the entrypoint called by handleAgentEvals when
 // POST /evals/:id/run lands. Drives a real apteva-core process
-// through the eval; the simulation MVP is gone.
-func (s *Server) runEval(ctx context.Context, userID int64, agent *Agent, ev *Eval) (*EvalRun, error) {
-	return s.runRealEvalCore(ctx, userID, agent, ev, false)
+// through the eval. opts.MaxIterations controls whether this is a
+// strict single-shot verification (1) or an improvement-loop run
+// (>1) — the route picks the default and the request body can
+// override.
+func (s *Server) runEval(ctx context.Context, userID int64, agent *Agent, ev *Eval, opts RunOptions) (*EvalRun, error) {
+	return s.runRealEvalCore(ctx, userID, agent, ev, false, opts, nil)
 }
 
 // previewEval runs an eval against an in-memory draft agent — same
 // real-core path as runEval, but spawns a transient agent row that
 // gets deleted after the run. ID=0 on the returned EvalRun signals
 // "not persisted to agent_eval_runs"; the wizard's Verify step
-// uses this so operators can iterate before committing.
-func (s *Server) previewEval(ctx context.Context, userID int64, projectID string, draft *Agent, ev *Eval) (*EvalRun, error) {
-	return s.runRealEvalCore(ctx, userID, draft, ev, true)
+// uses this so operators can iterate before committing. opts.MaxIterations
+// defaults to 5 at the handler so the wizard naturally surfaces
+// improvement suggestions.
+func (s *Server) previewEval(ctx context.Context, userID int64, projectID string, draft *Agent, ev *Eval, opts RunOptions) (*EvalRun, error) {
+	return s.runRealEvalCore(ctx, userID, draft, ev, true, opts, nil)
 }
 
-// runRealEvalCore is the shared backbone. preview=true means: don't
-// persist the run row, and create-then-delete a transient agent row
-// for the spawn (so the directive being tested isn't tied to any
-// live agent the operator hasn't created yet).
+// runRealEvalCore is the shared backbone for runEval + previewEval.
+// preview=true means: don't persist the run row and use a transient
+// agent row name prefix so audit trails distinguish wizard previews
+// from persisted runs.
+//
+// Iteration loop semantics:
+//   - Attempt 1 always posts ev.Description to the spawned core.
+//   - If verdict=pass: break.
+//   - If verdict=fail AND suggestions.directive_edits is non-empty:
+//     teardown core, append edits to the ephemeral directive,
+//     respawn fresh on the next iteration with the new directive,
+//     post ev.Description again.
+//   - If verdict=fail AND only suggestions.in_run_feedback is set:
+//     keep core running, post the feedback into the same thread on
+//     the next iteration — the agent retains its prior context and
+//     can address the feedback without re-starting from scratch.
+//   - At MaxIterations or when the judge proposes nothing, break.
+//
+// Improvements never touch the live agent's stored directive. Edits
+// accumulate into the local baseDirective string for the duration of
+// the run; the apply-improvements handler is what writes them back
+// if the operator chooses to persist.
+// stepCb is the optional per-iteration pause hook (eval_streaming.go).
+// nil = legacy batch mode: runner auto-continues until pass / max /
+// strict-violation / no actionable suggestion. Non-nil = streaming
+// mode: the runner emits each iteration's verdict + running rollup
+// to the callback and honors its StepStop return to break early.
 func (s *Server) runRealEvalCore(
 	ctx context.Context,
 	userID int64,
 	agent *Agent,
 	ev *Eval,
 	preview bool,
+	opts RunOptions,
+	stepCb StepCallback,
 ) (*EvalRun, error) {
 	startedAt := time.Now()
+
+	// Apply RunOptions defaults + safety caps. MaxIterations is
+	// hard-capped at 10 to bound LLM cost on a single run; the
+	// route-level defaults (5 for preview, 1 for manual run) stay
+	// well below.
+	if opts.MaxIterations <= 0 {
+		opts.MaxIterations = 1
+	}
+	if opts.MaxIterations > 10 {
+		opts.MaxIterations = 10
+	}
+
 	session := newRunSession(ev)
-	triggerText := triggerToText(ev.Trigger)
-	session.recordUser(triggerText)
+	session.strict = opts.StrictMocks
+	session.recordUser(ev.Description)
 
 	// Provider preflight. Without LLM credentials the spawned core
 	// would boot then immediately fail on first turn — fail fast
@@ -260,166 +333,301 @@ func (s *Server) runRealEvalCore(
 	// useful error_message instead of a stuck-pending state.
 	pool := s.GetProviderPool(userID, agent.ProjectID)
 	if len(pool) == 0 {
-		return s.writeEvalRun(ev.ID, startedAt, session, nil, "error",
-			"no LLM provider configured — add one in Settings → Providers", preview)
+		return s.writeEvalRun(ev.ID, startedAt, session, nil, nil, "error",
+			"no LLM provider configured — add one in Settings → Providers", preview, 0)
 	}
 
-	// For preview runs the agent isn't a real DB row yet; insert a
-	// transient one (kind='eval_run') so AgentManager.Start has
-	// something to bind the spawned core to. We delete it again in
-	// the teardown defer below.
-	transientAgent := preview
-	if transientAgent {
-		dirRow, err := s.store.CreateAgent(userID, fmt.Sprintf("__eval_preview_%d__", time.Now().UnixNano()), agent.Directive, agent.Mode, "{}", agent.ProjectID)
-		if err != nil {
-			return s.writeEvalRun(ev.ID, startedAt, session, nil, "error",
-				"prepare preview agent: "+err.Error(), preview)
-		}
-		// Promote the transient row to kind='eval_run' so the user's
-		// list endpoints filter it out even before we delete it.
-		_, _ = s.store.db.Exec(`UPDATE agents SET kind = 'eval_run' WHERE id = ?`, dirRow.ID)
-		// Re-fetch so any side fields (config defaults) are populated.
-		fetched, err := s.store.GetAgentByID(dirRow.ID)
-		if err != nil {
-			return s.writeEvalRun(ev.ID, startedAt, session, nil, "error",
-				"reload preview agent: "+err.Error(), preview)
-		}
-		agent = fetched
-		defer func() {
-			s.agents.Stop(agent.ID)
-			s.store.DeleteAgent(userID, agent.ID)
-		}()
-	} else {
-		// For persisted runs we still spawn a fresh core process for
-		// isolation — the live agent (if any) keeps running on its
-		// own. We just stand up an eval-mode sibling, then stop it
-		// at the end. To avoid id collisions with the live agent's
-		// process tracking, we clone the agent row under a fresh
-		// transient id with kind='eval_run' and use that for the
-		// spawn lifecycle.
-		dirRow, err := s.store.CreateAgent(userID, fmt.Sprintf("__eval_run_%d__", time.Now().UnixNano()), agent.Directive, agent.Mode, agent.Config, agent.ProjectID)
-		if err != nil {
-			return s.writeEvalRun(ev.ID, startedAt, session, nil, "error",
-				"prepare eval agent: "+err.Error(), preview)
-		}
-		_, _ = s.store.db.Exec(`UPDATE agents SET kind = 'eval_run' WHERE id = ?`, dirRow.ID)
-		fetched, err := s.store.GetAgentByID(dirRow.ID)
-		if err != nil {
-			return s.writeEvalRun(ev.ID, startedAt, session, nil, "error",
-				"reload eval agent: "+err.Error(), preview)
-		}
-		agent = fetched
-		defer func() {
-			s.agents.Stop(agent.ID)
-			s.store.DeleteAgent(userID, agent.ID)
-		}()
+	// Create transient kind='eval_run' agent row whether preview or
+	// persisted — for persisted runs we don't want to disturb the
+	// live agent's running core, so the eval gets its own sibling
+	// row to spawn against. Teardown deletes the row at run end.
+	namePrefix := "__eval_run_"
+	if preview {
+		namePrefix = "__eval_preview_"
 	}
+	baseDirective := agent.Directive
+	dirRow, err := s.store.CreateAgent(userID, fmt.Sprintf("%s%d__", namePrefix, time.Now().UnixNano()),
+		baseDirective, agent.Mode, agent.Config, agent.ProjectID)
+	if err != nil {
+		return s.writeEvalRun(ev.ID, startedAt, session, nil, nil, "error",
+			"prepare eval agent: "+err.Error(), preview, 0)
+	}
+	_, _ = s.store.db.Exec(`UPDATE agents SET kind = 'eval_run' WHERE id = ?`, dirRow.ID)
+	evalAgent, err := s.store.GetAgentByID(dirRow.ID)
+	if err != nil {
+		return s.writeEvalRun(ev.ID, startedAt, session, nil, nil, "error",
+			"reload eval agent: "+err.Error(), preview, 0)
+	}
+	defer func() {
+		s.agents.Stop(evalAgent.ID)
+		s.store.DeleteAgent(userID, evalAgent.ID)
+	}()
 
-	// Generate the eval session token and register the runSession
-	// so the gateway handler can find it.
-	token := fmt.Sprintf("eval-%d-%d", agent.ID, time.Now().UnixNano())
+	// Generate the eval session token and register the runSession so
+	// the gateway handler can find it. The token is stable for the
+	// whole run, including across mid-run respawns — the new core's
+	// mcp_servers entry carries the same URL, so its tool calls land
+	// on the same session and trajectory.
+	token := fmt.Sprintf("eval-%d-%d", evalAgent.ID, time.Now().UnixNano())
 	registerEvalSession(token, session)
 	defer unregisterEvalSession(token)
 
-	// Override the agent's config to route MCP through the eval
-	// gateway only. Strip the normal apteva-server gateway and
-	// channels so the eval core can't touch real apps. Inject our
-	// HTTP MCP entry; core picks this up at Start time via the
-	// instance config blob.
-	evalConfig := map[string]any{
-		"directive": agent.Directive,
-		"mode":      agent.Mode,
-		"mcp_servers": []any{
-			map[string]any{
-				"name":      "eval-mocks",
-				"url":       fmt.Sprintf("http://127.0.0.1:%s/api/eval-mock-gateway/%s", s.port, token),
-				"transport": "http",
-				// no_spawn keeps the eval mocks reachable from main only —
-				// sub-threads can't reach the mock gateway. The legacy
-				// main_access field is gone post-discovery refactor; core
-				// would silently drop it anyway.
-				"no_spawn": true,
+	// Build the eval-mode config skeleton; we rewrite "directive" each
+	// iteration to pick up accumulated edits.
+	evalConfigFor := func(directive string) string {
+		cfg := map[string]any{
+			"directive": directive,
+			"mode":      evalAgent.Mode,
+			"mcp_servers": []any{
+				map[string]any{
+					"name":      "eval-mocks",
+					"url":       fmt.Sprintf("http://127.0.0.1:%s/api/eval-mock-gateway/%s", s.port, token),
+					"transport": "http",
+					// no_spawn keeps mocks reachable from main only.
+					"no_spawn": true,
+				},
 			},
-		},
-		// Server-only flags that turn off the auto-injected
-		// gateway and channels for this run.
-		"include_apteva_server": false,
-		"include_channels":      false,
+			// Server-only flags that turn off the auto-injected
+			// gateway and channels for this run.
+			"include_apteva_server": false,
+			"include_channels":      false,
+		}
+		cfgJSON, _ := json.Marshal(cfg)
+		return string(cfgJSON)
 	}
-	cfgJSON, _ := json.Marshal(evalConfig)
-	agent.Config = string(cfgJSON)
-	_ = s.store.UpdateAgent(agent)
 
-	// Spawn the real apteva-core for the eval. Reuses every
-	// production lifecycle path — port allocation, env injection,
-	// the disk config.json, the providers pool. Eval-specificity
-	// lives entirely in the mcp_servers config above.
 	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret, agent.ProjectID)
 	if err != nil {
 		providerEnv = map[string]string{}
 	}
-	if err := s.agents.Start(agent, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, defaultProviderForInstance(agent), agent.ProjectID)); err != nil {
-		return s.writeEvalRun(ev.ID, startedAt, session, nil, "error",
-			"spawn eval core: "+err.Error(), preview)
-	}
 
-	port := s.agents.GetPort(agent.ID)
-	apiKey := s.agents.GetCoreAPIKey(agent.ID)
-	if !waitForCoreListening(port, 10*time.Second) {
-		return s.writeEvalRun(ev.ID, startedAt, session, nil, "error",
-			"eval core never listened", preview)
-	}
+	allowImprovements := opts.MaxIterations > 1
+	rollup := &RunSuggestions{}
+	const threadID = "main"
+	var lastVerdict *JudgeVerdict
+	iterationsCompleted := 0
+	continueSameThread := false
 
-	// Drive the trigger as a /event POST to thread "main". Core
-	// picks it up and starts thinking. We then poll its thread
-	// context to capture assistant replies + look for idle.
-	if err := postCoreEvent(ctx, port, apiKey, "main", triggerText); err != nil {
-		return s.writeEvalRun(ev.ID, startedAt, session, nil, "error",
-			"post trigger to eval core: "+err.Error(), preview)
-	}
+	for iteration := 1; iteration <= opts.MaxIterations; iteration++ {
+		iterationsCompleted = iteration
+		if iteration > 1 {
+			session.recordSystem(fmt.Sprintf("--- iteration %d of %d ---", iteration, opts.MaxIterations))
+		}
 
-	if err := collectAssistantReplies(ctx, port, apiKey, "main", session, ev.MaxTurns); err != nil {
-		// Soft error — we still have a partial trajectory and may
-		// be able to grade it. Record the system note + continue.
-		session.recordSystem("runner: " + err.Error())
+		// Sync directive into the agent row + (re)spawn if not running.
+		// continueSameThread=true means the previous iteration only
+		// produced in_run_feedback, so we keep the core hot and the
+		// thread context intact.
+		if !continueSameThread {
+			evalAgent.Directive = baseDirective
+			evalAgent.Config = evalConfigFor(baseDirective)
+			_ = s.store.UpdateAgent(evalAgent)
+		}
+		if !s.agents.IsRunning(evalAgent.ID) {
+			// AgentManager.Start treats disk config.json as the single
+			// source of truth for mcp_servers, so we have to seed the
+			// instance dir with our eval-mock-gateway entry before
+			// spawning — otherwise the core boots with no MCP and the
+			// agent has no way to discover the mocked tools.
+			if err := s.agents.PreSeedConfig(evalAgent.ID, evalAgent.Config); err != nil {
+				snap := session.snapshot()
+				return s.writeEvalRunWithDetails(ev.ID, startedAt, time.Now(), session, &snap, lastVerdict, finalRollup(rollup), "error",
+					"seed eval config: "+err.Error(), preview, iterationsCompleted)
+			}
+			if err := s.agents.Start(evalAgent, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, defaultProviderForInstance(evalAgent), agent.ProjectID)); err != nil {
+				snap := session.snapshot()
+				return s.writeEvalRunWithDetails(ev.ID, startedAt, time.Now(), session, &snap, lastVerdict, finalRollup(rollup), "error",
+					"spawn eval core: "+err.Error(), preview, iterationsCompleted)
+			}
+			if !waitForCoreListening(s.agents.GetPort(evalAgent.ID), 10*time.Second) {
+				snap := session.snapshot()
+				return s.writeEvalRunWithDetails(ev.ID, startedAt, time.Now(), session, &snap, lastVerdict, finalRollup(rollup), "error",
+					"eval core never listened", preview, iterationsCompleted)
+			}
+		}
+		port := s.agents.GetPort(evalAgent.ID)
+		apiKey := s.agents.GetCoreAPIKey(evalAgent.ID)
+
+		// Drive the iteration's opening event. Attempt 1 is always
+		// the description; continue-same-thread iterations post the
+		// previous judge's in-run feedback; respawned iterations
+		// (after directive edits) re-post the description so the
+		// fresh core has the brief.
+		var driveMsg string
+		if iteration == 1 {
+			driveMsg = ev.Description
+		} else if continueSameThread && lastVerdict != nil && lastVerdict.SuggestedImprovements != nil && lastVerdict.SuggestedImprovements.InRunFeedback != "" {
+			driveMsg = "Judge feedback from previous attempt: " + lastVerdict.SuggestedImprovements.InRunFeedback
+			session.recordJudge(iteration, driveMsg)
+		} else {
+			driveMsg = ev.Description
+		}
+
+		// On a directive-edit respawn (iteration >= 2 with a fresh
+		// core), give the autonomous loop a moment to fire its
+		// startup heartbeat, then reset main to wipe it. Without
+		// this, apteva-core's loop runs on its own goroutine the
+		// instant the listener comes up — our POST /event lands in
+		// the ~150ms window before the first drainEvents() call,
+		// the loop processes "(no events)", emits a pacing reply,
+		// and the test idles out before our brief is ever processed.
+		// Skipped on iteration 1 because there's no observed race
+		// there (the runner has nothing else queued so the agent's
+		// "(no events)" heartbeat is harmless and the model still
+		// processes the brief on its next iteration). Skipped on
+		// continueSameThread because there's no fresh spawn — the
+		// loop is settled and reset would wipe the prior context
+		// the judge feedback builds on.
+		if iteration >= 2 && !continueSameThread {
+			time.Sleep(2 * time.Second)
+			if err := resetMainThread(ctx, port, apiKey); err != nil {
+				session.recordSystem("runner: reset main: " + err.Error())
+			}
+		}
+		if err := postCoreEvent(ctx, port, apiKey, threadID, driveMsg); err != nil {
+			snap := session.snapshot()
+			return s.writeEvalRunWithDetails(ev.ID, startedAt, time.Now(), session, &snap, lastVerdict, finalRollup(rollup), "error",
+				"post to eval core: "+err.Error(), preview, iterationsCompleted)
+		}
+
+		if err := collectAssistantReplies(ctx, port, apiKey, threadID, session, ev.MaxTurns); err != nil {
+			// Soft error — partial trajectory may still be gradable.
+			session.recordSystem("runner: " + err.Error())
+		}
+
+		// Judge this iteration. allowImprovements gates whether the
+		// judge proposes suggested_improvements at all.
+		snap := session.snapshot()
+		verdict, judgeErr := s.judgeWithMetaAgent(ctx, userID, agent.ProjectID, ev, snap, baseDirective, allowImprovements)
+		if judgeErr != nil {
+			return s.writeEvalRunWithDetails(ev.ID, startedAt, time.Now(), session, &snap, lastVerdict, finalRollup(rollup), "error",
+				judgeErr.Error(), preview, iterationsCompleted)
+		}
+		lastVerdict = verdict
+
+		// Decide whether this iteration is the loop's last regardless
+		// of operator input. Folded into one isFinal so we have a
+		// single place to gate the step callback's blocking-vs-not.
+		isPass := verdict.Overall == "pass"
+		isStrictViolation := len(session.strictViolations) > 0
+		isMaxReached := iteration == opts.MaxIterations
+		hasActionable := allowImprovements && verdict.SuggestedImprovements != nil &&
+			(len(verdict.SuggestedImprovements.DirectiveEdits) > 0 ||
+				strings.TrimSpace(verdict.SuggestedImprovements.InRunFeedback) != "")
+		isFinal := isPass || isStrictViolation || isMaxReached || !hasActionable
+
+		if isPass {
+			// Mark every directive edit accumulated so far as
+			// "helped" — they were live when we passed.
+			for i := range rollup.DirectiveEdits {
+				rollup.DirectiveEdits[i].Helped = true
+			}
+		}
+
+		// Operator step gate. nil callback = legacy batch mode (always
+		// continue). Streaming mode emits the iteration's verdict +
+		// running suggestions rollup and blocks (when !isFinal) on the
+		// operator's continue/stop choice.
+		decision := StepContinue
+		if stepCb != nil {
+			decision = stepCb(IterationResult{
+				Iteration:     iteration,
+				MaxIterations: opts.MaxIterations,
+				Verdict:       verdict,
+				Suggestions:   rollup,
+				Trajectory:    snap,
+				Final:         isFinal,
+			})
+		}
+
+		if isFinal || decision == StepStop {
+			break
+		}
+
+		// Apply suggestions for the next iteration. hasActionable
+		// guarantees one of these branches runs.
+		sugg := verdict.SuggestedImprovements
+		switch {
+		case len(sugg.DirectiveEdits) > 0:
+			for _, edit := range sugg.DirectiveEdits {
+				rollup.DirectiveEdits = append(rollup.DirectiveEdits, edit)
+				baseDirective = baseDirective + "\n\n" + strings.TrimSpace(edit.Add)
+				session.recordSystem("applied directive edit: " + edit.Add)
+			}
+			// Teardown so the next iteration's spawn block respawns
+			// fresh with the new directive. We also wipe the instance
+			// dir's history/ folder — without that, apteva-core's
+			// Session.LoadTail (thinker.go) loads the previous
+			// iteration's assistant reply on the next spawn, the new
+			// system prompt gets ignored in favour of "what I said
+			// last time," and the directive edit looks like it had
+			// no effect.
+			s.agents.Stop(evalAgent.ID)
+			if err := s.agents.WipeInstanceHistory(evalAgent.ID); err != nil {
+				session.recordSystem("runner: wipe history: " + err.Error())
+			}
+			continueSameThread = false
+		case strings.TrimSpace(sugg.InRunFeedback) != "":
+			// Continue in same thread on the next loop pass.
+			continueSameThread = true
+		}
 	}
 
 	finishedAt := time.Now()
 	trajectory := session.snapshot()
 
-	verdict, judgeErr := s.judgeWithMetaAgent(ctx, userID, agent.ProjectID, ev, trajectory)
 	status := "fail"
 	errMsg := ""
-	if judgeErr != nil {
-		status = "error"
-		errMsg = judgeErr.Error()
-	} else if verdict != nil && verdict.Overall == "pass" {
+	if lastVerdict != nil && lastVerdict.Overall == "pass" {
 		status = "pass"
 	}
-	return s.writeEvalRunWithDetails(ev.ID, startedAt, finishedAt, session, &trajectory, verdict, status, errMsg, preview)
+	if len(session.strictViolations) > 0 {
+		status = "error"
+		errMsg = session.strictViolations[0]
+	}
+
+	return s.writeEvalRunWithDetails(ev.ID, startedAt, finishedAt, session, &trajectory, lastVerdict, finalRollup(rollup), status, errMsg, preview, iterationsCompleted)
+}
+
+// finalRollup nils the RunSuggestions pointer when it carries
+// nothing actionable, so InsertEvalRun leaves suggestions_json NULL
+// for clean strict runs.
+func finalRollup(r *RunSuggestions) *RunSuggestions {
+	if r == nil {
+		return nil
+	}
+	if len(r.DirectiveEdits) == 0 && len(r.MissingCapabilities) == 0 {
+		return nil
+	}
+	return r
 }
 
 // writeEvalRun is the convenience shortcut for early-exit error
 // paths where we haven't actually run anything against core. It
 // captures the failure as an error-status run row (or a transient
 // preview EvalRun when preview=true).
-func (s *Server) writeEvalRun(evalID string, startedAt time.Time, session *runSession, verdict *JudgeVerdict, status, errMsg string, preview bool) (*EvalRun, error) {
+func (s *Server) writeEvalRun(evalID string, startedAt time.Time, session *runSession, verdict *JudgeVerdict, suggestions *RunSuggestions, status, errMsg string, preview bool, iterations int) (*EvalRun, error) {
 	finishedAt := time.Now()
 	trajectory := session.snapshot()
-	return s.writeEvalRunWithDetails(evalID, startedAt, finishedAt, session, &trajectory, verdict, status, errMsg, preview)
+	return s.writeEvalRunWithDetails(evalID, startedAt, finishedAt, session, &trajectory, verdict, suggestions, status, errMsg, preview, iterations)
 }
 
-func (s *Server) writeEvalRunWithDetails(evalID string, startedAt, finishedAt time.Time, session *runSession, trajectory *Trajectory, verdict *JudgeVerdict, status, errMsg string, preview bool) (*EvalRun, error) {
+func (s *Server) writeEvalRunWithDetails(evalID string, startedAt, finishedAt time.Time, session *runSession, trajectory *Trajectory, verdict *JudgeVerdict, suggestions *RunSuggestions, status, errMsg string, preview bool, iterations int) (*EvalRun, error) {
+	if iterations <= 0 {
+		iterations = 1
+	}
 	run := EvalRun{
-		EvalID:       evalID,
-		StartedAt:    startedAt,
-		FinishedAt:   &finishedAt,
-		Status:       status,
-		Trajectory:   *trajectory,
-		Verdict:      verdict,
-		DurationMS:   int(finishedAt.Sub(startedAt).Milliseconds()),
-		TurnsUsed:    session.turnsUsed,
-		ErrorMessage: errMsg,
+		EvalID:         evalID,
+		StartedAt:      startedAt,
+		FinishedAt:     &finishedAt,
+		Status:         status,
+		Trajectory:     *trajectory,
+		Verdict:        verdict,
+		Suggestions:    suggestions,
+		DurationMS:     int(finishedAt.Sub(startedAt).Milliseconds()),
+		TurnsUsed:      session.turnsUsed,
+		IterationsUsed: iterations,
+		ErrorMessage:   errMsg,
 	}
 	if !preview {
 		id, _ := s.store.InsertEvalRun(run)
