@@ -37,6 +37,7 @@ import (
 	"time"
 
 	sdk "github.com/apteva/app-sdk"
+	"github.com/apteva/server/apps/framework"
 )
 
 // ─── Router ────────────────────────────────────────────────────────
@@ -76,6 +77,8 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		s.handleCallbackGrants(w, r, parts[1:])
 	case "projects":
 		s.handleCallbackProjects(w, r, parts[1:])
+	case "threads":
+		s.handleCallbackThreads(w, r, parts[1:])
 	default:
 		http.Error(w, "unknown callback: "+parts[0], http.StatusNotFound)
 	}
@@ -602,10 +605,24 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	case createdVia == "integration":
 		log.Printf("[INTEGRATIONS-EXEC] grant=operator install=%d conn=%d slug=%s", installID, connID, conn.AppSlug)
 	default:
-		log.Printf("[INTEGRATIONS-EXEC] DENY install=%d conn=%d slug=%s reason=not-bound-not-owned-not-operator owner=%d created_via=%q",
-			installID, connID, conn.AppSlug, ownerID, createdVia)
-		http.Error(w, "connection not reachable by this install (not bound, not owned, not operator-installed)", http.StatusForbidden)
-		return
+		// Dynamic bypass — caller declares requires.dynamic_integration_
+		// access and is identified as official (apps_dynamic_call.go).
+		// Project isolation is preserved: the connection's project_id
+		// must match the caller install's.
+		if ok, msg := s.resolveDynamicIntegration(installID, connID, conn.ProjectID); ok {
+			log.Printf("[INTEGRATIONS-EXEC] grant=dynamic install=%d conn=%d slug=%s", installID, connID, conn.AppSlug)
+		} else if msg != "" {
+			// Eligible caller, wrong project — distinct diagnostic so
+			// consumers can tell this apart from "not eligible".
+			log.Printf("[INTEGRATIONS-EXEC] DENY install=%d conn=%d reason=%s", installID, connID, msg)
+			http.Error(w, msg, http.StatusForbidden)
+			return
+		} else {
+			log.Printf("[INTEGRATIONS-EXEC] DENY install=%d conn=%d slug=%s reason=not-bound-not-owned-not-operator owner=%d created_via=%q",
+				installID, connID, conn.AppSlug, ownerID, createdVia)
+			http.Error(w, "connection not reachable by this install (not bound, not owned, not operator-installed)", http.StatusForbidden)
+			return
+		}
 	}
 
 	// Resolve catalog tool.
@@ -894,6 +911,133 @@ func (s *Server) handleCallbackOAuth(w http.ResponseWriter, r *http.Request, par
 		"expires_at":    expiresAt,
 	})
 }
+
+// ─── /threads ──────────────────────────────────────────────────────
+//
+// Surface for app-spawned sub-threads, including realtime (voice/audio)
+// threads bridged by the calling app:
+//
+//   POST   /threads/spawn-realtime — create a realtime thread inside
+//                                    a target agent; return the audio
+//                                    bridge URL the app dials to pipe
+//                                    PCM frames.
+//   DELETE /threads/{id}           — kill a thread the app spawned.
+//                                    Idempotent — 404 on unknown id is
+//                                    treated as success.
+//
+// Both paths require platform.realtime.spawn in the install's manifest.
+// The target agent (RealtimeSpawnRequest.AgentID) must be owned by the
+// install's user — otherwise installs could spawn threads inside other
+// users' agents.
+
+func (s *Server) handleCallbackThreads(w http.ResponseWriter, r *http.Request, parts []string) {
+	installID, err := requireInstallID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if !installHasPermission(s, installID, sdk.PermRealtimeSpawn) {
+		http.Error(w, "missing permission: "+string(sdk.PermRealtimeSpawn), http.StatusForbidden)
+		return
+	}
+
+	switch {
+	case len(parts) == 1 && parts[0] == "spawn-realtime" && r.Method == http.MethodPost:
+		s.handleCallbackSpawnRealtime(w, r, installID)
+	case len(parts) == 1 && parts[0] != "" && r.Method == http.MethodDelete:
+		s.handleCallbackKillThread(w, r, installID, parts[0])
+	default:
+		http.Error(w, "unsupported threads operation", http.StatusNotFound)
+	}
+}
+
+func (s *Server) handleCallbackSpawnRealtime(w http.ResponseWriter, r *http.Request, installID int64) {
+	var body sdk.RealtimeSpawnRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if body.AgentID == 0 || body.ThreadID == "" || body.Directive == "" {
+		http.Error(w, "agent_id, thread_id, directive all required", http.StatusBadRequest)
+		return
+	}
+
+	// Authorize: the install's owning user must also own the target
+	// agent. Prevents enumeration of other users' agents via
+	// well-known thread ids.
+	userID := getUserID(r)
+	agent, err := s.store.GetAgent(userID, body.AgentID)
+	if err != nil || agent == nil {
+		http.Error(w, "agent not found or not owned by this user", http.StatusForbidden)
+		return
+	}
+
+	inst := framework.InstanceInfo{
+		ID:         agent.ID,
+		Name:       agent.Name,
+		UserID:     agent.UserID,
+		ProjectID:  agent.ProjectID,
+		Port:       s.agents.GetPort(agent.ID),
+		CoreAPIKey: s.agents.GetCoreAPIKey(agent.ID),
+	}
+	res, err := s.resolver().SpawnRealtimeThread(inst, body)
+	if err != nil {
+		log.Printf("[REALTIME-SPAWN] install=%d agent=%d thread=%q: %v", installID, body.AgentID, body.ThreadID, err)
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	// Compose the audio bridge URL. v1 targets single-host installs
+	// where sidecars are colocated with apteva-core, so we hand back a
+	// 127.0.0.1:<core_port> URL — the lowest-latency path and the one
+	// that needs no server-side WebSocket proxy. Production multi-host
+	// deployments will need a public_url + /api/agents/{id}/realtime/audio
+	// proxy route to ride; tracked as v2.
+	if res.AudioToken != "" && inst.Port != 0 {
+		res.AudioBridgeURL = fmt.Sprintf("ws://127.0.0.1:%d/realtime/audio?thread=%s&token=%s",
+			inst.Port, body.ThreadID, res.AudioToken)
+	}
+	log.Printf("[REALTIME-SPAWN] install=%d agent=%d thread=%q status=%s",
+		installID, body.AgentID, body.ThreadID, res.Status)
+	writeJSON(w, res)
+}
+
+func (s *Server) handleCallbackKillThread(w http.ResponseWriter, r *http.Request, installID int64, threadID string) {
+	// We don't know which agent owns the thread from the path alone —
+	// the caller's install scope is the discriminator. For v1 we
+	// require the caller to pass agent_id as a query param so the
+	// server doesn't have to scan every running instance for the id.
+	agentParam := r.URL.Query().Get("agent_id")
+	if agentParam == "" {
+		http.Error(w, "agent_id query param required for kill", http.StatusBadRequest)
+		return
+	}
+	agentID, err := strconv.ParseInt(agentParam, 10, 64)
+	if err != nil || agentID <= 0 {
+		http.Error(w, "invalid agent_id", http.StatusBadRequest)
+		return
+	}
+	userID := getUserID(r)
+	agent, err := s.store.GetAgent(userID, agentID)
+	if err != nil || agent == nil {
+		http.Error(w, "agent not found or not owned by this user", http.StatusForbidden)
+		return
+	}
+	inst := framework.InstanceInfo{
+		ID: agent.ID, Name: agent.Name, UserID: agent.UserID, ProjectID: agent.ProjectID,
+		Port: s.agents.GetPort(agent.ID), CoreAPIKey: s.agents.GetCoreAPIKey(agent.ID),
+	}
+	if err := s.resolver().KillThread(inst, threadID); err != nil {
+		log.Printf("[REALTIME-KILL] install=%d agent=%d thread=%q: %v", installID, agentID, threadID, err)
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// resolver returns the canonical serverResolver used for forwarding
+// to core. Allocated once per call — cheap because it just wraps
+// *Server.
+func (s *Server) resolver() *serverResolver { return &serverResolver{srv: s} }
 
 // installHasPermission checks the install's manifest's requires.permissions.
 func installHasPermission(s *Server, installID int64, perm sdk.Permission) bool {

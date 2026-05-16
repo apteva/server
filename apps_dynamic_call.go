@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -90,6 +91,36 @@ func installProjectID(s *Server, installID int64) string {
 		installID,
 	).Scan(&pid)
 	return pid
+}
+
+// resolveDynamicIntegration is the integration-tool gate's bypass.
+// Mirrors resolveDynamicTarget but for ExecuteIntegrationTool: when
+// the connection isn't role-bound / owned / operator-installed, this
+// is consulted before returning 403.
+//
+// Admits the call when (a) the caller's manifest declares
+// requires.dynamic_integration_access, (b) the caller is identified
+// as official, and (c) the connection's project_id matches the
+// caller install's. Same defense-in-depth as the cross-app variant.
+// Returns (true, "") to allow, (false, msg) otherwise — msg lets
+// the caller surface a distinct diagnostic when the caller IS
+// eligible but the project doesn't match.
+func (s *Server) resolveDynamicIntegration(callerInstallID, connID int64, connProjectID string) (bool, string) {
+	callerMan, err := installManifest(s, callerInstallID)
+	if err != nil || callerMan == nil {
+		return false, ""
+	}
+	if !callerMan.Requires.DynamicIntegrationAccess || !isOfficialCaller(callerMan) {
+		return false, ""
+	}
+	callerProject := installProjectID(s, callerInstallID)
+	if connProjectID != callerProject {
+		return false, fmt.Sprintf("connection %d is in another project (caller=%s, connection=%s)",
+			connID, callerProject, connProjectID)
+	}
+	log.Printf("[INT-CALL] dynamic caller=%s caller_install=%d project=%s connection=%d",
+		callerMan.Name, callerInstallID, callerProject, connID)
+	return true, ""
 }
 
 // resolveDynamicTarget is the cross-app-call gate's bypass path.
