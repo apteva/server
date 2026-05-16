@@ -72,8 +72,18 @@ type runSession struct {
 	trajectory       []TrajectoryTurn
 	maxTurns         int
 	turnsUsed        int
-	strict           bool      // RunOptions.StrictMocks — fail on unmocked tool calls
-	strictViolations []string  // first violation message bubbles up to error_message
+	strict           bool     // RunOptions.StrictMocks — fail on unmocked tool calls
+	strictViolations []string // first violation message bubbles up to error_message
+
+	// pendingTools maps a real-MCP tool call's id (as assigned by
+	// apteva-core's provider) to the trajectory turn that records
+	// it. When the corresponding tool_result lands one or two
+	// iterations later, attachToolResult uses this map to back-fill
+	// the turn's Response / Error in place. Cleared after a
+	// successful back-fill; orphans (no result before run end) stay
+	// untouched so the judge sees an in-flight call rather than a
+	// silent drop.
+	pendingTools map[string]*ToolCallRecord
 }
 
 func newRunSession(ev *Eval) *runSession {
@@ -81,8 +91,9 @@ func newRunSession(ev *Eval) *runSession {
 		ev.MaxTurns = 5
 	}
 	return &runSession{
-		eval:     ev,
-		maxTurns: ev.MaxTurns,
+		eval:         ev,
+		maxTurns:     ev.MaxTurns,
+		pendingTools: map[string]*ToolCallRecord{},
 	}
 }
 
@@ -183,6 +194,81 @@ func (s *runSession) snapshot() Trajectory {
 	out := make([]TrajectoryTurn, len(s.trajectory))
 	copy(out, s.trajectory)
 	return Trajectory{Turns: out}
+}
+
+// recordRealToolCall logs a tool invocation that came from apteva-core's
+// own message history (i.e. the agent calling a real MCP server like
+// a sandboxed app sidecar — NOT a call routed through the
+// eval-mock-gateway, which has its own resolveToolCall path). The
+// returned turn's ToolCall pointer is stashed in pendingTools so the
+// matching tool_result can back-fill the Response field once it
+// arrives one or two iterations later.
+//
+// App is left empty for now — we don't have a tool-name → MCP-server
+// mapping in scope, and the bare Name (e.g. "status_set") is what the
+// model + judge actually reason about. A follow-up can attribute
+// calls to apps by walking the agent's mcp_servers config at run start.
+func (s *runSession) recordRealToolCall(callID, name string, args json.RawMessage) {
+	rec := &ToolCallRecord{
+		Tool:   name,
+		Args:   args,
+		Mocked: false, // real-MCP path, not the gateway's canned response
+	}
+	s.mu.Lock()
+	s.trajectory = append(s.trajectory, TrajectoryTurn{
+		Role:      "tool",
+		ToolCall:  rec,
+		Timestamp: time.Now(),
+	})
+	if callID != "" {
+		s.pendingTools[callID] = rec
+	}
+	s.mu.Unlock()
+}
+
+// hasPendingTools reports whether any real-MCP tool call recorded
+// via recordRealToolCall is still awaiting its tool_result. Used by
+// the polling loop to extend the idle window — exiting between a
+// tool call and its result would silently drop the call's outcome
+// from the trajectory.
+func (s *runSession) hasPendingTools() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.pendingTools) > 0
+}
+
+// attachToolResult finds the trajectory turn for a previously-seen
+// real tool call and back-fills its Response (or Error) in place.
+// Idempotent — late or duplicate results for the same call_id are
+// swallowed silently. Results for unknown call_ids (e.g. a tool call
+// that landed on the gateway path and was already recorded with its
+// canned response there) are also swallowed.
+func (s *runSession) attachToolResult(callID, content string, isError bool) {
+	if callID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.pendingTools[callID]
+	if !ok {
+		return
+	}
+	delete(s.pendingTools, callID)
+	if isError {
+		rec.Error = content
+		return
+	}
+	// content is plain text from core's ToolResult.Content. Most MCP
+	// servers return JSON-encoded payloads but a few return prose;
+	// either way we store it as RawMessage by wrapping non-JSON as a
+	// JSON string so the trajectory's `response: <raw>` rendering in
+	// buildJudgePrompt stays valid for the judge to read.
+	if json.Valid([]byte(content)) {
+		rec.Response = json.RawMessage(content)
+	} else {
+		b, _ := json.Marshal(content)
+		rec.Response = json.RawMessage(b)
+	}
 }
 
 // matchMock walks mocks[] and returns the first entry matching
@@ -372,21 +458,57 @@ func (s *Server) runRealEvalCore(
 	registerEvalSession(token, session)
 	defer unregisterEvalSession(token)
 
+	// If the run declares HTTPMocks or SandboxApps, boot the sandbox:
+	// one intercept proxy + N sidecar apps. Their MCP URLs join the
+	// eval-mock-gateway in the agent's mcp_servers list so the agent
+	// sees real-app tools with real schemas alongside the synthesized
+	// tool-level mocks (the two are complementary, not mutually
+	// exclusive). Proxy + apps are torn down at run end.
+	var sandboxMCPs []any
+	var sandboxProxyURL string
+	if len(opts.SandboxApps) > 0 || len(opts.HTTPMocks) > 0 {
+		proxy, proxyURL, perr := startSandboxProxy(SandboxPolicy{Mocks: opts.HTTPMocks})
+		if perr != nil {
+			return s.writeEvalRun(ev.ID, startedAt, session, nil, nil, "error",
+				"start sandbox proxy: "+perr.Error(), preview, 0)
+		}
+		defer proxy.Stop()
+		sandboxProxyURL = proxyURL
+		for _, spec := range opts.SandboxApps {
+			gatewayURL := fmt.Sprintf("http://127.0.0.1:%s", s.port)
+			inst, serr := SpawnSandboxedApp(spec, proxyURL, gatewayURL, 15*time.Second)
+			if serr != nil {
+				return s.writeEvalRun(ev.ID, startedAt, session, nil, nil, "error",
+					"spawn sandbox app "+spec.Name+": "+serr.Error(), preview, 0)
+			}
+			defer inst.Stop()
+			sandboxMCPs = append(sandboxMCPs, map[string]any{
+				"name":      inst.Name,
+				"url":       inst.MCPURL,
+				"transport": "http",
+				"no_spawn":  true,
+			})
+			session.recordSystem(fmt.Sprintf("sandbox: spawned %s on :%d (data=%s)", inst.Name, inst.Port, inst.DataDir))
+		}
+	}
+
 	// Build the eval-mode config skeleton; we rewrite "directive" each
 	// iteration to pick up accumulated edits.
 	evalConfigFor := func(directive string) string {
-		cfg := map[string]any{
-			"directive": directive,
-			"mode":      evalAgent.Mode,
-			"mcp_servers": []any{
-				map[string]any{
-					"name":      "eval-mocks",
-					"url":       fmt.Sprintf("http://127.0.0.1:%s/api/eval-mock-gateway/%s", s.port, token),
-					"transport": "http",
-					// no_spawn keeps mocks reachable from main only.
-					"no_spawn": true,
-				},
+		mcpServers := []any{
+			map[string]any{
+				"name":      "eval-mocks",
+				"url":       fmt.Sprintf("http://127.0.0.1:%s/api/eval-mock-gateway/%s", s.port, token),
+				"transport": "http",
+				// no_spawn keeps mocks reachable from main only.
+				"no_spawn": true,
 			},
+		}
+		mcpServers = append(mcpServers, sandboxMCPs...)
+		cfg := map[string]any{
+			"directive":   directive,
+			"mode":        evalAgent.Mode,
+			"mcp_servers": mcpServers,
 			// Server-only flags that turn off the auto-injected
 			// gateway and channels for this run.
 			"include_apteva_server": false,
@@ -399,6 +521,15 @@ func (s *Server) runRealEvalCore(
 	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret, agent.ProjectID)
 	if err != nil {
 		providerEnv = map[string]string{}
+	}
+	// In sandbox mode, the eval-core also goes through the proxy so
+	// any outbound HTTP it makes (e.g. an LLM provider call that
+	// doesn't go via the resident provider env) lands on the same
+	// allowlist/mock policy. LLM endpoints are in the proxy's default
+	// allowlist so the provider still reaches its API.
+	if sandboxProxyURL != "" {
+		providerEnv["HTTP_PROXY"] = sandboxProxyURL
+		providerEnv["HTTPS_PROXY"] = sandboxProxyURL
 	}
 
 	allowImprovements := opts.MaxIterations > 1
@@ -667,7 +798,19 @@ func collectAssistantReplies(ctx context.Context, port int, apiKey, threadID str
 	idleSince := time.Time{}
 	idleWindow := 3 * time.Second
 	seenLastUpdate := time.Now()
-	lastAssistantCount := 0
+	// lastMsgCount is the total number of messages (any role) we've
+	// already processed. Each poll, we walk the suffix from this
+	// index forward and record anything new — assistant text via
+	// recordAgent, assistant tool_calls via recordRealToolCall, and
+	// user tool_results via attachToolResult. Tracking by overall
+	// message index (instead of just assistant count, the old way)
+	// is what lets tool_calls + tool_results land in the trajectory
+	// — they live on assistant + user messages respectively.
+	lastMsgCount := 0
+	// assistantTurns counts assistant messages (with text OR tool
+	// calls) for the max_turns gate. A tool-call-only assistant
+	// message still counts as a turn — it's real LLM work.
+	assistantTurns := 0
 	for time.Now().Before(overallDeadline) {
 		select {
 		case <-ctx.Done():
@@ -679,30 +822,35 @@ func collectAssistantReplies(ctx context.Context, port int, apiKey, threadID str
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
-		assistantCount := 0
-		for _, m := range msgs {
-			if m.Role == "assistant" {
-				assistantCount++
-			}
-		}
-		if assistantCount > lastAssistantCount {
-			// New assistant messages — record them all.
-			i := 0
-			for _, m := range msgs {
-				if m.Role != "assistant" {
-					continue
-				}
-				if i >= lastAssistantCount {
+		if len(msgs) > lastMsgCount {
+			for _, m := range msgs[lastMsgCount:] {
+				switch m.Role {
+				case "assistant":
 					if text := m.text(); text != "" {
 						session.recordAgent(text)
 					}
+					for _, tc := range m.ToolCalls {
+						session.recordRealToolCall(tc.ID, tc.Name, tc.Args)
+					}
+					if m.text() != "" || len(m.ToolCalls) > 0 {
+						assistantTurns++
+					}
+				case "user":
+					// User messages can carry tool_results back-filling
+					// prior tool calls. The Content field is usually
+					// empty in that case; the framework events ("(no
+					// events)" / "Events:..." / judge feedback) we
+					// don't re-record from here since those come from
+					// the runner itself.
+					for _, tr := range m.ToolResults {
+						session.attachToolResult(tr.CallID, tr.Content, tr.IsError)
+					}
 				}
-				i++
 			}
-			lastAssistantCount = assistantCount
+			lastMsgCount = len(msgs)
 			seenLastUpdate = time.Now()
 			idleSince = time.Time{}
-			if assistantCount >= maxTurns {
+			if assistantTurns >= maxTurns {
 				session.recordSystem(fmt.Sprintf("max_turns reached (%d)", maxTurns))
 				return nil
 			}
@@ -710,7 +858,18 @@ func collectAssistantReplies(ctx context.Context, port int, apiKey, threadID str
 			if idleSince.IsZero() {
 				idleSince = time.Now()
 			}
-			if time.Since(idleSince) >= idleWindow && lastAssistantCount > 0 {
+			// If there are tool calls without matching results yet, the
+			// agent is mid-iteration: an in-flight tool dispatch will
+			// land a result + likely a follow-up assistant message
+			// within seconds. Bumping the idle window here keeps us
+			// from cutting off the trajectory between a tool call and
+			// its result — that gap is exactly the case where the
+			// judge needs the full picture to grade tool usage.
+			effectiveIdle := idleWindow
+			if session.hasPendingTools() {
+				effectiveIdle = 15 * time.Second
+			}
+			if time.Since(idleSince) >= effectiveIdle && assistantTurns > 0 {
 				return nil
 			}
 		}
@@ -720,7 +879,10 @@ func collectAssistantReplies(ctx context.Context, port int, apiKey, threadID str
 }
 
 // threadMessage is the parsed shape of one entry in core's
-// /threads/<id>/context messages array.
+// /threads/<id>/context messages array. ToolCalls live on assistant
+// messages; ToolResults on user messages (matched by call_id). We
+// surface both so the eval trajectory captures real-MCP tool usage,
+// not just the agent's prose.
 type threadMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
@@ -728,6 +890,28 @@ type threadMessage struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	} `json:"parts"`
+	ToolCalls   []threadToolCall   `json:"tool_calls,omitempty"`
+	ToolResults []threadToolResult `json:"tool_results,omitempty"`
+}
+
+// threadToolCall mirrors apteva-core's JSON shape for one tool call
+// inside an assistant message. The Args field is left as RawMessage
+// so we don't lose precision re-marshalling for the trajectory.
+type threadToolCall struct {
+	ID   string          `json:"id"`
+	Name string          `json:"name"`
+	Args json.RawMessage `json:"args"`
+}
+
+// threadToolResult mirrors apteva-core's tool-result entry. Content
+// is a plain string from core's ToolResult — typically the MCP tool's
+// response text (often a JSON-encoded payload, sometimes prose).
+// IsError flags tool-side failure so the trajectory can route it to
+// ToolCallRecord.Error instead of .Response.
+type threadToolResult struct {
+	CallID  string `json:"call_id"`
+	Content string `json:"content"`
+	IsError bool   `json:"is_error,omitempty"`
 }
 
 func (m threadMessage) text() string {

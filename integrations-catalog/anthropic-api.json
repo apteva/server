@@ -33,6 +33,7 @@
       "description": "Create a message using Claude AI models",
       "method": "POST",
       "path": "/messages",
+      "timeout_ms": 600000,
       "input_schema": {
         "type": "object",
         "properties": {

@@ -100,6 +100,20 @@ type EvalTrigger struct {
 type RunOptions struct {
 	MaxIterations int  `json:"max_iterations,omitempty"`
 	StrictMocks   bool `json:"strict_mocks,omitempty"`
+
+	// SandboxApps + HTTPMocks switch the eval into "real-app sandbox"
+	// mode (see eval_sandbox.go). When either is non-empty, the runner:
+	//  - boots an HTTP intercept proxy with the declared HTTPMocks +
+	//    the conservative default allowlist (LLM hosts, loopback);
+	//  - spawns each SandboxApp as a real sidecar with tmp data dir
+	//    and HTTP_PROXY pointed at the intercept;
+	//  - wires the sidecars' MCP URLs into the eval-core's config so
+	//    the agent discovers their real tools (with real schemas).
+	// Tool-level Mocks on the Eval still work in parallel for things
+	// without a real app behind them (third-party integration tools,
+	// etc.).
+	SandboxApps []SandboxApp `json:"sandbox_apps,omitempty"`
+	HTTPMocks   []HTTPMock   `json:"http_mocks,omitempty"`
 }
 
 // EvalMock declares how a single tool should answer in this eval's
