@@ -79,9 +79,35 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		s.handleCallbackProjects(w, r, parts[1:])
 	case "threads":
 		s.handleCallbackThreads(w, r, parts[1:])
+	case "platform-info":
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
+		s.handleCallbackPlatformInfo(w, r)
 	default:
 		http.Error(w, "unknown callback: "+parts[0], http.StatusNotFound)
 	}
+}
+
+// ─── /platform-info ────────────────────────────────────────────────
+//
+// GET /api/apps/callback/platform-info — returns the small bag of
+// platform-level facts the SDK's PlatformInfo() helper consumes.
+// Used by sidecars to get a hot-refreshed public_url + apteva version
+// instead of relying on the spawn-time APTEVA_PUBLIC_URL env (which
+// goes stale when operators change settings without restarting every
+// sidecar). The SDK caches the response for 60s so the call frequency
+// is bounded.
+//
+// Permission-free: public_url is the URL operators publish for
+// external services anyway (webhooks, signed URLs). Version is the
+// release string already returned by /api/platform-status.
+func (s *Server) handleCallbackPlatformInfo(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]any{
+		"public_url": s.publicBaseURL(),
+		"version":    Version,
+	})
 }
 
 // ─── /projects ─────────────────────────────────────────────────────
