@@ -1,7 +1,7 @@
 {
   "slug": "hetzner",
   "name": "Hetzner Cloud",
-  "description": "MCP server for Hetzner Cloud - servers, volumes, images, SSH keys",
+  "description": "Hetzner Cloud API — servers, server actions, server types, images, locations, SSH keys, volumes. v0.2 rewrite against the real Hetzner Cloud API (https://docs.hetzner.cloud); replaces the placeholder catalog that always 404'd against /server-create-style paths.",
   "logo": "https://www.google.com/s2/favicons?domain=hetzner.com&sz=128",
   "categories": [
     "cloud",
@@ -20,638 +20,526 @@
     "credential_fields": [
       {
         "name": "token",
-        "label": "API Key"
+        "label": "API Token",
+        "description": "Create at Hetzner Cloud Console → Security → API Tokens. Needs Read+Write to provision/destroy."
       }
     ]
   },
   "tools": [
     {
       "name": "server_list",
-      "description": "List all servers",
+      "description": "List servers in the project. Optional filters: name (exact match), label_selector, status, sort.",
       "method": "GET",
-      "path": "/server-list",
+      "path": "/servers",
       "input_schema": {
         "type": "object",
         "properties": {
-          "name": {
-            "type": "string"
-          },
-          "label_selector": {
-            "type": "string"
-          }
+          "name":           { "type": "string", "description": "Filter to servers with this exact name" },
+          "label_selector": { "type": "string", "description": "Hetzner label selector, e.g. env=prod,role=web" },
+          "status":         { "type": "string", "description": "Filter by status (initializing|starting|running|stopping|off|deleting|rebuilding|migrating|unknown)" },
+          "sort":           { "type": "string", "description": "id|id:asc|id:desc|name|name:asc|name:desc|created|created:asc|created:desc" },
+          "page":           { "type": "integer", "description": "1-based page number; default 1" },
+          "per_page":       { "type": "integer", "description": "Items per page; default 25, max 50" }
         }
       }
     },
     {
       "name": "server_get",
-      "description": "Get server details",
+      "description": "Fetch full details for one server by numeric id.",
       "method": "GET",
-      "path": "/server-get",
+      "path": "/servers/{id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          }
+          "id": { "type": "integer", "description": "Hetzner server id" }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id"]
       }
     },
     {
       "name": "server_create",
-      "description": "Create a new server",
-      "method": "GET",
-      "path": "/server-create",
+      "description": "Create a new server (provisions a real VPS — billed). Required: name, server_type, image. Use `location` or `datacenter` to pick a region; `user_data` injects a cloud-init script so consumers can seed SSH keys without pre-registering them with Hetzner. Returns {server, action, root_password, next_actions}.",
+      "method": "POST",
+      "path": "/servers",
+      "timeout_ms": 120000,
       "input_schema": {
         "type": "object",
         "properties": {
-          "name": {
-            "type": "string"
-          },
-          "server_type": {
-            "type": "string"
-          },
-          "image": {
-            "type": "string"
-          },
-          "location": {
-            "type": "string"
-          },
-          "ssh_keys": {
-            "type": "array"
-          }
+          "name":               { "type": "string", "description": "Unique name within the project (also becomes the hostname)" },
+          "server_type":        { "type": "string", "description": "Current types (the cpx* line is deprecated): cx22/cx32/cx42/cx52 (Intel shared), cax11/cax21/cax31/cax41 (Ampere ARM, best €/vCPU), ccx13+ (dedicated AMD). Call server_types_list for the live catalog." },
+          "image":              { "type": "string", "description": "OS image name (ubuntu-24.04, debian-12, …) or numeric image id" },
+          "location":           { "type": "string", "description": "Region: fsn1 (Falkenstein), nbg1 (Nuremberg), hel1 (Helsinki), ash (Ashburn), hil (Hillsboro), sin (Singapore). Mutually exclusive with datacenter." },
+          "datacenter":         { "type": "string", "description": "Specific datacenter; only set when you need finer control than location" },
+          "ssh_keys":           { "type": "array", "description": "Hetzner-registered SSH key ids/names to seed at first boot. Prefer user_data + cloud-init if you don't want to pre-register keys.", "items": { "type": ["string", "integer"] } },
+          "firewalls":          { "type": "array", "description": "Firewalls to attach at create time; array of {firewall: id}", "items": { "type": "object" } },
+          "networks":           { "type": "array", "description": "Private networks to attach; array of network ids", "items": { "type": "integer" } },
+          "volumes":            { "type": "array", "description": "Existing volume ids to attach at create time", "items": { "type": "integer" } },
+          "user_data":          { "type": "string", "description": "Cloud-init userdata script (e.g. #cloud-config YAML). The instances app uses this to seed authorized_keys." },
+          "labels":             { "type": "object", "description": "Free-form key/value labels" },
+          "start_after_create": { "type": "boolean", "description": "Default true; set false to leave the server powered off after provisioning" },
+          "automount":          { "type": "boolean", "description": "If volumes are attached, mount them automatically. Default false." },
+          "placement_group":    { "type": "integer", "description": "Placement group id for anti-affinity" }
         },
-        "required": [
-          "name",
-          "server_type",
-          "image"
-        ]
-      }
-    },
-    {
-      "name": "server_delete",
-      "description": "Delete a server",
-      "method": "GET",
-      "path": "/server-delete",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "number"
-          }
-        },
-        "required": [
-          "id"
-        ]
+        "required": ["name", "server_type", "image"]
       }
     },
     {
       "name": "server_update",
-      "description": "Update server details",
-      "method": "GET",
-      "path": "/server-update",
+      "description": "Update mutable server properties: name + labels. Doesn't trigger reboot.",
+      "method": "PUT",
+      "path": "/servers/{id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          },
-          "name": {
-            "type": "string"
-          },
-          "labels": {
-            "type": "object"
-          }
+          "id":     { "type": "integer", "description": "Hetzner server id" },
+          "name":   { "type": "string" },
+          "labels": { "type": "object" }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "server_delete",
+      "description": "Permanently delete the server. Stops billing. Idempotent: deleting an already-deleted server returns 404 (callers may treat as success).",
+      "method": "DELETE",
+      "path": "/servers/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "description": "Hetzner server id" }
+        },
+        "required": ["id"]
       }
     },
     {
       "name": "server_poweron",
-      "description": "Power on a server",
-      "method": "GET",
-      "path": "/server-poweron",
+      "description": "Power on a stopped server. Returns the action; poll action_get to wait for completion.",
+      "method": "POST",
+      "path": "/servers/{id}/actions/poweron",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          }
+          "id": { "type": "integer" }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id"]
       }
     },
     {
       "name": "server_poweroff",
-      "description": "Power off a server",
-      "method": "GET",
-      "path": "/server-poweroff",
+      "description": "Hard-stop the server (equivalent to yanking the plug; prefer server_shutdown for graceful).",
+      "method": "POST",
+      "path": "/servers/{id}/actions/poweroff",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          }
+          "id": { "type": "integer" }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id"]
       }
     },
     {
       "name": "server_reboot",
-      "description": "Reboot a server",
-      "method": "GET",
-      "path": "/server-reboot",
+      "description": "Soft-reboot via ACPI signal.",
+      "method": "POST",
+      "path": "/servers/{id}/actions/reboot",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          }
+          "id": { "type": "integer" }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id"]
       }
     },
     {
       "name": "server_shutdown",
-      "description": "Gracefully shutdown a server",
-      "method": "GET",
-      "path": "/server-shutdown",
+      "description": "Graceful ACPI shutdown. Use this before server_poweroff in normal workflows.",
+      "method": "POST",
+      "path": "/servers/{id}/actions/shutdown",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          }
+          "id": { "type": "integer" }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id"]
       }
     },
     {
       "name": "server_reset",
-      "description": "Hard reset a server",
-      "method": "GET",
-      "path": "/server-reset",
+      "description": "Hard-reset via reset button (equivalent to power cycle).",
+      "method": "POST",
+      "path": "/servers/{id}/actions/reset",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          }
+          "id": { "type": "integer" }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id"]
       }
     },
     {
       "name": "server_rebuild",
-      "description": "Rebuild a server with new image",
-      "method": "GET",
-      "path": "/server-rebuild",
+      "description": "Wipe the server and re-provision from `image`. Data on the boot disk is lost; attached volumes survive.",
+      "method": "POST",
+      "path": "/servers/{id}/actions/rebuild",
+      "timeout_ms": 120000,
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          },
-          "image": {
-            "type": "string"
-          }
+          "id":    { "type": "integer" },
+          "image": { "type": "string", "description": "Image name or id to rebuild from" }
         },
-        "required": [
-          "id",
-          "image"
-        ]
+        "required": ["id", "image"]
       }
     },
     {
       "name": "server_change_type",
-      "description": "Change server type",
-      "method": "GET",
-      "path": "/server-change-type",
+      "description": "Upgrade or downgrade the server to a different server_type. Requires the server to be powered off. Pass upgrade_disk=true to grow the disk (destructive: cannot downgrade afterwards).",
+      "method": "POST",
+      "path": "/servers/{id}/actions/change_type",
+      "timeout_ms": 120000,
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          },
-          "server_type": {
-            "type": "string"
-          },
-          "upgrade_disk": {
-            "type": "boolean"
-          }
+          "id":           { "type": "integer" },
+          "server_type":  { "type": "string" },
+          "upgrade_disk": { "type": "boolean", "description": "If true, grow the boot disk to match the new type. Irreversible." }
         },
-        "required": [
-          "id",
-          "server_type"
-        ]
+        "required": ["id", "server_type", "upgrade_disk"]
       }
     },
     {
       "name": "server_change_protection",
-      "description": "Change server protection settings",
-      "method": "GET",
-      "path": "/server-change-protection",
+      "description": "Toggle delete/rebuild protection. Hetzner refuses destructive actions while the corresponding flag is true.",
+      "method": "POST",
+      "path": "/servers/{id}/actions/change_protection",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          },
-          "delete": {
-            "type": "boolean"
-          },
-          "rebuild": {
-            "type": "boolean"
-          }
+          "id":      { "type": "integer" },
+          "delete":  { "type": "boolean" },
+          "rebuild": { "type": "boolean" }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id"]
       }
     },
     {
       "name": "server_enable_rescue",
-      "description": "Enable rescue mode",
-      "method": "GET",
-      "path": "/server-enable-rescue",
+      "description": "Boot a rescue system on the next boot (linux64 by default). Returns root_password.",
+      "method": "POST",
+      "path": "/servers/{id}/actions/enable_rescue",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          },
-          "type": {
-            "type": "string"
-          }
+          "id":       { "type": "integer" },
+          "type":     { "type": "string", "description": "linux64 (default) | linux32 | freebsd64" },
+          "ssh_keys": { "type": "array", "description": "SSH key ids to inject into the rescue system", "items": { "type": "integer" } }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id"]
       }
     },
     {
       "name": "server_disable_rescue",
-      "description": "Disable rescue mode",
-      "method": "GET",
-      "path": "/server-disable-rescue",
+      "description": "Cancel the queued rescue boot.",
+      "method": "POST",
+      "path": "/servers/{id}/actions/disable_rescue",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          }
+          "id": { "type": "integer" }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id"]
       }
     },
     {
       "name": "server_reset_password",
-      "description": "Reset root password",
-      "method": "GET",
-      "path": "/server-reset-password",
+      "description": "Reset the root password (only works when no SSH key was injected; for SSH-key-only boxes use rescue mode). Returns the new root_password.",
+      "method": "POST",
+      "path": "/servers/{id}/actions/reset_password",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          }
+          "id": { "type": "integer" }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id"]
       }
     },
     {
       "name": "server_request_console",
-      "description": "Request VNC console",
-      "method": "GET",
-      "path": "/server-request-console",
+      "description": "Mint a one-shot VNC console URL (wss_url) + password. Use for break-glass debugging when SSH is unreachable.",
+      "method": "POST",
+      "path": "/servers/{id}/actions/request_console",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          }
+          "id": { "type": "integer" }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id"]
       }
     },
     {
       "name": "server_get_metrics",
-      "description": "Get server metrics",
+      "description": "Time-series CPU / disk / network metrics for one server. Specify type (one or comma-separated: cpu, disk, network), ISO-8601 start + end, and step in seconds.",
       "method": "GET",
-      "path": "/server-get-metrics",
+      "path": "/servers/{id}/metrics",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          },
-          "type": {
-            "type": "string"
-          },
-          "start": {
-            "type": "string"
-          },
-          "end": {
-            "type": "string"
-          }
+          "id":    { "type": "integer" },
+          "type":  { "type": "string", "description": "cpu | disk | network (or comma-separated combo)" },
+          "start": { "type": "string", "description": "ISO-8601 start timestamp, e.g. 2026-05-18T00:00:00Z" },
+          "end":   { "type": "string", "description": "ISO-8601 end timestamp" },
+          "step":  { "type": "integer", "description": "Step in seconds (e.g. 60 for per-minute samples)" }
         },
-        "required": [
-          "id",
-          "type",
-          "start",
-          "end"
-        ]
+        "required": ["id", "type", "start", "end"]
       }
     },
     {
       "name": "server_types_list",
-      "description": "List available server types",
+      "description": "List all server type SKUs available (cx22, cpx21, cax21, …). Use this to discover valid `server_type` values for server_create.",
       "method": "GET",
-      "path": "/server-types-list",
+      "path": "/server_types",
       "input_schema": {
         "type": "object",
         "properties": {
-          "name": {
-            "type": "string"
-          }
+          "name":     { "type": "string", "description": "Filter by exact name" },
+          "page":     { "type": "integer" },
+          "per_page": { "type": "integer" }
         }
       }
     },
     {
       "name": "images_list",
-      "description": "List available images",
+      "description": "List images (OS images, snapshots, backups). Filter by type (system|snapshot|backup|app), name, status, etc.",
       "method": "GET",
-      "path": "/images-list",
+      "path": "/images",
       "input_schema": {
         "type": "object",
         "properties": {
-          "type": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
+          "type":           { "type": "string", "description": "system | snapshot | backup | app" },
+          "status":         { "type": "string", "description": "available | creating" },
+          "bound_to":       { "type": "integer", "description": "Filter to images bound to this server id" },
+          "name":           { "type": "string" },
+          "label_selector": { "type": "string" },
+          "architecture":   { "type": "string", "description": "x86 | arm" },
+          "sort":           { "type": "string" },
+          "page":           { "type": "integer" },
+          "per_page":       { "type": "integer" }
         }
       }
     },
     {
       "name": "locations_list",
-      "description": "List available locations",
+      "description": "List Hetzner Cloud regions (fsn1, nbg1, hel1, ash, hil, sin, …). Each location contains one or more datacenters.",
       "method": "GET",
-      "path": "/locations-list",
+      "path": "/locations",
       "input_schema": {
         "type": "object",
         "properties": {
-          "name": {
-            "type": "string"
-          }
+          "name": { "type": "string", "description": "Filter by exact location name" }
         }
       }
     },
     {
       "name": "ssh_keys_list",
-      "description": "List SSH keys",
+      "description": "List SSH keys registered in the Hetzner project.",
       "method": "GET",
-      "path": "/ssh-keys-list",
+      "path": "/ssh_keys",
       "input_schema": {
         "type": "object",
         "properties": {
-          "name": {
-            "type": "string"
-          }
+          "name":           { "type": "string", "description": "Filter by exact key name" },
+          "fingerprint":    { "type": "string", "description": "Filter by SHA-256 fingerprint" },
+          "label_selector": { "type": "string" }
         }
       }
     },
     {
-      "name": "ssh_key_create",
-      "description": "Create an SSH key",
+      "name": "ssh_key_get",
+      "description": "Fetch one SSH key by id.",
       "method": "GET",
-      "path": "/ssh-key-create",
+      "path": "/ssh_keys/{id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "name": {
-            "type": "string"
-          },
-          "public_key": {
-            "type": "string"
-          },
-          "labels": {
-            "type": "object"
-          }
+          "id": { "type": "integer" }
         },
-        "required": [
-          "name",
-          "public_key"
-        ]
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "ssh_key_create",
+      "description": "Register an SSH public key. Reference its id in server_create's ssh_keys[] to seed authorized_keys at boot.",
+      "method": "POST",
+      "path": "/ssh_keys",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name":       { "type": "string", "description": "Unique label within the project" },
+          "public_key": { "type": "string", "description": "Full SSH public key, e.g. ssh-ed25519 AAAA… comment" },
+          "labels":     { "type": "object" }
+        },
+        "required": ["name", "public_key"]
+      }
+    },
+    {
+      "name": "ssh_key_delete",
+      "description": "Permanently delete an SSH key. Doesn't affect already-provisioned servers.",
+      "method": "DELETE",
+      "path": "/ssh_keys/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" }
+        },
+        "required": ["id"]
       }
     },
     {
       "name": "volume_list",
-      "description": "List volumes",
+      "description": "List volumes (block storage).",
       "method": "GET",
-      "path": "/volume-list",
+      "path": "/volumes",
       "input_schema": {
         "type": "object",
         "properties": {
-          "status": {
-            "type": "string"
-          }
+          "name":           { "type": "string" },
+          "label_selector": { "type": "string" },
+          "status":         { "type": "string", "description": "creating | available" },
+          "sort":           { "type": "string" },
+          "page":           { "type": "integer" },
+          "per_page":       { "type": "integer" }
         }
       }
     },
     {
       "name": "volume_get",
-      "description": "Get volume details",
+      "description": "Fetch one volume by id.",
       "method": "GET",
-      "path": "/volume-get",
+      "path": "/volumes/{id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          }
+          "id": { "type": "integer" }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id"]
       }
     },
     {
       "name": "volume_create",
-      "description": "Create a volume",
-      "method": "GET",
-      "path": "/volume-create",
+      "description": "Create a new volume. Either `location` (free-floating, attachable later) or `server` (attached at creation). Size in GB; min 10, max 10240.",
+      "method": "POST",
+      "path": "/volumes",
       "input_schema": {
         "type": "object",
         "properties": {
-          "name": {
-            "type": "string"
-          },
-          "size": {
-            "type": "number"
-          },
-          "location": {
-            "type": "string"
-          },
-          "server": {
-            "type": "number"
-          }
+          "name":      { "type": "string" },
+          "size":      { "type": "integer", "description": "Size in GB (10–10240)" },
+          "location":  { "type": "string", "description": "Free-floating volume in this location" },
+          "server":    { "type": "integer", "description": "Attach to this server at creation (mutually exclusive with location)" },
+          "format":    { "type": "string", "description": "ext4 | xfs — format the volume after create" },
+          "automount": { "type": "boolean", "description": "Mount automatically if server is set" },
+          "labels":    { "type": "object" }
         },
-        "required": [
-          "name",
-          "size"
-        ]
+        "required": ["name", "size"]
       }
     },
     {
       "name": "volume_delete",
-      "description": "Delete a volume",
-      "method": "GET",
-      "path": "/volume-delete",
+      "description": "Permanently delete a volume. Must be detached first.",
+      "method": "DELETE",
+      "path": "/volumes/{id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          }
+          "id": { "type": "integer" }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id"]
       }
     },
     {
       "name": "volume_update",
-      "description": "Update volume details",
-      "method": "GET",
-      "path": "/volume-update",
+      "description": "Update a volume's name + labels.",
+      "method": "PUT",
+      "path": "/volumes/{id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          },
-          "name": {
-            "type": "string"
-          }
+          "id":     { "type": "integer" },
+          "name":   { "type": "string" },
+          "labels": { "type": "object" }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id"]
       }
     },
     {
       "name": "volume_attach",
-      "description": "Attach volume to server",
-      "method": "GET",
-      "path": "/volume-attach",
+      "description": "Attach a volume to a server. The server must be in the same location as the volume.",
+      "method": "POST",
+      "path": "/volumes/{id}/actions/attach",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          },
-          "server": {
-            "type": "number"
-          },
-          "automount": {
-            "type": "boolean"
-          }
+          "id":        { "type": "integer", "description": "Volume id" },
+          "server":    { "type": "integer", "description": "Server id to attach to" },
+          "automount": { "type": "boolean" }
         },
-        "required": [
-          "id",
-          "server"
-        ]
+        "required": ["id", "server"]
       }
     },
     {
       "name": "volume_detach",
-      "description": "Detach volume from server",
-      "method": "GET",
-      "path": "/volume-detach",
+      "description": "Detach a volume from its current server.",
+      "method": "POST",
+      "path": "/volumes/{id}/actions/detach",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          }
+          "id": { "type": "integer" }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id"]
       }
     },
     {
       "name": "volume_resize",
-      "description": "Resize a volume",
-      "method": "GET",
-      "path": "/volume-resize",
+      "description": "Grow a volume to a new size in GB. Cannot shrink.",
+      "method": "POST",
+      "path": "/volumes/{id}/actions/resize",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          },
-          "size": {
-            "type": "number"
-          }
+          "id":   { "type": "integer" },
+          "size": { "type": "integer", "description": "New size in GB; must be greater than current" }
         },
-        "required": [
-          "id",
-          "size"
-        ]
+        "required": ["id", "size"]
       }
     },
     {
       "name": "action_list",
-      "description": "List actions",
+      "description": "List recent actions across the project (audit log / progress tracker). Each Hetzner mutation returns an action id; poll action_get to wait for completion.",
       "method": "GET",
-      "path": "/action-list",
+      "path": "/actions",
       "input_schema": {
         "type": "object",
         "properties": {
-          "status": {
-            "type": "string"
-          }
+          "status":   { "type": "string", "description": "running | success | error" },
+          "command":  { "type": "string", "description": "Filter by command name, e.g. create_server" },
+          "sort":     { "type": "string" },
+          "page":     { "type": "integer" },
+          "per_page": { "type": "integer" }
         }
       }
     },
     {
       "name": "action_get",
-      "description": "Get action details",
+      "description": "Fetch one action by id. Returns {action: {status, progress, started, finished, error, ...}}. Poll while status=running.",
       "method": "GET",
-      "path": "/action-get",
+      "path": "/actions/{id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "number"
-          }
+          "id": { "type": "integer" }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id"]
       }
     }
   ]
