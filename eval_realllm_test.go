@@ -1055,3 +1055,55 @@ func readSandboxStatusRows(dbPath string) ([]sandboxStatusRow, error) {
 	}
 	return out, rows.Err()
 }
+
+// TestSynthesizeDirective_RealLLM verifies the wizard's "Suggest
+// from goals" path end-to-end against the real meta-agent. We send
+// a self-describing goal ("You should be called Pablo") and expect
+// the synthesizer to derive a directive that mentions Pablo —
+// proving the path the user complained about (where the judge
+// silently failed to propose any directive edit) now has a
+// proactive, deterministic alternative.
+//
+// Asserts the looser shape of the output, not exact wording: any
+// directive that contains the name "Pablo" (case-insensitive) is
+// considered correct. Models vary in their phrasing.
+func TestSynthesizeDirective_RealLLM(t *testing.T) {
+	apiKey := loadOpenCodeGoKey(t)
+	corePath := findCoreBinary(t)
+	s, userID, _ := setupRealServer(t, apiKey, corePath, "seed-test-agent",
+		"You are a helpful assistant.")
+	t.Cleanup(func() {
+		if helper, err := s.store.GetOrCreatePlatformHelper(userID, judgeSystemPrompt); err == nil && helper != nil {
+			s.agents.Stop(helper.ID)
+		}
+	})
+	if err := prewarmMetaAgent(t, s, userID, 30*time.Second); err != nil {
+		t.Fatalf("pre-warm meta-agent: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	directive, err := s.SynthesizeDirective(ctx, userID,
+		[]string{"You should be called Pablo"},
+		"Pablo Test Agent",
+		"You are a helpful assistant.",
+	)
+	if err != nil {
+		t.Fatalf("SynthesizeDirective: %v", err)
+	}
+	t.Logf("synthesized directive (%d chars):\n%s", len(directive), directive)
+
+	if strings.TrimSpace(directive) == "" {
+		t.Fatal("synthesizer returned empty directive")
+	}
+	if !strings.Contains(strings.ToLower(directive), "pablo") {
+		t.Errorf("expected synthesized directive to mention 'Pablo' for goal 'You should be called Pablo'; got: %s", directive)
+	}
+	// Belt-and-suspenders: the directive shouldn't be the literal goal
+	// text repeated back (that would be the lazy LLM failure mode —
+	// "the agent must not see the grading criteria" is in the prompt).
+	if strings.Contains(directive, "should be called Pablo") {
+		t.Logf("warning: directive contains literal goal phrasing — judge prompt told the model to avoid this, but the LLM ignored it. Directive is still usable: %s", directive)
+	}
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -1099,7 +1100,16 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		// above), and body_input (which has nowhere to go on
 		// GET/DELETE — caller is misconfigured but don't leak it
 		// into the URL).
-		var qparts []string
+		//
+		// Use neturl.Values to percent-encode values per RFC 3986.
+		// Without this, payloads containing special chars (the most
+		// painful case: AWS Query API tools like sns:SetTopicAttributes
+		// where AttributeValue is a JSON access policy) end up with
+		// literal "{", '"', ":", "," in the URL — AWS rejects with
+		// HTTP 400 empty body, and SigV4 signing canonicalizes the
+		// query differently than the wire URL so the signature also
+		// mismatches. Encoding fixes both at once.
+		q := neturl.Values{}
 		for k, v := range input {
 			if strings.Contains(tool.Path, "{"+k+"}") {
 				continue
@@ -1110,14 +1120,14 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			if k == tool.BodyInput {
 				continue
 			}
-			qparts = append(qparts, fmt.Sprintf("%s=%v", k, v))
+			q.Set(k, fmt.Sprintf("%v", v))
 		}
-		if len(qparts) > 0 {
+		if encoded := q.Encode(); encoded != "" {
 			sep := "&"
 			if !strings.Contains(url, "?") {
 				sep = "?"
 			}
-			url += sep + strings.Join(qparts, "&")
+			url += sep + encoded
 		}
 	}
 
@@ -1139,24 +1149,23 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		req.Header.Set(k, v)
 	}
 
-	// AWS SigV4 signing — only when the template's auth.types include
-	// "aws_sigv4". Other auth types (Bearer, api_key) are already
-	// handled via the headers + query maps above.
-	if hasAuthType(app.Auth.Types, "aws_sigv4") {
-		service := ""
-		if app.Auth.AwsSigV4 != nil {
-			service = app.Auth.AwsSigV4.Service
+	// Request signing — dispatched via the Signer registry (signer.go).
+	// Replaces the old aws_sigv4-only inline branch. The legacy
+	// auth.types=["aws_sigv4"] declaration still works (translated by
+	// effectiveSigners); new catalog entries should declare
+	// auth.signers[] / tools[].signing.signers[] directly.
+	//
+	// Body-mutating signers (EIP-712 typed-data) may rewrite bodyBytes;
+	// re-attach the new bytes to req before client.Do.
+	if specs := effectiveSigners(app, tool); len(specs) > 0 {
+		newBody, err := runSigners(req.Context(), req, bodyBytes, credentials, specs)
+		if err != nil {
+			return nil, fmt.Errorf("sign: %w", err)
 		}
-		if err := signAWSSigV4(
-			req,
-			credentials["access_key_id"],
-			credentials["secret_access_key"],
-			credentials["session_token"],
-			credentials["region"],
-			service,
-			bodyBytes,
-		); err != nil {
-			return nil, fmt.Errorf("aws_sigv4 sign: %w", err)
+		if newBody != nil && !bytes.Equal(newBody, bodyBytes) {
+			bodyBytes = newBody
+			req.Body = io.NopCloser(strings.NewReader(string(newBody)))
+			req.ContentLength = int64(len(newBody))
 		}
 	}
 

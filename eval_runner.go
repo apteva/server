@@ -237,6 +237,52 @@ func (s *runSession) hasPendingTools() bool {
 	return len(s.pendingTools) > 0
 }
 
+// iter1RaceLikelySince reports whether the agent's iter-1 output
+// looks like the autonomous-loop startup race fired — i.e. the
+// agent called `pace` to go to sleep AND didn't call any
+// non-core MCP tool. Text alone doesn't disqualify because the
+// model often rationalizes its pace ("No user request present.
+// I'll sleep until something arrives.") even though it processed
+// no real work; what matters is whether it took any action that
+// actually moved the eval forward.
+//
+// Distinguishing cases:
+//   - greeter (no race): text reply only, NO pace call          → returns false (no retry)
+//   - greeter (no race): two text replies, NO pace              → false (no retry)
+//   - sandboxed (race): pace + rationalizing text, no other tool → returns true  (retry)
+//   - sandboxed (working): status_set + maybe pace at end       → false (status_set != core)
+//   - agent that hallucinated work: text only, no pace          → false (let judge grade it)
+func (s *runSession) iter1RaceLikelySince(since int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var pacedToSleep, calledNonCore bool
+	for i := since; i < len(s.trajectory); i++ {
+		t := s.trajectory[i]
+		if t.Role != "tool" || t.ToolCall == nil {
+			continue
+		}
+		name := t.ToolCall.Tool
+		switch name {
+		case "pace":
+			pacedToSleep = true
+		case "done", "evolve", "search_tools", "send":
+			// Other core tools — not "real work" against the eval's
+			// goals but also not a race signature on their own.
+		default:
+			calledNonCore = true
+		}
+	}
+	return pacedToSleep && !calledNonCore
+}
+
+// trajectoryLen returns the current length of the trajectory under
+// the lock, so race-detector callers can checkpoint before posting.
+func (s *runSession) trajectoryLen() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.trajectory)
+}
+
 // attachToolResult finds the trajectory turn for a previously-seen
 // real tool call and back-fills its Response (or Error) in place.
 // Idempotent — late or duplicate results for the same call_id are
@@ -615,6 +661,7 @@ func (s *Server) runRealEvalCore(
 				session.recordSystem("runner: reset main: " + err.Error())
 			}
 		}
+		preTrajLen := session.trajectoryLen()
 		if err := postCoreEvent(ctx, port, apiKey, threadID, driveMsg); err != nil {
 			snap := session.snapshot()
 			return s.writeEvalRunWithDetails(ev.ID, startedAt, time.Now(), session, &snap, lastVerdict, finalRollup(rollup), "error",
@@ -624,6 +671,38 @@ func (s *Server) runRealEvalCore(
 		if err := collectAssistantReplies(ctx, port, apiKey, threadID, session, ev.MaxTurns); err != nil {
 			// Soft error — partial trajectory may still be gradable.
 			session.recordSystem("runner: " + err.Error())
+		}
+
+		// Iter-1 autonomous-loop race recovery. apteva-core's loop
+		// fires its first iteration the instant the listener comes
+		// up. If our POST /event lands in the ~150ms window before
+		// the first drainEvents, the loop processes "(no events)",
+		// the model calls pace into deep sleep, and the brief is
+		// effectively lost — the trajectory then has only a pace
+		// tool call and nothing else. Sleep+reset+post once to
+		// recover, then re-collect. Bounded to one retry to avoid
+		// infinite loops on agents that genuinely won't act.
+		//
+		// Limited to iteration 1 because iterations >= 2 already do
+		// sleep+reset+post unconditionally (see directive-edit
+		// respawn path above) and continueSameThread iterations
+		// have settled state that we don't want to wipe.
+		if iteration == 1 && !continueSameThread && session.iter1RaceLikelySince(preTrajLen) {
+			session.recordSystem("runner: iter-1 race detected (agent only paced/idled) — resetting + retrying brief")
+			if err := resetMainThread(ctx, port, apiKey); err != nil {
+				session.recordSystem("runner: race-retry reset: " + err.Error())
+			} else {
+				// Brief settle window before the re-post so the agent's
+				// autonomous loop reaches a known paced state before our
+				// event lands. Without it, the retry can land in the same
+				// half-second the loop is processing its next iteration.
+				time.Sleep(1500 * time.Millisecond)
+				if err := postCoreEvent(ctx, port, apiKey, threadID, driveMsg); err != nil {
+					session.recordSystem("runner: race-retry post: " + err.Error())
+				} else if err := collectAssistantReplies(ctx, port, apiKey, threadID, session, ev.MaxTurns); err != nil {
+					session.recordSystem("runner: race-retry collect: " + err.Error())
+				}
+			}
 		}
 
 		// Judge this iteration. allowImprovements gates whether the

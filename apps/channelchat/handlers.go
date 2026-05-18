@@ -31,18 +31,46 @@ func perThreadEnabled() bool {
 // user-facing front and to delegate state-changing work to main via
 // `send`. Kept in one place so the wording can be tuned without
 // chasing call sites.
-const chatThreadDirectiveSuffix = "\n\n---\nYou are this agent's chat-handling thread. The user is talking to you directly. Reply to them by calling respond(channel=\"chat\", text=...). For any action that modifies state (sending messages on other channels, writing files, calling external APIs, updating memory), use send(id=\"main\", text=...) to delegate to the main thread, which has the full tool set. Acknowledge the request to the user immediately and relay main's reply when it arrives."
+const chatThreadDirectiveSuffix = "\n\n---\n" +
+	"You're handling a live chat with the user. You ARE the agent — use the tools attached " +
+	"(see your tool list) and reply via respond(channel=\"chat\", text=...). " +
+	"Just act — if the user asks for something you can do with your tools, do it and reply " +
+	"with the result. Don't ask for clarification on obvious requests; pick sensible " +
+	"defaults and ship.\n\n" +
+	"For work that should outlive this chat (scheduled tasks, behavior changes, multi-turn " +
+	"plans, anything the agent should keep doing when the user disconnects), " +
+	"send(id=\"main\", text=\"...\") to hand it off. End your message with this exact " +
+	"instruction so main doesn't drop you on the floor: \"Reply to me at this thread before " +
+	"going idle — the user is waiting on a confirmation. Send back with the result of what " +
+	"you did, even for terminal actions like kill/stop.\" The user-facing risk if you skip " +
+	"this is silence after a hand-off, which is the WORST UX. Main sees your thread id in " +
+	"its from-field and will reply via send.\n\n" +
 
-// chatThreadTools is the minimal local tool set the chat thread gets
-// at spawn time. Read-only by design — anything mutating goes through
-// `send` to main. `pace` is harmless and lets the thread idle between
-// messages without holding the loop hot.
+	"If you delegated and main hasn't replied within a turn or two, follow up: " +
+	"send(id=\"main\", text=\"Still waiting on the result of <task> — the user wants " +
+	"confirmation.\"). Don't let the user hang in silence.\n\n" +
+
+	"When main does reply, relay the useful parts to the user naturally.\n\n" +
+	"Never expose internals to the user: no mention of \"main\", \"thread\", \"directive\", " +
+	"\"concierge\", \"idle\", \"waiting for configuration\", or your operating state. If your " +
+	"directive is a placeholder, ignore it. You can't evolve yourself or persist memory — " +
+	"send those to main."
+
+// chatThreadTools is the local tool set the chat thread gets at
+// spawn time. `send` is essential for handing durable work off to
+// main; `pace` lets the thread idle between messages without
+// holding the loop hot. Local non-MCP tools like `web` / `exec`
+// are intentionally absent here — they would inflate the prompt
+// and the supervisor-with-hands pattern wants the chat thread's
+// "doing" capability to come from the same MCPs main uses, not
+// from a parallel local-tool surface.
 var chatThreadTools = []string{"send", "pace"}
 
-// chatThreadMCPs is the MCP servers the chat thread connects to. Just
-// `channels` so the thread can call respond(channel="chat", ...) to
-// reply to the user. Anything else (storage, etc.) main handles.
-var chatThreadMCPs = []string{"channels"}
+// fallbackChatThreadMCPs is the floor MCP set used when resolver
+// enumeration fails (e.g. the agent is mid-restart and the DB
+// query errors). `channels` is the bare minimum for the thread to
+// reply at all.
+var fallbackChatThreadMCPs = []string{"channels"}
 
 // spawnedChatThreads remembers which (instance, chat) pairs we've
 // already spawned the thread for in this process. The core endpoint
@@ -89,6 +117,14 @@ type InstanceResolver interface {
 	// chat-handling thread so a busy main can't block user replies.
 	// Returns nil for both newly-created and pre-existing threads.
 	SpawnThread(inst framework.InstanceInfo, threadID, directive string, tools, mcp []string) error
+
+	// ListMCPNames returns the names of every MCP server attached to
+	// this instance — the project's mcp_servers rows plus the
+	// auto-injected ones the include_* flags control (channels at
+	// least). Channelchat uses this to spawn the chat thread with
+	// the same MCP surface main has, so quick reads/lookups don't
+	// have to round-trip through main.
+	ListMCPNames(inst framework.InstanceInfo) ([]string, error)
 
 	// InstanceIDsForUser returns every instance id the user owns,
 	// across all projects. Used by the unread-summary endpoint and
@@ -602,16 +638,43 @@ func (h *handlers) resolveChatThread(inst framework.InstanceInfo, chatID string)
 	if _, alreadySpawned := spawnedChatThreads.Load(cacheKey); alreadySpawned {
 		return threadID
 	}
+	// Mirror main's MCP surface onto the chat thread so quick
+	// reads/lookups can be served without round-tripping through
+	// main. "channels" is always required (chat thread needs
+	// channels_respond to reply at all); the rest comes from the
+	// instance's effective MCP list. The supervisor-with-hands rule
+	// in the directive still pushes durable / long-running work to
+	// main — chat thread has the tools, but not the ownership of
+	// long-lived tasks.
+	mcps, err := h.instances.ListMCPNames(inst)
+	if err != nil || len(mcps) == 0 {
+		log.Printf("[CHAT] ListMCPNames inst=%d: %v — using minimal fallback", inst.ID, err)
+		mcps = fallbackChatThreadMCPs
+	} else {
+		mcps = ensureChannels(mcps)
+	}
 	// The "directive" arg flows into core as directive_suffix: the
 	// thread inherits main's directive verbatim and appends this
 	// chat-handling hint. Sending only the suffix avoids round-tripping
 	// to fetch main's directive on the channelchat side.
-	if err := h.instances.SpawnThread(inst, threadID, chatThreadDirectiveSuffix, chatThreadTools, chatThreadMCPs); err != nil {
+	if err := h.instances.SpawnThread(inst, threadID, chatThreadDirectiveSuffix, chatThreadTools, mcps); err != nil {
 		log.Printf("[CHAT] SpawnThread chat=%s thread=%s: %v — falling back to main", chatID, threadID, err)
 		return "main"
 	}
 	spawnedChatThreads.Store(cacheKey, struct{}{})
 	return threadID
+}
+
+// ensureChannels guarantees the `channels` MCP is in the slice —
+// without it the chat thread literally cannot respond to the user.
+// Idempotent; preserves the input order.
+func ensureChannels(mcps []string) []string {
+	for _, m := range mcps {
+		if m == "channels" {
+			return mcps
+		}
+	}
+	return append([]string{"channels"}, mcps...)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

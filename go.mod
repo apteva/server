@@ -9,6 +9,8 @@ require (
 
 require gopkg.in/yaml.v3 v3.0.1
 
+require github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
+
 require (
 	github.com/apteva/app-sdk v0.22.0
 	github.com/dustin/go-humanize v1.0.1 // indirect

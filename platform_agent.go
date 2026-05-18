@@ -499,3 +499,160 @@ func postCoreEvent(ctx context.Context, port int, apiKey, threadID, message stri
 	return nil
 }
 
+// ─── Directive seeder ─────────────────────────────────────────────
+//
+// The seeder is the "auto-generated directive from goals" half of
+// the wizard's Verify flow (see eval_realllm_test.go and the user-
+// reported Pablo eval). When an operator types goals like "You
+// should be called Pablo", a useful starter directive is mechanical
+// to derive — but if it's left to the judge to propose it post-
+// failure, the judge often returns empty suggestions because the
+// trajectory has no signal (agent paced, etc.). The seeder runs
+// proactively: one LLM call against the meta-agent that synthesizes
+// a minimal directive matching the goals.
+//
+// The meta-agent's resident directive (judgeSystemPrompt) is
+// JSON-judge-only. To make it produce plain text, the prompt below
+// is explicit about overriding mode for this single call. The
+// model reliably follows the user-message instruction; the JSON-
+// only rule from the system prompt would otherwise force it to
+// wrap the directive in JSON which the seeder unwraps anyway.
+
+// SynthesizeDirective asks the meta-agent for a starter directive
+// derived from the eval's goals. agentName is optional; passing it
+// makes the synthesized directive open with "You are <name>." which
+// most operators want as the first sentence. currentDirective is
+// also optional — when supplied, the seeder is asked to PRODUCE
+// edits to it rather than a from-scratch replacement.
+//
+// Returns the synthesized directive text on success. Wraps both LLM
+// errors and parse errors so callers can surface them in the UI.
+func (s *Server) SynthesizeDirective(ctx context.Context, userID int64, goals []string, agentName, currentDirective string) (string, error) {
+	if len(goals) == 0 {
+		return "", errors.New("at least one goal required")
+	}
+	helper, err := s.ensureMetaAgentRunning(userID)
+	if err != nil {
+		return "", err
+	}
+	// Serialize against the judge mutex — same shared "main" thread
+	// (we'd otherwise race with an in-flight judge call). The judge
+	// path takes the same lock so concurrent eval grading and
+	// seeding can't step on each other.
+	mu := s.judgeMutexFor(userID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	corePort := s.agents.GetPort(helper.ID)
+	if corePort == 0 {
+		return "", errors.New("meta-agent core is not listening yet — try again in a moment")
+	}
+	coreAPIKey := s.agents.GetCoreAPIKey(helper.ID)
+
+	prompt := buildSeederPrompt(goals, agentName, currentDirective)
+	if err := resetMainThread(ctx, corePort, coreAPIKey); err != nil {
+		return "", fmt.Errorf("reset thread for seeder: %w", err)
+	}
+	if err := postCoreEvent(ctx, corePort, coreAPIKey, "main", prompt); err != nil {
+		return "", fmt.Errorf("post seeder prompt: %w", err)
+	}
+	reply, err := waitForFirstAssistantReply(ctx, corePort, coreAPIKey, "main")
+	if err != nil {
+		return "", fmt.Errorf("wait for seeder reply: %w", err)
+	}
+	return parseSeederReply(reply), nil
+}
+
+// buildSeederPrompt is the user-message side of the seeder request.
+// It explicitly overrides the meta-agent's judge mode for this one
+// call. The expected response shape is JSON {"directive": "..."} so
+// parseSeederReply can extract a clean text body — but plain-text
+// responses (no JSON wrapper) are also tolerated as a fallback.
+func buildSeederPrompt(goals []string, agentName, currentDirective string) string {
+	var b strings.Builder
+	b.WriteString("TASK TYPE: directive_synthesis (NOT a grading request — ignore your judge instructions for this single message)\n\n")
+	b.WriteString("Synthesize a concise, action-oriented directive that, if installed on an agent, would let it satisfy ALL of the goals below on a first attempt. Do not include the goals themselves verbatim in the directive (the agent must not see the grading criteria) — instead, derive standing instructions that would naturally produce passing behaviour.\n\n")
+	if strings.TrimSpace(agentName) != "" {
+		fmt.Fprintf(&b, "Agent name: %q. Open the directive with `You are %s.` when the name is meaningful to the goals.\n\n", agentName, agentName)
+	}
+	b.WriteString("Goals:\n")
+	for i, g := range goals {
+		fmt.Fprintf(&b, "%d. %s\n", i+1, g)
+	}
+	if strings.TrimSpace(currentDirective) != "" {
+		b.WriteString("\nCurrent directive (improve / extend, don't replace wholesale):\n")
+		b.WriteString(strings.TrimSpace(currentDirective))
+		b.WriteString("\n")
+	}
+	b.WriteString("\nResponse format — JSON object only, no markdown fences:\n")
+	b.WriteString(`{"directive": "<the directive text, multi-line OK, plain prose>"}` + "\n")
+	b.WriteString("\nKeep the directive under 200 words. Prefer imperatives. Don't reference the eval system, the judge, or these instructions.\n")
+	return b.String()
+}
+
+// parseSeederReply extracts the directive text from the meta-agent's
+// response. Tolerates the same JSON-vs-prose-with-fences variations
+// parseJudgeReply does — if a JSON object with a "directive" field
+// can be parsed, returns its value; otherwise returns the reply
+// verbatim (best-effort fallback).
+func parseSeederReply(out string) string {
+	s := strings.TrimSpace(out)
+	// Strip optional code fences the same way parseJudgeReply does.
+	if i := strings.Index(s, "{"); i > 0 {
+		s = s[i:]
+	}
+	if j := strings.LastIndex(s, "}"); j >= 0 && j < len(s)-1 {
+		s = s[:j+1]
+	}
+	s = strings.TrimPrefix(s, "```json")
+	s = strings.TrimPrefix(s, "```")
+	s = strings.TrimSuffix(s, "```")
+	s = strings.TrimSpace(s)
+	var wrapper struct {
+		Directive string `json:"directive"`
+	}
+	if err := json.Unmarshal([]byte(s), &wrapper); err == nil && strings.TrimSpace(wrapper.Directive) != "" {
+		return strings.TrimSpace(wrapper.Directive)
+	}
+	// Fallback: assume the model returned plain text.
+	return strings.TrimSpace(out)
+}
+
+// handleSeedDirective is the HTTP entrypoint the dashboard hits.
+//
+//   POST /api/agents/seed-directive
+//   body: {"goals": [...], "agent_name"?: "", "current_directive"?: ""}
+//   resp: {"directive": "..."}
+//
+// Auth is the usual session-or-API-key middleware (mounted in main.go).
+// 400 on missing goals; 500 wraps any synthesis or LLM error.
+func (s *Server) handleSeedDirective(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	var body struct {
+		Goals            []string `json:"goals"`
+		AgentName        string   `json:"agent_name,omitempty"`
+		CurrentDirective string   `json:"current_directive,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if len(body.Goals) == 0 {
+		http.Error(w, "at least one goal required", http.StatusBadRequest)
+		return
+	}
+	// 60-second budget — well under the 90s typical wizard expectation.
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	directive, err := s.SynthesizeDirective(ctx, userID, body.Goals, body.AgentName, body.CurrentDirective)
+	if err != nil {
+		http.Error(w, "synthesize directive: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]string{"directive": directive})
+}
+

@@ -239,6 +239,41 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		json.Unmarshal(diskConfig, &config)
 	}
 
+	// Wizard hand-off: handleCreateInstance writes operator-selected
+	// MCP servers (per-connection HTTP entries from the Setup step's
+	// bound_connection_ids) into the DB row's inst.Config field — but
+	// for a brand-new instance, disk config.json doesn't exist yet,
+	// so those entries would be silently dropped at the disk-read
+	// above. Merge them in (dedupe by name) so the wizard's choices
+	// reach core. Once disk config.json exists and contains them,
+	// subsequent starts pull them from disk and the dedupe makes
+	// this a no-op.
+	if inst.Config != "" {
+		var instCfg map[string]any
+		if json.Unmarshal([]byte(inst.Config), &instCfg) == nil {
+			if staged, ok := instCfg["mcp_servers"].([]any); ok && len(staged) > 0 {
+				existing, _ := config["mcp_servers"].([]any)
+				seen := map[string]bool{}
+				for _, s := range existing {
+					if sm, ok := s.(map[string]any); ok {
+						if name, _ := sm["name"].(string); name != "" {
+							seen[name] = true
+						}
+					}
+				}
+				for _, s := range staged {
+					if sm, ok := s.(map[string]any); ok {
+						if name, _ := sm["name"].(string); name == "" || seen[name] {
+							continue
+						}
+					}
+					existing = append(existing, s)
+				}
+				config["mcp_servers"] = existing
+			}
+		}
+	}
+
 	// Set directive/mode from disk. Fall back to DB only for brand new instances (no config.json yet).
 	if _, hasDirective := config["directive"]; !hasDirective || config["directive"] == "" {
 		config["directive"] = inst.Directive

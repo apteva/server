@@ -1061,6 +1061,12 @@ func main() {
 	// regular /agents/:id/evals/:evalId/run path persists results.
 	apiMux.HandleFunc("/evals/preview", s.authMiddleware(s.handleEvalPreview))
 
+	// /agents/seed-directive — synthesize a starter directive from
+	// an eval's goals. Used by the wizard's "Suggest from goals"
+	// button so operators don't have to hand-write a directive for
+	// simple cases. See platform_agent.go.
+	apiMux.HandleFunc("/agents/seed-directive", s.authMiddleware(s.handleSeedDirective))
+
 	// /evals/preview/stream — SSE counterpart of /evals/preview that
 	// emits a per-iteration event so the wizard can pause-and-confirm
 	// between steps. See eval_streaming.go.

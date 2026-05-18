@@ -267,7 +267,19 @@ type AppAuthConfig struct {
 	// connection's credentials. Credentials must include
 	// access_key_id + secret_access_key + region (and optionally
 	// session_token for STS-issued temporary creds).
+	//
+	// Legacy field: kept for backwards compatibility with existing
+	// catalog entries. New entries should declare auth.signers[] with
+	// {name: "aws_sigv4", params: {service: "ses"}} instead. The
+	// integration runner translates the legacy form via
+	// effectiveSigners().
 	AwsSigV4 *AwsSigV4Config `json:"aws_sigv4,omitempty"`
+	// Signers — request-signer chain applied to every outbound call
+	// for this integration unless overridden per-tool. Each entry
+	// references a name in the server's signer registry (signer.go).
+	// Order matters: body-mutating signers (EIP-712) must run before
+	// header-only signers (HMAC/AWS) that sign over the final body.
+	Signers []SignerSpec `json:"signers,omitempty"`
 }
 
 type AwsSigV4Config struct {
@@ -378,6 +390,23 @@ type AppToolDef struct {
 	// (often application/octet-stream) since the runner's "default
 	// json" content-type assumption is bypassed.
 	BodyInput string `json:"body_input,omitempty"`
+
+	// Signing overrides the app-level auth.signers[] chain for this
+	// specific tool. Use when most endpoints share one auth flavor but
+	// a handful need extra work — e.g. Polymarket's CLOB reads with
+	// just L2 HMAC vs create_order which additionally needs EIP-712
+	// typed-data signing of the order body.
+	//
+	// Set Signing.Signers to an empty slice (not nil) to suppress all
+	// signing for this tool — useful for public endpoints inside an
+	// otherwise-authenticated app catalog entry.
+	Signing *ToolSigningConfig `json:"signing,omitempty"`
+}
+
+// ToolSigningConfig — per-tool override of the app-level signer chain.
+// When present, replaces auth.signers[] for this tool (does not merge).
+type ToolSigningConfig struct {
+	Signers []SignerSpec `json:"signers"`
 }
 
 // AppSummary is a lightweight version for catalog listing

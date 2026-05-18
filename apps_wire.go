@@ -380,6 +380,63 @@ func (r *serverResolver) ForwardEvent(inst framework.InstanceInfo, text, threadI
 	return nil
 }
 
+// ListMCPNames returns the MCP servers THIS agent has attached —
+// the exact set the agent's main thread sees at runtime. Channelchat
+// uses it to spawn the chat thread with main's MCP surface so quick
+// reads/lookups can be served without round-tripping through main.
+//
+// We query the live core (/config endpoint) rather than reading the
+// project-wide mcp_servers DB table or the agent's stored config:
+//
+//   - DB table is project-wide → would over-attach (every MCP any
+//     agent in the project has installed lands on chat thread).
+//   - Stored inst.Config can lag behind disk + core's in-memory state
+//     (e.g. after a detail-page /config PUT that core wrote through).
+//
+// Core's /config endpoint is the single source of truth and reflects
+// any runtime mutations. Falls back to an error if core is stopped;
+// channelchat's caller then uses the minimal fallback set.
+func (r *serverResolver) ListMCPNames(inst framework.InstanceInfo) ([]string, error) {
+	if inst.Port == 0 {
+		return nil, fmt.Errorf("instance %d not running", inst.ID)
+	}
+	url := fmt.Sprintf("http://127.0.0.1:%d/config", inst.Port)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if inst.CoreAPIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("core /config: HTTP %d", resp.StatusCode)
+	}
+	var cfg map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
+		return nil, err
+	}
+	rawServers, _ := cfg["mcp_servers"].([]any)
+	names := make([]string, 0, len(rawServers))
+	for _, raw := range rawServers {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := m["name"].(string)
+		if name == "" {
+			continue
+		}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
 // SpawnThread POSTs to core's /threads/{id} endpoint to idempotently
 // create a thread. directive is sent as `directive_suffix` so the
 // thread inherits main's directive verbatim and appends the caller's
