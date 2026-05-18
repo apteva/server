@@ -709,33 +709,34 @@ Never bulk-send. One draft, one confirmation, one send. Treat the contact list a
 		},
 	},
 	{
-		ID:          "image-studio-pal",
+		ID:          "media-studio-pal",
 		Source:      "builtin",
-		Name:        "Image studio",
+		Name:        "Media studio",
 		Icon:        "image",
-		Description: "Generates images on request, files them into storage with descriptive names + tags.",
+		Description: "Generates images, video, audio, and music on request, files them into storage with descriptive names + tags.",
 		Mode:        "cautious",
 		Unconscious: false,
 		SortOrder:   75,
 		Requirements: []Requirement{
-			{Kind: "app", Slug: "image-studio", Required: true, Reason: "Generate images via OpenAI/Replicate/Stability."},
+			{Kind: "app", Slug: "media-studio", Required: true, Reason: "Generate media via OpenAI/Replicate/ElevenLabs/Suno/Runway/Pika."},
 			{Kind: "app", Slug: "storage", Required: true, Reason: "Save generations as permanent shareable references."},
 		},
-		Directive: `You are an image generation assistant. Take rough briefs, produce variants, file them with descriptive names so they're findable later.
+		Directive: `You are a media generation assistant. Take rough briefs, produce variants, file them with descriptive names so they're findable later.
 
 Per request:
-- Ask one clarifying question if anything is genuinely ambiguous (subject, style, aspect ratio). Otherwise dive straight in.
-- Generate 3 variants by default. Vary one dimension across the three (style, framing, palette) so the choice is meaningful.
-- Save each generation to /.images/<yyyy-mm>/<short-slug>-<variant>.png in storage. Use the prompt to pick the slug.
-- Reply with thumbnails + a one-line description per variant. Wait for me to pick before doing any follow-up edits.
+- Ask one clarifying question if anything is genuinely ambiguous (kind, style, aspect ratio, duration). Otherwise dive straight in.
+- For images, generate 3 variants by default. Vary one dimension across the three (style, framing, palette) so the choice is meaningful. For video/audio/music, generate one and iterate from there.
+- Use media_generate with the appropriate kind (image / video / audio_tts / audio_sfx / music).
+- Save each generation to /.media/<kind>/<yyyy-mm>/<short-slug>-<variant>.<ext> in storage. Use the prompt to pick the slug.
+- Reply with thumbnails / players + a one-line description per variant. Wait for me to pick before doing any follow-up edits.
 
-Cost discipline: if I haven't said "more", stop at 3 variants. If I say "tighter on the second one", regenerate that one — don't reroll the whole batch.
+Cost discipline: if I haven't said "more", stop at 3 image variants (or 1 for video/audio/music). If I say "tighter on the second one", regenerate that one — don't reroll the whole batch.
 
 Tone: art-director short. No "Here are some images I generated for you!" preamble.`,
 		SuggestedEvals: []SuggestedEval{
 			{
-				ID:   "image-studio-pal:default",
-				Name: "Brief produces 3 variants and saves them",
+				ID:   "media-studio-pal:default",
+				Name: "Brief produces 3 image variants and saves them",
 				Trigger: EvalTrigger{
 					Type: "chat_message",
 					Payload: map[string]any{
@@ -743,14 +744,15 @@ Tone: art-director short. No "Here are some images I generated for you!" preambl
 					},
 				},
 				Goals: []string{
+					"Use media_generate with kind=image.",
 					"Generate three variants — not one, not five.",
 					"Vary one dimension across the three (style, framing, or palette).",
-					"Save each generation to storage under /.images/.",
+					"Save each generation to storage under /.media/image/.",
 					"Reply with thumbnails + a one-line description per variant.",
 				},
 				Mocks: []EvalMock{
-					{App: "image-studio", Tool: "generate", Return: json.RawMessage(`{"id":"img-1","url":"https://example.com/i.png"}`)},
-					{App: "storage", Tool: "files_upload", Return: json.RawMessage(`{"id":1,"path":"/.images/2026-05/scheduler-v1.png","ok":true}`)},
+					{App: "media-studio", Tool: "media_generate", Return: json.RawMessage(`{"id":"img-1","url":"https://example.com/i.png"}`)},
+					{App: "storage", Tool: "files_upload", Return: json.RawMessage(`{"id":1,"path":"/.media/image/2026-05/scheduler-v1.png","ok":true}`)},
 				},
 			},
 		},

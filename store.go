@@ -784,7 +784,7 @@ func (s *Store) migrate() error {
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN integration_bindings TEXT NOT NULL DEFAULT '{}'`)
 	// has_pending_options flag: set when a previously-unbinded optional
 	// dep now has a compatible target available (e.g. user installed
-	// the storage app after image-studio). Dashboard surfaces a
+	// the storage app after media-studio). Dashboard surfaces a
 	// "configure" banner on the install detail page.
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN has_pending_options INTEGER NOT NULL DEFAULT 0`)
 	// created_via on connections: 'integration' (default — top-level
