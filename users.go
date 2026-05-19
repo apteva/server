@@ -16,13 +16,12 @@ import (
 // enforcement is per-handler rather than a wrapping middleware so each
 // policy is visible at the call site.
 //
-// Admin = user_id 1 (the first registered account). No schema change.
-// Once you need richer roles, bump this to an `is_admin` column.
-
-// isAdmin treats user_id=1 as the server's admin. The first-registered
-// user always lands at id=1 because the users table is autoincrementing
-// and setup mode auto-locks registration after that row lands.
-func (s *Server) isAdmin(userID int64) bool { return userID == 1 }
+// isAdmin is the legacy check, kept as a thin wrapper over the new
+// users.role column. Multiple admins are now supported — any user
+// with role='admin' qualifies. Phase 1 of multi-user.
+func (s *Server) isAdmin(userID int64) bool {
+	return s.store.GetPlatformRole(userID) == PlatformAdmin
+}
 
 // GET /users — admin lists every user; non-admin gets 403.
 // POST /users — admin creates a new user directly (email + initial
@@ -88,7 +87,16 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 		}
 		// Auto-create a default project so the new user has somewhere
 		// to land on first login, matching the normal register flow.
-		s.store.CreateProject(u.ID, "Default", "Default project", "#6366f1")
+		// Insert the owner membership row alongside so the multi-user
+		// authz lookup finds them on the new project.
+		if p, perr := s.store.CreateProject(u.ID, "Default", "Default project", "#6366f1"); perr == nil && p != nil {
+			_ = s.store.AddProjectMember(p.ID, u.ID, ProjectOwner, u.ID)
+		}
+		// Admin-created users are joining an existing Apteva install
+		// (not setting one up), so the "Welcome to Apteva" onboarding
+		// flow doesn't apply to them. Mark onboarded=now so the
+		// OnboardingGate redirect skips them on first login.
+		_ = s.store.MarkUserOnboarded(u.ID)
 		log.Printf("[USERS] admin=%d created user id=%d email=%s", caller, u.ID, u.Email)
 		writeJSON(w, u)
 

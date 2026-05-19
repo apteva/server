@@ -1080,6 +1080,15 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "name required", http.StatusBadRequest)
 		return
 	}
+	// Multi-user: editor+ on the target project is required to create
+	// an agent in it. Empty project_id is the legacy "no project"
+	// path — kept for back-compat; no project access check applies
+	// there since there's nothing to check against.
+	if body.ProjectID != "" {
+		if _, _, ok := s.requireProjectAccess(w, r, body.ProjectID, ProjectEditor); !ok {
+			return
+		}
+	}
 	if body.Directive == "" {
 		body.Directive = "Idle. Waiting for configuration via directive."
 	}
@@ -1239,7 +1248,45 @@ func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := getUserID(r)
 	projectID := r.URL.Query().Get("project_id")
-	instances, err := s.store.ListAgents(userID, projectID)
+
+	// Multi-user listing:
+	//   - With a project_id: anyone with viewer+ on that project sees
+	//     every agent in it (regardless of which user_id created them).
+	//   - Without a project_id: we union every project the caller has
+	//     access to (membership + admin short-circuit) and return all
+	//     agents across them. This is what the dashboard's "all
+	//     projects" view needs.
+	var instances []Agent
+	var err error
+	if projectID != "" {
+		if _, _, ok := s.requireProjectAccess(w, r, projectID, ProjectViewer); !ok {
+			return
+		}
+		instances, err = s.store.ListAgentsInProject(projectID)
+	} else {
+		// Walk every visible project and concat their agents.
+		visible, lerr := s.store.ListProjectsForUser(userID)
+		if lerr != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		for _, p := range visible {
+			batch, berr := s.store.ListAgentsInProject(p.ID)
+			if berr != nil {
+				continue
+			}
+			instances = append(instances, batch...)
+		}
+		// Plus any legacy agents that have no project_id — surface them
+		// for the user that owns them so single-user installs from
+		// before projects existed keep working.
+		legacy, _ := s.store.ListAgents(userID, "")
+		for _, a := range legacy {
+			if a.ProjectID == "" {
+				instances = append(instances, a)
+			}
+		}
+	}
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -1260,7 +1307,6 @@ func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
 
 // GET/DELETE /instances/:id
 func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
-	userID := getUserID(r)
 	idStr := strings.TrimPrefix(r.URL.Path, "/instances/")
 	// Strip any sub-path (for proxy routes)
 	if idx := strings.Index(idStr, "/"); idx >= 0 {
@@ -1272,11 +1318,34 @@ func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst, err := s.store.GetAgent(userID, instanceID)
+	// Load the agent regardless of user_id — multi-user members may
+	// access agents created by other users in a project they're in.
+	// Authz comes from the agent's project membership, not the row's
+	// user_id.
+	inst, err := s.store.GetAgentByID(instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
 	}
+	// Legacy agents with no project_id stay user-scoped (single-user
+	// pre-projects era). Reject anyone else.
+	if inst.ProjectID == "" {
+		if getUserID(r) != inst.UserID && s.store.GetPlatformRole(getUserID(r)) != PlatformAdmin {
+			http.Error(w, "instance not found", http.StatusNotFound)
+			return
+		}
+	} else {
+		// DELETE requires editor+; everything else needs viewer.
+		need := ProjectViewer
+		if r.Method == http.MethodDelete {
+			need = ProjectEditor
+		}
+		if _, _, ok := s.requireProjectAccess(w, r, inst.ProjectID, need); !ok {
+			return
+		}
+	}
+	userID := getUserID(r)
+	_ = userID // retained for downstream paths that read it via getUserID(r)
 
 	switch r.Method {
 	case http.MethodGet:

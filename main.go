@@ -689,6 +689,25 @@ func main() {
 	}))
 	apiMux.HandleFunc("/projects/", s.authMiddleware(s.handleProject))
 
+	// Multi-user invite endpoints. /invites/:token is auth-required
+	// (the accept handler binds the invite to the caller's user_id),
+	// but /invites/:token preview is also auth-only because the
+	// dashboard fetches it from the logged-in /login route after the
+	// user clicks the invite link.
+	apiMux.HandleFunc("/invites/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		// /invites/:token            → GET  preview
+		// /invites/:token/accept     → POST accept
+		if strings.HasSuffix(r.URL.Path, "/accept") {
+			s.handleInviteAccept(w, r)
+			return
+		}
+		s.handleInvitePreview(w, r)
+	}))
+
+	// /admin/users — platform-admin only. List + role changes.
+	apiMux.HandleFunc("/admin/users", s.authMiddleware(s.handleAdminUsers))
+	apiMux.HandleFunc("/admin/users/", s.authMiddleware(s.handleAdminUsers))
+
 	// Integration catalog routes
 	// Integration UI bundles. Serves /api/integrations/<slug>/ui/<file>
 	// from the integrations dist tree the dashboard picked up at build

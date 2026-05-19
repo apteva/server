@@ -42,11 +42,14 @@
         "public_profile",
         "pages_show_list",
         "pages_read_engagement",
+        "pages_read_user_content",
+        "pages_manage_engagement",
         "pages_manage_posts",
         "pages_manage_metadata",
         "instagram_basic",
         "instagram_content_publish",
         "instagram_manage_messages",
+        "instagram_manage_comments",
         "ads_management",
         "business_management"
       ],
@@ -689,6 +692,168 @@
           }
         },
         "required": ["messageId"]
+      }
+    },
+    {
+      "name": "list_media_comments",
+      "description": "List comments on an Instagram or Facebook post. For IG calls GET /{ig-media-id}/comments; for FB calls GET /{post-id}/comments. Returns {data:[{id, text|message, username|from, timestamp|created_time, like_count?, replies?}], paging}. The page-level access_token is required (user-level tokens are rejected for /comments on Pages and on IG Business media).",
+      "method": "GET",
+      "path": "/{mediaId}/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "description": "IG media id (from create_media_container → publish_media_container, or post-publish lookup) OR Facebook post id in pageId_postId format. The Graph API routes by token + id automatically."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields. Default covers what an inbox needs: text body, author, timestamp, like_count, parent (for nested replies).",
+            "default": "id,text,username,timestamp,like_count,replies{id,text,username,timestamp,like_count}"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (Meta caps around 50 by default).",
+            "default": 25
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor from previous response's paging.cursors.after."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": ["mediaId"]
+      }
+    },
+    {
+      "name": "get_comment",
+      "description": "Fetch a single comment by id with full fields. Calls GET /{comment-id}?fields=... on the Graph API. Works for both Instagram and Facebook comments — the comment id encodes which.",
+      "method": "GET",
+      "path": "/{commentId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commentId": {
+            "type": "string",
+            "description": "Comment id (from list_media_comments.data[].id or a webhook event)."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields selector.",
+            "default": "id,text,username,timestamp,like_count,hidden,replies{id,text,username,timestamp},parent_id"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": ["commentId"]
+      }
+    },
+    {
+      "name": "reply_to_comment",
+      "description": "Reply to an Instagram or Facebook comment as the page/IG account. Calls POST /{comment-id}/replies with `message`. Returns {id} — the new reply comment id. For IG, the reply appears under the original comment as a nested reply. Page-level access_token required. To send a private DM to the comment author instead (IG only), use send_message with recipient.comment_id.",
+      "method": "POST",
+      "path": "/{commentId}/replies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commentId": {
+            "type": "string",
+            "description": "Parent comment id to reply to."
+          },
+          "message": {
+            "type": "string",
+            "description": "Reply body text. Plain text; IG strips most formatting."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": ["commentId", "message"]
+      }
+    },
+    {
+      "name": "hide_comment",
+      "description": "Hide or unhide a comment. Calls POST /{comment-id} with hide=true|false. The comment stays visible to its author and their friends but is removed from public view. Reversible via the same endpoint with hide=false. Supported on both IG Business and Facebook page comments. Page-level access_token required.",
+      "method": "POST",
+      "path": "/{commentId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commentId": {
+            "type": "string",
+            "description": "Comment id to hide or unhide."
+          },
+          "hide": {
+            "type": "boolean",
+            "description": "true to hide the comment; false to unhide.",
+            "default": true
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": ["commentId"]
+      }
+    },
+    {
+      "name": "delete_comment",
+      "description": "Permanently delete a comment we authored, or any comment on our IG/FB content. Calls DELETE /{comment-id}. Page-level access_token required.",
+      "method": "DELETE",
+      "path": "/{commentId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commentId": {
+            "type": "string",
+            "description": "Comment id to delete."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": ["commentId"]
+      }
+    },
+    {
+      "name": "list_my_tags",
+      "description": "List Instagram media the IG Business account has been tagged in (mentions on visual content). Calls GET /{ig-user-id}/tags on the Graph API. Returns {data:[{id, caption, media_type, media_url|permalink, username, timestamp}]} — one entry per tagged media. Useful for picking up brand mentions surfaced via @-tags in others' posts. Comment-level mentions arrive via webhooks, not this endpoint.",
+      "method": "GET",
+      "path": "/{instagramAccountId}/tags",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Your Instagram Business Account ID (from list_pages → data[].instagram_business_account.id)."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields.",
+            "default": "id,caption,media_type,media_url,permalink,username,timestamp,like_count,comments_count"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size.",
+            "default": 25
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor from previous response's paging.cursors.after."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": ["instagramAccountId"]
       }
     }
   ]

@@ -245,9 +245,9 @@
     },
     {
       "name": "list_models",
-      "description": "List available OpenAI models",
+      "description": "List available OpenAI models via GET /v1/models. Returns {data: [{id, object, created, owned_by}, ...]}.",
       "method": "GET",
-      "path": "/list-models",
+      "path": "/models",
       "input_schema": {
         "type": "object",
         "properties": {}

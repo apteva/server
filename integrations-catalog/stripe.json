@@ -795,6 +795,159 @@
       }
     },
     {
+      "name": "finalize_invoice",
+      "description": "Finalize a draft invoice. Mints an invoice number, generates the hosted_invoice_url, and (unless auto_advance is false) starts the collection process. Use when create_invoice was called with auto_advance=false.",
+      "method": "POST",
+      "path": "/invoices/{invoice_id}/finalize",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string",
+            "description": "Invoice ID (in_xxx)"
+          },
+          "auto_advance": {
+            "type": "boolean",
+            "description": "Whether Stripe should advance the collection (email, charge) automatically after finalization. Set false to get the hosted_invoice_url without Stripe sending the email."
+          }
+        },
+        "required": [
+          "invoice_id"
+        ]
+      }
+    },
+    {
+      "name": "void_invoice",
+      "description": "Void an open invoice. Marks it permanently uncollectible from the customer's perspective. Use when our billing voids an invoice that was already mirrored to Stripe.",
+      "method": "POST",
+      "path": "/invoices/{invoice_id}/void",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string",
+            "description": "Invoice ID (in_xxx)"
+          }
+        },
+        "required": [
+          "invoice_id"
+        ]
+      }
+    },
+    {
+      "name": "send_invoice",
+      "description": "Trigger Stripe to send the invoice email to the customer. Only works on invoices with collection_method=send_invoice. Returns the invoice with status_transitions.email_sent_at populated.",
+      "method": "POST",
+      "path": "/invoices/{invoice_id}/send",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string",
+            "description": "Invoice ID (in_xxx)"
+          }
+        },
+        "required": [
+          "invoice_id"
+        ]
+      }
+    },
+    {
+      "name": "create_checkout_session",
+      "description": "Create a Stripe Checkout Session — a hosted payment page. Returns { id, url } where url is the Stripe-hosted page the customer is redirected to. mode=payment for one-time; mode=subscription for recurring (uses price IDs from create_price). Webhook event checkout.session.completed fires on payment success.",
+      "method": "POST",
+      "path": "/checkout/sessions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "description": "Checkout mode",
+            "enum": [
+              "payment",
+              "subscription",
+              "setup"
+            ],
+            "default": "payment"
+          },
+          "line_items": {
+            "type": "array",
+            "description": "Array of {price: 'price_xxx', quantity: N} for catalog prices, or {price_data: {...}, quantity: N} for ad-hoc lines."
+          },
+          "customer": {
+            "type": "string",
+            "description": "Existing Stripe customer ID (cus_xxx). Omit to let Stripe create or match by email."
+          },
+          "customer_email": {
+            "type": "string",
+            "description": "Pre-fill the buyer's email on the Stripe-hosted page."
+          },
+          "success_url": {
+            "type": "string",
+            "description": "URL Stripe redirects to after successful payment. May include {CHECKOUT_SESSION_ID} placeholder."
+          },
+          "cancel_url": {
+            "type": "string",
+            "description": "URL Stripe redirects to if the customer abandons the page."
+          },
+          "client_reference_id": {
+            "type": "string",
+            "description": "Free-form string returned in the webhook payload. Useful for tying back to your own session/cart id."
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Arbitrary key-value pairs returned in webhook events."
+          },
+          "payment_intent_data": {
+            "type": "object",
+            "description": "Optional config applied to the underlying PaymentIntent (description, statement_descriptor, etc.)."
+          },
+          "subscription_data": {
+            "type": "object",
+            "description": "Only when mode=subscription — config for the resulting subscription (trial_period_days, metadata, etc.)."
+          },
+          "expires_at": {
+            "type": "integer",
+            "description": "Unix timestamp at which the session expires. Min 30 min from creation, max 24h."
+          }
+        },
+        "required": [
+          "line_items",
+          "success_url"
+        ]
+      }
+    },
+    {
+      "name": "create_payment_link",
+      "description": "Create a Stripe Payment Link — a reusable shareable URL that takes a customer to a hosted payment page. Unlike Checkout Sessions, Payment Links don't expire and can be shared multiple times. Useful for invoice 'pay this' links.",
+      "method": "POST",
+      "path": "/payment_links",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "line_items": {
+            "type": "array",
+            "description": "Array of {price: 'price_xxx', quantity: N}. Price IDs must already exist in Stripe (use create_price)."
+          },
+          "after_completion": {
+            "type": "object",
+            "description": "What to do after payment completes (e.g. {type: 'redirect', redirect: {url: '…'}}). Defaults to Stripe's success page."
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Arbitrary key-value pairs returned in webhook events."
+          },
+          "payment_intent_data": {
+            "type": "object",
+            "description": "Optional config applied to the underlying PaymentIntents created for each customer."
+          }
+        },
+        "required": [
+          "line_items"
+        ]
+      }
+    },
+    {
       "name": "list_charges",
       "description": "List charges with optional customer filter and pagination",
       "method": "GET",

@@ -15,6 +15,10 @@ type User struct {
 	ID           int64      `json:"id"`
 	Email        string     `json:"email"`
 	PasswordHash string     `json:"-"`
+	// Role is the platform-level role: 'user' (default) or 'admin'.
+	// Admin is an implicit owner on every project — see
+	// requireProjectAccess in authz.go.
+	Role         string     `json:"role"`
 	CreatedAt    time.Time  `json:"created_at"`
 	OnboardedAt  *time.Time `json:"onboarded_at,omitempty"`
 }
@@ -864,6 +868,59 @@ func (s *Store) migrate() error {
 	// "Access" tab flips it.
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN default_effect TEXT NOT NULL DEFAULT 'allow'`)
 
+	// ─── Multi-user + roles ───────────────────────────────────────────
+	//
+	// Adds two-tier role system:
+	//   - users.role: platform-level role ('user' | 'admin'). Admin is
+	//     an implicit owner on every project (the authz helper
+	//     short-circuits via requireProjectAccess).
+	//   - project_members: which users have explicit access to which
+	//     project, with a per-project role ('viewer' | 'editor' | 'owner').
+	//   - project_invites: pending invitations by email, accepted via
+	//     a token that doubles as the invite-URL slug.
+	//
+	// Migration backfill (idempotent — re-running on an already-migrated
+	// DB is a safe no-op thanks to OR-IGNORE):
+	//   1. lowest-id user → role='admin' (the operator that ran setup;
+	//      additional users stay 'user' and the admin can promote them
+	//      manually from /admin/users).
+	//   2. every existing project gets a project_members row with
+	//      role='owner' for its projects.user_id, so the new authz
+	//      helper finds an explicit ownership row matching the implicit
+	//      single-user world.
+	s.db.Exec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'`)
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS project_members (
+		project_id TEXT    NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		user_id    INTEGER NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+		role       TEXT    NOT NULL CHECK (role IN ('viewer','editor','owner')),
+		added_by   INTEGER REFERENCES users(id),
+		added_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (project_id, user_id)
+	)`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id)`)
+	s.db.Exec(`CREATE TABLE IF NOT EXISTS project_invites (
+		id          TEXT PRIMARY KEY,
+		project_id  TEXT    NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+		email       TEXT    NOT NULL,
+		role        TEXT    NOT NULL CHECK (role IN ('viewer','editor','owner')),
+		invited_by  INTEGER NOT NULL REFERENCES users(id),
+		expires_at  DATETIME NOT NULL,
+		accepted_at DATETIME,
+		created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_project_invites_project ON project_invites(project_id)`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_project_invites_email   ON project_invites(email)`)
+	// Backfill: lowest-id user becomes admin (the setup operator). If
+	// there are no users yet (fresh DB), the UPDATE matches 0 rows —
+	// the first handleRegister will set role='admin' explicitly.
+	s.db.Exec(`UPDATE users SET role = 'admin'
+	            WHERE id = (SELECT MIN(id) FROM users)
+	              AND role = 'user'`)
+	// Backfill project_members from existing projects.user_id. The
+	// INSERT OR IGNORE makes this idempotent across boots.
+	s.db.Exec(`INSERT OR IGNORE INTO project_members (project_id, user_id, role, added_by)
+	           SELECT id, user_id, 'owner', user_id FROM projects`)
+
 	return nil
 }
 
@@ -896,8 +953,8 @@ func (s *Store) GetUserByEmail(email string) (*User, error) {
 	var createdAt string
 	var onboardedAt sql.NullString
 	err := s.db.QueryRow(
-		"SELECT id, email, password_hash, created_at, onboarded_at FROM users WHERE email = ?", email,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash, &createdAt, &onboardedAt)
+		"SELECT id, email, password_hash, COALESCE(role,'user'), created_at, onboarded_at FROM users WHERE email = ?", email,
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &createdAt, &onboardedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -918,8 +975,8 @@ func (s *Store) GetUserByID(id int64) (*User, error) {
 	var createdAt string
 	var onboardedAt sql.NullString
 	err := s.db.QueryRow(
-		"SELECT id, email, password_hash, created_at, onboarded_at FROM users WHERE id = ?", id,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash, &createdAt, &onboardedAt)
+		"SELECT id, email, password_hash, COALESCE(role,'user'), created_at, onboarded_at FROM users WHERE id = ?", id,
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &createdAt, &onboardedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -964,7 +1021,7 @@ func (s *Store) UpdateUserPassword(userID int64, newHash string) error {
 // ListUsers returns every user row, ordered by id so user_id=1 (the
 // admin) always comes first. Used by the /users endpoint.
 func (s *Store) ListUsers() ([]User, error) {
-	rows, err := s.db.Query("SELECT id, email, created_at FROM users ORDER BY id")
+	rows, err := s.db.Query("SELECT id, email, COALESCE(role,'user'), created_at FROM users ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -973,7 +1030,7 @@ func (s *Store) ListUsers() ([]User, error) {
 	for rows.Next() {
 		var u User
 		var createdAt string
-		if err := rows.Scan(&u.ID, &u.Email, &createdAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Role, &createdAt); err != nil {
 			return nil, err
 		}
 		u.CreatedAt, _ = parseTime(createdAt)
@@ -1087,10 +1144,10 @@ func (s *Store) CreateAPIKey(userID int64, name, keyHash, keyPrefix string) (*AP
 func (s *Store) GetUserByAPIKey(keyHash string) (*User, error) {
 	var u User
 	err := s.db.QueryRow(`
-		SELECT u.id, u.email, u.password_hash
+		SELECT u.id, u.email, u.password_hash, COALESCE(u.role,'user')
 		FROM users u JOIN api_keys k ON u.id = k.user_id
 		WHERE k.key_hash = ?
-	`, keyHash).Scan(&u.ID, &u.Email, &u.PasswordHash)
+	`, keyHash).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role)
 	if err != nil {
 		return nil, err
 	}
@@ -1225,6 +1282,36 @@ func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agen
 	}
 	id, _ := res.LastInsertId()
 	return s.GetAgentByID(id)
+}
+
+// ListAgentsInProject returns every agent in a project, regardless of
+// which user_id created them. Used by handlers that have already
+// authorised the caller via requireProjectAccess so multi-user
+// members see all agents in a shared project (the original
+// ListAgents filters by user_id which is wrong post-multi-user — kept
+// for back-compat in code paths that still want the personal view).
+func (s *Store) ListAgentsInProject(projectID string) ([]Agent, error) {
+	rows, err := s.db.Query(
+		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'),
+		        port, pid, status, COALESCE(project_id,''), created_at
+		   FROM agents
+		  WHERE project_id = ? AND COALESCE(kind,'user') = 'user'`,
+		projectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Agent
+	for rows.Next() {
+		var a Agent
+		var createdAt string
+		rows.Scan(&a.ID, &a.UserID, &a.Name, &a.Directive, &a.Mode,
+			&a.Port, &a.Pid, &a.Status, &a.ProjectID, &createdAt)
+		a.CreatedAt, _ = parseTime(createdAt)
+		out = append(out, a)
+	}
+	return out, nil
 }
 
 func (s *Store) ListAgents(userID int64, projectID string) ([]Agent, error) {
@@ -1395,6 +1482,39 @@ func (s *Store) UpdateProject(userID int64, id, name, description, color string)
 
 func (s *Store) DeleteProject(userID int64, id string) error {
 	_, err := s.db.Exec("DELETE FROM projects WHERE id = ? AND user_id = ?", id, userID)
+	return err
+}
+
+// GetProjectAny / UpdateProjectAny / DeleteProjectAny — variants that
+// don't filter by user_id. Project handlers gate access via
+// requireProjectAccess before calling these, so the user_id WHERE
+// clause is redundant once you're past the authz check (and in fact
+// wrong: a member or admin viewing a project owned by another user
+// must succeed). The original *Project methods stay around for
+// internal call sites that still rely on the user_id filter.
+func (s *Store) GetProjectAny(id string) (*Project, error) {
+	var p Project
+	var createdAt string
+	err := s.db.QueryRow(
+		"SELECT id, user_id, name, description, color, created_at FROM projects WHERE id = ?", id,
+	).Scan(&p.ID, &p.UserID, &p.Name, &p.Description, &p.Color, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+	p.CreatedAt, _ = parseTime(createdAt)
+	return &p, nil
+}
+
+func (s *Store) UpdateProjectAny(id, name, description, color string) error {
+	_, err := s.db.Exec(
+		"UPDATE projects SET name=?, description=?, color=? WHERE id=?",
+		name, description, color, id,
+	)
+	return err
+}
+
+func (s *Store) DeleteProjectAny(id string) error {
+	_, err := s.db.Exec("DELETE FROM projects WHERE id = ?", id)
 	return err
 }
 

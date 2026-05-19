@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -294,13 +296,43 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	// Check registration mode
 	switch s.regMode {
 	case "locked":
-		// Require invite token
+		// Require a valid project invite token. The token is delivered
+		// either via X-Invite-Token header (programmatic) or
+		// ?invite=<token> on the URL (dashboard flow). Both must
+		// resolve to a non-expired, non-accepted project_invites row
+		// whose email matches the registration email (case-insensitive)
+		// — that proves possession of the link AND limits use to the
+		// addressee. The actual project membership is added in
+		// handleInviteAccept after the user has a session; this
+		// handler only verifies the invite is currently valid for the
+		// registering email.
 		invite := r.Header.Get("X-Invite-Token")
+		if invite == "" {
+			invite = r.URL.Query().Get("invite")
+		}
 		if invite == "" {
 			http.Error(w, "registration locked — invite token required", http.StatusForbidden)
 			return
 		}
-		// TODO: validate invite token against DB
+		inv, err := s.store.GetInviteByToken(invite)
+		if err != nil {
+			http.Error(w, "invite invalid or expired", http.StatusForbidden)
+			return
+		}
+		// Email comparison must happen post-body-decode; we do it
+		// after the JSON parse below by stashing the invite for that
+		// step. Inline the body decode here to keep ordering tight.
+		var preBody struct {
+			Email string `json:"email"`
+		}
+		// Read & restore body so the later DecodeJSON still works.
+		bodyBytes, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(bodyBytes, &preBody)
+		r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		if !strings.EqualFold(strings.TrimSpace(preBody.Email), strings.TrimSpace(inv.Email)) {
+			http.Error(w, "invite was issued to a different email", http.StatusForbidden)
+			return
+		}
 	case "setup":
 		// Require setup token (first user)
 		token := r.Header.Get("X-Setup-Token")
@@ -340,14 +372,28 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// First registered user becomes platform admin. Subsequent users
+	// stay 'user' and the admin can promote from /admin/users if
+	// needed. We rely on HasUsers() being false at the start of this
+	// handler in setup mode, but check via id == 1 as a safety net
+	// in case of any concurrency weirdness.
+	if s.regMode == "setup" || user.ID == 1 {
+		_ = s.store.SetPlatformRole(user.ID, PlatformAdmin)
+	}
+
 	// Lock registration after first user (if was in setup mode)
 	if s.regMode == "setup" {
 		s.regMode = "locked"
 		s.setupToken = ""
 	}
 
-	// Auto-create a default project for the new user
-	s.store.CreateProject(user.ID, "Default", "Default project", "#6366f1")
+	// Auto-create a default project for the new user, plus the
+	// owner membership row so the new project_members-driven authz
+	// lookup finds them.
+	project, err := s.store.CreateProject(user.ID, "Default", "Default project", "#6366f1")
+	if err == nil && project != nil {
+		_ = s.store.AddProjectMember(project.ID, user.ID, ProjectOwner, user.ID)
+	}
 
 	writeJSON(w, map[string]any{"id": user.ID, "email": user.Email})
 }
@@ -466,9 +512,14 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "user not found", http.StatusNotFound)
 		return
 	}
+	role := u.Role
+	if role == "" {
+		role = string(PlatformUser)
+	}
 	resp := map[string]any{
 		"user_id":    u.ID,
 		"email":      u.Email,
+		"role":       role,
 		"created_at": u.CreatedAt.UTC().Format(time.RFC3339),
 		"onboarded":  u.OnboardedAt != nil,
 	}
