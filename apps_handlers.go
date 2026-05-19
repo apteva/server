@@ -46,6 +46,11 @@ type AppRow struct {
 	// to know which {app, name} pairs the agent's respond(components)
 	// call can target. Empty / omitted for apps that don't declare any.
 	UIComponents  []sdk.UIComponent `json:"ui_components,omitempty"`
+	// Publishes — topics this app's manifest declares it emits on
+	// the AppBus via ctx.Emit. Drives the dashboard subscription
+	// form's event dropdown. Empty for apps that haven't documented
+	// their emissions yet — the form falls back to free-text.
+	Publishes []sdk.EventDecl `json:"publishes,omitempty"`
 	// Bindings: role → connection_id | install_id | null. Empty when
 	// the install's manifest declares no requires.integrations.
 	Bindings map[string]any `json:"bindings,omitempty"`
@@ -540,6 +545,7 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			Permissions: perms, Surfaces: surfaces,
 			UIPanels:    manifest.Provides.UIPanels,
 			UIComponents: manifest.Provides.UIComponents,
+			Publishes:   manifest.Provides.Publishes,
 		})
 	}
 

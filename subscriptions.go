@@ -128,11 +128,17 @@ func (s *Store) CreateSubscription(userID, instanceID, connectionID int64, name,
 // '<app>:<topic_pattern>' the dispatcher matches on.
 func (s *Store) CreateAppEventSubscription(userID, instanceID int64, name, slug, description, threadID, projectID string) (*Subscription, error) {
 	id := generateID()
+	// 13 columns / 13 values. agent_id binds instanceID; connection_id
+	// is the literal 0 because app-event subscriptions don't go through
+	// a connection. Pre-fix this had only 12 values (agent_id was a
+	// literal 0 and there was no slot for connection_id) so the INSERT
+	// errored with "12 values for 13 columns" the moment the dashboard
+	// tried to subscribe to an app event.
 	_, err := s.db.Exec(
 		`INSERT INTO subscriptions
 			(id, user_id, agent_id, connection_id, name, slug, description,
 			 webhook_path, encrypted_hmac_secret, thread_id, project_id, events, source)
-		 VALUES (?, ?, 0, ?, ?, ?, '', '', ?, ?, '', 'app_event')`,
+		 VALUES (?, ?, ?, 0, ?, ?, ?, '', '', ?, ?, '', 'app_event')`,
 		id, userID, instanceID, name, slug, description, threadID, projectID,
 	)
 	if err != nil {
