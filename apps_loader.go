@@ -330,7 +330,27 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	// the last-wins byName map silently routes every storage call
 	// to one install, leaking writes across project boundaries when
 	// multiple project-scoped installs of the same app coexist.
-	projectID := r.URL.Query().Get("project_id")
+	//
+	// Reject an EMPTY project_id query param explicitly. Caller
+	// included the key but didn't fill it — typically a dashboard
+	// panel rendering before its project context was hydrated. In
+	// that state we'd silently fall through to byName.GetByName,
+	// which returns whichever install registered last and serves
+	// THAT project's data — the cross-project flashing operators
+	// see on first paint. 400 with a clear error message surfaces
+	// the bug to the panel author instead of papering over it.
+	//
+	// An ABSENT project_id (no `project_id=` in the query at all)
+	// still falls through to GetByName for back-compat with non-
+	// panel callers (older agents, ad-hoc curl). Those callers are
+	// presumed scope-aware and shouldn't be routed elsewhere.
+	rawQuery := r.URL.Query()
+	_, hasProjectIDKey := rawQuery["project_id"]
+	projectID := rawQuery.Get("project_id")
+	if hasProjectIDKey && projectID == "" {
+		http.Error(w, "project_id query param present but empty — caller must supply the project context", http.StatusBadRequest)
+		return
+	}
 	var entry *InstalledApp
 	if projectID != "" {
 		entry = s.installedApps.GetByNameAndProject(appName, projectID)
