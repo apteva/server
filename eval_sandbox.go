@@ -61,9 +61,10 @@ type InterceptedCall struct {
 	Host      string    `json:"host"`
 	Path      string    `json:"path"`
 	Method    string    `json:"method"`
-	Mocked    bool      `json:"mocked"`     // true if a mock matched, false on block/allow
+	Mocked    bool      `json:"mocked"`     // true if a mock or cassette entry matched
 	Allowed   bool      `json:"allowed"`    // true if passed through (LLM, loopback)
 	Blocked   bool      `json:"blocked"`    // true if no allow/mock matched
+	Recorded  bool      `json:"recorded"`   // true if forwarded-and-captured into a cassette (WorldEdge record mode)
 	ReqBody   string    `json:"req_body,omitempty"`
 	RespBody  string    `json:"resp_body,omitempty"`
 	Status    int       `json:"status"`
@@ -391,6 +392,11 @@ type SandboxApp struct {
 	Migrations  string // override; otherwise the runner derives from BinaryPath
 	GatewayURL  string // optional override for APTEVA_GATEWAY_URL
 	ExtraEnv    map[string]string
+	// DataDir, when set, is used as the sidecar's data directory instead
+	// of a fresh os.MkdirTemp. Used by snapshot restore to seed a
+	// pre-populated SQLite DB into the sidecar before it boots, so a
+	// World can start from a captured state rather than empty.
+	DataDir string
 }
 
 // SandboxAppInstance is the live result of spawning one app: enough
@@ -430,9 +436,15 @@ func SpawnSandboxedApp(spec SandboxApp, proxyURL, gatewayURL string, healthBudge
 	if err != nil {
 		return nil, fmt.Errorf("alloc port: %w", err)
 	}
-	dataDir, err := os.MkdirTemp("", "apteva-sandbox-app-"+spec.Name+"-")
-	if err != nil {
-		return nil, fmt.Errorf("tmp dir: %w", err)
+	dataDir := spec.DataDir
+	if dataDir == "" {
+		var err error
+		dataDir, err = os.MkdirTemp("", "apteva-sandbox-app-"+spec.Name+"-")
+		if err != nil {
+			return nil, fmt.Errorf("tmp dir: %w", err)
+		}
+	} else if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return nil, fmt.Errorf("data dir: %w", err)
 	}
 	dbPath := filepath.Join(dataDir, spec.Name+".db")
 

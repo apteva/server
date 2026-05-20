@@ -935,7 +935,31 @@ func refreshOAuthAccessToken(app *AppTemplate, credentials map[string]string) er
 	return nil
 }
 
+// worldEgressInterceptor, when non-nil, gets first refusal on every
+// integration tool call BEFORE any outbound HTTP. It returns
+// (result, handled): handled=true short-circuits the real call with the
+// returned result. This is the in-process seam that lets a test World mock
+// third-party integrations without HTTP_PROXY (the shared server has none).
+//
+// nil in production. An interceptor MUST return handled=false for any
+// (app, tool) it doesn't explicitly own, so it can never mask a real
+// user's integration call.
+//
+// CAVEAT (Phase 3): this is process-global, so it can only safely back a
+// single active intercepting World at a time. Per-request world routing —
+// threading a world id from the MCP gateway down to here — removes that
+// limitation later; until then the WorldManager must serialize/guard.
+var worldEgressInterceptor func(app *AppTemplate, tool *AppToolDef, input map[string]any) (*ExecuteResult, bool)
+
 func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any) (*ExecuteResult, error) {
+	// World test-mode seam: a registered interceptor can answer this call
+	// from a fixture/cassette instead of hitting the real third-party API.
+	if worldEgressInterceptor != nil {
+		if res, handled := worldEgressInterceptor(app, tool, input); handled {
+			return res, nil
+		}
+	}
+
 	// Coerce input values to match the tool's schema types.
 	// LLMs often send scalars where arrays are expected (e.g. account_ids=33 instead of [33]).
 	if props, ok := tool.InputSchema["properties"].(map[string]any); ok {

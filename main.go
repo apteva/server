@@ -147,6 +147,13 @@ type Server struct {
 	judgeMutexesOnce sync.Once
 	judgeMutexesMu   sync.Mutex
 	judgeMutexes     map[int64]*sync.Mutex
+
+	// worlds supervises isolated test "Worlds" — sets of real app
+	// sidecars sharing one HTTP edge (see world.go / world_edge.go).
+	// Phase-1 scaffolding for the agent-testing-as-a-virtual-world model.
+	// Nil-safe: only ever consulted by world endpoints, so production
+	// agent paths never touch it.
+	worlds *WorldManager
 }
 
 // appsRegistry is a thin alias over framework.Registry so main.go
@@ -483,6 +490,7 @@ func main() {
 		instanceSecret: loadOrMintInstanceSecret(store),
 		platformStatus: newPlatformStatusPoller(dataDir),
 		primaryHost:    strings.TrimSpace(os.Getenv("APTEVA_PRIMARY_HOST")),
+		worlds:         NewWorldManager(filepath.Join(dataDir, "worlds")),
 	}
 
 	// Start console telemetry logger
@@ -1103,6 +1111,10 @@ func main() {
 	// and agent_evals.go for the handler logic.
 	apiMux.HandleFunc("/eval-mock-gateway/", s.handleEvalMockGateway)
 
+	// /worlds, /world-snapshots — isolated test environments (the
+	// agent-testing-as-a-virtual-world model). See world*.go.
+	s.registerWorldRoutes(apiMux)
+
 	instancesCollectionHandler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -1442,6 +1454,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\napteva-server received %s — stopping children\n", sig)
 		s.stopApps(appsReg)
 		s.agents.StopAll(5 * time.Second)
+		if s.worlds != nil {
+			s.worlds.StopAll()
+		}
 		// Sidecars are spawned with Setpgid; StopAll fans out SIGTERM
 		// and falls back to SIGKILL after the grace window. Without
 		// this, every clean apteva-server exit leaves the running

@@ -141,6 +141,12 @@ func (im *AgentManager) instanceDir(id int64) string {
 	return dir
 }
 
+// InstanceDir is the exported accessor for an instance's on-disk directory
+// (config.json, history/, memory.jsonl). Used by world snapshotting to
+// capture/restore an agent's full state. Like instanceDir it ensures the
+// directory exists.
+func (im *AgentManager) InstanceDir(id int64) string { return im.instanceDir(id) }
+
 // PreSeedConfig writes a starting config.json into an instance's
 // directory. Start reads disk-first ("Disk config.json is the single
 // source of truth"), so any field the caller wants the spawned core
