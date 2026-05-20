@@ -54,7 +54,22 @@ type World struct {
 	edge      *WorldEdge
 	mu        sync.Mutex
 	apps      map[string]*SandboxAppInstance
+	agent     *WorldAgent // optional: the agent copy running in this world
 	createdAt time.Time
+}
+
+// AttachAgent records the running agent copy so World.Stop tears it down.
+func (w *World) AttachAgent(a *WorldAgent) {
+	w.mu.Lock()
+	w.agent = a
+	w.mu.Unlock()
+}
+
+// Agent returns the world's running agent copy, or nil.
+func (w *World) Agent() *WorldAgent {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.agent
 }
 
 // Edge exposes the world's HTTP intercept (for assertions / cassette save).
@@ -94,12 +109,18 @@ func (w *World) AppDBPath(name string) (string, bool) {
 	return filepath.Join(a.DataDir, name+".db"), true
 }
 
-// Stop tears the world down: every sidecar, then the edge. Idempotent.
+// Stop tears the world down: the agent copy, every sidecar, then the edge.
+// Idempotent.
 func (w *World) Stop() {
 	w.mu.Lock()
 	apps := w.apps
+	agent := w.agent
 	w.apps = map[string]*SandboxAppInstance{}
+	w.agent = nil
 	w.mu.Unlock()
+	if agent != nil {
+		agent.Stop()
+	}
 	for _, a := range apps {
 		a.Stop()
 	}

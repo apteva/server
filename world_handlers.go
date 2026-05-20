@@ -149,6 +149,12 @@ func (s *Server) handleWorldByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// /worlds/<id>/agent[/...] — spawn / stop / drive the agent copy.
+	if sub == "agent" || strings.HasPrefix(sub, "agent/") {
+		s.handleWorldAgent(w, r, world, strings.TrimPrefix(strings.TrimPrefix(sub, "agent"), "/"))
+		return
+	}
+
 	switch sub {
 	case "":
 		switch r.Method {
@@ -268,6 +274,93 @@ func (s *Server) proxyToWorldApp(w http.ResponseWriter, r *http.Request, world *
 		req.URL.Path = tail
 		// In-world sidecars run in dev mode (no APTEVA_APP_TOKEN), so no
 		// Authorization header is needed — see SpawnSandboxedApp.
+	}
+	proxy.ServeHTTP(w, r)
+}
+
+type spawnWorldAgentRequest struct {
+	SourceAgentID int64  `json:"source_agent_id"`
+	Directive     string `json:"directive"`
+}
+
+// handleWorldAgent spawns/stops/drives the agent copy in a world.
+//
+//	POST   /worlds/<id>/agent          spawn (clone source_agent_id)
+//	GET    /worlds/<id>/agent          status
+//	DELETE /worlds/<id>/agent          stop
+//	ANY    /worlds/<id>/agent/<tail>   reverse-proxy to the in-world core
+func (s *Server) handleWorldAgent(w http.ResponseWriter, r *http.Request, world *World, tail string) {
+	userID := getUserID(r)
+
+	// Drive the running core: proxy /agent/<tail> to its HTTP API.
+	if tail != "" {
+		wa := world.Agent()
+		if wa == nil {
+			http.Error(w, "world has no agent — POST /agent first", http.StatusNotFound)
+			return
+		}
+		s.proxyToWorldCore(w, r, wa, tail)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPost:
+		var req spawnWorldAgentRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		src, err := s.store.GetAgentByID(req.SourceAgentID)
+		if err != nil || src == nil || src.UserID != userID {
+			http.Error(w, "source agent not found", http.StatusNotFound)
+			return
+		}
+		wa, err := s.SpawnAgentInWorld(world, WorldAgentSpec{
+			UserID:            userID,
+			Source:            src,
+			DirectiveOverride: req.Directive,
+		})
+		if err != nil {
+			http.Error(w, "spawn world agent: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		writeJSON(w, map[string]any{"agent_id": wa.AgentID, "port": wa.Port})
+	case http.MethodGet:
+		wa := world.Agent()
+		if wa == nil {
+			http.Error(w, "no agent in world", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, map[string]any{"agent_id": wa.AgentID, "port": wa.Port})
+	case http.MethodDelete:
+		if wa := world.Agent(); wa != nil {
+			wa.Stop()
+			world.AttachAgent(nil)
+		}
+		writeJSON(w, map[string]any{"stopped": true})
+	default:
+		http.Error(w, "GET, POST or DELETE", http.StatusMethodNotAllowed)
+	}
+}
+
+// proxyToWorldCore reverse-proxies to the in-world agent core's HTTP API,
+// injecting its core API key. Lets the dashboard/tests POST /event and read
+// /threads/main/context through the world, exactly as for a live agent.
+func (s *Server) proxyToWorldCore(w http.ResponseWriter, r *http.Request, wa *WorldAgent, tail string) {
+	target, err := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", wa.Port))
+	if err != nil {
+		http.Error(w, "invalid core url", http.StatusInternalServerError)
+		return
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.URL.Path = "/" + tail
+		if wa.APIKey != "" {
+			req.Header.Set("Authorization", "Bearer "+wa.APIKey)
+		}
 	}
 	proxy.ServeHTTP(w, r)
 }
