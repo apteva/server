@@ -35,7 +35,13 @@ type WorldSpec struct {
 	ID         string       // unique id for this world (caller-supplied)
 	ProjectID  string       // project scope the in-world apps run under
 	GatewayURL string       // shared apteva-server URL sidecars call back to
-	Apps       []SandboxApp // app sidecars to boot in-world (BinaryPath optional → resolver)
+	Apps       []SandboxApp // legacy prebuilt-binary sidecars (eval path)
+	// AppSrcDirs maps app name → local working-copy dir. These are installed
+	// via the real install path (installLocalSource) under project_id=ID, so
+	// each is a project-scoped REAL install: its callbacks authenticate and
+	// inter-app routing resolves. This is the clean World path; Apps stays
+	// for the legacy prebuilt-binary case.
+	AppSrcDirs map[string]string
 	Policy     SandboxPolicy // edge allowlist + hand-written mocks
 	Mode       EdgeMode      // edge default mode (block | passthrough | record | replay | mock)
 	Cassette   *Cassette     // optional preloaded cassette (for replay)
@@ -57,11 +63,21 @@ type World struct {
 	Mode      EdgeMode
 
 	edge              *WorldEdge
+	server            *Server // back-ref for real installs + teardown (nil for edge-only worlds)
 	mu                sync.Mutex
 	apps              map[string]*SandboxAppInstance
-	agent             *WorldAgent // optional: the agent copy running in this world
-	removeInterceptor func()      // unregisters this world's integration interceptor
+	installs          map[string]*localInstall // real installs (AppSrcDirs path), keyed by app name
+	agent             *WorldAgent              // optional: the agent copy running in this world
+	removeInterceptor func()                   // unregisters this world's integration interceptor
 	createdAt         time.Time
+}
+
+// Install returns a real in-world install by app name.
+func (w *World) Install(name string) (*localInstall, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	in, ok := w.installs[name]
+	return in, ok
 }
 
 // AttachAgent records the running agent copy so World.Stop tears it down.
@@ -103,11 +119,15 @@ func (w *World) Apps() map[string]*SandboxAppInstance {
 	return out
 }
 
-// AppDBPath resolves an in-world sidecar's SQLite file (for state
-// assertions). SpawnSandboxedApp lays it down at <DataDir>/<name>.db.
+// AppDBPath resolves an in-world app's SQLite file (for state assertions).
+// Real installs lay it down at <cacheDir>/<name>/data/<installID>/app.db;
+// legacy sandbox sidecars at <DataDir>/<name>.db.
 func (w *World) AppDBPath(name string) (string, bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if in, ok := w.installs[name]; ok && in.DBPath != "" {
+		return in.DBPath, true
+	}
 	a, ok := w.apps[name]
 	if !ok || a.DataDir == "" {
 		return "", false
@@ -115,17 +135,38 @@ func (w *World) AppDBPath(name string) (string, bool) {
 	return filepath.Join(a.DataDir, name+".db"), true
 }
 
-// Stop tears the world down: the agent copy, every sidecar, then the edge.
+// Stop tears the world down: the agent copy, real installs, sidecars, the
+// edge, and any world-scoped DB rows. Every DB cleanup is guarded by the
+// world's project id, so it can NEVER touch a production install/connection.
 // Idempotent.
 func (w *World) Stop() {
 	w.mu.Lock()
 	apps := w.apps
+	installs := w.installs
 	agent := w.agent
 	w.apps = map[string]*SandboxAppInstance{}
+	w.installs = map[string]*localInstall{}
 	w.agent = nil
 	w.mu.Unlock()
+
 	if agent != nil {
 		agent.Stop()
+	}
+	// Tear down real installs (stop process + delete install/app rows +
+	// remove the throwaway data dir).
+	if w.server != nil {
+		for _, in := range installs {
+			w.server.deleteWorldInstall(in.InstallID)
+			if in.DataDir != "" {
+				_ = os.RemoveAll(in.DataDir)
+			}
+		}
+		// Delete any connections seeded under this world's project. The
+		// project id is the world id — never empty/global — so this only
+		// removes world-scoped rows.
+		if w.ID != "" {
+			_, _ = w.server.store.db.Exec(`DELETE FROM connections WHERE project_id = ?`, w.ID)
+		}
 	}
 	for _, a := range apps {
 		a.Stop()
@@ -145,6 +186,7 @@ type WorldManager struct {
 	worlds    map[string]*World
 	dataDir   string
 	snapshots *SnapshotStore
+	server    *Server // set in NewServer; needed for real (install-backed) world apps
 
 	// ResolveBinary maps an app manifest name to its sidecar binary path
 	// when a SandboxApp doesn't carry an explicit BinaryPath. Injectable
@@ -258,7 +300,9 @@ func (wm *WorldManager) Create(spec WorldSpec) (*World, error) {
 		ProjectID: spec.ProjectID,
 		Mode:      edge.mode,
 		edge:      edge,
+		server:    wm.server,
 		apps:      map[string]*SandboxAppInstance{},
+		installs:  map[string]*localInstall{},
 		createdAt: time.Now(),
 	}
 
@@ -291,6 +335,31 @@ func (wm *WorldManager) Create(spec WorldSpec) (*World, error) {
 		}
 		w.mu.Lock()
 		w.apps[app.Name] = inst
+		w.mu.Unlock()
+	}
+
+	// Real installs from local source — the clean World path. Each app is
+	// installed under project_id = the world id, with its egress routed
+	// through the edge and APTEVA_WORLD_ID set so its integration callbacks
+	// route to this world's interceptor.
+	for name, srcDir := range spec.AppSrcDirs {
+		if wm.server == nil {
+			w.Stop()
+			return nil, fmt.Errorf("world %q: AppSrcDirs needs a server-backed WorldManager", spec.ID)
+		}
+		env := map[string]string{
+			"HTTP_PROXY":      edge.ProxyURL(),
+			"HTTPS_PROXY":     edge.ProxyURL(),
+			"NO_PROXY":        "",
+			"APTEVA_WORLD_ID": spec.ID,
+		}
+		inst, ierr := wm.server.installLocalSource(srcDir, spec.ID, env, nil)
+		if ierr != nil {
+			w.Stop()
+			return nil, fmt.Errorf("world %q: install app %q: %w", spec.ID, name, ierr)
+		}
+		w.mu.Lock()
+		w.installs[inst.AppName] = inst
 		w.mu.Unlock()
 	}
 

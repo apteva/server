@@ -492,6 +492,9 @@ func main() {
 		primaryHost:    strings.TrimSpace(os.Getenv("APTEVA_PRIMARY_HOST")),
 		worlds:         NewWorldManager(filepath.Join(dataDir, "worlds")),
 	}
+	// Back-reference so Worlds can drive real (install-backed) app seeding +
+	// teardown. Only ever used by world endpoints; production untouched.
+	s.worlds.server = s
 
 	// Start console telemetry logger
 	if os.Getenv("QUIET") != "1" {
