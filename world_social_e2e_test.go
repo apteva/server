@@ -78,14 +78,53 @@ func newWorldTestServer(t *testing.T) *Server {
 	}
 	s.worlds.server = s
 
-	// A bare listener that 404s — enough that an in-world sidecar's gateway
-	// callback completes (and fails cleanly) instead of hanging on a refused
-	// connection. We don't wire the callback routes here; this test asserts
-	// the real DB write, which happens before any publish callback.
-	httpServer := &http.Server{Handler: http.NewServeMux(), ReadHeaderTimeout: 5 * time.Second}
+	// A catalog with a synthetic twitter-api app so the integration callback
+	// can resolve the app + tool. The per-world interceptor short-circuits
+	// before any real request is built, so a minimal tool def suffices.
+	cat := NewAppCatalog()
+	cat.apps["twitter-api"] = &AppTemplate{
+		Slug:  "twitter-api",
+		Name:  "Twitter",
+		Tools: []AppToolDef{{Name: "post_tweet", Method: "POST", Path: "/2/tweets"}},
+	}
+	s.catalog = cat
+
+	// A user so the dev-token callback (installed_by → user) resolves to a
+	// real owner the seeded connection belongs to.
+	if _, err := store.CreateUser("world-e2e@example.com", "x"); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	// Mount the app-callback route so in-world sidecars' platform calls
+	// (ExecuteIntegrationTool → /api/apps/callback/integrations/:id/execute)
+	// reach the real handler → the per-world interceptor.
+	apiMux := http.NewServeMux()
+	apiMux.HandleFunc("/apps/callback/", s.authMiddleware(s.handleAppCallback))
+	mux := http.NewServeMux()
+	mux.Handle("/api/", http.StripPrefix("/api", apiMux))
+	httpServer := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go httpServer.Serve(listener) //nolint:errcheck
 	t.Cleanup(func() { _ = httpServer.Close() })
 	return s
+}
+
+// seedConnection inserts a world-scoped integration connection owned by the
+// given install, and returns its id. Mirrors the real connections schema.
+func seedConnection(t *testing.T, s *Server, projectID string, ownerInstallID int64) int64 {
+	t.Helper()
+	enc, err := Encrypt(s.secret, "{}")
+	if err != nil {
+		t.Fatalf("encrypt creds: %v", err)
+	}
+	res, err := s.store.db.Exec(
+		`INSERT INTO connections (user_id, app_slug, app_name, name, auth_type, encrypted_credentials, status, project_id, source, provider_id, external_id, created_via, owner_app_install_id, auto_mcp)
+		 VALUES (1, 'twitter-api', 'Twitter', 'twitter', 'oauth2', ?, 'active', ?, 'local', 0, '', 'app_install', ?, 0)`,
+		enc, projectID, ownerInstallID)
+	if err != nil {
+		t.Fatalf("seed connection: %v", err)
+	}
+	id, _ := res.LastInsertId()
+	return id
 }
 
 // callMCP issues one JSON-RPC call to an app's /mcp endpoint and returns the
@@ -167,7 +206,7 @@ func TestWorld_RealSocial_DBWrite(t *testing.T) {
 	// 3. Seed a destination account directly in the isolated DB, then drive
 	//    post_create over MCP and assert the REAL row landed. project_id must
 	//    match the sidecar's APTEVA_PROJECT_ID (= the world id).
-	seedSocialAccount(t, dbPath, world.ID)
+	seedSocialAccount(t, dbPath, world.ID, 1)
 	_ = callMCP(t, inst.SidecarURL+"/mcp", token, "tools/call", map[string]any{
 		"name": "post_create",
 		"arguments": map[string]any{
@@ -205,7 +244,7 @@ func countRows(t *testing.T, dbPath, query string) int64 {
 	return n
 }
 
-func seedSocialAccount(t *testing.T, dbPath, projectID string) {
+func seedSocialAccount(t *testing.T, dbPath, projectID string, connID int64) {
 	t.Helper()
 	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout(5000)")
 	if err != nil {
@@ -214,9 +253,85 @@ func seedSocialAccount(t *testing.T, dbPath, projectID string) {
 	defer db.Close()
 	_, err = db.Exec(
 		`INSERT INTO social_accounts (id, project_id, platform, connection_id, external_account_id, display_name, status)
-		 VALUES (1, ?, 'twitter', 1, 'acct-x', 'Test Account', 'active')`,
-		projectID)
+		 VALUES (1, ?, 'twitter', ?, 'acct-x', 'Test Account', 'active')`,
+		projectID, connID)
 	if err != nil {
 		t.Fatalf("seed social_account: %v", err)
 	}
+}
+
+// TestWorld_RealSocial_InterceptorMocksTweet is the full-loop proof: the real
+// social sidecar publishes a tweet via ExecuteIntegrationTool, the call hits
+// the per-world interceptor (NOT the real Twitter), and social records the
+// target as published from the mocked response — all inside the World.
+func TestWorld_RealSocial_InterceptorMocksTweet(t *testing.T) {
+	if testing.Short() {
+		t.Skip("real-app world test builds the social sidecar")
+	}
+	srcDir := findAppSource(t, "social")
+	s := newWorldTestServer(t)
+
+	world, err := s.worlds.Create(WorldSpec{
+		ID:         "e2e-social-tweet",
+		GatewayURL: s.localGatewayURL(),
+		AppSrcDirs: map[string]string{"social": srcDir},
+		Mode:       EdgeBlock,
+		// The interceptor that answers social's tweet, keyed to this world.
+		IntegrationFixtures: []IntegrationFixture{{
+			App:    "twitter-api",
+			Tool:   "post_tweet",
+			Status: 200,
+			Data:   map[string]any{"data": map[string]any{"id": "mocked-tweet-1"}},
+		}},
+		HealthBudget: 120 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("create world: %v", err)
+	}
+	defer world.Stop()
+
+	inst, ok := world.Install("social")
+	if !ok {
+		t.Fatal("social install missing")
+	}
+	token := fmt.Sprintf("dev-%d", inst.InstallID)
+	dbPath, _ := world.AppDBPath("social")
+
+	// Seed a world-scoped twitter connection owned by the social install,
+	// plus the social_account that points at it.
+	connID := seedConnection(t, s, world.ID, inst.InstallID)
+	seedSocialAccount(t, dbPath, world.ID, connID)
+
+	// Publish — inline (no schedule_at), so social calls post_tweet now.
+	_ = callMCP(t, inst.SidecarURL+"/mcp", token, "tools/call", map[string]any{
+		"name": "post_create",
+		"arguments": map[string]any{
+			"body":               "launch day!",
+			"social_account_ids": []any{1},
+		},
+	})
+
+	// The target is 'published' ONLY if the integration call succeeded —
+	// and it can only succeed via the interceptor (there is no real Twitter,
+	// and the edge would block a real api.twitter.com call).
+	status := scalarString(t, dbPath, `SELECT status FROM post_targets ORDER BY id DESC LIMIT 1`)
+	if status != "published" {
+		t.Fatalf("expected post_target status 'published' (via interceptor), got %q", status)
+	}
+	gotID := scalarString(t, dbPath, `SELECT COALESCE(platform_post_id,'') FROM post_targets ORDER BY id DESC LIMIT 1`)
+	t.Logf("✓ real social published via the per-world interceptor — platform_post_id=%q (mocked, no real Twitter call)", gotID)
+}
+
+func scalarString(t *testing.T, dbPath, query string) string {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro&_pragma=busy_timeout(3000)")
+	if err != nil {
+		t.Fatalf("open %s: %v", dbPath, err)
+	}
+	defer db.Close()
+	var v string
+	if err := db.QueryRow(query).Scan(&v); err != nil {
+		t.Fatalf("query %q: %v", query, err)
+	}
+	return v
 }
