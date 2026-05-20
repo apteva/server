@@ -122,8 +122,11 @@ func (s *Server) installLocalSource(srcDir, projectID string, env map[string]str
 	//    (GetByNameAndProject) and inter-app CallApp routing resolve.
 	s.LoadInstalledApps()
 
-	// Data dir layout mirrors spawn(): <cacheDir>/<name>/data/<installID>.
-	dataDir := filepath.Join(s.localApps.cacheDir, m.Name, "data", strconv.FormatInt(installID, 10))
+	// Data dir layout mirrors spawn(): persistentRoot is a sibling "data"
+	// dir next to the binary's directory, keyed by install id —
+	//   <dir(binPath)>/../data/<installID>/app.db
+	binDir := filepath.Dir(binPath)
+	dataDir := filepath.Join(filepath.Dir(binDir), "data", strconv.FormatInt(installID, 10))
 	return &localInstall{
 		InstallID:  installID,
 		AppName:    m.Name,

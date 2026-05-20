@@ -207,10 +207,10 @@ func (sup *LocalSupervisor) buildAndSpawn(installID int64, m *sdk.Manifest, srcD
 // source.entry (or "."). extraGoEnv lets the caller inject build env (e.g.
 // GOWORK pointing at a temp workspace so the local app-sdk overlay applies).
 func (sup *LocalSupervisor) BuildFromLocalSource(installID int64, m *sdk.Manifest, localSrcDir string, goEnv []string, env map[string]string, progress func(string)) (port int, binPath string, err error) {
+	// localSrcDir already points at the app's module dir (where go.mod
+	// lives), so entry is always "." — unlike a git source whose entry is
+	// relative to the repo root (e.g. "mcp/social").
 	entry := "."
-	if m.Runtime.Source != nil && m.Runtime.Source.Entry != "" {
-		entry = m.Runtime.Source.Entry
-	}
 	dir := filepath.Join(sup.cacheDir, "_local", m.Name)
 	binPath = filepath.Join(dir, "bin")
 	if err := os.MkdirAll(dir, 0755); err != nil {
