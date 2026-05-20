@@ -110,7 +110,7 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 	if err := cloneOrUpdate(srcDir, src.Repo, ref); err != nil {
 		return 0, "", fmt.Errorf("clone %s@%s: %w", src.Repo, ref, err)
 	}
-	port, err = sup.buildAndSpawn(installID, m, srcDir, entry, binPath, gobuildDir, env, progress)
+	port, err = sup.buildAndSpawn(installID, m, srcDir, entry, binPath, gobuildDir, nil, env, progress)
 	if err != nil {
 		return 0, "", err
 	}
@@ -123,7 +123,7 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 // calls it with a working-copy dir (no clone). Keeping a single tail means
 // git-source and local-source installs run the identical build→spawn→health
 // path — there is no second mechanism to drift from production.
-func (sup *LocalSupervisor) buildAndSpawn(installID int64, m *sdk.Manifest, srcDir, entry, binPath, gobuildDir string, env map[string]string, progress func(string)) (port int, err error) {
+func (sup *LocalSupervisor) buildAndSpawn(installID int64, m *sdk.Manifest, srcDir, entry, binPath, gobuildDir string, goEnv []string, env map[string]string, progress func(string)) (port int, err error) {
 	if progress == nil {
 		progress = func(string) {}
 	}
@@ -134,7 +134,7 @@ func (sup *LocalSupervisor) buildAndSpawn(installID int64, m *sdk.Manifest, srcD
 	// Pass the progress callback through so goBuild can update the
 	// status as toolchain output arrives — "Downloading X dependencies",
 	// "Extracting…", "Linking binary…" instead of one stale phrase.
-	if err := goBuild(srcDir, entry, binPath, gobuildDir, progress); err != nil {
+	if err := goBuild(srcDir, entry, binPath, gobuildDir, goEnv, progress); err != nil {
 		return 0, fmt.Errorf("go build: %w", err)
 	}
 
@@ -206,7 +206,7 @@ func (sup *LocalSupervisor) buildAndSpawn(installID int64, m *sdk.Manifest, srcD
 // CURRENT code runs, not a published ref. entry defaults to the manifest's
 // source.entry (or "."). extraGoEnv lets the caller inject build env (e.g.
 // GOWORK pointing at a temp workspace so the local app-sdk overlay applies).
-func (sup *LocalSupervisor) BuildFromLocalSource(installID int64, m *sdk.Manifest, localSrcDir string, env map[string]string, progress func(string)) (port int, binPath string, err error) {
+func (sup *LocalSupervisor) BuildFromLocalSource(installID int64, m *sdk.Manifest, localSrcDir string, goEnv []string, env map[string]string, progress func(string)) (port int, binPath string, err error) {
 	entry := "."
 	if m.Runtime.Source != nil && m.Runtime.Source.Entry != "" {
 		entry = m.Runtime.Source.Entry
@@ -220,7 +220,7 @@ func (sup *LocalSupervisor) BuildFromLocalSource(installID int64, m *sdk.Manifes
 	if err := os.MkdirAll(gobuildDir, 0755); err != nil {
 		return 0, "", err
 	}
-	port, err = sup.buildAndSpawn(installID, m, localSrcDir, entry, binPath, gobuildDir, env, progress)
+	port, err = sup.buildAndSpawn(installID, m, localSrcDir, entry, binPath, gobuildDir, goEnv, env, progress)
 	if err != nil {
 		return 0, "", err
 	}
@@ -321,7 +321,7 @@ func runGit(dir string, args ...string) error {
 // emits new output lines, throttled to roughly every 500ms so the
 // dashboard's poll loop has new content but the DB doesn't get
 // hammered. Pass nil to disable.
-func goBuild(srcDir, entry, binPath, cacheDir string, progress func(string)) error {
+func goBuild(srcDir, entry, binPath, cacheDir string, goEnv []string, progress func(string)) error {
 	goBin, err := resolveGoBinary()
 	if err != nil {
 		return err
@@ -355,6 +355,10 @@ func goBuild(srcDir, entry, binPath, cacheDir string, progress func(string)) err
 		"GOCACHE="+filepath.Join(absCache, "gocache"),
 		"GOMODCACHE="+filepath.Join(absCache, "gomodcache"),
 	)
+	// Caller-supplied build env (e.g. GOWORK pointing at a temp workspace
+	// so a local-source build resolves sibling modules like app-sdk from
+	// the working copy). Appended last so it wins. Empty for git installs.
+	envv = append(envv, goEnv...)
 	cmd.Env = envv
 
 	// Capture stdout + stderr together — `go build` emits download +
