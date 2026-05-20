@@ -1,0 +1,104 @@
+{
+  "slug": "bls",
+  "name": "BLS — Bureau of Labor Statistics",
+  "description": "Official US labor market data — non-farm payrolls, unemployment rate, CPI components, PPI, average hourly earnings, JOLTS, productivity, employment cost index, occupational employment. Primary source for the data FRED republishes; useful when you want the canonical print or finer granularity (CPI subindexes, specific occupational data). Free tier: 25 requests/day without key, 500/day with key. Register at https://www.bls.gov/developers/. API is POST-based with JSON body — series IDs are coded (LNS14000000 = unemployment rate, CUUR0000SA0 = CPI all-urban, CES0500000003 = avg hourly earnings).",
+  "logo": "https://www.google.com/s2/favicons?domain=bls.gov&sz=128",
+  "categories": [
+    "economy",
+    "macro",
+    "labor",
+    "inflation",
+    "employment",
+    "public-data",
+    "government"
+  ],
+  "base_url": "https://api.bls.gov/publicAPI/v2",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "BLS Registration Key",
+        "description": "From https://data.bls.gov/registrationEngine/. Free; 500 req/day with key (vs 25/day without). Required for date-range queries beyond the latest year."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_series",
+      "description": "Fetch one or more BLS time series in a single call. Pass up to 50 series ids in `seriesid` and optional date range. Returns parallel data arrays with period (M01–M12 for months), year, value, and footnotes. Common series: LNS14000000 (unemployment rate), CUUR0000SA0 (CPI all-urban, all items), CES0500000003 (avg hourly earnings), JTS000000000000000JOL (job openings, total).",
+      "method": "POST",
+      "path": "/timeseries/data/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "seriesid":         {"type": "array", "items": {"type": "string"}, "description": "BLS series ids — coded strings like LNS14000000."},
+          "startyear":        {"type": "string", "description": "YYYY, e.g. '2020'. Required for multi-year queries with a registered key."},
+          "endyear":          {"type": "string", "description": "YYYY."},
+          "catalog":          {"type": "boolean", "description": "Include series-level metadata (description, units, seasonal_adjustment) in the response."},
+          "calculations":     {"type": "boolean", "description": "Include net change + % change calculations alongside raw values."},
+          "annualaverage":    {"type": "boolean", "description": "Include the annual average row for each year."},
+          "aspects":          {"type": "boolean"},
+          "registrationkey":  {"type": "string", "description": "Auto-populated from credentials.api_key — don't pass manually."}
+        },
+        "required": ["seriesid"]
+      },
+      "body_input": "_"
+    },
+    {
+      "name": "get_series_single",
+      "description": "Latest year's data for ONE series, no body required — useful for quick lookups via the GET form of the API.",
+      "method": "GET",
+      "path": "/timeseries/data/{seriesid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "seriesid":        {"type": "string", "description": "Series id."},
+          "registrationkey": {"type": "string", "description": "Auto-populated."}
+        },
+        "required": ["seriesid"]
+      }
+    },
+    {
+      "name": "popular_series",
+      "description": "List BLS's most-requested series, optionally filtered by survey. Use to discover what's actually trafficked vs the long tail. Surveys: CE (Employment), CU (CPI), JT (JOLTS), LN (Labor Force), PR (Productivity), etc.",
+      "method": "GET",
+      "path": "/timeseries/popular",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "survey": {"type": "string", "description": "Two-letter survey code (CE, CU, JT, LN, PR, etc.). Omit for all popular series."}
+        }
+      }
+    },
+    {
+      "name": "list_surveys",
+      "description": "Every BLS survey + abbreviation. Use to discover the survey landscape before drilling into popular_series.",
+      "method": "GET",
+      "path": "/surveys",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "survey_info",
+      "description": "Metadata for one survey — title, description, last-update info, units.",
+      "method": "GET",
+      "path": "/surveys/{survey}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "survey": {"type": "string", "description": "Two-letter survey code (CE, CU, etc.)."}
+        },
+        "required": ["survey"]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_surveys"
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "slug": "newsapi",
+  "name": "NewsAPI",
+  "description": "Structured news headlines from 80,000+ sources worldwide — searchable by query, source, language, country, category. Cleaner filtering than free-text search APIs because you can pin sources (e.g. 'only Reuters + Bloomberg + WSJ for AAPL'). Free dev tier: 100 requests/day, results delayed by 24 hours, attribution required, non-commercial. Sign up at https://newsapi.org/register. Pairs well with Tavily (broad LLM-shaped search) and Finnhub (financial-focused).",
+  "logo": "https://www.google.com/s2/favicons?domain=newsapi.org&sz=128",
+  "categories": [
+    "news",
+    "search",
+    "media",
+    "research"
+  ],
+  "base_url": "https://newsapi.org/v2",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "X-Api-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "From your NewsAPI account at https://newsapi.org/account. Free dev tier; paid tiers remove the 24h delay + allow commercial use."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "everything",
+      "description": "Full-text search across the entire NewsAPI corpus. Returns articles matching q with source, author, title, description, url, publishedAt, content. Use for the broadest news pull — 'AAPL OR \"Apple Inc\"', '\"Fed funds rate\" cut', '\"Bitcoin ETF\" approval'. NewsAPI's q syntax supports AND / OR / NOT and quoted phrases.",
+      "method": "GET",
+      "path": "/everything",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q":              {"type": "string", "description": "Free-text query — supports AND, OR, NOT, and quoted phrases. Max 500 chars."},
+          "searchIn":       {"type": "string", "description": "Comma-separated: title, description, content. Limits which article fields the q matches against."},
+          "sources":        {"type": "string", "description": "Comma-separated source ids — bloomberg, reuters, bbc-news, the-wall-street-journal, etc. Get the catalog from list_sources."},
+          "domains":        {"type": "string", "description": "Comma-separated domains to restrict — bloomberg.com, reuters.com, wsj.com."},
+          "excludeDomains": {"type": "string", "description": "Comma-separated domains to exclude."},
+          "from":           {"type": "string", "description": "ISO date — articles published on/after."},
+          "to":             {"type": "string", "description": "ISO date — articles published on/before."},
+          "language":       {"type": "string", "enum": ["ar","de","en","es","fr","he","it","nl","no","pt","ru","sv","ud","zh"], "default": "en"},
+          "sortBy":         {"type": "string", "enum": ["relevancy","popularity","publishedAt"], "default": "publishedAt"},
+          "pageSize":       {"type": "integer", "description": "Max 100. Default 100."},
+          "page":           {"type": "integer"}
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "top_headlines",
+      "description": "Live top headlines, filtered by country + category + source + query. Returns what's on the front pages right now. Lower-latency than /everything (real-time vs 24h delay on the free tier).",
+      "method": "GET",
+      "path": "/top-headlines",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country":  {"type": "string", "description": "ISO 3166-1 alpha-2 country code (us, gb, jp, de, etc.). Cannot combine with sources."},
+          "category": {"type": "string", "enum": ["business","entertainment","general","health","science","sports","technology"]},
+          "sources":  {"type": "string", "description": "Comma-separated source ids. Cannot combine with country/category."},
+          "q":        {"type": "string"},
+          "pageSize": {"type": "integer", "description": "Max 100."},
+          "page":     {"type": "integer"}
+        }
+      }
+    },
+    {
+      "name": "list_sources",
+      "description": "Catalog of every news source NewsAPI indexes — id, name, description, url, category, language, country. Use to discover source ids before filtering everything or top_headlines.",
+      "method": "GET",
+      "path": "/top-headlines/sources",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": {"type": "string", "enum": ["business","entertainment","general","health","science","sports","technology"]},
+          "language": {"type": "string", "description": "ISO 639-1 (en, fr, es, ...)."},
+          "country":  {"type": "string", "description": "ISO 3166-1 alpha-2."}
+        }
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_sources",
+    "args": {"category": "business", "language": "en"}
+  }
+}

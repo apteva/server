@@ -1,0 +1,153 @@
+{
+  "slug": "polymarket-data",
+  "name": "Polymarket Data API",
+  "description": "Polymarket's user-scoped analytics endpoint — distinct from gamma-api (market metadata + prices) and clob.polymarket.com (trading). Returns user positions, trades, activity, leaderboards, market holder concentration, and open interest. No authentication required — all endpoints are public reads — but most require a wallet address argument. Use to track whale wallets across markets, find big holders, surface concentration risk, and benchmark performance against the platform's top traders.",
+  "logo": "https://www.google.com/s2/favicons?domain=polymarket.com&sz=128",
+  "categories": [
+    "prediction-markets",
+    "polymarket",
+    "analytics",
+    "leaderboards",
+    "public-data"
+  ],
+  "base_url": "https://data-api.polymarket.com",
+  "auth": {
+    "types": ["none"],
+    "headers": {
+      "Accept": "application/json"
+    },
+    "credential_fields": []
+  },
+  "tools": [
+    {
+      "name": "get_positions",
+      "description": "Open positions held by a wallet address. Returns one entry per (market, outcome) pair the wallet currently holds, with size, average entry price, current value, realized + unrealized P&L. Use to peek into how a known whale is currently allocated.",
+      "method": "GET",
+      "path": "/positions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user":          {"type": "string", "description": "0x-prefixed wallet address. Required."},
+          "market":        {"type": "string", "description": "Optional — restrict to one condition_id."},
+          "sizeThreshold": {"type": "number", "description": "Hide positions smaller than this (USDC). Defaults to 1."},
+          "limit":         {"type": "integer", "description": "Max rows (default 50, max 500)."},
+          "offset":        {"type": "integer", "description": "Pagination offset."},
+          "sortBy":        {"type": "string", "enum": ["CURRENT","INITIAL","CASHPNL","PERCENTPNL","TITLE","RESOLVING","PRICE"], "default": "CURRENT", "description": "Position-value, initial-cost, PnL, etc."},
+          "sortDirection": {"type": "string", "enum": ["ASC","DESC"], "default": "DESC"},
+          "redeemable":    {"type": "boolean", "description": "Only show positions in resolved markets that haven't been redeemed yet."}
+        },
+        "required": ["user"]
+      }
+    },
+    {
+      "name": "get_activity",
+      "description": "Recent on-chain activity for a wallet — every trade, deposit, withdrawal, redemption, market resolution claim, etc. Use for full audit-trail views or to detect that a whale just made a big move.",
+      "method": "GET",
+      "path": "/activity",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user":    {"type": "string", "description": "0x-prefixed wallet address. Required."},
+          "limit":   {"type": "integer", "description": "Max rows (default 100, max 500)."},
+          "offset":  {"type": "integer", "description": "Pagination offset."},
+          "market":  {"type": "string", "description": "Optional — restrict to one condition_id."},
+          "type":    {"type": "string", "enum": ["TRADE","SPLIT","MERGE","REDEEM","REWARD","CONVERSION"], "description": "Filter by activity kind."},
+          "side":    {"type": "string", "enum": ["BUY","SELL"], "description": "Trade direction filter (only meaningful with type=TRADE)."},
+          "start":   {"type": "integer", "description": "Unix-seconds lower bound."},
+          "end":     {"type": "integer", "description": "Unix-seconds upper bound."}
+        },
+        "required": ["user"]
+      }
+    },
+    {
+      "name": "get_trades",
+      "description": "Recent matched trades — fill-by-fill detail. Either user-scoped (your trades) or market-scoped (the tape for one market). Useful for replay / fill-quality analysis.",
+      "method": "GET",
+      "path": "/trades",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user":    {"type": "string", "description": "Optional — restrict to one wallet."},
+          "market":  {"type": "string", "description": "Optional — restrict to one condition_id."},
+          "limit":   {"type": "integer", "description": "Max rows (default 100, max 500)."},
+          "offset":  {"type": "integer"},
+          "side":    {"type": "string", "enum": ["BUY","SELL"]},
+          "filterType": {"type": "string", "enum": ["MAKER","TAKER"], "description": "MAKER = order rested on the book; TAKER = order crossed and ate liquidity."},
+          "filterAmount": {"type": "number", "description": "Hide trades smaller than this USDC notional."}
+        }
+      }
+    },
+    {
+      "name": "get_user_value",
+      "description": "Total wallet value (positions + cash + redeemable winnings) for an address. Single-number summary for tracking PnL or sizing-up a whale.",
+      "method": "GET",
+      "path": "/value",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user": {"type": "string"}
+        },
+        "required": ["user"]
+      }
+    },
+    {
+      "name": "get_market_holders",
+      "description": "Top holders of YES / NO tokens in a given market — useful for spotting concentration (e.g. one wallet holds 40% of YES). Returns position size + percent of total + wallet address.",
+      "method": "GET",
+      "path": "/holders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "market": {"type": "string", "description": "Polymarket condition_id (66-char 0x... hash)."},
+          "limit":  {"type": "integer", "description": "Top-N holders to return. Default 10."}
+        },
+        "required": ["market"]
+      }
+    },
+    {
+      "name": "get_leaderboard",
+      "description": "Most-profitable / highest-volume traders on Polymarket over an interval. Use to identify whales worth following (then feed their address into get_positions to see what they're currently into).",
+      "method": "GET",
+      "path": "/leaderboard",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type":     {"type": "string", "enum": ["profit","volume"], "default": "profit"},
+          "interval": {"type": "string", "enum": ["1d","1w","1m","all"], "default": "all", "description": "Rolling window."},
+          "limit":    {"type": "integer", "description": "Top-N to return."}
+        }
+      }
+    },
+    {
+      "name": "get_open_interest",
+      "description": "Total open interest for one market — sum of all outstanding YES + NO token positions in USDC. Use to gauge market depth + how much real money is at risk on a given event.",
+      "method": "GET",
+      "path": "/open-interest",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "market": {"type": "string", "description": "condition_id."}
+        },
+        "required": ["market"]
+      }
+    },
+    {
+      "name": "get_volume",
+      "description": "Trading volume for a market over a time window. Use to detect markets seeing unusual flow (sometimes leads price movement).",
+      "method": "GET",
+      "path": "/volume",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "market":   {"type": "string"},
+          "interval": {"type": "string", "enum": ["1h","1d","1w","1m","all"], "default": "1d"}
+        },
+        "required": ["market"]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_leaderboard",
+    "args": {"type": "profit", "interval": "1w", "limit": 5}
+  }
+}

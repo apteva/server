@@ -1,0 +1,74 @@
+{
+  "slug": "whale-alert",
+  "name": "Whale Alert",
+  "description": "Real-time alerts on large cryptocurrency transactions across major blockchains — BTC, ETH, USDT, USDC, BNB, TRX, XRP, and more. Whale movements (especially USDT/USDC into exchanges) often precede market moves; this is the primary public source for that signal. Free tier: last 1 hour of data, 10 req/min, 100 req/hr. Sign up at https://whale-alert.io/signup.",
+  "logo": "https://www.google.com/s2/favicons?domain=whale-alert.io&sz=128",
+  "categories": [
+    "crypto",
+    "whale-watching",
+    "on-chain",
+    "alerts",
+    "market-signals"
+  ],
+  "base_url": "https://api.whale-alert.io/v1",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "api_key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "From your Whale Alert dashboard. Free tier covers last 1 hour of data only — paid tiers go back further."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_transactions",
+      "description": "Recent large crypto transactions across supported chains. Filter by min_value (USD), currency (btc, eth, usdt, usdc, ...), and start/end timestamps. Each row carries blockchain, hash, from + to (address + owner_type: exchange/wallet/unknown), symbol, amount, amount_usd, transaction_type (transfer/mint/burn). Cluster of USDT/USDC moving INTO Binance/Coinbase frequently precedes selling pressure.",
+      "method": "GET",
+      "path": "/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start":     {"type": "integer", "description": "Unix-seconds lower bound — at most 1h ago on free tier."},
+          "end":       {"type": "integer", "description": "Unix-seconds upper bound, default = now."},
+          "min_value": {"type": "integer", "description": "Minimum USD value for inclusion. Default 500000. Bigger = sharper signal, fewer noise rows."},
+          "limit":     {"type": "integer", "description": "Max rows (1-100). Default 100."},
+          "cursor":    {"type": "string", "description": "Pagination cursor from prior response."},
+          "currency":  {"type": "string", "description": "Filter to one currency code — btc, eth, usdt, usdc, bnb, xrp, ada, doge, sol, etc. Omit for all."}
+        },
+        "required": ["start"]
+      }
+    },
+    {
+      "name": "get_transaction",
+      "description": "Lookup one transaction by its blockchain + hash. Returns the same row shape as list_transactions for that specific tx. Use to drill into a tx that surfaced via another channel (a tweet, an alert, etc.).",
+      "method": "GET",
+      "path": "/transaction/{blockchain}/{hash}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "blockchain": {"type": "string", "description": "Chain name — bitcoin, ethereum, tron, ripple, binancechain, etc."},
+          "hash":       {"type": "string", "description": "Transaction hash."}
+        },
+        "required": ["blockchain","hash"]
+      }
+    },
+    {
+      "name": "status",
+      "description": "Service health + supported blockchains + currencies list. Use to discover what's available before filtering.",
+      "method": "GET",
+      "path": "/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "status"
+  }
+}

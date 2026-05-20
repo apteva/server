@@ -1,0 +1,232 @@
+{
+  "slug": "finnhub",
+  "name": "Finnhub",
+  "description": "Comprehensive financial data API — real-time quotes, earnings calendars, analyst recommendations, insider trading transactions, company news, market news, IPO calendar, economic calendar, social sentiment, and news sentiment scoring. Generous free tier (60 req/min, plenty for a single trading agent). Sign up at https://finnhub.io/register. Pairs well with sec-edgar (Finnhub structured, EDGAR primary-source) and with Yahoo Finance (Finnhub for company-level events, Yahoo for OHLCV).",
+  "logo": "https://www.google.com/s2/favicons?domain=finnhub.io&sz=128",
+  "categories": [
+    "finance",
+    "stocks",
+    "earnings",
+    "analyst",
+    "insider-trading",
+    "calendar",
+    "sentiment",
+    "news"
+  ],
+  "base_url": "https://finnhub.io/api/v1",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "X-Finnhub-Token": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "From your Finnhub dashboard at https://finnhub.io/dashboard. Free tier covers most retail trading agent needs (60 req/min, no daily cap)."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "quote",
+      "description": "Real-time-ish quote for a ticker. Returns {c: current_price, h: day_high, l: day_low, o: day_open, pc: prev_close, t: unix_timestamp, dp: change_percent, d: change_abs}. Updates every ~15s on free tier. Use this for one-shot 'what's AAPL doing right now?' lookups.",
+      "method": "GET",
+      "path": "/quote",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {"type": "string", "description": "Ticker — AAPL, MSFT, GOOG. International tickers use suffix syntax: 7203.T (Toyota), SAP.DE (SAP), BARC.L (Barclays)."}
+        },
+        "required": ["symbol"]
+      }
+    },
+    {
+      "name": "candles",
+      "description": "OHLCV bars for a ticker over a date range. Equity bars on free tier; crypto + forex available too. Returns parallel arrays {c[], h[], l[], o[], t[], v[], s: ok|no_data}. Use when chart history is needed beyond what Yahoo offers (Finnhub has cleaner intraday for non-US markets).",
+      "method": "GET",
+      "path": "/stock/candle",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol":     {"type": "string"},
+          "resolution": {"type": "string", "enum": ["1","5","15","30","60","D","W","M"], "description": "Minutes for intraday; D=day, W=week, M=month."},
+          "from":       {"type": "integer", "description": "Unix seconds, start of range."},
+          "to":         {"type": "integer", "description": "Unix seconds, end of range."}
+        },
+        "required": ["symbol","resolution","from","to"]
+      }
+    },
+    {
+      "name": "company_news",
+      "description": "Recent news articles tagged with a specific ticker. Each entry includes headline, summary, source, datetime, url, image, sentiment hint (when available). Use when reasoning about a specific stock; broader market news lives in market_news.",
+      "method": "GET",
+      "path": "/company-news",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {"type": "string"},
+          "from":   {"type": "string", "description": "YYYY-MM-DD inclusive."},
+          "to":     {"type": "string", "description": "YYYY-MM-DD inclusive."}
+        },
+        "required": ["symbol","from","to"]
+      }
+    },
+    {
+      "name": "market_news",
+      "description": "Top market news headlines by category. Use for broad agent context — what's the macro story today, what's moving sectors, what crypto news matters.",
+      "method": "GET",
+      "path": "/news",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": {"type": "string", "enum": ["general","forex","crypto","merger"], "default": "general"},
+          "minId":    {"type": "integer", "description": "Pagination cursor — pass back the highest id from the last call to get newer items only."}
+        }
+      }
+    },
+    {
+      "name": "earnings_history",
+      "description": "Past earnings releases for a ticker — actual EPS vs estimate, surprise %, revenue actual vs estimate. Use to assess a company's tendency to beat/miss; large surprise variance is itself a signal.",
+      "method": "GET",
+      "path": "/stock/earnings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {"type": "string"}
+        },
+        "required": ["symbol"]
+      }
+    },
+    {
+      "name": "recommendations",
+      "description": "Analyst recommendation distribution by month — count of strong-buy / buy / hold / sell / strong-sell ratings. Use to detect rating cascades (street collectively shifting bullish/bearish on a name).",
+      "method": "GET",
+      "path": "/stock/recommendation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {"type": "string"}
+        },
+        "required": ["symbol"]
+      }
+    },
+    {
+      "name": "upgrade_downgrade",
+      "description": "Individual analyst rating changes over a date range. Returns each upgrade/downgrade with the firm name, rating before, rating after, and date. Use to track specific shop calls (Morgan Stanley upgrade to overweight, etc.).",
+      "method": "GET",
+      "path": "/stock/upgrade-downgrade",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {"type": "string"},
+          "from":   {"type": "string", "description": "YYYY-MM-DD."},
+          "to":     {"type": "string", "description": "YYYY-MM-DD."}
+        },
+        "required": ["symbol"]
+      }
+    },
+    {
+      "name": "insider_transactions",
+      "description": "Form 4 insider transactions for a ticker — every reported buy or sell by officers/directors/10%+ shareholders. Includes transaction date, shares, price, name + title of insider, and pre/post-transaction position. Same data as parsing SEC EDGAR Form 4 directly but pre-parsed. Cluster-buying by execs is a notably strong signal.",
+      "method": "GET",
+      "path": "/stock/insider-transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {"type": "string"},
+          "from":   {"type": "string", "description": "YYYY-MM-DD."},
+          "to":     {"type": "string", "description": "YYYY-MM-DD."}
+        },
+        "required": ["symbol"]
+      }
+    },
+    {
+      "name": "insider_sentiment",
+      "description": "Pre-computed insider-buying sentiment score (MSPR — Monthly Share Purchase Ratio) per ticker per month. Positive = net insider buying, negative = net selling. Less noisy than raw transactions for quick screens.",
+      "method": "GET",
+      "path": "/stock/insider-sentiment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {"type": "string"},
+          "from":   {"type": "string", "description": "YYYY-MM-DD."},
+          "to":     {"type": "string", "description": "YYYY-MM-DD."}
+        },
+        "required": ["symbol","from","to"]
+      }
+    },
+    {
+      "name": "earnings_calendar",
+      "description": "Upcoming + recent earnings releases across the market — every ticker scheduled to report between from + to. Returns date, symbol, EPS estimate, revenue estimate, year, quarter, time of release (BMO/AMC).",
+      "method": "GET",
+      "path": "/calendar/earnings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from":   {"type": "string"},
+          "to":     {"type": "string"},
+          "symbol": {"type": "string", "description": "Optional — restrict to one ticker."}
+        }
+      }
+    },
+    {
+      "name": "economic_calendar",
+      "description": "Upcoming macro releases — CPI prints, jobs reports, Fed decisions, GDP, central-bank meetings worldwide. Each row: date, country, event name, prior, estimate, impact (low/medium/high). Critical for macro polymarket markets (Fed cut by March, recession 2026) where timing matters.",
+      "method": "GET",
+      "path": "/calendar/economic",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from": {"type": "string", "description": "YYYY-MM-DD."},
+          "to":   {"type": "string", "description": "YYYY-MM-DD."}
+        }
+      }
+    },
+    {
+      "name": "ipo_calendar",
+      "description": "Upcoming IPOs — useful for new-issue prediction markets (OpenAI IPO 2026, etc.) and for tracking when a company actually files vs the speculation.",
+      "method": "GET",
+      "path": "/calendar/ipo",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from": {"type": "string"},
+          "to":   {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "social_sentiment",
+      "description": "Reddit + Twitter mention volume + sentiment per ticker per day. Two parallel series — surge in mention count often precedes price action (the classic 'WSB pump') and is itself a tradable signal regardless of direction.",
+      "method": "GET",
+      "path": "/stock/social-sentiment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {"type": "string"},
+          "from":   {"type": "string"},
+          "to":     {"type": "string"}
+        },
+        "required": ["symbol"]
+      }
+    },
+    {
+      "name": "company_profile",
+      "description": "Static company info — name, country, ipo, marketCapitalization, weburl, logo, exchange, sector, industry, shareOutstanding, phone. Cheap to call; cache aggressively per ticker.",
+      "method": "GET",
+      "path": "/stock/profile2",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {"type": "string"}
+        },
+        "required": ["symbol"]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "quote",
+    "args": {"symbol": "AAPL"}
+  }
+}

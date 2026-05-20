@@ -1,0 +1,132 @@
+{
+  "slug": "the-odds-api",
+  "name": "The Odds API",
+  "description": "Live sports betting odds aggregated from 70+ sportsbooks (DraftKings, FanDuel, Pinnacle, Betfair, William Hill, BetMGM, etc.) across the US, UK, EU, and AU. Converts directly to implied probabilities — feed an agent the consensus probability vs the Polymarket price and any meaningful gap is an arbitrage signal. Covers NFL, NBA, MLB, NHL, NCAA, EPL, F1, MMA, tennis, soccer worldwide, and more. Free tier: 500 requests/month with the_odds_format=american. Sign up at https://the-odds-api.com.",
+  "logo": "https://www.google.com/s2/favicons?domain=the-odds-api.com&sz=128",
+  "categories": [
+    "sports",
+    "betting",
+    "odds",
+    "prediction-markets",
+    "polymarket"
+  ],
+  "base_url": "https://api.the-odds-api.com/v4",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "apiKey": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "From your account dashboard at https://the-odds-api.com — free tier is 500 req/month."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_sports",
+      "description": "List every sport + competition (NFL, NBA, EPL, NCAAB, soccer leagues, F1, MMA, tennis, golf, etc.) the API currently has odds for. Returns a sport_key per row — feed those to get_odds + get_scores. Use all=true to include sports not currently in season.",
+      "method": "GET",
+      "path": "/sports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "all": {"type": "boolean", "description": "Include out-of-season sports."}
+        }
+      }
+    },
+    {
+      "name": "get_odds",
+      "description": "Get live + upcoming odds for a sport across multiple bookmakers. Returns one row per game with bookmaker objects holding markets (h2h=moneyline, spreads, totals, etc.) and outcomes with price+point. Convert price to implied probability for arbitrage vs Polymarket. The 'consensus' is roughly the median across bookmakers — sharp books (Pinnacle, Bookmaker) are more accurate; recreational books (DraftKings, FanDuel) carry more vig but reflect retail flow.",
+      "method": "GET",
+      "path": "/sports/{sport}/odds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sport":   {"type": "string", "description": "sport_key from list_sports — e.g. 'americanfootball_nfl', 'basketball_nba', 'soccer_epl', 'mma_mixed_martial_arts'."},
+          "regions": {"type": "string", "description": "Comma-separated: 'us', 'uk', 'eu', 'au'. Each region surfaces its local books. Default us."},
+          "markets": {"type": "string", "description": "Comma-separated: 'h2h' (moneyline/winner), 'spreads', 'totals', 'outrights' (futures like 'World Cup winner'). Default h2h."},
+          "oddsFormat":   {"type": "string", "enum": ["decimal","american"], "description": "Decimal (1.85) is cleaner for probability math; American (-118) is the US default."},
+          "dateFormat":   {"type": "string", "enum": ["iso","unix"]},
+          "eventIds":     {"type": "string", "description": "Comma-separated event ids to filter."},
+          "bookmakers":   {"type": "string", "description": "Comma-separated bookmaker keys to filter — 'pinnacle,bookmaker,betfair' is the sharp-money set."},
+          "commenceTimeFrom": {"type": "string", "description": "ISO timestamp — odds for games starting on/after."},
+          "commenceTimeTo":   {"type": "string", "description": "Same, upper bound."}
+        },
+        "required": ["sport"]
+      }
+    },
+    {
+      "name": "get_scores",
+      "description": "Recent completed + live in-progress games for a sport. Returns final scores + game state. Useful to verify whether a Polymarket sports market should already be resolved (and isn't yet).",
+      "method": "GET",
+      "path": "/sports/{sport}/scores",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sport":      {"type": "string"},
+          "daysFrom":   {"type": "integer", "description": "How many days back to include. Max 3 on the free tier."},
+          "dateFormat": {"type": "string", "enum": ["iso","unix"]},
+          "eventIds":   {"type": "string"}
+        },
+        "required": ["sport"]
+      }
+    },
+    {
+      "name": "get_event_odds",
+      "description": "Drill into one specific event's odds across all bookmakers. Same shape as get_odds but for a single game — useful when the agent has narrowed down to one Polymarket-tradable market.",
+      "method": "GET",
+      "path": "/sports/{sport}/events/{event_id}/odds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sport":     {"type": "string"},
+          "event_id":  {"type": "string"},
+          "regions":   {"type": "string"},
+          "markets":   {"type": "string", "description": "Per-event markets include player props (player_points, player_rebounds, etc.) on top of game lines."},
+          "oddsFormat":{"type": "string", "enum": ["decimal","american"]}
+        },
+        "required": ["sport","event_id"]
+      }
+    },
+    {
+      "name": "get_events",
+      "description": "Upcoming + in-progress events for a sport with their event_id (needed for get_event_odds + tracking through to resolution). Lighter payload than get_odds when you just want the calendar.",
+      "method": "GET",
+      "path": "/sports/{sport}/events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sport":            {"type": "string"},
+          "dateFormat":       {"type": "string", "enum": ["iso","unix"]},
+          "eventIds":         {"type": "string"},
+          "commenceTimeFrom": {"type": "string"},
+          "commenceTimeTo":   {"type": "string"}
+        },
+        "required": ["sport"]
+      }
+    },
+    {
+      "name": "get_historical_odds",
+      "description": "Historical odds snapshots — useful for backtesting the 'Polymarket vs consensus' arb idea or for assessing where the market's been. Note: paid tier endpoint; returns 401 on the free key.",
+      "method": "GET",
+      "path": "/historical/sports/{sport}/odds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sport":   {"type": "string"},
+          "date":    {"type": "string", "description": "ISO timestamp — returns the snapshot closest to this time."},
+          "regions": {"type": "string"},
+          "markets": {"type": "string"},
+          "oddsFormat": {"type": "string", "enum": ["decimal","american"]}
+        },
+        "required": ["sport","date"]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_sports"
+  }
+}

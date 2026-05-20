@@ -1,0 +1,120 @@
+{
+  "slug": "stocktwits",
+  "name": "Stocktwits",
+  "description": "Twitter-shaped social network for traders, organized by ticker cashtags ($AAPL, $TSLA, $NVDA). Provides per-ticker message streams + a bullish/bearish sentiment label many posters self-tag with — useful for gauging retail mood, mention-volume spikes (often a contrarian signal at extremes), and discovering what tickers are getting unusual attention. Reads work without auth at limited rate; supply an access_token to raise limits. Get one at https://stocktwits.com/developers/docs.",
+  "logo": "https://www.google.com/s2/favicons?domain=stocktwits.com&sz=128",
+  "categories": [
+    "stocks",
+    "sentiment",
+    "social",
+    "retail",
+    "crypto"
+  ],
+  "base_url": "https://api.stocktwits.com/api/2",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "access_token": "{{access_token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "access_token",
+        "label": "Access Token (optional)",
+        "description": "OAuth access_token from https://stocktwits.com/developers/apps. Optional — public reads work without it, but rate limits are much tighter (200/hour without token vs 400+/hour with).",
+        "required": false
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "symbol_stream",
+      "description": "Recent messages tagged with one ticker. Each message includes id, body, sentiment ('Bullish' / 'Bearish' / null), user (with follower count + ideas count + watchlist count), created_at, and any links. Use to read the retail crowd's take on a name and to count bullish-vs-bearish posts as a rough sentiment ratio.",
+      "method": "GET",
+      "path": "/streams/symbol/{symbol}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {"type": "string", "description": "Ticker without $ prefix — AAPL, TSLA, BTC.X (crypto)."},
+          "since":  {"type": "integer", "description": "Return messages with id > this (for incremental polling)."},
+          "max":    {"type": "integer", "description": "Return messages with id <= this (for paging backwards)."},
+          "limit":  {"type": "integer", "default": 30, "description": "Max messages (1-30)."}
+        },
+        "required": ["symbol"]
+      }
+    },
+    {
+      "name": "trending_symbols",
+      "description": "Top trending tickers across Stocktwits right now — the names retail is buzzing about. Useful for discovery of where unusual attention is concentrating; surge of trending = often precedes price movement (any direction).",
+      "method": "GET",
+      "path": "/trending/symbols.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {"type": "integer", "description": "Max symbols, default 30."}
+        }
+      }
+    },
+    {
+      "name": "trending_stream",
+      "description": "Messages flowing through the platform's overall 'trending' stream — like trending_symbols but as message-level granularity. Use for general retail sentiment headlines.",
+      "method": "GET",
+      "path": "/streams/trending.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "since": {"type": "integer"},
+          "max":   {"type": "integer"},
+          "limit": {"type": "integer", "default": 30}
+        }
+      }
+    },
+    {
+      "name": "search_symbols",
+      "description": "Find tickers matching a query — useful when an agent has a company name but not a ticker.",
+      "method": "GET",
+      "path": "/search/symbols.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q":     {"type": "string", "description": "Search term — 'apple', 'nvidia', 'palantir'."}
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "user_stream",
+      "description": "Messages from a specific Stocktwits user — useful for following known smart-money or contrarian-indicator accounts.",
+      "method": "GET",
+      "path": "/streams/user/{username}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {"type": "string", "description": "Stocktwits username without leading @."},
+          "since":    {"type": "integer"},
+          "max":      {"type": "integer"},
+          "limit":    {"type": "integer", "default": 30}
+        },
+        "required": ["username"]
+      }
+    },
+    {
+      "name": "watchlist_stream",
+      "description": "Messages mentioning any symbol in a public watchlist. Useful for thematic monitoring (e.g. a watchlist of AI semiconductors → one query returns the chatter across all of them).",
+      "method": "GET",
+      "path": "/streams/watchlist/{watchlist_id}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "watchlist_id": {"type": "string"},
+          "since":        {"type": "integer"},
+          "max":          {"type": "integer"},
+          "limit":        {"type": "integer"}
+        },
+        "required": ["watchlist_id"]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "trending_symbols"
+  }
+}

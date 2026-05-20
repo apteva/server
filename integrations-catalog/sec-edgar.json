@@ -1,0 +1,107 @@
+{
+  "slug": "sec-edgar",
+  "name": "SEC EDGAR",
+  "description": "Official US Securities and Exchange Commission filings database — every 10-K (annual report), 10-Q (quarterly), 8-K (material events), S-1 (IPO), Form 4 (insider trades), 13F (institutional holdings), and more. Free, official, no API key needed — but the SEC requires a contact email in the User-Agent header per their fair-use policy (https://www.sec.gov/os/accessing-edgar-data). Set your name + email on connect; we'll bake it into the UA. Form 4 (insider transactions) is consistently one of the most reliably alpha-generating stock signals: executives buying their own shares with cash predicts outperformance over the next 6 months at a statistically significant rate.",
+  "logo": "https://www.google.com/s2/favicons?domain=sec.gov&sz=128",
+  "categories": [
+    "finance",
+    "stocks",
+    "filings",
+    "sec",
+    "insider-trading",
+    "regulatory",
+    "public-data"
+  ],
+  "base_url": "https://data.sec.gov",
+  "auth": {
+    "types": ["none"],
+    "headers": {
+      "User-Agent": "{{contact_name}} {{contact_email}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "contact_name",
+        "label": "Contact name / organization",
+        "description": "Your name or company name. SEC asks who's calling — they reserve the right to block requests with generic User-Agents."
+      },
+      {
+        "name": "contact_email",
+        "label": "Contact email",
+        "description": "Your email. SEC includes this in their access logs and will email you if they need to throttle or block your traffic. They state explicitly that they don't share it."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "ticker_to_cik",
+      "description": "Resolve a stock ticker to its 10-digit zero-padded SEC CIK (Central Index Key). EVERY other EDGAR call needs a CIK, not a ticker — call this first to look up. The endpoint returns a JSON map of all ~10k SEC-registered companies; the agent can grep for the ticker. Cache aggressively: this file updates daily but doesn't move per request.",
+      "method": "GET",
+      "path": "/files/company_tickers.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "company_submissions",
+      "description": "All recent filings for a company. Returns a 'filings.recent' object with parallel arrays: accessionNumber, filingDate, reportDate, form (10-K, 10-Q, 8-K, 4, etc.), and primaryDocument. Use this to find what a company has filed lately — earnings reports, material events, insider trades, etc. CIK must be 10 digits, zero-padded (e.g. '0000320193' for Apple, not '320193').",
+      "method": "GET",
+      "path": "/submissions/CIK{cik}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cik": {"type": "string", "description": "10-digit zero-padded CIK. Get it from ticker_to_cik."}
+        },
+        "required": ["cik"]
+      }
+    },
+    {
+      "name": "company_facts",
+      "description": "All XBRL-tagged financial data for a company — every reported fundamental across every filing. Returns nested 'facts.us-gaap' (and 'facts.dei') with concepts like Revenues, NetIncomeLoss, Assets, Liabilities, OperatingIncomeLoss, etc., each holding a time series of reported values across filings. Massive payload (often >5MB for big issuers); use 'concept' instead when you only need one metric.",
+      "method": "GET",
+      "path": "/api/xbrl/companyfacts/CIK{cik}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cik": {"type": "string", "description": "10-digit zero-padded CIK."}
+        },
+        "required": ["cik"]
+      }
+    },
+    {
+      "name": "concept",
+      "description": "Time series for ONE XBRL concept on ONE company. Use when you know exactly what you want — Revenues, NetIncomeLoss, EarningsPerShareBasic, CommonStockSharesOutstanding, etc. Smaller payload than company_facts. Taxonomy is almost always us-gaap; dei holds entity-level metadata.",
+      "method": "GET",
+      "path": "/api/xbrl/companyconcept/CIK{cik}/{taxonomy}/{tag}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cik":      {"type": "string", "description": "10-digit zero-padded CIK."},
+          "taxonomy": {"type": "string", "enum": ["us-gaap","dei","ifrs-full","srt"], "default": "us-gaap"},
+          "tag":      {"type": "string", "description": "Concept name in CamelCase — Revenues, NetIncomeLoss, EarningsPerShareBasic, Assets, Liabilities, CashAndCashEquivalentsAtCarryingValue, etc."}
+        },
+        "required": ["cik","tag"]
+      }
+    },
+    {
+      "name": "concept_frame",
+      "description": "Cross-section: one XBRL concept across EVERY US public company for a single quarter or year. Use when ranking companies by a metric ('all companies that reported Q1 2026 revenue > $10B') or doing market-wide screens. Frame strings: 'CY2025Q1I' (point-in-time end-Q1-2025), 'CY2025Q1' (cumulative Q1-2025 flow), 'CY2025' (annual).",
+      "method": "GET",
+      "path": "/api/xbrl/frames/{taxonomy}/{tag}/{unit}/{frame}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "taxonomy": {"type": "string", "default": "us-gaap"},
+          "tag":      {"type": "string", "description": "Concept name (Revenues, NetIncomeLoss, …)."},
+          "unit":     {"type": "string", "description": "USD, USD-per-shares, shares, etc."},
+          "frame":    {"type": "string", "description": "CY2025Q1I = instant; CY2025Q1 = quarterly flow; CY2025 = annual."}
+        },
+        "required": ["tag","unit","frame"]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "ticker_to_cik"
+  }
+}
