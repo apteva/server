@@ -255,7 +255,7 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppT
 				}
 				return s.store.UpdateConnectionCredentials(persistTargetID, enc)
 			}
-			execResult, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, persist)
+			execResult, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, r.Header.Get("X-Apteva-World-Id"), persist)
 			if err != nil {
 				result = map[string]any{
 					"content": []map[string]any{{"type": "text", "text": fmt.Sprintf("error: %v", err)}},

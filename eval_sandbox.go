@@ -397,6 +397,10 @@ type SandboxApp struct {
 	// pre-populated SQLite DB into the sidecar before it boots, so a
 	// World can start from a captured state rather than empty.
 	DataDir string
+	// WorldID, when set, is exported as APTEVA_WORLD_ID so the SDK forwards
+	// X-Apteva-World-Id on platform callbacks → per-world integration
+	// interception routing (see worldInterceptors in connections.go).
+	WorldID string
 }
 
 // SandboxAppInstance is the live result of spawning one app: enough
@@ -474,6 +478,9 @@ func SpawnSandboxedApp(spec SandboxApp, proxyURL, gatewayURL string, healthBudge
 	}
 	if spec.Migrations != "" {
 		env = append(env, "APTEVA_MIGRATIONS_DIR="+spec.Migrations)
+	}
+	if spec.WorldID != "" {
+		env = append(env, "APTEVA_WORLD_ID="+spec.WorldID)
 	}
 	for k, v := range spec.ExtraEnv {
 		env = append(env, k+"="+v)

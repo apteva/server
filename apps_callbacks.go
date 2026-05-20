@@ -705,7 +705,7 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		}
 		return s.store.UpdateConnectionCredentials(persistTargetID, enc)
 	}
-	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, persist)
+	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, r.Header.Get("X-Apteva-World-Id"), persist)
 	if err != nil {
 		writeJSON(w, map[string]any{"success": false, "data": err.Error()})
 		return

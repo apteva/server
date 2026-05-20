@@ -738,7 +738,7 @@ func TestExecuteIntegrationTool_AuthQueryWithPathQuery(t *testing.T) {
 		Path:   "/?Command=namecheap.domains.dns.getHosts",
 	}
 	creds := map[string]string{"api_user": "alice", "api_key": "secret"}
-	if _, err := executeIntegrationTool(app, tool, creds, map[string]any{}); err != nil {
+	if _, err := executeIntegrationTool(app, tool, creds, map[string]any{}, ""); err != nil {
 		t.Fatalf("executeIntegrationTool: %v", err)
 	}
 	if strings.Count(capturedURI, "?") != 1 {
@@ -780,7 +780,7 @@ func TestExecuteIntegrationTool_BinaryResponse(t *testing.T) {
 		Method: "GET",
 		Path:   "/x",
 	}
-	res, err := executeIntegrationTool(app, tool, map[string]string{"access_token": "tok"}, map[string]any{})
+	res, err := executeIntegrationTool(app, tool, map[string]string{"access_token": "tok"}, map[string]any{}, "")
 	if err != nil {
 		t.Fatalf("executeIntegrationTool: %v", err)
 	}

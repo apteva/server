@@ -40,6 +40,11 @@ type WorldSpec struct {
 	Mode       EdgeMode      // edge default mode (block | passthrough | record | replay | mock)
 	Cassette   *Cassette     // optional preloaded cassette (for replay)
 
+	// IntegrationFixtures answer third-party integration tool calls made by
+	// in-world sidecars (via the platform executor) without hitting the
+	// real API. Routed per-world by id, so concurrent worlds don't collide.
+	IntegrationFixtures []IntegrationFixture
+
 	// HealthBudget bounds how long each sidecar gets to answer /health
 	// before the create fails. Defaults to 20s.
 	HealthBudget time.Duration
@@ -51,11 +56,12 @@ type World struct {
 	ProjectID string
 	Mode      EdgeMode
 
-	edge      *WorldEdge
-	mu        sync.Mutex
-	apps      map[string]*SandboxAppInstance
-	agent     *WorldAgent // optional: the agent copy running in this world
-	createdAt time.Time
+	edge              *WorldEdge
+	mu                sync.Mutex
+	apps              map[string]*SandboxAppInstance
+	agent             *WorldAgent // optional: the agent copy running in this world
+	removeInterceptor func()      // unregisters this world's integration interceptor
+	createdAt         time.Time
 }
 
 // AttachAgent records the running agent copy so World.Stop tears it down.
@@ -124,6 +130,9 @@ func (w *World) Stop() {
 	for _, a := range apps {
 		a.Stop()
 	}
+	if w.removeInterceptor != nil {
+		w.removeInterceptor()
+	}
 	if w.edge != nil {
 		w.edge.Stop()
 	}
@@ -167,17 +176,18 @@ type IntegrationFixture struct {
 	Data   any    `json:"data"`
 }
 
-// InstallIntegrationInterceptor wires the connections.go egress seam to
-// answer the given fixtures and PASS EVERYTHING ELSE THROUGH to the real
-// API — so it can never mask an unrelated production integration call.
-// Returns a remove func the caller must defer. Process-global; see the
-// caveat on worldEgressInterceptor (single active intercepting world).
-func InstallIntegrationInterceptor(fixtures []IntegrationFixture) (remove func()) {
+// RegisterWorldInterceptor registers a PER-WORLD integration interceptor
+// keyed by world id. It answers the given fixtures and PASSES EVERYTHING
+// ELSE THROUGH (handled=false), so it can never mask an unrelated call.
+// Returns a remove func. Concurrent worlds are safe — each is keyed by its
+// own id in worldInterceptors, and the executor only consults the entry for
+// the call's threaded world id (from the X-Apteva-World-Id header).
+func RegisterWorldInterceptor(worldID string, fixtures []IntegrationFixture) (remove func()) {
 	idx := make(map[string]IntegrationFixture, len(fixtures))
 	for _, f := range fixtures {
 		idx[f.App+"\x00"+f.Tool] = f
 	}
-	worldEgressInterceptor = func(app *AppTemplate, tool *AppToolDef, _ map[string]any) (*ExecuteResult, bool) {
+	var fn integrationInterceptorFn = func(app *AppTemplate, tool *AppToolDef, _ map[string]any) (*ExecuteResult, bool) {
 		f, ok := idx[app.Slug+"\x00"+tool.Name]
 		if !ok {
 			return nil, false // not ours → real call proceeds
@@ -188,7 +198,8 @@ func InstallIntegrationInterceptor(fixtures []IntegrationFixture) (remove func()
 		}
 		return &ExecuteResult{Success: st >= 200 && st < 300, Status: st, Data: f.Data}, true
 	}
-	return func() { worldEgressInterceptor = nil }
+	worldInterceptors.Store(worldID, fn)
+	return func() { worldInterceptors.Delete(worldID) }
 }
 
 // CreateFromSnapshot forks a World from a captured snapshot: it restores
@@ -251,7 +262,16 @@ func (wm *WorldManager) Create(spec WorldSpec) (*World, error) {
 		createdAt: time.Now(),
 	}
 
+	// Register this world's integration interceptor (if any) before
+	// spawning sidecars, so their first callback already routes correctly.
+	if len(spec.IntegrationFixtures) > 0 {
+		w.removeInterceptor = RegisterWorldInterceptor(spec.ID, spec.IntegrationFixtures)
+	}
+
 	for _, app := range spec.Apps {
+		// Tag the sidecar with its world id so the SDK forwards
+		// X-Apteva-World-Id on platform callbacks → per-world routing.
+		app.WorldID = spec.ID
 		if app.BinaryPath == "" {
 			if wm.ResolveBinary == nil {
 				w.Stop()

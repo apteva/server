@@ -12,6 +12,7 @@ import (
 	neturl "net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -776,9 +777,10 @@ func executeIntegrationToolWithRefresh(
 	tool *AppToolDef,
 	credentials map[string]string,
 	input map[string]any,
+	worldID string,
 	onRefresh onCredsRefresh,
 ) (*ExecuteResult, error) {
-	result, err := executeIntegrationTool(app, tool, credentials, input)
+	result, err := executeIntegrationTool(app, tool, credentials, input, worldID)
 	if err != nil {
 		return result, err
 	}
@@ -816,7 +818,7 @@ func executeIntegrationToolWithRefresh(
 	}
 	// Retry the original call with the refreshed token. executeIntegrationTool
 	// reads from the same credentials map so the new token is picked up.
-	return executeIntegrationTool(app, tool, credentials, input)
+	return executeIntegrationTool(app, tool, credentials, input, worldID)
 }
 
 // refreshOAuthAccessToken POSTs to the app's OAuth2 token endpoint with
@@ -935,28 +937,28 @@ func refreshOAuthAccessToken(app *AppTemplate, credentials map[string]string) er
 	return nil
 }
 
-// worldEgressInterceptor, when non-nil, gets first refusal on every
-// integration tool call BEFORE any outbound HTTP. It returns
-// (result, handled): handled=true short-circuits the real call with the
-// returned result. This is the in-process seam that lets a test World mock
-// third-party integrations without HTTP_PROXY (the shared server has none).
-//
-// nil in production. An interceptor MUST return handled=false for any
-// (app, tool) it doesn't explicitly own, so it can never mask a real
-// user's integration call.
-//
-// CAVEAT (Phase 3): this is process-global, so it can only safely back a
-// single active intercepting World at a time. Per-request world routing —
-// threading a world id from the MCP gateway down to here — removes that
-// limitation later; until then the WorldManager must serialize/guard.
-var worldEgressInterceptor func(app *AppTemplate, tool *AppToolDef, input map[string]any) (*ExecuteResult, bool)
+// integrationInterceptorFn answers an integration call from a fixture
+// instead of the real API. Returns (result, handled); handled=false means
+// "not mine — make the real call".
+type integrationInterceptorFn func(app *AppTemplate, tool *AppToolDef, input map[string]any) (*ExecuteResult, bool)
 
-func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any) (*ExecuteResult, error) {
-	// World test-mode seam: a registered interceptor can answer this call
-	// from a fixture/cassette instead of hitting the real third-party API.
-	if worldEgressInterceptor != nil {
-		if res, handled := worldEgressInterceptor(app, tool, input); handled {
-			return res, nil
+// worldInterceptors maps a world id → its integration interceptor. Empty in
+// production; populated by the WorldManager for the lifetime of a World.
+// Per-world keying (vs a single global) is what makes this multi-world
+// safe: a call only consults the interceptor for ITS world id, threaded in
+// from the X-Apteva-World-Id header that in-world sidecars send on their
+// platform callbacks. worldID=="" — every production call — never touches
+// this map, so behavior off the test path is byte-identical to before.
+var worldInterceptors sync.Map // worldID string -> integrationInterceptorFn
+
+func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, worldID string) (*ExecuteResult, error) {
+	// World test-mode seam: route to this world's interceptor (if any),
+	// which can answer from a fixture instead of hitting the real API.
+	if worldID != "" {
+		if v, ok := worldInterceptors.Load(worldID); ok {
+			if res, handled := v.(integrationInterceptorFn)(app, tool, input); handled {
+				return res, nil
+			}
 		}
 	}
 
@@ -2166,7 +2168,7 @@ func (s *Server) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
 		}
 		return s.store.UpdateConnectionCredentials(persistTargetID, enc)
 	}
-	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, persist)
+	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, r.Header.Get("X-Apteva-World-Id"), persist)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

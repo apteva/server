@@ -161,16 +161,17 @@ func TestTrajectoryAssertions(t *testing.T) {
 }
 
 func TestIntegrationInterceptorSeam(t *testing.T) {
+	const wid = "test-world-1"
 	app := &AppTemplate{Slug: "twitter"}
 	tool := &AppToolDef{Name: "post_tweet", Method: "POST"}
 
-	remove := InstallIntegrationInterceptor([]IntegrationFixture{
+	remove := RegisterWorldInterceptor(wid, []IntegrationFixture{
 		{App: "twitter", Tool: "post_tweet", Status: 201, Data: map[string]any{"id": "123"}},
 	})
 	defer remove()
 
-	// Owned call short-circuits — no network, canned result.
-	res, err := executeIntegrationTool(app, tool, map[string]string{}, map[string]any{})
+	// Owned call in this world short-circuits — no network, canned result.
+	res, err := executeIntegrationTool(app, tool, map[string]string{}, map[string]any{}, wid)
 	if err != nil {
 		t.Fatalf("intercepted call errored: %v", err)
 	}
@@ -178,14 +179,20 @@ func TestIntegrationInterceptorSeam(t *testing.T) {
 		t.Fatalf("interceptor result wrong: %+v", res)
 	}
 
-	// Unowned call must pass through (handled=false) so production calls
-	// are never masked.
-	if _, handled := worldEgressInterceptor(&AppTemplate{Slug: "hubspot"}, &AppToolDef{Name: "create_contact"}, nil); handled {
+	// Different world id → not routed here. We can't run the real call in a
+	// unit test, so assert the registry has nothing for an unknown world.
+	if _, ok := worldInterceptors.Load("other-world"); ok {
+		t.Fatalf("unexpected interceptor for other-world")
+	}
+
+	// Unowned (app,tool) within the same world passes through (handled=false).
+	v, _ := worldInterceptors.Load(wid)
+	if _, handled := v.(integrationInterceptorFn)(&AppTemplate{Slug: "hubspot"}, &AppToolDef{Name: "create_contact"}, nil); handled {
 		t.Fatalf("interceptor wrongly claimed an unowned call")
 	}
 
 	remove()
-	if worldEgressInterceptor != nil {
+	if _, ok := worldInterceptors.Load(wid); ok {
 		t.Fatalf("remove() did not clear the interceptor")
 	}
 }

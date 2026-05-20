@@ -171,7 +171,9 @@ func runMCPProxy(dbPath string, connectionID int64, secret []byte) error {
 					)
 					return err
 				}
-				execResult, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, persist)
+				// stdio proxy subprocess — no HTTP request to read a world
+				// id from, so worldID="" (production path, no interception).
+				execResult, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, "", persist)
 				if err != nil {
 					result = map[string]any{
 						"content": []map[string]any{{"type": "text", "text": fmt.Sprintf("error: %v", err)}},
