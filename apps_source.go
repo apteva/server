@@ -110,17 +110,37 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 	if err := cloneOrUpdate(srcDir, src.Repo, ref); err != nil {
 		return 0, "", fmt.Errorf("clone %s@%s: %w", src.Repo, ref, err)
 	}
+	port, err = sup.buildAndSpawn(installID, m, srcDir, entry, binPath, gobuildDir, env, progress)
+	if err != nil {
+		return 0, "", err
+	}
+	return port, binPath, nil
+}
+
+// buildAndSpawn compiles srcDir/<entry> → binPath, then spawns +
+// health-checks the sidecar. It is the shared tail of every source-style
+// install: BuildFromSource calls it after a git clone, BuildFromLocalSource
+// calls it with a working-copy dir (no clone). Keeping a single tail means
+// git-source and local-source installs run the identical build→spawn→health
+// path — there is no second mechanism to drift from production.
+func (sup *LocalSupervisor) buildAndSpawn(installID int64, m *sdk.Manifest, srcDir, entry, binPath, gobuildDir string, env map[string]string, progress func(string)) (port int, err error) {
+	if progress == nil {
+		progress = func(string) {}
+	}
+	if entry == "" {
+		entry = "."
+	}
 	progress("Compiling…")
 	// Pass the progress callback through so goBuild can update the
 	// status as toolchain output arrives — "Downloading X dependencies",
 	// "Extracting…", "Linking binary…" instead of one stale phrase.
 	if err := goBuild(srcDir, entry, binPath, gobuildDir, progress); err != nil {
-		return 0, "", fmt.Errorf("go build: %w", err)
+		return 0, fmt.Errorf("go build: %w", err)
 	}
 
 	port, err = freePort()
 	if err != nil {
-		return 0, "", err
+		return 0, err
 	}
 	progress("Starting sidecar…")
 	// Tell the SDK where to find the panel + iframe UI bundle.
@@ -137,7 +157,7 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 	}
 	env["APTEVA_UI_DIR"] = filepath.Join(entryDir, "ui")
 	// Resolve the manifest's relative migrations path to an absolute
-	// directory inside the cloned source tree. The SDK respects
+	// directory inside the source tree. The SDK respects
 	// APTEVA_MIGRATIONS_DIR over the manifest field — without this,
 	// a sidecar spawned with cmd.Dir = <bin>/data would look up
 	// "migrations/" in the wrong place and apps would start with no
@@ -154,13 +174,13 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 	// exec.LookPath / exec.Command calls resolve to the bundled
 	// versions. No-op for apps that don't declare requires.binaries.
 	if binPathPrefix, err := EnsureBinaries(m, progress); err != nil {
-		return 0, "", fmt.Errorf("native binary dep: %w", err)
+		return 0, fmt.Errorf("native binary dep: %w", err)
 	} else if binPathPrefix != "" {
 		existing := os.Getenv("PATH")
 		env["PATH"] = binPathPrefix + string(os.PathListSeparator) + existing
 	}
 	if err := sup.spawn(installID, m.Name, binPath, port, env); err != nil {
-		return 0, "", err
+		return 0, err
 	}
 	healthPath := m.Runtime.HealthCheck
 	if healthPath == "" {
@@ -176,6 +196,32 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 		// previous version or flips to 'error' (fresh installs).
 		_ = sup.Stop(installID)
 		sup.rollbackToOld(installID)
+		return 0, err
+	}
+	return port, nil
+}
+
+// BuildFromLocalSource compiles + spawns an app from a local working-copy
+// directory (no git clone) — used by World test installs so the developer's
+// CURRENT code runs, not a published ref. entry defaults to the manifest's
+// source.entry (or "."). extraGoEnv lets the caller inject build env (e.g.
+// GOWORK pointing at a temp workspace so the local app-sdk overlay applies).
+func (sup *LocalSupervisor) BuildFromLocalSource(installID int64, m *sdk.Manifest, localSrcDir string, env map[string]string, progress func(string)) (port int, binPath string, err error) {
+	entry := "."
+	if m.Runtime.Source != nil && m.Runtime.Source.Entry != "" {
+		entry = m.Runtime.Source.Entry
+	}
+	dir := filepath.Join(sup.cacheDir, "_local", m.Name)
+	binPath = filepath.Join(dir, "bin")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return 0, "", err
+	}
+	gobuildDir := filepath.Join(sup.cacheDir, ".gobuild")
+	if err := os.MkdirAll(gobuildDir, 0755); err != nil {
+		return 0, "", err
+	}
+	port, err = sup.buildAndSpawn(installID, m, localSrcDir, entry, binPath, gobuildDir, env, progress)
+	if err != nil {
 		return 0, "", err
 	}
 	return port, binPath, nil
