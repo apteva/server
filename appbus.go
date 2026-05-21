@@ -82,6 +82,11 @@ type busLane struct {
 
 const ringCap = 256
 
+// allAppsLaneKey is the reserved <app> path segment for the all-apps
+// firehose: GET /api/app-events/_all streams every app's events (for the
+// analytics auto-capture subscriber). No real app may use this name.
+const allAppsLaneKey = "_all"
+
 func newBusLane() *busLane {
 	return &busLane{
 		subs: make(map[uint64]*busSubscriber),
@@ -94,6 +99,7 @@ type AppEventBus struct {
 	mu        sync.Mutex
 	lanes     map[busKey]*busLane // (app, project) — project ALWAYS non-empty
 	wildcards map[string]*busLane // keyed by app — cross-project subscribers
+	allLane   *busLane            // every app's events — the _all firehose
 	nextID    atomic.Uint64
 }
 
@@ -101,6 +107,7 @@ func NewAppEventBus() *AppEventBus {
 	return &AppEventBus{
 		lanes:     make(map[busKey]*busLane),
 		wildcards: make(map[string]*busLane),
+		allLane:   newBusLane(),
 	}
 }
 
@@ -162,10 +169,10 @@ func (b *AppEventBus) Publish(app, projectID string, installID int64, topic stri
 	}
 
 	var (
-		projectEv             AppEvent
-		projectSubs           int
-		projectDelivered      int
-		projectDropped        int
+		projectEv        AppEvent
+		projectSubs      int
+		projectDelivered int
+		projectDropped   int
 	)
 	if projectID != "" {
 		lane := b.laneFor(app, projectID)
@@ -195,11 +202,13 @@ func (b *AppEventBus) Publish(app, projectID string, installID int64, topic stri
 	}
 
 	wildcardDelivered, wildcardDropped, wildcardSubs := b.publishWildcard(app, base)
+	allDelivered, allDropped, allSubs := b.publishAll(base)
 
-	log.Printf("[APPBUS] publish app=%s project=%s topic=%s install=%d project_subs=%d project_delivered=%d project_dropped=%d wildcard_subs=%d wildcard_delivered=%d wildcard_dropped=%d",
+	log.Printf("[APPBUS] publish app=%s project=%s topic=%s install=%d project_subs=%d project_delivered=%d project_dropped=%d wildcard_subs=%d wildcard_delivered=%d wildcard_dropped=%d all_subs=%d all_delivered=%d all_dropped=%d",
 		app, projectID, topic, installID,
 		projectSubs, projectDelivered, projectDropped,
-		wildcardSubs, wildcardDelivered, wildcardDropped)
+		wildcardSubs, wildcardDelivered, wildcardDropped,
+		allSubs, allDelivered, allDropped)
 
 	if projectID != "" {
 		return projectEv
@@ -248,6 +257,38 @@ func (b *AppEventBus) publishWildcard(app string, base AppEvent) (delivered, dro
 	return
 }
 
+// publishAll appends the event onto the single all-apps lane (the _all
+// firehose) with that lane's own seq + ring. Every Publish lands here
+// regardless of app/project, so one subscriber sees the whole instance's
+// event stream. Same fan-out + drop-on-overflow discipline as the others.
+func (b *AppEventBus) publishAll(base AppEvent) (delivered, dropped, subCount int) {
+	lane := b.allLane
+	lane.mu.Lock()
+	lane.nextSeq++
+	ev := base
+	ev.Seq = lane.nextSeq
+	lane.ring[lane.ringHead] = ev
+	lane.ringHead = (lane.ringHead + 1) % ringCap
+	if lane.ringSize < ringCap {
+		lane.ringSize++
+	}
+	subs := make([]*busSubscriber, 0, len(lane.subs))
+	for _, s := range lane.subs {
+		subs = append(subs, s)
+	}
+	lane.mu.Unlock()
+	for _, s := range subs {
+		select {
+		case s.ch <- ev:
+			delivered++
+		default:
+			dropped++
+		}
+	}
+	subCount = len(subs)
+	return
+}
+
 // Subscribe attaches a listener, optionally replaying events newer
 // than since= from the ring buffer. Returns the channel + cancel fn.
 // since=0 means "live from now"; the dashboard sends the largest seq
@@ -260,10 +301,14 @@ func (b *AppEventBus) publishWildcard(app string, base AppEvent) (delivered, dro
 func (b *AppEventBus) Subscribe(app, projectID string, since uint64) (chan AppEvent, []AppEvent, func()) {
 	var lane *busLane
 	var laneTag string
-	if projectID == "" {
+	switch {
+	case app == allAppsLaneKey:
+		lane = b.allLane
+		laneTag = "all"
+	case projectID == "":
 		lane = b.wildcardFor(app)
 		laneTag = "wildcard"
-	} else {
+	default:
 		lane = b.laneFor(app, projectID)
 		laneTag = "project"
 	}

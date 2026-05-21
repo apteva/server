@@ -96,6 +96,29 @@ func TestAppBus_FirehoseDoesntLeakOtherApps(t *testing.T) {
 	}
 }
 
+func TestAppBus_AllLaneReceivesEveryApp(t *testing.T) {
+	// The _all firehose sees every app's events across every project,
+	// with its own dense monotonic seq. This backs analytics auto-capture.
+	b := NewAppEventBus()
+	all, _, cancel := b.Subscribe(allAppsLaneKey, "", 0)
+	defer cancel()
+
+	b.Publish("storage", "p1", 1, "file.added", json.RawMessage(`{"id":1}`))
+	b.Publish("crm", "p2", 1, "contact.added", json.RawMessage(`{"id":2}`))
+	b.Publish("campaigns", "", 1, "campaign.sent", json.RawMessage(`{"id":3}`))
+
+	got := drainEvents(t, all, 3, 300*time.Millisecond)
+	if len(got) != 3 {
+		t.Fatalf("_all: expected 3 events from all apps, got %d", len(got))
+	}
+	if got[0].App != "storage" || got[1].App != "crm" || got[2].App != "campaigns" {
+		t.Fatalf("_all should preserve source app + order: %+v", got)
+	}
+	if got[0].Seq == 0 || got[1].Seq != got[0].Seq+1 || got[2].Seq != got[1].Seq+1 {
+		t.Fatalf("_all seq must be monotonic and dense, got %d, %d, %d", got[0].Seq, got[1].Seq, got[2].Seq)
+	}
+}
+
 // drainEvents reads up to n events off ch within deadline, returning
 // the slice. Used by firehose tests; not chatty in any one test.
 func drainEvents(t *testing.T, ch chan AppEvent, n int, deadline time.Duration) []AppEvent {

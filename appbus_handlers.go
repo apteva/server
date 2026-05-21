@@ -116,13 +116,21 @@ func (s *Server) handleAppEventStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	projectID := r.URL.Query().Get("project_id")
-	// project_id="" is the firehose subscription — events for the
-	// given app across every project. Restricted to sidecars whose
-	// install is global-scope, so a project-scoped sidecar (or a
-	// browser session that hasn't picked a project) cannot read
-	// sibling projects' events. Browser sessions still need a
-	// project_id; the dashboard's per-project pages always carry one.
-	if projectID == "" {
+	// The all-apps firehose (app=_all) is inherently cross-project +
+	// cross-app: global-scoped sidecars only, project_id ignored.
+	if app == allAppsLaneKey {
+		projectID = ""
+		if err := s.checkFirehoseAccess(r); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+	} else if projectID == "" {
+		// Per-app firehose — events for the given app across every
+		// project. Restricted to sidecars whose install is global-scope,
+		// so a project-scoped sidecar (or a browser session that hasn't
+		// picked a project) cannot read sibling projects' events.
+		// Browser sessions still need a project_id; the dashboard's
+		// per-project pages always carry one.
 		if err := s.checkFirehoseAccess(r); err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
@@ -215,7 +223,7 @@ func (s *Server) checkFirehoseAccess(r *http.Request) error {
 //
 //   - Sidecar (X-Apteva-App-Install-ID set, X-User-ID also set).
 //     Permitted when the install belongs to the same project being
-//     subscribed to OR is global-scope (project_id=''). This lets
+//     subscribed to OR is global-scope (project_id=”). This lets
 //     apps like media subscribe to storage's file.deleted events
 //     for instant cascade cleanup without polling.
 func (s *Server) checkProjectAccess(r *http.Request, projectID string) error {
@@ -262,9 +270,9 @@ func (s *Server) checkProjectAccess(r *http.Request, projectID string) error {
 
 // writeAppEventSSE serializes an AppEvent as one unnamed SSE frame:
 //
-//   id:   <seq>\n
-//   data: <json>\n
-//   \n
+//	id:   <seq>\n
+//	data: <json>\n
+//	\n
 //
 // We deliberately do NOT set `event: <topic>` — that would force
 // every dashboard consumer to pre-declare addEventListener calls
