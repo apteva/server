@@ -1,0 +1,180 @@
+{
+  "slug": "api-sports",
+  "name": "API-Sports (Football)",
+  "description": "Structured sports data from API-Sports — standings, fixtures, results, head-to-head records, team + player statistics, and injuries. This entry targets API-Football (soccer) — the world's largest sports-betting and prediction market — at the v3 endpoint. API-Sports is organized per-sport on separate hosts (football, basketball, baseball, hockey, F1, MMA, …); the `host` credential lets you repoint this connection to a sister API (e.g. v1.basketball.api-sports.io), though the path schema below matches API-Football v3, so other sports are best served by cloning this entry with their endpoint shape. NOTE: API-Sports does NOT cover tennis — use the tennis-abstract integration for ATP/WTA history. Free tier: ~100 requests/day. Sign up at https://api-sports.io (or via RapidAPI). Direct api-sports.io auth uses the x-apisports-key header.",
+  "logo": "https://www.google.com/s2/favicons?domain=api-sports.io&sz=128",
+  "categories": [
+    "sports",
+    "football",
+    "soccer",
+    "stats",
+    "standings",
+    "head-to-head",
+    "prediction-markets"
+  ],
+  "base_url": "https://{{host}}",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "x-apisports-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API-Sports Key",
+        "description": "From your API-Sports dashboard at https://dashboard.api-sports.io. Free tier ~100 req/day. (If you subscribed via RapidAPI instead, the auth headers differ — use a RapidAPI-shaped integration.)"
+      },
+      {
+        "name": "host",
+        "label": "API host",
+        "description": "Per-sport API-Sports host. Default is API-Football v3. Other sports: v1.basketball.api-sports.io, v1.baseball.api-sports.io, v1.hockey.api-sports.io, v1.formula-1.api-sports.io, v1.american-football.api-sports.io. The tool paths below assume API-Football v3; sister sports use analogous but not identical paths (e.g. /games instead of /fixtures).",
+        "default": "v3.football.api-sports.io"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "status",
+      "description": "Account + subscription status — requests used today, plan limits, account active. Cheap health check; call to confirm the key works + you have quota.",
+      "method": "GET",
+      "path": "/status",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "leagues",
+      "description": "Find leagues/competitions. Returns league id + name + country + seasons covered. Use to resolve 'Premier League' → league id (39) before standings/fixtures.",
+      "method": "GET",
+      "path": "/leagues",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id":      {"type": "string"},
+          "name":    {"type": "string"},
+          "country": {"type": "string"},
+          "season":  {"type": "string", "description": "YYYY"},
+          "current": {"type": "string", "enum": ["true", "false"]},
+          "search":  {"type": "string", "description": "Free-text league name search (≥3 chars)."}
+        }
+      }
+    },
+    {
+      "name": "standings",
+      "description": "Current league table for a season — rank, team, played, win/draw/loss, goals for/against, points, form (last-5 string like 'WWDLW'). The single best read for assessing team strength when reasoning about a fixture.",
+      "method": "GET",
+      "path": "/standings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "league": {"type": "string", "description": "League id (e.g. 39 = EPL)."},
+          "season": {"type": "string", "description": "YYYY (the starting year of the season)."},
+          "team":   {"type": "string", "description": "Optional — restrict to one team's standing row."}
+        },
+        "required": ["league", "season"]
+      }
+    },
+    {
+      "name": "teams",
+      "description": "Find teams. Returns team id + name + country + founded + venue. Use to resolve a team name to its id (needed for head_to_head + fixtures filters).",
+      "method": "GET",
+      "path": "/teams",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id":      {"type": "string"},
+          "name":    {"type": "string"},
+          "league":  {"type": "string"},
+          "season":  {"type": "string"},
+          "country": {"type": "string"},
+          "search":  {"type": "string", "description": "Free-text team name search (≥3 chars)."}
+        }
+      }
+    },
+    {
+      "name": "team_statistics",
+      "description": "Aggregate season stats for one team in one league — form, win/draw/loss splits home vs away, goals scored/conceded by interval, clean sheets, biggest streaks. Deeper than the standings row for assessing a team's true level.",
+      "method": "GET",
+      "path": "/teams/statistics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "league": {"type": "string"},
+          "season": {"type": "string"},
+          "team":   {"type": "string"}
+        },
+        "required": ["league", "season", "team"]
+      }
+    },
+    {
+      "name": "fixtures",
+      "description": "Matches — past results + upcoming fixtures. Filter by league+season, team, date, or a from/to window. Use last=N for a team's recent results, next=N for its upcoming schedule. Each fixture carries status, score, venue, and (for finished) the result. Use to verify whether a market should be resolved + check outcomes.",
+      "method": "GET",
+      "path": "/fixtures",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id":     {"type": "string", "description": "Single fixture id."},
+          "league": {"type": "string"},
+          "season": {"type": "string"},
+          "team":   {"type": "string"},
+          "date":   {"type": "string", "description": "YYYY-MM-DD — all fixtures that day."},
+          "from":   {"type": "string", "description": "YYYY-MM-DD window start."},
+          "to":     {"type": "string", "description": "YYYY-MM-DD window end."},
+          "last":   {"type": "string", "description": "N most recent finished fixtures (for the given team)."},
+          "next":   {"type": "string", "description": "N upcoming fixtures (for the given team)."},
+          "status": {"type": "string", "description": "Filter by status code — NS (not started), FT (full time), LIVE, etc."}
+        }
+      }
+    },
+    {
+      "name": "head_to_head",
+      "description": "Historical head-to-head between two teams — every prior meeting with date, competition, and result. The core enrichment for a match market: who tends to win when these two play. Pass h2h as 'TEAMID1-TEAMID2' (ids from the teams tool).",
+      "method": "GET",
+      "path": "/fixtures/headtohead",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "h2h":    {"type": "string", "description": "Two team ids joined by a dash, e.g. '33-34'."},
+          "last":   {"type": "string", "description": "Limit to the N most recent meetings."},
+          "league": {"type": "string", "description": "Optional — restrict to one competition."},
+          "season": {"type": "string"}
+        },
+        "required": ["h2h"]
+      }
+    },
+    {
+      "name": "players",
+      "description": "Player search + season statistics — appearances, goals, assists, cards, rating. Use to resolve a player name to an id and pull their form.",
+      "method": "GET",
+      "path": "/players",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id":     {"type": "string"},
+          "team":   {"type": "string"},
+          "league": {"type": "string"},
+          "season": {"type": "string"},
+          "search": {"type": "string", "description": "Free-text player name (≥4 chars)."}
+        }
+      }
+    },
+    {
+      "name": "injuries",
+      "description": "Injury + suspension list for a league/season/team/fixture. Material for a match market — a key player out shifts the fair probability the books may not have fully priced.",
+      "method": "GET",
+      "path": "/injuries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "league":  {"type": "string"},
+          "season":  {"type": "string"},
+          "team":    {"type": "string"},
+          "fixture": {"type": "string"},
+          "date":    {"type": "string", "description": "YYYY-MM-DD."}
+        }
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "status"
+  }
+}

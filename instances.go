@@ -1140,6 +1140,9 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 				log.Printf("[CREATE] bind app install_id=%d to agent=%d: %v", installID, inst.ID, err)
 			}
 		}
+		// Inherit the bound apps' skills (their MCP tools are already
+		// reachable via the apteva-server gateway). Best-effort.
+		s.inheritAppSkills(inst, body.BoundAppInstallIDs)
 	}
 	if len(body.BoundConnectionIDs) > 0 {
 		// Each selected connection becomes an http-transport MCP
@@ -1244,6 +1247,42 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 
 	s.store.UpdateAgent(inst)
 	writeJSON(w, inst)
+}
+
+// inheritAppSkills attaches the skills shipped by each bound app to the
+// agent, so binding an app brings its playbooks along. App MCP tools are
+// already reachable via the apteva-server gateway; this is the skills half
+// of an app→agent binding. Best-effort; returns the number attached. Safe to
+// call before the agent is started — PushSkillToInstance writes to the
+// instance's on-disk memory journal, which the core reads at boot.
+func (s *Server) inheritAppSkills(inst *Agent, boundInstallIDs []int64) int {
+	if inst == nil || len(boundInstallIDs) == 0 {
+		return 0
+	}
+	boundSet := make(map[int64]bool, len(boundInstallIDs))
+	for _, id := range boundInstallIDs {
+		boundSet[id] = true
+	}
+	skills, err := s.listProjectSkills(inst.ProjectID)
+	if err != nil {
+		log.Printf("[CREATE] list skills for inheritance (agent=%d): %v", inst.ID, err)
+		return 0
+	}
+	attached := 0
+	for _, sk := range skills {
+		if sk.InstallID == nil || !boundSet[*sk.InstallID] {
+			continue
+		}
+		if perr := s.PushSkillToInstance(inst.ID, sk); perr != nil {
+			log.Printf("[CREATE] attach app skill=%d (%s) → agent=%d: %v", sk.ID, sk.Slug, inst.ID, perr)
+			continue
+		}
+		attached++
+	}
+	if attached > 0 {
+		log.Printf("[CREATE] inherited %d app skill(s) from %d bound app(s) → agent=%d", attached, len(boundSet), inst.ID)
+	}
+	return attached
 }
 
 // GET /instances

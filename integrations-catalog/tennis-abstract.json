@@ -1,0 +1,108 @@
+{
+  "slug": "tennis-abstract",
+  "name": "Tennis Abstract (Sackmann)",
+  "description": "Jeff Sackmann's open tennis dataset — the deepest free ATP/WTA history available. Every tour-level match since 1968 (date, surface, round, score, winner/loser, and per-match stats like aces/double-faults/break points), plus the full player registry and weekly ranking history. Completely free, no API key, no signup — it's served as raw CSV files from GitHub (github.com/JeffSackmann). IMPORTANT: every tool returns CSV text, NOT JSON — the consumer (market-intel) parses the CSV to compute head-to-head records, recent form, and ranking lookups. Files are per-year (matches) or per-decade (rankings); the decade ranking files are large, so prefer the *_rankings_current tool for live ranks. Data is CC-licensed for non-commercial use; attribute Jeff Sackmann / Tennis Abstract. See https://github.com/JeffSackmann/tennis_atp for the schema (the column header is the first CSV row).",
+  "logo": "https://www.google.com/s2/favicons?domain=tennisabstract.com&sz=128",
+  "categories": [
+    "sports",
+    "tennis",
+    "atp",
+    "wta",
+    "history",
+    "head-to-head",
+    "rankings",
+    "prediction-markets"
+  ],
+  "base_url": "https://raw.githubusercontent.com/JeffSackmann",
+  "auth": {
+    "types": ["none"],
+    "headers": {
+      "User-Agent": "Apteva-MarketIntel/0.1 (+https://github.com/apteva)"
+    }
+  },
+  "tools": [
+    {
+      "name": "atp_matches",
+      "description": "Every ATP tour-level match in a given year as CSV. Columns include tourney_date, surface (Hard/Clay/Grass/Carpet), round, winner_name, loser_name, score, plus serve/return stats. The raw material for ATP head-to-head + recent-form computation. Returns CSV text.",
+      "method": "GET",
+      "path": "/tennis_atp/master/atp_matches_{year}.csv",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "year": {"type": "string", "description": "Four-digit year, e.g. 2024. One file per year; fetch each year you need."}
+        },
+        "required": ["year"]
+      }
+    },
+    {
+      "name": "wta_matches",
+      "description": "Every WTA tour-level match in a given year as CSV — same schema as atp_matches. The raw material for WTA head-to-head + recent-form. Returns CSV text.",
+      "method": "GET",
+      "path": "/tennis_wta/master/wta_matches_{year}.csv",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "year": {"type": "string", "description": "Four-digit year, e.g. 2024."}
+        },
+        "required": ["year"]
+      }
+    },
+    {
+      "name": "atp_rankings_current",
+      "description": "The most recent ATP ranking snapshot as CSV — ranking_date, rank, player id, points. Small + fast; use this for live rank lookups instead of the bulky decade files. Join player ids against atp_players for names. Returns CSV text.",
+      "method": "GET",
+      "path": "/tennis_atp/master/atp_rankings_current.csv",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "wta_rankings_current",
+      "description": "The most recent WTA ranking snapshot as CSV — same schema as atp_rankings_current. Returns CSV text.",
+      "method": "GET",
+      "path": "/tennis_wta/master/wta_rankings_current.csv",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "atp_rankings_decade",
+      "description": "Full weekly ATP ranking history for a decade as CSV (ranking_date, rank, player, points). LARGE file — only fetch when you need historical ranks (e.g. a player's rank at a past match date); for current rank use atp_rankings_current. Returns CSV text.",
+      "method": "GET",
+      "path": "/tennis_atp/master/atp_rankings_{decade}s.csv",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decade": {"type": "string", "description": "Two-digit decade start, e.g. '20' for the 2020s, '10' for the 2010s, '00' for the 2000s, '90' for the 1990s."}
+        },
+        "required": ["decade"]
+      }
+    },
+    {
+      "name": "wta_rankings_decade",
+      "description": "Full weekly WTA ranking history for a decade as CSV. LARGE file — prefer wta_rankings_current for live ranks. Returns CSV text.",
+      "method": "GET",
+      "path": "/tennis_wta/master/wta_rankings_{decade}s.csv",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "decade": {"type": "string", "description": "Two-digit decade start, e.g. '20' for the 2020s."}
+        },
+        "required": ["decade"]
+      }
+    },
+    {
+      "name": "atp_players",
+      "description": "The full ATP player registry as CSV — player_id, first/last name, hand, date of birth, country, height. Use to resolve a player name to the id used across the match + ranking files. Returns CSV text (a large but one-time lookup).",
+      "method": "GET",
+      "path": "/tennis_atp/master/atp_players.csv",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "wta_players",
+      "description": "The full WTA player registry as CSV — same schema as atp_players. Returns CSV text.",
+      "method": "GET",
+      "path": "/tennis_wta/master/wta_players.csv",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ],
+  "health_check": {
+    "tool": "atp_rankings_current"
+  }
+}

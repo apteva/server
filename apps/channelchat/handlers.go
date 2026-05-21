@@ -2,6 +2,8 @@ package channelchat
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -73,11 +75,13 @@ var chatThreadTools = []string{"send", "pace"}
 var fallbackChatThreadMCPs = []string{"channels"}
 
 // spawnedChatThreads remembers which (instance, chat) pairs we've
-// already spawned the thread for in this process. The core endpoint
-// is idempotent, but the round-trip is wasted work on every message;
-// this cache turns it into one POST per chat per process. Reset on
-// restart, which is fine — the second call returns status=exists.
-var spawnedChatThreads sync.Map // key: "instID/chatID" → struct{}{}
+// already spawned the thread for in this process AND the directive
+// hash they were spawned/updated with. The hash lets us detect when
+// main's directive has drifted (UI edit / evolve) and push the new
+// directive into the live thread via UpdateThread instead of leaving
+// it stale until a restart. Reset on restart, which is fine — a fresh
+// process re-spawns on the first message.
+var spawnedChatThreads sync.Map // key: "instID/chatID" → directiveHash string
 
 // REST + SSE surface. Mounted at /api/apps/channel-chat/<path>. Every
 // route is scoped to the authenticated user + the instance owning the
@@ -125,6 +129,18 @@ type InstanceResolver interface {
 	// the same MCP surface main has, so quick reads/lookups don't
 	// have to round-trip through main.
 	ListMCPNames(inst framework.InstanceInfo) ([]string, error)
+
+	// UpdateThread pushes a new directive (as directive_suffix, same
+	// shape as SpawnThread) into a LIVE core thread without killing it
+	// — PUT /threads/:id. Keeps the chat thread's directive in sync
+	// with main's after an edit / evolve while preserving its session.
+	UpdateThread(inst framework.InstanceInfo, threadID, directiveSuffix string, tools []string) error
+
+	// MainDirective returns the agent's current live main-thread
+	// directive (read from the same core /config surface ListMCPNames
+	// uses). Channelchat hashes it to detect drift and decide whether
+	// to re-issue the chat thread's directive.
+	MainDirective(inst framework.InstanceInfo) (string, error)
 
 	// InstanceIDsForUser returns every instance id the user owns,
 	// across all projects. Used by the unread-summary endpoint and
@@ -635,17 +651,33 @@ func (h *handlers) resolveChatThread(inst framework.InstanceInfo, chatID string)
 		return "main"
 	}
 	cacheKey := fmt.Sprintf("%d/%s", inst.ID, chatID)
-	if _, alreadySpawned := spawnedChatThreads.Load(cacheKey); alreadySpawned {
+
+	// Compute the directive hash to compare against what the chat
+	// thread was last spawned/updated with. The hash covers main's
+	// LIVE directive PLUS the suffix constant, so it catches three
+	// kinds of drift: a UI directive edit, the agent's own evolve,
+	// and a change to chatThreadDirectiveSuffix shipped in a new
+	// binary. MainDirective is one /config fetch; on the common
+	// "already current" path it's the only round-trip we make.
+	wantHash := ""
+	if dir, derr := h.instances.MainDirective(inst); derr == nil {
+		wantHash = directiveHash(dir + chatThreadDirectiveSuffix)
+	} else {
+		log.Printf("[CHAT] MainDirective inst=%d: %v — skipping drift check", inst.ID, derr)
+	}
+
+	prev, alreadySpawned := spawnedChatThreads.Load(cacheKey)
+	// Already spawned AND current (or we couldn't compute a hash to
+	// compare against) → reuse as-is.
+	if alreadySpawned && (wantHash == "" || prev.(string) == wantHash) {
 		return threadID
 	}
-	// Mirror main's MCP surface onto the chat thread so quick
-	// reads/lookups can be served without round-tripping through
-	// main. "channels" is always required (chat thread needs
-	// channels_respond to reply at all); the rest comes from the
-	// instance's effective MCP list. The supervisor-with-hands rule
-	// in the directive still pushes durable / long-running work to
-	// main — chat thread has the tools, but not the ownership of
-	// long-lived tasks.
+
+	// We're going to either spawn (first time) or update (drifted).
+	// Both want main's MCP surface. "channels" is always required —
+	// the chat thread needs channels_respond to reply at all; the
+	// rest mirrors the instance's effective MCP list so quick
+	// reads/lookups can be served without round-tripping through main.
 	mcps, err := h.instances.ListMCPNames(inst)
 	if err != nil || len(mcps) == 0 {
 		log.Printf("[CHAT] ListMCPNames inst=%d: %v — using minimal fallback", inst.ID, err)
@@ -653,16 +685,35 @@ func (h *handlers) resolveChatThread(inst framework.InstanceInfo, chatID string)
 	} else {
 		mcps = ensureChannels(mcps)
 	}
-	// The "directive" arg flows into core as directive_suffix: the
-	// thread inherits main's directive verbatim and appends this
-	// chat-handling hint. Sending only the suffix avoids round-tripping
-	// to fetch main's directive on the channelchat side.
+
+	if alreadySpawned {
+		// Directive drifted — update the LIVE thread in place so its
+		// session (conversation history) survives. The chat thread
+		// answers the user's next message under the new directive.
+		if err := h.instances.UpdateThread(inst, threadID, chatThreadDirectiveSuffix, chatThreadTools); err != nil {
+			log.Printf("[CHAT] UpdateThread chat=%s thread=%s: %v — keeping stale directive", chatID, threadID, err)
+			return threadID // stale but functional; better than dropping the message
+		}
+		spawnedChatThreads.Store(cacheKey, wantHash)
+		return threadID
+	}
+
+	// First spawn this process. The "directive" arg flows into core as
+	// directive_suffix: the thread inherits main's directive verbatim
+	// and appends this chat-handling hint.
 	if err := h.instances.SpawnThread(inst, threadID, chatThreadDirectiveSuffix, chatThreadTools, mcps); err != nil {
 		log.Printf("[CHAT] SpawnThread chat=%s thread=%s: %v — falling back to main", chatID, threadID, err)
 		return "main"
 	}
-	spawnedChatThreads.Store(cacheKey, struct{}{})
+	spawnedChatThreads.Store(cacheKey, wantHash)
 	return threadID
+}
+
+// directiveHash is a cheap stable fingerprint of a chat thread's
+// composed directive (main directive + suffix) used to detect drift.
+func directiveHash(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
 }
 
 // ensureChannels guarantees the `channels` MCP is in the slice —

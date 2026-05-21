@@ -437,6 +437,73 @@ func (r *serverResolver) ListMCPNames(inst framework.InstanceInfo) ([]string, er
 	return names, nil
 }
 
+// MainDirective reads the agent's current main-thread directive from
+// core's /config endpoint — the same live surface ListMCPNames uses.
+// Channelchat hashes this to detect when main's directive has drifted
+// (UI edit / evolve) so it can re-issue the chat thread's directive
+// without a server restart.
+func (r *serverResolver) MainDirective(inst framework.InstanceInfo) (string, error) {
+	if inst.Port == 0 {
+		return "", fmt.Errorf("instance %d not running", inst.ID)
+	}
+	url := fmt.Sprintf("http://127.0.0.1:%d/config", inst.Port)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	if inst.CoreAPIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return "", fmt.Errorf("core /config: HTTP %d", resp.StatusCode)
+	}
+	var cfg map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
+		return "", err
+	}
+	directive, _ := cfg["directive"].(string)
+	return directive, nil
+}
+
+// UpdateThread PUTs to core's /threads/{id} to update a LIVE thread's
+// directive in place — same directive_suffix semantics as SpawnThread,
+// but without killing the thread, so its session survives. Used by
+// channelchat's drift-detection to keep the chat thread current with
+// main's directive.
+func (r *serverResolver) UpdateThread(inst framework.InstanceInfo, threadID, directiveSuffix string, tools []string) error {
+	if inst.Port == 0 {
+		return fmt.Errorf("instance %d has no core port — is it running?", inst.ID)
+	}
+	body, _ := json.Marshal(map[string]any{
+		"directive_suffix": directiveSuffix,
+		"tools":            tools,
+	})
+	url := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, threadID)
+	req, err := http.NewRequest("PUT", url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if inst.CoreAPIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("update thread %q: HTTP %d", threadID, resp.StatusCode)
+	}
+	return nil
+}
+
 // SpawnThread POSTs to core's /threads/{id} endpoint to idempotently
 // create a thread. directive is sent as `directive_suffix` so the
 // thread inherits main's directive verbatim and appends the caller's
