@@ -193,6 +193,11 @@ type WorldManager struct {
 	// so prod (LocalSupervisor-known paths) and tests can override.
 	// Defaults to defaultBinaryResolver.
 	ResolveBinary func(name string) (string, error)
+
+	// ResolveSource maps an app manifest name to its local working-copy
+	// dir (for installLocalSource / world-from-bindings derivation).
+	// Injectable for tests. Defaults to defaultSourceResolver.
+	ResolveSource func(name string) (string, error)
 }
 
 // NewWorldManager creates the manager and ensures its data root exists.
@@ -203,6 +208,7 @@ func NewWorldManager(dataDir string) *WorldManager {
 		dataDir:       dataDir,
 		snapshots:     NewSnapshotStore(dataDir),
 		ResolveBinary: defaultBinaryResolver,
+		ResolveSource: defaultSourceResolver,
 	}
 }
 
