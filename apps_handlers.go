@@ -72,6 +72,7 @@ type AppSurfaces struct {
 	Kind            string   `json:"kind"`              // service | source | static
 	MCPToolCount    int      `json:"mcp_tool_count"`
 	MCPToolNames    []string `json:"mcp_tool_names,omitempty"`
+	SkillCount      int      `json:"skill_count"`
 	HTTPRouteCount  int      `json:"http_route_count"`
 	HTTPRoutes      []string `json:"http_routes,omitempty"`
 	UIPanelCount    int      `json:"ui_panel_count"`
@@ -681,6 +682,7 @@ func surfacesFromManifest(m *sdk.Manifest) AppSurfaces {
 	s := AppSurfaces{
 		Kind:            m.Runtime.Kind,
 		MCPToolCount:    len(m.Provides.MCPTools),
+		SkillCount:      len(m.Provides.Skills),
 		HTTPRouteCount:  len(m.Provides.HTTPRoutes),
 		UIPanelCount:    len(m.Provides.UIPanels),
 		UIApp:           m.Provides.UIApp != nil,
