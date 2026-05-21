@@ -550,6 +550,28 @@
       }
     },
     {
+      "name": "set_mail_from",
+      "description": "Set or clear the custom MAIL FROM domain for an identity (PutEmailIdentityMailFromAttributes). Omit MailFromDomain to reset to the SES default (amazonses.com). Apteva messaging does not use custom MAIL FROM, so this is mainly used to clear leftover values carried over from other tooling.",
+      "method": "PUT",
+      "path": "/v2/email/identities/{EmailIdentity}/mail-from",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "EmailIdentity": { "type": "string" },
+          "MailFromDomain": {
+            "type": "string",
+            "description": "Custom MAIL FROM subdomain (e.g. mail.example.com). Omit to reset to the SES default."
+          },
+          "BehaviorOnMxFailure": {
+            "type": "string",
+            "enum": ["USE_DEFAULT_VALUE", "REJECT_MESSAGE"],
+            "description": "What SES does if the MAIL FROM MX record is missing. Default USE_DEFAULT_VALUE."
+          }
+        },
+        "required": ["EmailIdentity"]
+      }
+    },
+    {
       "name": "set_identity_feedback",
       "description": "Enable or disable email feedback forwarding (bounces and complaints sent back to the From address). Disabling is only allowed when an SNS event destination is configured to capture them instead.",
       "method": "PUT",
