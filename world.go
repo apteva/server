@@ -80,6 +80,17 @@ func (w *World) Install(name string) (*localInstall, bool) {
 	return in, ok
 }
 
+// InstallNames lists the real in-world installs' app names.
+func (w *World) InstallNames() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := make([]string, 0, len(w.installs))
+	for k := range w.installs {
+		out = append(out, k)
+	}
+	return out
+}
+
 // AttachAgent records the running agent copy so World.Stop tears it down.
 func (w *World) AttachAgent(a *WorldAgent) {
 	w.mu.Lock()

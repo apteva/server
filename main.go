@@ -1118,6 +1118,11 @@ func main() {
 	// agent-testing-as-a-virtual-world model). See world*.go.
 	s.registerWorldRoutes(apiMux)
 
+	// /world-mcp — World control surface as MCP tools (create/seed/list/
+	// destroy). Added to the meta-agent's mcp_servers so it drives Worlds
+	// by tool calls. Loopback; backed in-process by s.worlds. See world_mcp.go.
+	apiMux.HandleFunc("/world-mcp", s.handleWorldMCP)
+
 	instancesCollectionHandler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
