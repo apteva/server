@@ -755,6 +755,12 @@ func (s *Server) handleAgentEvals(w http.ResponseWriter, r *http.Request) {
 				budget = 8 * time.Minute
 			}
 		}
+		// A world run builds the agent's apps from source, spawns real
+		// sidecars + a fresh core, then drives + judges — far more than a
+		// mock-gateway single-shot. Give it room.
+		if opts.UseWorld && budget < 8*time.Minute {
+			budget = 8 * time.Minute
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), budget)
 		defer cancel()
 		run, err := s.runEval(ctx, userID, agent, existing, opts)
