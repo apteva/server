@@ -101,6 +101,13 @@ type RunOptions struct {
 	MaxIterations int  `json:"max_iterations,omitempty"`
 	StrictMocks   bool `json:"strict_mocks,omitempty"`
 
+	// UseWorld runs the eval in a real World derived from the agent's app
+	// bindings (CreateWorldForAgent) instead of the mock gateway: the agent
+	// runs against real in-world apps, externals virtualised by the edge +
+	// per-world interceptor. See world_eval.go::runEvalInWorld. Opt-in so
+	// the existing mock-gateway path is unchanged.
+	UseWorld bool `json:"use_world,omitempty"`
+
 	// SandboxApps + HTTPMocks switch the eval into "real-app sandbox"
 	// mode (see eval_sandbox.go). When either is non-empty, the runner:
 	//  - boots an HTTP intercept proxy with the declared HTTPMocks +

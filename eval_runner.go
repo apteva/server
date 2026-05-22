@@ -392,6 +392,9 @@ func unregisterEvalSession(token string) {
 // (>1) — the route picks the default and the request body can
 // override.
 func (s *Server) runEval(ctx context.Context, userID int64, agent *Agent, ev *Eval, opts RunOptions) (*EvalRun, error) {
+	if opts.UseWorld {
+		return s.runEvalInWorld(ctx, userID, agent, ev, false, opts)
+	}
 	return s.runRealEvalCore(ctx, userID, agent, ev, false, opts, nil)
 }
 
