@@ -190,6 +190,10 @@ func setupRealServer(t *testing.T, apiKey, corePath, agentName, agentDirective s
 	apiMux.HandleFunc("/world-mcp", s.handleWorldMCP)
 	mux := http.NewServeMux()
 	mux.Handle("/api/", http.StripPrefix("/api", apiMux))
+	// /mcp/<connID> — the integration connection MCP endpoint (top-level in
+	// production, main.go), reached by agents (incl. in-world agents) for
+	// direct integration tools like Pushover.
+	mux.HandleFunc("/mcp/", s.handleMCPEndpoint)
 	httpServer := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go httpServer.Serve(listener) //nolint:errcheck // shutdown emits ErrServerClosed
 	t.Cleanup(func() {

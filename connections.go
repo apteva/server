@@ -952,14 +952,23 @@ type integrationInterceptorFn func(app *AppTemplate, tool *AppToolDef, input map
 var worldInterceptors sync.Map // worldID string -> integrationInterceptorFn
 
 func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, worldID string) (*ExecuteResult, error) {
-	// World test-mode seam: route to this world's interceptor (if any),
-	// which can answer from a fixture instead of hitting the real API.
+	// World test-mode seam: a call inside a World must NEVER reach the real
+	// API. Resolve it fail-safe, in order:
+	//   1. a per-world interceptor fixture (eval-specific override);
+	//   2. the catalog tool's curated mock_response (faithful default);
+	//   3. a generic stub-ok.
 	if worldID != "" {
 		if v, ok := worldInterceptors.Load(worldID); ok {
 			if res, handled := v.(integrationInterceptorFn)(app, tool, input); handled {
 				return res, nil
 			}
 		}
+		if len(tool.MockResponse) > 0 {
+			var data any
+			_ = json.Unmarshal(tool.MockResponse, &data)
+			return &ExecuteResult{Success: true, Status: 200, Data: data}, nil
+		}
+		return &ExecuteResult{Success: true, Status: 200, Data: map[string]any{"ok": true, "_stub": true}}, nil
 	}
 
 	// Coerce input values to match the tool's schema types.

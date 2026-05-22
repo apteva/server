@@ -16,6 +16,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -100,6 +101,37 @@ func (s *Server) SpawnAgentInWorld(world *World, spec WorldAgentSpec) (*WorldAge
 			"transport": "http",
 			"no_spawn":  true,
 		})
+	}
+	// Carry over the agent's OWN integration connections (its config's
+	// /mcp/<id> entries), tagging each URL with ?world_id so the executor
+	// mocks them instead of hitting the real API. The connection is the
+	// agent's real one — the world changes only the executor's behavior.
+	if src.Config != "" {
+		var srcCfg map[string]any
+		if json.Unmarshal([]byte(src.Config), &srcCfg) == nil {
+			if existing, ok := srcCfg["mcp_servers"].([]any); ok {
+				for _, e := range existing {
+					m, ok := e.(map[string]any)
+					if !ok {
+						continue
+					}
+					url, _ := m["url"].(string)
+					if !strings.Contains(url, "/mcp/") { // connection entries only
+						continue
+					}
+					sep := "?"
+					if strings.Contains(url, "?") {
+						sep = "&"
+					}
+					mcpServers = append(mcpServers, map[string]any{
+						"name":      m["name"],
+						"url":       url + sep + "world_id=" + world.ID,
+						"transport": "http",
+						"no_spawn":  true,
+					})
+				}
+			}
+		}
 	}
 	cfg := map[string]any{
 		"directive":             directive,
