@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -810,5 +811,71 @@ func TestExecuteIntegrationTool_BinaryResponse(t *testing.T) {
 	}
 	if !bytes.Equal(dec, payload) {
 		t.Fatalf("decoded bytes mismatch: %x vs %x", dec, payload)
+	}
+}
+
+// TestExecuteIntegrationTool_BodyRoot asserts that when a tool declares
+// body_root_param, the named input field's value becomes the entire JSON
+// request body verbatim — including a top-level array, which the default
+// "marshal all inputs into an object" path cannot produce. IONOS DNS's
+// create-records endpoint (POST /zones/{zoneId}/records) needs this.
+func TestExecuteIntegrationTool_BodyRoot(t *testing.T) {
+	var capturedBody []byte
+	var capturedPath string
+	var capturedCT string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedCT = r.Header.Get("Content-Type")
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "fake-ionos",
+		BaseURL: srv.URL,
+		Auth:    AppAuthConfig{Types: []string{"api_key"}},
+	}
+	tool := &AppToolDef{
+		Name:     "create_records",
+		Method:   "POST",
+		Path:     "/zones/{zoneId}/records",
+		BodyRoot: "records",
+	}
+	input := map[string]any{
+		"zoneId": "zone-123",
+		"records": []any{
+			map[string]any{"name": "mail.acme.com", "type": "A", "content": "1.2.3.4", "ttl": 3600},
+		},
+	}
+	res, err := executeIntegrationTool(app, tool, map[string]string{"api_key": "pref.secret"}, input, "")
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("success=%v status=%d", res.Success, res.Status)
+	}
+	if capturedPath != "/zones/zone-123/records" {
+		t.Errorf("path=%q, want /zones/zone-123/records", capturedPath)
+	}
+	if capturedCT != "application/json" {
+		t.Errorf("Content-Type=%q, want application/json", capturedCT)
+	}
+	// The body must be a bare JSON array, not an object wrapping "records",
+	// and must NOT contain the path param zoneId.
+	var arr []map[string]any
+	if err := json.Unmarshal(capturedBody, &arr); err != nil {
+		t.Fatalf("body is not a top-level JSON array: %v (body=%s)", err, capturedBody)
+	}
+	if len(arr) != 1 {
+		t.Fatalf("array len=%d, want 1 (body=%s)", len(arr), capturedBody)
+	}
+	if arr[0]["name"] != "mail.acme.com" || arr[0]["type"] != "A" {
+		t.Errorf("record mismatch: %v", arr[0])
+	}
+	if strings.Contains(string(capturedBody), "zoneId") {
+		t.Errorf("body leaked path param zoneId: %s", capturedBody)
 	}
 }

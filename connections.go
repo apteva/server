@@ -1077,6 +1077,23 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			if _, set := headers["Content-Type"]; !set {
 				headers["Content-Type"] = "application/octet-stream"
 			}
+		} else if tool.BodyRoot != "" {
+			// Root-body path: the named input field's value IS the
+			// whole JSON body (e.g. a bare array). Marshal it verbatim
+			// instead of wrapping all inputs in a flat object. Path
+			// params + tool-declared query_params were already peeled
+			// into the URL above; any other inputs are dropped (the
+			// body slot belongs to this one field).
+			if v, ok := input[tool.BodyRoot]; ok && v != nil {
+				data, err := json.Marshal(v)
+				if err != nil {
+					return nil, fmt.Errorf("marshal body_root_param %q: %w", tool.BodyRoot, err)
+				}
+				bodyReader = strings.NewReader(string(data))
+			}
+			if _, set := headers["Content-Type"]; !set {
+				headers["Content-Type"] = "application/json"
+			}
 		} else {
 			// Merge default credential fields into body
 			bodyMap := make(map[string]any)
@@ -1143,7 +1160,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			if toolQuerySet[k] {
 				continue
 			}
-			if k == tool.BodyInput {
+			if k == tool.BodyInput || k == tool.BodyRoot {
 				continue
 			}
 			q.Set(k, fmt.Sprintf("%v", v))

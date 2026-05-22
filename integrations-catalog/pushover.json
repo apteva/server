@@ -70,6 +70,10 @@
         "required": [
           "message"
         ]
+      },
+      "mock_response": {
+        "status": 1,
+        "request": "647d2300-7c7e-4d2a-8e3f-9b1c2d3e4f50"
       }
     },
     {
@@ -88,6 +92,13 @@
         "required": [
           "user"
         ]
+      },
+      "mock_response": {
+        "status": 1,
+        "group": 0,
+        "devices": ["iphone", "desktop"],
+        "licenses": ["iOS", "Desktop"],
+        "request": "5a3b1c00-9f2e-4c1d-b6a7-0d8e9f2a3b4c"
       }
     },
     {
@@ -98,6 +109,18 @@
       "input_schema": {
         "type": "object",
         "properties": {}
+      },
+      "mock_response": {
+        "sounds": {
+          "pushover": "Pushover (default)",
+          "bike": "Bike",
+          "bugle": "Bugle",
+          "siren": "Siren",
+          "spacealarm": "Space Alarm",
+          "none": "None (silent)"
+        },
+        "status": 1,
+        "request": "9c2d4e00-1a3b-4f5c-8d6e-7a9b0c1d2e3f"
       }
     },
     {
@@ -131,6 +154,11 @@
         "required": [
           "message"
         ]
+      },
+      "mock_response": {
+        "status": 1,
+        "request": "b7e8f900-2c4d-4a6b-9e1f-3a5c7d9e0f12",
+        "receipt": "rMOCK1a2b3c4d5e6f7g8h9i0j"
       }
     }
   ]

@@ -1123,6 +1123,11 @@ func main() {
 	// by tool calls. Loopback; backed in-process by s.worlds. See world_mcp.go.
 	apiMux.HandleFunc("/world-mcp", s.handleWorldMCP)
 
+	// /world-app-gateway/<worldID>/<app>/... — token-brokering proxy so an
+	// in-world agent core can reach the world's token-protected app sidecars.
+	// Loopback; world id in path is the credential. See world_app_gateway.go.
+	apiMux.HandleFunc("/world-app-gateway/", s.handleWorldAppGateway)
+
 	instancesCollectionHandler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:

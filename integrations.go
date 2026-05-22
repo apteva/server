@@ -391,6 +391,22 @@ type AppToolDef struct {
 	// json" content-type assumption is bypassed.
 	BodyInput string `json:"body_input,omitempty"`
 
+	// BodyRoot names a single input field whose value becomes the ENTIRE
+	// JSON request body, verbatim, instead of the default "marshal all
+	// remaining input fields into a flat JSON object". Use for endpoints
+	// whose body is a top-level JSON array (or any non-object JSON value)
+	// rather than an object — e.g. IONOS DNS create-records
+	// (POST /zones/{id}/records) takes a bare array of record objects.
+	//
+	// When set and the named field is present in input, the field's value
+	// is json.Marshal'd and sent as the body with Content-Type
+	// application/json; path-template fields and tool-declared query_params
+	// are still peeled off the URL first, and any other remaining inputs
+	// are dropped (the body slot is taken). Differs from BodyInput, which
+	// sends raw/binary bytes; BodyRoot sends structured JSON. Mirrors the
+	// same field in @apteva/integrations/src/types.ts AppToolTemplate.
+	BodyRoot string `json:"body_root_param,omitempty"`
+
 	// Signing overrides the app-level auth.signers[] chain for this
 	// specific tool. Use when most endpoints share one auth flavor but
 	// a handful need extra work — e.g. Polymarket's CLOB reads with

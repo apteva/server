@@ -80,8 +80,19 @@ func (s *Server) SpawnAgentInWorld(world *World, spec WorldAgentSpec) (*WorldAge
 		s.store.DeleteAgent(userID, wAgent.ID)
 	}
 
-	// Point mcp_servers at the World's real in-world sidecars.
-	mcpServers := make([]any, 0, len(world.Apps()))
+	// Point mcp_servers at the World's apps. Real (install-backed) apps are
+	// token-protected, so route them through the world-app gateway which
+	// brokers the install token; legacy sandbox apps run tokenless (dev
+	// mode) so the agent reaches their MCP directly.
+	mcpServers := []any{}
+	for _, name := range world.InstallNames() {
+		mcpServers = append(mcpServers, map[string]any{
+			"name":      name,
+			"url":       s.worldAppMCPURL(world.ID, name),
+			"transport": "http",
+			"no_spawn":  true,
+		})
+	}
 	for name, inst := range world.Apps() {
 		mcpServers = append(mcpServers, map[string]any{
 			"name":      name,
