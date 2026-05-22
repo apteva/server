@@ -43,6 +43,18 @@ func (s *Server) runEvalInWorld(ctx context.Context, userID int64, agent *Agent,
 	defer world.Stop()
 	session.recordSystem(fmt.Sprintf("world %s ready — in-world apps: %v", worldID, world.InstallNames()))
 
+	// 1b. Seed the world's starting state by driving the apps' real tools,
+	//     before the agent runs — so the eval can test behavior over
+	//     pre-existing state. The plan may be hand-authored or meta-agent
+	//     proposed; execution is deterministic.
+	if len(opts.SeedPlan) > 0 {
+		if _, err := s.ExecuteSeedPlan(world, opts.SeedPlan); err != nil {
+			return s.writeEvalRun(ev.ID, startedAt, session, nil, nil, "error",
+				"seed world: "+err.Error(), preview, 0)
+		}
+		session.recordSystem(fmt.Sprintf("seeded world with %d call(s)", len(opts.SeedPlan)))
+	}
+
 	// 2. Spawn the agent-under-test INSIDE the world. Its mcp_servers point
 	//    at the in-world apps (via the token-brokering world-app gateway);
 	//    egress runs through the world edge. Torn down by world.Stop().

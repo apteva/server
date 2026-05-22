@@ -108,6 +108,12 @@ type RunOptions struct {
 	// the existing mock-gateway path is unchanged.
 	UseWorld bool `json:"use_world,omitempty"`
 
+	// SeedPlan sets up the World's starting state before the agent runs, by
+	// driving the in-world apps' real tools (ExecuteSeedPlan). Lets an eval
+	// test behavior over pre-existing state. Only used with UseWorld. The
+	// plan can be authored by hand or proposed by the meta-agent.
+	SeedPlan []SeedCall `json:"seed_plan,omitempty"`
+
 	// SandboxApps + HTTPMocks switch the eval into "real-app sandbox"
 	// mode (see eval_sandbox.go). When either is non-empty, the runner:
 	//  - boots an HTTP intercept proxy with the declared HTTPMocks +
