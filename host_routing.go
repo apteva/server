@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -87,7 +88,21 @@ func (hr *HostRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "https://"+r.Host+r.RequestURI, http.StatusMovedPermanently)
 		return
 	}
-	proxy := httputil.NewSingleHostReverseProxy(hit.Target)
+	// Edge cache: serve fresh public assets without touching the origin.
+	if hr.server != nil && hr.server.edgeCache != nil && hr.server.edgeCache.serve(w, r, hit.Hostname) {
+		return
+	}
+	// Resolve the effective backend. For app:// origins this looks up
+	// the app's LIVE sidecar URL per request, so a sidecar restart
+	// (which reassigns the local port) can't leave the route pointing
+	// at a dead backend.
+	target, ok := hr.resolveTarget(hit)
+	if !ok {
+		log.Printf("[host-router] %s: origin app %q not resolvable (not installed/running?)", hit.Hostname, hit.OriginApp)
+		http.Error(w, "backend unavailable", http.StatusBadGateway)
+		return
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
@@ -100,10 +115,49 @@ func (hr *HostRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	proxy.ErrorHandler = func(rw http.ResponseWriter, _ *http.Request, err error) {
-		log.Printf("[host-router] proxy %s → %s: %v", hit.Hostname, hit.Target, err)
+		log.Printf("[host-router] proxy %s → %s: %v", hit.Hostname, target, err)
 		http.Error(rw, "backend unreachable: "+err.Error(), http.StatusBadGateway)
 	}
+	// On a cache miss, tee the origin response so eligible public assets
+	// get stored for next time.
+	if hr.server != nil && hr.server.edgeCache != nil {
+		cw := hr.server.edgeCache.wrap(w, r, hit.Hostname)
+		proxy.ServeHTTP(cw, r)
+		cw.finalize()
+		return
+	}
 	proxy.ServeHTTP(w, r)
+}
+
+// resolveTarget returns the backend URL to proxy to. For ordinary
+// http(s):// routes that's the cached Target. For app:// origins it
+// resolves the named app's LIVE sidecar URL from the installed-apps
+// registry (refreshed on every sidecar (re)spawn via
+// LoadInstalledApps), preferring the project-scoped install when the
+// route carries a project. Returns ok=false when the app isn't
+// installed/running so the caller can 502 instead of nil-proxying.
+func (hr *HostRouter) resolveTarget(hit RouteHit) (*url.URL, bool) {
+	if hit.OriginApp == "" {
+		return hit.Target, hit.Target != nil
+	}
+	if hr.server == nil || hr.server.installedApps == nil {
+		return nil, false
+	}
+	var entry *InstalledApp
+	if hit.OriginProject != "" {
+		entry = hr.server.installedApps.GetByNameAndProject(hit.OriginApp, hit.OriginProject)
+	}
+	if entry == nil {
+		entry = hr.server.installedApps.GetByName(hit.OriginApp)
+	}
+	if entry == nil || entry.SidecarURL == "" {
+		return nil, false
+	}
+	u, err := url.Parse(entry.SidecarURL)
+	if err != nil || u.Host == "" {
+		return nil, false
+	}
+	return u, true
 }
 
 // ─── cross-app tool call helper ───────────────────────────────────
@@ -144,4 +198,3 @@ func callInstalledAppTool(s *Server, appName, tool string, args map[string]any) 
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 }
-

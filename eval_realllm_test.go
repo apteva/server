@@ -169,16 +169,25 @@ func setupRealServer(t *testing.T, apiKey, corePath, agentName, agentDirective s
 		agents:         NewAgentManager(filepath.Join(dataDir, "agents"), corePath),
 		broadcaster:    NewTelemetryBroadcaster(),
 		instanceSecret: "real-llm-test-secret",
+		// World wiring so real-LLM tests can run evals in a World too
+		// (UseWorld). Harmless for the mock-gateway tests — unused unless
+		// a World is created. Stable appcache (outside t.TempDir) so the
+		// read-only Go module cache doesn't break TempDir cleanup.
+		localApps:     NewLocalSupervisor(filepath.Join(os.TempDir(), "apteva-world-test-appcache")),
+		installedApps: NewInstalledAppsRegistry(),
+		catalog:       NewAppCatalog(),
+		worlds:        NewWorldManager(filepath.Join(dataDir, "worlds")),
 	}
+	s.worlds.server = s
 
-	// Only the eval-mock-gateway route needs to be reachable for the
-	// spawned core. Other endpoints (telemetry, channels) are absent
-	// — the spawned core's calls to them just 404 silently, which is
-	// fine for a one-shot eval. The handler expects to see the path
-	// without the /api prefix (production wraps apiMux in
-	// http.StripPrefix("/api")), so we mirror that here.
+	// Routes the spawned core(s) call back to. eval-mock-gateway for the
+	// classic path; world-app-gateway (token-brokered app access) +
+	// world-mcp for the World path. Path is sans /api prefix (production
+	// wraps apiMux in http.StripPrefix("/api")), mirrored here.
 	apiMux := http.NewServeMux()
 	apiMux.HandleFunc("/eval-mock-gateway/", s.handleEvalMockGateway)
+	apiMux.HandleFunc("/world-app-gateway/", s.handleWorldAppGateway)
+	apiMux.HandleFunc("/world-mcp", s.handleWorldMCP)
 	mux := http.NewServeMux()
 	mux.Handle("/api/", http.StripPrefix("/api", apiMux))
 	httpServer := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}

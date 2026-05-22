@@ -37,13 +37,13 @@ import (
 // routes app — the routes app can be uninstalled, refactored, or
 // versioned independently.
 type Route struct {
-	ID              int64  `json:"id"`
-	Hostname        string `json:"hostname"`
-	Target          string `json:"target"`
-	OwnerInstallID  int64  `json:"owner_install_id"`
-	OwnerKind       string `json:"owner_kind"`
-	CertFQDN        string `json:"cert_fqdn,omitempty"`
-	AllowHTTP       bool   `json:"allow_http,omitempty"`
+	ID             int64  `json:"id"`
+	Hostname       string `json:"hostname"`
+	Target         string `json:"target"`
+	OwnerInstallID int64  `json:"owner_install_id"`
+	OwnerKind      string `json:"owner_kind"`
+	CertFQDN       string `json:"cert_fqdn,omitempty"`
+	AllowHTTP      bool   `json:"allow_http,omitempty"`
 }
 
 // RouteCache holds the parsed, ready-to-proxy view of the routes
@@ -62,6 +62,16 @@ type parsedRoute struct {
 	allowHTTP bool
 	owner     int64
 	kind      string
+	// originApp is set (to the bare app name) when target is an
+	// "app://<name>" reference. In that case `target` is NOT a usable
+	// backend URL — HostRouter resolves the app's LIVE sidecar address
+	// per request so the route survives sidecar restarts that reassign
+	// the local port. Empty for ordinary http(s):// targets.
+	originApp string
+	// originProject disambiguates project-scoped apps (e.g. storage has
+	// one install per project). From the app:// target's ?project_id=.
+	// Empty resolves by app name alone (global apps).
+	originProject string
 }
 
 func NewRouteCache() *RouteCache {
@@ -107,18 +117,20 @@ func (c *RouteCache) Apply(action, hostname string, target, certFQDN string, all
 		delete(c.byHost, host)
 		return
 	}
-	u, err := url.Parse(target)
-	if err != nil || u.Host == "" {
+	// Reuse parseRoute so app:// targets are recognised identically on
+	// the incremental-event path and the full-replace path.
+	p, ok := parseRoute(Route{
+		Hostname:       host,
+		Target:         target,
+		CertFQDN:       certFQDN,
+		AllowHTTP:      allowHTTP,
+		OwnerInstallID: owner,
+		OwnerKind:      kind,
+	})
+	if !ok {
 		return
 	}
-	c.byHost[host] = parsedRoute{
-		hostname:  host,
-		target:    u,
-		certFQDN:  certFQDN,
-		allowHTTP: allowHTTP,
-		owner:     owner,
-		kind:      kind,
-	}
+	c.byHost[host] = p
 }
 
 // Size is for the platform status admin surface.
@@ -133,14 +145,22 @@ func parseRoute(r Route) (parsedRoute, bool) {
 	if err != nil || u.Host == "" {
 		return parsedRoute{}, false
 	}
-	return parsedRoute{
+	p := parsedRoute{
 		hostname:  strings.ToLower(r.Hostname),
 		target:    u,
 		certFQDN:  r.CertFQDN,
 		allowHTTP: r.AllowHTTP,
 		owner:     r.OwnerInstallID,
 		kind:      r.OwnerKind,
-	}, true
+	}
+	// app://<name>?project_id=<pid> — record the app name (+ project
+	// for project-scoped apps); the live sidecar address is resolved
+	// per request in HostRouter (u itself isn't proxyable).
+	if u.Scheme == "app" {
+		p.originApp = strings.ToLower(u.Host)
+		p.originProject = u.Query().Get("project_id")
+	}
+	return p, true
 }
 
 // ─── Server hooks ─────────────────────────────────────────────────
@@ -152,6 +172,9 @@ func parseRoute(r Route) (parsedRoute, bool) {
 func (s *Server) startRouteCache() {
 	if s.routeCache == nil {
 		s.routeCache = NewRouteCache()
+	}
+	if s.edgeCache == nil {
+		s.edgeCache = NewEdgeCache()
 	}
 	go s.hydrateRouteCache(3 * time.Second)
 	go s.subscribeRouteEvents()
@@ -255,8 +278,8 @@ func (s *Server) consumeRouteEvents(entry *InstalledApp) {
 			continue
 		}
 		var env struct {
-			Topic string                 `json:"topic"`
-			Data  map[string]any         `json:"data"`
+			Topic string         `json:"topic"`
+			Data  map[string]any `json:"data"`
 		}
 		if err := json.Unmarshal([]byte(raw), &env); err != nil {
 			continue
@@ -307,6 +330,12 @@ type RouteHit struct {
 	Target    *url.URL
 	CertFQDN  string
 	AllowHTTP bool
+	// OriginApp, when non-empty, means the route fronts an installed
+	// app by name and Target is a placeholder. HostRouter resolves the
+	// app's live sidecar URL per request before proxying. OriginProject
+	// scopes the resolution for project-scoped apps.
+	OriginApp     string
+	OriginProject string
 }
 
 func (c *RouteCache) LookupForRouter(host string) (RouteHit, bool) {
@@ -315,10 +344,12 @@ func (c *RouteCache) LookupForRouter(host string) (RouteHit, bool) {
 		return RouteHit{}, false
 	}
 	return RouteHit{
-		Hostname:  r.hostname,
-		Target:    r.target,
-		CertFQDN:  r.certFQDN,
-		AllowHTTP: r.allowHTTP,
+		Hostname:      r.hostname,
+		Target:        r.target,
+		CertFQDN:      r.certFQDN,
+		AllowHTTP:     r.allowHTTP,
+		OriginApp:     r.originApp,
+		OriginProject: r.originProject,
 	}, true
 }
 

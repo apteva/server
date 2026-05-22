@@ -64,21 +64,21 @@ func loadOrMintInstanceSecret(store *Store) string {
 }
 
 type Server struct {
-	store       *Store
-	dbPath      string  // path to apteva-server.db on disk (needed for staged restore)
-	agents   *AgentManager
-	mcpManager  *MCPManager
-	catalog     *AppCatalog
-	secret      []byte  // AES-256 key for encrypting provider data
-	port        string  // server port for telemetry callback
-	dataDir     string  // data directory for downloads, etc.
-	appsDir     string  // path to integration app definitions
+	store             *Store
+	dbPath            string // path to apteva-server.db on disk (needed for staged restore)
+	agents            *AgentManager
+	mcpManager        *MCPManager
+	catalog           *AppCatalog
+	secret            []byte // AES-256 key for encrypting provider data
+	port              string // server port for telemetry callback
+	dataDir           string // data directory for downloads, etc.
+	appsDir           string // path to integration app definitions
 	integrationsUIDir string // path to built integration UI bundles (dist/ui/<slug>/<file>.mjs)
-	publicURL   string  // public base URL for webhooks (e.g. "https://agents.example.com")
-	broadcaster *TelemetryBroadcaster
-	setupToken     string  // one-time token for first registration (empty after use)
-	regMode        string  // "open", "locked", "setup" — controls registration
-	instanceSecret string  // shared secret for MCP and telemetry auth
+	publicURL         string // public base URL for webhooks (e.g. "https://agents.example.com")
+	broadcaster       *TelemetryBroadcaster
+	setupToken        string // one-time token for first registration (empty after use)
+	regMode           string // "open", "locked", "setup" — controls registration
+	instanceSecret    string // shared secret for MCP and telemetry auth
 	// apps holds the loaded Apteva Apps registry. Apps attach to
 	// instance lifecycle via NotifyInstanceAttach/Detach and expose
 	// HTTP routes under /api/apps/<slug>/. Nil before startApps().
@@ -89,12 +89,12 @@ type Server struct {
 	// referenced from the app_installs table. Coexists with apps for
 	// now; the long-term plan is for built-ins to graduate to this
 	// registry too.
-	installedApps   *InstalledAppsRegistry
+	installedApps *InstalledAppsRegistry
 
 	// platformStatus polls the published version manifest and exposes
 	// "update available" info to the dashboard. The actual update
 	// action lives in the `apteva update` CLI subcommand.
-	platformStatus *platformStatusPoller
+	platformStatus  *platformStatusPoller
 	appBus          *AppEventBus
 	orchestratorURL string
 	// localApps supervises app sidecars run as native subprocesses on
@@ -115,6 +115,11 @@ type Server struct {
 	// routes.changed events. See routes_cache.go.
 	routeCache  *RouteCache
 	primaryHost string // APTEVA_PRIMARY_HOST — never matched by route cache (dashboard wins).
+
+	// In-process edge cache for HostRouter-proxied responses the origin
+	// marked publicly cacheable (Cache-Control: public, max-age>0).
+	// See edge_cache.go.
+	edgeCache *EdgeCache
 
 	// manifestRefreshInFlight gates the background goroutine launched
 	// by handleListApps that refreshes manifest_json from upstream.
@@ -466,20 +471,20 @@ func main() {
 	}
 
 	s := &Server{
-		store:       store,
-		dbPath:      dbPath,
-		agents:   NewAgentManager(dataDir, coreCmd),
-		mcpManager:  NewMCPManager(),
-		catalog:     catalog,
-		appsDir:     appsDir,
+		store:             store,
+		dbPath:            dbPath,
+		agents:            NewAgentManager(dataDir, coreCmd),
+		mcpManager:        NewMCPManager(),
+		catalog:           catalog,
+		appsDir:           appsDir,
 		integrationsUIDir: integrationsUIDir,
-		secret:      secret,
-		port:        port,
-		dataDir:     dataDir,
-		publicURL:   publicURL,
-		broadcaster:    NewTelemetryBroadcaster(),
-		setupToken:     setupToken,
-		regMode:        regMode,
+		secret:            secret,
+		port:              port,
+		dataDir:           dataDir,
+		publicURL:         publicURL,
+		broadcaster:       NewTelemetryBroadcaster(),
+		setupToken:        setupToken,
+		regMode:           regMode,
 		// instanceSecret gates both the /api/telemetry ingest path and
 		// the MCP gateway's instance auth. Cores we spawn receive it as
 		// INSTANCE_SECRET and send it back in X-Agent-Secret on every
@@ -613,7 +618,7 @@ func main() {
 	apiMux.HandleFunc("/telemetry/project-timeline", s.authMiddleware(s.handleTelemetryProjectTimeline))
 	apiMux.HandleFunc("/telemetry/project-tools", s.authMiddleware(s.handleTelemetryProjectTools))
 	apiMux.HandleFunc("/telemetry/stream", s.authMiddleware(s.handleTelemetryStream)) // SSE — cookie or API key auth
-	apiMux.HandleFunc("/telemetry/live", s.handleLiveTelemetry)     // broadcast-only ingest for chunks
+	apiMux.HandleFunc("/telemetry/live", s.handleLiveTelemetry)                       // broadcast-only ingest for chunks
 	apiMux.HandleFunc("/telemetry", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:

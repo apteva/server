@@ -55,6 +55,7 @@ func (s *Server) runEvalInWorld(ctx context.Context, userID int64, agent *Agent,
 	// 3. Drive: post the eval's brief, collect the agent's replies + tool
 	//    calls from its thread history.
 	const threadID = "main"
+	preTrajLen := session.trajectoryLen()
 	if err := postCoreEvent(ctx, wa.Port, wa.APIKey, threadID, ev.Description); err != nil {
 		snap := session.snapshot()
 		return s.writeEvalRunWithDetails(ev.ID, startedAt, time.Now(), session, &snap, nil, nil, "error",
@@ -62,6 +63,18 @@ func (s *Server) runEvalInWorld(ctx context.Context, userID int64, agent *Agent,
 	}
 	if err := collectAssistantReplies(ctx, wa.Port, wa.APIKey, threadID, session, ev.MaxTurns); err != nil {
 		session.recordSystem("runner: " + err.Error())
+	}
+	// iter-1 autonomous-loop race recovery (same as runRealEvalCore): if the
+	// core's loop fired "(no events)" → paced before our brief landed, the
+	// brief is effectively lost. Reset main + re-post once and re-collect.
+	if session.iter1RaceLikelySince(preTrajLen) {
+		session.recordSystem("runner: iter-1 race detected (agent only paced/idled) — resetting + retrying brief")
+		if err := resetMainThread(ctx, wa.Port, wa.APIKey); err == nil {
+			time.Sleep(1500 * time.Millisecond)
+			if err := postCoreEvent(ctx, wa.Port, wa.APIKey, threadID, ev.Description); err == nil {
+				_ = collectAssistantReplies(ctx, wa.Port, wa.APIKey, threadID, session, ev.MaxTurns)
+			}
+		}
 	}
 
 	// 4. Judge against the goals (no deterministic criteria — the meta-agent
