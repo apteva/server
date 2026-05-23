@@ -82,6 +82,13 @@
             "default": "id,name,username,description,profile_image_url,public_metrics,verified,created_at"
           }
         }
+      },
+      "mock_response": {
+        "data": {
+          "id": "1500000000000000001",
+          "name": "Apteva",
+          "username": "apteva"
+        }
       }
     },
     {
@@ -105,6 +112,13 @@
         "required": [
           "username"
         ]
+      },
+      "mock_response": {
+        "data": {
+          "id": "1500000000000000002",
+          "name": "Dev Account",
+          "username": "devaccount"
+        }
       }
     },
     {
@@ -138,6 +152,15 @@
         "required": [
           "tweet_id"
         ]
+      },
+      "mock_response": {
+        "data": {
+          "id": "1790000000000000001",
+          "text": "Shipping agents today.",
+          "edit_history_tweet_ids": [
+            "1790000000000000001"
+          ]
+        }
       }
     },
     {
@@ -187,6 +210,15 @@
         "required": [
           "text"
         ]
+      },
+      "mock_response": {
+        "data": {
+          "id": "1790000000000000099",
+          "text": "(tweet text)",
+          "edit_history_tweet_ids": [
+            "1790000000000000099"
+          ]
+        }
       }
     },
     {
@@ -205,6 +237,11 @@
         "required": [
           "tweet_id"
         ]
+      },
+      "mock_response": {
+        "data": {
+          "deleted": true
+        }
       }
     },
     {
@@ -265,6 +302,22 @@
         "required": [
           "query"
         ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "1790000000000000050",
+            "text": "Anyone using agent frameworks in production?",
+            "edit_history_tweet_ids": [
+              "1790000000000000050"
+            ]
+          }
+        ],
+        "meta": {
+          "newest_id": "1790000000000000050",
+          "oldest_id": "1790000000000000050",
+          "result_count": 1
+        }
       }
     },
     {
@@ -311,6 +364,22 @@
         "required": [
           "user_id"
         ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "1790000000000000001",
+            "text": "Shipping agents today.",
+            "edit_history_tweet_ids": [
+              "1790000000000000001"
+            ]
+          }
+        ],
+        "meta": {
+          "result_count": 1,
+          "newest_id": "1790000000000000001",
+          "oldest_id": "1790000000000000001"
+        }
       }
     },
     {
@@ -398,6 +467,22 @@
         "required": [
           "user_id"
         ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "1790000000000000060",
+            "text": "New release is out.",
+            "edit_history_tweet_ids": [
+              "1790000000000000060"
+            ]
+          }
+        ],
+        "meta": {
+          "result_count": 1,
+          "newest_id": "1790000000000000060",
+          "oldest_id": "1790000000000000060"
+        }
       }
     },
     {
@@ -432,6 +517,18 @@
         "required": [
           "user_id"
         ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "1500000000000000010",
+            "name": "Follower One",
+            "username": "follower_one"
+          }
+        ],
+        "meta": {
+          "result_count": 1
+        }
       }
     },
     {
@@ -466,6 +563,18 @@
         "required": [
           "user_id"
         ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "1500000000000000020",
+            "name": "Following One",
+            "username": "following_one"
+          }
+        ],
+        "meta": {
+          "result_count": 1
+        }
       }
     },
     {
@@ -489,6 +598,12 @@
           "user_id",
           "target_user_id"
         ]
+      },
+      "mock_response": {
+        "data": {
+          "following": true,
+          "pending_follow": false
+        }
       }
     },
     {
@@ -535,6 +650,11 @@
           "user_id",
           "tweet_id"
         ]
+      },
+      "mock_response": {
+        "data": {
+          "liked": true
+        }
       }
     },
     {
@@ -581,6 +701,11 @@
           "user_id",
           "tweet_id"
         ]
+      },
+      "mock_response": {
+        "data": {
+          "retweeted": true
+        }
       }
     },
     {
@@ -979,6 +1104,12 @@
           "participant_id",
           "text"
         ]
+      },
+      "mock_response": {
+        "data": {
+          "dm_conversation_id": "1500000000000000001-1500000000000000002",
+          "dm_event_id": "1790000000000000200"
+        }
       }
     },
     {
@@ -1092,6 +1223,13 @@
           "media",
           "media_category"
         ]
+      },
+      "mock_response": {
+        "data": {
+          "id": "1790000000000000300",
+          "media_key": "3_1790000000000000300",
+          "expires_after_secs": 86400
+        }
       }
     },
     {

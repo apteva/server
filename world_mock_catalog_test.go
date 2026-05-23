@@ -25,6 +25,19 @@ func TestCatalogMockResponses_Parse(t *testing.T) {
 		"github":  {"create_issue", "add_issue_comment", "create_pull", "merge_pull", "get_authenticated_user", "list_issues"},
 		"gmail":   {"send_email", "create_draft", "list_messages", "get_message", "create_label"},
 		"twilio":  {"send_sms", "send_whatsapp", "make_call", "get_balance", "lookup_phone_number"},
+		// Social platforms.
+		"facebook-api":  {"post_to_page", "post_photo_to_page", "publish_media_container", "get_page_posts", "list_pages"},
+		"youtube-api":   {"upload_video_init", "post_comment", "create_playlist", "get_my_channel", "search"},
+		"tiktok-api":    {"post_video", "post_photo", "get_publish_status", "get_user_info", "list_videos"},
+		"instagram-api": {"create_media_container", "publish_media_container", "create_comment_reply", "get_user", "get_account_media"},
+		"twitter-api":   {"post_tweet", "delete_tweet", "like_tweet", "retweet", "send_dm", "get_me"},
+		"linkedin":      {"create_post", "get_profile", "list_posts", "get_company"},
+		"pinterest":     {"create_pin", "create_board", "list_pins", "get_user_account"},
+		"reddit":        {"submit_post", "comment", "vote", "get_subreddit_posts", "get_user_about"},
+		"bluesky":       {"create_post", "get_profile", "get_feed", "search_posts"},
+		// Bunny.net CDN + Stream.
+		"bunny-cdn":    {"create_pullzone", "purge_cache", "create_storagezone", "upload_file", "list_pullzones"},
+		"bunny-stream": {"create_video", "fetch_video", "create_library", "list_videos", "create_collection"},
 	}
 
 	for app, tools := range want {

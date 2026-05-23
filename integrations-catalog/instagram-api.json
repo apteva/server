@@ -70,6 +70,20 @@
             "default": "name,access_token,instagram_business_account{id,username,profile_picture_url}"
           }
         }
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "100200300400500",
+            "name": "Apteva",
+            "instagram_business_account": {
+              "id": "17841400000000001"
+            }
+          }
+        ],
+        "paging": {
+          "cursors": {}
+        }
       }
     },
     {
@@ -93,6 +107,16 @@
         "required": [
           "instagramAccountId"
         ]
+      },
+      "mock_response": {
+        "id": "17841400000000001",
+        "username": "apteva",
+        "name": "Apteva",
+        "biography": "Continuous thinking engine",
+        "followers_count": 2480,
+        "follows_count": 180,
+        "media_count": 64,
+        "profile_picture_url": "https://scontent.cdninstagram.com/mock-profile.jpg"
       }
     },
     {
@@ -134,6 +158,23 @@
         "required": [
           "instagramAccountId"
         ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "17900000000000099",
+            "caption": "Launch day!",
+            "media_type": "IMAGE",
+            "media_url": "https://scontent.cdninstagram.com/mock-media1.jpg",
+            "permalink": "https://www.instagram.com/p/CmOckPost1/",
+            "timestamp": "2026-05-22T12:00:00+0000",
+            "like_count": 210,
+            "comments_count": 18
+          }
+        ],
+        "paging": {
+          "cursors": {}
+        }
       }
     },
     {
@@ -157,6 +198,16 @@
         "required": [
           "mediaId"
         ]
+      },
+      "mock_response": {
+        "id": "17900000000000099",
+        "caption": "Launch day!",
+        "media_type": "IMAGE",
+        "media_url": "https://scontent.cdninstagram.com/mock-media1.jpg",
+        "permalink": "https://www.instagram.com/p/CmOckPost1/",
+        "timestamp": "2026-05-22T12:00:00+0000",
+        "like_count": 210,
+        "comments_count": 18
       }
     },
     {
@@ -251,6 +302,9 @@
         "required": [
           "instagramAccountId"
         ]
+      },
+      "mock_response": {
+        "id": "17900000000000001"
       }
     },
     {
@@ -282,6 +336,9 @@
           "instagramAccountId",
           "containerId"
         ]
+      },
+      "mock_response": {
+        "id": "17900000000000099"
       }
     },
     {
@@ -305,6 +362,10 @@
         "required": [
           "containerId"
         ]
+      },
+      "mock_response": {
+        "status_code": "FINISHED",
+        "id": "17900000000000001"
       }
     },
     {
@@ -334,6 +395,20 @@
         "required": [
           "mediaId"
         ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "17900000000000200",
+            "text": "Amazing!",
+            "username": "fan_user",
+            "timestamp": "2026-05-22T10:30:00+0000",
+            "like_count": 4
+          }
+        ],
+        "paging": {
+          "cursors": {}
+        }
       }
     },
     {
@@ -357,6 +432,9 @@
           "commentId",
           "message"
         ]
+      },
+      "mock_response": {
+        "id": "17900000000000201"
       }
     },
     {
@@ -375,6 +453,9 @@
         "required": [
           "commentId"
         ]
+      },
+      "mock_response": {
+        "success": true
       }
     },
     {
@@ -439,6 +520,22 @@
         "required": [
           "instagramAccountId"
         ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "name": "reach",
+            "period": "day",
+            "values": [
+              {
+                "value": 3120,
+                "end_time": "2026-05-22T07:00:00+0000"
+              }
+            ],
+            "title": "Reach",
+            "id": "17841400000000001/insights/reach/day"
+          }
+        ]
       }
     },
     {
@@ -480,6 +577,32 @@
         "required": [
           "mediaId"
         ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "name": "impressions",
+            "period": "lifetime",
+            "values": [
+              {
+                "value": 4200
+              }
+            ],
+            "title": "Impressions",
+            "id": "17900000000000099/insights/impressions/lifetime"
+          },
+          {
+            "name": "reach",
+            "period": "lifetime",
+            "values": [
+              {
+                "value": 3650
+              }
+            ],
+            "title": "Reach",
+            "id": "17900000000000099/insights/reach/lifetime"
+          }
+        ]
       }
     },
     {
@@ -503,6 +626,13 @@
         "required": [
           "commentId"
         ]
+      },
+      "mock_response": {
+        "id": "17900000000000200",
+        "text": "Amazing!",
+        "username": "fan_user",
+        "timestamp": "2026-05-22T10:30:00+0000",
+        "like_count": 4
       }
     },
     {
@@ -532,6 +662,20 @@
         "required": [
           "commentId"
         ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "17900000000000202",
+            "text": "Thanks!",
+            "username": "apteva",
+            "timestamp": "2026-05-22T11:00:00+0000",
+            "like_count": 0
+          }
+        ],
+        "paging": {
+          "cursors": {}
+        }
       }
     },
     {
@@ -554,6 +698,15 @@
         },
         "required": [
           "mediaId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "17900000000000300",
+            "media_type": "IMAGE",
+            "media_url": "https://scontent.cdninstagram.com/mock-child1.jpg"
+          }
         ]
       }
     },
@@ -578,6 +731,9 @@
         "required": [
           "commentId"
         ]
+      },
+      "mock_response": {
+        "success": true
       }
     }
   ]

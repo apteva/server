@@ -80,6 +80,31 @@
         "required": [
           "part"
         ]
+      },
+      "mock_response": {
+        "kind": "youtube#channelListResponse",
+        "items": [
+          {
+            "kind": "youtube#channel",
+            "id": "UC0000000000000000000001",
+            "snippet": {
+              "title": "Apteva",
+              "description": "Continuous thinking engine",
+              "customUrl": "@apteva",
+              "publishedAt": "2024-01-01T00:00:00Z"
+            },
+            "statistics": {
+              "viewCount": "15234",
+              "subscriberCount": "842",
+              "hiddenSubscriberCount": false,
+              "videoCount": "27"
+            }
+          }
+        ],
+        "pageInfo": {
+          "totalResults": 1,
+          "resultsPerPage": 1
+        }
       }
     },
     {
@@ -104,6 +129,31 @@
           "id",
           "part"
         ]
+      },
+      "mock_response": {
+        "kind": "youtube#channelListResponse",
+        "items": [
+          {
+            "kind": "youtube#channel",
+            "id": "UC0000000000000000000002",
+            "snippet": {
+              "title": "Dev Channel",
+              "description": "Tutorials and demos",
+              "customUrl": "@devchannel",
+              "publishedAt": "2023-03-15T00:00:00Z"
+            },
+            "statistics": {
+              "viewCount": "982345",
+              "subscriberCount": "12400",
+              "hiddenSubscriberCount": false,
+              "videoCount": "210"
+            }
+          }
+        ],
+        "pageInfo": {
+          "totalResults": 1,
+          "resultsPerPage": 1
+        }
       }
     },
     {
@@ -162,6 +212,16 @@
           "id",
           "brandingSettings"
         ]
+      },
+      "mock_response": {
+        "kind": "youtube#channel",
+        "id": "UC0000000000000000000001",
+        "brandingSettings": {
+          "channel": {
+            "title": "Apteva",
+            "description": "Updated description"
+          }
+        }
       }
     },
     {
@@ -242,6 +302,31 @@
         "required": [
           "q"
         ]
+      },
+      "mock_response": {
+        "kind": "youtube#searchListResponse",
+        "nextPageToken": "CAUQAA",
+        "regionCode": "US",
+        "pageInfo": {
+          "totalResults": 100000,
+          "resultsPerPage": 5
+        },
+        "items": [
+          {
+            "kind": "youtube#searchResult",
+            "id": {
+              "kind": "youtube#video",
+              "videoId": "dQw4w9WgXcQ"
+            },
+            "snippet": {
+              "publishedAt": "2026-05-20T12:00:00Z",
+              "channelId": "UC0000000000000000000002",
+              "title": "How to build agents",
+              "description": "A walkthrough of building autonomous agents.",
+              "channelTitle": "Dev Channel"
+            }
+          }
+        ]
       }
     },
     {
@@ -271,6 +356,34 @@
             "description": "Page token for pagination"
           }
         }
+      },
+      "mock_response": {
+        "kind": "youtube#videoListResponse",
+        "items": [
+          {
+            "kind": "youtube#video",
+            "id": "dQw4w9WgXcQ",
+            "snippet": {
+              "publishedAt": "2026-05-20T12:00:00Z",
+              "channelId": "UC0000000000000000000002",
+              "title": "How to build agents",
+              "channelTitle": "Dev Channel"
+            },
+            "statistics": {
+              "viewCount": "542310",
+              "likeCount": "32100",
+              "commentCount": "1870"
+            },
+            "contentDetails": {
+              "duration": "PT12M34S",
+              "definition": "hd"
+            }
+          }
+        ],
+        "pageInfo": {
+          "totalResults": 1,
+          "resultsPerPage": 1
+        }
       }
     },
     {
@@ -295,6 +408,42 @@
           "id",
           "part"
         ]
+      },
+      "mock_response": {
+        "kind": "youtube#videoListResponse",
+        "items": [
+          {
+            "kind": "youtube#video",
+            "id": "dQw4w9WgXcQ",
+            "snippet": {
+              "publishedAt": "2026-05-20T12:00:00Z",
+              "channelId": "UC0000000000000000000002",
+              "title": "How to build agents",
+              "description": "A walkthrough of building autonomous agents.",
+              "channelTitle": "Dev Channel",
+              "tags": [
+                "agents",
+                "ai"
+              ],
+              "categoryId": "28"
+            },
+            "statistics": {
+              "viewCount": "54231",
+              "likeCount": "3210",
+              "favoriteCount": "0",
+              "commentCount": "187"
+            },
+            "contentDetails": {
+              "duration": "PT12M34S",
+              "definition": "hd",
+              "caption": "false"
+            }
+          }
+        ],
+        "pageInfo": {
+          "totalResults": 1,
+          "resultsPerPage": 1
+        }
       }
     },
     {
@@ -374,6 +523,17 @@
         "required": [
           "id"
         ]
+      },
+      "mock_response": {
+        "kind": "youtube#video",
+        "id": "dQw4w9WgXcQ",
+        "snippet": {
+          "title": "Updated title",
+          "categoryId": "22"
+        },
+        "status": {
+          "privacyStatus": "public"
+        }
       }
     },
     {
@@ -392,6 +552,9 @@
         "required": [
           "id"
         ]
+      },
+      "mock_response": {
+        "success": true
       }
     },
     {
@@ -431,6 +594,11 @@
           }
         },
         "required": ["snippet"]
+      },
+      "mock_response": {
+        "upload_url": "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status&upload_id=mock_upload_id_AbC123",
+        "upload_id": "mock_upload_id_AbC123",
+        "status": "initiated"
       }
     },
     {
@@ -459,6 +627,9 @@
           "id",
           "rating"
         ]
+      },
+      "mock_response": {
+        "success": true
       }
     },
     {
@@ -495,6 +666,27 @@
         "required": [
           "part"
         ]
+      },
+      "mock_response": {
+        "kind": "youtube#playlistListResponse",
+        "items": [
+          {
+            "kind": "youtube#playlist",
+            "id": "PL0000000000000000000001",
+            "snippet": {
+              "title": "Tutorials",
+              "channelId": "UC0000000000000000000001",
+              "publishedAt": "2025-06-01T00:00:00Z"
+            },
+            "contentDetails": {
+              "itemCount": 12
+            }
+          }
+        ],
+        "pageInfo": {
+          "totalResults": 1,
+          "resultsPerPage": 5
+        }
       }
     },
     {
@@ -519,6 +711,27 @@
           "id",
           "part"
         ]
+      },
+      "mock_response": {
+        "kind": "youtube#playlistListResponse",
+        "items": [
+          {
+            "kind": "youtube#playlist",
+            "id": "PL0000000000000000000001",
+            "snippet": {
+              "title": "Tutorials",
+              "channelId": "UC0000000000000000000001",
+              "publishedAt": "2025-06-01T00:00:00Z"
+            },
+            "contentDetails": {
+              "itemCount": 12
+            }
+          }
+        ],
+        "pageInfo": {
+          "totalResults": 1,
+          "resultsPerPage": 1
+        }
       }
     },
     {
@@ -565,6 +778,19 @@
         "required": [
           "snippet"
         ]
+      },
+      "mock_response": {
+        "kind": "youtube#playlist",
+        "id": "PL0000000000000000000099",
+        "snippet": {
+          "title": "New Playlist",
+          "description": "",
+          "publishedAt": "2026-05-22T12:00:00Z",
+          "channelId": "UC0000000000000000000001"
+        },
+        "status": {
+          "privacyStatus": "private"
+        }
       }
     },
     {
@@ -609,6 +835,17 @@
         "required": [
           "id"
         ]
+      },
+      "mock_response": {
+        "kind": "youtube#playlist",
+        "id": "PL0000000000000000000001",
+        "snippet": {
+          "title": "Updated Playlist",
+          "channelId": "UC0000000000000000000001"
+        },
+        "status": {
+          "privacyStatus": "public"
+        }
       }
     },
     {
@@ -627,6 +864,9 @@
         "required": [
           "id"
         ]
+      },
+      "mock_response": {
+        "success": true
       }
     },
     {
@@ -660,6 +900,28 @@
           "playlistId",
           "part"
         ]
+      },
+      "mock_response": {
+        "kind": "youtube#playlistItemListResponse",
+        "items": [
+          {
+            "kind": "youtube#playlistItem",
+            "id": "UExtb2NrcGxheWxpc3RpdGVtMDAx",
+            "snippet": {
+              "title": "Episode 1",
+              "playlistId": "PL0000000000000000000001",
+              "position": 0,
+              "resourceId": {
+                "kind": "youtube#video",
+                "videoId": "dQw4w9WgXcQ"
+              }
+            }
+          }
+        ],
+        "pageInfo": {
+          "totalResults": 1,
+          "resultsPerPage": 50
+        }
       }
     },
     {
@@ -709,6 +971,18 @@
         "required": [
           "snippet"
         ]
+      },
+      "mock_response": {
+        "kind": "youtube#playlistItem",
+        "id": "UExtb2NrcGxheWxpc3RpdGVtMDk5",
+        "snippet": {
+          "playlistId": "PL0000000000000000000001",
+          "position": 0,
+          "resourceId": {
+            "kind": "youtube#video",
+            "videoId": "dQw4w9WgXcQ"
+          }
+        }
       }
     },
     {
@@ -727,6 +1001,9 @@
         "required": [
           "id"
         ]
+      },
+      "mock_response": {
+        "success": true
       }
     },
     {
@@ -769,6 +1046,31 @@
           "videoId",
           "part"
         ]
+      },
+      "mock_response": {
+        "kind": "youtube#commentThreadListResponse",
+        "items": [
+          {
+            "kind": "youtube#commentThread",
+            "id": "Ugxmb2NrY29tbWVudHRocmVhZDAwMQ",
+            "snippet": {
+              "topLevelComment": {
+                "id": "Ugxmb2NrY29tbWVudDAwMQ",
+                "snippet": {
+                  "textDisplay": "Great video!",
+                  "authorDisplayName": "@viewer1",
+                  "likeCount": 5,
+                  "publishedAt": "2026-05-21T08:00:00Z"
+                }
+              },
+              "totalReplyCount": 1
+            }
+          }
+        ],
+        "pageInfo": {
+          "totalResults": 1,
+          "resultsPerPage": 20
+        }
       }
     },
     {
@@ -816,6 +1118,22 @@
         "required": [
           "snippet"
         ]
+      },
+      "mock_response": {
+        "kind": "youtube#commentThread",
+        "id": "Ugxmb2NrY29tbWVudHRocmVhZDA5OQ",
+        "snippet": {
+          "topLevelComment": {
+            "id": "Ugxmb2NrY29tbWVudDA5OQ",
+            "snippet": {
+              "textDisplay": "(comment)",
+              "authorDisplayName": "Apteva",
+              "likeCount": 0,
+              "publishedAt": "2026-05-22T12:00:00Z"
+            }
+          },
+          "totalReplyCount": 0
+        }
       }
     },
     {
@@ -863,6 +1181,27 @@
         "required": [
           "part"
         ]
+      },
+      "mock_response": {
+        "kind": "youtube#subscriptionListResponse",
+        "items": [
+          {
+            "kind": "youtube#subscription",
+            "id": "U1Vtb2Nrc3Vic2NyaXB0aW9uMDAx",
+            "snippet": {
+              "title": "Dev Channel",
+              "resourceId": {
+                "kind": "youtube#channel",
+                "channelId": "UC0000000000000000000002"
+              },
+              "publishedAt": "2025-09-01T00:00:00Z"
+            }
+          }
+        ],
+        "pageInfo": {
+          "totalResults": 1,
+          "resultsPerPage": 50
+        }
       }
     }
   ]

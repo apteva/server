@@ -162,6 +162,16 @@
           "post_info",
           "source_info"
         ]
+      },
+      "mock_response": {
+        "data": {
+          "publish_id": "v_pub_id.mock0000000001"
+        },
+        "error": {
+          "code": "ok",
+          "message": "",
+          "log_id": "20260522120000000000000000000001"
+        }
       }
     },
     {
@@ -277,6 +287,16 @@
           "source_info",
           "media_type"
         ]
+      },
+      "mock_response": {
+        "data": {
+          "publish_id": "p_pub_id.mock0000000002"
+        },
+        "error": {
+          "code": "ok",
+          "message": "",
+          "log_id": "20260522120000000000000000000002"
+        }
       }
     },
     {
@@ -324,6 +344,16 @@
         "required": [
           "source_info"
         ]
+      },
+      "mock_response": {
+        "data": {
+          "publish_id": "v_inbox_id.mock0000000003"
+        },
+        "error": {
+          "code": "ok",
+          "message": "",
+          "log_id": "20260522120000000000000000000003"
+        }
       }
     },
     {
@@ -342,6 +372,19 @@
         "required": [
           "publish_id"
         ]
+      },
+      "mock_response": {
+        "data": {
+          "status": "PUBLISH_COMPLETE",
+          "publicaly_available_post_id": [
+            "7300000000000000001"
+          ]
+        },
+        "error": {
+          "code": "ok",
+          "message": "",
+          "log_id": "20260522120000000000000000000004"
+        }
       }
     },
     {
@@ -352,6 +395,27 @@
       "input_schema": {
         "type": "object",
         "properties": {}
+      },
+      "mock_response": {
+        "data": {
+          "creator_avatar_url": "https://p16-sign.tiktokcdn.com/mock-avatar.jpeg",
+          "creator_username": "apteva",
+          "creator_nickname": "Apteva",
+          "privacy_level_options": [
+            "PUBLIC_TO_EVERYONE",
+            "MUTUAL_FOLLOW_FRIENDS",
+            "SELF_ONLY"
+          ],
+          "comment_disabled": false,
+          "duet_disabled": false,
+          "stitch_disabled": false,
+          "max_video_post_duration_sec": 600
+        },
+        "error": {
+          "code": "ok",
+          "message": "",
+          "log_id": "20260522120000000000000000000005"
+        }
       }
     },
     {
@@ -367,6 +431,25 @@
             "description": "Comma-separated list of fields to retrieve (e.g. 'open_id,display_name,avatar_url,follower_count,video_count')",
             "default": "open_id,display_name,avatar_url,username,follower_count,following_count,likes_count,video_count"
           }
+        }
+      },
+      "mock_response": {
+        "data": {
+          "user": {
+            "open_id": "mock_open_id_abc123",
+            "union_id": "mock_union_id_xyz789",
+            "avatar_url": "https://p16-sign.tiktokcdn.com/mock-avatar.jpeg",
+            "display_name": "Apteva",
+            "follower_count": 1280,
+            "following_count": 42,
+            "likes_count": 15600,
+            "video_count": 27
+          }
+        },
+        "error": {
+          "code": "ok",
+          "message": "",
+          "log_id": "20260522120000000000000000000006"
         }
       }
     },
@@ -392,6 +475,30 @@
             "type": "integer",
             "description": "Pagination cursor from previous response"
           }
+        }
+      },
+      "mock_response": {
+        "data": {
+          "videos": [
+            {
+              "id": "7300000000000000001",
+              "title": "Behind the build",
+              "video_description": "How we ship continuously",
+              "duration": 34,
+              "like_count": 420,
+              "comment_count": 18,
+              "share_count": 7,
+              "view_count": 12500,
+              "create_time": 1747915200
+            }
+          ],
+          "cursor": 1747915200,
+          "has_more": false
+        },
+        "error": {
+          "code": "ok",
+          "message": "",
+          "log_id": "20260522120000000000000000000007"
         }
       }
     },
@@ -429,6 +536,28 @@
         "required": [
           "filters"
         ]
+      },
+      "mock_response": {
+        "data": {
+          "videos": [
+            {
+              "id": "7300000000000000001",
+              "title": "Behind the build",
+              "duration": 34,
+              "like_count": 420,
+              "comment_count": 18,
+              "view_count": 12500,
+              "create_time": 1747915200
+            }
+          ],
+          "cursor": 1747915200,
+          "has_more": false
+        },
+        "error": {
+          "code": "ok",
+          "message": "",
+          "log_id": "20260522120000000000000000000008"
+        }
       }
     },
     {
@@ -470,6 +599,26 @@
         "required": [
           "video_id"
         ]
+      },
+      "mock_response": {
+        "data": {
+          "comments": [
+            {
+              "id": "comment_mock_0001",
+              "text": "Love this!",
+              "like_count": 12,
+              "reply_count": 1,
+              "create_time": 1747915000
+            }
+          ],
+          "cursor": 1,
+          "has_more": false
+        },
+        "error": {
+          "code": "ok",
+          "message": "",
+          "log_id": "20260522120000000000000000000009"
+        }
       }
     },
     {
@@ -507,6 +656,26 @@
           "video_id",
           "comment_id"
         ]
+      },
+      "mock_response": {
+        "data": {
+          "comments": [
+            {
+              "id": "reply_mock_0001",
+              "text": "Thank you!",
+              "like_count": 2,
+              "reply_count": 0,
+              "create_time": 1747915100
+            }
+          ],
+          "cursor": 1,
+          "has_more": false
+        },
+        "error": {
+          "code": "ok",
+          "message": "",
+          "log_id": "20260522120000000000000000000010"
+        }
       }
     }
   ],

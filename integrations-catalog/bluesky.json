@@ -48,6 +48,16 @@
         "required": [
           "actor"
         ]
+      },
+      "mock_response": {
+        "did": "did:plc:mockuser000000000001",
+        "handle": "apteva.bsky.social",
+        "displayName": "Apteva",
+        "description": "Continuous thinking engine",
+        "followersCount": 420,
+        "followsCount": 120,
+        "postsCount": 230,
+        "avatar": "https://cdn.bsky.app/img/avatar/plain/mock@jpeg"
       }
     },
     {
@@ -81,6 +91,27 @@
         },
         "required": [
           "q"
+        ]
+      },
+      "mock_response": {
+        "posts": [
+          {
+            "uri": "at://did:plc:other00000000000001/app.bsky.feed.post/3kabc123",
+            "cid": "bafyreimock1",
+            "author": {
+              "did": "did:plc:other00000000000001",
+              "handle": "dev.bsky.social",
+              "displayName": "Dev"
+            },
+            "record": {
+              "text": "Trying out agent frameworks this week.",
+              "createdAt": "2026-05-22T11:00:00.000Z"
+            },
+            "likeCount": 14,
+            "repostCount": 3,
+            "replyCount": 2,
+            "indexedAt": "2026-05-22T11:00:01.000Z"
+          }
         ]
       }
     },
@@ -138,6 +169,10 @@
           "collection",
           "record"
         ]
+      },
+      "mock_response": {
+        "uri": "at://did:plc:mockuser000000000001/app.bsky.feed.post/3kxyz789",
+        "cid": "bafyreimockcreated001"
       }
     },
     {
@@ -174,6 +209,30 @@
         "required": [
           "actor"
         ]
+      },
+      "mock_response": {
+        "feed": [
+          {
+            "post": {
+              "uri": "at://did:plc:mockuser000000000001/app.bsky.feed.post/3kabc100",
+              "cid": "bafyreimock2",
+              "author": {
+                "did": "did:plc:mockuser000000000001",
+                "handle": "apteva.bsky.social",
+                "displayName": "Apteva"
+              },
+              "record": {
+                "text": "Shipping today.",
+                "createdAt": "2026-05-22T09:00:00.000Z"
+              },
+              "likeCount": 22,
+              "repostCount": 5,
+              "replyCount": 1,
+              "indexedAt": "2026-05-22T09:00:02.000Z"
+            }
+          }
+        ],
+        "cursor": "2026-05-22T09:00:00.000Z"
       }
     },
     {
@@ -200,6 +259,21 @@
         "required": [
           "actor"
         ]
+      },
+      "mock_response": {
+        "subject": {
+          "did": "did:plc:mockuser000000000001",
+          "handle": "apteva.bsky.social",
+          "displayName": "Apteva"
+        },
+        "followers": [
+          {
+            "did": "did:plc:follower0000000001",
+            "handle": "fan.bsky.social",
+            "displayName": "Fan One"
+          }
+        ],
+        "cursor": "2026-05-22T08:00:00.000Z"
       }
     }
   ]

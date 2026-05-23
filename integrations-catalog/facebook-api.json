@@ -97,6 +97,9 @@
         "required": [
           "pageId"
         ]
+      },
+      "mock_response": {
+        "id": "100200300400500_122100000000000001"
       }
     },
     {
@@ -133,6 +136,10 @@
           "pageId",
           "url"
         ]
+      },
+      "mock_response": {
+        "id": "122100000000000010",
+        "post_id": "100200300400500_122100000000000011"
       }
     },
     {
@@ -172,6 +179,9 @@
           "pageId",
           "file_url"
         ]
+      },
+      "mock_response": {
+        "id": "122100000000000020"
       }
     },
     {
@@ -218,6 +228,22 @@
         "required": [
           "pageId"
         ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "100200300400500_122100000000000001",
+            "message": "Excited to share our latest update!",
+            "created_time": "2026-05-22T12:00:00+0000",
+            "permalink_url": "https://www.facebook.com/100200300400500/posts/122100000000000001"
+          }
+        ],
+        "paging": {
+          "cursors": {
+            "before": "QVFIUm",
+            "after": "QVFIUn"
+          }
+        }
       }
     },
     {
@@ -276,6 +302,22 @@
         "required": [
           "pageId"
         ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "name": "page_impressions",
+            "period": "day",
+            "values": [
+              {
+                "value": 1542,
+                "end_time": "2026-05-22T07:00:00+0000"
+              }
+            ],
+            "title": "Daily Total Impressions",
+            "id": "100200300400500/insights/page_impressions/day"
+          }
+        ]
       }
     },
     {
@@ -290,6 +332,28 @@
             "type": "string",
             "description": "Comma-separated list of fields to include",
             "default": "id,name,category,access_token,tasks,fan_count,verification_status,website"
+          }
+        }
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "100200300400500",
+            "name": "Apteva",
+            "access_token": "EAABwzmockpagetokenXXXXXXXX",
+            "category": "Software company",
+            "tasks": [
+              "MANAGE",
+              "CREATE_CONTENT",
+              "MODERATE",
+              "ANALYZE"
+            ]
+          }
+        ],
+        "paging": {
+          "cursors": {
+            "before": "QVFIUm",
+            "after": "QVFIUm"
           }
         }
       }
@@ -317,6 +381,12 @@
           }
         },
         "required": ["postId"]
+      },
+      "mock_response": {
+        "id": "100200300400500_122100000000000001",
+        "message": "Excited to share our latest update!",
+        "created_time": "2026-05-22T12:00:00+0000",
+        "permalink_url": "https://www.facebook.com/100200300400500/posts/122100000000000001"
       }
     },
     {
@@ -341,6 +411,9 @@
           }
         },
         "required": ["postId", "message"]
+      },
+      "mock_response": {
+        "success": true
       }
     },
     {
@@ -363,6 +436,9 @@
         "required": [
           "postId"
         ]
+      },
+      "mock_response": {
+        "success": true
       }
     },
     {
@@ -406,6 +482,9 @@
           }
         },
         "required": ["instagramAccountId"]
+      },
+      "mock_response": {
+        "id": "17900000000000001"
       }
     },
     {
@@ -431,6 +510,10 @@
           }
         },
         "required": ["containerId"]
+      },
+      "mock_response": {
+        "status_code": "FINISHED",
+        "id": "17900000000000001"
       }
     },
     {
@@ -459,6 +542,9 @@
           }
         },
         "required": ["instagramAccountId", "containerId"]
+      },
+      "mock_response": {
+        "id": "17900000000000099"
       }
     },
     {
@@ -484,6 +570,32 @@
           }
         },
         "required": ["mediaId"]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "name": "impressions",
+            "period": "lifetime",
+            "values": [
+              {
+                "value": 2310
+              }
+            ],
+            "title": "Impressions",
+            "id": "17900000000000099/insights/impressions/lifetime"
+          },
+          {
+            "name": "reach",
+            "period": "lifetime",
+            "values": [
+              {
+                "value": 1980
+              }
+            ],
+            "title": "Reach",
+            "id": "17900000000000099/insights/reach/lifetime"
+          }
+        ]
       }
     },
     {
@@ -598,6 +710,10 @@
           }
         },
         "required": ["instagramAccountId", "recipient"]
+      },
+      "mock_response": {
+        "recipient_id": "17841400000000050",
+        "message_id": "aWdfbWVzc2FnZV9tb2NrXzAwMQ"
       }
     },
     {
@@ -642,6 +758,20 @@
           }
         },
         "required": ["instagramAccountId"]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "aWdfdGhyZWFkX21vY2tfMDAx",
+            "updated_time": "2026-05-22T11:00:00+0000"
+          }
+        ],
+        "paging": {
+          "cursors": {
+            "before": "QVFIUm",
+            "after": "QVFIUm"
+          }
+        }
       }
     },
     {
@@ -667,6 +797,17 @@
           }
         },
         "required": ["conversationId"]
+      },
+      "mock_response": {
+        "id": "aWdfdGhyZWFkX21vY2tfMDAx",
+        "messages": {
+          "data": [
+            {
+              "id": "aWdfbWVzc2FnZV9tb2NrXzAwMQ",
+              "created_time": "2026-05-22T11:00:00+0000"
+            }
+          ]
+        }
       }
     },
     {
@@ -692,6 +833,15 @@
           }
         },
         "required": ["messageId"]
+      },
+      "mock_response": {
+        "id": "aWdfbWVzc2FnZV9tb2NrXzAwMQ",
+        "created_time": "2026-05-22T11:00:00+0000",
+        "from": {
+          "username": "a_customer",
+          "id": "17841400000000050"
+        },
+        "message": "Hi, is this still available?"
       }
     },
     {
@@ -726,6 +876,23 @@
           }
         },
         "required": ["mediaId"]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "17900000000000200",
+            "text": "Love this!",
+            "username": "happy_user",
+            "timestamp": "2026-05-22T10:30:00+0000",
+            "like_count": 3
+          }
+        ],
+        "paging": {
+          "cursors": {
+            "before": "QVFIUm",
+            "after": "QVFIUm"
+          }
+        }
       }
     },
     {
@@ -751,6 +918,13 @@
           }
         },
         "required": ["commentId"]
+      },
+      "mock_response": {
+        "id": "17900000000000200",
+        "text": "Love this!",
+        "username": "happy_user",
+        "timestamp": "2026-05-22T10:30:00+0000",
+        "like_count": 3
       }
     },
     {
@@ -775,6 +949,9 @@
           }
         },
         "required": ["commentId", "message"]
+      },
+      "mock_response": {
+        "id": "17900000000000201"
       }
     },
     {
@@ -800,6 +977,9 @@
           }
         },
         "required": ["commentId"]
+      },
+      "mock_response": {
+        "success": true
       }
     },
     {
@@ -820,6 +1000,9 @@
           }
         },
         "required": ["commentId"]
+      },
+      "mock_response": {
+        "success": true
       }
     },
     {
@@ -854,6 +1037,19 @@
           }
         },
         "required": ["instagramAccountId"]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "17900000000000300",
+            "media_type": "IMAGE",
+            "username": "some_brand",
+            "timestamp": "2026-05-21T09:00:00+0000"
+          }
+        ],
+        "paging": {
+          "cursors": {}
+        }
       }
     }
   ]

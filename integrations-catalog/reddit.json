@@ -33,6 +33,31 @@
           "limit": { "type": "number" }
         },
         "required": ["subreddit", "sort"]
+      },
+      "mock_response": {
+        "kind": "Listing",
+        "data": {
+          "after": "t3_abc124",
+          "before": null,
+          "children": [
+            {
+              "kind": "t3",
+              "data": {
+                "id": "abc123",
+                "name": "t3_abc123",
+                "title": "Built an agent that triages my inbox",
+                "author": "some_user",
+                "subreddit": "programming",
+                "score": 342,
+                "num_comments": 58,
+                "permalink": "/r/programming/comments/abc123/built_an_agent_that/",
+                "url": "https://example.com/article",
+                "created_utc": 1747915200,
+                "selftext": ""
+              }
+            }
+          ]
+        }
       }
     },
     {
@@ -49,6 +74,31 @@
           "limit": { "type": "number" }
         },
         "required": ["q"]
+      },
+      "mock_response": {
+        "kind": "Listing",
+        "data": {
+          "after": "t3_def457",
+          "before": null,
+          "children": [
+            {
+              "kind": "t3",
+              "data": {
+                "id": "def456",
+                "name": "t3_def456",
+                "title": "Best agent frameworks in 2026?",
+                "author": "another_user",
+                "subreddit": "MachineLearning",
+                "score": 128,
+                "num_comments": 24,
+                "permalink": "/r/MachineLearning/comments/def456/best_agent_frameworks/",
+                "url": "https://www.reddit.com/r/MachineLearning/comments/def456/",
+                "created_utc": 1747900000,
+                "selftext": "Looking for recommendations."
+              }
+            }
+          ]
+        }
       }
     },
     {
@@ -66,6 +116,16 @@
           "url": { "type": "string" }
         },
         "required": ["sr", "kind", "title"]
+      },
+      "mock_response": {
+        "json": {
+          "errors": [],
+          "data": {
+            "url": "https://www.reddit.com/r/test/comments/xyz789/my_post/",
+            "id": "xyz789",
+            "name": "t3_xyz789"
+          }
+        }
       }
     },
     {
@@ -82,7 +142,8 @@
           }
         },
         "required": ["id"]
-      }
+      },
+      "mock_response": {}
     },
     {
       "name": "comment",
@@ -96,6 +157,27 @@
           "text": { "type": "string" }
         },
         "required": ["thing_id", "text"]
+      },
+      "mock_response": {
+        "json": {
+          "errors": [],
+          "data": {
+            "things": [
+              {
+                "kind": "t1",
+                "data": {
+                  "id": "ghi012",
+                  "name": "t1_ghi012",
+                  "body": "(comment body)",
+                  "author": "apteva",
+                  "score": 1,
+                  "created_utc": 1747915260,
+                  "permalink": "/r/test/comments/xyz789/my_post/ghi012/"
+                }
+              }
+            ]
+          }
+        }
       }
     },
     {
@@ -111,7 +193,44 @@
           "sort": { "type": "string" }
         },
         "required": ["subreddit", "article"]
-      }
+      },
+      "mock_response": [
+        {
+          "kind": "Listing",
+          "data": {
+            "children": [
+              {
+                "kind": "t3",
+                "data": {
+                  "id": "abc123",
+                  "title": "Built an agent that triages my inbox",
+                  "author": "some_user",
+                  "num_comments": 2,
+                  "score": 342
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "Listing",
+          "data": {
+            "children": [
+              {
+                "kind": "t1",
+                "data": {
+                  "id": "c1mock",
+                  "name": "t1_c1mock",
+                  "body": "Nice work, how did you handle auth?",
+                  "author": "reader1",
+                  "score": 12,
+                  "created_utc": 1747915000
+                }
+              }
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "get_user_about",
@@ -122,6 +241,18 @@
         "type": "object",
         "properties": { "username": { "type": "string" } },
         "required": ["username"]
+      },
+      "mock_response": {
+        "kind": "t2",
+        "data": {
+          "name": "some_user",
+          "id": "a1b2c3",
+          "link_karma": 1240,
+          "comment_karma": 8530,
+          "created_utc": 1500000000,
+          "is_gold": false,
+          "verified": true
+        }
       }
     },
     {
@@ -136,7 +267,8 @@
           "dir": { "type": "number", "enum": [-1, 0, 1] }
         },
         "required": ["id", "dir"]
-      }
+      },
+      "mock_response": {}
     }
   ]
 }
