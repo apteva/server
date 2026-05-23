@@ -98,6 +98,23 @@
           "channel_id",
           "content"
         ]
+      },
+      "mock_response": {
+        "id": "1153000000000000001",
+        "type": 0,
+        "channel_id": "1152000000000000000",
+        "content": "(message delivered)",
+        "author": {
+          "id": "1100000000000000000",
+          "username": "apteva-bot",
+          "discriminator": "0",
+          "bot": true
+        },
+        "timestamp": "2026-05-22T12:00:00.000000+00:00",
+        "edited_timestamp": null,
+        "tts": false,
+        "mention_everyone": false,
+        "pinned": false
       }
     },
     {
@@ -119,6 +136,28 @@
           "channel_id",
           "embed"
         ]
+      },
+      "mock_response": {
+        "id": "1153000000000000002",
+        "type": 0,
+        "channel_id": "1152000000000000000",
+        "content": "",
+        "embeds": [
+          {
+            "type": "rich",
+            "title": "(embed title)",
+            "description": "(embed body)",
+            "color": 5814783
+          }
+        ],
+        "author": {
+          "id": "1100000000000000000",
+          "username": "apteva-bot",
+          "bot": true
+        },
+        "timestamp": "2026-05-22T12:00:00.000000+00:00",
+        "tts": false,
+        "pinned": false
       }
     },
     {
@@ -143,6 +182,16 @@
           "guild_id",
           "name"
         ]
+      },
+      "mock_response": {
+        "id": "1154000000000000003",
+        "type": 0,
+        "name": "new-channel",
+        "guild_id": "1150000000000000000",
+        "position": 5,
+        "parent_id": null,
+        "nsfw": false,
+        "rate_limit_per_user": 0
       }
     },
     {
@@ -164,6 +213,16 @@
           "channel_id",
           "name"
         ]
+      },
+      "mock_response": {
+        "id": "1155000000000000004",
+        "type": 1,
+        "name": "apteva",
+        "channel_id": "1152000000000000000",
+        "guild_id": "1150000000000000000",
+        "token": "mock_webhook_token_AbCdEf123456",
+        "application_id": null,
+        "url": "https://discord.com/api/webhooks/1155000000000000004/mock_webhook_token_AbCdEf123456"
       }
     },
     {
@@ -193,6 +252,9 @@
           "role_id",
           "action"
         ]
+      },
+      "mock_response": {
+        "success": true
       }
     },
     {
@@ -217,6 +279,9 @@
           "guild_id",
           "user_id"
         ]
+      },
+      "mock_response": {
+        "success": true
       }
     },
     {
@@ -249,7 +314,31 @@
         "required": [
           "channel_id"
         ]
-      }
+      },
+      "mock_response": [
+        {
+          "id": "1153000000000000001",
+          "channel_id": "1152000000000000000",
+          "content": "Hey, are we still on for the demo?",
+          "author": {
+            "id": "1101000000000000000",
+            "username": "alice",
+            "bot": false
+          },
+          "timestamp": "2026-05-22T11:58:00.000000+00:00"
+        },
+        {
+          "id": "1153000000000000000",
+          "channel_id": "1152000000000000000",
+          "content": "Yes, 3pm works.",
+          "author": {
+            "id": "1102000000000000000",
+            "username": "bob",
+            "bot": false
+          },
+          "timestamp": "2026-05-22T11:55:00.000000+00:00"
+        }
+      ]
     }
   ]
 }

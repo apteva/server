@@ -83,6 +83,21 @@
           "To",
           "From"
         ]
+      },
+      "mock_response": {
+        "sid": "SM00000000000000000000000000000001",
+        "account_sid": "AC00000000000000000000000000000000",
+        "from": "+15005550006",
+        "to": "+15558675310",
+        "body": "(message body)",
+        "status": "queued",
+        "direction": "outbound-api",
+        "num_segments": "1",
+        "price": null,
+        "price_unit": "USD",
+        "error_code": null,
+        "date_created": "Fri, 22 May 2026 12:00:00 +0000",
+        "uri": "/2010-04-01/Accounts/AC00000000000000000000000000000000/Messages/SM00000000000000000000000000000001.json"
       }
     },
     {
@@ -122,6 +137,19 @@
           "To",
           "From"
         ]
+      },
+      "mock_response": {
+        "sid": "SM00000000000000000000000000000002",
+        "account_sid": "AC00000000000000000000000000000000",
+        "from": "whatsapp:+14155238886",
+        "to": "whatsapp:+15558675310",
+        "body": "(message body)",
+        "status": "queued",
+        "direction": "outbound-api",
+        "num_segments": "1",
+        "price": null,
+        "error_code": null,
+        "date_created": "Fri, 22 May 2026 12:00:00 +0000"
       }
     },
     {
@@ -167,6 +195,20 @@
         "required": [
           "MessageSid"
         ]
+      },
+      "mock_response": {
+        "sid": "SM00000000000000000000000000000001",
+        "account_sid": "AC00000000000000000000000000000000",
+        "from": "+15005550006",
+        "to": "+15558675310",
+        "body": "Your code is 123456",
+        "status": "delivered",
+        "direction": "outbound-api",
+        "num_segments": "1",
+        "price": "-0.00790",
+        "price_unit": "USD",
+        "error_code": null,
+        "date_sent": "Fri, 22 May 2026 12:00:02 +0000"
       }
     },
     {
@@ -195,6 +237,22 @@
             "description": "Number of messages to return (max 1000)"
           }
         }
+      },
+      "mock_response": {
+        "messages": [
+          {
+            "sid": "SM00000000000000000000000000000001",
+            "from": "+15005550006",
+            "to": "+15558675310",
+            "body": "Your code is 123456",
+            "status": "delivered",
+            "direction": "outbound-api",
+            "num_segments": "1"
+          }
+        ],
+        "page": 0,
+        "page_size": 50,
+        "uri": "/2010-04-01/Accounts/AC00000000000000000000000000000000/Messages.json"
       }
     },
     {
@@ -265,6 +323,16 @@
           "To",
           "From"
         ]
+      },
+      "mock_response": {
+        "sid": "CA00000000000000000000000000000001",
+        "account_sid": "AC00000000000000000000000000000000",
+        "from": "+15005550006",
+        "to": "+15558675310",
+        "status": "queued",
+        "direction": "outbound-api",
+        "date_created": "Fri, 22 May 2026 12:00:00 +0000",
+        "uri": "/2010-04-01/Accounts/AC00000000000000000000000000000000/Calls/CA00000000000000000000000000000001.json"
       }
     },
     {
@@ -283,6 +351,19 @@
         "required": [
           "CallSid"
         ]
+      },
+      "mock_response": {
+        "sid": "CA00000000000000000000000000000001",
+        "account_sid": "AC00000000000000000000000000000000",
+        "from": "+15005550006",
+        "to": "+15558675310",
+        "status": "completed",
+        "duration": "42",
+        "direction": "outbound-api",
+        "price": "-0.01400",
+        "price_unit": "USD",
+        "start_time": "Fri, 22 May 2026 12:00:05 +0000",
+        "end_time": "Fri, 22 May 2026 12:00:47 +0000"
       }
     },
     {
@@ -511,6 +592,23 @@
         "required": [
           "Country"
         ]
+      },
+      "mock_response": {
+        "available_phone_numbers": [
+          {
+            "friendly_name": "(415) 555-0100",
+            "phone_number": "+14155550100",
+            "locality": "San Francisco",
+            "region": "CA",
+            "iso_country": "US",
+            "capabilities": {
+              "voice": true,
+              "SMS": true,
+              "MMS": true
+            }
+          }
+        ],
+        "uri": "/2010-04-01/Accounts/AC00000000000000000000000000000000/AvailablePhoneNumbers/US/Local.json"
       }
     },
     {
@@ -619,6 +717,13 @@
       "input_schema": {
         "type": "object",
         "properties": {}
+      },
+      "mock_response": {
+        "sid": "AC00000000000000000000000000000000",
+        "friendly_name": "Apteva",
+        "status": "active",
+        "type": "Full",
+        "date_created": "Mon, 01 Jan 2024 00:00:00 +0000"
       }
     },
     {
@@ -629,6 +734,11 @@
       "input_schema": {
         "type": "object",
         "properties": {}
+      },
+      "mock_response": {
+        "account_sid": "AC00000000000000000000000000000000",
+        "balance": "42.35000",
+        "currency": "USD"
       }
     },
     {
@@ -925,6 +1035,13 @@
         "required": [
           "PhoneNumber"
         ]
+      },
+      "mock_response": {
+        "phone_number": "+15558675310",
+        "country_code": "US",
+        "national_format": "(555) 867-5310",
+        "calling_country_code": "1",
+        "valid": true
       }
     },
     {
@@ -983,6 +1100,16 @@
           "To",
           "Channel"
         ]
+      },
+      "mock_response": {
+        "sid": "VE00000000000000000000000000000001",
+        "service_sid": "VA00000000000000000000000000000000",
+        "account_sid": "AC00000000000000000000000000000000",
+        "to": "+15558675310",
+        "channel": "sms",
+        "status": "pending",
+        "valid": false,
+        "date_created": "2026-05-22T12:00:00Z"
       }
     },
     {
@@ -1011,6 +1138,16 @@
           "To",
           "Code"
         ]
+      },
+      "mock_response": {
+        "sid": "VE00000000000000000000000000000001",
+        "service_sid": "VA00000000000000000000000000000000",
+        "account_sid": "AC00000000000000000000000000000000",
+        "to": "+15558675310",
+        "channel": "sms",
+        "status": "approved",
+        "valid": true,
+        "date_created": "2026-05-22T12:00:00Z"
       }
     }
   ],

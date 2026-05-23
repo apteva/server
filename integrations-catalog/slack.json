@@ -101,6 +101,19 @@
           "channel",
           "text"
         ]
+      },
+      "mock_response": {
+        "ok": true,
+        "channel": "C0EXAMPLE1",
+        "ts": "1747915200.123456",
+        "message": {
+          "type": "message",
+          "user": "U0BOT0001",
+          "ts": "1747915200.123456",
+          "text": "(message delivered)",
+          "team": "T0EXAMPLE",
+          "bot_id": "B0BOT0001"
+        }
       }
     },
     {
@@ -125,6 +138,9 @@
           "webhook_url",
           "text"
         ]
+      },
+      "mock_response": {
+        "ok": true
       }
     },
     {
@@ -145,6 +161,19 @@
         "required": [
           "name"
         ]
+      },
+      "mock_response": {
+        "ok": true,
+        "channel": {
+          "id": "C0NEW0001",
+          "name": "new-channel",
+          "is_channel": true,
+          "created": 1747915200,
+          "creator": "U0BOT0001",
+          "is_private": false,
+          "is_archived": false,
+          "num_members": 1
+        }
       }
     },
     {
@@ -161,6 +190,28 @@
           "cursor": {
             "type": "string"
           }
+        }
+      },
+      "mock_response": {
+        "ok": true,
+        "members": [
+          {
+            "id": "U0ALICE01",
+            "name": "alice",
+            "real_name": "Alice Martin",
+            "is_bot": false,
+            "deleted": false
+          },
+          {
+            "id": "U0BOB0001",
+            "name": "bob",
+            "real_name": "Bob Nguyen",
+            "is_bot": false,
+            "deleted": false
+          }
+        ],
+        "response_metadata": {
+          "next_cursor": ""
         }
       }
     },
@@ -187,6 +238,9 @@
           "timestamp",
           "name"
         ]
+      },
+      "mock_response": {
+        "ok": true
       }
     },
     {
@@ -213,6 +267,18 @@
         "required": [
           "channels"
         ]
+      },
+      "mock_response": {
+        "ok": true,
+        "file": {
+          "id": "F0NEW0001",
+          "name": "upload.txt",
+          "title": "upload.txt",
+          "mimetype": "text/plain",
+          "filetype": "text",
+          "size": 1024,
+          "url_private": "https://files.slack.com/files-pri/T0EXAMPLE-F0NEW0001/upload.txt"
+        }
       }
     },
     {
@@ -239,6 +305,28 @@
             "default": 100,
             "maximum": 1000
           }
+        }
+      },
+      "mock_response": {
+        "ok": true,
+        "channels": [
+          {
+            "id": "C0GENERAL",
+            "name": "general",
+            "is_channel": true,
+            "is_private": false,
+            "num_members": 42
+          },
+          {
+            "id": "C0RANDOM0",
+            "name": "random",
+            "is_channel": true,
+            "is_private": false,
+            "num_members": 31
+          }
+        ],
+        "response_metadata": {
+          "next_cursor": ""
         }
       }
     },
@@ -280,6 +368,19 @@
           "thread_ts",
           "text"
         ]
+      },
+      "mock_response": {
+        "ok": true,
+        "channel": "C0EXAMPLE1",
+        "ts": "1747915260.222333",
+        "message": {
+          "type": "message",
+          "user": "U0BOT0001",
+          "ts": "1747915260.222333",
+          "thread_ts": "1747915200.123456",
+          "text": "(reply delivered)",
+          "team": "T0EXAMPLE"
+        }
       }
     }
   ],

@@ -66,6 +66,12 @@
       "input_schema": {
         "type": "object",
         "properties": {}
+      },
+      "mock_response": {
+        "emailAddress": "agent@example.com",
+        "messagesTotal": 1284,
+        "threadsTotal": 967,
+        "historyId": "987654"
       }
     },
     {
@@ -122,6 +128,13 @@
           "subject",
           "body"
         ]
+      },
+      "mock_response": {
+        "id": "18f1a2b3c4d5e6f7",
+        "threadId": "18f1a2b3c4d5e6f7",
+        "labelIds": [
+          "SENT"
+        ]
       }
     },
     {
@@ -159,6 +172,20 @@
             "default": false
           }
         }
+      },
+      "mock_response": {
+        "messages": [
+          {
+            "id": "18f1a2b3c4d5e6f7",
+            "threadId": "18f1a2b3c4d5e6f7"
+          },
+          {
+            "id": "18f1aaaabbbbcccc",
+            "threadId": "18f1aaaabbbbcccc"
+          }
+        ],
+        "nextPageToken": "09876543210987654321",
+        "resultSizeEstimate": 2
       }
     },
     {
@@ -192,6 +219,38 @@
         "required": [
           "messageId"
         ]
+      },
+      "mock_response": {
+        "id": "18f1a2b3c4d5e6f7",
+        "threadId": "18f1a2b3c4d5e6f7",
+        "labelIds": [
+          "INBOX",
+          "UNREAD"
+        ],
+        "snippet": "Hi there, just following up on the proposal we discussed last week...",
+        "payload": {
+          "mimeType": "text/plain",
+          "headers": [
+            {
+              "name": "From",
+              "value": "Alice Martin <alice@example.com>"
+            },
+            {
+              "name": "To",
+              "value": "agent@example.com"
+            },
+            {
+              "name": "Subject",
+              "value": "Following up on the proposal"
+            },
+            {
+              "name": "Date",
+              "value": "Wed, 22 May 2026 10:00:00 +0000"
+            }
+          ]
+        },
+        "sizeEstimate": 4096,
+        "internalDate": "1747908000000"
       }
     },
     {
@@ -224,6 +283,13 @@
         "required": [
           "messageId"
         ]
+      },
+      "mock_response": {
+        "id": "18f1a2b3c4d5e6f7",
+        "threadId": "18f1a2b3c4d5e6f7",
+        "labelIds": [
+          "INBOX"
+        ]
       }
     },
     {
@@ -241,6 +307,13 @@
         },
         "required": [
           "messageId"
+        ]
+      },
+      "mock_response": {
+        "id": "18f1a2b3c4d5e6f7",
+        "threadId": "18f1a2b3c4d5e6f7",
+        "labelIds": [
+          "TRASH"
         ]
       }
     },
@@ -371,6 +444,16 @@
             "default": false
           }
         }
+      },
+      "mock_response": {
+        "threads": [
+          {
+            "id": "18f1a2b3c4d5e6f7",
+            "snippet": "Hi there, just following up on the proposal...",
+            "historyId": "987600"
+          }
+        ],
+        "resultSizeEstimate": 1
       }
     },
     {
@@ -399,6 +482,21 @@
         },
         "required": [
           "threadId"
+        ]
+      },
+      "mock_response": {
+        "id": "18f1a2b3c4d5e6f7",
+        "historyId": "987600",
+        "messages": [
+          {
+            "id": "18f1a2b3c4d5e6f7",
+            "threadId": "18f1a2b3c4d5e6f7",
+            "labelIds": [
+              "INBOX",
+              "UNREAD"
+            ],
+            "snippet": "Hi there, just following up on the proposal..."
+          }
         ]
       }
     },
@@ -496,6 +594,30 @@
       "input_schema": {
         "type": "object",
         "properties": {}
+      },
+      "mock_response": {
+        "labels": [
+          {
+            "id": "INBOX",
+            "name": "INBOX",
+            "type": "system"
+          },
+          {
+            "id": "SENT",
+            "name": "SENT",
+            "type": "system"
+          },
+          {
+            "id": "UNREAD",
+            "name": "UNREAD",
+            "type": "system"
+          },
+          {
+            "id": "Label_42",
+            "name": "Follow-up",
+            "type": "user"
+          }
+        ]
       }
     },
     {
@@ -565,6 +687,13 @@
         "required": [
           "name"
         ]
+      },
+      "mock_response": {
+        "id": "Label_42",
+        "name": "Follow-up",
+        "type": "user",
+        "messageListVisibility": "show",
+        "labelListVisibility": "labelShow"
       }
     },
     {
@@ -733,6 +862,16 @@
           "subject",
           "body"
         ]
+      },
+      "mock_response": {
+        "id": "r-1234567890123456",
+        "message": {
+          "id": "18f1ccccddddeeee",
+          "threadId": "18f1ccccddddeeee",
+          "labelIds": [
+            "DRAFT"
+          ]
+        }
       }
     },
     {
@@ -821,6 +960,13 @@
         },
         "required": [
           "id"
+        ]
+      },
+      "mock_response": {
+        "id": "18f1ccccddddeeee",
+        "threadId": "18f1ccccddddeeee",
+        "labelIds": [
+          "SENT"
         ]
       }
     },

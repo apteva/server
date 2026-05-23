@@ -119,6 +119,17 @@
       "input_schema": {
         "type": "object",
         "properties": {}
+      },
+      "mock_response": {
+        "login": "apteva-bot",
+        "id": 100000001,
+        "type": "User",
+        "name": "Apteva Bot",
+        "company": null,
+        "public_repos": 12,
+        "followers": 3,
+        "following": 1,
+        "html_url": "https://github.com/apteva-bot"
       }
     },
     {
@@ -213,6 +224,24 @@
           "owner",
           "repo"
         ]
+      },
+      "mock_response": {
+        "id": 500000001,
+        "name": "demo",
+        "full_name": "apteva-bot/demo",
+        "private": false,
+        "owner": {
+          "login": "apteva-bot",
+          "id": 100000001,
+          "type": "User"
+        },
+        "html_url": "https://github.com/apteva-bot/demo",
+        "description": "Demo repository",
+        "default_branch": "main",
+        "open_issues_count": 2,
+        "stargazers_count": 7,
+        "forks_count": 1,
+        "language": "Go"
       }
     },
     {
@@ -451,6 +480,20 @@
           "message",
           "content"
         ]
+      },
+      "mock_response": {
+        "content": {
+          "name": "file.txt",
+          "path": "file.txt",
+          "sha": "a1b2c3d4e5f6a7b8c9d0",
+          "size": 24,
+          "html_url": "https://github.com/apteva-bot/demo/blob/main/file.txt"
+        },
+        "commit": {
+          "sha": "f1e2d3c4b5a697887766",
+          "message": "(commit message)",
+          "html_url": "https://github.com/apteva-bot/demo/commit/f1e2d3c4b5a697887766"
+        }
       }
     },
     {
@@ -559,6 +602,15 @@
           "ref",
           "sha"
         ]
+      },
+      "mock_response": {
+        "ref": "refs/heads/new-branch",
+        "node_id": "REF_kwDONewBranch",
+        "url": "https://api.github.com/repos/apteva-bot/demo/git/refs/heads/new-branch",
+        "object": {
+          "sha": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+          "type": "commit"
+        }
       }
     },
     {
@@ -612,7 +664,21 @@
           "owner",
           "repo"
         ]
-      }
+      },
+      "mock_response": [
+        {
+          "sha": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+          "commit": {
+            "message": "Add login retry logic",
+            "author": {
+              "name": "Alice Martin",
+              "email": "alice@example.com",
+              "date": "2026-05-21T08:00:00Z"
+            }
+          },
+          "html_url": "https://github.com/apteva-bot/demo/commit/a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
+        }
+      ]
     },
     {
       "name": "list_issues",
@@ -682,7 +748,43 @@
           "owner",
           "repo"
         ]
-      }
+      },
+      "mock_response": [
+        {
+          "number": 42,
+          "title": "Fix login redirect bug",
+          "state": "open",
+          "user": {
+            "login": "alice"
+          },
+          "comments": 1,
+          "labels": [
+            {
+              "name": "bug",
+              "color": "d73a4a"
+            }
+          ],
+          "html_url": "https://github.com/apteva-bot/demo/issues/42",
+          "created_at": "2026-05-20T09:00:00Z"
+        },
+        {
+          "number": 41,
+          "title": "Add dark mode",
+          "state": "open",
+          "user": {
+            "login": "bob"
+          },
+          "comments": 0,
+          "labels": [
+            {
+              "name": "enhancement",
+              "color": "a2eeef"
+            }
+          ],
+          "html_url": "https://github.com/apteva-bot/demo/issues/41",
+          "created_at": "2026-05-19T14:30:00Z"
+        }
+      ]
     },
     {
       "name": "get_issue",
@@ -710,6 +812,24 @@
           "repo",
           "issue_number"
         ]
+      },
+      "mock_response": {
+        "number": 42,
+        "title": "Fix login redirect bug",
+        "state": "open",
+        "body": "After logging in, the user is redirected to a blank page.",
+        "user": {
+          "login": "alice"
+        },
+        "comments": 1,
+        "labels": [
+          {
+            "name": "bug",
+            "color": "d73a4a"
+          }
+        ],
+        "html_url": "https://github.com/apteva-bot/demo/issues/42",
+        "created_at": "2026-05-20T09:00:00Z"
       }
     },
     {
@@ -756,6 +876,19 @@
           "repo",
           "title"
         ]
+      },
+      "mock_response": {
+        "number": 43,
+        "title": "(created issue)",
+        "state": "open",
+        "body": "(issue body)",
+        "user": {
+          "login": "apteva-bot"
+        },
+        "comments": 0,
+        "labels": [],
+        "html_url": "https://github.com/apteva-bot/demo/issues/43",
+        "created_at": "2026-05-22T12:00:00Z"
       }
     },
     {
@@ -824,6 +957,16 @@
           "repo",
           "issue_number"
         ]
+      },
+      "mock_response": {
+        "number": 42,
+        "title": "Fix login redirect bug",
+        "state": "closed",
+        "user": {
+          "login": "alice"
+        },
+        "html_url": "https://github.com/apteva-bot/demo/issues/42",
+        "updated_at": "2026-05-22T12:00:00Z"
       }
     },
     {
@@ -862,7 +1005,18 @@
           "repo",
           "issue_number"
         ]
-      }
+      },
+      "mock_response": [
+        {
+          "id": 900000000,
+          "body": "Thanks for reporting, looking into it.",
+          "user": {
+            "login": "alice"
+          },
+          "created_at": "2026-05-20T10:00:00Z",
+          "html_url": "https://github.com/apteva-bot/demo/issues/42#issuecomment-900000000"
+        }
+      ]
     },
     {
       "name": "add_issue_comment",
@@ -895,6 +1049,15 @@
           "issue_number",
           "body"
         ]
+      },
+      "mock_response": {
+        "id": 900000001,
+        "body": "(comment body)",
+        "user": {
+          "login": "apteva-bot"
+        },
+        "html_url": "https://github.com/apteva-bot/demo/issues/42#issuecomment-900000001",
+        "created_at": "2026-05-22T12:00:00Z"
       }
     },
     {
@@ -949,6 +1112,24 @@
         },
         "required": [
           "q"
+        ]
+      },
+      "mock_response": {
+        "total_count": 2,
+        "incomplete_results": false,
+        "items": [
+          {
+            "number": 42,
+            "title": "Fix login redirect bug",
+            "state": "open",
+            "html_url": "https://github.com/apteva-bot/demo/issues/42"
+          },
+          {
+            "number": 38,
+            "title": "Login fails on Safari",
+            "state": "closed",
+            "html_url": "https://github.com/apteva-bot/demo/issues/38"
+          }
         ]
       }
     },
@@ -1049,6 +1230,25 @@
           "repo",
           "pull_number"
         ]
+      },
+      "mock_response": {
+        "number": 17,
+        "title": "(pull request)",
+        "state": "open",
+        "merged": false,
+        "mergeable": true,
+        "mergeable_state": "clean",
+        "commits": 3,
+        "additions": 120,
+        "deletions": 14,
+        "changed_files": 5,
+        "head": {
+          "ref": "feature-branch"
+        },
+        "base": {
+          "ref": "main"
+        },
+        "html_url": "https://github.com/apteva-bot/demo/pull/17"
       }
     },
     {
@@ -1096,6 +1296,25 @@
           "head",
           "base"
         ]
+      },
+      "mock_response": {
+        "number": 17,
+        "title": "(pull request)",
+        "state": "open",
+        "body": "(PR body)",
+        "merged": false,
+        "draft": false,
+        "user": {
+          "login": "apteva-bot"
+        },
+        "head": {
+          "ref": "feature-branch"
+        },
+        "base": {
+          "ref": "main"
+        },
+        "html_url": "https://github.com/apteva-bot/demo/pull/17",
+        "created_at": "2026-05-22T12:00:00Z"
       }
     },
     {
@@ -1142,6 +1361,11 @@
           "repo",
           "pull_number"
         ]
+      },
+      "mock_response": {
+        "sha": "e5bac5c5a1d9f0c3b2a1e0d9c8b7a6f5e4d3c2b1",
+        "merged": true,
+        "message": "Pull Request successfully merged"
       }
     },
     {
@@ -1268,6 +1492,16 @@
           "repo",
           "tag_name"
         ]
+      },
+      "mock_response": {
+        "id": 600000001,
+        "tag_name": "v1.2.0",
+        "name": "v1.2.0",
+        "body": "(release notes)",
+        "draft": false,
+        "prerelease": false,
+        "html_url": "https://github.com/apteva-bot/demo/releases/tag/v1.2.0",
+        "created_at": "2026-05-22T12:00:00Z"
       }
     },
     {
@@ -1400,6 +1634,9 @@
           "workflow_id",
           "ref"
         ]
+      },
+      "mock_response": {
+        "success": true
       }
     },
     {
@@ -1552,6 +1789,9 @@
           "owner",
           "repo"
         ]
+      },
+      "mock_response": {
+        "success": true
       }
     },
     {
