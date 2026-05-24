@@ -102,6 +102,18 @@ func (s *Server) SpawnAgentInWorld(world *World, spec WorldAgentSpec) (*WorldAge
 			"no_spawn":  true,
 		})
 	}
+	for _, cid := range world.ConnectionIDs() {
+		conn, _, err := s.store.GetConnection(userID, cid)
+		if err != nil || conn == nil {
+			continue
+		}
+		mcpServers = append(mcpServers, map[string]any{
+			"name":      conn.AppSlug,
+			"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/%d?world_id=%s", s.port, cid, world.ID),
+			"transport": "http",
+			"no_spawn":  true,
+		})
+	}
 	// Carry over the agent's OWN integration connections (its config's
 	// /mcp/<id> entries), tagging each URL with ?world_id so the executor
 	// mocks them instead of hitting the real API. The connection is the

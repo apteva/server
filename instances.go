@@ -23,7 +23,7 @@ import (
 type runningAgent struct {
 	cmd        *exec.Cmd
 	port       int
-	coreAPIKey string // API key injected into core for auth
+	coreAPIKey string         // API key injected into core for auth
 	channels   *AgentChannels // channel infrastructure for this instance
 }
 
@@ -929,10 +929,10 @@ func (s *Server) loadChannelConfigs(instanceID int64) []ChannelConfig {
 // children don't orphan when we're asked to shut down.
 //
 // Two-phase shutdown:
-//   1. SIGTERM every child, wait up to `graceful` for clean exits so
-//      cores can flush session state to disk and tell their own MCP
-//      children to pack up.
-//   2. Anything still alive after the deadline gets SIGKILL.
+//  1. SIGTERM every child, wait up to `graceful` for clean exits so
+//     cores can flush session state to disk and tell their own MCP
+//     children to pack up.
+//  2. Anything still alive after the deadline gets SIGKILL.
 //
 // Cross-platform caveat: on Windows os.Process.Signal only accepts
 // os.Kill, so SIGTERM silently maps to Kill there — graceful phase
@@ -1038,12 +1038,12 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
 
 	var body struct {
-		Name       string `json:"name"`
-		Directive  string `json:"directive"`
-		Mode       string `json:"mode"`   // "autonomous" | "cautious" | "learn"
-		Config     string `json:"config"` // optional JSON blob for MCP servers etc
-		ProjectID  string `json:"project_id"`
-		Start      *bool  `json:"start,omitempty"` // default true; set false to create without starting
+		Name      string `json:"name"`
+		Directive string `json:"directive"`
+		Mode      string `json:"mode"`   // "autonomous" | "cautious" | "learn"
+		Config    string `json:"config"` // optional JSON blob for MCP servers etc
+		ProjectID string `json:"project_id"`
+		Start     *bool  `json:"start,omitempty"` // default true; set false to create without starting
 		// Auto-injected system MCPs. Both default to true so existing
 		// callers keep the current behaviour (agent gets the apteva
 		// gateway + channels out of the box). Set to false to create a
@@ -1740,9 +1740,9 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, _ := io.ReadAll(r.Body)
 
 	var body struct {
-		Directive string         `json:"directive"`
-		Mode      string         `json:"mode"`
-		Config    string         `json:"config"`
+		Directive string           `json:"directive"`
+		Mode      string           `json:"mode"`
+		Config    string           `json:"config"`
 		Providers []map[string]any `json:"providers"`
 	}
 	json.Unmarshal(bodyBytes, &body)
@@ -1885,7 +1885,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		// rawBody was decoded above for computer enrichment; re-use it
 		// for the surface-level fields the client may set. If a key is
 		// absent in the request we keep whatever disk already held.
-		for _, k := range []string{"mcp_servers", "computer", "providers", "threads", "unconscious"} {
+		for _, k := range []string{"mcp_servers", "computer", "providers", "threads", "unconscious", "execution_control"} {
 			if v, ok := rawBody[k]; ok {
 				cfg[k] = v
 			}
@@ -2189,15 +2189,20 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 		writeJSON(w, threads)
 
 	case "/status":
+		executionControl := config["execution_control"]
+		if executionControl == nil {
+			executionControl = map[string]any{"mode": "auto", "scope": "instance", "follow": "active", "waiting": false}
+		}
 		writeJSON(w, map[string]any{
-			"iteration":      0,
-			"rate":           "stopped",
-			"model":          "",
-			"paused":         false,
-			"threads":        0,
-			"memories":       0,
-			"uptime_seconds": 0,
-			"mode":           inst.Mode,
+			"iteration":         0,
+			"rate":              "stopped",
+			"model":             "",
+			"paused":            false,
+			"threads":           0,
+			"memories":          0,
+			"uptime_seconds":    0,
+			"mode":              inst.Mode,
+			"execution_control": executionControl,
 		})
 
 	case "/config":
@@ -2216,13 +2221,14 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 		// config had them; the MCP pane showed empty for every
 		// stopped agent.
 		out := map[string]any{
-			"directive":   directive,
-			"mode":        mode,
-			"mcp_servers": config["mcp_servers"],
-			"computer":    config["computer"],
-			"providers":   config["providers"],
-			"threads":     config["threads"],
-			"unconscious": config["unconscious"],
+			"directive":         directive,
+			"mode":              mode,
+			"mcp_servers":       config["mcp_servers"],
+			"computer":          config["computer"],
+			"providers":         config["providers"],
+			"threads":           config["threads"],
+			"unconscious":       config["unconscious"],
+			"execution_control": config["execution_control"],
 		}
 		if out["mcp_servers"] == nil {
 			out["mcp_servers"] = []any{}

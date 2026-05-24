@@ -38,9 +38,9 @@
   "tools": [
     {
       "name": "chat_completion",
-      "description": "Generate chat completions using OpenAI's language models",
-      "method": "GET",
-      "path": "/chat-completion",
+      "description": "Generate chat completions using OpenAI's language and vision-capable models. Supports OpenAI chat-completions message shape, including multimodal user content parts with image_url.",
+      "method": "POST",
+      "path": "/chat/completions",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -58,16 +58,14 @@
                     "assistant"
                   ]
                 },
-                "content": {
-                  "type": "string"
-                }
+                "content": {}
               }
             }
           },
           "model": {
             "type": "string",
             "description": "The OpenAI model to use",
-            "default": "gpt-4"
+            "default": "gpt-4o-mini"
           },
           "temperature": {
             "type": "number",

@@ -1,0 +1,123 @@
+{
+  "slug": "gelato",
+  "name": "Gelato",
+  "description": "Gelato print-on-demand product catalog API. Search printable products and inspect catalog variants for Catalog import workflows.",
+  "logo": "https://www.google.com/s2/favicons?domain=gelato.com&sz=128",
+  "categories": [
+    "print-on-demand",
+    "ecommerce",
+    "products",
+    "supplier-catalog",
+    "fulfillment",
+    "dropshipping"
+  ],
+  "base_url": "https://product.gelatoapis.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-KEY": "{{api_key}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Gelato API key from the Gelato dashboard."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "catalogs_list",
+      "description": "List Gelato product catalogs. Use to discover product families before searching products.",
+      "method": "GET",
+      "path": "/v3/catalogs",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "catalog_get",
+      "description": "Get a Gelato catalog by catalog UID, including product families and available catalog metadata.",
+      "method": "GET",
+      "path": "/v3/catalogs/{catalogUid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "catalogUid": {
+            "type": "string",
+            "description": "Gelato catalog UID."
+          }
+        },
+        "required": [
+          "catalogUid"
+        ]
+      }
+    },
+    {
+      "name": "products_search",
+      "description": "Search Gelato products by catalog, product family, country, category, and pagination. Use this as the main Catalog import search source.",
+      "method": "GET",
+      "path": "/v3/products/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "catalogUid": {
+            "type": "string",
+            "description": "Optional catalog UID to scope the search."
+          },
+          "productFamilyUid": {
+            "type": "string",
+            "description": "Optional product family UID to scope the search."
+          },
+          "country": {
+            "type": "string",
+            "description": "Production/destination country code, for example US."
+          },
+          "category": {
+            "type": "string",
+            "description": "Optional Gelato category filter."
+          },
+          "query": {
+            "type": "string",
+            "description": "Free-text product search when supported by Gelato."
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page number."
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Products per page."
+          }
+        }
+      }
+    },
+    {
+      "name": "product_get",
+      "description": "Get a Gelato product by product UID, including variants, printable attributes, dimensions, and catalog metadata.",
+      "method": "GET",
+      "path": "/v3/products/{productUid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productUid": {
+            "type": "string",
+            "description": "Gelato product UID."
+          }
+        },
+        "required": [
+          "productUid"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "catalogs_list"
+  }
+}

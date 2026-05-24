@@ -229,9 +229,12 @@ func (s *Server) handleCallbackWhoami(w http.ResponseWriter, r *http.Request) {
 
 // GET  /connections/:id            — fetch one
 // GET  /connections?project_id=…   — list. ?owned=true filters to only
-//                                    rows the calling install owns.
+//
+//	rows the calling install owns.
+//
 // POST /connections/:id/disconnect — revoke. Permission-gated: caller
-//                                    must own the row.
+//
+//	must own the row.
 //
 // Returns metadata only — never credentials. Apps that need to actually
 // call an integration go through /integrations/:id/execute where the
@@ -432,7 +435,7 @@ func (s *Server) handleCallbackConnectionCredentials(w http.ResponseWriter, r *h
 
 // connectionCreatedVia reads the created_via column on connections —
 // 'integration' (operator-installed via Settings → Integrations),
-// 'app_install' (created by an app via platform.oauth.start), or '' /
+// 'app_install' (created by an app via platform.oauth.start), or ” /
 // other for legacy rows. Returns "" on lookup error.
 func connectionCreatedVia(s *Server, connID int64) string {
 	var v string
@@ -529,21 +532,21 @@ func (s *Server) handleCallbackChannels(w http.ResponseWriter, r *http.Request, 
 // Body: {"tool": "<tool name>", "input": {...}}
 //
 // Authorization model:
-//   1. Caller is a sidecar (X-Apteva-App-Install-ID set by middleware).
-//   2. Install's manifest declares the platform.connections.execute
-//      permission.
-//   3. The connection is reachable by this install — one of:
-//        a. connID appears in the install's integration_bindings, OR
-//        b. owner_app_install_id == installID (the app created this
-//           connection itself via platform.oauth.start), OR
-//        c. created_via='integration' (operator-installed in Settings
-//           → Integrations) — any permitted install in the same user's
-//           scope may call it. Operator connections are explicitly
-//           shared resources; gating them behind a separate role-bind
-//           ceremony defeats their purpose.
-//   4. When the role is bound (3a), the connection's app_slug must be
-//      in the role's compatible_slugs. Skipped for 3b/3c which have
-//      no role-dep to validate against.
+//  1. Caller is a sidecar (X-Apteva-App-Install-ID set by middleware).
+//  2. Install's manifest declares the platform.connections.execute
+//     permission.
+//  3. The connection is reachable by this install — one of:
+//     a. connID appears in the install's integration_bindings, OR
+//     b. owner_app_install_id == installID (the app created this
+//     connection itself via platform.oauth.start), OR
+//     c. created_via='integration' (operator-installed in Settings
+//     → Integrations) — any permitted install in the same user's
+//     scope may call it. Operator connections are explicitly
+//     shared resources; gating them behind a separate role-bind
+//     ceremony defeats their purpose.
+//  4. When the role is bound (3a), the connection's app_slug must be
+//     in the role's compatible_slugs. Skipped for 3b/3c which have
+//     no role-dep to validate against.
 //
 // Without these checks an installed app could enumerate every
 // connection in its owner's account.
@@ -726,10 +729,10 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 // Body: {"tool": "<tool name>", "input": {...}}
 //
 // Authorization:
-//   1. Caller is a sidecar (X-Apteva-App-Install-ID set).
-//   2. Install's manifest declares platform.apps.call permission.
-//   3. appName appears in the install's integration_bindings (under
-//      a kind=app dep).
+//  1. Caller is a sidecar (X-Apteva-App-Install-ID set).
+//  2. Install's manifest declares platform.apps.call permission.
+//  3. appName appears in the install's integration_bindings (under
+//     a kind=app dep).
 //
 // On success, calls the target app's /mcp endpoint via the same
 // proxy machinery the dashboard uses — credentials in the form of
@@ -1132,9 +1135,9 @@ func installBoundConnection(s *Server, installID, connID int64) (string, bool) {
 // installBoundApp returns true if the named app name appears as a
 // dependency of the install. Two manifest shapes are recognised:
 //
-//   * Modern: requires.apps[].name (RequiredAppRef). Bindings are
+//   - Modern: requires.apps[].name (RequiredAppRef). Bindings are
 //     keyed by the dep's app name.
-//   * Legacy: requires.integrations[].kind="app" (IntegrationDep).
+//   - Legacy: requires.integrations[].kind="app" (IntegrationDep).
 //     Bindings are keyed by the integration's role.
 //
 // The bound install must be running and its registered AppName must

@@ -105,7 +105,7 @@ func TestEnsureBinaries_NoDepsNoop(t *testing.T) {
 func TestEnsureBinaries_TarGzHappyPath(t *testing.T) {
 	binsDir := withTempBinariesHome(t)
 
-	archive, sum := makeTarGzFixture(t, "ffmpeg-7.0.2-static", "ffmpeg", "ffprobe")
+	archive, sum := makeTarGzFixture(t, "ffmpeg-7.0.2-static", "apteva-test-ffmpeg", "apteva-test-ffprobe")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Write(archive)
 	}))
@@ -117,7 +117,7 @@ func TestEnsureBinaries_TarGzHappyPath(t *testing.T) {
 			Binaries: []sdk.BinaryDep{{
 				Name:        "ffmpeg",
 				Version:     "7.0.2",
-				Executables: []string{"ffmpeg", "ffprobe"},
+				Executables: []string{"apteva-test-ffmpeg", "apteva-test-ffprobe"},
 				Required:    true,
 				Sources: map[string]sdk.BinarySource{
 					platform: {URL: srv.URL, SHA256: sum, Archive: "tar.gz", StripRoot: 1},
@@ -135,7 +135,7 @@ func TestEnsureBinaries_TarGzHappyPath(t *testing.T) {
 	if pp != cacheDir {
 		t.Errorf("PATH prefix = %q, want %q", pp, cacheDir)
 	}
-	for _, exe := range []string{"ffmpeg", "ffprobe"} {
+	for _, exe := range []string{"apteva-test-ffmpeg", "apteva-test-ffprobe"} {
 		path := filepath.Join(cacheDir, exe)
 		st, err := os.Stat(path)
 		if err != nil {
@@ -155,7 +155,7 @@ func TestEnsureBinaries_TarGzHappyPath(t *testing.T) {
 
 func TestEnsureBinaries_ChecksumMismatchFailsHard(t *testing.T) {
 	binsDir := withTempBinariesHome(t)
-	archive, _ := makeTarGzFixture(t, "wrap", "ffmpeg")
+	archive, _ := makeTarGzFixture(t, "wrap", "apteva-test-ffmpeg")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Write(archive)
 	}))
@@ -167,7 +167,7 @@ func TestEnsureBinaries_ChecksumMismatchFailsHard(t *testing.T) {
 			Binaries: []sdk.BinaryDep{{
 				Name:        "ffmpeg",
 				Version:     "7.0.2",
-				Executables: []string{"ffmpeg"},
+				Executables: []string{"apteva-test-ffmpeg"},
 				Required:    true,
 				Sources: map[string]sdk.BinarySource{
 					platform: {URL: srv.URL, SHA256: "deadbeef" + "00000000000000000000000000000000000000000000000000000000", Archive: "tar.gz", StripRoot: 1},
@@ -229,7 +229,7 @@ func TestEnsureBinaries_NoSourceForPlatformOptional(t *testing.T) {
 
 func TestEnsureBinaries_IdempotentOnSecondCall(t *testing.T) {
 	binsDir := withTempBinariesHome(t)
-	archive, sum := makeTarGzFixture(t, "wrap", "ffmpeg")
+	archive, sum := makeTarGzFixture(t, "wrap", "apteva-test-ffmpeg")
 	hits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits++
@@ -242,7 +242,7 @@ func TestEnsureBinaries_IdempotentOnSecondCall(t *testing.T) {
 			Binaries: []sdk.BinaryDep{{
 				Name:        "ffmpeg",
 				Version:     "7.0.2",
-				Executables: []string{"ffmpeg"},
+				Executables: []string{"apteva-test-ffmpeg"},
 				Required:    true,
 				Sources: map[string]sdk.BinarySource{
 					platform: {URL: srv.URL, SHA256: sum, Archive: "tar.gz", StripRoot: 1},

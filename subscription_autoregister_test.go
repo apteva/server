@@ -68,14 +68,14 @@ func TestSubscriptionAutoRegister(t *testing.T) {
 		Webhooks: &AppWebhookConfig{
 			SignatureHeader: "x-webhook-signature",
 			Registration: &WebhookRegConfig{
-				Method:      "POST",
-				Path:        "/webhooks-register",
-				URLField:    "endpoint_url",
-				EventsField: "event_types",
-				SecretField: "secret_key",
-				IDField:     "data.id",
-				Extra:       map[string]interface{}{"direction": "outgoing", "name": "Apteva Webhook"},
-				DeletePath:  "/webhooks/{id}",
+				Method:       "POST",
+				Path:         "/webhooks-register",
+				URLField:     "endpoint_url",
+				EventsField:  "event_types",
+				SecretField:  "secret_key",
+				IDField:      "data.id",
+				Extra:        map[string]interface{}{"direction": "outgoing", "name": "Apteva Webhook"},
+				DeletePath:   "/webhooks/{id}",
 				DeleteMethod: "DELETE",
 			},
 			Events: []AppWebhookEvent{
@@ -358,7 +358,7 @@ func TestSubscriptionWebhookURL_PublicURL(t *testing.T) {
 	// Without public URL — falls back to localhost
 	s.publicURL = ""
 	url = s.webhookURL("test-path")
-	if url != "http://127.0.0.1:5280/webhooks/test-path" {
+	if url != "http://localhost:5280/webhooks/test-path" {
 		t.Errorf("expected localhost fallback, got %s", url)
 	}
 }

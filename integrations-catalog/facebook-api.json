@@ -235,6 +235,22 @@
             "id": "100200300400500_122100000000000001",
             "message": "Excited to share our latest update!",
             "created_time": "2026-05-22T12:00:00+0000",
+            "full_picture": "https://example.com/social/update-cover.jpg",
+            "shares": {
+              "count": 12
+            },
+            "reactions": {
+              "data": [],
+              "summary": {
+                "total_count": 184
+              }
+            },
+            "comments": {
+              "data": [],
+              "summary": {
+                "total_count": 9
+              }
+            },
             "permalink_url": "https://www.facebook.com/100200300400500/posts/122100000000000001"
           }
         ],
@@ -306,16 +322,16 @@
       "mock_response": {
         "data": [
           {
-            "name": "page_impressions",
+            "name": "page_fans",
             "period": "day",
             "values": [
               {
-                "value": 1542,
+                "value": 12480,
                 "end_time": "2026-05-22T07:00:00+0000"
               }
             ],
-            "title": "Daily Total Impressions",
-            "id": "100200300400500/insights/page_impressions/day"
+            "title": "Lifetime Total Likes",
+            "id": "100200300400500/insights/page_fans/day"
           }
         ]
       }
@@ -342,6 +358,13 @@
             "name": "Apteva",
             "access_token": "EAABwzmockpagetokenXXXXXXXX",
             "category": "Software company",
+            "fan_count": 12480,
+            "verification_status": "verified",
+            "website": "https://apteva.ai",
+            "instagram_business_account": {
+              "id": "17841400000000001",
+              "username": "apteva"
+            },
             "tasks": [
               "MANAGE",
               "CREATE_CONTENT",
@@ -574,17 +597,6 @@
       "mock_response": {
         "data": [
           {
-            "name": "impressions",
-            "period": "lifetime",
-            "values": [
-              {
-                "value": 2310
-              }
-            ],
-            "title": "Impressions",
-            "id": "17900000000000099/insights/impressions/lifetime"
-          },
-          {
             "name": "reach",
             "period": "lifetime",
             "values": [
@@ -594,6 +606,50 @@
             ],
             "title": "Reach",
             "id": "17900000000000099/insights/reach/lifetime"
+          },
+          {
+            "name": "likes",
+            "period": "lifetime",
+            "values": [
+              {
+                "value": 142
+              }
+            ],
+            "title": "Likes",
+            "id": "17900000000000099/insights/likes/lifetime"
+          },
+          {
+            "name": "comments",
+            "period": "lifetime",
+            "values": [
+              {
+                "value": 18
+              }
+            ],
+            "title": "Comments",
+            "id": "17900000000000099/insights/comments/lifetime"
+          },
+          {
+            "name": "saves",
+            "period": "lifetime",
+            "values": [
+              {
+                "value": 36
+              }
+            ],
+            "title": "Saves",
+            "id": "17900000000000099/insights/saves/lifetime"
+          },
+          {
+            "name": "shares",
+            "period": "lifetime",
+            "values": [
+              {
+                "value": 27
+              }
+            ],
+            "title": "Shares",
+            "id": "17900000000000099/insights/shares/lifetime"
           }
         ]
       }
@@ -763,7 +819,19 @@
         "data": [
           {
             "id": "aWdfdGhyZWFkX21vY2tfMDAx",
-            "updated_time": "2026-05-22T11:00:00+0000"
+            "updated_time": "2026-05-22T11:00:00+0000",
+            "participants": {
+              "data": [
+                {
+                  "id": "17841400000000001",
+                  "username": "apteva"
+                },
+                {
+                  "id": "17841400000000050",
+                  "username": "a_customer"
+                }
+              ]
+            }
           }
         ],
         "paging": {
@@ -800,11 +868,40 @@
       },
       "mock_response": {
         "id": "aWdfdGhyZWFkX21vY2tfMDAx",
+        "updated_time": "2026-05-22T11:00:00+0000",
+        "participants": {
+          "data": [
+            {
+              "id": "17841400000000001",
+              "username": "apteva"
+            },
+            {
+              "id": "17841400000000050",
+              "username": "a_customer"
+            }
+          ]
+        },
         "messages": {
           "data": [
             {
               "id": "aWdfbWVzc2FnZV9tb2NrXzAwMQ",
-              "created_time": "2026-05-22T11:00:00+0000"
+              "from": {
+                "id": "17841400000000050",
+                "username": "a_customer"
+              },
+              "to": {
+                "data": [
+                  {
+                    "id": "17841400000000001",
+                    "username": "apteva"
+                  }
+                ]
+              },
+              "message": "Hi, is this still available?",
+              "created_time": "2026-05-22T11:00:00+0000",
+              "attachments": {
+                "data": []
+              }
             }
           ]
         }
@@ -841,7 +938,21 @@
           "username": "a_customer",
           "id": "17841400000000050"
         },
-        "message": "Hi, is this still available?"
+        "to": {
+          "data": [
+            {
+              "username": "apteva",
+              "id": "17841400000000001"
+            }
+          ]
+        },
+        "message": "Hi, is this still available?",
+        "attachments": {
+          "data": []
+        },
+        "reactions": {
+          "data": []
+        }
       }
     },
     {

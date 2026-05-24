@@ -1,0 +1,278 @@
+{
+  "slug": "cjdropshipping",
+  "name": "CJ Dropshipping",
+  "description": "CJ Dropshipping supplier catalog and fulfillment API. Search products, inspect variants, check stock, estimate shipping, and create dropshipping orders from CJ's product catalog.",
+  "logo": "https://www.google.com/s2/favicons?domain=cjdropshipping.com&sz=128",
+  "categories": [
+    "dropshipping",
+    "ecommerce",
+    "products",
+    "supplier-catalog",
+    "fulfillment",
+    "inventory"
+  ],
+  "base_url": "https://developers.cjdropshipping.com/api2.0/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "CJ-Access-Token": "{{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Access Token",
+        "description": "CJ Dropshipping access token. Generate it from your CJ developer API key using CJ's access-token endpoint, then paste the token here."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "categories_list",
+      "description": "List CJ product categories. Use before product search to discover category IDs.",
+      "method": "GET",
+      "path": "/product/getCategory",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "products_search",
+      "description": "Search CJ Dropshipping's product catalog. Supports keyword, category, warehouse/country, price range, inventory, sorting, and pagination.",
+      "method": "GET",
+      "path": "/product/listV2",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageNum": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page number, starting at 1."
+          },
+          "pageSize": {
+            "type": "integer",
+            "default": 20,
+            "description": "Products per page."
+          },
+          "productNameEn": {
+            "type": "string",
+            "description": "English product keyword or title search."
+          },
+          "categoryId": {
+            "type": "string",
+            "description": "CJ category ID from categories_list."
+          },
+          "countryCode": {
+            "type": "string",
+            "description": "Warehouse or shipping country code when supported by the CJ endpoint, for example US."
+          },
+          "minPrice": {
+            "type": "number",
+            "description": "Minimum product price."
+          },
+          "maxPrice": {
+            "type": "number",
+            "description": "Maximum product price."
+          },
+          "startSellPrice": {
+            "type": "number",
+            "description": "Minimum selling price filter, accepted by CJ Product List V2."
+          },
+          "endSellPrice": {
+            "type": "number",
+            "description": "Maximum selling price filter, accepted by CJ Product List V2."
+          },
+          "minInventory": {
+            "type": "integer",
+            "description": "Minimum inventory filter when supported by CJ."
+          },
+          "sortBy": {
+            "type": "string",
+            "description": "CJ sort field, for example sellPrice or listedNum."
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "description": "Sort direction."
+          }
+        }
+      }
+    },
+    {
+      "name": "product_get",
+      "description": "Fetch detailed product data from CJ by product ID, including images, descriptions, and variant references.",
+      "method": "GET",
+      "path": "/product/query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pid": {
+            "type": "string",
+            "description": "CJ product ID."
+          }
+        },
+        "required": [
+          "pid"
+        ]
+      }
+    },
+    {
+      "name": "product_variants_list",
+      "description": "List variants for a CJ product. Variants usually carry SKU/VID, option values, weight, and price information used for catalog import.",
+      "method": "GET",
+      "path": "/product/variant/queryByPid",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pid": {
+            "type": "string",
+            "description": "CJ product ID."
+          }
+        },
+        "required": [
+          "pid"
+        ]
+      }
+    },
+    {
+      "name": "variant_get",
+      "description": "Fetch one CJ variant by variant ID. Use when search results already include a VID and you need normalized variant details.",
+      "method": "GET",
+      "path": "/product/variant/query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "vid": {
+            "type": "string",
+            "description": "CJ variant ID."
+          }
+        },
+        "required": [
+          "vid"
+        ]
+      }
+    },
+    {
+      "name": "inventory_get",
+      "description": "Check CJ inventory for one or more product variants. Use before importing or quoting sellable products.",
+      "method": "GET",
+      "path": "/product/stock/queryByVid",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "vid": {
+            "type": "string",
+            "description": "CJ variant ID."
+          }
+        },
+        "required": [
+          "vid"
+        ]
+      }
+    },
+    {
+      "name": "shipping_calculate",
+      "description": "Estimate CJ shipping for a product variant and destination. Useful for landed-cost previews before importing into Catalog.",
+      "method": "GET",
+      "path": "/logistic/freightCalculate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "vid": {
+            "type": "string",
+            "description": "CJ variant ID."
+          },
+          "quantity": {
+            "type": "integer",
+            "default": 1,
+            "description": "Quantity to ship."
+          },
+          "countryCode": {
+            "type": "string",
+            "description": "Destination country code, for example US."
+          },
+          "zip": {
+            "type": "string",
+            "description": "Destination postal/zip code when required."
+          }
+        },
+        "required": [
+          "vid",
+          "countryCode"
+        ]
+      }
+    },
+    {
+      "name": "orders_create",
+      "description": "Create a CJ dropshipping order. Use after a local checkout/order flow has selected a CJ variant and collected shipping details.",
+      "method": "POST",
+      "path": "/shopping/order/createOrder",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderNumber": {
+            "type": "string",
+            "description": "Your external order reference."
+          },
+          "shippingAddress": {
+            "type": "object",
+            "description": "Destination address object accepted by CJ."
+          },
+          "products": {
+            "type": "array",
+            "description": "Order line items with CJ variant IDs and quantities.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "vid": {
+                  "type": "string",
+                  "description": "CJ variant ID."
+                },
+                "quantity": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "vid",
+                "quantity"
+              ]
+            }
+          }
+        },
+        "required": [
+          "orderNumber",
+          "shippingAddress",
+          "products"
+        ]
+      }
+    },
+    {
+      "name": "order_get",
+      "description": "Get a CJ order by order ID or order number to inspect fulfillment state and tracking information.",
+      "method": "GET",
+      "path": "/shopping/order/getOrderDetail",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "CJ order ID."
+          },
+          "orderNumber": {
+            "type": "string",
+            "description": "Your external order reference."
+          }
+        }
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "categories_list"
+  }
+}

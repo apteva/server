@@ -42,6 +42,9 @@ func adminSession(t *testing.T, s *Server) string {
 	if id != 1 {
 		t.Fatalf("admin user expected id=1, got %d", id)
 	}
+	if err := s.store.SetPlatformRole(id, PlatformAdmin); err != nil {
+		t.Fatalf("set admin role: %v", err)
+	}
 	return tok
 }
 
@@ -281,11 +284,11 @@ func TestVacuumIntoFromHandle_ProducesValidSqlite(t *testing.T) {
 
 func TestSafeArchiveSegment(t *testing.T) {
 	cases := map[string]string{
-		"crm":     "crm",
-		"":        "unnamed",
-		"a/b":     "a_b",
+		"crm":    "crm",
+		"":       "unnamed",
+		"a/b":    "a_b",
 		`a\b`:    "a_b",
-		"..":      "_",
+		"..":     "_",
 		"../etc": "__etc",
 	}
 	for in, want := range cases {

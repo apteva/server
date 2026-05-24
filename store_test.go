@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +15,30 @@ func newTestStore(t *testing.T) *Store {
 	}
 	t.Cleanup(func() { store.Close() })
 	return store
+}
+
+func TestNewStoreConfiguresSQLiteBusyHandling(t *testing.T) {
+	store := newTestStore(t)
+
+	if got := store.db.Stats().MaxOpenConnections; got != sqliteMaxOpenConns {
+		t.Fatalf("MaxOpenConnections=%d, want %d", got, sqliteMaxOpenConns)
+	}
+
+	var busyTimeout int
+	if err := store.db.QueryRow("PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
+		t.Fatalf("PRAGMA busy_timeout: %v", err)
+	}
+	if busyTimeout != sqliteBusyTimeoutMS {
+		t.Fatalf("busy_timeout=%d, want %d", busyTimeout, sqliteBusyTimeoutMS)
+	}
+
+	var journalMode string
+	if err := store.db.QueryRow("PRAGMA journal_mode").Scan(&journalMode); err != nil {
+		t.Fatalf("PRAGMA journal_mode: %v", err)
+	}
+	if strings.ToLower(journalMode) != "wal" {
+		t.Fatalf("journal_mode=%q, want wal", journalMode)
+	}
 }
 
 // --- Users ---

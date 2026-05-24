@@ -6,8 +6,10 @@ package main
 
 import (
 	"encoding/json"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	sdk "github.com/apteva/app-sdk"
 )
@@ -62,13 +64,80 @@ func seedAppWithTools(t *testing.T, s *Server, appName, projectID string, toolNa
 	return id
 }
 
+func TestHandleListAppsClosesInstallRowsBeforeIntegrationRows(t *testing.T) {
+	store := newTestStore(t)
+	s := &Server{store: store, catalog: NewAppCatalog()}
+
+	manifest := sdk.Manifest{
+		Schema:      sdk.SchemaCurrent,
+		Name:        "storage",
+		DisplayName: "Storage",
+		Version:     "0.1.0",
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	if _, err := store.db.Exec(
+		`INSERT INTO apps (name, source, repo, ref, manifest_json) VALUES (?, 'git', '', '', ?)`,
+		"storage", string(manifestJSON),
+	); err != nil {
+		t.Fatalf("insert app: %v", err)
+	}
+	if _, err := store.db.Exec(
+		`INSERT INTO app_installs (app_id, project_id, status, version, permissions_json)
+		 SELECT id, 'proj-1', 'running', '0.1.0', '[]' FROM apps WHERE name='storage'`,
+	); err != nil {
+		t.Fatalf("insert install: %v", err)
+	}
+	if _, err := store.db.Exec(
+		`INSERT INTO connections (user_id, app_slug, app_name, name, auth_type, encrypted_credentials, status, project_id)
+		 VALUES (1, 'notion', 'Notion', 'Notion', 'api_key', '{}', 'active', 'proj-1')`,
+	); err != nil {
+		t.Fatalf("insert connection: %v", err)
+	}
+	s.catalog.Register(&AppTemplate{
+		Slug:        "notion",
+		Name:        "Notion",
+		Description: "Notion integration",
+		UIComponents: []IntegrationUIComponent{{
+			Name:  "PageCard",
+			Entry: "PageCard.mjs",
+		}},
+	})
+
+	req := httptest.NewRequest("GET", "/api/apps?project_id=proj-1", nil)
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		s.handleListApps(rec, req)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handleListApps deadlocked while appending integration UI rows")
+	}
+	if rec.Code != 200 {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var rows []AppRow
+	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows=%d, want app row plus integration row: %s", len(rows), rec.Body.String())
+	}
+}
+
 // readMCPRow returns one mcp_servers row by upstream_id, or nil if
 // not present. Tests assert on its contents.
 func readMCPRow(t *testing.T, s *Server, installID int64) map[string]any {
 	t.Helper()
 	row := map[string]any{}
 	var (
-		id, userID, toolCount        int64
+		id, userID, toolCount                                                    int64
 		name, desc, source, transport, url, projectID, allowed, upstream, status string
 	)
 	err := s.store.db.QueryRow(

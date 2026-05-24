@@ -42,14 +42,23 @@ type WorldSpec struct {
 	// inter-app routing resolves. This is the clean World path; Apps stays
 	// for the legacy prebuilt-binary case.
 	AppSrcDirs map[string]string
-	Policy     SandboxPolicy // edge allowlist + hand-written mocks
-	Mode       EdgeMode      // edge default mode (block | passthrough | record | replay | mock)
-	Cassette   *Cassette     // optional preloaded cassette (for replay)
+	// RestoredAppDataDirs maps app name → restored data dir from a snapshot.
+	// Used for install-backed apps, where AppSrcDirs controls the app source
+	// and this field carries the starting state.
+	RestoredAppDataDirs map[string]string
+	Policy              SandboxPolicy // edge allowlist + hand-written mocks
+	Mode                EdgeMode      // edge default mode (block | passthrough | record | replay | mock)
+	Cassette            *Cassette     // optional preloaded cassette (for replay)
 
 	// IntegrationFixtures answer third-party integration tool calls made by
 	// in-world sidecars (via the platform executor) without hitting the
 	// real API. Routed per-world by id, so concurrent worlds don't collide.
 	IntegrationFixtures []IntegrationFixture
+
+	// ConnectionIDs are existing integration connections the operator wants
+	// exposed to agents spawned into this World. The connection rows stay in
+	// their real project; world_id routing makes their tool calls mock-only.
+	ConnectionIDs []int64
 
 	// HealthBudget bounds how long each sidecar gets to answer /health
 	// before the create fails. Defaults to 20s.
@@ -64,6 +73,7 @@ type World struct {
 
 	edge              *WorldEdge
 	server            *Server // back-ref for real installs + teardown (nil for edge-only worlds)
+	connectionIDs     []int64
 	mu                sync.Mutex
 	apps              map[string]*SandboxAppInstance
 	installs          map[string]*localInstall // real installs (AppSrcDirs path), keyed by app name
@@ -88,6 +98,16 @@ func (w *World) InstallNames() []string {
 	for k := range w.installs {
 		out = append(out, k)
 	}
+	return out
+}
+
+// ConnectionIDs returns the existing integration connections exposed to
+// agents spawned inside this World.
+func (w *World) ConnectionIDs() []int64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := make([]int64, len(w.connectionIDs))
+	copy(out, w.connectionIDs)
 	return out
 }
 
@@ -276,6 +296,9 @@ func (wm *WorldManager) CreateFromSnapshot(spec WorldSpec, snapshotID string) (*
 			spec.Apps[i].DataDir = dir
 		}
 	}
+	if len(spec.AppSrcDirs) > 0 {
+		spec.RestoredAppDataDirs = appDataDirs
+	}
 	// Replay against the snapshot's recorded externals unless the caller
 	// already supplied a cassette / chose a mode.
 	if spec.Cassette == nil {
@@ -313,14 +336,15 @@ func (wm *WorldManager) Create(spec WorldSpec) (*World, error) {
 		budget = 20 * time.Second
 	}
 	w := &World{
-		ID:        spec.ID,
-		ProjectID: spec.ProjectID,
-		Mode:      edge.mode,
-		edge:      edge,
-		server:    wm.server,
-		apps:      map[string]*SandboxAppInstance{},
-		installs:  map[string]*localInstall{},
-		createdAt: time.Now(),
+		ID:            spec.ID,
+		ProjectID:     spec.ProjectID,
+		Mode:          edge.mode,
+		edge:          edge,
+		server:        wm.server,
+		connectionIDs: append([]int64(nil), spec.ConnectionIDs...),
+		apps:          map[string]*SandboxAppInstance{},
+		installs:      map[string]*localInstall{},
+		createdAt:     time.Now(),
 	}
 
 	// Register this world's integration interceptor (if any) before
@@ -374,6 +398,13 @@ func (wm *WorldManager) Create(spec WorldSpec) (*World, error) {
 		if ierr != nil {
 			w.Stop()
 			return nil, fmt.Errorf("world %q: install app %q: %w", spec.ID, name, ierr)
+		}
+		if restored := spec.RestoredAppDataDirs[name]; restored != "" && inst.DataDir != "" {
+			_ = os.RemoveAll(inst.DataDir)
+			if cerr := copyTree(restored, inst.DataDir); cerr != nil {
+				w.Stop()
+				return nil, fmt.Errorf("world %q: restore app %q data: %w", spec.ID, name, cerr)
+			}
 		}
 		w.mu.Lock()
 		w.installs[inst.AppName] = inst
@@ -430,10 +461,10 @@ func (wm *WorldManager) StopAll() {
 }
 
 // defaultBinaryResolver finds a sidecar binary by manifest name. Order:
-//   1. APTEVA_APP_BIN_<NAME>           (explicit override; dashes→underscores, upper)
-//   2. ~/.apteva/apps/<name>/<name>    (conventional local install)
-//   3. ../apps/mcp/<name>/<name> and apps/mcp/<name>/<name>  (dev checkout)
-//   4. <name> on PATH
+//  1. APTEVA_APP_BIN_<NAME>           (explicit override; dashes→underscores, upper)
+//  2. ~/.apteva/apps/<name>/<name>    (conventional local install)
+//  3. ../apps/mcp/<name>/<name> and apps/mcp/<name>/<name>  (dev checkout)
+//  4. <name> on PATH
 func defaultBinaryResolver(name string) (string, error) {
 	envKey := "APTEVA_APP_BIN_" + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
 	if p := os.Getenv(envKey); p != "" {

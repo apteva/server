@@ -1,0 +1,250 @@
+{
+  "slug": "ionos",
+  "name": "IONOS",
+  "description": "IONOS Hosting DNS API — manage DNS zones and records for domains hosted at IONOS. The API is zone-id oriented: call list_zones first to resolve a domain name to its zone id, then operate on records within that zone. Authenticates via an X-API-Key header built from the developer-portal public prefix + secret (publicprefix.secret).",
+  "logo": "https://www.ionos.com/favicon.ico",
+  "categories": [
+    "dns",
+    "domains",
+    "registrar",
+    "ionos"
+  ],
+  "base_url": "https://api.hosting.ionos.com/dns/v1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{public_prefix}}.{{secret}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "public_prefix",
+        "label": "Public Prefix",
+        "description": "The public prefix of your IONOS DNS API key (the part before the dot). Create an API key at https://developer.hosting.ionos.com/keys — IONOS shows it as 'publicprefix'.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "secret",
+        "label": "Secret",
+        "description": "The secret half of your IONOS DNS API key (the part after the dot), shown once when the key is created. The wire credential is sent as 'publicprefix.secret' in the X-API-Key header.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_zones",
+      "description": "List all DNS zones in the account. Returns an array of { id, name, type } — 'name' is the apex domain (e.g. acme.com) and 'id' is the zone id every record operation needs. Resolve a domain to its zone id here before calling the record tools.",
+      "method": "GET",
+      "path": "/zones",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_zone",
+      "description": "Get a single zone and its records by zone id. Returns { id, name, type, records: [{ id, name, rootName, type, content, ttl, prio, disabled, changeDate }] } where each record 'name' is the full FQDN. Optionally filter the returned records with suffix / recordName / recordType.",
+      "method": "GET",
+      "path": "/zones/{zoneId}",
+      "query_params": [
+        "suffix",
+        "recordName",
+        "recordType"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zoneId": {
+            "type": "string",
+            "description": "Zone id from list_zones"
+          },
+          "suffix": {
+            "type": "string",
+            "description": "Filter records whose FQDN ends with this suffix"
+          },
+          "recordName": {
+            "type": "string",
+            "description": "Filter to records with this exact FQDN (e.g. mail.acme.com)"
+          },
+          "recordType": {
+            "type": "string",
+            "enum": [
+              "A",
+              "AAAA",
+              "CNAME",
+              "MX",
+              "TXT",
+              "NS",
+              "SRV",
+              "CAA",
+              "SOA",
+              "ALIAS"
+            ],
+            "description": "Filter to records of this type"
+          }
+        },
+        "required": [
+          "zoneId"
+        ]
+      }
+    },
+    {
+      "name": "create_records",
+      "description": "Create one or more DNS records in a zone. The IONOS endpoint takes a top-level JSON array, so pass the records as the 'records' array — each entry is { name (full FQDN, e.g. mail.acme.com), type, content, ttl, prio?, disabled? }. Returns the created records with their new ids.",
+      "method": "POST",
+      "path": "/zones/{zoneId}/records",
+      "body_root_param": "records",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zoneId": {
+            "type": "string",
+            "description": "Zone id from list_zones"
+          },
+          "records": {
+            "type": "array",
+            "description": "Records to create (sent as the raw request body array).",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Full record name / FQDN, e.g. 'acme.com' for the apex or 'mail.acme.com' for a subdomain"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "A",
+                    "AAAA",
+                    "CNAME",
+                    "MX",
+                    "TXT",
+                    "NS",
+                    "SRV",
+                    "CAA",
+                    "ALIAS"
+                  ]
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Record value (IP for A/AAAA, target hostname for CNAME/MX, text for TXT, etc.)"
+                },
+                "ttl": {
+                  "type": "integer",
+                  "description": "TTL in seconds",
+                  "default": 3600
+                },
+                "prio": {
+                  "type": "integer",
+                  "description": "Priority — required for MX and SRV records"
+                },
+                "disabled": {
+                  "type": "boolean",
+                  "description": "Whether the record is disabled (not served)",
+                  "default": false
+                }
+              },
+              "required": [
+                "name",
+                "type",
+                "content"
+              ]
+            }
+          }
+        },
+        "required": [
+          "zoneId",
+          "records"
+        ]
+      }
+    },
+    {
+      "name": "get_record",
+      "description": "Get a single DNS record by zone id + record id.",
+      "method": "GET",
+      "path": "/zones/{zoneId}/records/{recordId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zoneId": {
+            "type": "string"
+          },
+          "recordId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "zoneId",
+          "recordId"
+        ]
+      }
+    },
+    {
+      "name": "update_record",
+      "description": "Update a single DNS record in place by zone id + record id. Name and type are immutable on IONOS — only content, ttl, prio, and disabled can change. Send the new content (required); omit fields to leave them unchanged.",
+      "method": "PUT",
+      "path": "/zones/{zoneId}/records/{recordId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zoneId": {
+            "type": "string"
+          },
+          "recordId": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string",
+            "description": "New record value"
+          },
+          "ttl": {
+            "type": "integer",
+            "description": "New TTL in seconds"
+          },
+          "prio": {
+            "type": "integer",
+            "description": "New priority (MX/SRV)"
+          },
+          "disabled": {
+            "type": "boolean",
+            "description": "Enable/disable the record"
+          }
+        },
+        "required": [
+          "zoneId",
+          "recordId",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "delete_record",
+      "description": "Delete a single DNS record by zone id + record id. Cannot be undone.",
+      "method": "DELETE",
+      "path": "/zones/{zoneId}/records/{recordId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zoneId": {
+            "type": "string"
+          },
+          "recordId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "zoneId",
+          "recordId"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_zones"
+  }
+}

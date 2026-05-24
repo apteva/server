@@ -109,11 +109,13 @@ type LocalSupervisor struct {
 }
 
 type localProc struct {
-	cmd        *exec.Cmd
-	port       int
-	logfile    *os.File
-	stoppedAt  time.Time
+	cmd       *exec.Cmd
+	port      int
+	logfile   io.Closer
+	stoppedAt time.Time
 }
+
+const appSidecarLogMaxBytes int64 = 16 << 20
 
 // NewLocalSupervisor returns a supervisor whose binary cache lives at
 // cacheDir (typically ~/.apteva/apps). Concurrency cap reads from
@@ -405,7 +407,7 @@ func (sup *LocalSupervisor) spawn(installID int64, appName, bin string, port int
 	_ = os.MkdirAll(persistentRoot, 0755)
 	dbPath := filepath.Join(persistentRoot, "app.db")
 	logPath := filepath.Join(dir, "stderr.log")
-	logf, err := os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	logf, err := newRotatingLogFile(logPath, appSidecarLogMaxBytes)
 	if err != nil {
 		return err
 	}
@@ -598,6 +600,11 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 		s.LoadInstalledApps()
 		s.reconcileAllAppDepBindings()
 		s.RemountStaticApps()
+		if !filepath.IsAbs(strings.TrimSpace(m.Runtime.StaticDir)) {
+			if removed := pruneOldAppVersions(s.localApps.cacheDir, m.Name, m.Version, appVersionRetainPrevious); len(removed) > 0 {
+				log.Printf("[APPS-LOCAL] reclaimed %d stale static version dir(s) for %s: %v", len(removed), m.Name, removed)
+			}
+		}
 		return nil
 	}
 
@@ -657,6 +664,9 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 	// point at NEW. Terminate whatever spawn parked. No-op on fresh
 	// installs.
 	s.localApps.RetireOld(installID, 5*time.Second)
+	if removed := pruneOldAppVersions(s.localApps.cacheDir, m.Name, m.Version, appVersionRetainPrevious); len(removed) > 0 {
+		log.Printf("[APPS-LOCAL] reclaimed %d stale binary version dir(s) for %s: %v", len(removed), m.Name, removed)
+	}
 	return nil
 }
 
@@ -664,19 +674,19 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 // static app's asset directory at install time. Lookup rules, in
 // priority order:
 //
-//   1. Absolute static_dir → built-in apps the Dockerfile pre-baked.
-//      Stat and return.
-//   2. runtime.bundle set → prebuilt tarball delivery. Download,
-//      verify sha256, extract under <cacheDir>/<name>/<version>/dist.
-//      Browser code is platform-agnostic, so one tarball works on
-//      every install host (no <os>-<arch> matrix). This is the
-//      preferred path: install hosts don't need a JS toolchain.
-//   3. runtime.source set → clone-on-install (no build). Useful for
-//      authoring / dev loops where the repo already commits dist/.
-//      Will *not* run `bun run build` for you — if dist/ isn't in
-//      the cloned tree, install fails with the same error the bundle
-//      path would have caught.
-//   4. None of the above → error.
+//  1. Absolute static_dir → built-in apps the Dockerfile pre-baked.
+//     Stat and return.
+//  2. runtime.bundle set → prebuilt tarball delivery. Download,
+//     verify sha256, extract under <cacheDir>/<name>/<version>/dist.
+//     Browser code is platform-agnostic, so one tarball works on
+//     every install host (no <os>-<arch> matrix). This is the
+//     preferred path: install hosts don't need a JS toolchain.
+//  3. runtime.source set → clone-on-install (no build). Useful for
+//     authoring / dev loops where the repo already commits dist/.
+//     Will *not* run `bun run build` for you — if dist/ isn't in
+//     the cloned tree, install fails with the same error the bundle
+//     path would have caught.
+//  4. None of the above → error.
 //
 // Side effects: cache layout under <cacheDir>/<name>/<version>/ —
 // "src" for clones, "dist" for bundles. Repeat installs of the same

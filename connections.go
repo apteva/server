@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -60,9 +61,9 @@ type Connection struct {
 	Name       string    `json:"name"`
 	AuthType   string    `json:"auth_type"`
 	Status     string    `json:"status"`
-	Source     string    `json:"source"`                 // 'local' | 'composio'
-	ProviderID int64     `json:"provider_id,omitempty"`  // FK → providers (for hosted sources)
-	ExternalID string    `json:"external_id,omitempty"`  // composio connected_account_id, etc.
+	Source     string    `json:"source"`                // 'local' | 'composio'
+	ProviderID int64     `json:"provider_id,omitempty"` // FK → providers (for hosted sources)
+	ExternalID string    `json:"external_id,omitempty"` // composio connected_account_id, etc.
 	ProjectID  string    `json:"project_id,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 }
@@ -765,9 +766,9 @@ type onCredsRefresh func(updated map[string]string) error
 // callback fires so the caller can persist the new tokens.
 //
 // Refresh fires only when:
-//   1. The HTTP response status is 401 (Unauthorized)
-//   2. The app has an OAuth2 config (so we know the token endpoint)
-//   3. The credentials map contains a refresh_token (or refreshToken)
+//  1. The HTTP response status is 401 (Unauthorized)
+//  2. The app has an OAuth2 config (so we know the token endpoint)
+//  3. The credentials map contains a refresh_token (or refreshToken)
 //
 // All other failure modes (network, 4xx other than 401, 5xx) bubble up
 // unchanged. Refresh failures are non-fatal — we return the original 401
@@ -780,9 +781,28 @@ func executeIntegrationToolWithRefresh(
 	worldID string,
 	onRefresh onCredsRefresh,
 ) (*ExecuteResult, error) {
+	if app != nil && app.Slug == integrationOpenAICodexSlug && connectionOpenAICodexNeedsRefresh(credentials, 10*time.Minute) {
+		if err := refreshIntegrationOpenAICodexCredentials(credentials); err == nil && onRefresh != nil {
+			if perr := onRefresh(credentials); perr != nil {
+				fmt.Fprintf(os.Stderr, "[codex-refresh] persist failed for %s: %v\n", app.Slug, perr)
+			}
+		}
+	}
 	result, err := executeIntegrationTool(app, tool, credentials, input, worldID)
 	if err != nil {
 		return result, err
+	}
+	if app != nil && app.Slug == integrationOpenAICodexSlug && (result.Status == 401 || result.Status == 403) {
+		if err := refreshIntegrationOpenAICodexCredentials(credentials); err != nil {
+			fmt.Fprintf(os.Stderr, "[codex-refresh] %s: %v\n", app.Slug, err)
+			return result, nil
+		}
+		if onRefresh != nil {
+			if err := onRefresh(credentials); err != nil {
+				fmt.Fprintf(os.Stderr, "[codex-refresh] persist failed for %s: %v\n", app.Slug, err)
+			}
+		}
+		return executeIntegrationTool(app, tool, credentials, input, worldID)
 	}
 	if result.Status != 401 {
 		return result, nil
@@ -969,6 +989,10 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			return &ExecuteResult{Success: true, Status: 200, Data: data}, nil
 		}
 		return &ExecuteResult{Success: true, Status: 200, Data: map[string]any{"ok": true, "_stub": true}}, nil
+	}
+
+	if app != nil && app.Slug == integrationOpenAICodexSlug {
+		return executeOpenAICodexIntegrationTool(app, tool, credentials, input)
 	}
 
 	// Coerce input values to match the tool's schema types.
@@ -1343,9 +1367,10 @@ func extractPath(data map[string]any, path string) any {
 // schema drift.
 //
 // Examples:
-//   "metadata.sha256"                              → delete root.metadata.sha256
-//   "results.channels[].alternatives[].words"     → delete words from every alt of every channel
-//   "utterances"                                   → delete root.utterances
+//
+//	"metadata.sha256"                              → delete root.metadata.sha256
+//	"results.channels[].alternatives[].words"     → delete words from every alt of every channel
+//	"utterances"                                   → delete root.utterances
 func omitPath(data any, path string) any {
 	parts := strings.Split(path, ".")
 	omitWalk(data, parts)
@@ -1639,6 +1664,55 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Local device-code auth — two-phase without a popup. The connection
+	// row is created pending, the UI shows the upstream user_code, and
+	// /connections/auth/:session polls until credentials can be stored.
+	if body.AuthType == connectionAuthTypeDeviceCode {
+		if !supportsConnectionDeviceAuth(app) {
+			http.Error(w, "device-code auth is not supported for this integration", http.StatusBadRequest)
+			return
+		}
+		empty, _ := json.Marshal(map[string]string{})
+		encrypted, err := Encrypt(s.secret, string(empty))
+		if err != nil {
+			log.Printf("[CONN] device-code encrypt failed slug=%s: %v", body.AppSlug, err)
+			http.Error(w, "encryption failed", http.StatusInternalServerError)
+			return
+		}
+		conn, err := s.store.CreateConnectionExt(ConnectionInput{
+			UserID:         userID,
+			AppSlug:        body.AppSlug,
+			AppName:        app.Name,
+			Name:           body.Name,
+			AuthType:       body.AuthType,
+			EncryptedCreds: encrypted,
+			ProjectID:      body.ProjectID,
+			Source:         "local",
+			Status:         "pending",
+			CreatedVia:     body.CreatedVia,
+			AutoMCP:        body.AutoMCP,
+		})
+		if err != nil {
+			log.Printf("[CONN] device-code CreateConnectionExt failed slug=%s name=%s project=%s: %v",
+				body.AppSlug, body.Name, body.ProjectID, err)
+			http.Error(w, "failed to create connection: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		deviceAuth, err := s.startConnectionDeviceAuth(ctx, userID, app, conn)
+		if err != nil {
+			_ = s.store.DeleteConnection(userID, conn.ID)
+			http.Error(w, "device auth start: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		writeJSON(w, map[string]any{
+			"connection":  conn,
+			"device_auth": deviceAuth,
+		})
+		return
+	}
+
 	// Local non-OAuth (api_key, basic, bearer, ...): store creds immediately.
 	log.Printf("[CONN] local create: user=%d slug=%s name=%s auth=%s project=%s",
 		userID, body.AppSlug, body.Name, body.AuthType, body.ProjectID)
@@ -1677,11 +1751,11 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"error":         "credential check failed",
-				"detail":        probe.Error,
-				"status_code":   probe.StatusCode,
-				"latency_ms":    probe.LatencyMS,
-				"health_check":  true,
+				"error":        "credential check failed",
+				"detail":       probe.Error,
+				"status_code":  probe.StatusCode,
+				"latency_ms":   probe.LatencyMS,
+				"health_check": true,
 			})
 			return
 		}
@@ -1924,9 +1998,9 @@ func (s *Server) handleListConnections(w http.ResponseWriter, r *http.Request) {
 
 	type ConnectionWithTools struct {
 		Connection
-		ToolCount        int    `json:"tool_count"`
-		GroupID          string `json:"group_id,omitempty"`
-		IsGroupChild     bool   `json:"is_group_child,omitempty"`
+		ToolCount         int    `json:"tool_count"`
+		GroupID           string `json:"group_id,omitempty"`
+		IsGroupChild      bool   `json:"is_group_child,omitempty"`
 		ExternalProjectID string `json:"external_project_id,omitempty"`
 	}
 	var enriched []ConnectionWithTools

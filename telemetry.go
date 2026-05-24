@@ -102,12 +102,12 @@ func (b *TelemetryBroadcaster) Broadcast(events []TelemetryEvent) {
 
 // TelemetryEvent is the unified event format.
 type TelemetryEvent struct {
-	ID         string          `json:"id"`
-	AgentID int64           `json:"instance_id"`
-	ThreadID   string          `json:"thread_id"`
-	Type       string          `json:"type"`
-	Time       time.Time       `json:"time"`
-	Data       json.RawMessage `json:"data"`
+	ID       string          `json:"id"`
+	AgentID  int64           `json:"instance_id"`
+	ThreadID string          `json:"thread_id"`
+	Type     string          `json:"type"`
+	Time     time.Time       `json:"time"`
+	Data     json.RawMessage `json:"data"`
 }
 
 // TelemetryStats holds aggregated statistics.
@@ -131,32 +131,32 @@ type TelemetryStats struct {
 // endpoint; the dashboard uses this to render the "biggest spenders"
 // view.
 type InstanceStats struct {
-	AgentID     int64   `json:"instance_id"`
-	Name           string  `json:"name"`
-	Status         string  `json:"status"`
-	LLMCalls       int     `json:"llm_calls"`
-	TokensIn       int     `json:"tokens_in"`
-	TokensOut      int     `json:"tokens_out"`
-	TokensCached   int     `json:"tokens_cached"`
-	Cost           float64 `json:"cost"`
-	Errors         int     `json:"errors"`
-	ToolCalls      int     `json:"tool_calls"`
-	AvgDurationMs  float64 `json:"avg_duration_ms"`
-	DistinctThreads int    `json:"distinct_threads"`
+	AgentID         int64   `json:"instance_id"`
+	Name            string  `json:"name"`
+	Status          string  `json:"status"`
+	LLMCalls        int     `json:"llm_calls"`
+	TokensIn        int     `json:"tokens_in"`
+	TokensOut       int     `json:"tokens_out"`
+	TokensCached    int     `json:"tokens_cached"`
+	Cost            float64 `json:"cost"`
+	Errors          int     `json:"errors"`
+	ToolCalls       int     `json:"tool_calls"`
+	AvgDurationMs   float64 `json:"avg_duration_ms"`
+	DistinctThreads int     `json:"distinct_threads"`
 }
 
 // ProjectTimelineBucket: one time slice of project-wide spend with a
 // per-instance breakdown. CostByInstance is keyed by instance id
 // (stringified — JSON object keys must be strings).
 type ProjectTimelineBucket struct {
-	Time            string              `json:"time"`
-	Cost            float64             `json:"cost"`
-	TokensIn        int                 `json:"tokens_in"`
-	TokensOut       int                 `json:"tokens_out"`
-	LLMCalls        int                 `json:"llm_calls"`
-	Errors          int                 `json:"errors"`
-	CostByInstance  map[string]float64  `json:"cost_by_instance"`
-	CallsByInstance map[string]int      `json:"calls_by_instance"`
+	Time            string             `json:"time"`
+	Cost            float64            `json:"cost"`
+	TokensIn        int                `json:"tokens_in"`
+	TokensOut       int                `json:"tokens_out"`
+	LLMCalls        int                `json:"llm_calls"`
+	Errors          int                `json:"errors"`
+	CostByInstance  map[string]float64 `json:"cost_by_instance"`
+	CallsByInstance map[string]int     `json:"calls_by_instance"`
 }
 
 func generateID() string {
@@ -190,7 +190,7 @@ func (s *Store) InsertTelemetry(events []TelemetryEvent) error {
 		if e.ThreadID == "" {
 			e.ThreadID = "main"
 		}
-		timeStr := e.Time.UTC().Format(time.RFC3339)
+		timeStr := e.Time.UTC().Format(time.RFC3339Nano)
 		dataStr := "{}"
 		if e.Data != nil {
 			dataStr = string(e.Data)
@@ -252,6 +252,50 @@ func (s *Store) QueryTelemetry(instanceID int64, eventType string, since time.Ti
 	return events, nil
 }
 
+func (s *Store) DeleteTelemetryAfter(instanceID int64, cutoff time.Time) error {
+	if instanceID == 0 || cutoff.IsZero() {
+		return nil
+	}
+	rows, err := s.db.Query("SELECT id, time FROM telemetry WHERE agent_id = ?", instanceID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id, rawTime string
+		if err := rows.Scan(&id, &rawTime); err != nil {
+			return err
+		}
+		t, err := parseTime(rawTime)
+		if err == nil && t.After(cutoff) {
+			ids = append(ids, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stmt, err := tx.Prepare("DELETE FROM telemetry WHERE id = ?")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, id := range ids {
+		if _, err := stmt.Exec(id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // ChatHistoryMessage is a reconstructed chat message from telemetry.
 type ChatHistoryMessage struct {
 	ID   string `json:"id"`
@@ -259,10 +303,10 @@ type ChatHistoryMessage struct {
 	Text string `json:"text"`
 	Time string `json:"time"`
 	// Tool fields (only for role=tool)
-	ToolName      string `json:"tool_name,omitempty"`
-	ToolDone      bool   `json:"tool_done,omitempty"`
-	ToolDurationMs int64 `json:"tool_duration_ms,omitempty"`
-	ToolSuccess   bool   `json:"tool_success,omitempty"`
+	ToolName       string `json:"tool_name,omitempty"`
+	ToolDone       bool   `json:"tool_done,omitempty"`
+	ToolDurationMs int64  `json:"tool_duration_ms,omitempty"`
+	ToolSuccess    bool   `json:"tool_success,omitempty"`
 }
 
 // QueryChatHistory reconstructs a chat conversation from telemetry events.
@@ -528,6 +572,12 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 	// Pricing data lives here, not in core — core emits raw token
 	// counts + model, and this pass layers in cost_usd on persist.
 	s.enrichCostInPlace(events)
+	var err error
+	events, err = s.applyTelemetryRestores(events)
+	if err != nil {
+		http.Error(w, "restore prune failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	if err := s.store.InsertTelemetry(events); err != nil {
 		http.Error(w, "insert failed: "+err.Error(), http.StatusInternalServerError)
@@ -537,7 +587,9 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 	// React to directive changes — update DB so dashboard sees it immediately
 	for _, ev := range events {
 		if ev.Type == "directive.evolved" && ev.AgentID > 0 {
-			var data struct{ New string `json:"new"` }
+			var data struct {
+				New string `json:"new"`
+			}
 			if json.Unmarshal(ev.Data, &data) == nil && data.New != "" {
 				s.store.db.Exec("UPDATE agents SET directive=? WHERE id=?", data.New, ev.AgentID)
 			}
@@ -548,6 +600,42 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 	// This endpoint is for DB persistence only.
 
 	writeJSON(w, map[string]int{"inserted": len(events)})
+}
+
+func (s *Server) applyTelemetryRestores(events []TelemetryEvent) ([]TelemetryEvent, error) {
+	if len(events) == 0 {
+		return events, nil
+	}
+	keep := make([]bool, len(events))
+	for i := range keep {
+		keep[i] = true
+	}
+	for i, ev := range events {
+		if ev.Type != "execution.restored" {
+			continue
+		}
+		var data struct {
+			CheckpointTime time.Time `json:"checkpoint_time"`
+		}
+		if err := json.Unmarshal(ev.Data, &data); err != nil || data.CheckpointTime.IsZero() {
+			continue
+		}
+		if err := s.store.DeleteTelemetryAfter(ev.AgentID, data.CheckpointTime); err != nil {
+			return nil, err
+		}
+		for j := 0; j < i; j++ {
+			if events[j].AgentID == ev.AgentID && events[j].Time.After(data.CheckpointTime) {
+				keep[j] = false
+			}
+		}
+	}
+	out := events[:0]
+	for i, ev := range events {
+		if keep[i] {
+			out = append(out, ev)
+		}
+	}
+	return out, nil
 }
 
 // POST /telemetry/live — broadcast-only (not stored), for streaming chunks
@@ -641,15 +729,15 @@ func (s *Server) enrichCostInPlace(events []TelemetryEvent) {
 //
 // Two modes:
 //
-//   1. ?agent_id=N — SSE for one specific instance. Used by per-instance
-//      panels that need every event from a single core. The caller must own
-//      the instance (verified against the session user).
+//  1. ?agent_id=N — SSE for one specific instance. Used by per-instance
+//     panels that need every event from a single core. The caller must own
+//     the instance (verified against the session user).
 //
-//   2. ?all=1[&project_id=…] — SSE for every running instance the caller
-//      owns, in the (optional) given project. Used by the Instances list
-//      page to render a live activity strip per row without N concurrent
-//      connections. Filtering happens inside this handler — the broadcaster
-//      itself fans every event to every "all" subscriber.
+//  2. ?all=1[&project_id=…] — SSE for every running instance the caller
+//     owns, in the (optional) given project. Used by the Instances list
+//     page to render a live activity strip per row without N concurrent
+//     connections. Filtering happens inside this handler — the broadcaster
+//     itself fans every event to every "all" subscriber.
 //
 // Both modes require authentication. Auth is handled by the route's
 // authMiddleware wrapper in main.go; we extract the user id and use it
@@ -864,14 +952,14 @@ func (s *Server) handleTelemetryStats(w http.ResponseWriter, r *http.Request) {
 
 // TimelineBucket holds aggregated data for one time interval.
 type TimelineBucket struct {
-	Time     string             `json:"time"`
-	LLMCalls int                `json:"llm_calls"`
-	TokensIn int                `json:"tokens_in"`
-	TokensOut int               `json:"tokens_out"`
-	Cost     float64            `json:"cost"`
-	ToolCalls int               `json:"tool_calls"`
-	Errors   int                `json:"errors"`
-	Threads  map[string]int     `json:"threads"` // thread_id → call count
+	Time      string         `json:"time"`
+	LLMCalls  int            `json:"llm_calls"`
+	TokensIn  int            `json:"tokens_in"`
+	TokensOut int            `json:"tokens_out"`
+	Cost      float64        `json:"cost"`
+	ToolCalls int            `json:"tool_calls"`
+	Errors    int            `json:"errors"`
+	Threads   map[string]int `json:"threads"` // thread_id → call count
 }
 
 func (s *Store) TelemetryTimeline(instanceID int64, since time.Time, bucketMinutes int) ([]TimelineBucket, error) {
@@ -955,8 +1043,8 @@ func (s *Store) TelemetryStatsByProject(userID int64, projectID string, since ti
 	for i := range insts {
 		byID[insts[i].ID] = &InstanceStats{
 			AgentID: insts[i].ID,
-			Name:       insts[i].Name,
-			Status:     insts[i].Status,
+			Name:    insts[i].Name,
+			Status:  insts[i].Status,
 		}
 		ids = append(ids, insts[i].ID)
 		placeholders = append(placeholders, "?")
@@ -1155,10 +1243,10 @@ func (s *Server) handleTelemetryProjectStats(w http.ResponseWriter, r *http.Requ
 // split is derived from tool.result.is_error so it survives core
 // rewrites that change the error-event names.
 type ProjectToolStat struct {
-	Name     string `json:"name"`
-	Calls    int    `json:"calls"`
-	Errors   int    `json:"errors"`
-	Agents   int    `json:"agents"` // distinct instances that called it
+	Name   string `json:"name"`
+	Calls  int    `json:"calls"`
+	Errors int    `json:"errors"`
+	Agents int    `json:"agents"` // distinct instances that called it
 }
 
 // GET /telemetry/project-tools?project_id=X&period=24h
@@ -1211,9 +1299,9 @@ func (s *Server) handleTelemetryProjectTools(w http.ResponseWriter, r *http.Requ
 	defer rows.Close()
 
 	type agg struct {
-		calls   int
-		errors  int
-		agents  map[int64]struct{}
+		calls  int
+		errors int
+		agents map[int64]struct{}
 	}
 	byTool := map[string]*agg{}
 	bump := func(name string, instanceID int64) *agg {

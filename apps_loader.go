@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -38,16 +39,16 @@ type InstalledAppsRegistry struct {
 }
 
 type InstalledApp struct {
-	InstallID    int64
-	AppName      string
-	ProjectID    string
-	Manifest     sdk.Manifest
-	SidecarURL   string // http://<worker-ip>:<port> from orchestrator (sidecar apps only)
-	StaticDir    string // absolute path on disk (kind=static apps only)
-	MountPath    string // URL prefix this app is served at (kind=static apps only, e.g. "/client")
-	Config       map[string]string // decrypted config_json — used for branding / kiosk-key injection
-	Permissions  []sdk.Permission
-	Token        string // platform-issued APTEVA_APP_TOKEN for callbacks
+	InstallID   int64
+	AppName     string
+	ProjectID   string
+	Manifest    sdk.Manifest
+	SidecarURL  string            // http://<worker-ip>:<port> from orchestrator (sidecar apps only)
+	StaticDir   string            // absolute path on disk (kind=static apps only)
+	MountPath   string            // URL prefix this app is served at (kind=static apps only, e.g. "/client")
+	Config      map[string]string // decrypted config_json — used for branding / kiosk-key injection
+	Permissions []sdk.Permission
+	Token       string // platform-issued APTEVA_APP_TOKEN for callbacks
 }
 
 func NewInstalledAppsRegistry() *InstalledAppsRegistry {
@@ -167,9 +168,9 @@ func (s *Server) LoadInstalledApps() {
 	count := 0
 	for rows.Next() {
 		var (
-			id, appID                                                            int64
+			id, appID                                                              int64
 			projectID, serviceName, sidecarOverride, configEnc, permsJSON, version string
-			appName, manifestJSON                                                string
+			appName, manifestJSON                                                  string
 		)
 		if err := rows.Scan(&id, &appID, &projectID, &serviceName, &sidecarOverride,
 			&configEnc, &permsJSON, &version, &appName, &manifestJSON); err != nil {
@@ -262,7 +263,7 @@ func (s *Server) resolveSidecarURL(serviceName string) string {
 		Data struct {
 			Containers []struct {
 				AgentID string `json:"instance_id"`
-				Ports      []struct {
+				Ports   []struct {
 					HostPort      int `json:"host_port"`
 					ContainerPort int `json:"container_port"`
 				} `json:"ports"`
@@ -352,7 +353,18 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var entry *InstalledApp
-	if projectID != "" {
+	if installIDRaw := rawQuery.Get("install_id"); installIDRaw != "" {
+		installID, err := strconv.ParseInt(installIDRaw, 10, 64)
+		if err != nil || installID <= 0 {
+			http.Error(w, "invalid install_id query param", http.StatusBadRequest)
+			return
+		}
+		entry = s.installedApps.Get(installID)
+		if entry != nil && entry.AppName != appName {
+			http.Error(w, "install_id does not match app: "+appName, http.StatusBadRequest)
+			return
+		}
+	} else if projectID != "" {
 		entry = s.installedApps.GetByNameAndProject(appName, projectID)
 	} else {
 		entry = s.installedApps.GetByName(appName)

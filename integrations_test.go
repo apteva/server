@@ -395,8 +395,8 @@ func TestMCPServerAutoCreatedFromConnection(t *testing.T) {
 	if len(servers) != 1 {
 		t.Fatalf("expected 1 MCP server, got %d", len(servers))
 	}
-	if servers[0].Name != "GitHub" {
-		t.Errorf("expected GitHub, got %s", servers[0].Name)
+	if servers[0].Name != "my-github" {
+		t.Errorf("expected my-github, got %s", servers[0].Name)
 	}
 
 	// Delete connection should delete MCP server
@@ -529,15 +529,15 @@ func TestRemoteMcpAutoCreatedFromConnection(t *testing.T) {
 		t.Fatalf("encrypt: %v", err)
 	}
 	conn, err := s.store.CreateConnectionExt(ConnectionInput{
-		UserID:    1,
-		AppSlug:   "hubspot-mcp",
-		AppName:   "HubSpot (hosted MCP)",
-		Name:      "Demo Portal",
-		AuthType:  "oauth2",
+		UserID:         1,
+		AppSlug:        "hubspot-mcp",
+		AppName:        "HubSpot (hosted MCP)",
+		Name:           "Demo Portal",
+		AuthType:       "oauth2",
 		EncryptedCreds: encCreds,
-		ProjectID: "demo",
-		Source:    "local",
-		Status:    "active",
+		ProjectID:      "demo",
+		Source:         "local",
+		Status:         "active",
 	})
 	if err != nil {
 		t.Fatalf("create conn: %v", err)

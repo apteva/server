@@ -92,3 +92,41 @@ func callAppMCPTool(mcpURL, token, tool string, input map[string]any) (json.RawM
 	}
 	return env.Result, nil
 }
+
+func listAppMCPTools(mcpURL, token string) ([]installMCPToolInfo, error) {
+	body, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/list",
+	})
+	req, err := http.NewRequest("POST", mcpURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	var env struct {
+		Result struct {
+			Tools []installMCPToolInfo `json:"tools"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, fmt.Errorf("bad MCP response: %s", string(raw))
+	}
+	if env.Error != nil {
+		return nil, fmt.Errorf("tool list error: %s", env.Error.Message)
+	}
+	if env.Result.Tools == nil {
+		return []installMCPToolInfo{}, nil
+	}
+	return env.Result.Tools, nil
+}

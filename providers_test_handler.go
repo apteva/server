@@ -35,7 +35,7 @@ import (
 type ProviderTestResult struct {
 	OK         bool   `json:"ok"`
 	Skipped    bool   `json:"skipped,omitempty"`
-	Reason     string `json:"reason,omitempty"`      // why skipped
+	Reason     string `json:"reason,omitempty"` // why skipped
 	LatencyMS  int64  `json:"latency_ms"`
 	StatusCode int    `json:"status_code,omitempty"` // upstream HTTP status
 	Error      string `json:"error,omitempty"`       // human-readable failure
@@ -43,7 +43,18 @@ type ProviderTestResult struct {
 	// as "12 models available" on a working OpenAI/Anthropic/Fireworks
 	// key so the operator gets confirmation the probe actually saw the
 	// upstream's catalog, not a cached cdn 200.
-	ModelCount int `json:"model_count,omitempty"`
+	ModelCount        int    `json:"model_count,omitempty"`
+	Model             string `json:"model,omitempty"`
+	ResponseText      string `json:"response_text,omitempty"`
+	PromptTokens      int    `json:"prompt_tokens,omitempty"`
+	CompletionTokens  int    `json:"completion_tokens,omitempty"`
+	CachedTokens      int    `json:"cached_tokens,omitempty"`
+	ToolCallCount     int    `json:"tool_call_count,omitempty"`
+	ToolName          string `json:"tool_name,omitempty"`
+	ToolArguments     string `json:"tool_arguments,omitempty"`
+	ComputerCallCount int    `json:"computer_call_count,omitempty"`
+	ComputerAction    string `json:"computer_action,omitempty"`
+	VisionText        string `json:"vision_text,omitempty"`
 }
 
 // providerProbe captures everything needed to issue a single auth

@@ -12,15 +12,15 @@ import (
 )
 
 type User struct {
-	ID           int64      `json:"id"`
-	Email        string     `json:"email"`
-	PasswordHash string     `json:"-"`
+	ID           int64  `json:"id"`
+	Email        string `json:"email"`
+	PasswordHash string `json:"-"`
 	// Role is the platform-level role: 'user' (default) or 'admin'.
 	// Admin is an implicit owner on every project — see
 	// requireProjectAccess in authz.go.
-	Role         string     `json:"role"`
-	CreatedAt    time.Time  `json:"created_at"`
-	OnboardedAt  *time.Time `json:"onboarded_at,omitempty"`
+	Role        string     `json:"role"`
+	CreatedAt   time.Time  `json:"created_at"`
+	OnboardedAt *time.Time `json:"onboarded_at,omitempty"`
 }
 
 type APIKey struct {
@@ -47,7 +47,7 @@ type Agent struct {
 	UserID    int64     `json:"user_id"`
 	Name      string    `json:"name"`
 	Directive string    `json:"directive"`
-	Mode      string    `json:"mode"` // "autonomous" | "cautious" | "learn"
+	Mode      string    `json:"mode"`   // "autonomous" | "cautious" | "learn"
 	Config    string    `json:"config"` // JSON blob
 	Port      int       `json:"port"`
 	Pid       int       `json:"pid"`
@@ -59,6 +59,11 @@ type Agent struct {
 type Store struct {
 	db *sql.DB
 }
+
+const (
+	sqliteBusyTimeoutMS = 30000
+	sqliteMaxOpenConns  = 8
+)
 
 func NewStore(path string) (*Store, error) {
 	// _pragma= in the DSN applies to EVERY new connection
@@ -72,38 +77,52 @@ func NewStore(path string) (*Store, error) {
 	// supervisor restart, the boot's "[APPS] seed builtin
 	// channel-chat" insert would race the prior process's WAL
 	// settle and return "database is locked (5)" instead of
-	// blocking for the full 5 seconds the timeout was supposed
-	// to grant. Soft race — the next read found the row and the
-	// boot continued — but on a slower box or larger DB it could
-	// fail loud. URI form fixes it for every pooled connection.
+	// blocking for the full timeout the timeout was supposed to
+	// grant. Soft race: the next read found the row and the boot
+	// continued, but on a slower box or larger DB it could fail
+	// loud. URI form fixes it for every pooled connection.
 	dsn := path
 	if !strings.Contains(dsn, "?") {
 		dsn += "?"
 	} else {
 		dsn += "&"
 	}
-	dsn += "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	dsn += fmt.Sprintf("_pragma=busy_timeout(%d)&_pragma=journal_mode(WAL)", sqliteBusyTimeoutMS)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
+
+	// Keep the server pool bounded, but do not force it to one
+	// connection. The server has request paths that consume one result
+	// set and then perform follow-up DB reads before the handler
+	// returns; a single pooled connection turns any late rows.Close into
+	// a self-deadlock. WAL + per-connection busy_timeout handles normal
+	// SQLite writer contention, while this cap prevents an unbounded
+	// pile-up of pooled connections under dashboard reload bursts.
+	db.SetMaxOpenConns(sqliteMaxOpenConns)
 
 	// Belt-and-suspenders: also fire the pragmas via Exec so the
 	// initial connection has them even if the DSN parsing changes
 	// in some future modernc.org/sqlite version. No-op for an
 	// already-configured connection.
 	db.Exec("PRAGMA journal_mode=WAL")
-	db.Exec("PRAGMA busy_timeout=5000")
+	db.Exec(fmt.Sprintf("PRAGMA busy_timeout=%d", sqliteBusyTimeoutMS))
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
+		_ = db.Close()
 		return nil, err
 	}
 	return s, nil
 }
 
 // execWithBusyRetry wraps db.Exec with a small retry budget for
-// SQLITE_BUSY (5). The DSN already configures busy_timeout(5000)
+// SQLITE_BUSY (5). The DSN already configures busy_timeout
 // per-connection, which usually absorbs lock contention inside the
 // driver. This helper exists for the boot-time-sensitive paths
 // (apps seed, migrations) where:
@@ -113,7 +132,7 @@ func NewStore(path string) (*Store, error) {
 //   - we'd rather block 1-2 seconds than log a soft error and
 //     potentially miss the seed.
 //
-// 3 attempts × 250ms backoff = at most 750ms of additional wait
+// 3 attempts x 250ms backoff = at most 750ms of additional wait
 // on top of the busy_timeout. Cheap insurance for boot. Errors
 // other than SQLITE_BUSY return immediately.
 func execWithBusyRetry(db *sql.DB, query string, args ...any) error {
@@ -215,15 +234,19 @@ func (s *Store) migrate() error {
 			expires_at DATETIME NOT NULL,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
-		CREATE TABLE IF NOT EXISTS provider_types (
-			id INTEGER PRIMARY KEY,
-			type TEXT NOT NULL,
-			name TEXT UNIQUE NOT NULL,
-			description TEXT DEFAULT '',
-			fields TEXT DEFAULT '[]',
-			requires_credentials INTEGER DEFAULT 1,
-			sort_order INTEGER DEFAULT 0
-		);
+			CREATE TABLE IF NOT EXISTS provider_types (
+				id INTEGER PRIMARY KEY,
+				type TEXT NOT NULL,
+				name TEXT UNIQUE NOT NULL,
+				description TEXT DEFAULT '',
+				fields TEXT DEFAULT '[]',
+				requires_credentials INTEGER DEFAULT 1,
+				auth_type TEXT DEFAULT 'api_key',
+				auth_provider TEXT DEFAULT '',
+				runtime_status TEXT DEFAULT 'available',
+				capabilities TEXT DEFAULT '[]',
+				sort_order INTEGER DEFAULT 0
+			);
 
 		INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
 			(1, 'llm', 'Fireworks', 'LLM inference via Fireworks AI', '["FIREWORKS_API_KEY"]', 1, 10),
@@ -687,7 +710,28 @@ func (s *Store) migrate() error {
 	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
 		(13, 'llm', 'OpenCode Go', 'Flat-rate gateway ($10/mo) for Kimi K2.6, Qwen, GLM, MiMo, DeepSeek and more (opencode.ai/go)', '["OPENCODE_GO_API_KEY"]', 1, 15)`)
 	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
-		(14, 'llm', 'Venice', 'Privacy-focused inference gateway — Llama, Qwen, GLM, Mistral plus Claude / Grok / Gemini reseller variants (venice.ai)', '["VENICE_API_KEY"]', 1, 16)`)
+			(14, 'llm', 'Venice', 'Privacy-focused inference gateway — Llama, Qwen, GLM, Mistral plus Claude / Grok / Gemini reseller variants (venice.ai)', '["VENICE_API_KEY"]', 1, 16)`)
+	// Provider auth metadata: older DBs only have fields/requires_credentials.
+	// These columns let the dashboard render API-key, device-code, browser
+	// OAuth, and future auth methods without provider-specific routes.
+	s.db.Exec("ALTER TABLE provider_types ADD COLUMN auth_type TEXT DEFAULT 'api_key'")
+	s.db.Exec("ALTER TABLE provider_types ADD COLUMN auth_provider TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE provider_types ADD COLUMN runtime_status TEXT DEFAULT 'available'")
+	s.db.Exec("ALTER TABLE provider_types ADD COLUMN capabilities TEXT DEFAULT '[]'")
+	s.db.Exec(`UPDATE provider_types
+			SET auth_type='api_key',
+			    auth_provider=lower(replace(name, ' ', '-')),
+			    runtime_status='available'
+			WHERE auth_type IS NULL OR auth_type=''`)
+	s.db.Exec(`INSERT OR IGNORE INTO provider_types
+			(id, type, name, description, fields, requires_credentials, auth_type, auth_provider, runtime_status, capabilities, sort_order)
+			VALUES
+			(15, 'llm', 'OpenAI Codex', 'ChatGPT subscription-backed Codex auth via the Codex Responses runtime.', '[]', 1, 'oauth_device_code', 'openai-codex', 'available', '["llm","subscription","codex_responses","streaming","native_tools"]', 17)`)
+	s.db.Exec(`UPDATE provider_types
+			SET description='ChatGPT subscription-backed Codex auth via the Codex Responses runtime.',
+			    runtime_status='available',
+			    capabilities='["llm","subscription","codex_responses","streaming","native_tools"]'
+			WHERE id=15 AND auth_provider='openai-codex'`)
 
 	// Fix historical row 8: it was seeded with type='browser' but its
 	// fields / name describe Browserbase. getBrowserConfig treats
@@ -1604,14 +1648,14 @@ func columnExists(db *sql.DB, table, col string) bool {
 // --- Channels ---
 
 type ChannelRecord struct {
-	ID         int64  `json:"id"`
-	UserID     int64  `json:"user_id"`
-	AgentID int64  `json:"instance_id"`
-	ProjectID  string `json:"project_id,omitempty"`
-	Type       string `json:"type"`
-	Name       string `json:"name"`
-	Status     string `json:"status"`
-	CreatedAt  string `json:"created_at"`
+	ID        int64  `json:"id"`
+	UserID    int64  `json:"user_id"`
+	AgentID   int64  `json:"instance_id"`
+	ProjectID string `json:"project_id,omitempty"`
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	CreatedAt string `json:"created_at"`
 }
 
 func (s *Store) CreateChannel(userID, instanceID int64, chType, name, encryptedConfig string, projectID ...string) (*ChannelRecord, error) {

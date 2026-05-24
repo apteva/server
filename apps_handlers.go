@@ -24,28 +24,28 @@ import (
 
 // AppRow — what /api/apps returns for the dashboard's Installed view.
 type AppRow struct {
-	InstallID     int64            `json:"install_id"`
-	AppID         int64            `json:"app_id"`
-	Name          string           `json:"name"`
-	DisplayName   string           `json:"display_name"`
-	Version          string `json:"version"`
-	AvailableVersion string `json:"available_version,omitempty"`
-	Description      string `json:"description"`
-	Icon          string           `json:"icon"`
-	ProjectID     string           `json:"project_id"`
-	Status        string           `json:"status"`
-	StatusMessage string           `json:"status_message,omitempty"`
-	ErrorMessage  string           `json:"error_message,omitempty"`
-	Source        string           `json:"source"`
-	UpgradePolicy string           `json:"upgrade_policy"`
-	Permissions   []sdk.Permission `json:"permissions"`
-	Surfaces      AppSurfaces      `json:"surfaces"`
-	UIPanels      []sdk.UIPanel    `json:"ui_panels,omitempty"`
+	InstallID        int64            `json:"install_id"`
+	AppID            int64            `json:"app_id"`
+	Name             string           `json:"name"`
+	DisplayName      string           `json:"display_name"`
+	Version          string           `json:"version"`
+	AvailableVersion string           `json:"available_version,omitempty"`
+	Description      string           `json:"description"`
+	Icon             string           `json:"icon"`
+	ProjectID        string           `json:"project_id"`
+	Status           string           `json:"status"`
+	StatusMessage    string           `json:"status_message,omitempty"`
+	ErrorMessage     string           `json:"error_message,omitempty"`
+	Source           string           `json:"source"`
+	UpgradePolicy    string           `json:"upgrade_policy"`
+	Permissions      []sdk.Permission `json:"permissions"`
+	Surfaces         AppSurfaces      `json:"surfaces"`
+	UIPanels         []sdk.UIPanel    `json:"ui_panels,omitempty"`
 	// UIComponents — chat-attachment + sidebar-widget components
 	// declared in the install's manifest. The dashboard reads this
 	// to know which {app, name} pairs the agent's respond(components)
 	// call can target. Empty / omitted for apps that don't declare any.
-	UIComponents  []sdk.UIComponent `json:"ui_components,omitempty"`
+	UIComponents []sdk.UIComponent `json:"ui_components,omitempty"`
 	// Publishes — topics this app's manifest declares it emits on
 	// the AppBus via ctx.Emit. Drives the dashboard subscription
 	// form's event dropdown. Empty for apps that haven't documented
@@ -58,6 +58,9 @@ type AppRow struct {
 	// currently unbound but a compatible target now exists in the
 	// project. Drives the "configure" banner in the install detail.
 	HasPendingOptions bool `json:"has_pending_options,omitempty"`
+	// Imports: app-owned declarative import sources, if the manifest
+	// exposes any. The dashboard renders these as manual import actions.
+	Imports map[string]any `json:"imports,omitempty"`
 }
 
 // AppSurfaces summarises a manifest's `provides` block for the
@@ -69,7 +72,7 @@ type AppRow struct {
 // the dashboard's AppDetailPanel — additions here flow through to
 // the side panel automatically.
 type AppSurfaces struct {
-	Kind            string   `json:"kind"`              // service | source | static
+	Kind            string   `json:"kind"` // service | source | static
 	MCPToolCount    int      `json:"mcp_tool_count"`
 	MCPToolNames    []string `json:"mcp_tool_names,omitempty"`
 	SkillCount      int      `json:"skill_count"`
@@ -89,7 +92,7 @@ type AppSurfaces struct {
 	// dashboard shows them in the side panel and the install handler
 	// cascade-installs them automatically when the operator clicks
 	// Install on the dependent app.
-	RequiredApps    []AppDependency `json:"required_apps,omitempty"`
+	RequiredApps []AppDependency `json:"required_apps,omitempty"`
 }
 
 // AppDependency mirrors sdk.RequiredAppRef + a server-side resolution
@@ -111,17 +114,17 @@ type AppDependency struct {
 
 // RegistryEntry — one row in the marketplace registry.json.
 type RegistryEntry struct {
-	Name         string   `json:"name"`
-	DisplayName  string   `json:"display_name"`
-	Version      string   `json:"version"`
-	Description  string   `json:"description"`
-	Author       string   `json:"author"`
-	Repo         string   `json:"repo"`
-	ManifestURL  string   `json:"manifest_url"`
-	Icon         string   `json:"icon"`
-	Tags         []string `json:"tags"`
-	Official     bool     `json:"official"`
-	Category     string   `json:"category"`
+	Name        string   `json:"name"`
+	DisplayName string   `json:"display_name"`
+	Version     string   `json:"version"`
+	Description string   `json:"description"`
+	Author      string   `json:"author"`
+	Repo        string   `json:"repo"`
+	ManifestURL string   `json:"manifest_url"`
+	Icon        string   `json:"icon"`
+	Tags        []string `json:"tags"`
+	Official    bool     `json:"official"`
+	Category    string   `json:"category"`
 }
 
 // Default registry URL used when the operator hasn't overridden it via
@@ -500,15 +503,14 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
 	out := []AppRow{}
 	for rows.Next() {
 		var (
-			installID, appID                                  int64
-			projID, status, statusMsg, errMsg                 string
-			upgradePolicy, version, permsJSON                 string
-			name, source, manifestJSON, bindingsJSON          string
-			hasPendingOptions                                 int
+			installID, appID                         int64
+			projID, status, statusMsg, errMsg        string
+			upgradePolicy, version, permsJSON        string
+			name, source, manifestJSON, bindingsJSON string
+			hasPendingOptions                        int
 		)
 		if err := rows.Scan(&installID, &appID, &projID, &status, &statusMsg, &errMsg,
 			&upgradePolicy, &version, &permsJSON, &name, &source, &manifestJSON,
@@ -538,17 +540,24 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			InstallID: installID, AppID: appID, Name: name, DisplayName: manifest.DisplayName,
 			Bindings:          bindings,
 			HasPendingOptions: hasPendingOptions != 0,
-			Version:          version,
-			AvailableVersion: manifest.Version,
-			Description:      manifest.Description, Icon: manifest.Icon,
+			Version:           version,
+			AvailableVersion:  manifest.Version,
+			Description:       manifest.Description, Icon: manifest.Icon,
 			ProjectID: projID, Status: status, StatusMessage: statusMsg, ErrorMessage: errMsg,
 			Source: source, UpgradePolicy: upgradePolicy,
 			Permissions: perms, Surfaces: surfaces,
-			UIPanels:    manifest.Provides.UIPanels,
+			UIPanels:     manifest.Provides.UIPanels,
 			UIComponents: manifest.Provides.UIComponents,
-			Publishes:   manifest.Provides.Publishes,
+			Publishes:    manifest.Provides.Publishes,
+			Imports:      manifest.Imports,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	rows.Close()
 
 	// Backfill Surfaces.RequiredApps[].Installed from the live install
 	// set so the install-detail panel shows the correct ✓/✗ badge.
@@ -753,7 +762,8 @@ func (s *Server) handlePreviewApp(w http.ResponseWriter, r *http.Request) {
 // POST /api/apps/install
 //
 // Body: { manifest_url|manifest_yaml, project_id, config: {...},
-//          upgrade_policy: "manual"|"auto-patch"|"auto-minor" }
+//
+//	upgrade_policy: "manual"|"auto-patch"|"auto-minor" }
 //
 // MVP: creates the apps + app_installs rows in 'pending' state and
 // returns. Sidecar deployment via the orchestrator + status flip to
@@ -1393,6 +1403,45 @@ func (s *Server) handlePreflightInstalled(w http.ResponseWriter, r *http.Request
 		"roles":            roles,
 		"current_bindings": bindingsForInstall(s, installID),
 	})
+}
+
+type installMCPToolInfo struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"inputSchema"`
+}
+
+func (s *Server) handleInstallTools(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/apps/installs/")
+	parts := strings.SplitN(rest, "/", 2)
+	if len(parts) != 2 || parts[1] != "tools" {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	installID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || installID <= 0 {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	if s.installedApps == nil {
+		http.Error(w, "apps registry not configured", http.StatusInternalServerError)
+		return
+	}
+	inst := s.installedApps.Get(installID)
+	if inst == nil || inst.SidecarURL == "" {
+		writeJSON(w, []installMCPToolInfo{})
+		return
+	}
+	tools, err := listAppMCPTools(inst.SidecarURL+"/mcp", fmt.Sprintf("dev-%d", installID))
+	if err != nil {
+		http.Error(w, "list tools: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, tools)
 }
 
 // buildPreflightRoles is the role-resolution core shared by the

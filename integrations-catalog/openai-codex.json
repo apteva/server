@@ -1,0 +1,132 @@
+{
+  "slug": "openai-codex",
+  "name": "OpenAI Codex",
+  "description": "Subscription-backed OpenAI Codex runtime using device-code sign-in. Exposes a Responses API tool and an OpenAI-compatible chat_completion wrapper for apps that need LLM or vision calls without an OpenAI API key.",
+  "logo": "https://www.google.com/s2/favicons?domain=openai.com&sz=128",
+  "categories": ["ai", "openai", "codex", "chat", "vision", "subscription"],
+  "base_url": "https://chatgpt.com/backend-api/codex",
+  "auth": {
+    "types": ["oauth_device_code"]
+  },
+  "tools": [
+    {
+      "name": "responses_create",
+      "description": "Create a response through the subscription-backed Codex Responses runtime. Accepts the Responses API request shape: model, input, instructions, tools, text, max_output_tokens, temperature, stream, and store.",
+      "method": "POST",
+      "path": "/responses",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "default": "gpt-5.5",
+            "description": "Codex/runtime model to use."
+          },
+          "input": {
+            "description": "Responses API input: a string or array of input items."
+          },
+          "instructions": {
+            "type": "string",
+            "description": "System/developer instructions for the response."
+          },
+          "tools": {
+            "type": "array",
+            "description": "Responses API tools such as function tools."
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "description": "Maximum output tokens."
+          },
+          "temperature": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 2
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false
+          },
+          "store": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": ["model", "input"]
+      }
+    },
+    {
+      "name": "chat_completion",
+      "description": "Compatibility wrapper for OpenAI-style chat completions. Converts messages, including multimodal image_url parts, into a Codex Responses request and returns an OpenAI chat-completion shaped response.",
+      "method": "POST",
+      "path": "/responses",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "default": "gpt-5.5"
+          },
+          "messages": {
+            "type": "array",
+            "description": "OpenAI chat messages. Content may be a string or an array of {type:'text'} / {type:'image_url'} parts.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": ["system", "user", "assistant", "tool"]
+                },
+                "content": {}
+              },
+              "required": ["role"]
+            }
+          },
+          "temperature": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 2,
+            "default": 0.3
+          },
+          "max_tokens": {
+            "type": "integer",
+            "description": "Mapped to Responses max_output_tokens."
+          },
+          "response_format": {
+            "type": "object",
+            "description": "Mapped to Responses text.format when supplied."
+          }
+        },
+        "required": ["messages"]
+      }
+    },
+    {
+      "name": "vision_describe",
+      "description": "Alias of chat_completion for integrations that declare a vision.describe capability. Pass multimodal chat messages with image_url content parts.",
+      "method": "POST",
+      "path": "/responses",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "default": "gpt-5.5"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": { "type": "string" },
+                "content": {}
+              }
+            }
+          }
+        },
+        "required": ["messages"]
+      }
+    }
+  ]
+}

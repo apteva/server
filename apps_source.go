@@ -56,6 +56,8 @@ var reservedAppSiblings = map[string]bool{
 	".gobuild": true, // shared GOCACHE/GOMODCACHE (also caught by dot-prefix)
 }
 
+const appVersionRetainPrevious = 1
+
 // humaniseBuildLine turns a stray go build output line into something
 // short enough for the status pill in the dashboard. We ignore noise
 // like "verifying" / module-version chatter and fall back to a short
@@ -375,9 +377,9 @@ func goBuild(srcDir, entry, binPath, cacheDir string, goEnv []string, progress f
 	}
 
 	var (
-		tail        []string                  // last N lines for error output
-		lastUpdate  = time.Now()
-		downloads   = 0                       // count distinct downloads
+		tail       []string // last N lines for error output
+		lastUpdate = time.Now()
+		downloads  = 0 // count distinct downloads
 	)
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
@@ -528,7 +530,7 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 	// (most-recent by mtime) as a fallback if the user manually pins
 	// back, and rm -rf the rest. Best-effort: errors are logged but
 	// don't fail the install.
-	if removed := pruneOldAppVersions(s.localApps.cacheDir, m.Name, m.Version, 1); len(removed) > 0 {
+	if removed := pruneOldAppVersions(s.localApps.cacheDir, m.Name, m.Version, appVersionRetainPrevious); len(removed) > 0 {
 		log.Printf("[APPS-SOURCE] reclaimed %d stale version dir(s) for %s: %v", len(removed), m.Name, removed)
 	}
 	return nil

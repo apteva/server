@@ -798,7 +798,9 @@ func main() {
 
 	apiMux.HandleFunc("/connections/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/connections/")
-		if strings.HasSuffix(path, "/tools") {
+		if strings.HasPrefix(path, "auth/") {
+			s.handlePollConnectionDeviceAuth(w, r)
+		} else if strings.HasSuffix(path, "/tools") {
 			s.handleConnectionTools(w, r)
 		} else if strings.HasSuffix(path, "/execute") {
 			s.handleExecuteTool(w, r)
@@ -949,10 +951,16 @@ func main() {
 			s.handleSetInstallBindings2(w, r)
 		case strings.HasSuffix(path, "/preflight") && r.Method == http.MethodGet:
 			s.handlePreflightInstalled(w, r)
+		case strings.HasSuffix(path, "/tools") && r.Method == http.MethodGet:
+			s.handleInstallTools(w, r)
 		case strings.HasSuffix(path, "/config") && r.Method == http.MethodGet:
 			s.handleGetInstallConfig(w, r)
 		case strings.HasSuffix(path, "/config") && r.Method == http.MethodPut:
 			s.handleSetInstallConfig(w, r)
+		case strings.HasSuffix(path, "/imports") && r.Method == http.MethodGet:
+			s.handleGetInstallImports(w, r)
+		case strings.Contains(path, "/imports/") && strings.HasSuffix(path, "/run") && r.Method == http.MethodPost:
+			s.handleRunInstallImport(w, r)
 		case strings.HasSuffix(path, "/scope") && r.Method == http.MethodPatch:
 			// Move an install between project / global scope without
 			// destroying its data. See apps_scope.go for the contract.
@@ -1049,8 +1057,36 @@ func main() {
 	}))
 	apiMux.HandleFunc("/providers/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/providers/")
+		if path == "auth/start" {
+			s.handleStartProviderAuth(w, r)
+			return
+		}
+		if strings.HasPrefix(path, "auth/") {
+			s.handlePollProviderAuth(w, r)
+			return
+		}
 		if strings.HasSuffix(path, "/models") {
 			s.handleProviderModels(w, r)
+			return
+		}
+		if strings.HasSuffix(path, "/auth/status") {
+			s.handleProviderAuthAction(w, r, "status")
+			return
+		}
+		if strings.HasSuffix(path, "/auth/refresh") {
+			s.handleProviderAuthAction(w, r, "refresh")
+			return
+		}
+		if strings.HasSuffix(path, "/auth/logout") {
+			s.handleProviderAuthAction(w, r, "logout")
+			return
+		}
+		if strings.HasSuffix(path, "/auth/runtime-token") {
+			s.handleProviderAuthAction(w, r, "runtime-token")
+			return
+		}
+		if strings.HasSuffix(path, "/auth/smoke-test") {
+			s.handleProviderAuthAction(w, r, "smoke-test")
 			return
 		}
 		// POST /providers/:id/test — run the provider's credential
@@ -1229,7 +1265,8 @@ func main() {
 			return
 		}
 
-		// /instances/:id/status, /instances/:id/threads, /instances/:id/pause, etc. → proxy
+		// /instances/:id/status, /instances/:id/threads, /instances/:id/pause,
+		// /instances/:id/control, etc. → proxy
 		if strings.Contains(path, "/") {
 			s.handleProxy(w, r)
 			return

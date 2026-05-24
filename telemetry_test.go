@@ -12,12 +12,12 @@ import (
 func makeTelemetryEvent(eventType, threadID string, data map[string]any) TelemetryEvent {
 	d, _ := json.Marshal(data)
 	return TelemetryEvent{
-		ID:         generateID(),
-		AgentID: 1,
-		ThreadID:   threadID,
-		Type:       eventType,
-		Time:       time.Now(),
-		Data:       json.RawMessage(d),
+		ID:       generateID(),
+		AgentID:  1,
+		ThreadID: threadID,
+		Type:     eventType,
+		Time:     time.Now(),
+		Data:     json.RawMessage(d),
 	}
 }
 
@@ -257,6 +257,52 @@ func TestTelemetryHTTPIngestAndQuery(t *testing.T) {
 	}
 	if stats.TotalTokensIn != 500 {
 		t.Errorf("stats: expected 500 tokens in, got %d", stats.TotalTokensIn)
+	}
+}
+
+func TestTelemetryRestorePrunesAbandonedBranch(t *testing.T) {
+	s := newTestServer(t)
+	base := time.Now().UTC().Add(-time.Minute)
+	checkpoint := base.Add(10 * time.Second)
+	beforeEvent := makeTelemetryEvent("llm.done", "main", map[string]any{"iteration": 1})
+	beforeEvent.Time = checkpoint.Add(-time.Second)
+	branchEvent := makeTelemetryEvent("tool.call", "main", map[string]any{"name": "pushover"})
+	branchEvent.Time = checkpoint.Add(5 * time.Second)
+	if err := s.store.InsertTelemetry([]TelemetryEvent{beforeEvent, branchEvent}); err != nil {
+		t.Fatalf("seed telemetry: %v", err)
+	}
+
+	unsentOldBranch := makeTelemetryEvent("tool.result", "main", map[string]any{"name": "pushover"})
+	unsentOldBranch.Time = checkpoint.Add(6 * time.Second)
+	restore := makeTelemetryEvent("execution.restored", "main", map[string]any{
+		"checkpoint_id":   "chk-1",
+		"checkpoint_time": checkpoint,
+	})
+	restore.Time = checkpoint.Add(10 * time.Second)
+
+	body, _ := json.Marshal([]TelemetryEvent{unsentOldBranch, restore})
+	req := httptest.NewRequest(http.MethodPost, "/telemetry", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Instance-Secret", s.instanceSecret)
+	rec := httptest.NewRecorder()
+	s.handleIngestTelemetry(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ingest: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	got, err := s.store.QueryTelemetry(1, "", time.Time{}, 100)
+	if err != nil {
+		t.Fatalf("query telemetry: %v", err)
+	}
+	types := map[string]bool{}
+	for _, ev := range got {
+		types[ev.Type] = true
+	}
+	if !types["llm.done"] || !types["execution.restored"] {
+		t.Fatalf("expected pre-checkpoint and restore events, got %#v", types)
+	}
+	if types["tool.call"] || types["tool.result"] {
+		t.Fatalf("abandoned branch events were not pruned: %#v", types)
 	}
 }
 

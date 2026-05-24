@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,10 @@ type ProviderType struct {
 	Description         string   `json:"description"`
 	Fields              []string `json:"fields"`
 	RequiresCredentials bool     `json:"requires_credentials"`
+	AuthType            string   `json:"auth_type"`
+	AuthProvider        string   `json:"auth_provider"`
+	RuntimeStatus       string   `json:"runtime_status"`
+	Capabilities        []string `json:"capabilities"`
 	SortOrder           int      `json:"sort_order"`
 }
 
@@ -34,7 +39,10 @@ type Provider struct {
 // --- Store methods ---
 
 func (s *Store) ListProviderTypes() ([]ProviderType, error) {
-	rows, err := s.db.Query("SELECT id, type, name, description, fields, requires_credentials, sort_order FROM provider_types ORDER BY sort_order")
+	rows, err := s.db.Query(`SELECT id, type, name, description, fields, requires_credentials,
+		COALESCE(auth_type, 'api_key'), COALESCE(auth_provider, ''),
+		COALESCE(runtime_status, 'available'), COALESCE(capabilities, '[]'),
+		sort_order FROM provider_types ORDER BY sort_order`)
 	if err != nil {
 		return nil, err
 	}
@@ -44,18 +52,57 @@ func (s *Store) ListProviderTypes() ([]ProviderType, error) {
 	for rows.Next() {
 		var pt ProviderType
 		var fieldsJSON string
+		var capabilitiesJSON string
 		var reqCreds int
-		rows.Scan(&pt.ID, &pt.Type, &pt.Name, &pt.Description, &fieldsJSON, &reqCreds, &pt.SortOrder)
+		rows.Scan(&pt.ID, &pt.Type, &pt.Name, &pt.Description, &fieldsJSON, &reqCreds, &pt.AuthType, &pt.AuthProvider, &pt.RuntimeStatus, &capabilitiesJSON, &pt.SortOrder)
 		json.Unmarshal([]byte(fieldsJSON), &pt.Fields)
+		json.Unmarshal([]byte(capabilitiesJSON), &pt.Capabilities)
 		pt.RequiresCredentials = reqCreds == 1
+		if pt.AuthType == "" {
+			pt.AuthType = "api_key"
+		}
+		if pt.AuthProvider == "" {
+			pt.AuthProvider = providerKeyFromName(pt.Name)
+		}
+		if pt.RuntimeStatus == "" {
+			pt.RuntimeStatus = "available"
+		}
 		types = append(types, pt)
 	}
 	return types, nil
 }
 
+func (s *Store) GetProviderType(providerTypeID int64) (*ProviderType, error) {
+	var pt ProviderType
+	var fieldsJSON string
+	var capabilitiesJSON string
+	var reqCreds int
+	err := s.db.QueryRow(`SELECT id, type, name, description, fields, requires_credentials,
+		COALESCE(auth_type, 'api_key'), COALESCE(auth_provider, ''),
+		COALESCE(runtime_status, 'available'), COALESCE(capabilities, '[]'),
+		sort_order FROM provider_types WHERE id = ?`, providerTypeID).
+		Scan(&pt.ID, &pt.Type, &pt.Name, &pt.Description, &fieldsJSON, &reqCreds, &pt.AuthType, &pt.AuthProvider, &pt.RuntimeStatus, &capabilitiesJSON, &pt.SortOrder)
+	if err != nil {
+		return nil, err
+	}
+	json.Unmarshal([]byte(fieldsJSON), &pt.Fields)
+	json.Unmarshal([]byte(capabilitiesJSON), &pt.Capabilities)
+	pt.RequiresCredentials = reqCreds == 1
+	if pt.AuthType == "" {
+		pt.AuthType = "api_key"
+	}
+	if pt.AuthProvider == "" {
+		pt.AuthProvider = providerKeyFromName(pt.Name)
+	}
+	if pt.RuntimeStatus == "" {
+		pt.RuntimeStatus = "available"
+	}
+	return &pt, nil
+}
+
 // CreateProvider stores a new provider for a user. If projectID is provided
 // and non-empty, the provider is scoped to that project; otherwise it is
-// "unscoped" (project_id='') and visible across all projects.
+// "unscoped" (project_id=”) and visible across all projects.
 func (s *Store) CreateProvider(userID, providerTypeID int64, ptype, name, encryptedData string, projectID ...string) (*Provider, error) {
 	pid := ""
 	if len(projectID) > 0 {
@@ -74,7 +121,7 @@ func (s *Store) CreateProvider(userID, providerTypeID int64, ptype, name, encryp
 
 // ListProviders returns all providers for a user. If projectID is provided
 // and non-empty, the result includes both providers scoped to that project
-// AND unscoped (project_id='') providers — the latter act as "global" so
+// AND unscoped (project_id=”) providers — the latter act as "global" so
 // existing providers stay visible after this per-project feature rolls out.
 func (s *Store) ListProviders(userID int64, projectID ...string) ([]Provider, error) {
 	const cols = `id, provider_type_id, type, name, COALESCE(status,'active'), COALESCE(project_id,''), created_at, updated_at`
@@ -106,6 +153,26 @@ func (s *Store) ListProviders(userID int64, projectID ...string) ([]Provider, er
 		providers = append(providers, p)
 	}
 	return providers, nil
+}
+
+func (s *Store) FindProviderByTypeForProject(userID, providerTypeID int64, projectID string) (*Provider, string, error) {
+	var p Provider
+	var encData string
+	var createdAt, updatedAt string
+	err := s.db.QueryRow(
+		`SELECT id, provider_type_id, type, name, COALESCE(status,'active'), COALESCE(project_id,''), encrypted_data, created_at, updated_at
+		 FROM providers
+		 WHERE user_id = ? AND provider_type_id = ? AND COALESCE(project_id,'') = ?
+		 ORDER BY id DESC LIMIT 1`,
+		userID, providerTypeID, projectID,
+	).Scan(&p.ID, &p.ProviderTypeID, &p.Type, &p.Name, &p.Status, &p.ProjectID, &encData, &createdAt, &updatedAt)
+	if err != nil {
+		return nil, "", err
+	}
+	p.UserID = userID
+	p.CreatedAt, _ = parseTime(createdAt)
+	p.UpdatedAt, _ = parseTime(updatedAt)
+	return &p, encData, nil
 }
 
 func (s *Store) GetProvider(userID, providerID int64) (*Provider, string, error) {
@@ -179,7 +246,7 @@ func (s *Store) SetProviderWebhookToken(providerID int64, token string) error {
 // and the caller uses the resolved row's user_id for downstream
 // subscription lookups.
 //
-// Precedence: a project-scoped row wins over a global (project_id='')
+// Precedence: a project-scoped row wins over a global (project_id=”)
 // row of the same type — matches how ListProviders surfaces both.
 func (s *Store) FindComposioProviderForProject(userID int64, projectID string) (*Provider, string, error) {
 	var p Provider
@@ -221,11 +288,11 @@ func (s *Store) GetAllProviderEnvVars(userID int64, secret []byte, projectID ...
 	var err error
 	if len(projectID) > 0 && projectID[0] != "" {
 		rows, err = s.db.Query(
-			"SELECT encrypted_data FROM providers WHERE user_id = ? AND (project_id = ? OR project_id = '')",
+			"SELECT id, encrypted_data FROM providers WHERE user_id = ? AND (project_id = ? OR project_id = '')",
 			userID, projectID[0],
 		)
 	} else {
-		rows, err = s.db.Query("SELECT encrypted_data FROM providers WHERE user_id = ?", userID)
+		rows, err = s.db.Query("SELECT id, encrypted_data FROM providers WHERE user_id = ?", userID)
 	}
 	if err != nil {
 		return nil, err
@@ -234,15 +301,16 @@ func (s *Store) GetAllProviderEnvVars(userID int64, secret []byte, projectID ...
 
 	envVars := map[string]string{}
 	for rows.Next() {
+		var providerID int64
 		var encData string
-		rows.Scan(&encData)
+		rows.Scan(&providerID, &encData)
 
 		plaintext, err := Decrypt(secret, encData)
 		if err != nil {
 			continue
 		}
 
-		var data map[string]string
+		var data map[string]any
 		if err := json.Unmarshal([]byte(plaintext), &data); err != nil {
 			continue
 		}
@@ -250,11 +318,50 @@ func (s *Store) GetAllProviderEnvVars(userID int64, secret []byte, projectID ...
 		for k, v := range data {
 			// Only inject UPPER_CASE keys as env vars
 			if isEnvVar(k) {
-				envVars[k] = v
+				if s, ok := v.(string); ok {
+					envVars[k] = s
+				}
+			}
+		}
+		if stateMap(data, "auth")["provider"] == openAICodexAuthProvider {
+			data = s.refreshOpenAICodexProviderEnvState(providerID, secret, data)
+			if token := stringFromNested(data, "credentials", "access_token"); strings.TrimSpace(token) != "" {
+				envVars["OPENAI_CODEX_ACCESS_TOKEN"] = token
+				envVars["OPENAI_CODEX_PROVIDER_ID"] = fmt.Sprint(providerID)
 			}
 		}
 	}
 	return envVars, nil
+}
+
+func (s *Store) refreshOpenAICodexProviderEnvState(providerID int64, secret []byte, state map[string]any) map[string]any {
+	exp, ok := expiryFromState(state)
+	if ok && time.Until(exp) > 10*time.Minute {
+		return state
+	}
+	refreshToken := stringFromNested(state, "credentials", "refresh_token")
+	if strings.TrimSpace(refreshToken) == "" {
+		return state
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	tokens, err := refreshOpenAICodexTokens(ctx, refreshToken)
+	if err != nil {
+		return state
+	}
+	if nextRefresh, _ := tokens["refresh_token"].(string); strings.TrimSpace(nextRefresh) == "" {
+		tokens["refresh_token"] = refreshToken
+	}
+	next := buildOpenAICodexProviderState(tokens, "refresh_token")
+	if account := stateMap(state, "account"); len(account) > 0 {
+		next["account"] = account
+	}
+	encrypted, err := marshalEncryptProviderState(secret, next)
+	if err != nil {
+		return state
+	}
+	_, _ = s.db.Exec("UPDATE providers SET encrypted_data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", encrypted, providerID)
+	return next
 }
 
 // providerKeyFromName converts a display-pretty provider name into the
@@ -593,13 +700,14 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 
 	isLLMKey := func(k string) bool {
 		switch k {
-		case "fireworks", "openai", "anthropic", "google", "ollama", "nvidia", "opencode-go", "venice":
+		case "fireworks", "openai", "openai-codex", "anthropic", "google", "ollama", "nvidia", "opencode-go", "venice":
 			return true
 		}
 		return false
 	}
 
 	var pool []ProviderInfo
+	var codexPool []ProviderInfo
 	for _, p := range providers {
 		// Normalize across the two formats. If type == "llm" this is a
 		// new-format row and we use the name column as the provider key.
@@ -630,15 +738,20 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 			json.Unmarshal([]byte(bt), &builtinTools)
 		}
 
-		pool = append(pool, ProviderInfo{
+		info := ProviderInfo{
 			Type:         providerKey,
 			ModelLarge:   normalizeStaleModel(providerKey, data["model_large"]),
 			ModelMedium:  normalizeStaleModel(providerKey, data["model_medium"]),
 			ModelSmall:   normalizeStaleModel(providerKey, data["model_small"]),
 			BuiltinTools: builtinTools,
-		})
+		}
+		if providerKey == "openai-codex" {
+			codexPool = append(codexPool, info)
+			continue
+		}
+		pool = append(pool, info)
 	}
-	return pool
+	return append(pool, codexPool...)
 }
 
 // GET /providers/:id/models — fetch live model list

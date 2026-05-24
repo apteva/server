@@ -1,7 +1,7 @@
 {
   "slug": "trading212",
   "name": "Trading 212",
-  "description": "Trading 212 Public API \u2014 trade stocks and ETFs, manage orders, view positions and history. For Invest and Stocks ISA accounts only.",
+  "description": "Trading 212 Public API — read account summary, instruments, positions, historical orders, dividends, cash transactions, and exports; optionally manage orders. For Invest and Stocks ISA accounts only.",
   "logo": "https://www.google.com/s2/favicons?domain=trading212.com&sz=128",
   "categories": [
     "trading",
@@ -14,21 +14,18 @@
   "base_url": "https://live.trading212.com/api/v0",
   "auth": {
     "types": [
-      "bearer"
+      "api_key"
     ],
     "headers": {
-      "Authorization": "{{token}}"
+      "Authorization": "{{api_key}}"
     },
     "credential_fields": [
       {
-        "name": "authToken",
-        "label": "Auth Token",
-        "description": "Base64-encoded API_KEY:API_SECRET (generate keys in Trading 212 app, then encode: echo -n 'KEY:SECRET' | base64)"
-      },
-      {
-        "name": "baseUrl",
-        "label": "Base Url",
-        "description": "API environment URL: https://live.trading212.com for real money, or https://demo.trading212.com for paper trading"
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Trading 212 Public API key from the Trading 212 app. The integration sends it directly in the Authorization header.",
+        "required": true,
+        "type": "password"
       }
     ]
   },
@@ -37,7 +34,7 @@
       "name": "get_account_summary",
       "description": "Get account summary including cash balance, invested amount, and portfolio value. Returns values in the primary account currency.",
       "method": "GET",
-      "path": "/get-account-summary",
+      "path": "/equity/account/summary",
       "input_schema": {
         "type": "object",
         "properties": {}
@@ -47,7 +44,7 @@
       "name": "list_exchanges",
       "description": "List all available exchanges with their trading hours and details.",
       "method": "GET",
-      "path": "/list-exchanges",
+      "path": "/equity/metadata/exchanges",
       "input_schema": {
         "type": "object",
         "properties": {}
@@ -57,7 +54,7 @@
       "name": "list_instruments",
       "description": "List all tradeable instruments (stocks, ETFs) with their tickers, names, currencies, and ISINs. Use ticker values (e.g. AAPL_US_EQ) when placing orders.",
       "method": "GET",
-      "path": "/list-instruments",
+      "path": "/equity/metadata/instruments",
       "input_schema": {
         "type": "object",
         "properties": {}
@@ -67,7 +64,7 @@
       "name": "list_pending_orders",
       "description": "Get all currently active (pending) orders that are not yet filled, cancelled, or expired.",
       "method": "GET",
-      "path": "/list-pending-orders",
+      "path": "/equity/orders",
       "input_schema": {
         "type": "object",
         "properties": {}
@@ -77,7 +74,7 @@
       "name": "get_order",
       "description": "Get details of a specific pending order by its unique ID.",
       "method": "GET",
-      "path": "/get-order",
+      "path": "/equity/orders/{orderId}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -95,7 +92,7 @@
       "name": "place_market_order",
       "description": "Place a market order that executes immediately at the best available price. Use positive quantity to BUY, negative quantity to SELL. Set extendedHours=true to allow execution outside regular trading hours. WARNING: Market orders can be subject to price slippage.",
       "method": "POST",
-      "path": "/place-market-order",
+      "path": "/equity/orders/market",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -123,7 +120,7 @@
       "name": "place_limit_order",
       "description": "Place a limit order that executes at a specified price or better. Use positive quantity to BUY (fills at limitPrice or lower), negative quantity to SELL (fills at limitPrice or higher).",
       "method": "POST",
-      "path": "/place-limit-order",
+      "path": "/equity/orders/limit",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -160,7 +157,7 @@
       "name": "place_stop_order",
       "description": "Place a stop order that triggers a market order when the stop price is reached. Use positive quantity for buy stop, negative quantity for sell stop (stop-loss). Triggered by the instrument's Last Traded Price (LTP).",
       "method": "POST",
-      "path": "/place-stop-order",
+      "path": "/equity/orders/stop",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -197,7 +194,7 @@
       "name": "place_stop_limit_order",
       "description": "Place a stop-limit order combining stop and limit features. When the stop price is reached, a limit order is placed at the limit price. Protects against slippage. Use positive quantity for BUY, negative for SELL.",
       "method": "POST",
-      "path": "/place-stop-limit-order",
+      "path": "/equity/orders/stop_limit",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -239,7 +236,7 @@
       "name": "cancel_order",
       "description": "Cancel a pending order by its ID. Cancellation is not guaranteed if the order is already being filled. A successful response means the cancellation request was accepted.",
       "method": "DELETE",
-      "path": "/cancel-order",
+      "path": "/equity/orders/{orderId}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -257,7 +254,7 @@
       "name": "get_positions",
       "description": "Get all open positions with current quantity, average price, current price, and profit/loss.",
       "method": "GET",
-      "path": "/get-positions",
+      "path": "/equity/positions",
       "input_schema": {
         "type": "object",
         "properties": {}
@@ -267,7 +264,7 @@
       "name": "get_order_history",
       "description": "Get historical orders with cursor-based pagination. Returns filled, cancelled, and expired orders. Use nextPagePath from response to get next page.",
       "method": "GET",
-      "path": "/get-order-history",
+      "path": "/equity/history/orders",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -287,7 +284,7 @@
       "name": "get_dividend_history",
       "description": "Get historical dividend payments with cursor-based pagination. Use nextPagePath from response to get next page.",
       "method": "GET",
-      "path": "/get-dividend-history",
+      "path": "/equity/history/dividends",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -307,7 +304,7 @@
       "name": "get_transaction_history",
       "description": "Get historical cash transactions (deposits, withdrawals, fees, etc.) with cursor-based pagination. Use nextPagePath from response to get next page.",
       "method": "GET",
-      "path": "/get-transaction-history",
+      "path": "/equity/history/transactions",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -327,7 +324,7 @@
       "name": "list_exports",
       "description": "List all previously requested CSV data exports with their status and download links.",
       "method": "GET",
-      "path": "/list-exports",
+      "path": "/equity/history/exports",
       "input_schema": {
         "type": "object",
         "properties": {}
@@ -335,9 +332,9 @@
     },
     {
       "name": "create_export",
-      "description": "Request a new CSV export of your trading data. The export is processed asynchronously \u2014 use list-exports to check status and get download link.",
+      "description": "Request a new CSV export of your trading data. The export is processed asynchronously — use list-exports to check status and get download link.",
       "method": "POST",
-      "path": "/create-export",
+      "path": "/equity/history/exports",
       "input_schema": {
         "type": "object",
         "properties": {
