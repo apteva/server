@@ -49,7 +49,7 @@ func seedInstallWithBindings(t *testing.T, s *Server, appName string, manifest s
 func TestCallback_Projects_ProjectScopedSingleton(t *testing.T) {
 	s := newTestServer(t)
 	s.store.db.Exec(`INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (1, 'a@b.c', 'x')`)
-	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name) VALUES ('proj-1', 1, 'p1')`)
+	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-1', 1, 'p1', 'Project one description')`)
 	installID := seedInstall(t, s, "media", "proj-1")
 	s.store.db.Exec(`UPDATE app_installs SET installed_by=1 WHERE id=?`, installID)
 
@@ -70,6 +70,9 @@ func TestCallback_Projects_ProjectScopedSingleton(t *testing.T) {
 	if out[0]["id"] != "proj-1" {
 		t.Errorf("got id %v, want proj-1", out[0]["id"])
 	}
+	if out[0]["description"] != "Project one description" {
+		t.Errorf("got description %v, want project description", out[0]["description"])
+	}
 }
 
 // Global install — every project the install's owner has.
@@ -81,8 +84,8 @@ func TestCallback_Projects_ProjectScopedSingleton(t *testing.T) {
 func TestCallback_Projects_GlobalInstallListsOwnerProjects(t *testing.T) {
 	s := newTestServer(t)
 	s.store.db.Exec(`INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (1, 'a@b.c', 'x')`)
-	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name) VALUES ('proj-A', 1, 'a')`)
-	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name) VALUES ('proj-B', 1, 'b')`)
+	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-A', 1, 'a', 'alpha context')`)
+	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-B', 1, 'b', 'beta context')`)
 	// Different user's project — must NOT leak.
 	s.store.db.Exec(`INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (2, 'c@d.e', 'x')`)
 	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name) VALUES ('not-mine', 2, 'theirs')`)
@@ -102,11 +105,17 @@ func TestCallback_Projects_GlobalInstallListsOwnerProjects(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	gotIDs := map[string]bool{}
+	gotDescriptions := map[string]string{}
 	for _, p := range out {
-		gotIDs[p["id"].(string)] = true
+		id := p["id"].(string)
+		gotIDs[id] = true
+		gotDescriptions[id], _ = p["description"].(string)
 	}
 	if !gotIDs["proj-A"] || !gotIDs["proj-B"] {
 		t.Errorf("missing owner projects: got %v", gotIDs)
+	}
+	if gotDescriptions["proj-A"] != "alpha context" || gotDescriptions["proj-B"] != "beta context" {
+		t.Errorf("missing project descriptions: got %v", gotDescriptions)
 	}
 	if gotIDs["not-mine"] {
 		t.Errorf("leaked foreign project")

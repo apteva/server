@@ -158,11 +158,11 @@ func (s *Server) handleCallbackProjects(w http.ResponseWriter, r *http.Request, 
 	}
 	if installProject != "" {
 		// Singleton — same project as the install.
-		var name string
+		var name, description string
 		_ = s.store.db.QueryRow(
-			`SELECT COALESCE(name,'') FROM projects WHERE id=?`, installProject,
-		).Scan(&name)
-		writeJSON(w, []map[string]any{{"id": installProject, "name": name}})
+			`SELECT COALESCE(name,''), COALESCE(description,'') FROM projects WHERE id=?`, installProject,
+		).Scan(&name, &description)
+		writeJSON(w, []map[string]any{{"id": installProject, "name": name, "description": description}})
 		return
 	}
 	// Global install — return every project belonging to the owning
@@ -174,7 +174,7 @@ func (s *Server) handleCallbackProjects(w http.ResponseWriter, r *http.Request, 
 	}
 	out := make([]map[string]any, 0, len(projects))
 	for _, p := range projects {
-		out = append(out, map[string]any{"id": p.ID, "name": p.Name})
+		out = append(out, map[string]any{"id": p.ID, "name": p.Name, "description": p.Description})
 	}
 	writeJSON(w, out)
 }
