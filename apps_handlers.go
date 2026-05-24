@@ -812,12 +812,15 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if body.Bindings == nil {
+		body.Bindings = map[string]any{}
+	}
+
 	// Cascade-install dependencies declared in requires.apps. Walks
 	// the dep graph in topo order (deps before the dependent),
-	// detects cycles, skips already-installed apps. Optional deps
-	// install too — operator can uninstall any of them later.
-	// Failures of optional deps are logged but don't block the
-	// requesting app; failures of required deps abort the install.
+	// detects cycles, skips already-installed apps. Optional deps are
+	// opt-in: the cascade only resolves them when the operator supplied
+	// a non-null binding/intent for that app name.
 	//
 	// Returns a map of dep_name → resolved install_id which we merge
 	// into body.Bindings below — that's what makes installBoundApp
@@ -825,7 +828,7 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	// caller) without manual binding by the operator.
 	depBindings := map[string]int64{}
 	if len(manifest.Requires.Apps) > 0 {
-		out, err := s.installDependencies(userID, manifest, body.ProjectID)
+		out, err := s.installDependencies(userID, manifest, body.ProjectID, body.Bindings)
 		if err != nil {
 			http.Error(w, "dependency install: "+err.Error(), http.StatusBadGateway)
 			return
@@ -878,9 +881,6 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 
 	// Validate bindings against requires.integrations: required roles
 	// must have a non-null target; unknown role names are rejected.
-	if body.Bindings == nil {
-		body.Bindings = map[string]any{}
-	}
 	// Merge the cascade's resolved app-dep install_ids into the
 	// bindings map so installBoundApp can authorize app→app calls
 	// for requires.apps deps. Operator-supplied keys win — if the
@@ -898,6 +898,19 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		if dep.Required && isNull {
 			http.Error(w,
 				fmt.Sprintf("required integration role %q is unbound", dep.Role),
+				http.StatusBadRequest,
+			)
+			return
+		}
+	}
+	for _, dep := range manifest.Requires.Apps {
+		if dep.Optional {
+			continue
+		}
+		raw, present := body.Bindings[dep.Name]
+		if !present || raw == nil {
+			http.Error(w,
+				fmt.Sprintf("required app dep %q is unbound", dep.Name),
 				http.StatusBadRequest,
 			)
 			return

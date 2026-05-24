@@ -160,6 +160,76 @@ func TestFindInstalledApp_IgnoresPendingAndErrored(t *testing.T) {
 	}
 }
 
+// ---------- install dependency cascade ----------
+
+func TestInstallDepsRecursive_SkipsUnselectedOptionalApp(t *testing.T) {
+	s := newTestServer(t)
+	resolved := map[string]int64{}
+	err := s.installDepsRecursive(
+		1,
+		"",
+		[]sdk.RequiredAppRef{{Name: "cdn", Optional: true}},
+		map[string]any{"cdn": nil},
+		map[string]string{"cdn": "http://127.0.0.1:1/should-not-fetch"},
+		map[string]bool{},
+		map[string]bool{},
+		resolved,
+	)
+	if err != nil {
+		t.Fatalf("optional unselected dep should be skipped, got error: %v", err)
+	}
+	if _, ok := resolved["cdn"]; ok {
+		t.Fatalf("unselected optional dep should not be resolved: %v", resolved)
+	}
+	var n int
+	if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_installs`).Scan(&n); err != nil {
+		t.Fatalf("count installs: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("expected no dep installs, got %d", n)
+	}
+}
+
+func TestInstallDepsRecursive_BindsSelectedOptionalExistingApp(t *testing.T) {
+	s := newTestServer(t)
+	cdnID := seedRunningInstall(t, s, "cdn", "", sdk.Manifest{Name: "cdn"}, nil)
+	resolved := map[string]int64{}
+	err := s.installDepsRecursive(
+		1,
+		"",
+		[]sdk.RequiredAppRef{{Name: "cdn", Optional: true}},
+		map[string]any{"cdn": float64(cdnID)},
+		nil,
+		map[string]bool{},
+		map[string]bool{},
+		resolved,
+	)
+	if err != nil {
+		t.Fatalf("selected optional dep should resolve existing install: %v", err)
+	}
+	if id := resolved["cdn"]; id != cdnID {
+		t.Fatalf("expected resolved cdn=%d, got %d (%v)", cdnID, id, resolved)
+	}
+}
+
+func TestInstallDependencies_OptionalOnlyUnselectedDoesNotLoadRegistry(t *testing.T) {
+	t.Setenv("APTEVA_APP_REGISTRY_URL", "http://127.0.0.1:1/unreachable")
+	s := newTestServer(t)
+	manifest := &sdk.Manifest{
+		Name: "storage",
+		Requires: sdk.Requires{
+			Apps: []sdk.RequiredAppRef{{Name: "cdn", Optional: true}},
+		},
+	}
+	resolved, err := s.installDependencies(1, manifest, "", map[string]any{"cdn": nil})
+	if err != nil {
+		t.Fatalf("optional-only unselected deps should not touch registry: %v", err)
+	}
+	if len(resolved) != 0 {
+		t.Fatalf("expected no resolved deps, got %v", resolved)
+	}
+}
+
 // ---------- reconcileAppDepBindings ----------
 
 // The headline scenario: the bug we just fixed.
@@ -215,6 +285,29 @@ func TestReconcileAppDepBindings_PreservesExplicitNull(t *testing.T) {
 	got := readBindings(t, s, parentID)
 	if v, present := got["jobs"]; !present || v != nil {
 		t.Fatalf("expected explicit null preserved, got present=%v v=%v", present, v)
+	}
+}
+
+func TestReconcileAppDepBindings_SkipsOptionalAppDep(t *testing.T) {
+	s := newTestServer(t)
+	seedRunningInstall(t, s, "cdn", "", sdk.Manifest{Name: "cdn"}, nil)
+	parentManifest := sdk.Manifest{
+		Name: "storage",
+		Requires: sdk.Requires{
+			Apps: []sdk.RequiredAppRef{{Name: "cdn", Optional: true}},
+		},
+	}
+	parentID := seedRunningInstall(t, s, "storage", "", parentManifest, map[string]any{})
+	changed, err := s.reconcileAppDepBindings(parentID)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if changed {
+		t.Fatalf("optional deps should not be backfilled automatically")
+	}
+	got := readBindings(t, s, parentID)
+	if _, present := got["cdn"]; present {
+		t.Fatalf("expected optional cdn key absent, got %v", got)
 	}
 }
 

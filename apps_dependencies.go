@@ -22,15 +22,18 @@ import (
 	sdk "github.com/apteva/app-sdk"
 )
 
-// installDependencies installs everything `manifest.Requires.Apps`
-// asks for, recursively. Required deps that fail abort the cascade
-// with an error; optional deps that fail log and continue. Returns a
-// map keyed by the parent's TOP-LEVEL dep names (not transitive grand-
-// deps) → resolved install_id, so the caller can write
+// installDependencies installs the required entries in
+// `manifest.Requires.Apps` recursively. Optional deps are opt-in: they
+// are only resolved when the operator supplied a non-null binding for
+// that app name. Returns a map keyed by the parent's TOP-LEVEL dep names
+// (not transitive grand-deps) → resolved install_id, so the caller can write
 // `parent.bindings[depName] = installID`. Built-ins are satisfied
 // without a binding entry (id=0); the caller skips writing those.
-func (s *Server) installDependencies(userID int64, manifest *sdk.Manifest, projectID string) (map[string]int64, error) {
+func (s *Server) installDependencies(userID int64, manifest *sdk.Manifest, projectID string, bindings map[string]any) (map[string]int64, error) {
 	if len(manifest.Requires.Apps) == 0 {
+		return nil, nil
+	}
+	if !appDepsNeedResolution(manifest.Requires.Apps, bindings) {
 		return nil, nil
 	}
 	registryName2URL, err := s.loadRegistryNameMap()
@@ -40,7 +43,7 @@ func (s *Server) installDependencies(userID int64, manifest *sdk.Manifest, proje
 	visiting := map[string]bool{} // cycle detection
 	visited := map[string]bool{}  // already-resolved (installed or in this run)
 	resolved := map[string]int64{}
-	if err := s.installDepsRecursive(userID, projectID, manifest.Requires.Apps, registryName2URL, visiting, visited, resolved); err != nil {
+	if err := s.installDepsRecursive(userID, projectID, manifest.Requires.Apps, bindings, registryName2URL, visiting, visited, resolved); err != nil {
 		return nil, err
 	}
 	// Filter resolved down to the parent's top-level dep names — the
@@ -56,16 +59,30 @@ func (s *Server) installDependencies(userID int64, manifest *sdk.Manifest, proje
 	return out, nil
 }
 
+func appDepsNeedResolution(deps []sdk.RequiredAppRef, bindings map[string]any) bool {
+	for _, dep := range deps {
+		if !dep.Optional || appDepExplicitlySelected(dep.Name, bindings) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) installDepsRecursive(
 	userID int64,
 	projectID string,
 	deps []sdk.RequiredAppRef,
+	bindings map[string]any,
 	registryName2URL map[string]string,
 	visiting, visited map[string]bool,
 	resolved map[string]int64,
 ) error {
 	for _, dep := range deps {
 		key := normalizeAppName(dep.Name)
+		if dep.Optional && !appDepExplicitlySelected(dep.Name, bindings) {
+			log.Printf("[APPS-DEP] optional dep %q not selected — skipping", dep.Name)
+			continue
+		}
 		if visited[key] {
 			continue
 		}
@@ -107,7 +124,7 @@ func (s *Server) installDepsRecursive(
 		// (topo order — leaves first).
 		if len(depManifest.Requires.Apps) > 0 {
 			visiting[key] = true
-			if err := s.installDepsRecursive(userID, projectID, depManifest.Requires.Apps, registryName2URL, visiting, visited, resolved); err != nil {
+			if err := s.installDepsRecursive(userID, projectID, depManifest.Requires.Apps, bindings, registryName2URL, visiting, visited, resolved); err != nil {
 				if dep.Optional {
 					log.Printf("[APPS-DEP] optional dep %q sub-deps failed: %v", dep.Name, err)
 					visiting[key] = false
@@ -134,6 +151,14 @@ func (s *Server) installDepsRecursive(
 		visited[key] = true
 	}
 	return nil
+}
+
+func appDepExplicitlySelected(name string, bindings map[string]any) bool {
+	if bindings == nil {
+		return false
+	}
+	raw, ok := bindings[name]
+	return ok && raw != nil
 }
 
 // findInstalledApp resolves an app dep by name to a concrete install_id
@@ -381,6 +406,9 @@ func (s *Server) reconcileAppDepBindings(installID int64) (bool, error) {
 
 	changed := false
 	for _, dep := range m.Requires.Apps {
+		if dep.Optional {
+			continue
+		}
 		if _, present := bindings[dep.Name]; present {
 			continue // operator may have set null; respect it
 		}
