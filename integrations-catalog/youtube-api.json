@@ -108,6 +108,72 @@
       }
     },
     {
+      "name": "query_analytics_report",
+      "description": "Query YouTube Analytics API reports for the authenticated channel. Use ids='channel==MINE', dimensions='day', and metrics such as views, estimatedMinutesWatched, subscribersGained, subscribersLost, likes, comments, shares for historical charts.",
+      "method": "GET",
+      "path": "https://youtubeanalytics.googleapis.com/v2/reports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "string",
+            "description": "Report owner. Use channel==MINE for the authenticated channel.",
+            "default": "channel==MINE"
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Start date in YYYY-MM-DD format."
+          },
+          "endDate": {
+            "type": "string",
+            "description": "End date in YYYY-MM-DD format."
+          },
+          "metrics": {
+            "type": "string",
+            "description": "Comma-separated YouTube Analytics metrics.",
+            "default": "views,estimatedMinutesWatched,subscribersGained,subscribersLost,likes,comments,shares"
+          },
+          "dimensions": {
+            "type": "string",
+            "description": "Comma-separated dimensions. Use day for time-series charts.",
+            "default": "day"
+          },
+          "filters": {
+            "type": "string",
+            "description": "Optional report filters, for example video==VIDEO_ID."
+          },
+          "sort": {
+            "type": "string",
+            "description": "Optional sort expression.",
+            "default": "day"
+          },
+          "maxResults": {
+            "type": "integer",
+            "description": "Optional max rows to return."
+          },
+          "startIndex": {
+            "type": "integer",
+            "description": "Optional one-based row offset."
+          }
+        },
+        "required": ["ids", "startDate", "endDate", "metrics"]
+      },
+      "mock_response": {
+        "kind": "youtubeAnalytics#resultTable",
+        "columnHeaders": [
+          { "name": "day", "columnType": "DIMENSION", "dataType": "STRING" },
+          { "name": "views", "columnType": "METRIC", "dataType": "INTEGER" },
+          { "name": "estimatedMinutesWatched", "columnType": "METRIC", "dataType": "INTEGER" },
+          { "name": "subscribersGained", "columnType": "METRIC", "dataType": "INTEGER" }
+        ],
+        "rows": [
+          ["2026-05-20", 1200, 4300, 18],
+          ["2026-05-21", 1540, 5100, 22],
+          ["2026-05-22", 1425, 4890, 16]
+        ]
+      }
+    },
+    {
       "name": "get_channel",
       "description": "Get detailed info about a YouTube channel by ID. Returns statistics (subscribers, views, videos), branding, description, and content details including uploads playlist ID",
       "method": "GET",

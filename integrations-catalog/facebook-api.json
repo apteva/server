@@ -264,9 +264,9 @@
     },
     {
       "name": "get_page_insights",
-      "description": "Get analytics data for a Facebook page",
+      "description": "Get analytics data for a Facebook page through the Meta Graph API",
       "method": "GET",
-      "path": "/get-page-insights",
+      "path": "/{pageId}/insights",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -274,15 +274,10 @@
             "type": "string",
             "description": "Facebook page ID"
           },
-          "metrics": {
-            "type": "array",
-            "description": "Metrics to retrieve",
-            "items": {
-              "type": "string"
-            },
-            "default": [
-              "page_fans"
-            ]
+          "metric": {
+            "type": "string",
+            "description": "Comma-separated metrics to retrieve",
+            "default": "page_fans"
           },
           "period": {
             "type": "string",
@@ -313,6 +308,10 @@
               "this_month",
               "last_month"
             ]
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token."
           }
         },
         "required": [
@@ -568,6 +567,126 @@
       },
       "mock_response": {
         "id": "17900000000000099"
+      }
+    },
+    {
+      "name": "get_account_media",
+      "description": "Retrieve Instagram Business media posts through the Meta Graph API. Requires the page-level access token for the Facebook Page linked to the IG Business account.",
+      "method": "GET",
+      "path": "/{instagramAccountId}/media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Instagram Business Account ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of media items to retrieve",
+            "default": 25,
+            "maximum": 100
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields to retrieve",
+            "default": "id,media_type,media_url,thumbnail_url,permalink,caption,timestamp,like_count,comments_count"
+          },
+          "since": {
+            "type": "string",
+            "description": "Unix timestamp or strtotime data value for lower bound"
+          },
+          "until": {
+            "type": "string",
+            "description": "Unix timestamp or strtotime data value for upper bound"
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token for the linked Facebook Page."
+          }
+        },
+        "required": ["instagramAccountId"]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "17900000000000099",
+            "caption": "Launch day!",
+            "media_type": "IMAGE",
+            "media_url": "https://scontent.cdninstagram.com/mock-media1.jpg",
+            "permalink": "https://www.instagram.com/p/CmOckPost1/",
+            "timestamp": "2026-05-22T12:00:00+0000",
+            "like_count": 210,
+            "comments_count": 18
+          }
+        ],
+        "paging": {
+          "cursors": {}
+        }
+      }
+    },
+    {
+      "name": "get_account_insights",
+      "description": "Fetch Instagram Business account insights through the Meta Graph API. Requires the page-level access token for the Facebook Page linked to the IG Business account.",
+      "method": "GET",
+      "path": "/{instagramAccountId}/insights",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Instagram Business Account ID"
+          },
+          "metric": {
+            "type": "string",
+            "description": "Comma-separated metrics to retrieve",
+            "default": "reach,follower_count,accounts_engaged,total_interactions"
+          },
+          "metric_type": {
+            "type": "string",
+            "description": "Metric type for IG insights",
+            "default": "time_series"
+          },
+          "period": {
+            "type": "string",
+            "description": "Time period for insights",
+            "enum": ["day", "week", "days_28"],
+            "default": "day"
+          },
+          "since": {
+            "type": "string",
+            "description": "Unix timestamp or YYYY-MM-DD lower bound"
+          },
+          "until": {
+            "type": "string",
+            "description": "Unix timestamp or YYYY-MM-DD upper bound"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token for the linked Facebook Page."
+          }
+        },
+        "required": ["instagramAccountId"]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "name": "reach",
+            "period": "day",
+            "values": [
+              {
+                "value": 1980,
+                "end_time": "2026-05-22T07:00:00+0000"
+              }
+            ],
+            "title": "Reach",
+            "id": "17841400000000000/insights/reach/day"
+          }
+        ]
       }
     },
     {
