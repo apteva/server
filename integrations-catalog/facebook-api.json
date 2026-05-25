@@ -644,7 +644,7 @@
           "metric": {
             "type": "string",
             "description": "Comma-separated metrics to retrieve",
-            "default": "reach,follower_count,accounts_engaged,total_interactions"
+            "default": "reach,follower_count"
           },
           "metric_type": {
             "type": "string",
