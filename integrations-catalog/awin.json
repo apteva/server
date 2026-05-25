@@ -1,0 +1,111 @@
+{
+  "slug": "awin",
+  "name": "Awin",
+  "description": "Awin publisher API for program discovery, program details, offers/vouchers, link builder, and publisher transaction reporting.",
+  "logo": "https://www.google.com/s2/favicons?domain=awin.com&sz=128",
+  "categories": ["affiliate", "publisher", "programs", "offers", "links", "stats", "marketing"],
+  "base_url": "https://api.awin.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Awin API token",
+        "description": "Personal API token from Awin API Credentials.",
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "programs_list",
+    "input": { "publisherId": "0" },
+    "expect_status": [200, 400, 403]
+  },
+  "tools": [
+    {
+      "name": "programs_list",
+      "description": "List Awin advertiser programmes for a publisher, optionally filtered by relationship and country.",
+      "method": "GET",
+      "path": "/publishers/{publisherId}/programmes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publisherId": { "type": "string" },
+          "relationship": { "type": "string", "enum": ["joined", "pending", "suspended", "rejected", "notjoined"] },
+          "countryCode": { "type": "string", "description": "ISO 3166 alpha-2 country code such as GB, DE, FR." },
+          "includeHidden": { "type": "boolean" }
+        },
+        "required": ["publisherId"]
+      }
+    },
+    {
+      "name": "program_details_get",
+      "description": "Get KPIs, description, and commission range for one Awin advertiser programme.",
+      "method": "GET",
+      "path": "/publishers/{publisherId}/programmedetails",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publisherId": { "type": "string" },
+          "advertiserId": { "type": "integer" },
+          "relationship": { "type": "string", "enum": ["joined", "pending", "suspended", "rejected", "notjoined", "any"], "default": "joined" }
+        },
+        "required": ["publisherId", "advertiserId"]
+      }
+    },
+    {
+      "name": "offers_list",
+      "description": "Retrieve Awin promotions and voucher codes from joined and non-joined advertisers.",
+      "method": "POST",
+      "path": "/publisher/{publisherId}/promotions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publisherId": { "type": "string" },
+          "filters": { "type": "object", "description": "Awin filters object: advertiserIds, exclusiveOnly, membership, regionCodes, status, type, updatedSince." },
+          "pagination": { "type": "object", "description": "Awin pagination object: page and pageSize." }
+        },
+        "required": ["publisherId"]
+      }
+    },
+    {
+      "name": "tracking_link_generate",
+      "description": "Generate one or a batch of Awin tracking links/deeplinks for an advertiser.",
+      "method": "POST",
+      "path": "/publishers/{publisherId}/linkbuilder/generate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publisherId": { "type": "string" },
+          "advertiserId": { "type": "integer" },
+          "destinationUrl": { "type": "string" },
+          "parameters": { "type": "object", "description": "Awin click parameters such as campaign, clickref, clickref2 through clickref6." },
+          "shorten": { "type": "boolean" }
+        },
+        "required": ["publisherId", "advertiserId"]
+      }
+    },
+    {
+      "name": "transactions_list",
+      "description": "List publisher transactions for a date range and optional advertiser/status filters.",
+      "method": "GET",
+      "path": "/publishers/{publisherId}/transactions/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publisherId": { "type": "string" },
+          "startDate": { "type": "string", "description": "Required by Awin transaction API, ISO date-time." },
+          "endDate": { "type": "string", "description": "Required by Awin transaction API, ISO date-time." },
+          "dateType": { "type": "string", "enum": ["transaction", "validation", "amendment"], "default": "transaction" },
+          "advertiserId": { "type": "string" },
+          "showBasketProducts": { "type": "boolean" }
+        },
+        "required": ["publisherId", "startDate", "endDate"]
+      }
+    }
+  ]
+}

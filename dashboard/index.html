@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Apteva</title>
 
-    <!-- Favicon. SVG goes first so Safari dark mode can use a dark
-         tab-matched tile instead of putting the transparent mark on a
-         white rounded square. PNG remains the fallback; apple-touch-icon
-         stays opaque for iOS/macOS surfaces that expect an app tile. -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20260523" />
-    <link rel="icon" type="image/png" sizes="512x512" href="/favicon.png?v=20260523" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=20260523" />
+    <!-- Favicons. Safari adds a border around dark tiles, so every
+         browser-advertised icon uses a tab-gray tile behind the orange mark. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon-tab.svg?v=20260525g" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/favicon-tab.png?v=20260525g" />
+    <link rel="shortcut icon" href="/favicon-tab.ico?v=20260525g" />
+    <link rel="mask-icon" href="/safari-pinned-tab.svg?v=20260525g" color="#ff9500" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon-tab.png?v=20260525g" />
 
     <!-- Theme bootstrap — runs synchronously before any render so the
          first paint already has the right data-theme/data-mode set.

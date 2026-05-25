@@ -1,0 +1,118 @@
+{
+  "slug": "partnerstack",
+  "name": "PartnerStack",
+  "description": "PartnerStack partner API for marketplace programs, owned partnerships, transactions, rewards, and payouts.",
+  "logo": "https://www.google.com/s2/favicons?domain=partnerstack.com&sz=128",
+  "categories": ["affiliate", "publisher", "programs", "links", "stats", "partner"],
+  "base_url": "https://api.partnerstack.com/api/v2",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "PartnerStack JWT",
+        "description": "PartnerStack partner API bearer token/JWT.",
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "marketplace_programs_list",
+    "input": { "limit": 1 },
+    "expect_status": [200]
+  },
+  "tools": [
+    {
+      "name": "marketplace_programs_list",
+      "description": "List active marketplace-listed PartnerStack programs.",
+      "method": "GET",
+      "path": "/marketplace/programs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "min_created": { "type": "integer" },
+          "max_created": { "type": "integer" },
+          "category": { "type": "string" },
+          "limit": { "type": "integer", "default": 10 },
+          "starting_after": { "type": "string" },
+          "ending_before": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "marketplace_program_get",
+      "description": "Retrieve one PartnerStack marketplace program by company_key.",
+      "method": "GET",
+      "path": "/marketplace/programs/{company_key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "company_key": { "type": "string" }
+        },
+        "required": ["company_key"]
+      }
+    },
+    {
+      "name": "partnerships_list",
+      "description": "List partnerships you manage or own, optionally including offers.",
+      "method": "GET",
+      "path": "/partnerships",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_by": { "type": "string", "enum": ["-created_at", "created_at", "-updated_at", "updated_at"] },
+          "has_sub_id": { "type": "string", "enum": ["true", "false", "null"] },
+          "include_offers": { "type": "boolean" },
+          "include_archived": { "type": "boolean" },
+          "limit": { "type": "integer", "default": 10 },
+          "starting_after": { "type": "string" },
+          "ending_before": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "transactions_list",
+      "description": "List PartnerStack transactions sorted by creation date.",
+      "method": "GET",
+      "path": "/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "min_created": { "type": "integer" },
+          "max_created": { "type": "integer" },
+          "order_by": { "type": "string", "enum": ["-created_at", "created_at"] },
+          "limit": { "type": "integer", "default": 10 },
+          "starting_after": { "type": "string" },
+          "ending_before": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "rewards_list",
+      "description": "List PartnerStack rewards with company, status, date, group, customer, and pagination filters.",
+      "method": "GET",
+      "path": "/rewards",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "company_key": { "type": "string" },
+          "payment_status": { "type": "string" },
+          "status": { "type": "string" },
+          "min_created": { "type": "integer" },
+          "max_created": { "type": "integer" },
+          "order_by": { "type": "string" },
+          "group_key": { "type": "string" },
+          "customer_key": { "type": "string" },
+          "currency": { "type": "string" },
+          "limit": { "type": "integer", "default": 10 },
+          "starting_after": { "type": "string" },
+          "ending_before": { "type": "string" }
+        }
+      }
+    }
+  ]
+}

@@ -19,13 +19,13 @@ import (
 	"github.com/apteva/server/apps/framework"
 )
 
-// perThreadEnabled gates the "one core thread per chat" routing. On
-// by default — chat messages route to a dedicated per-chat core
-// thread so a busy main can't block user-facing replies. Set
-// CHANNELCHAT_PER_THREAD=0 to revert to the legacy "everything goes
-// to main" behavior (single env-var flip, no DB rollback needed).
+// perThreadEnabled gates the "one core thread per chat" routing. Off
+// by default — chat messages route to main, matching the rest of the
+// agent's durable context. Set CHANNELCHAT_PER_THREAD=1 to opt into a
+// dedicated per-chat core thread later without a schema or handler
+// rewrite.
 func perThreadEnabled() bool {
-	return os.Getenv("CHANNELCHAT_PER_THREAD") != "0"
+	return os.Getenv("CHANNELCHAT_PER_THREAD") == "1"
 }
 
 // chatThreadDirectiveSuffix is appended to main's directive when
@@ -89,10 +89,10 @@ var spawnedChatThreads sync.Map // key: "instID/chatID" → directiveHash string
 // request via the standard auth middleware.
 
 type handlers struct {
-	store      *store
-	hub        *hub
-	bus        *framework.AppBus
-	instances  InstanceResolver
+	store     *store
+	hub       *hub
+	bus       *framework.AppBus
+	instances InstanceResolver
 }
 
 // InstanceResolver is the small callback the app needs from
@@ -333,11 +333,12 @@ func (h *handlers) deleteMessages(w http.ResponseWriter, r *http.Request) {
 // GET /api/apps/channel-chat/stream?scope=user
 //
 // Two modes:
-//   chat_id=… — per-chat panel stream (back-compat). Backfills since=
-//               from the DB then live-tails via the per-chat hub.
-//   scope=user — global notifications stream. Live-tails every message
-//                inserted into any chat the user owns; no backfill (the
-//                tray seeds itself via /unread-summary on connect).
+//
+//	chat_id=… — per-chat panel stream (back-compat). Backfills since=
+//	            from the DB then live-tails via the per-chat hub.
+//	scope=user — global notifications stream. Live-tails every message
+//	             inserted into any chat the user owns; no backfill (the
+//	             tray seeds itself via /unread-summary on connect).
 func (h *handlers) stream(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
 	scope := r.URL.Query().Get("scope")
 	if scope == "user" {

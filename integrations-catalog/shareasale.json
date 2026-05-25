@@ -1,0 +1,130 @@
+{
+  "slug": "shareasale",
+  "name": "ShareASale",
+  "description": "ShareASale affiliate API for daily/monthly stats, merchant creatives, products, invalid links, and merchant search. Requests are signed with ShareASale's timestamped SHA-256 authentication headers.",
+  "logo": "https://www.google.com/s2/favicons?domain=shareasale.com&sz=128",
+  "categories": ["affiliate", "publisher", "programs", "products", "links", "stats", "awin"],
+  "base_url": "https://shareasale.com",
+  "auth": {
+    "types": ["api_key"],
+    "shareasale": {
+      "secret_field": "api_secret"
+    },
+    "query_params": {
+      "affiliateId": "{{affiliate_id}}",
+      "token": "{{token}}",
+      "version": "{{version}}"
+    },
+    "credential_fields": [
+      {
+        "name": "affiliate_id",
+        "label": "Affiliate ID",
+        "description": "ShareASale affiliate ID.",
+        "type": "text"
+      },
+      {
+        "name": "token",
+        "label": "API token",
+        "description": "ShareASale API token.",
+        "type": "password"
+      },
+      {
+        "name": "api_secret",
+        "label": "API secret",
+        "description": "ShareASale API secret key used to sign requests.",
+        "type": "password"
+      },
+      {
+        "name": "version",
+        "label": "API version",
+        "description": "ShareASale API version, usually 1.7 or the version shown in Tools > Affiliate API.",
+        "type": "text"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "daily_activity",
+      "description": "Today/daily stats report from ShareASale.",
+      "method": "GET",
+      "path": "/x.cfm?action=dailyActivity",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sortcol": { "type": "string" },
+          "sortdir": { "type": "string", "enum": ["ASC", "DESC"] },
+          "XMLFormat": { "type": "integer", "enum": [0, 1] }
+        }
+      }
+    },
+    {
+      "name": "monthly_summary",
+      "description": "Monthly summary report from ShareASale.",
+      "method": "GET",
+      "path": "/x.cfm?action=monthlySummary",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "month": { "type": "integer" },
+          "year": { "type": "integer" },
+          "XMLFormat": { "type": "integer", "enum": [0, 1] }
+        }
+      }
+    },
+    {
+      "name": "merchant_creatives",
+      "description": "Retrieve merchant creatives/banners.",
+      "method": "GET",
+      "path": "/x.cfm?action=merchantCreative",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "merchantId": { "type": "integer" },
+          "bannerId": { "type": "integer" },
+          "XMLFormat": { "type": "integer", "enum": [0, 1] }
+        }
+      }
+    },
+    {
+      "name": "products_search",
+      "description": "Search ShareASale products by merchant or keyword.",
+      "method": "GET",
+      "path": "/x.cfm?action=productSearch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": { "type": "string" },
+          "merchantId": { "type": "integer" },
+          "category": { "type": "string" },
+          "XMLFormat": { "type": "integer", "enum": [0, 1] }
+        }
+      }
+    },
+    {
+      "name": "invalid_links",
+      "description": "Retrieve invalid or broken ShareASale affiliate links.",
+      "method": "GET",
+      "path": "/x.cfm?action=invalidLinks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "XMLFormat": { "type": "integer", "enum": [0, 1] }
+        }
+      }
+    },
+    {
+      "name": "merchants_search",
+      "description": "Search ShareASale merchants/programs.",
+      "method": "GET",
+      "path": "/x.cfm?action=merchantSearch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": { "type": "string" },
+          "category": { "type": "string" },
+          "XMLFormat": { "type": "integer", "enum": [0, 1] }
+        }
+      }
+    }
+  ]
+}

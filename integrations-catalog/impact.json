@@ -1,0 +1,106 @@
+{
+  "slug": "impact",
+  "name": "Impact",
+  "description": "Impact publisher API for managing joined programs, retrieving campaign details, creating tracking links, and pulling action/conversion data.",
+  "logo": "https://www.google.com/s2/favicons?domain=impact.com&sz=128",
+  "categories": ["affiliate", "publisher", "programs", "links", "stats", "marketing"],
+  "base_url": "https://api.impact.com",
+  "auth": {
+    "types": ["basic"],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "account_sid",
+        "label": "Account SID",
+        "description": "Impact media partner account SID used in /Mediapartners/{AccountSID} paths.",
+        "type": "text"
+      },
+      {
+        "name": "auth_token",
+        "label": "Auth token",
+        "description": "Impact API auth token.",
+        "type": "password"
+      },
+      {
+        "name": "basic_auth",
+        "label": "Basic auth value",
+        "description": "Base64 encoding of AccountSID:AuthToken.",
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "programs_list",
+    "input": { "PageSize": 1 },
+    "expect_status": [200]
+  },
+  "tools": [
+    {
+      "name": "programs_list",
+      "description": "List Impact programs/campaigns the publisher has signed up to. Use InsertionOrderStatus=Active to focus on active contracts.",
+      "method": "GET",
+      "path": "/Mediapartners/{{credential.account_sid}}/Campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "InsertionOrderStatus": { "type": "string", "enum": ["Active", "Expired"] },
+          "PageSize": { "type": "integer", "default": 100 },
+          "Page": { "type": "integer", "default": 1 }
+        }
+      }
+    },
+    {
+      "name": "program_get",
+      "description": "Retrieve one Impact program/campaign by CampaignId.",
+      "method": "GET",
+      "path": "/Mediapartners/{{credential.account_sid}}/Campaigns/{campaign_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": { "type": "string", "description": "Impact CampaignId." }
+        },
+        "required": ["campaign_id"]
+      }
+    },
+    {
+      "name": "tracking_link_create",
+      "description": "Create an Impact tracking or deeplink URL for a program.",
+      "method": "POST",
+      "path": "/Mediapartners/{{credential.account_sid}}/Programs/{program_id}/TrackingLinks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "program_id": { "type": "string", "description": "Impact ProgramId / CampaignId." },
+          "DeepLink": { "type": "string", "description": "Optional advertiser destination URL." },
+          "SubId1": { "type": "string" },
+          "SubId2": { "type": "string" },
+          "SubId3": { "type": "string" },
+          "SharedId": { "type": "string" }
+        },
+        "required": ["program_id"]
+      }
+    },
+    {
+      "name": "actions_list",
+      "description": "List Impact actions/conversions with optional campaign, state, and date filters.",
+      "method": "GET",
+      "path": "/Mediapartners/{{credential.account_sid}}/Actions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CampaignId": { "type": "string" },
+          "State": { "type": "string" },
+          "ActionDateStart": { "type": "string" },
+          "ActionDateEnd": { "type": "string" },
+          "StartDate": { "type": "string" },
+          "EndDate": { "type": "string" },
+          "PageSize": { "type": "integer", "default": 100 },
+          "Page": { "type": "integer", "default": 1 }
+        }
+      }
+    }
+  ]
+}

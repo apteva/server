@@ -1,0 +1,102 @@
+{
+  "slug": "amazon-associates",
+  "name": "Amazon Associates",
+  "description": "Amazon Associates Creators API for affiliate product search and product detail retrieval with partner-tag attribution.",
+  "logo": "https://www.google.com/s2/favicons?domain=affiliate-program.amazon.com&sz=128",
+  "categories": ["affiliate", "publisher", "products", "links", "amazon", "marketing"],
+  "base_url": "https://creatorsapi.amazon",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json",
+      "x-marketplace": "{{marketplace}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Creators API access token",
+        "description": "OAuth 2.0 access token from Amazon Creators API token endpoint. v2.x credentials may need the version suffix in this field, for example '<token>, Version 2.1'.",
+        "type": "password"
+      },
+      {
+        "name": "marketplace",
+        "label": "Marketplace",
+        "description": "Marketplace domain such as www.amazon.com or www.amazon.co.uk.",
+        "type": "text"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "items_search",
+      "description": "Search Amazon catalog items and return attributed detailPageURL/searchURL values when partnerTag is supplied.",
+      "method": "POST",
+      "path": "/catalog/v1/searchItems",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "partnerTag": { "type": "string" },
+          "marketplace": { "type": "string", "default": "www.amazon.com" },
+          "keywords": { "type": "string" },
+          "searchIndex": { "type": "string", "default": "All" },
+          "brand": { "type": "string" },
+          "browseNodeId": { "type": "string" },
+          "itemCount": { "type": "integer", "default": 10 },
+          "itemPage": { "type": "integer", "default": 1 },
+          "resources": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["partnerTag"]
+      }
+    },
+    {
+      "name": "items_get",
+      "description": "Retrieve Amazon item details by ASIN, including attributed detailPageURL when partnerTag is supplied.",
+      "method": "POST",
+      "path": "/catalog/v1/getItems",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "partnerTag": { "type": "string" },
+          "marketplace": { "type": "string", "default": "www.amazon.com" },
+          "itemIds": { "type": "array", "items": { "type": "string" }, "description": "ASINs, up to 10." },
+          "itemIdType": { "type": "string", "default": "ASIN" },
+          "resources": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["partnerTag", "itemIds"]
+      }
+    },
+    {
+      "name": "variations_get",
+      "description": "Get product variations for an Amazon parent/child ASIN.",
+      "method": "POST",
+      "path": "/catalog/v1/getVariations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "partnerTag": { "type": "string" },
+          "marketplace": { "type": "string", "default": "www.amazon.com" },
+          "asin": { "type": "string" },
+          "resources": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["partnerTag", "asin"]
+      }
+    },
+    {
+      "name": "browse_nodes_get",
+      "description": "Fetch Amazon browse node/category information.",
+      "method": "POST",
+      "path": "/catalog/v1/getBrowseNodes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "partnerTag": { "type": "string" },
+          "marketplace": { "type": "string", "default": "www.amazon.com" },
+          "browseNodeIds": { "type": "array", "items": { "type": "string" } },
+          "resources": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["partnerTag", "browseNodeIds"]
+      }
+    }
+  ]
+}

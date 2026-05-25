@@ -15,7 +15,8 @@
       "bearer"
     ],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Authorization": "Bearer {{token}}",
+      "Duffel-Version": "v2"
     },
     "credential_fields": [
       {
@@ -28,58 +29,132 @@
   "tools": [
     {
       "name": "search_flights",
-      "description": "Search for flight offers",
-      "method": "GET",
-      "path": "/search-flights",
+      "description": "Create a Duffel offer request and return matching flight offers. Send body as { data: { slices, passengers, cabin_class?, max_connections? } }. Query options: return_offers, supplier_timeout, view.",
+      "method": "POST",
+      "path": "/air/offer_requests",
+      "query_params": [
+        "return_offers",
+        "supplier_timeout",
+        "view"
+      ],
       "input_schema": {
         "type": "object",
         "properties": {
-          "slices": {
-            "type": "array",
-            "description": "Flight slices with origin, destination, departure_date"
+          "data": {
+            "type": "object",
+            "description": "Duffel offer request body, containing slices, passengers, optional cabin_class, and optional max_connections. Use max_connections=0 for direct flights only.",
+            "properties": {
+              "slices": {
+                "type": "array",
+                "description": "Flight slices with origin, destination, departure_date"
+              },
+              "passengers": {
+                "type": "array",
+                "description": "Passenger types"
+              },
+              "cabin_class": {
+                "type": "string",
+                "enum": [
+                  "economy",
+                  "premium_economy",
+                  "business",
+                  "first"
+                ]
+              },
+              "max_connections": {
+                "type": "integer",
+                "description": "Maximum connections per slice. 0 means direct flights only; 1 allows one connection."
+              }
+            },
+            "required": [
+              "slices",
+              "passengers"
+            ]
           },
-          "passengers": {
-            "type": "array",
-            "description": "Passenger types"
+          "return_offers": {
+            "type": "boolean",
+            "description": "Return offers in the offer request response. Defaults to true."
           },
-          "cabin_class": {
+          "supplier_timeout": {
+            "type": "integer",
+            "description": "Maximum supplier search wait in milliseconds. Duffel accepts 2000-60000."
+          },
+          "view": {
             "type": "string",
             "enum": [
-              "economy",
-              "premium_economy",
-              "business",
-              "first"
+              "offers",
+              "itineraries"
             ]
           }
         },
         "required": [
-          "slices",
-          "passengers"
+          "data"
         ]
       }
     },
     {
-      "name": "create_order",
-      "description": "Book a flight offer",
-      "method": "POST",
-      "path": "/create-order",
+      "name": "get_offer",
+      "description": "Get a single offer, optionally including available services.",
+      "method": "GET",
+      "path": "/air/offers/{offer_id}",
+      "query_params": [
+        "return_available_services"
+      ],
       "input_schema": {
         "type": "object",
         "properties": {
           "offer_id": {
             "type": "string"
           },
-          "passengers": {
-            "type": "array"
-          },
-          "payments": {
-            "type": "array"
+          "return_available_services": {
+            "type": "boolean"
           }
         },
         "required": [
-          "offer_id",
-          "passengers",
-          "payments"
+          "offer_id"
+        ]
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Create a Duffel order. Send body as { data: { selected_offers, passengers, payments?, type? } }.",
+      "method": "POST",
+      "path": "/air/orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "selected_offers": {
+                "type": "array",
+                "description": "Offer IDs to book."
+              },
+              "passengers": {
+                "type": "array"
+              },
+              "payments": {
+                "type": "array"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "instant",
+                  "hold"
+                ]
+              },
+              "services": {
+                "type": "array"
+              }
+            },
+            "required": [
+              "selected_offers",
+              "passengers"
+            ]
+          }
+        },
+        "required": [
+          "data"
         ]
       }
     },
@@ -87,7 +162,7 @@
       "name": "get_order",
       "description": "Get order details",
       "method": "GET",
-      "path": "/get-order",
+      "path": "/air/orders/{order_id}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -104,7 +179,16 @@
       "name": "list_orders",
       "description": "List all orders",
       "method": "GET",
-      "path": "/list-orders",
+      "path": "/air/orders",
+      "query_params": [
+        "limit",
+        "after",
+        "before",
+        "booking_reference",
+        "offer_id",
+        "awaiting_payment",
+        "sort"
+      ],
       "input_schema": {
         "type": "object",
         "properties": {
@@ -113,6 +197,21 @@
           },
           "after": {
             "type": "string"
+          },
+          "before": {
+            "type": "string"
+          },
+          "booking_reference": {
+            "type": "string"
+          },
+          "offer_id": {
+            "type": "string"
+          },
+          "awaiting_payment": {
+            "type": "boolean"
+          },
+          "sort": {
+            "type": "string"
           }
         }
       }
@@ -120,8 +219,8 @@
     {
       "name": "cancel_order",
       "description": "Cancel an order",
-      "method": "GET",
-      "path": "/cancel-order",
+      "method": "POST",
+      "path": "/air/orders/{order_id}/actions/cancel",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -138,7 +237,10 @@
       "name": "get_seat_maps",
       "description": "Get available seat maps",
       "method": "GET",
-      "path": "/get-seat-maps",
+      "path": "/air/seat_maps",
+      "query_params": [
+        "offer_id"
+      ],
       "input_schema": {
         "type": "object",
         "properties": {
@@ -152,79 +254,93 @@
       }
     },
     {
-      "name": "select_seats",
-      "description": "Select seats for an order",
-      "method": "GET",
-      "path": "/select-seats",
+      "name": "add_services",
+      "description": "Add selected services such as seats or bags to an existing order.",
+      "method": "POST",
+      "path": "/air/orders/{order_id}/services",
       "input_schema": {
         "type": "object",
         "properties": {
-          "offer_id": {
+          "order_id": {
             "type": "string"
           },
-          "services": {
-            "type": "array"
+          "data": {
+            "type": "object",
+            "properties": {
+              "add_services": {
+                "type": "array"
+              },
+              "payment": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "add_services"
+            ]
           }
         },
         "required": [
-          "offer_id",
-          "services"
-        ]
-      }
-    },
-    {
-      "name": "add_baggage",
-      "description": "Add baggage to an order",
-      "method": "GET",
-      "path": "/add-baggage",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "offer_id": {
-            "type": "string"
-          },
-          "services": {
-            "type": "array"
-          }
-        },
-        "required": [
-          "offer_id",
-          "services"
+          "order_id",
+          "data"
         ]
       }
     },
     {
       "name": "search_airports",
-      "description": "Search for airports",
+      "description": "List Duffel airports. Filter with iata_code or iata_country_code when available.",
       "method": "GET",
-      "path": "/search-airports",
+      "path": "/air/airports",
+      "query_params": [
+        "limit",
+        "after",
+        "before",
+        "iata_code",
+        "iata_country_code"
+      ],
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": {
+          "limit": {
+            "type": "number"
+          },
+          "after": {
+            "type": "string"
+          },
+          "before": {
+            "type": "string"
+          },
+          "iata_code": {
+            "type": "string"
+          },
+          "iata_country_code": {
             "type": "string"
           }
-        },
-        "required": [
-          "query"
-        ]
+        }
       }
     },
     {
       "name": "search_airlines",
-      "description": "Search for airlines",
+      "description": "List Duffel airlines.",
       "method": "GET",
-      "path": "/search-airlines",
+      "path": "/air/airlines",
+      "query_params": [
+        "limit",
+        "after",
+        "before"
+      ],
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": {
+          "limit": {
+            "type": "number"
+          },
+          "after": {
+            "type": "string"
+          },
+          "before": {
             "type": "string"
           }
-        },
-        "required": [
-          "query"
-        ]
+        }
       }
     }
   ]

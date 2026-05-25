@@ -1,0 +1,125 @@
+{
+  "slug": "sovrn",
+  "name": "Sovrn Commerce",
+  "description": "Sovrn Commerce publisher APIs for campaigns, merchant availability, link checks, affiliate link wrapping, and real-time transaction reports.",
+  "logo": "https://www.google.com/s2/favicons?domain=sovrn.com&sz=128",
+  "categories": ["affiliate", "publisher", "programs", "links", "stats", "marketing"],
+  "base_url": "https://rest.viglink.com/api",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "Authorization": "secret {{secret_key}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "secret_key",
+        "label": "Sovrn secret key",
+        "description": "Sovrn Commerce secret key used as 'Authorization: secret ...'.",
+        "type": "password"
+      },
+      {
+        "name": "commerce_api_key",
+        "label": "Commerce API key",
+        "description": "Campaign/site API key used by the link check and redirect URL tools.",
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "campaigns_list",
+    "input": { "search": "PRIMARY", "format": "json", "rowsPerPage": 1 },
+    "expect_status": [200]
+  },
+  "tools": [
+    {
+      "name": "campaigns_list",
+      "description": "List or search Sovrn Commerce campaigns by campaign name or campaignId.",
+      "method": "GET",
+      "path": "/account/campaigns/{search}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search": { "type": "string", "default": "PRIMARY" },
+          "format": { "type": "string", "default": "json" },
+          "rowsPerPage": { "type": "integer", "default": 100 },
+          "page": { "type": "integer" }
+        },
+        "required": ["search"]
+      }
+    },
+    {
+      "name": "link_check",
+      "description": "Check whether a destination URL can be monetized and optionally return an optimized Sovrn redirect link.",
+      "method": "GET",
+      "path": "https://api.viglink.com/api/link/?key={{credential.commerce_api_key}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "out": { "type": "string", "description": "Destination URL to test." },
+          "optimize": { "type": "boolean", "default": true },
+          "format": { "type": "string", "default": "json" },
+          "geo": { "type": "string" },
+          "fbu": { "type": "string" },
+          "bf": { "type": "string" }
+        },
+        "required": ["out"]
+      }
+    },
+    {
+      "name": "affiliate_link_url",
+      "description": "Build a Sovrn affiliate redirect URL for a destination without fetching it.",
+      "method": "GET",
+      "path": "https://sovrn.co?key={{credential.commerce_api_key}}",
+      "return_request_url": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "u": { "type": "string", "description": "Merchant destination URL." },
+          "cuid": { "type": "string", "description": "Custom user/content identifier." },
+          "utm_source": { "type": "string" },
+          "utm_medium": { "type": "string" },
+          "utm_campaign": { "type": "string" },
+          "utm_term": { "type": "string" },
+          "utm_content": { "type": "string" },
+          "bf": { "type": "string" },
+          "fbu": { "type": "string" }
+        },
+        "required": ["u"]
+      }
+    },
+    {
+      "name": "merchants_approved",
+      "description": "Retrieve approved Sovrn merchants with optional filters. Rate limited by Sovrn to 1 request every 10 seconds.",
+      "method": "POST",
+      "path": "https://viglink.io/merchants/rates/summaries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "integer" },
+          "filters": { "type": "array", "items": { "type": "object" }, "description": "Filter objects with type NAME, GROUP_ID, DOMAIN, GEO, PROGRAM_TYPE, or CATEGORY." },
+          "page": { "type": "integer", "default": 1 },
+          "pageSize": { "type": "integer", "default": 1000 }
+        },
+        "required": ["campaignId"]
+      }
+    },
+    {
+      "name": "transactions_report",
+      "description": "Query Sovrn commission events/transactions for one day by clickDate, commissionDate, or updateDate.",
+      "method": "GET",
+      "path": "https://viglink.io/v1/reports/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clickDate": { "type": "string", "description": "yyyy-mm-dd" },
+          "commissionDate": { "type": "string", "description": "yyyy-mm-dd" },
+          "updateDate": { "type": "string", "description": "yyyy-mm-dd" },
+          "campaignIds": { "type": "string", "description": "Comma-separated campaign IDs." },
+          "merchantGroupIds": { "type": "string", "description": "Comma-separated merchant group IDs." },
+          "programType": { "type": "string", "enum": ["CPC", "CPA"] }
+        }
+      }
+    }
+  ]
+}
