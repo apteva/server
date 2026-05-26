@@ -131,6 +131,10 @@
           "MediaUrl": {
             "type": "string",
             "description": "URL of media to include"
+          },
+          "StatusCallback": {
+            "type": "string",
+            "description": "URL for delivery status webhooks"
           }
         },
         "required": [
@@ -486,6 +490,28 @@
             "type": "string",
             "description": "Webhook URL for incoming SMS"
           },
+          "SmsMethod": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST",
+            "description": "HTTP method Twilio uses for incoming SMS webhooks"
+          },
+          "SmsFallbackUrl": {
+            "type": "string",
+            "description": "Fallback webhook URL if the incoming SMS webhook fails"
+          },
+          "SmsFallbackMethod": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST",
+            "description": "HTTP method Twilio uses for the incoming SMS fallback webhook"
+          },
           "VoiceUrl": {
             "type": "string",
             "description": "Webhook URL for incoming calls"
@@ -515,6 +541,28 @@
           "SmsUrl": {
             "type": "string",
             "description": "Webhook URL for incoming SMS"
+          },
+          "SmsMethod": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST",
+            "description": "HTTP method Twilio uses for incoming SMS webhooks"
+          },
+          "SmsFallbackUrl": {
+            "type": "string",
+            "description": "Fallback webhook URL if the incoming SMS webhook fails"
+          },
+          "SmsFallbackMethod": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST",
+            "description": "HTTP method Twilio uses for the incoming SMS fallback webhook"
           },
           "VoiceUrl": {
             "type": "string",

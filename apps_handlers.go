@@ -1732,16 +1732,12 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 			// installFromSource already wrote status='error' + error_message.
 			return
 		}
-		s.store.db.Exec(
-			`UPDATE app_installs SET version = ? WHERE id = ?`,
-			live.Version, installID,
-		)
 		// Refresh the bridge row so a manifest that adds new tools
 		// across versions surfaces them in mcp_servers.allowed_tools.
 		// installFromSource already calls registerAppMCP on the success
 		// path, but we call it again here to make the contract obvious
-		// (upgrade => MCP refreshed) and pick up the post-version-bump
-		// state in case the manifest_json was stamped later.
+		// (upgrade => MCP refreshed) after the atomic running+version
+		// install row update.
 		_ = s.registerAppMCP(installID)
 		// Backfill missing requires.apps bindings — covers the case
 		// where the parent was installed before the cascade learned

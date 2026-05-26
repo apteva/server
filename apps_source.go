@@ -520,6 +520,7 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 	s.store.db.Exec(
 		`UPDATE app_installs SET
 			status='running',
+			version=?,
 			local_pid=?,
 			local_bin_path=?,
 			local_port=?,
@@ -527,7 +528,7 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 			status_message='',
 			error_message=''
 		 WHERE id=?`,
-		pid, binPath, port, url, installID)
+		m.Version, pid, binPath, port, url, installID)
 	s.LoadInstalledApps()
 	// A new install becoming running may unblock requires.apps deps
 	// on parent installs that were waiting for it. Walk every running

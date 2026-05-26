@@ -49,21 +49,28 @@ func terminateProc(p *localProc, grace time.Duration) {
 		return
 	}
 	pid := p.cmd.Process.Pid
-	pgid, err := syscall.Getpgid(pid)
-	if err != nil {
-		pgid = pid
-	}
-	_ = syscall.Kill(-pgid, syscall.SIGTERM)
-	done := make(chan error, 1)
-	go func() { done <- p.cmd.Wait() }()
+	signalLocalProc(pid, syscall.SIGTERM)
 	select {
-	case <-done:
+	case <-p.done:
 	case <-time.After(grace):
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
-		<-done
+		signalLocalProc(pid, syscall.SIGKILL)
+		select {
+		case <-p.done:
+		case <-time.After(2 * time.Second):
+			log.Printf("[APPS-LOCAL] pid=%d did not report exit after SIGKILL", pid)
+		}
 	}
-	if p.logfile != nil {
-		_ = p.logfile.Close()
+}
+
+func signalLocalProc(pid int, sig syscall.Signal) {
+	pgid, err := syscall.Getpgid(pid)
+	if err == nil && pgid > 0 {
+		if err := syscall.Kill(-pgid, sig); err == nil {
+			return
+		}
+	}
+	if p, err := os.FindProcess(pid); err == nil {
+		_ = p.Signal(sig)
 	}
 }
 
@@ -91,6 +98,10 @@ type LocalSupervisor struct {
 
 	mu    sync.Mutex
 	procs map[int64]*localProc
+	// stopping is set by StopAll during process shutdown. It prevents a
+	// concurrent install/update goroutine from spawning a fresh sidecar
+	// after StopAll has already drained the maps.
+	stopping bool
 
 	buildMuG sync.Mutex
 	buildMu  map[string]*sync.Mutex
@@ -112,6 +123,7 @@ type localProc struct {
 	cmd       *exec.Cmd
 	port      int
 	logfile   io.Closer
+	done      chan struct{}
 	stoppedAt time.Time
 }
 
@@ -454,9 +466,29 @@ func (sup *LocalSupervisor) spawn(installID int64, appName, bin string, port int
 	// the caller will fire RetireOld(installID) after the DB +
 	// in-memory registry have been swung over to NEW, or
 	// rollbackToOld(installID) if NEW fails health.
+	done := make(chan struct{})
+	proc := &localProc{cmd: cmd, port: port, logfile: logf, done: done}
+	reap := func() {
+		defer close(done)
+		err := cmd.Wait()
+		log.Printf("[APPS-LOCAL] child exited install=%d pid=%d err=%v", installID, cmd.Process.Pid, err)
+		sup.mu.Lock()
+		if p, ok := sup.procs[installID]; ok && p.cmd == cmd {
+			p.stoppedAt = time.Now()
+			delete(sup.procs, installID)
+		}
+		sup.mu.Unlock()
+		_ = logf.Close()
+	}
 	sup.mu.Lock()
+	if sup.stopping {
+		sup.mu.Unlock()
+		go reap()
+		terminateProc(proc, 100*time.Millisecond)
+		return fmt.Errorf("local supervisor is stopping")
+	}
 	prev := sup.procs[installID]
-	sup.procs[installID] = &localProc{cmd: cmd, port: port, logfile: logf}
+	sup.procs[installID] = proc
 	sup.mu.Unlock()
 	if prev != nil && prev.cmd != nil && prev.cmd.Process != nil &&
 		processAlive(prev.cmd.Process.Pid) {
@@ -476,17 +508,7 @@ func (sup *LocalSupervisor) spawn(installID int64, appName, bin string, port int
 			prev.cmd.Process.Pid, installID)
 	}
 	// Reaper goroutine — log when the child exits unexpectedly.
-	go func() {
-		err := cmd.Wait()
-		log.Printf("[APPS-LOCAL] child exited install=%d pid=%d err=%v", installID, cmd.Process.Pid, err)
-		sup.mu.Lock()
-		if p, ok := sup.procs[installID]; ok && p.cmd == cmd {
-			p.stoppedAt = time.Now()
-			delete(sup.procs, installID)
-		}
-		sup.mu.Unlock()
-		_ = logf.Close()
-	}()
+	go reap()
 	return nil
 }
 
@@ -590,13 +612,15 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 		s.store.db.Exec(
 			`UPDATE app_installs SET
 				status='running',
+				version=?,
 				local_pid=0,
 				local_bin_path='',
 				local_port=0,
 				sidecar_url_override=?,
+				status_message='',
 				error_message=''
 			 WHERE id=?`,
-			"static://"+dir, installID)
+			m.Version, "static://"+dir, installID)
 		s.LoadInstalledApps()
 		s.reconcileAllAppDepBindings()
 		s.RemountStaticApps()
@@ -646,13 +670,15 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 	s.store.db.Exec(
 		`UPDATE app_installs SET
 			status='running',
+			version=?,
 			local_pid=?,
 			local_bin_path=?,
 			local_port=?,
 			sidecar_url_override=?,
+			status_message='',
 			error_message=''
 		 WHERE id=?`,
-		pid, binPath, port, url, installID)
+		m.Version, pid, binPath, port, url, installID)
 	s.LoadInstalledApps()
 	s.reconcileAllAppDepBindings()
 	if err := s.registerAppMCP(installID); err != nil {
@@ -1157,22 +1183,32 @@ func killOrphan(pid int) {
 // up. Concurrent — sidecars stop in parallel rather than serially.
 func (sup *LocalSupervisor) StopAll(grace time.Duration) {
 	sup.mu.Lock()
-	ids := make([]int64, 0, len(sup.procs))
-	for id := range sup.procs {
-		ids = append(ids, id)
+	sup.stopping = true
+	procs := make([]*localProc, 0, len(sup.procs))
+	for id, p := range sup.procs {
+		procs = append(procs, p)
+		delete(sup.procs, id)
 	}
 	sup.mu.Unlock()
-	if len(ids) == 0 {
+
+	sup.pendingMu.Lock()
+	for id, p := range sup.pending {
+		procs = append(procs, p)
+		delete(sup.pending, id)
+	}
+	sup.pendingMu.Unlock()
+
+	if len(procs) == 0 {
 		return
 	}
-	log.Printf("[APPS-LOCAL] StopAll: terminating %d sidecar(s)", len(ids))
+	log.Printf("[APPS-LOCAL] StopAll: terminating %d sidecar(s)", len(procs))
 	var wg sync.WaitGroup
-	for _, id := range ids {
+	for _, p := range procs {
 		wg.Add(1)
-		go func(id int64) {
+		go func(p *localProc) {
 			defer wg.Done()
-			_ = sup.Stop(id)
-		}(id)
+			terminateProc(p, grace)
+		}(p)
 	}
 	done := make(chan struct{})
 	go func() { wg.Wait(); close(done) }()
