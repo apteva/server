@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -758,6 +759,64 @@ func TestExecuteIntegrationTool_AuthQueryWithPathQuery(t *testing.T) {
 	}
 	if got := q.Get("ApiKey"); got != "secret" {
 		t.Errorf("ApiKey=%q, want secret", got)
+	}
+}
+
+func TestExecuteIntegrationTool_QueryParamArraysRepeatValues(t *testing.T) {
+	var declaredRanges []string
+	var genericRanges []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/declared/"):
+			declaredRanges = r.URL.Query()["ranges"]
+		case strings.HasPrefix(r.URL.Path, "/generic/"):
+			genericRanges = r.URL.Query()["ranges"]
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "fake-google-sheets",
+		BaseURL: srv.URL,
+		Auth:    AppAuthConfig{Types: []string{"oauth2"}},
+	}
+	declaredTool := &AppToolDef{
+		Name:        "batch_get",
+		Method:      "GET",
+		Path:        "/declared/{spreadsheetId}",
+		QueryParams: []string{"ranges"},
+	}
+	genericTool := &AppToolDef{
+		Name:   "batch_get_generic",
+		Method: "GET",
+		Path:   "/generic/{spreadsheetId}",
+	}
+	inputAny := map[string]any{
+		"spreadsheetId": "abc",
+		"ranges":        []any{"Sheet1!A1:B2", "Sheet2!C1:D2"},
+	}
+	if _, err := executeIntegrationTool(app, declaredTool, map[string]string{"access_token": "tok"}, inputAny, ""); err != nil {
+		t.Fatalf("execute declared: %v", err)
+	}
+	want := []string{"Sheet1!A1:B2", "Sheet2!C1:D2"}
+	if !reflect.DeepEqual(declaredRanges, want) {
+		t.Fatalf("declared ranges=%v, want %v", declaredRanges, want)
+	}
+
+	inputString := map[string]any{
+		"spreadsheetId": "abc",
+		"ranges":        []string{"Sheet1!A1:B2", "Sheet2!C1:D2"},
+	}
+	if _, err := executeIntegrationTool(app, genericTool, map[string]string{"access_token": "tok"}, inputString, ""); err != nil {
+		t.Fatalf("execute generic: %v", err)
+	}
+	if !reflect.DeepEqual(genericRanges, want) {
+		t.Fatalf("generic ranges=%v, want %v", genericRanges, want)
 	}
 }
 

@@ -841,6 +841,28 @@ func executeIntegrationToolWithRefresh(
 	return executeIntegrationTool(app, tool, credentials, input, worldID)
 }
 
+func addQueryValue(q neturl.Values, key string, v any) {
+	if v == nil {
+		return
+	}
+	switch vv := v.(type) {
+	case []any:
+		for _, item := range vv {
+			if item != nil {
+				q.Add(key, fmt.Sprintf("%v", item))
+			}
+		}
+	case []string:
+		for _, item := range vv {
+			if item != "" {
+				q.Add(key, item)
+			}
+		}
+	default:
+		q.Add(key, fmt.Sprintf("%v", vv))
+	}
+}
+
 // refreshOAuthAccessToken POSTs to the app's OAuth2 token endpoint with
 // grant_type=refresh_token and merges the response back into the credentials
 // map. Mutates credentials in place. Returns an error if the refresh fails.
@@ -1053,7 +1075,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	}
 	// Collect tool-declared query params from input. Skip empty-string
 	// values so optional fields don't become noisy ?foo= in the URL.
-	var toolQueryParts []string
+	toolQuery := neturl.Values{}
 	for _, name := range tool.QueryParams {
 		v, ok := input[name]
 		if !ok || v == nil {
@@ -1062,14 +1084,14 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		if str, isStr := v.(string); isStr && str == "" {
 			continue
 		}
-		toolQueryParts = append(toolQueryParts, fmt.Sprintf("%s=%v", name, v))
+		addQueryValue(toolQuery, name, v)
 	}
-	if len(toolQueryParts) > 0 {
+	if encoded := toolQuery.Encode(); encoded != "" {
 		sep := "&"
 		if !strings.Contains(url, "?") {
 			sep = "?"
 		}
-		url += sep + strings.Join(toolQueryParts, "&")
+		url += sep + encoded
 	}
 
 	// Build body for POST/PUT/PATCH
@@ -1196,7 +1218,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			if k == tool.BodyInput || k == tool.BodyRoot {
 				continue
 			}
-			q.Set(k, fmt.Sprintf("%v", v))
+			addQueryValue(q, k, v)
 		}
 		if encoded := q.Encode(); encoded != "" {
 			sep := "&"
