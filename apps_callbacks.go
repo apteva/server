@@ -774,6 +774,15 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		http.Error(w, "missing permission: "+string(sdk.PermAppsCall), http.StatusForbidden)
 		return
 	}
+	if body.Input == nil {
+		body.Input = map[string]any{}
+	}
+	var callerProjectID string
+	_ = s.store.db.QueryRow(
+		`SELECT COALESCE(project_id, '') FROM app_installs WHERE id = ?`,
+		installID,
+	).Scan(&callerProjectID)
+	injectProjectArgAny(body.Input, callerProjectID)
 	// Resolve the binding's target install_id. The binding is
 	// authoritative — last-wins GetByName(targetAppName) silently
 	// dispatches to whichever install was registered last in

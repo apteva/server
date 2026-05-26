@@ -1072,6 +1072,14 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		// or empty means "no explicit selection" — the agent gets
 		// every app in its project (current default behaviour).
 		BoundAppInstallIDs []int64 `json:"bound_app_install_ids,omitempty"`
+		// BoundAppGrants — optional scoped access policies for the
+		// bound apps above. Written before auto-start so the first
+		// app MCP call sees the intended fail-closed policy.
+		BoundAppGrants []struct {
+			InstallID     int64      `json:"install_id"`
+			DefaultEffect string     `json:"default_effect,omitempty"`
+			Rules         []grantRow `json:"rules"`
+		} `json:"bound_app_grants,omitempty"`
 		// BoundConnectionIDs — same idea for integration connections
 		// the operator wants attached as MCP servers. Each id is
 		// resolved to its /mcp/<id> URL and appended to the agent's
@@ -1143,6 +1151,27 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		// Inherit the bound apps' skills (their MCP tools are already
 		// reachable via the apteva-server gateway). Best-effort.
 		s.inheritAppSkills(inst, body.BoundAppInstallIDs)
+	}
+	if len(body.BoundAppGrants) > 0 {
+		allowedInstalls := map[int64]bool{}
+		for _, id := range body.BoundAppInstallIDs {
+			allowedInstalls[id] = true
+		}
+		for _, policy := range body.BoundAppGrants {
+			if policy.InstallID <= 0 {
+				log.Printf("[CREATE] skip app grants for invalid install_id=%d agent=%d", policy.InstallID, inst.ID)
+				continue
+			}
+			if len(allowedInstalls) > 0 && !allowedInstalls[policy.InstallID] {
+				log.Printf("[CREATE] skip app grants for unbound install_id=%d agent=%d", policy.InstallID, inst.ID)
+				continue
+			}
+			if _, err := s.replaceGrantsForInstance(
+				policy.InstallID, inst.ID, policy.DefaultEffect, policy.Rules, getUserName(r),
+			); err != nil {
+				log.Printf("[CREATE] app grants install_id=%d agent=%d: %v", policy.InstallID, inst.ID, err)
+			}
+		}
 	}
 	if len(body.BoundConnectionIDs) > 0 {
 		// Each selected connection becomes an http-transport MCP
@@ -1785,6 +1814,11 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		if normalizeAppMCPProjectURLs(rawBody, inst.ProjectID) {
+			if newBytes, err := json.Marshal(rawBody); err == nil {
+				bodyBytes = newBytes
+			}
+		}
 	}
 
 	if body.Directive != "" {
@@ -1907,6 +1941,30 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("[CONFIG] PUT stopped agent=%d — persisted to config.json (applies on next start)", inst.ID)
 	writeJSON(w, inst)
+}
+
+func normalizeAppMCPProjectURLs(rawBody map[string]any, projectID string) bool {
+	if projectID == "" || rawBody == nil {
+		return false
+	}
+	mcpList, ok := rawBody["mcp_servers"].([]any)
+	if !ok {
+		return false
+	}
+	changed := false
+	for _, entry := range mcpList {
+		sm, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		rawURL, _ := sm["url"].(string)
+		if rawURL == "" || !strings.Contains(rawURL, "/api/apps/") || !strings.Contains(rawURL, "/mcp") || strings.Contains(rawURL, "project_id=") {
+			continue
+		}
+		sm["url"] = addQueryParam(rawURL, "project_id", projectID)
+		changed = true
+	}
+	return changed
 }
 
 // Proxy handler: forwards to core instance's API

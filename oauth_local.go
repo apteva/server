@@ -39,6 +39,11 @@ import (
 //
 // The apteva-server README should document this per-app.
 
+const (
+	oauthStatePurposeConnect = "connect"
+	oauthStatePurposeReauth  = "reauth"
+)
+
 func oauthEnvClientID(slug string) string {
 	return os.Getenv("OAUTH_" + strings.ToUpper(strings.ReplaceAll(slug, "-", "_")) + "_CLIENT_ID")
 }
@@ -50,10 +55,10 @@ func oauthEnvClientSecret(slug string) string {
 // findStoredOAuthClient looks up OAuth client credentials a user has already
 // saved for this app+project combination. Strategy:
 //
-//   1. Walk the user's existing connections for the same project + slug + source=local,
-//      newest first.
-//   2. Decrypt each one's credentials blob and check for client_id/client_secret
-//      keys. The first hit wins.
+//  1. Walk the user's existing connections for the same project + slug + source=local,
+//     newest first.
+//  2. Decrypt each one's credentials blob and check for client_id/client_secret
+//     keys. The first hit wins.
 //
 // Returns ("", "") when nothing is found — callers fall back to env vars.
 //
@@ -192,13 +197,13 @@ func (s *Server) handleServerSettings(w http.ResponseWriter, r *http.Request) {
 
 // resolveOAuthClient is the canonical OAuth client lookup. Order of precedence:
 //
-//   1. Explicit creds passed by the caller (the dashboard's create-connection
-//      form sends them when the user types into the inline client_id/secret
-//      fields).
-//   2. Already-saved creds on a prior local connection for the same user +
-//      project + app slug. Lets the user enter creds once per app per project.
-//   3. OAUTH_<SLUG>_CLIENT_ID / OAUTH_<SLUG>_CLIENT_SECRET env vars. Preserves
-//      the original headless deployment story and existing tests.
+//  1. Explicit creds passed by the caller (the dashboard's create-connection
+//     form sends them when the user types into the inline client_id/secret
+//     fields).
+//  2. Already-saved creds on a prior local connection for the same user +
+//     project + app slug. Lets the user enter creds once per app per project.
+//  3. OAUTH_<SLUG>_CLIENT_ID / OAUTH_<SLUG>_CLIENT_SECRET env vars. Preserves
+//     the original headless deployment story and existing tests.
 //
 // Returns empty strings if nothing is set anywhere — caller decides whether
 // that's an error (it is for ClientIDRequired apps).
@@ -224,15 +229,15 @@ func (s *Server) localOAuthRedirectURI() string {
 // publicBaseURL is the canonical "where am I reachable from the outside"
 // resolver. Precedence:
 //
-//   1. server_settings.public_url — admin-editable from Settings → Server.
-//      Lets a self-hosted user fix the OAuth callback without restarting
-//      or shelling into the box. Stored in the same DB as everything else
-//      so it survives container redeploys and lives under SERVER_SECRET.
-//   2. PUBLIC_URL env var — the original boot-time setting, kept for
-//      headless deploys that prefer 12-factor config.
-//   3. http://localhost:<PORT> — the dev fallback. OAuth providers can't
-//      reach this, but everything else (links in logs, internal URLs)
-//      still works locally.
+//  1. server_settings.public_url — admin-editable from Settings → Server.
+//     Lets a self-hosted user fix the OAuth callback without restarting
+//     or shelling into the box. Stored in the same DB as everything else
+//     so it survives container redeploys and lives under SERVER_SECRET.
+//  2. PUBLIC_URL env var — the original boot-time setting, kept for
+//     headless deploys that prefer 12-factor config.
+//  3. http://localhost:<PORT> — the dev fallback. OAuth providers can't
+//     reach this, but everything else (links in logs, internal URLs)
+//     still works locally.
 //
 // Trailing slashes are stripped so callers can append paths directly.
 func (s *Server) publicBaseURL() string {
@@ -251,16 +256,19 @@ func (s *Server) publicBaseURL() string {
 // appInstallID + returnURL are populated only when the OAuth dance is
 // initiated by an app sidecar via platform.oauth.start. Zero / empty
 // means a regular operator-initiated dance from the Integrations admin.
-func (s *Store) mintOAuthState(userID, connID int64, appSlug, pkceVerifier string, ttl time.Duration, appInstallID int64, returnURL string) (string, error) {
+func (s *Store) mintOAuthState(userID, connID int64, appSlug, pkceVerifier string, ttl time.Duration, appInstallID int64, returnURL, purpose string) (string, error) {
+	if purpose == "" {
+		purpose = oauthStatePurposeConnect
+	}
 	buf := make([]byte, 24)
 	if _, err := io.ReadFull(rand.Reader, buf); err != nil {
 		return "", err
 	}
 	state := "st_" + hex.EncodeToString(buf)
 	_, err := s.db.Exec(
-		`INSERT INTO oauth_states (state, user_id, connection_id, app_slug, pkce_verifier, expires_at, app_install_id, return_url)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		state, userID, connID, appSlug, pkceVerifier, time.Now().Add(ttl).UTC(), appInstallID, returnURL,
+		`INSERT INTO oauth_states (state, user_id, connection_id, app_slug, pkce_verifier, expires_at, app_install_id, return_url, purpose)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		state, userID, connID, appSlug, pkceVerifier, time.Now().Add(ttl).UTC(), appInstallID, returnURL, purpose,
 	)
 	if err != nil {
 		return "", err
@@ -269,13 +277,14 @@ func (s *Store) mintOAuthState(userID, connID int64, appSlug, pkceVerifier strin
 }
 
 type oauthStateRow struct {
-	UserID        int64
-	ConnectionID  int64
-	AppSlug       string
-	PKCEVerifier  string
-	AppInstallID  int64
-	ReturnURL     string
-	Expired       bool
+	UserID       int64
+	ConnectionID int64
+	AppSlug      string
+	PKCEVerifier string
+	AppInstallID int64
+	ReturnURL    string
+	Purpose      string
+	Expired      bool
 }
 
 func (s *Store) consumeOAuthState(state string) (*oauthStateRow, error) {
@@ -283,10 +292,10 @@ func (s *Store) consumeOAuthState(state string) (*oauthStateRow, error) {
 	var expiresAt string
 	err := s.db.QueryRow(
 		`SELECT user_id, connection_id, app_slug, COALESCE(pkce_verifier,''), expires_at,
-		        COALESCE(app_install_id,0), COALESCE(return_url,'')
+		        COALESCE(app_install_id,0), COALESCE(return_url,''), COALESCE(purpose,'connect')
 		 FROM oauth_states WHERE state = ?`,
 		state,
-	).Scan(&row.UserID, &row.ConnectionID, &row.AppSlug, &row.PKCEVerifier, &expiresAt, &row.AppInstallID, &row.ReturnURL)
+	).Scan(&row.UserID, &row.ConnectionID, &row.AppSlug, &row.PKCEVerifier, &expiresAt, &row.AppInstallID, &row.ReturnURL, &row.Purpose)
 	if err != nil {
 		return nil, err
 	}
@@ -381,11 +390,104 @@ func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, proje
 		}
 	}
 
-	state, err := s.store.mintOAuthState(userID, conn.ID, app.Slug, verifier, 10*time.Minute, ownerAppInstallID, returnURL)
+	state, err := s.store.mintOAuthState(userID, conn.ID, app.Slug, verifier, 10*time.Minute, ownerAppInstallID, returnURL, oauthStatePurposeConnect)
 	if err != nil {
 		return nil, "", err
 	}
 
+	return conn, s.localOAuthAuthorizeURL(app, state, challenge, clientID), nil
+}
+
+func (s *Server) startLocalOAuthReauth(userID, connID int64) (*Connection, string, error) {
+	conn, encCreds, err := s.store.GetConnection(userID, connID)
+	if err != nil || conn == nil {
+		return nil, "", fmt.Errorf("connection not found")
+	}
+	if conn.Source != "" && conn.Source != "local" {
+		return nil, "", fmt.Errorf("re-auth is only supported for local OAuth integrations")
+	}
+	if conn.AuthType != "oauth2" {
+		return nil, "", fmt.Errorf("connection does not use OAuth2")
+	}
+	app := s.catalog.Get(conn.AppSlug)
+	if app == nil || app.Auth.OAuth2 == nil {
+		return nil, "", fmt.Errorf("app %s has no oauth2 config", conn.AppSlug)
+	}
+
+	creds := map[string]string{}
+	if encCreds != "" {
+		plain, err := Decrypt(s.secret, encCreds)
+		if err != nil {
+			return nil, "", fmt.Errorf("decrypt credentials: %w", err)
+		}
+		if err := json.Unmarshal([]byte(plain), &creds); err != nil {
+			return nil, "", fmt.Errorf("parse credentials: %w", err)
+		}
+	}
+	clientID, clientSecret := creds["client_id"], creds["client_secret"]
+	if clientID == "" {
+		clientID, clientSecret = s.resolveOAuthClient(userID, conn.ProjectID, app.Slug, "", "")
+		if clientID != "" {
+			creds["client_id"] = clientID
+			if clientSecret != "" {
+				creds["client_secret"] = clientSecret
+			}
+			credsJSON, _ := json.Marshal(creds)
+			enc, err := Encrypt(s.secret, string(credsJSON))
+			if err != nil {
+				return nil, "", fmt.Errorf("encrypt client creds: %w", err)
+			}
+			if err := s.store.UpdateConnectionCredentials(conn.ID, enc); err != nil {
+				return nil, "", fmt.Errorf("persist client creds: %w", err)
+			}
+		}
+	}
+	if app.Auth.OAuth2.ClientIDRequired && clientID == "" {
+		return nil, "", fmt.Errorf("missing client_id for %s — set it on an OAuth connection or via env var OAUTH_%s_CLIENT_ID",
+			app.Slug, strings.ToUpper(strings.ReplaceAll(app.Slug, "-", "_")))
+	}
+
+	var verifier, challenge string
+	if app.Auth.OAuth2.PKCE {
+		verifier, challenge, err = pkcePair()
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	state, err := s.store.mintOAuthState(userID, conn.ID, app.Slug, verifier, 10*time.Minute, 0, "", oauthStatePurposeReauth)
+	if err != nil {
+		return nil, "", err
+	}
+	return conn, s.localOAuthAuthorizeURL(app, state, challenge, clientID), nil
+}
+
+// POST /connections/:id/oauth/reauth — start a provider OAuth flow that writes
+// the resulting tokens back onto the existing connection row.
+func (s *Server) handleReauthConnection(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	idStr := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/connections/"), "/oauth/reauth")
+	connID, err := atoi64(idStr)
+	if err != nil {
+		http.Error(w, "invalid ID", http.StatusBadRequest)
+		return
+	}
+	conn, authURL, err := s.startLocalOAuthReauth(userID, connID)
+	if err != nil {
+		http.Error(w, "oauth reauth: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"connection":   conn,
+		"redirect_url": authURL,
+	})
+}
+
+func (s *Server) localOAuthAuthorizeURL(app *AppTemplate, state, challenge, clientID string) string {
+	cfg := app.Auth.OAuth2
 	// Most providers use the OAuth 2.0 standard parameter name "client_id".
 	// TikTok is the notable outlier — it demands "client_key" and rejects
 	// "client_id" with errCode=10003. Catalog entries can override per-
@@ -428,7 +530,7 @@ func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, proje
 	if strings.Contains(cfg.AuthorizeURL, "?") {
 		sep = "&"
 	}
-	return conn, cfg.AuthorizeURL + sep + q.Encode(), nil
+	return cfg.AuthorizeURL + sep + q.Encode()
 }
 
 // handleLocalOAuthCallback receives the provider redirect, exchanges code for
@@ -449,24 +551,30 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 		http.Error(w, "unknown or expired state", http.StatusBadRequest)
 		return
 	}
-	log.Printf("[OAUTH-CB] state→pending row: conn=%d user=%d slug=%s app_install=%d return_url=%q has_pkce=%t expired=%t",
-		row.ConnectionID, row.UserID, row.AppSlug, row.AppInstallID, row.ReturnURL, row.PKCEVerifier != "", row.Expired)
+	log.Printf("[OAUTH-CB] state→connection row: conn=%d user=%d slug=%s purpose=%s app_install=%d return_url=%q has_pkce=%t expired=%t",
+		row.ConnectionID, row.UserID, row.AppSlug, row.Purpose, row.AppInstallID, row.ReturnURL, row.PKCEVerifier != "", row.Expired)
 
 	if row.Expired {
 		log.Printf("[OAUTH-CB] state expired conn=%d", row.ConnectionID)
-		s.store.UpdateConnectionStatus(row.ConnectionID, "failed")
+		if row.Purpose != oauthStatePurposeReauth {
+			s.store.UpdateConnectionStatus(row.ConnectionID, "failed")
+		}
 		http.Error(w, "state expired — re-initiate the connection", http.StatusBadRequest)
 		return
 	}
 	if errParam != "" {
 		log.Printf("[OAUTH-CB] provider returned error conn=%d: %s", row.ConnectionID, errParam)
-		s.store.UpdateConnectionStatus(row.ConnectionID, "failed")
+		if row.Purpose != oauthStatePurposeReauth {
+			s.store.UpdateConnectionStatus(row.ConnectionID, "failed")
+		}
 		renderOAuthResult(w, false, "provider returned error: "+errParam)
 		return
 	}
 	if code == "" {
 		log.Printf("[OAUTH-CB] missing code conn=%d", row.ConnectionID)
-		s.store.UpdateConnectionStatus(row.ConnectionID, "failed")
+		if row.Purpose != oauthStatePurposeReauth {
+			s.store.UpdateConnectionStatus(row.ConnectionID, "failed")
+		}
 		http.Error(w, "missing code", http.StatusBadRequest)
 		return
 	}
@@ -498,7 +606,9 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 	tokens, err := s.exchangeOAuthCode(app, code, row.PKCEVerifier, row.UserID, preClientID, preClientSecret)
 	if err != nil {
 		log.Printf("[OAUTH-CB] token exchange FAILED conn=%d slug=%s: %v", row.ConnectionID, app.Slug, err)
-		s.store.UpdateConnectionStatus(row.ConnectionID, "failed")
+		if row.Purpose != oauthStatePurposeReauth {
+			s.store.UpdateConnectionStatus(row.ConnectionID, "failed")
+		}
 		renderOAuthResult(w, false, "token exchange failed: "+err.Error())
 		return
 	}
@@ -536,10 +646,10 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 	}
 	log.Printf("[OAUTH-CB] credentials saved + status=active conn=%d slug=%s merged_keys=%d", row.ConnectionID, app.Slug, len(merged))
 
-	// Auto-create the mcp_servers row (mirrors the non-OAuth path in
-	// handleCreateConnection). For kind=remote_mcp apps the row points
-	// at the vendor's hosted MCP with the freshly-issued OAuth token
-	// stored in encrypted_env; legacy REST apps get the local shim.
+	// Auto-create the mcp_servers row for new connects (mirrors the non-OAuth
+	// path in handleCreateConnection). Re-auth keeps existing local MCP rows
+	// intact; kind=remote_mcp rows are re-written only when one already exists
+	// or the connection was configured for auto-MCP.
 	//
 	// SKIP this entirely when:
 	//   - an app owns the connection (created_via=app_install) — the
@@ -547,7 +657,10 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 	//     would defeat the binding model.
 	//   - the operator opted out at connect time (auto_mcp=0 on the
 	//     connection row).
-	if row.AppInstallID == 0 && connectionAutoMCPFlag(s, row.ConnectionID) {
+	shouldAutoMCP := row.AppInstallID == 0 && connectionAutoMCPFlag(s, row.ConnectionID)
+	shouldCreateMCP := shouldAutoMCP && row.Purpose != oauthStatePurposeReauth
+	shouldRefreshRemoteMCP := app.Kind == "remote_mcp" && (shouldAutoMCP || hasMCPServerForConnection(s, row.ConnectionID))
+	if shouldCreateMCP || shouldRefreshRemoteMCP {
 		conn, encCreds, err := s.store.GetConnection(row.UserID, row.ConnectionID)
 		if err != nil {
 			log.Printf("[OAUTH-CB] GetConnection FAILED conn=%d: %v", row.ConnectionID, err)
@@ -568,7 +681,9 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 			}
 		}
 	} else {
-		if row.AppInstallID > 0 {
+		if row.Purpose == oauthStatePurposeReauth {
+			log.Printf("[OAUTH-CB] skipping local MCP create on reauth conn=%d", row.ConnectionID)
+		} else if row.AppInstallID > 0 {
 			log.Printf("[OAUTH-CB] skipping auto-mcp conn=%d (app_install_id=%d owns the connection)", row.ConnectionID, row.AppInstallID)
 		} else {
 			log.Printf("[OAUTH-CB] skipping auto-mcp conn=%d (operator opted out via auto_mcp=false)", row.ConnectionID)
@@ -685,8 +800,15 @@ func renderOAuthResult(w http.ResponseWriter, ok bool, msg string) {
 h1{margin:0 0 8px 0;font-size:20px}p{margin:0;color:#94a3b8;font-size:14px}</style>
 </head><body>
 <div class="card"><h1>%s</h1><p>%s</p></div>
-<script>setTimeout(function(){window.close()},2500);</script>
-</body></html>`, title, color, title, msg)
+<script>
+try {
+  if (window.opener) {
+    window.opener.postMessage({type:"apteva-oauth-result", ok:%t}, window.location.origin);
+  }
+} catch (e) {}
+setTimeout(function(){window.close()},2500);
+</script>
+</body></html>`, title, color, title, msg, ok)
 }
 
 // maskMiddle returns a redacted view of a secret-ish value for log

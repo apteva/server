@@ -110,8 +110,8 @@ func (s *Server) registerAppMCP(installID int64) error {
 	// auth middleware injects APTEVA_APP_TOKEN before forwarding.
 	// api_key= as query param works because authMiddleware reads
 	// the token from there too (alongside Authorization / X-API-Key).
-	mcpURL := fmt.Sprintf("http://127.0.0.1:%s/api/apps/%s/mcp?api_key=dev-%d",
-		localServerPort(), appName, installID)
+	mcpURL := fmt.Sprintf("http://127.0.0.1:%s/api/apps/%s/mcp?api_key=dev-%d&install_id=%d",
+		localServerPort(), appName, installID, installID)
 
 	// user_id must be a real user. installed_by is 0 for built-ins
 	// + global installs the platform seeded; fall back to user 1

@@ -633,9 +633,7 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 		// and agents' MCP URLs (via the loopback proxy) still
 		// resolve. Only fresh-install failures flip to 'error'.
 		if s.localApps.PID(installID) > 0 {
-			s.store.db.Exec(
-				`UPDATE app_installs SET status_message='upgrade failed; previous version still running', error_message=? WHERE id=?`,
-				err.Error(), installID)
+			s.markInstallRunningOnPreviousVersion(installID, err)
 		} else {
 			s.store.db.Exec(
 				`UPDATE app_installs SET status='error', error_message=? WHERE id=?`,
@@ -668,6 +666,25 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 		log.Printf("[APPS-LOCAL] reclaimed %d stale binary version dir(s) for %s: %v", len(removed), m.Name, removed)
 	}
 	return nil
+}
+
+func (s *Server) markInstallRunningOnPreviousVersion(installID int64, cause error) {
+	errMsg := ""
+	if cause != nil {
+		errMsg = cause.Error()
+	}
+	s.store.db.Exec(
+		`UPDATE app_installs
+		    SET status='running',
+		        status_message='upgrade failed; previous version still running',
+		        error_message=?
+		  WHERE id=?`,
+		errMsg, installID,
+	)
+	s.LoadInstalledApps()
+	if err := s.registerAppMCP(installID); err != nil {
+		log.Printf("[APPS] register MCP after upgrade rollback install=%d: %v", installID, err)
+	}
 }
 
 // resolveStaticInstallDir derives the absolute on-disk path for a
@@ -727,6 +744,9 @@ func (s *Server) resolveStaticInstallDir(m *sdk.Manifest) (string, error) {
 		dir := filepath.Join(s.localApps.cacheDir, m.Name, m.Version, "src")
 		if err := cloneOrUpdate(dir, m.Runtime.Source.Repo, m.Runtime.Source.Ref); err != nil {
 			return "", fmt.Errorf("clone %s@%s: %w", m.Runtime.Source.Repo, m.Runtime.Source.Ref, err)
+		}
+		if err := stripGitMetadata(dir); err != nil {
+			log.Printf("[APPS-STATIC] strip git metadata %s: %v", dir, err)
 		}
 		full := filepath.Join(dir, d)
 		if _, err := os.Stat(full); err != nil {
@@ -817,6 +837,94 @@ func (s *Server) ResumeLocalInstalls() {
 		}()
 	}
 	wg.Wait()
+}
+
+type pendingLocalInstall struct {
+	id, localPID, localPort                         int64
+	appName, projectID, configEnc, version, binPath string
+	manifestJSON                                    string
+}
+
+// ResumePendingLocalInstalls reclaims install/upgrade jobs that were left
+// in status='pending' when the server process exited. The queue itself is
+// in-memory, so a persisted "Queued — waiting for a build slot" row must
+// be explicitly put back onto a fresh boot's semaphore.
+func (s *Server) ResumePendingLocalInstalls() {
+	if s.localApps == nil {
+		return
+	}
+	rows, err := s.store.db.Query(
+		`SELECT i.id, i.local_pid, i.local_port, i.local_bin_path,
+			COALESCE(i.project_id,''), COALESCE(i.config_encrypted,''),
+			i.version, a.name, a.manifest_json
+		   FROM app_installs i JOIN apps a ON a.id = i.app_id
+		  WHERE i.status='pending'`)
+	if err != nil {
+		log.Printf("[APPS-LOCAL] load pending installs: %v", err)
+		return
+	}
+	var pending []pendingLocalInstall
+	for rows.Next() {
+		var r pendingLocalInstall
+		if err := rows.Scan(&r.id, &r.localPID, &r.localPort, &r.binPath,
+			&r.projectID, &r.configEnc, &r.version, &r.appName, &r.manifestJSON); err != nil {
+			log.Printf("[APPS-LOCAL] scan pending install: %v", err)
+			continue
+		}
+		pending = append(pending, r)
+	}
+	rows.Close()
+
+	for _, r := range pending {
+		var m sdk.Manifest
+		if err := json.Unmarshal([]byte(r.manifestJSON), &m); err != nil {
+			log.Printf("[APPS-LOCAL] pending install=%d app=%s has bad manifest: %v", r.id, r.appName, err)
+			continue
+		}
+		if !isRecoverableLocalPending(&m) {
+			continue
+		}
+		cfg := map[string]string(nil)
+		if r.configEnc != "" {
+			if plain, err := Decrypt(s.secret, r.configEnc); err == nil {
+				_ = json.Unmarshal([]byte(plain), &cfg)
+			}
+		}
+		if r.localPID > 0 && r.localPort > 0 && r.binPath != "" {
+			s.resumeOneLocalInstall(r.id, r.localPID, r.localPort, r.binPath, r.projectID, r.configEnc, r.version, r.manifestJSON)
+		}
+		log.Printf("[APPS-LOCAL] resuming pending install=%d app=%s version=%s", r.id, m.Name, m.Version)
+		s.store.db.Exec(
+			`UPDATE app_installs SET status_message='Queued — waiting for a build slot' WHERE id=?`,
+			r.id,
+		)
+		go func(r pendingLocalInstall, m sdk.Manifest, cfg map[string]string) {
+			release := s.localApps.acquireBuildSlot()
+			defer release()
+			var err error
+			if m.Runtime.Kind == "source" || m.Runtime.Source != nil {
+				err = s.installFromSource(r.id, &m, r.projectID, cfg)
+			} else {
+				err = s.installLocally(r.id, &m, r.projectID, cfg)
+			}
+			if err != nil {
+				log.Printf("[APPS-LOCAL] resumed pending install=%d app=%s failed: %v", r.id, m.Name, err)
+				return
+			}
+			s.store.db.Exec(`UPDATE app_installs SET version = ? WHERE id = ?`, m.Version, r.id)
+		}(r, m, cfg)
+	}
+}
+
+func isRecoverableLocalPending(m *sdk.Manifest) bool {
+	if m == nil {
+		return false
+	}
+	if m.Runtime.Kind == "source" || m.Runtime.Source != nil {
+		return true
+	}
+	_, ok := m.Runtime.Binaries[localPlatform()]
+	return ok
 }
 
 // resumeOneLocalInstall is the per-install body of ResumeLocalInstalls,

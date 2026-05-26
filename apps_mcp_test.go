@@ -6,6 +6,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -205,6 +206,9 @@ func TestRegisterAppMCP_InsertsRow(t *testing.T) {
 	if !strings.Contains(url, "api_key=dev-") {
 		t.Errorf("url = %q, expected api_key=dev-<install_id>", url)
 	}
+	if !strings.Contains(url, "install_id=") {
+		t.Errorf("url = %q, expected install_id query param", url)
+	}
 
 	var tools []string
 	if err := json.Unmarshal([]byte(row["allowed_tools"].(string)), &tools); err != nil {
@@ -212,6 +216,40 @@ func TestRegisterAppMCP_InsertsRow(t *testing.T) {
 	}
 	if len(tools) != 3 || tools[0] != "files_upload" {
 		t.Errorf("allowed_tools = %v", tools)
+	}
+}
+
+func TestInjectProjectIntoMCPRequestAddsProjectID(t *testing.T) {
+	req := httptest.NewRequest("POST", "/api/apps/social/mcp?project_id=proj-1", strings.NewReader(`{
+		"jsonrpc":"2.0",
+		"id":"abc",
+		"method":"tools/call",
+		"params":{"name":"posts_create","arguments":{"body":"hello"}}
+	}`))
+	if err := injectProjectIntoMCPRequest(req, "proj-1"); err != nil {
+		t.Fatalf("injectProjectIntoMCPRequest: %v", err)
+	}
+	body, _ := io.ReadAll(req.Body)
+	var rpc map[string]any
+	if err := json.Unmarshal(body, &rpc); err != nil {
+		t.Fatalf("rewritten body is not JSON: %v\n%s", err, body)
+	}
+	params := rpc["params"].(map[string]any)
+	args := params["arguments"].(map[string]any)
+	if got := args["_project_id"]; got != "proj-1" {
+		t.Fatalf("_project_id=%v, want proj-1", got)
+	}
+	if got := rpc["id"]; got != "abc" {
+		t.Fatalf("id=%v, want abc", got)
+	}
+}
+
+func TestInstallIDFromDevAPIKey(t *testing.T) {
+	if got := installIDFromDevAPIKey("dev-42"); got != 42 {
+		t.Fatalf("installIDFromDevAPIKey(dev-42)=%d, want 42", got)
+	}
+	if got := installIDFromDevAPIKey("real-user-key"); got != 0 {
+		t.Fatalf("installIDFromDevAPIKey(non-dev)=%d, want 0", got)
 	}
 }
 

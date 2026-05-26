@@ -16,8 +16,10 @@ package main
 // handlers; see callbacks_apps.go for the per-permission router).
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -364,6 +366,12 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "install_id does not match app: "+appName, http.StatusBadRequest)
 			return
 		}
+	} else if installID := installIDFromDevAPIKey(rawQuery.Get("api_key")); installID > 0 {
+		entry = s.installedApps.Get(installID)
+		if entry != nil && entry.AppName != appName {
+			http.Error(w, "api_key install does not match app: "+appName, http.StatusBadRequest)
+			return
+		}
 	} else if projectID != "" {
 		entry = s.installedApps.GetByNameAndProject(appName, projectID)
 	} else {
@@ -376,6 +384,12 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	if entry.SidecarURL == "" {
 		http.Error(w, "app sidecar not reachable: "+appName, http.StatusServiceUnavailable)
 		return
+	}
+	if projectID != "" && tail == "/mcp" && r.Method == http.MethodPost {
+		if err := injectProjectIntoMCPRequest(r, projectID); err != nil {
+			http.Error(w, "invalid MCP request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 	target, err := url.Parse(entry.SidecarURL)
 	if err != nil {
@@ -395,4 +409,64 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		req.Header.Set("X-Apteva-App-Install-ID", fmt.Sprintf("%d", entry.InstallID))
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+func installIDFromDevAPIKey(apiKey string) int64 {
+	raw, ok := strings.CutPrefix(apiKey, "dev-")
+	if !ok || raw == "" {
+		return 0
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		return 0
+	}
+	return id
+}
+
+func injectProjectIntoMCPRequest(r *http.Request, projectID string) error {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return err
+	}
+	_ = r.Body.Close()
+	nextBody := body
+	defer func() {
+		r.Body = io.NopCloser(bytes.NewReader(nextBody))
+		r.ContentLength = int64(len(nextBody))
+		r.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(nextBody)), nil
+		}
+	}()
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil
+	}
+	var decoded any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return nil
+	}
+	rpc, _ := decoded.(map[string]any)
+	if rpc == nil {
+		return nil
+	}
+	method, _ := rpc["method"].(string)
+	if method != "tools/call" {
+		return nil
+	}
+	params, _ := rpc["params"].(map[string]any)
+	if params == nil {
+		params = map[string]any{}
+		rpc["params"] = params
+	}
+	args, _ := params["arguments"].(map[string]any)
+	if args == nil {
+		args = map[string]any{}
+		params["arguments"] = args
+	}
+	injectProjectArgAny(args, projectID)
+	rewritten, err := json.Marshal(rpc)
+	if err != nil {
+		return err
+	}
+	nextBody = rewritten
+	return nil
 }

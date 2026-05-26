@@ -825,6 +825,10 @@ func main() {
 			// return {ok, latency_ms, status_code, error}. Wired to
 			// the dashboard's per-connection "Test" button.
 			s.handleTestConnection(w, r)
+		} else if strings.HasSuffix(path, "/oauth/reauth") {
+			// POST /api/connections/:id/oauth/reauth — start an OAuth
+			// popup that refreshes tokens on the same connection row.
+			s.handleReauthConnection(w, r)
 		} else if strings.HasSuffix(path, "/scope") && r.Method == http.MethodPatch {
 			// PATCH /api/connections/:id/scope — move a connection
 			// between project and global scope. Mirror of the app
@@ -1489,6 +1493,8 @@ func main() {
 	}
 
 	s.ResumeLocalInstalls()
+	s.PruneInstalledAppVersions()
+	s.ResumePendingLocalInstalls()
 	s.LoadInstalledApps()
 	s.RemountStaticApps()
 	s.backfillAppMCPs()

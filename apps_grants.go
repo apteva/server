@@ -202,6 +202,9 @@ func (s *Server) handleListGrants(w http.ResponseWriter, r *http.Request, instal
 		return
 	}
 	defaultEffect := s.installDefaultEffect(installID)
+	if instanceID > 0 {
+		defaultEffect = s.defaultEffectForAgent(installID, instanceID)
+	}
 	rules, err := s.queryGrants(installID, instanceID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -273,29 +276,33 @@ func (s *Server) handleReplaceGrantsByInstance(w http.ResponseWriter, r *http.Re
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
-	manifest, err := s.loadInstallManifest(installID)
+	resp, err := s.replaceGrantsForInstance(installID, instanceID, body.DefaultEffect, body.Rules, getUserName(r))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	for _, rule := range body.Rules {
+	writeJSON(w, resp)
+}
+
+func (s *Server) replaceGrantsForInstance(installID, instanceID int64, defaultEffect string, rules []grantRow, creator string) (*grantsResponse, error) {
+	manifest, err := s.loadInstallManifest(installID)
+	if err != nil {
+		return nil, err
+	}
+	for _, rule := range rules {
 		if err := validateGrantBody(manifest, rule.Effect, rule.Permission); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
+			return nil, err
 		}
 	}
 	tx, err := s.store.db.Begin()
 	if err != nil {
-		http.Error(w, "tx: "+err.Error(), http.StatusInternalServerError)
-		return
+		return nil, fmt.Errorf("tx: %w", err)
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(`DELETE FROM app_grants WHERE install_id = ? AND agent_id = ?`, installID, instanceID); err != nil {
-		http.Error(w, "delete: "+err.Error(), http.StatusInternalServerError)
-		return
+		return nil, fmt.Errorf("delete: %w", err)
 	}
-	creator := getUserName(r)
-	for _, rule := range body.Rules {
+	for _, rule := range rules {
 		resource := rule.Resource
 		if resource == "" {
 			resource = "*"
@@ -305,30 +312,32 @@ func (s *Server) handleReplaceGrantsByInstance(w http.ResponseWriter, r *http.Re
 			 VALUES (?, ?, ?, ?, ?, ?)`,
 			installID, instanceID, rule.Effect, rule.Permission, resource, creator,
 		); err != nil {
-			http.Error(w, "insert: "+err.Error(), http.StatusInternalServerError)
-			return
+			return nil, fmt.Errorf("insert: %w", err)
 		}
 	}
-	if body.DefaultEffect != "" {
-		if body.DefaultEffect != "allow" && body.DefaultEffect != "deny" {
-			http.Error(w, "default_effect must be allow|deny", http.StatusBadRequest)
-			return
+	if defaultEffect != "" {
+		if defaultEffect != "allow" && defaultEffect != "deny" {
+			return nil, errors.New("default_effect must be allow|deny")
 		}
-		if _, err := tx.Exec(`UPDATE app_installs SET default_effect = ? WHERE id = ?`, body.DefaultEffect, installID); err != nil {
-			http.Error(w, "update default_effect: "+err.Error(), http.StatusInternalServerError)
-			return
+		if _, err := tx.Exec(
+			`INSERT INTO app_grant_defaults (install_id, agent_id, default_effect, updated_at)
+			 VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+			 ON CONFLICT(install_id, agent_id) DO UPDATE SET
+			   default_effect=excluded.default_effect,
+			   updated_at=CURRENT_TIMESTAMP`,
+			installID, instanceID, defaultEffect,
+		); err != nil {
+			return nil, fmt.Errorf("update default_effect: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		http.Error(w, "commit: "+err.Error(), http.StatusInternalServerError)
-		return
+		return nil, fmt.Errorf("commit: %w", err)
 	}
 	resp, err := s.fetchGrantsForInstance(installID, instanceID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
-	writeJSON(w, resp)
+	return resp, nil
 }
 
 // DELETE /grants/:id — remove a single rule.
@@ -454,6 +463,18 @@ func (s *Server) installDefaultEffect(installID int64) string {
 	return eff
 }
 
+func (s *Server) defaultEffectForAgent(installID, agentID int64) string {
+	var eff string
+	err := s.store.db.QueryRow(
+		`SELECT default_effect FROM app_grant_defaults WHERE install_id = ? AND agent_id = ?`,
+		installID, agentID,
+	).Scan(&eff)
+	if err == nil && eff != "" {
+		return eff
+	}
+	return s.installDefaultEffect(installID)
+}
+
 func (s *Server) queryGrants(installID, instanceID int64) ([]grantRow, error) {
 	q := `SELECT id, effect, permission, resource FROM app_grants WHERE install_id = ?`
 	args := []any{installID}
@@ -501,7 +522,7 @@ func (s *Server) fetchGrantsForInstance(installID, instanceID int64) (*grantsRes
 		return nil, err
 	}
 	return &grantsResponse{
-		DefaultEffect: s.installDefaultEffect(installID),
+		DefaultEffect: s.defaultEffectForAgent(installID, instanceID),
 		Grants:        rules,
 	}, nil
 }

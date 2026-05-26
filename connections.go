@@ -1838,6 +1838,15 @@ func connectionAutoMCPFlag(s *Server, connID int64) bool {
 	return v != 0
 }
 
+func hasMCPServerForConnection(s *Server, connID int64) bool {
+	var count int
+	_ = s.store.db.QueryRow(
+		`SELECT COUNT(*) FROM mcp_servers WHERE connection_id=?`,
+		connID,
+	).Scan(&count)
+	return count > 0
+}
+
 // GET /connections/:id — single connection (used by dashboard to poll pending
 // states during OAuth flows).
 func (s *Server) handleGetConnection(w http.ResponseWriter, r *http.Request) {

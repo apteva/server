@@ -1,14 +1,14 @@
 {
   "slug": "elevenlabs",
   "name": "ElevenLabs",
-  "description": "AI voice synthesis and music generation platform with text-to-speech, voice cloning, and AI music composition",
+  "description": "ElevenLabs audio AI: text-to-speech, sound effects, music generation, voice discovery, and model discovery via the official REST API.",
   "logo": "https://www.google.com/s2/favicons?domain=elevenlabs.io&sz=128",
   "categories": [
     "ai",
     "voice",
     "text-to-speech",
     "audio",
-    "voice-cloning",
+    "sound-effects",
     "music",
     "speech-synthesis"
   ],
@@ -18,83 +18,71 @@
       "api_key"
     ],
     "headers": {
-      "xi-api-key": "{{api_key}}"
+      "xi-api-key": "{{api_key}}",
+      "Content-Type": "application/json"
     },
     "credential_fields": [
       {
         "name": "api_key",
-        "label": "Api Key",
-        "description": "Your ElevenLabs API Key"
+        "label": "ElevenLabs API Key",
+        "description": "Create an API key in the ElevenLabs dashboard."
       }
     ]
   },
   "tools": [
     {
-      "name": "generate_speech",
-      "description": "Convert text to speech with AI voices and customizable voice settings",
-      "method": "GET",
-      "path": "/generate-speech",
+      "name": "text_to_speech",
+      "description": "Convert text into speech using an ElevenLabs voice. Returns binary audio wrapped as {_binary, base64, mimeType}. Use list_voices to choose voice_id and list_models to choose TTS-capable model_id.",
+      "method": "POST",
+      "path": "/text-to-speech/{voice_id}",
+      "timeout_ms": 180000,
+      "query_params": [
+        "output_format",
+        "optimize_streaming_latency",
+        "enable_logging"
+      ],
       "input_schema": {
         "type": "object",
         "properties": {
-          "apiKey": {
+          "voice_id": {
             "type": "string",
-            "description": "ElevenLabs API key (required)"
+            "description": "Voice ID to use. Get values from list_voices."
           },
           "text": {
             "type": "string",
-            "description": "Text to convert to speech (required)"
-          },
-          "voice_id": {
-            "type": "string",
-            "description": "Voice ID to use (required)"
+            "description": "Text to convert to speech."
           },
           "model_id": {
             "type": "string",
             "default": "eleven_multilingual_v2",
-            "description": "ElevenLabs model ID (e.g. eleven_multilingual_v2, eleven_turbo_v2_5, eleven_flash_v2_5)"
-          },
-          "stability": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1,
-            "default": 0.5,
-            "description": "Voice stability (0.0-1.0)"
-          },
-          "similarity_boost": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1,
-            "default": 0.5,
-            "description": "Similarity boost (0.0-1.0)"
-          },
-          "style": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1,
-            "default": 0,
-            "description": "Style setting (0.0-1.0)"
+            "description": "TTS model ID. Common choices: eleven_v3, eleven_multilingual_v2, eleven_flash_v2_5, eleven_turbo_v2_5."
           },
           "language_code": {
             "type": "string",
-            "description": "Language code for multilingual models (e.g. en, es, fr, de, ja)"
+            "description": "Optional ISO language code for multilingual models, e.g. en, es, fr, de, ja."
           },
-          "output_format": {
-            "type": "string",
-            "default": "mp3_44100_128",
-            "description": "Output format (mp3_44100_128, pcm_16000, pcm_22050, pcm_24000, pcm_44100, ulaw_8000)"
+          "voice_settings": {
+            "type": "object",
+            "description": "Optional voice settings override. Common fields: stability, similarity_boost, style, use_speaker_boost, speed."
+          },
+          "pronunciation_dictionary_locators": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Optional pronunciation dictionaries to apply."
           },
           "seed": {
             "type": "integer",
-            "description": "Seed for deterministic generation"
+            "description": "Optional deterministic seed."
           },
           "previous_text": {
             "type": "string",
-            "description": "Text that comes before the current text for context"
+            "description": "Previous text for continuity across chunks."
           },
           "next_text": {
             "type": "string",
-            "description": "Text that comes after the current text for context"
+            "description": "Next text for continuity across chunks."
           },
           "apply_text_normalization": {
             "type": "string",
@@ -104,42 +92,258 @@
               "off"
             ],
             "default": "auto",
-            "description": "Text normalization mode"
+            "description": "Text normalization mode."
+          },
+          "output_format": {
+            "type": "string",
+            "default": "mp3_44100_128",
+            "description": "Query parameter output format, e.g. mp3_44100_128, mp3_22050_32, pcm_16000, pcm_44100, ulaw_8000."
+          },
+          "optimize_streaming_latency": {
+            "type": "integer",
+            "description": "Optional latency optimization level for streaming-compatible use cases."
+          },
+          "enable_logging": {
+            "type": "boolean",
+            "description": "Optional logging control. Set false only when your ElevenLabs account supports zero-retention mode."
           }
         },
         "required": [
-          "apiKey",
-          "text",
-          "voice_id"
+          "voice_id",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "text_to_speech_stream",
+      "description": "Streaming variant of text_to_speech. The generic executor buffers the streamed audio and returns it as a binary envelope.",
+      "method": "POST",
+      "path": "/text-to-speech/{voice_id}/stream",
+      "timeout_ms": 180000,
+      "query_params": [
+        "output_format",
+        "optimize_streaming_latency",
+        "enable_logging"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_id": {
+            "type": "string",
+            "description": "Voice ID to use. Get values from list_voices."
+          },
+          "text": {
+            "type": "string",
+            "description": "Text to convert to speech."
+          },
+          "model_id": {
+            "type": "string",
+            "default": "eleven_flash_v2_5",
+            "description": "TTS model ID. Low-latency choices include eleven_flash_v2_5 and eleven_turbo_v2_5."
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Optional ISO language code."
+          },
+          "voice_settings": {
+            "type": "object",
+            "description": "Optional voice settings override."
+          },
+          "seed": {
+            "type": "integer",
+            "description": "Optional deterministic seed."
+          },
+          "previous_text": {
+            "type": "string"
+          },
+          "next_text": {
+            "type": "string"
+          },
+          "apply_text_normalization": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "on",
+              "off"
+            ],
+            "default": "auto"
+          },
+          "output_format": {
+            "type": "string",
+            "default": "mp3_44100_128"
+          },
+          "optimize_streaming_latency": {
+            "type": "integer"
+          },
+          "enable_logging": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "voice_id",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "generate_sfx",
+      "description": "Generate a sound effect from text with ElevenLabs Sound Effects. Returns binary audio wrapped as {_binary, base64, mimeType}.",
+      "method": "POST",
+      "path": "/sound-generation",
+      "timeout_ms": 180000,
+      "query_params": [
+        "output_format"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Sound effect prompt."
+          },
+          "duration_seconds": {
+            "type": "number",
+            "minimum": 0.5,
+            "maximum": 30,
+            "description": "Optional generated sound duration in seconds."
+          },
+          "prompt_influence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.3,
+            "description": "How closely the generation should follow the prompt."
+          },
+          "loop": {
+            "type": "boolean",
+            "default": false,
+            "description": "Create a smoothly looping sound effect when supported by the model."
+          },
+          "model_id": {
+            "type": "string",
+            "default": "eleven_text_to_sound_v2",
+            "description": "Sound effect model ID."
+          },
+          "output_format": {
+            "type": "string",
+            "default": "mp3_44100_128",
+            "description": "Query parameter output format."
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "generate_music",
+      "description": "Compose music from a prompt or composition plan using ElevenLabs Music. Returns binary audio wrapped as {_binary, base64, mimeType}. Use create_composition_plan for structured control.",
+      "method": "POST",
+      "path": "/music",
+      "timeout_ms": 600000,
+      "query_params": [
+        "output_format"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Music prompt. Mutually exclusive with composition_plan."
+          },
+          "composition_plan": {
+            "type": "object",
+            "description": "Detailed composition plan. Mutually exclusive with prompt."
+          },
+          "music_length_ms": {
+            "type": "integer",
+            "minimum": 3000,
+            "maximum": 600000,
+            "description": "Desired song length in milliseconds when using a prompt."
+          },
+          "model_id": {
+            "type": "string",
+            "default": "music_v1",
+            "description": "Music model ID."
+          },
+          "output_format": {
+            "type": "string",
+            "default": "mp3_44100_128",
+            "description": "Query parameter output format."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_composition_plan",
+      "description": "Create an ElevenLabs music composition plan from a text prompt. The returned JSON can be edited and passed to generate_music as composition_plan.",
+      "method": "POST",
+      "path": "/music/plan",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Prompt to turn into a structured composition plan."
+          },
+          "music_length_ms": {
+            "type": "integer",
+            "minimum": 3000,
+            "maximum": 600000,
+            "description": "Target plan length in milliseconds."
+          },
+          "source_composition_plan": {
+            "type": "object",
+            "description": "Optional existing composition plan to use as a source."
+          },
+          "model_id": {
+            "type": "string",
+            "default": "music_v1",
+            "description": "Music model ID."
+          }
+        },
+        "required": [
+          "prompt"
         ]
       }
     },
     {
       "name": "list_voices",
-      "description": "Get available AI voices with pagination, search, and filtering support",
+      "description": "List available ElevenLabs voices with pagination, search, and filtering. Uses the current v2 voices endpoint.",
       "method": "GET",
-      "path": "/list-voices",
+      "path": "https://api.elevenlabs.io/v2/voices",
+      "timeout_ms": 60000,
+      "query_params": [
+        "next_page_token",
+        "page_size",
+        "search",
+        "sort",
+        "sort_direction",
+        "voice_type",
+        "category",
+        "fine_tuning_state",
+        "collection_id",
+        "include_total_count",
+        "voice_ids"
+      ],
       "input_schema": {
         "type": "object",
         "properties": {
-          "apiKey": {
-            "type": "string",
-            "description": "ElevenLabs API key (required)"
-          },
           "next_page_token": {
             "type": "string",
-            "description": "Token for pagination from previous response"
+            "description": "Token for pagination from the previous response."
           },
           "page_size": {
             "type": "integer",
             "minimum": 1,
             "maximum": 100,
             "default": 10,
-            "description": "Number of voices to return (max 100, default 10)"
+            "description": "Maximum number of voices to return."
           },
           "search": {
             "type": "string",
-            "description": "Search by name, description, labels, and category"
+            "description": "Search by name, description, labels, or category."
           },
           "sort": {
             "type": "string",
@@ -147,7 +351,7 @@
               "created_at_unix",
               "name"
             ],
-            "description": "Sort field"
+            "description": "Sort field."
           },
           "sort_direction": {
             "type": "string",
@@ -155,7 +359,7 @@
               "asc",
               "desc"
             ],
-            "description": "Sort order"
+            "description": "Sort order."
           },
           "voice_type": {
             "type": "string",
@@ -164,10 +368,9 @@
               "community",
               "default",
               "workspace",
-              "non-default",
-              "saved"
+              "non-default"
             ],
-            "description": "Filter by voice type"
+            "description": "Voice type filter."
           },
           "category": {
             "type": "string",
@@ -177,20 +380,20 @@
               "generated",
               "professional"
             ],
-            "description": "Filter by category"
+            "description": "Voice category filter."
           },
           "fine_tuning_state": {
             "type": "string",
-            "description": "Filter professional voice clones by state"
+            "description": "Professional voice clone fine-tuning state filter."
           },
           "collection_id": {
             "type": "string",
-            "description": "Filter voices by collection ID"
+            "description": "Collection ID filter."
           },
           "include_total_count": {
             "type": "boolean",
-            "default": false,
-            "description": "Include total count of voices in response"
+            "default": true,
+            "description": "Whether to include total_count."
           },
           "voice_ids": {
             "type": "array",
@@ -198,178 +401,119 @@
               "type": "string"
             },
             "maxItems": 100,
-            "description": "Voice IDs to lookup (max 100)"
+            "description": "Voice IDs to look up."
           }
-        },
-        "required": [
-          "apiKey"
-        ]
+        }
       }
     },
     {
-      "name": "clone_voice",
-      "description": "Create a custom voice clone from audio samples for personalized speech synthesis",
+      "name": "get_voice",
+      "description": "Get metadata, labels, preview URL, settings, and availability for one voice.",
       "method": "GET",
-      "path": "/clone-voice",
+      "path": "/voices/{voice_id}",
+      "timeout_ms": 60000,
+      "query_params": [
+        "with_settings"
+      ],
       "input_schema": {
         "type": "object",
         "properties": {
-          "apiKey": {
+          "voice_id": {
             "type": "string",
-            "description": "ElevenLabs API key (required)"
+            "description": "Voice ID."
           },
-          "name": {
-            "type": "string",
-            "description": "Name for the cloned voice (required)"
-          },
-          "description": {
-            "type": "string",
-            "description": "Description for the cloned voice"
-          },
-          "audio_files": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "data": {
-                  "type": "string",
-                  "description": "Base64 encoded audio data"
-                },
-                "filename": {
-                  "type": "string",
-                  "description": "Filename for the audio file"
-                },
-                "contentType": {
-                  "type": "string",
-                  "description": "Content type (e.g., audio/wav)"
-                }
-              }
-            },
-            "description": "Array of audio file data (base64 encoded, 1-25 files)"
-          },
-          "labels": {
-            "type": "object",
-            "description": "Labels for the voice (accent, age, gender, etc.)"
-          },
-          "remove_background_noise": {
-            "type": "boolean",
-            "default": false,
-            "description": "Remove background noise from audio samples before cloning"
-          }
-        },
-        "required": [
-          "apiKey",
-          "name",
-          "audio_files"
-        ]
-      }
-    },
-    {
-      "name": "compose_music",
-      "description": "Generate AI music composition from text prompts with customizable duration and style",
-      "method": "GET",
-      "path": "/compose-music",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "apiKey": {
-            "type": "string",
-            "description": "ElevenLabs API key (required)"
-          },
-          "prompt": {
-            "type": "string",
-            "description": "Text description of desired music (required if composition_plan not provided)"
-          },
-          "composition_plan": {
-            "type": "object",
-            "description": "JSON composition plan object (required if prompt not provided)"
-          },
-          "music_length_ms": {
-            "type": "number",
-            "minimum": 3000,
-            "maximum": 600000,
-            "default": 30000,
-            "description": "Music length in milliseconds (3000-600000, 3 seconds to 10 minutes)"
-          },
-          "output_format": {
-            "type": "string",
-            "default": "mp3",
-            "description": "Audio output format (mp3 or wav)"
-          },
-          "model_id": {
-            "type": "string",
-            "description": "Model ID for music generation"
-          },
-          "force_instrumental": {
-            "type": "boolean",
-            "description": "Force instrumental-only output (no vocals)"
-          },
-          "seed": {
-            "type": "integer",
-            "description": "Seed for deterministic generation"
-          }
-        },
-        "required": [
-          "apiKey"
-        ]
-      }
-    },
-    {
-      "name": "get_music_generation",
-      "description": "Get status and download URL for music generation task",
-      "method": "GET",
-      "path": "/get-music-generation",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "apiKey": {
-            "type": "string",
-            "description": "ElevenLabs API key (required)"
-          },
-          "generation_id": {
-            "type": "string",
-            "description": "ID of the music generation to retrieve (required)"
-          },
-          "include_audio": {
+          "with_settings": {
             "type": "boolean",
             "default": true,
-            "description": "Whether to include audio data in response when completed"
+            "description": "Deprecated by ElevenLabs but still accepted by the endpoint."
           }
         },
         "required": [
-          "apiKey",
-          "generation_id"
+          "voice_id"
         ]
       }
     },
     {
-      "name": "create_composition_plan",
-      "description": "Generate detailed composition plans from prompts for fine-grained music control",
-      "method": "POST",
-      "path": "/create-composition-plan",
+      "name": "get_default_voice_settings",
+      "description": "Get ElevenLabs default voice settings.",
+      "method": "GET",
+      "path": "/voices/settings/default",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_voice_settings",
+      "description": "Get settings for one ElevenLabs voice.",
+      "method": "GET",
+      "path": "/voices/{voice_id}/settings",
+      "timeout_ms": 60000,
       "input_schema": {
         "type": "object",
         "properties": {
-          "apiKey": {
+          "voice_id": {
             "type": "string",
-            "description": "ElevenLabs API key (required)"
-          },
-          "prompt": {
-            "type": "string",
-            "description": "Text description of desired music for plan generation (required)"
-          },
-          "music_length_ms": {
-            "type": "number",
-            "minimum": 3000,
-            "maximum": 600000,
-            "default": 30000,
-            "description": "Target music length in milliseconds (3000-600000)"
+            "description": "Voice ID."
           }
         },
         "required": [
-          "apiKey",
-          "prompt"
+          "voice_id"
         ]
+      }
+    },
+    {
+      "name": "edit_voice_settings",
+      "description": "Update settings for one ElevenLabs voice.",
+      "method": "POST",
+      "path": "/voices/{voice_id}/settings/edit",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_id": {
+            "type": "string",
+            "description": "Voice ID."
+          },
+          "stability": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "similarity_boost": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "style": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "use_speaker_boost": {
+            "type": "boolean"
+          },
+          "speed": {
+            "type": "number",
+            "minimum": 0.7,
+            "maximum": 1.2
+          }
+        },
+        "required": [
+          "voice_id"
+        ]
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List ElevenLabs models, including flags such as can_do_text_to_speech and model rate metadata.",
+      "method": "GET",
+      "path": "/models",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {}
       }
     }
   ]

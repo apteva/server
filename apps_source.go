@@ -116,6 +116,9 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 	if err != nil {
 		return 0, "", err
 	}
+	if err := stripGitMetadata(srcDir); err != nil {
+		log.Printf("[APPS-SOURCE] strip git metadata %s: %v", srcDir, err)
+	}
 	return port, binPath, nil
 }
 
@@ -247,6 +250,14 @@ func cloneOrUpdate(srcDir, repo, ref string) error {
 			return nil
 		}
 	}
+	if _, err := os.Stat(srcDir); err == nil {
+		// Successful installs strip src/.git after build so runtime app
+		// dirs don't retain hundreds of MB of object packs. A future
+		// rebuild of the same version therefore starts from a clean clone.
+		if err := os.RemoveAll(srcDir); err != nil {
+			return err
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(srcDir), 0755); err != nil {
 		return err
 	}
@@ -254,6 +265,17 @@ func cloneOrUpdate(srcDir, repo, ref string) error {
 		return err
 	}
 	return runGit(srcDir, "checkout", "--detach", refExpr(ref))
+}
+
+func stripGitMetadata(srcDir string) error {
+	gitDir := filepath.Join(srcDir, ".git")
+	if _, err := os.Stat(gitDir); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return os.RemoveAll(gitDir)
 }
 
 // refExpr — turn "main" into "origin/main" so fetch+checkout works
@@ -485,9 +507,7 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 		// Fresh-install failures (no OLD to roll back to) flip the
 		// row to 'error' as before.
 		if s.localApps.PID(installID) > 0 {
-			s.store.db.Exec(
-				`UPDATE app_installs SET status_message='upgrade failed; previous version still running', error_message=? WHERE id=?`,
-				err.Error(), installID)
+			s.markInstallRunningOnPreviousVersion(installID, err)
 		} else {
 			s.store.db.Exec(
 				`UPDATE app_installs SET status='error', status_message='', error_message=? WHERE id=?`,
@@ -542,6 +562,14 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 // call concurrently across apps; per-app calls are serialised by the
 // caller's lockApp lease.
 func pruneOldAppVersions(cacheDir, appName, keepCurrent string, keepRecent int) []string {
+	keep := map[string]bool{}
+	if keepCurrent != "" {
+		keep[keepCurrent] = true
+	}
+	return pruneOldAppVersionsKeeping(cacheDir, appName, keep, keepRecent)
+}
+
+func pruneOldAppVersionsKeeping(cacheDir, appName string, keepVersions map[string]bool, keepRecent int) []string {
 	appDir := filepath.Join(cacheDir, appName)
 	entries, err := os.ReadDir(appDir)
 	if err != nil {
@@ -553,7 +581,7 @@ func pruneOldAppVersions(cacheDir, appName, keepCurrent string, keepRecent int) 
 	}
 	var others []verEntry
 	for _, e := range entries {
-		if !e.IsDir() || e.Name() == keepCurrent {
+		if !e.IsDir() || keepVersions[e.Name()] {
 			continue
 		}
 		n := e.Name()
@@ -581,17 +609,26 @@ func pruneOldAppVersions(cacheDir, appName, keepCurrent string, keepRecent int) 
 	if keepRecent < 0 {
 		keepRecent = 0
 	}
-	if keepRecent >= len(others) {
+	retainCount := keepRecent
+	if retainCount > len(others) {
+		retainCount = len(others)
+	}
+	for _, o := range others[:retainCount] {
+		if err := stripGitMetadata(filepath.Join(appDir, o.name, "src")); err != nil {
+			log.Printf("[APPS-SOURCE] strip git metadata %s/%s: %v", appName, o.name, err)
+		}
+	}
+	if retainCount >= len(others) {
 		return nil
 	}
 	var removed []string
-	for _, o := range others[keepRecent:] {
+	for _, o := range others[retainCount:] {
 		path := filepath.Join(appDir, o.name)
-		// Re-verify a data/ dir doesn't exist directly under the
-		// version path — the SDK keeps user data at <version>/data/
-		// for older app builds; we don't want to nuke that. Newer
-		// installs put data under a per-install dir elsewhere.
-		if _, err := os.Stat(filepath.Join(path, "data")); err == nil {
+		// Older app builds briefly created <version>/data. An empty
+		// directory is not durable state and must not pin a full source
+		// checkout forever; only preserve the version if that legacy data
+		// tree contains actual files.
+		if hasFiles(filepath.Join(path, "data")) {
 			continue
 		}
 		if err := os.RemoveAll(path); err != nil {
@@ -601,4 +638,55 @@ func pruneOldAppVersions(cacheDir, appName, keepCurrent string, keepRecent int) 
 		removed = append(removed, o.name)
 	}
 	return removed
+}
+
+func hasFiles(root string) bool {
+	found := false
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || found {
+			return nil
+		}
+		if !d.IsDir() {
+			found = true
+		}
+		return nil
+	})
+	return found
+}
+
+func (s *Server) PruneInstalledAppVersions() {
+	if s.localApps == nil {
+		return
+	}
+	rows, err := s.store.db.Query(
+		`SELECT a.name, i.version
+		   FROM app_installs i JOIN apps a ON a.id = i.app_id
+		  WHERE i.status IN ('running', 'pending') AND i.version != ''`)
+	if err != nil {
+		log.Printf("[APPS-SOURCE] load installed versions for prune: %v", err)
+		return
+	}
+	keepByApp := map[string]map[string]bool{}
+	for rows.Next() {
+		var appName, version string
+		if err := rows.Scan(&appName, &version); err != nil {
+			continue
+		}
+		if keepByApp[appName] == nil {
+			keepByApp[appName] = map[string]bool{}
+		}
+		keepByApp[appName][version] = true
+	}
+	rows.Close()
+	for appName, keep := range keepByApp {
+		for version := range keep {
+			srcDir := filepath.Join(s.localApps.cacheDir, appName, version, "src")
+			if err := stripGitMetadata(srcDir); err != nil {
+				log.Printf("[APPS-SOURCE] strip git metadata %s: %v", srcDir, err)
+			}
+		}
+		if removed := pruneOldAppVersionsKeeping(s.localApps.cacheDir, appName, keep, appVersionRetainPrevious); len(removed) > 0 {
+			log.Printf("[APPS-SOURCE] boot reclaimed %d stale version dir(s) for %s: %v", len(removed), appName, removed)
+		}
+	}
 }

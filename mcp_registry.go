@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -50,21 +51,21 @@ type mcpToolsListResult struct {
 // --- DB model ---
 
 type MCPServerRecord struct {
-	ID           int64     `json:"id"`
-	UserID       int64     `json:"user_id"`
-	Name         string    `json:"name"`
-	Command      string    `json:"command"`
-	Args         string    `json:"args"`
-	Description  string    `json:"description"`
-	Status       string    `json:"status"`
-	ToolCount    int       `json:"tool_count"`
-	Pid          int       `json:"pid"`
-	Source       string    `json:"source"`     // 'custom' | 'local' | 'remote'
-	Transport    string    `json:"transport"`  // 'stdio' | 'http'
-	URL          string    `json:"url,omitempty"`
-	ProviderID   int64     `json:"provider_id,omitempty"`
-	ConnectionID int64     `json:"connection_id"`
-	ProjectID    string    `json:"project_id,omitempty"`
+	ID           int64  `json:"id"`
+	UserID       int64  `json:"user_id"`
+	Name         string `json:"name"`
+	Command      string `json:"command"`
+	Args         string `json:"args"`
+	Description  string `json:"description"`
+	Status       string `json:"status"`
+	ToolCount    int    `json:"tool_count"`
+	Pid          int    `json:"pid"`
+	Source       string `json:"source"`    // 'custom' | 'local' | 'remote' | 'app'
+	Transport    string `json:"transport"` // 'stdio' | 'http'
+	URL          string `json:"url,omitempty"`
+	ProviderID   int64  `json:"provider_id,omitempty"`
+	ConnectionID int64  `json:"connection_id"`
+	ProjectID    string `json:"project_id,omitempty"`
 	// AllowedTools restricts which tools are exposed. nil / empty = all
 	// tools from the underlying source. Populated = only these names are
 	// returned by tools/list and only these are accepted by tools/call.
@@ -154,7 +155,7 @@ func (s *Store) ListMCPServers(userID int64, projectID ...string) ([]MCPServerRe
 	var rows *sql.Rows
 	var err error
 	if len(projectID) > 0 && projectID[0] != "" {
-		rows, err = s.db.Query(`SELECT `+cols+` FROM mcp_servers WHERE user_id = ? AND project_id = ?`, userID, projectID[0])
+		rows, err = s.db.Query(`SELECT `+cols+` FROM mcp_servers WHERE user_id = ? AND (project_id = ? OR project_id = '')`, userID, projectID[0])
 	} else {
 		rows, err = s.db.Query(`SELECT `+cols+` FROM mcp_servers WHERE user_id = ?`, userID)
 	}
@@ -694,14 +695,21 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 				"url":       srv.URL,
 			}
 		} else if srv.Source == "app" && srv.URL != "" {
-			// Apps-bridge: the URL points at our own /api/apps/<name>/mcp
-			// proxy with the install's APTEVA_APP_TOKEN as ?api_key=.
-			// Cores connect directly to it — same shape as remote.
-			es.ProxyConfig = &map[string]any{
+			// Apps-bridge: hand core a normal HTTP MCP URL. When this is
+			// listed from a project view, add project_id to the URL so
+			// apteva-server's app proxy can inject _project_id into
+			// tools/call before forwarding to the sidecar. Core remains a
+			// generic MCP client and never learns Apteva project policy.
+			mcpURL := srv.URL
+			if projectID != "" {
+				mcpURL = addQueryParam(mcpURL, "project_id", projectID)
+			}
+			cfg := map[string]any{
 				"name":      srv.Name,
 				"transport": "http",
-				"url":       srv.URL,
+				"url":       mcpURL,
 			}
+			es.ProxyConfig = &cfg
 		} else if srv.Source == "local" && srv.ConnectionID > 0 {
 			// Streamable HTTP endpoint served by apteva-server itself.
 			// URL keyed on the mcp_servers row id (not the connection
@@ -1060,7 +1068,8 @@ func (s *Server) handleListComposioToolkitActions(w http.ResponseWriter, r *http
 //
 // The response shape mirrors /connections/:id/execute so the dashboard can
 // render both uniformly:
-//   {"success": bool, "status": int, "data": any}
+//
+//	{"success": bool, "status": int, "data": any}
 func (s *Server) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -1095,6 +1104,10 @@ func (s *Server) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Args == nil {
 		body.Args = map[string]any{}
+	}
+	projectID := r.URL.Query().Get("project_id")
+	if projectID != "" && record.Source == "app" {
+		injectProjectArgAny(body.Args, projectID)
 	}
 
 	// Decrypt env so callRemoteMCPTool can inject auth headers if present.
@@ -1168,6 +1181,34 @@ func (s *Server) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "unknown source: "+record.Source, http.StatusInternalServerError)
 	}
+}
+
+func injectProjectArgAny(args map[string]any, projectID string) {
+	if projectID == "" || args == nil {
+		return
+	}
+	if _, ok := args["_project_id"]; ok {
+		return
+	}
+	args["_project_id"] = projectID
+}
+
+func addQueryParam(rawURL, key, value string) string {
+	if rawURL == "" || key == "" || value == "" {
+		return rawURL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		sep := "?"
+		if strings.Contains(rawURL, "?") {
+			sep = "&"
+		}
+		return rawURL + sep + url.QueryEscape(key) + "=" + url.QueryEscape(value)
+	}
+	q := u.Query()
+	q.Set(key, value)
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // DELETE /mcp-servers/:id

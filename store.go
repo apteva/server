@@ -673,6 +673,7 @@ func (s *Store) migrate() error {
 	// pick up the dangling pending_account row by conn_id.
 	s.db.Exec(`ALTER TABLE oauth_states ADD COLUMN app_install_id INTEGER NOT NULL DEFAULT 0`)
 	s.db.Exec(`ALTER TABLE oauth_states ADD COLUMN return_url TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE oauth_states ADD COLUMN purpose TEXT NOT NULL DEFAULT 'connect'`)
 	// Connections gain owner_app_install_id so the platform can scope
 	// list/disconnect operations and so the operator's Integrations admin
 	// can hide app-owned connections (the app exposes them through its
@@ -907,6 +908,15 @@ func (s *Store) migrate() error {
 		)
 	`)
 	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_app_grants_lookup ON app_grants(install_id, agent_id)`)
+	s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS app_grant_defaults (
+			install_id      INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE,
+			agent_id        INTEGER NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+			default_effect  TEXT NOT NULL CHECK (default_effect IN ('allow','deny')),
+			updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (install_id, agent_id)
+		)
+	`)
 	// default_effect — 'allow' (default, full back-compat) or 'deny'
 	// for fail-closed installs. Per-install knob; the dashboard's
 	// "Access" tab flips it.

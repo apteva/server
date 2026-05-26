@@ -146,12 +146,10 @@ func TestGrants_ReplaceAndCallback(t *testing.T) {
 	s.handleAppCallback(rec, req)
 	var unscoped sdk.GrantsResponse
 	decodeBody(t, rec, &unscoped)
-	// default_effect on the install was set to deny by the PUT above
-	// (via DefaultEffect on body), so agent-B inherits it. This is
-	// the desired behavior — install-wide default applies to anyone
-	// without explicit grants.
-	if unscoped.DefaultEffect != "deny" {
-		t.Fatalf("default_effect for unscoped agent: %q want deny", unscoped.DefaultEffect)
+	// Per-agent defaults mean limiting agent 7 does not silently
+	// change agent 8. Agent 8 inherits the install-wide default.
+	if unscoped.DefaultEffect != "allow" {
+		t.Fatalf("default_effect for unscoped agent: %q want allow", unscoped.DefaultEffect)
 	}
 	if len(unscoped.Grants) != 0 {
 		t.Fatalf("agent-B should have no grants, got %+v", unscoped.Grants)
