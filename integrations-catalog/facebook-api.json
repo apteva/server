@@ -46,6 +46,7 @@
         "pages_manage_engagement",
         "pages_manage_posts",
         "pages_manage_metadata",
+        "pages_messaging",
         "instagram_basic",
         "instagram_content_publish",
         "instagram_manage_messages",
@@ -402,7 +403,9 @@
             "description": "Page-level access token (from list_pages → data[].access_token). Required for posts owned by Pages."
           }
         },
-        "required": ["postId"]
+        "required": [
+          "postId"
+        ]
       },
       "mock_response": {
         "id": "100200300400500_122100000000000001",
@@ -432,7 +435,10 @@
             "description": "Page-level access token (from list_pages → data[].access_token)."
           }
         },
-        "required": ["postId", "message"]
+        "required": [
+          "postId",
+          "message"
+        ]
       },
       "mock_response": {
         "success": true
@@ -490,7 +496,11 @@
           "media_type": {
             "type": "string",
             "description": "Type of media (VIDEO is deprecated, use REELS for videos)",
-            "enum": ["IMAGE", "REELS", "STORIES"],
+            "enum": [
+              "IMAGE",
+              "REELS",
+              "STORIES"
+            ],
             "default": "IMAGE"
           },
           "sync": {
@@ -503,7 +513,9 @@
             "description": "Page-level access token (from list_pages → data[].access_token of the FB Page that owns this IG account). Required for IG Business writes."
           }
         },
-        "required": ["instagramAccountId"]
+        "required": [
+          "instagramAccountId"
+        ]
       },
       "mock_response": {
         "id": "17900000000000001"
@@ -531,7 +543,9 @@
             "description": "Page-level access token (the same one used to create the container)."
           }
         },
-        "required": ["containerId"]
+        "required": [
+          "containerId"
+        ]
       },
       "mock_response": {
         "status_code": "FINISHED",
@@ -563,7 +577,10 @@
             "description": "Page-level access token (from list_pages). Required for IG Business writes."
           }
         },
-        "required": ["instagramAccountId", "containerId"]
+        "required": [
+          "instagramAccountId",
+          "containerId"
+        ]
       },
       "mock_response": {
         "id": "17900000000000099"
@@ -609,7 +626,9 @@
             "description": "Page-level access token for the linked Facebook Page."
           }
         },
-        "required": ["instagramAccountId"]
+        "required": [
+          "instagramAccountId"
+        ]
       },
       "mock_response": {
         "data": [
@@ -654,7 +673,11 @@
           "period": {
             "type": "string",
             "description": "Time period for insights",
-            "enum": ["day", "week", "days_28"],
+            "enum": [
+              "day",
+              "week",
+              "days_28"
+            ],
             "default": "day"
           },
           "since": {
@@ -670,7 +693,9 @@
             "description": "Page-level access token for the linked Facebook Page."
           }
         },
-        "required": ["instagramAccountId"]
+        "required": [
+          "instagramAccountId"
+        ]
       },
       "mock_response": {
         "data": [
@@ -711,7 +736,9 @@
             "description": "Page-level access token (the same token that owns the IG Business account)."
           }
         },
-        "required": ["mediaId"]
+        "required": [
+          "mediaId"
+        ]
       },
       "mock_response": {
         "data": [
@@ -813,7 +840,12 @@
                 "properties": {
                   "type": {
                     "type": "string",
-                    "enum": ["image", "video", "audio", "file"]
+                    "enum": [
+                      "image",
+                      "video",
+                      "audio",
+                      "file"
+                    ]
                   },
                   "payload": {
                     "type": "object",
@@ -828,10 +860,15 @@
                         "default": false
                       }
                     },
-                    "required": ["url"]
+                    "required": [
+                      "url"
+                    ]
                   }
                 },
-                "required": ["type", "payload"]
+                "required": [
+                  "type",
+                  "payload"
+                ]
               },
               "quick_replies": {
                 "type": "array",
@@ -841,7 +878,9 @@
                   "properties": {
                     "content_type": {
                       "type": "string",
-                      "enum": ["text"],
+                      "enum": [
+                        "text"
+                      ],
                       "default": "text"
                     },
                     "title": {
@@ -853,7 +892,11 @@
                       "description": "Opaque value echoed back in the inbound webhook when tapped."
                     }
                   },
-                  "required": ["content_type", "title", "payload"]
+                  "required": [
+                    "content_type",
+                    "title",
+                    "payload"
+                  ]
                 }
               }
             }
@@ -861,7 +904,13 @@
           "sender_action": {
             "type": "string",
             "description": "Use instead of `message` to send a typing indicator, read receipt, or reaction. typing_on/typing_off/mark_seen require no payload; react/unreact require the `payload` field below.",
-            "enum": ["typing_on", "typing_off", "mark_seen", "react", "unreact"]
+            "enum": [
+              "typing_on",
+              "typing_off",
+              "mark_seen",
+              "react",
+              "unreact"
+            ]
           },
           "payload": {
             "type": "object",
@@ -877,14 +926,19 @@
                 "default": "love"
               }
             },
-            "required": ["message_id"]
+            "required": [
+              "message_id"
+            ]
           },
           "access_token": {
             "type": "string",
             "description": "Page-level access token (from list_pages → data[].access_token of the FB Page that owns this IG account). Required."
           }
         },
-        "required": ["instagramAccountId", "recipient"]
+        "required": [
+          "instagramAccountId",
+          "recipient"
+        ]
       },
       "mock_response": {
         "recipient_id": "17841400000000050",
@@ -906,7 +960,9 @@
           "platform": {
             "type": "string",
             "description": "Must be 'instagram' to scope to IG DMs (vs. Messenger).",
-            "enum": ["instagram"],
+            "enum": [
+              "instagram"
+            ],
             "default": "instagram"
           },
           "fields": {
@@ -932,7 +988,9 @@
             "description": "Page-level access token (from list_pages). Required."
           }
         },
-        "required": ["instagramAccountId"]
+        "required": [
+          "instagramAccountId"
+        ]
       },
       "mock_response": {
         "data": [
@@ -983,7 +1041,9 @@
             "description": "Page-level access token (from list_pages). Required."
           }
         },
-        "required": ["conversationId"]
+        "required": [
+          "conversationId"
+        ]
       },
       "mock_response": {
         "id": "aWdfdGhyZWFkX21vY2tfMDAx",
@@ -1048,7 +1108,9 @@
             "description": "Page-level access token (from list_pages). Required."
           }
         },
-        "required": ["messageId"]
+        "required": [
+          "messageId"
+        ]
       },
       "mock_response": {
         "id": "aWdfbWVzc2FnZV9tb2NrXzAwMQ",
@@ -1071,6 +1133,401 @@
         },
         "reactions": {
           "data": []
+        }
+      }
+    },
+    {
+      "name": "list_conversation_messages",
+      "description": "List messages for a Meta conversation thread. Works for Instagram conversations returned by list_conversations and Facebook Page conversations returned by facebook_list_conversations. Calls GET /{conversationId}/messages and supports cursor pagination. Use this for historical DM loading beyond the inline messages returned by get_conversation/facebook_get_conversation.",
+      "method": "GET",
+      "path": "/{conversationId}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "description": "Conversation id from list_conversations or facebook_list_conversations."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated message fields.",
+            "default": "id,from,to,message,created_time,attachments"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size.",
+            "default": 25
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor from previous response's paging.cursors.after."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "conversationId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "m_mock_001",
+            "message": "Hi, is this still available?",
+            "created_time": "2026-05-22T11:00:00+0000",
+            "from": {
+              "id": "17841400000000050",
+              "username": "a_customer"
+            },
+            "to": {
+              "data": [
+                {
+                  "id": "17841400000000001",
+                  "username": "apteva"
+                }
+              ]
+            },
+            "attachments": {
+              "data": []
+            }
+          }
+        ],
+        "paging": {
+          "cursors": {
+            "before": "QVFIUm",
+            "after": "QVFIUm"
+          }
+        }
+      }
+    },
+    {
+      "name": "facebook_list_conversations",
+      "description": "List Messenger conversations for a Facebook Page. Calls GET /{pageId}/conversations with a Page access token. Requires pages_messaging and the Page messaging product/review setup; some app configurations may also require Meta legacy mailbox access. Returns conversation ids, participants, snippets, unread counts, and paging cursors.",
+      "method": "GET",
+      "path": "/{pageId}/conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook Page ID."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields.",
+            "default": "id,updated_time,participants{id,name,email},senders{id,name,email},snippet,unread_count,can_reply,link"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size.",
+            "default": 25
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor from previous response's paging.cursors.after."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "pageId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "t_mock_page_thread_001",
+            "updated_time": "2026-05-22T11:00:00+0000",
+            "snippet": "Hi, is this still available?",
+            "unread_count": 1,
+            "can_reply": true,
+            "participants": {
+              "data": [
+                {
+                  "id": "100200300400500",
+                  "name": "Page"
+                },
+                {
+                  "id": "123456789",
+                  "name": "Customer"
+                }
+              ]
+            }
+          }
+        ],
+        "paging": {
+          "cursors": {
+            "before": "QVFIUm",
+            "after": "QVFIUm"
+          }
+        }
+      }
+    },
+    {
+      "name": "facebook_get_conversation",
+      "description": "Fetch one Facebook Page Messenger conversation with inline messages. Calls GET /{conversationId}?fields=... with a Page access token. For deeper history, page through list_conversation_messages.",
+      "method": "GET",
+      "path": "/{conversationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "description": "Conversation id from facebook_list_conversations.data[].id."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields selector.",
+            "default": "id,updated_time,participants{id,name,email},senders{id,name,email},messages{id,from,to,message,created_time,attachments}"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "conversationId"
+        ]
+      },
+      "mock_response": {
+        "id": "t_mock_page_thread_001",
+        "updated_time": "2026-05-22T11:00:00+0000",
+        "participants": {
+          "data": [
+            {
+              "id": "100200300400500",
+              "name": "Page"
+            },
+            {
+              "id": "123456789",
+              "name": "Customer"
+            }
+          ]
+        },
+        "messages": {
+          "data": [
+            {
+              "id": "m_mock_001",
+              "from": {
+                "id": "123456789",
+                "name": "Customer"
+              },
+              "message": "Hi, is this still available?",
+              "created_time": "2026-05-22T11:00:00+0000"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "facebook_send_message",
+      "description": "Send a Messenger reply from a Facebook Page. Calls POST /{pageId}/messages with recipient={id:PSID}, message={text}, and messaging_type=RESPONSE by default. Requires a user-initiated conversation and the normal Messenger response window unless an approved tag/use case applies.",
+      "method": "POST",
+      "path": "/{pageId}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook Page ID."
+          },
+          "recipient": {
+            "type": "object",
+            "description": "Recipient object. For replies, use {id: \"<page-scoped-user-id>\"}.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Page-scoped user ID (PSID)."
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "message": {
+            "type": "object",
+            "description": "Message payload, usually {text}.",
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "Message text."
+              }
+            }
+          },
+          "messaging_type": {
+            "type": "string",
+            "enum": [
+              "RESPONSE",
+              "UPDATE",
+              "MESSAGE_TAG"
+            ],
+            "default": "RESPONSE",
+            "description": "Messenger send type. RESPONSE is the normal customer-care reply."
+          },
+          "tag": {
+            "type": "string",
+            "description": "Optional approved Messenger tag, only with messaging_type=MESSAGE_TAG."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "pageId",
+          "recipient",
+          "message"
+        ]
+      },
+      "mock_response": {
+        "recipient_id": "123456789",
+        "message_id": "m_mock_reply_001"
+      }
+    },
+    {
+      "name": "facebook_private_reply_to_comment",
+      "description": "Send a private Messenger reply to a Facebook Page comment. Calls POST /{commentId}/private_replies with message. Meta limits this by policy/window and the user/comment must be eligible.",
+      "method": "POST",
+      "path": "/{commentId}/private_replies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commentId": {
+            "type": "string",
+            "description": "Facebook comment id."
+          },
+          "message": {
+            "type": "string",
+            "description": "Private reply text."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "commentId",
+          "message"
+        ]
+      },
+      "mock_response": {
+        "recipient_id": "123456789",
+        "message_id": "m_mock_private_reply_001"
+      }
+    },
+    {
+      "name": "facebook_list_reviews",
+      "description": "List recommendations/reviews for a Facebook Page. Calls GET /{pageId}/ratings with a Page access token. Requires pages_read_user_content and Page task access. Returns Recommendation nodes plus paging cursors.",
+      "method": "GET",
+      "path": "/{pageId}/ratings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook Page ID."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Recommendation fields. Meta may ignore unsupported fields depending on API version.",
+            "default": "id,created_time,review_text,recommendation_type,has_rating,has_review,rating,open_graph_story,reviewer{id,name}"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size.",
+            "default": 25
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor from previous response's paging.cursors.after."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "pageId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "review_mock_001",
+            "created_time": "2026-05-20T09:00:00+0000",
+            "review_text": "Great service",
+            "recommendation_type": "positive",
+            "reviewer": {
+              "id": "123456789",
+              "name": "Customer"
+            }
+          }
+        ],
+        "paging": {
+          "cursors": {
+            "before": "QVFIUm",
+            "after": "QVFIUm"
+          }
+        }
+      }
+    },
+    {
+      "name": "facebook_list_tagged",
+      "description": "List public posts/photos/videos that tag a Facebook Page. Calls GET /{pageId}/tagged with a Page access token. Useful for Page mentions in the unified inbox. Visibility depends on Meta privacy and Page authenticity rules.",
+      "method": "GET",
+      "path": "/{pageId}/tagged",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook Page ID."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Tagged object fields.",
+            "default": "id,message,story,created_time,from,permalink_url,full_picture,attachments"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size.",
+            "default": 25
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor from previous response's paging.cursors.after."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "pageId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "tagged_mock_001",
+            "message": "Mentioning the page",
+            "created_time": "2026-05-21T09:00:00+0000",
+            "from": {
+              "id": "123456789",
+              "name": "Customer"
+            },
+            "permalink_url": "https://www.facebook.com/mock/posts/tagged_mock_001"
+          }
+        ],
+        "paging": {
+          "cursors": {
+            "before": "QVFIUm",
+            "after": "QVFIUm"
+          }
         }
       }
     },
@@ -1105,7 +1562,9 @@
             "description": "Page-level access token (from list_pages → data[].access_token). Required."
           }
         },
-        "required": ["mediaId"]
+        "required": [
+          "mediaId"
+        ]
       },
       "mock_response": {
         "data": [
@@ -1147,7 +1606,9 @@
             "description": "Page-level access token (from list_pages → data[].access_token). Required."
           }
         },
-        "required": ["commentId"]
+        "required": [
+          "commentId"
+        ]
       },
       "mock_response": {
         "id": "17900000000000200",
@@ -1178,7 +1639,10 @@
             "description": "Page-level access token (from list_pages → data[].access_token). Required."
           }
         },
-        "required": ["commentId", "message"]
+        "required": [
+          "commentId",
+          "message"
+        ]
       },
       "mock_response": {
         "id": "17900000000000201"
@@ -1206,7 +1670,9 @@
             "description": "Page-level access token (from list_pages → data[].access_token). Required."
           }
         },
-        "required": ["commentId"]
+        "required": [
+          "commentId"
+        ]
       },
       "mock_response": {
         "success": true
@@ -1229,7 +1695,9 @@
             "description": "Page-level access token (from list_pages → data[].access_token). Required."
           }
         },
-        "required": ["commentId"]
+        "required": [
+          "commentId"
+        ]
       },
       "mock_response": {
         "success": true
@@ -1266,7 +1734,9 @@
             "description": "Page-level access token (from list_pages → data[].access_token). Required."
           }
         },
-        "required": ["instagramAccountId"]
+        "required": [
+          "instagramAccountId"
+        ]
       },
       "mock_response": {
         "data": [
