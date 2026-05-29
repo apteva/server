@@ -185,6 +185,130 @@
       }
     },
     {
+      "name": "edit_image",
+      "description": "Edit or generate an image from one or more reference images via /v1/images/edits. Uses the JSON request form: pass images as references with image_url or file_id. GPT image models support up to 16 reference images; DALL-E 2 supports only one square PNG reference.",
+      "method": "POST",
+      "path": "/images/edits",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Text instruction for the desired edit or reference-image generation."
+          },
+          "images": {
+            "type": "array",
+            "description": "Input image references. For GPT image models, pass 1-16 objects, each with exactly one of image_url or file_id. For DALL-E 2, pass exactly one square PNG reference.",
+            "minItems": 1,
+            "maxItems": 16,
+            "items": {
+              "type": "object",
+              "properties": {
+                "image_url": {
+                  "type": "string",
+                  "description": "Fully-qualified image URL or data URL reference."
+                },
+                "file_id": {
+                  "type": "string",
+                  "description": "OpenAI file id created with purpose='vision'."
+                }
+              }
+            }
+          },
+          "mask": {
+            "type": "object",
+            "description": "Optional mask reference for inpainting. When multiple images are provided, the mask applies to the first image.",
+            "properties": {
+              "image_url": {
+                "type": "string",
+                "description": "Fully-qualified PNG mask URL or data URL."
+              },
+              "file_id": {
+                "type": "string",
+                "description": "OpenAI file id for the PNG mask."
+              }
+            }
+          },
+          "model": {
+            "type": "string",
+            "description": "Image edit model. GPT image models support multi-reference editing; DALL-E 2 is legacy single-image inpainting.",
+            "enum": [
+              "gpt-image-1.5",
+              "gpt-image-1",
+              "gpt-image-1-mini",
+              "dall-e-2"
+            ],
+            "default": "gpt-image-1.5"
+          },
+          "size": {
+            "type": "string",
+            "description": "Output size. GPT image models: 1024x1024, 1024x1536, 1536x1024, or auto. DALL-E 2: 256x256, 512x512, or 1024x1024.",
+            "enum": [
+              "1024x1024",
+              "1024x1536",
+              "1536x1024",
+              "256x256",
+              "512x512",
+              "auto"
+            ],
+            "default": "auto"
+          },
+          "quality": {
+            "type": "string",
+            "description": "Quality for GPT image models: low, medium, high, or auto.",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "auto"
+            ],
+            "default": "auto"
+          },
+          "output_format": {
+            "type": "string",
+            "description": "Output format for GPT image models.",
+            "enum": [
+              "png",
+              "jpeg",
+              "webp"
+            ],
+            "default": "png"
+          },
+          "background": {
+            "type": "string",
+            "description": "Background handling for GPT image models.",
+            "enum": [
+              "auto",
+              "transparent",
+              "opaque"
+            ],
+            "default": "auto"
+          },
+          "input_fidelity": {
+            "type": "string",
+            "description": "How strongly the model should preserve source-image style/features. Supported by gpt-image-1.",
+            "enum": [
+              "low",
+              "high"
+            ],
+            "default": "low"
+          },
+          "n": {
+            "type": "integer",
+            "description": "Number of edited images to return.",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 1
+          }
+        },
+        "required": [
+          "prompt",
+          "images"
+        ]
+      }
+    },
+    {
       "name": "transcribe_audio",
       "description": "Transcribe audio files using OpenAI's Whisper model",
       "method": "GET",

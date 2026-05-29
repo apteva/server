@@ -396,6 +396,92 @@
       }
     },
     {
+      "name": "multi_edit_image",
+      "description": "Prompt-driven multi-image edit via POST /image/multi-edit. Accepts 1–3 reference images as base64 strings or http(s) URLs and returns binary image bytes in the requested output_format. Use this when a caller supplies multiple persona, style, item, or scene references.",
+      "method": "POST",
+      "path": "/image/multi-edit",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "images": {
+            "type": "array",
+            "description": "Source images — base64 strings or http(s) URLs. Venice accepts 1–3 images.",
+            "minItems": 1,
+            "maxItems": 3,
+            "items": {
+              "type": "string"
+            }
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Edit instruction (≤32,768 chars)."
+          },
+          "modelId": {
+            "type": "string",
+            "description": "Edit model id. Default firered-image-edit.",
+            "default": "firered-image-edit"
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "description": "Output aspect ratio.",
+            "enum": [
+              "auto",
+              "1:1",
+              "3:2",
+              "2:3",
+              "16:9",
+              "9:16",
+              "21:9",
+              "3:4",
+              "4:5"
+            ],
+            "default": "auto"
+          },
+          "quality": {
+            "type": "string",
+            "description": "Output quality for models that expose quality tiers.",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "auto"
+            ],
+            "default": "auto"
+          },
+          "resolution": {
+            "type": "string",
+            "description": "Output resolution tier.",
+            "enum": [
+              "1K",
+              "2K",
+              "4K"
+            ],
+            "default": "1K"
+          },
+          "output_format": {
+            "type": "string",
+            "description": "Output image format.",
+            "enum": [
+              "jpeg",
+              "png",
+              "webp"
+            ],
+            "default": "png"
+          },
+          "safe_mode": {
+            "type": "boolean",
+            "description": "Blur adult-classified content.",
+            "default": true
+          }
+        },
+        "required": [
+          "images",
+          "prompt"
+        ]
+      }
+    },
+    {
       "name": "upscale_image",
       "description": "Upscale or enhance an image via POST /image/upscale. Inputs accept base64 or remote URL bytes (≤25 MB, ≥65536 px, ≤16777216 px after scaling). Returns binary PNG.",
       "method": "POST",

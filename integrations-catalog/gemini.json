@@ -148,9 +148,10 @@
     },
     {
       "name": "generate_image",
-      "description": "Generate images using Gemini models. Uses the native Gemini image generation with responseModalities set to Image. Supports gemini-2.5-flash-image (fast, ~1024px) and gemini-3-pro-image-preview (up to 4K, text rendering).",
+      "description": "Generate images using Gemini models via models/{model}:generateContent. Uses the native Gemini image generation path with responseModalities set to Image. Pass text in contents parts; for reference-image generation, include one or more inlineData image parts in the same contents.",
       "method": "POST",
-      "path": "/generate-image",
+      "path": "/models/{model}:generateContent",
+      "timeout_ms": 180000,
       "input_schema": {
         "type": "object",
         "properties": {
@@ -180,7 +181,7 @@
           },
           "generationConfig": {
             "type": "object",
-            "description": "Must include responseModalities: ['Image']. Can also include imageConfig with aspectRatio and imageSize.",
+            "description": "Must include responseModalities: ['Image']. Can also include responseFormat.image with aspectRatio and imageSize.",
             "properties": {
               "responseModalities": {
                 "type": "array",
@@ -192,40 +193,39 @@
                   "Image"
                 ]
               },
-              "imageConfig": {
+              "responseFormat": {
                 "type": "object",
-                "description": "Image configuration",
+                "description": "Image response format configuration.",
                 "properties": {
-                  "aspectRatio": {
-                    "type": "string",
-                    "enum": [
-                      "1:1",
-                      "2:3",
-                      "3:2",
-                      "3:4",
-                      "4:3",
-                      "4:5",
-                      "5:4",
-                      "9:16",
-                      "16:9",
-                      "21:9"
-                    ],
-                    "default": "1:1"
-                  },
-                  "numberOfImages": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 8,
-                    "default": 1
-                  },
-                  "imageSize": {
-                    "type": "string",
-                    "enum": [
-                      "1K",
-                      "2K",
-                      "4K"
-                    ],
-                    "description": "Image size (Pro model only)"
+                  "image": {
+                    "type": "object",
+                    "properties": {
+                      "aspectRatio": {
+                        "type": "string",
+                        "enum": [
+                          "1:1",
+                          "2:3",
+                          "3:2",
+                          "3:4",
+                          "4:3",
+                          "4:5",
+                          "5:4",
+                          "9:16",
+                          "16:9",
+                          "21:9"
+                        ],
+                        "default": "1:1"
+                      },
+                      "imageSize": {
+                        "type": "string",
+                        "enum": [
+                          "1K",
+                          "2K",
+                          "4K"
+                        ],
+                        "description": "Image size (Pro model only)"
+                      }
+                    }
                   }
                 }
               },
@@ -258,6 +258,102 @@
           }
         },
         "required": [
+          "contents",
+          "generationConfig"
+        ]
+      }
+    },
+    {
+      "name": "edit_image",
+      "description": "Edit an image, compose a new image from multiple references, or transfer style using Gemini image models. Build contents with one text part for the instruction and one or more inlineData image parts for the references.",
+      "method": "POST",
+      "path": "/models/{model}:generateContent",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Gemini image model to use for reference-image editing/composition.",
+            "enum": [
+              "gemini-2.5-flash-image",
+              "gemini-3-pro-image-preview"
+            ],
+            "default": "gemini-2.5-flash-image"
+          },
+          "contents": {
+            "type": "array",
+            "description": "Content array with a prompt part and reference image parts. Example: [{parts:[{text:'put this person in a studio portrait'}, {inlineData:{mimeType:'image/png', data:'base64...'}}, {inlineData:{mimeType:'image/jpeg', data:'base64...'}}]}].",
+            "items": {
+              "type": "object",
+              "properties": {
+                "parts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "generationConfig": {
+            "type": "object",
+            "description": "Must include responseModalities: ['Image']. Optional responseFormat.image.aspectRatio controls square/portrait/landscape output; imageSize is for Pro models.",
+            "properties": {
+              "responseModalities": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": [
+                  "Image"
+                ]
+              },
+              "responseFormat": {
+                "type": "object",
+                "properties": {
+                  "image": {
+                    "type": "object",
+                    "properties": {
+                      "aspectRatio": {
+                        "type": "string",
+                        "enum": [
+                          "1:1",
+                          "2:3",
+                          "3:2",
+                          "3:4",
+                          "4:3",
+                          "4:5",
+                          "5:4",
+                          "9:16",
+                          "16:9",
+                          "21:9"
+                        ]
+                      },
+                      "imageSize": {
+                        "type": "string",
+                        "enum": [
+                          "1K",
+                          "2K",
+                          "4K"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "safetySettings": {
+            "type": "array",
+            "description": "Safety filter settings",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "model",
           "contents",
           "generationConfig"
         ]
