@@ -264,7 +264,8 @@ func executeOpenAICodexIntegrationTool(app *AppTemplate, tool *AppToolDef, crede
 		timeout = time.Duration(tool.TimeoutMS) * time.Millisecond
 	}
 	payload := map[string]any{}
-	normalize := false
+	normalizeChat := false
+	normalizeImage := false
 	switch tool.Name {
 	case "responses_create":
 		for k, v := range input {
@@ -274,8 +275,11 @@ func executeOpenAICodexIntegrationTool(app *AppTemplate, tool *AppToolDef, crede
 			payload["instructions"] = "You are a helpful assistant."
 		}
 	case "chat_completion", "vision_describe":
-		normalize = true
+		normalizeChat = true
 		payload = buildOpenAICodexResponsesPayload(input)
+	case "generate_image":
+		normalizeImage = true
+		payload = buildOpenAICodexImagePayload(input)
 	default:
 		return nil, fmt.Errorf("unsupported OpenAI Codex tool %q", tool.Name)
 	}
@@ -289,8 +293,10 @@ func executeOpenAICodexIntegrationTool(app *AppTemplate, tool *AppToolDef, crede
 	if err != nil {
 		return &ExecuteResult{Success: false, Status: status, Data: map[string]any{"error": err.Error()}, Headers: headers}, nil
 	}
-	if normalize {
+	if normalizeChat {
 		data = normalizeOpenAICodexChatCompletion(data, input)
+	} else if normalizeImage {
+		data = normalizeOpenAICodexImageGeneration(data, input)
 	}
 	return &ExecuteResult{Success: status >= 200 && status < 300, Status: status, Data: data, Headers: headers}, nil
 }
@@ -346,6 +352,54 @@ func buildOpenAICodexResponsesPayload(input map[string]any) map[string]any {
 		payload["input"] = items
 	}
 	return payload
+}
+
+func buildOpenAICodexImagePayload(input map[string]any) map[string]any {
+	prompt := strings.TrimSpace(fmt.Sprint(input["prompt"]))
+	if prompt == "" || prompt == "<nil>" {
+		prompt = strings.TrimSpace(fmt.Sprint(input["input"]))
+	}
+	instructions := strings.TrimSpace(fmt.Sprint(input["instructions"]))
+	if instructions == "" || instructions == "<nil>" {
+		instructions = "Generate the requested image using the hosted image_generation tool. Return the completed image result."
+	}
+	tool := map[string]any{
+		"type":   "image_generation",
+		"action": "generate",
+	}
+	for _, key := range []string{"size", "quality", "output_format", "background", "output_compression"} {
+		if v, ok := input[key]; ok && v != nil && strings.TrimSpace(fmt.Sprint(v)) != "" {
+			tool[key] = v
+		}
+	}
+	payload := map[string]any{
+		"model":        openAICodexResponsesModel(input["model"]),
+		"instructions": instructions,
+		"input": []any{map[string]any{
+			"type": "message",
+			"role": "user",
+			"content": []any{map[string]any{
+				"type": "input_text",
+				"text": prompt,
+			}},
+		}},
+		"tools":       []any{tool},
+		"tool_choice": map[string]any{"type": "image_generation"},
+		"store":       false,
+		// Keep the integration response as JSON so the generated image's
+		// base64 result is available without relying on streaming events.
+		"stream": false,
+	}
+	return payload
+}
+
+func openAICodexResponsesModel(raw any) string {
+	model := strings.TrimSpace(fmt.Sprint(raw))
+	if model == "" || model == "<nil>" || model == "kimi-k2.6" ||
+		strings.HasPrefix(model, "gpt-image") || strings.HasPrefix(model, "dall-e") {
+		return "gpt-5.5"
+	}
+	return model
 }
 
 func responsesContentParts(content any) any {
@@ -407,10 +461,7 @@ func contentText(content any) string {
 
 func normalizeOpenAICodexChatCompletion(data any, input map[string]any) any {
 	text := extractOpenAICodexIntegrationText(data)
-	model := fmt.Sprint(input["model"])
-	if model == "" || model == "<nil>" || model == "kimi-k2.6" {
-		model = "gpt-5.5"
-	}
+	model := openAICodexResponsesModel(input["model"])
 	out := map[string]any{
 		"id":      "",
 		"object":  "chat.completion",
@@ -425,6 +476,45 @@ func normalizeOpenAICodexChatCompletion(data any, input map[string]any) any {
 			out["usage"] = usage
 		}
 	}
+	return out
+}
+
+func normalizeOpenAICodexImageGeneration(data any, input map[string]any) any {
+	out := map[string]any{
+		"data":  []any{},
+		"model": openAICodexResponsesModel(input["model"]),
+	}
+	m, ok := data.(map[string]any)
+	if !ok {
+		return out
+	}
+	if id, _ := m["id"].(string); id != "" {
+		out["id"] = id
+	}
+	if model, _ := m["model"].(string); strings.TrimSpace(model) != "" {
+		out["model"] = model
+	}
+	if usage, ok := m["usage"]; ok {
+		out["usage"] = usage
+	}
+	output, _ := m["output"].([]any)
+	images := make([]any, 0, len(output))
+	for _, item := range output {
+		obj, ok := item.(map[string]any)
+		if !ok || obj["type"] != "image_generation_call" {
+			continue
+		}
+		result, _ := obj["result"].(string)
+		if strings.TrimSpace(result) == "" {
+			continue
+		}
+		image := map[string]any{"b64_json": result}
+		if revised, _ := obj["revised_prompt"].(string); strings.TrimSpace(revised) != "" {
+			image["revised_prompt"] = revised
+		}
+		images = append(images, image)
+	}
+	out["data"] = images
 	return out
 }
 

@@ -1,9 +1,9 @@
 {
   "slug": "openai-codex",
   "name": "OpenAI Codex",
-  "description": "Subscription-backed OpenAI Codex runtime using device-code sign-in. Exposes a Responses API tool and an OpenAI-compatible chat_completion wrapper for apps that need LLM or vision calls without an OpenAI API key.",
+  "description": "Subscription-backed OpenAI Codex runtime using device-code sign-in. Exposes Responses, chat/vision, and image generation tools for apps that need OpenAI model calls without an OpenAI API key.",
   "logo": "https://www.google.com/s2/favicons?domain=openai.com&sz=128",
-  "categories": ["ai", "openai", "codex", "chat", "vision", "subscription"],
+  "categories": ["ai", "openai", "codex", "chat", "vision", "image-generation", "subscription"],
   "base_url": "https://chatgpt.com/backend-api/codex",
   "auth": {
     "types": ["oauth_device_code"]
@@ -126,6 +126,56 @@
           }
         },
         "required": ["messages"]
+      }
+    },
+    {
+      "name": "generate_image",
+      "description": "Generate an image through the subscription-backed Codex Responses runtime using the hosted image_generation tool. Returns an OpenAI Images-compatible {data:[{b64_json,revised_prompt}]} response.",
+      "method": "POST",
+      "path": "/responses",
+      "timeout_ms": 300000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Text description of the image to generate."
+          },
+          "model": {
+            "type": "string",
+            "default": "gpt-5.5",
+            "description": "Codex/runtime model that should call the hosted image_generation tool."
+          },
+          "size": {
+            "type": "string",
+            "description": "Output size for the image_generation tool, e.g. 1024x1024, 1024x1536, 1536x1024, or auto.",
+            "default": "1024x1024"
+          },
+          "quality": {
+            "type": "string",
+            "description": "Rendering quality for the image_generation tool.",
+            "enum": ["low", "medium", "high", "auto"],
+            "default": "auto"
+          },
+          "output_format": {
+            "type": "string",
+            "description": "Image output format.",
+            "enum": ["png", "jpeg", "webp"],
+            "default": "png"
+          },
+          "background": {
+            "type": "string",
+            "description": "Background handling when supported by the image generation model.",
+            "enum": ["auto", "transparent", "opaque"]
+          },
+          "output_compression": {
+            "type": "integer",
+            "description": "Compression level for jpeg/webp output.",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "required": ["prompt"]
       }
     }
   ]
