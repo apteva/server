@@ -821,7 +821,8 @@
       "name": "list_whatsapp_senders",
       "description": "List all WhatsApp Business senders (phone numbers) registered in your Twilio account. Shows sender status, phone number, and WhatsApp Business profile details.",
       "method": "GET",
-      "path": "/v2/Channels/Senders",
+      "base_url": "https://messaging.twilio.com",
+      "path": "/v2/Channels/Senders?Channel=whatsapp",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -837,6 +838,7 @@
       "name": "get_whatsapp_sender",
       "description": "Get details of a specific WhatsApp Business sender by SID \u2014 status, phone number, profile info, and capabilities.",
       "method": "GET",
+      "base_url": "https://messaging.twilio.com",
       "path": "/v2/Channels/Senders/{SenderSid}",
       "input_schema": {
         "type": "object",
@@ -855,6 +857,7 @@
       "name": "register_whatsapp_sender",
       "description": "Register a phone number as a WhatsApp Business sender. For SMS-capable Twilio numbers, verification is automatic. For voice-only or non-Twilio numbers, OTP verification is required separately.",
       "method": "POST",
+      "base_url": "https://messaging.twilio.com",
       "path": "/v2/Channels/Senders",
       "input_schema": {
         "type": "object",
@@ -940,7 +943,8 @@
       "name": "list_content_templates",
       "description": "List WhatsApp content templates with their approval status. Use this to see all message templates, their types, and whether they're approved for WhatsApp.",
       "method": "GET",
-      "path": "/v2/ContentAndApprovals",
+      "base_url": "https://content.twilio.com",
+      "path": "/v1/ContentAndApprovals",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -964,6 +968,7 @@
       "name": "get_content_template",
       "description": "Retrieve details of a specific content template by SID \u2014 body, variables, type, and approval status.",
       "method": "GET",
+      "base_url": "https://content.twilio.com",
       "path": "/v1/Content/{ContentSid}",
       "input_schema": {
         "type": "object",
@@ -982,6 +987,7 @@
       "name": "create_content_template",
       "description": "Create a new content template for WhatsApp messaging. Templates must be submitted for approval before use. Supports text, media, quick reply, call-to-action, and card types.",
       "method": "POST",
+      "base_url": "https://content.twilio.com",
       "path": "/v1/Content",
       "input_schema": {
         "type": "object",
@@ -1015,6 +1021,7 @@
       "name": "submit_content_template_approval",
       "description": "Submit a content template for WhatsApp approval. Once approved by Meta, the template can be used to initiate conversations outside the 24-hour window.",
       "method": "POST",
+      "base_url": "https://content.twilio.com",
       "path": "/v1/Content/{ContentSid}/ApprovalRequests/whatsapp",
       "input_schema": {
         "type": "object",
@@ -1048,6 +1055,7 @@
       "name": "delete_content_template",
       "description": "Delete a content template. Cannot delete templates that have been submitted for WhatsApp approval.",
       "method": "DELETE",
+      "base_url": "https://content.twilio.com",
       "path": "/v1/Content/{ContentSid}",
       "input_schema": {
         "type": "object",
