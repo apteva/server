@@ -860,7 +860,10 @@ func (s *Server) handleQueryTelemetry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query()
-	instanceID, _ := strconv.ParseInt(q.Get("instance_id"), 10, 64)
+	instanceID, _ := strconv.ParseInt(q.Get("agent_id"), 10, 64)
+	if instanceID == 0 {
+		instanceID, _ = strconv.ParseInt(q.Get("instance_id"), 10, 64)
+	}
 	if instanceID == 0 {
 		http.Error(w, "agent_id required", http.StatusBadRequest)
 		return

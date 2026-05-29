@@ -172,8 +172,7 @@ func (s *Server) SpawnAgentInWorld(world *World, spec WorldAgentSpec) (*WorldAge
 		teardown()
 		return nil, fmt.Errorf("seed world agent config: %w", err)
 	}
-	if err := s.agents.Start(wAgent, providerEnv, s.port, pool, s.instanceSecret,
-		s.getBrowserConfig(userID, defaultProviderForInstance(wAgent), src.ProjectID)); err != nil {
+	if err := s.agents.Start(wAgent, providerEnv, s.port, pool, s.instanceSecret); err != nil {
 		teardown()
 		return nil, fmt.Errorf("spawn world core: %w", err)
 	}

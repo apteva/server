@@ -735,11 +735,9 @@ func (s *Store) migrate() error {
 			WHERE id=15 AND auth_provider='openai-codex'`)
 
 	// Fix historical row 8: it was seeded with type='browser' but its
-	// fields / name describe Browserbase. getBrowserConfig treats
-	// type='browser' as local-Chromium/CDP, so credentials saved under the
-	// old row were silently ignored at spawn time. Flip the type to
-	// 'browserbase' on existing installs. Idempotent — re-running is a
-	// no-op once the row has the correct type.
+	// fields / name describe Browserbase. Flip the type to 'browserbase'
+	// on existing installs. Idempotent — re-running is a no-op once the
+	// row has the correct type.
 	s.db.Exec(`UPDATE provider_types
 		SET type='browserbase',
 		    description='Cloud browser automation via Browserbase',

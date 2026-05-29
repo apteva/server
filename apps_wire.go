@@ -60,7 +60,7 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 			if st := app.Streamer(); st != nil {
 				s.liveTelemetryHook = func(events []TelemetryEvent) {
 					for _, ev := range events {
-						st.Ingest(ev.Type, ev.ThreadID, string(ev.Data), ev.Time)
+						st.Ingest(ev.Type, ev.AgentID, ev.ThreadID, string(ev.Data), ev.Time)
 					}
 				}
 			}

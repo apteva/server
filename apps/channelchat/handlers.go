@@ -254,6 +254,7 @@ func (h *handlers) postMessage(w http.ResponseWriter, r *http.Request, _ *framew
 	}
 	var body struct {
 		Content string `json:"content"`
+		Context any    `json:"context"`
 	}
 	// Accept chat_id in body too for POST ergonomics; query param wins
 	// (we already parsed it in authorizeChat).
@@ -299,6 +300,9 @@ func (h *handlers) postMessage(w http.ResponseWriter, r *http.Request, _ *framew
 	// instead of an indefinite quiet.
 	go func(inst framework.InstanceInfo, text string, chatID string) {
 		evText := fmt.Sprintf("[chat] %s", text)
+		if ctx := formatDashboardContext(body.Context); ctx != "" {
+			evText = fmt.Sprintf("[chat]\n%s\n\nUser message:\n%s", ctx, text)
+		}
 		threadID := h.resolveChatThread(inst, chatID)
 		if err := h.instances.ForwardEvent(inst, evText, threadID); err != nil {
 			log.Printf("[CHAT] ForwardEvent FAILED chat=%s instance=%d thread=%s: %v",
@@ -635,6 +639,54 @@ func (h *handlers) authorizeChat(w http.ResponseWriter, r *http.Request) (string
 		return "", framework.InstanceInfo{}, false
 	}
 	return chatID, inst, true
+}
+
+func formatDashboardContext(v any) string {
+	ctx, ok := v.(map[string]any)
+	if !ok || len(ctx) == 0 {
+		return ""
+	}
+	if source, _ := ctx["source"].(string); source != "dashboard-floating" {
+		return ""
+	}
+	pick := func(key string) string {
+		if s, ok := ctx[key].(string); ok {
+			return strings.TrimSpace(s)
+		}
+		return ""
+	}
+	var lines []string
+	lines = append(lines, "Dashboard context:")
+	for _, item := range []struct {
+		label string
+		key   string
+	}{
+		{"page", "title"},
+		{"route", "route"},
+		{"project", "project_name"},
+		{"project_id", "project_id"},
+		{"kind", "page_kind"},
+		{"detail", "detail"},
+	} {
+		if val := pick(item.key); val != "" {
+			lines = append(lines, fmt.Sprintf("- %s: %s", item.label, val))
+		}
+	}
+	if raw, ok := ctx["chips"].([]any); ok && len(raw) > 0 {
+		var chips []string
+		for _, item := range raw {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				chips = append(chips, strings.TrimSpace(s))
+			}
+		}
+		if len(chips) > 0 {
+			lines = append(lines, "- tags: "+strings.Join(chips, ", "))
+		}
+	}
+	if len(lines) == 1 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
 }
 
 // resolveChatThread decides which core thread the chat's events

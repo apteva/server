@@ -141,6 +141,11 @@
             "type": "string",
             "description": "Text description of the image to generate."
           },
+          "instructions": {
+            "type": "string",
+            "description": "Responses instructions required by the Codex runtime. Tell the model to use the hosted image_generation tool and return the completed image result.",
+            "default": "Generate the requested image using the hosted image_generation tool. Return the completed image result."
+          },
           "model": {
             "type": "string",
             "default": "gpt-5.5",
@@ -175,7 +180,7 @@
             "maximum": 100
           }
         },
-        "required": ["prompt"]
+        "required": ["prompt", "instructions"]
       }
     }
   ]

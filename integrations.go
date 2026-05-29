@@ -17,15 +17,15 @@ import (
 // --- App catalog types (matches apteva JSON definitions) ---
 
 type AppTemplate struct {
-	Slug        string             `json:"slug"`
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	Logo        *string            `json:"logo"`
-	Categories  []string           `json:"categories"`
-	BaseURL     string             `json:"base_url"`
-	Auth        AppAuthConfig      `json:"auth"`
-	Tools       []AppToolDef       `json:"tools"`
-	Webhooks    *AppWebhookConfig  `json:"webhooks,omitempty"`
+	Slug        string            `json:"slug"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Logo        *string           `json:"logo"`
+	Categories  []string          `json:"categories"`
+	BaseURL     string            `json:"base_url"`
+	Auth        AppAuthConfig     `json:"auth"`
+	Tools       []AppToolDef      `json:"tools"`
+	Webhooks    *AppWebhookConfig `json:"webhooks,omitempty"`
 	// Suite membership + per-scope credential variants. Opt-in; legacy
 	// apps leave both nil. See types.ts for the canonical description.
 	CredentialGroup *CredentialGroup `json:"credential_group,omitempty"`
@@ -43,6 +43,10 @@ type AppTemplate struct {
 	// provides.ui_components. Each entry's Entry path resolves under
 	// /api/integrations/<slug>/<entry> at runtime.
 	UIComponents []IntegrationUIComponent `json:"ui_components,omitempty"`
+	// Explorer — optional declarative resource browser for the dashboard.
+	// It maps navigation/actions onto existing tools; it does not add any
+	// new server-side integration capability.
+	Explorer *IntegrationExplorerConfig `json:"explorer,omitempty"`
 	// HealthCheck — cheap probe used by `apteva connection test` /
 	// the dashboard's "Test" button. Optional. When set, the runner
 	// builds a synthetic AppToolDef from these fields and reuses
@@ -65,23 +69,23 @@ type AppTemplate struct {
 //
 // Two forms — pick whichever fits the app:
 //
-//   1. Reference an existing tool by name. The runner looks the
-//      tool up in app.Tools[] and reuses its method, path,
-//      query_params, etc. DRY: a fix to the tool propagates to
-//      the probe automatically. Use this when there's a natural
-//      read-only zero-arg tool (S3 list_buckets, GitHub /user,
-//      Slack auth.test).
+//  1. Reference an existing tool by name. The runner looks the
+//     tool up in app.Tools[] and reuses its method, path,
+//     query_params, etc. DRY: a fix to the tool propagates to
+//     the probe automatically. Use this when there's a natural
+//     read-only zero-arg tool (S3 list_buckets, GitHub /user,
+//     Slack auth.test).
 //
-//        "health_check": { "tool": "list_buckets" }
+//     "health_check": { "tool": "list_buckets" }
 //
-//      Pass `input` if the tool needs parameters:
-//        "health_check": { "tool": "me", "input": { "scope": "read" } }
+//     Pass `input` if the tool needs parameters:
+//     "health_check": { "tool": "me", "input": { "scope": "read" } }
 //
-//   2. Synthetic HTTP request. Use when the probe URL doesn't
-//      correspond to any exposed tool (a dedicated /healthz, a
-//      different host, etc.):
+//  2. Synthetic HTTP request. Use when the probe URL doesn't
+//     correspond to any exposed tool (a dedicated /healthz, a
+//     different host, etc.):
 //
-//        "health_check": { "method": "GET", "path": "/healthz" }
+//     "health_check": { "method": "GET", "path": "/healthz" }
 //
 // ExpectStatus defaults to [200] when empty. BaseURL overrides
 // app.BaseURL for this single probe — useful when the auth-
@@ -124,11 +128,41 @@ type AppHealthCheck struct {
 // in the agent-facing description — the dashboard's runtime is the
 // authority for prop validation.
 type IntegrationUIComponent struct {
-	Name        string         `json:"name"`
-	Entry       string         `json:"entry"`
-	Slots       []string       `json:"slots,omitempty"`
-	PropsSchema map[string]any `json:"props_schema,omitempty"`
+	Name         string         `json:"name"`
+	Entry        string         `json:"entry"`
+	Slots        []string       `json:"slots,omitempty"`
+	PropsSchema  map[string]any `json:"props_schema,omitempty"`
 	PreviewProps map[string]any `json:"preview_props,omitempty"`
+}
+
+// IntegrationExplorerConfig mirrors @apteva/integrations/src/types.ts.
+// The dashboard consumes it from GET /integrations/catalog/:slug and
+// invokes the named tools through /connections/:id/execute.
+type IntegrationExplorerConfig struct {
+	Resources []IntegrationExplorerResource `json:"resources"`
+}
+
+type IntegrationExplorerResource struct {
+	ID               string                      `json:"id"`
+	Label            string                      `json:"label"`
+	Description      string                      `json:"description,omitempty"`
+	ListTool         string                      `json:"list_tool"`
+	ListInput        map[string]any              `json:"list_input,omitempty"`
+	ResponsePath     string                      `json:"response_path,omitempty"`
+	ItemIDPath       string                      `json:"item_id_path,omitempty"`
+	ItemLabelPath    string                      `json:"item_label_path,omitempty"`
+	ItemSubtitlePath string                      `json:"item_subtitle_path,omitempty"`
+	DetailTool       string                      `json:"detail_tool,omitempty"`
+	DetailInput      map[string]any              `json:"detail_input,omitempty"`
+	Actions          []IntegrationExplorerAction `json:"actions,omitempty"`
+}
+
+type IntegrationExplorerAction struct {
+	Label       string         `json:"label"`
+	Tool        string         `json:"tool"`
+	Input       map[string]any `json:"input,omitempty"`
+	Destructive bool           `json:"destructive,omitempty"`
+	Description string         `json:"description,omitempty"`
 }
 
 // RemoteMcpConfig describes how to reach a vendor-hosted MCP server.
@@ -226,7 +260,7 @@ type AppScope struct {
 }
 
 type ProjectBinding struct {
-	Type  string `json:"type"`  // "header" | "path_prefix" | "path_param"
+	Type  string `json:"type"` // "header" | "path_prefix" | "path_param"
 	Name  string `json:"name"`
 	Value string `json:"value"`
 }
@@ -243,24 +277,24 @@ type AppWebhookEvent struct {
 }
 
 type WebhookRegConfig struct {
-	Method      string                 `json:"method"`
-	Path        string                 `json:"path"`
-	URLField    string                 `json:"url_field"`
-	EventsField string                 `json:"events_field,omitempty"`
-	SecretField string                 `json:"secret_field,omitempty"`
-	Extra       map[string]interface{} `json:"extra,omitempty"`
-	IDField     string                 `json:"id_field,omitempty"`
+	Method       string                 `json:"method"`
+	Path         string                 `json:"path"`
+	URLField     string                 `json:"url_field"`
+	EventsField  string                 `json:"events_field,omitempty"`
+	SecretField  string                 `json:"secret_field,omitempty"`
+	Extra        map[string]interface{} `json:"extra,omitempty"`
+	IDField      string                 `json:"id_field,omitempty"`
 	DeletePath   string                 `json:"delete_path,omitempty"`
 	DeleteMethod string                 `json:"delete_method,omitempty"`
 	ManualSetup  string                 `json:"manual_setup,omitempty"`
 }
 
 type AppAuthConfig struct {
-	Types           []string            `json:"types"`
-	Headers         map[string]string   `json:"headers,omitempty"`
-	QueryParams     map[string]string   `json:"query_params,omitempty"`
-	CredentialFields []CredentialField  `json:"credential_fields,omitempty"`
-	OAuth2          *OAuthConfig        `json:"oauth2,omitempty"`
+	Types            []string          `json:"types"`
+	Headers          map[string]string `json:"headers,omitempty"`
+	QueryParams      map[string]string `json:"query_params,omitempty"`
+	CredentialFields []CredentialField `json:"credential_fields,omitempty"`
+	OAuth2           *OAuthConfig      `json:"oauth2,omitempty"`
 	// AwsSigV4 configures AWS Signature V4 request signing (SES, S3,
 	// anything else that lives behind aws_sigv4). Service is required
 	// when types includes "aws_sigv4" — region comes from the
@@ -333,11 +367,12 @@ type OAuthConfig struct {
 }
 
 type AppToolDef struct {
-	Name         string         `json:"name"`
-	Description  string         `json:"description"`
-	Method       string         `json:"method"`
-	Path         string         `json:"path"`
-	InputSchema  map[string]any `json:"input_schema"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Method      string         `json:"method"`
+	BaseURL     string         `json:"base_url,omitempty"`
+	Path        string         `json:"path"`
+	InputSchema map[string]any `json:"input_schema"`
 	// Names of input fields that should be sent as URL query string
 	// parameters instead of being folded into the request body. Required
 	// for APIs that mix query+body on POST/PUT/PATCH (e.g. Google Sheets'
@@ -347,8 +382,8 @@ type AppToolDef struct {
 	// request — google-sheets.write_range / append_rows were broken
 	// before this field existed on the Go side. Mirrors the same field
 	// in @apteva/integrations/src/types.ts AppToolTemplate.
-	QueryParams []string `json:"query_params,omitempty"`
-	ResponsePath *string `json:"response_path,omitempty"`
+	QueryParams  []string `json:"query_params,omitempty"`
+	ResponsePath *string  `json:"response_path,omitempty"`
 
 	// MockResponse is the curated, real-shaped reply returned for this tool
 	// when it runs inside a test World and no per-world fixture/cassette
@@ -434,15 +469,15 @@ type ToolSigningConfig struct {
 
 // AppSummary is a lightweight version for catalog listing
 type AppSummary struct {
-	Slug           string   `json:"slug"`
-	Name           string   `json:"name"`
-	Description    string   `json:"description"`
-	Logo           *string  `json:"logo"`
-	Categories     []string `json:"categories"`
-	AuthTypes      []string `json:"auth_types"`
-	ToolCount      int      `json:"tool_count"`
-	HasWebhooks    bool              `json:"has_webhooks"`
-	WebhookEvents  []AppWebhookEvent `json:"webhook_events,omitempty"`
+	Slug          string            `json:"slug"`
+	Name          string            `json:"name"`
+	Description   string            `json:"description"`
+	Logo          *string           `json:"logo"`
+	Categories    []string          `json:"categories"`
+	AuthTypes     []string          `json:"auth_types"`
+	ToolCount     int               `json:"tool_count"`
+	HasWebhooks   bool              `json:"has_webhooks"`
+	WebhookEvents []AppWebhookEvent `json:"webhook_events,omitempty"`
 	// Kind = "rest" (default) or "remote_mcp". Surfaced so the catalog
 	// UI can render a "hosted MCP" badge alongside a REST entry with
 	// the same brand (e.g. `hubspot` and `hubspot-mcp`). Empty for
@@ -453,8 +488,8 @@ type AppSummary struct {
 // --- App Catalog ---
 
 type AppCatalog struct {
-	mu     sync.RWMutex
-	apps   map[string]*AppTemplate
+	mu   sync.RWMutex
+	apps map[string]*AppTemplate
 	// Aggregated by credential_group.id → metadata + member app slugs.
 	// Rebuilt on every LoadFromDir/Register call. Empty when no app in
 	// the catalog declares `credential_group`.
@@ -468,19 +503,19 @@ type catalogGroup struct {
 
 // GroupSummary is the catalog-surface view of a suite (for the UI).
 type GroupSummary struct {
-	ID          string              `json:"id"`
-	Name        string              `json:"name"`
-	Logo        *string             `json:"logo,omitempty"`
-	Description string              `json:"description,omitempty"`
-	Members     []GroupMemberSummary `json:"members"`
-	HasAccountScope bool            `json:"has_account_scope"`
-	HasProjectScope bool            `json:"has_project_scope"`
+	ID              string               `json:"id"`
+	Name            string               `json:"name"`
+	Logo            *string              `json:"logo,omitempty"`
+	Description     string               `json:"description,omitempty"`
+	Members         []GroupMemberSummary `json:"members"`
+	HasAccountScope bool                 `json:"has_account_scope"`
+	HasProjectScope bool                 `json:"has_project_scope"`
 }
 
 type GroupMemberSummary struct {
-	Slug      string `json:"slug"`
-	Name      string `json:"name"`
-	ToolCount int    `json:"tool_count"`
+	Slug      string  `json:"slug"`
+	Name      string  `json:"name"`
+	ToolCount int     `json:"tool_count"`
 	Logo      *string `json:"logo,omitempty"`
 }
 
@@ -902,7 +937,7 @@ var credAliases = [][]string{
 	// Anything in this group becomes available under all other names.
 	{"access_token", "accessToken", "token", "bearer_token", "auth_token", "authToken"},
 	// API keys — same idea, plus the camelCase variants we keep seeing.
-	{"api_key", "apiKey", "apikey", "api_token", "apiToken", "x_api_key"},
+	{"api_key", "apiKey", "apikey", "api_token", "apiToken", "x_api_key", "streamApiKey"},
 	// Refresh tokens
 	{"refresh_token", "refreshToken"},
 	// Token metadata
@@ -979,6 +1014,7 @@ func resolveTemplate(template string, credentials map[string]string) string {
 	result := template
 	for key, val := range norm {
 		result = strings.ReplaceAll(result, "{{"+key+"}}", val)
+		result = strings.ReplaceAll(result, "{{credential."+key+"}}", val)
 	}
 	return result
 }

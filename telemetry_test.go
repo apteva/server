@@ -232,6 +232,20 @@ func TestTelemetryHTTPIngestAndQuery(t *testing.T) {
 		t.Errorf("expected 6, got %d", len(queryResults))
 	}
 
+	req = httptest.NewRequest("GET", "/telemetry?agent_id=1&thread_id=main&limit=100", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: cookie})
+	rec = httptest.NewRecorder()
+	s.authMiddleware(s.handleQueryTelemetry)(rec, req)
+
+	if rec.Code != 200 {
+		t.Fatalf("query by agent_id: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	queryResults = nil
+	json.Unmarshal(rec.Body.Bytes(), &queryResults)
+	if len(queryResults) != 3 {
+		t.Errorf("expected 3 main-thread events, got %d", len(queryResults))
+	}
+
 	// Query stats via GET /telemetry/stats (authenticated)
 	req = httptest.NewRequest("GET", "/telemetry/stats?instance_id=1&period=1h", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: cookie})

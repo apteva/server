@@ -10,7 +10,7 @@ import (
 
 // Streamer turns the LLM's incremental tool-argument deltas (emitted
 // as `llm.tool_chunk` telemetry events when the model is composing a
-// `channels_respond` call on a chat-* thread) into ephemeral
+// `channels_respond` call on a chat-capable thread) into ephemeral
 // "streaming" frames on the chat SSE stream.
 //
 // Why this exists:
@@ -41,9 +41,9 @@ type Streamer struct {
 	// each chunk. Cleared when tool.call or tool.result for the same
 	// id arrives — that's when the final args are known and the DB
 	// row will land momentarily.
-	mu        sync.Mutex
-	buffers   map[string]*streamState
-	lastEmit  map[string]string // last text we emitted, to skip no-op republishes
+	mu       sync.Mutex
+	buffers  map[string]*streamState
+	lastEmit map[string]string // last text we emitted, to skip no-op republishes
 }
 
 type streamState struct {
@@ -66,14 +66,15 @@ func newStreamer(h *hub) *Streamer {
 // StreamFrame is the ephemeral payload pushed to chat SSE subscribers
 // while a respond tool call is still being composed by the LLM.
 //
-//   ChatID:   the chat the streaming message belongs to.
-//   ThreadID: the core thread that's emitting (e.g. "chat-default-13").
-//   CallID:   the tool-call id — stable across chunks for the same
-//             pending respond call.
-//   Text:     the current best-effort extraction of the text arg.
-//             Grows monotonically; UI replaces the bubble each frame.
-//   Done:     true on the closing frame that tells the UI to drop the
-//             bubble (the final message is about to / has landed).
+//	ChatID:   the chat the streaming message belongs to.
+//	ThreadID: the core thread that's emitting (e.g. "main" or
+//	          "chat-default-13").
+//	CallID:   the tool-call id — stable across chunks for the same
+//	          pending respond call.
+//	Text:     the current best-effort extraction of the text arg.
+//	          Grows monotonically; UI replaces the bubble each frame.
+//	Done:     true on the closing frame that tells the UI to drop the
+//	          bubble (the final message is about to / has landed).
 type StreamFrame struct {
 	Type      string    `json:"type"` // always "stream"
 	ChatID    string    `json:"chat_id"`
@@ -89,19 +90,25 @@ type StreamFrame struct {
 // no-ops, so the caller can pipe the full firehose without per-event
 // gating. dataJSON is the event's raw `data` payload; callID + tool
 // name are parsed out of it as needed.
-func (s *Streamer) Ingest(eventType, threadID, dataJSON string, eventTime time.Time) {
+func (s *Streamer) Ingest(eventType string, agentID int64, threadID, dataJSON string, eventTime time.Time) {
 	if s == nil {
 		return
 	}
-	// We only care about events from chat-handling sub-threads. The
-	// `chat-` prefix is a channelchat convention (see resolveChatThread
-	// in handlers.go) — staying tightly coupled to it here means we
-	// don't accidentally stream from worker threads that happen to
-	// call respond.
-	if !strings.HasPrefix(threadID, "chat-") {
+	chatID := ""
+	switch {
+	case strings.HasPrefix(threadID, "chat-"):
+		// Per-chat thread mode: the thread id encodes the chat id.
+		chatID = strings.TrimPrefix(threadID, "chat-")
+	case threadID == "main" || threadID == "":
+		// Default mode routes chat messages through main. v1 has one
+		// default chat per agent, so agent id gives a stable chat id.
+		if agentID > 0 {
+			chatID = defaultChatID(agentID)
+		}
+	}
+	if chatID == "" {
 		return
 	}
-	chatID := strings.TrimPrefix(threadID, "chat-")
 	switch eventType {
 	case "llm.tool_chunk":
 		s.onChunk(threadID, chatID, dataJSON, eventTime)

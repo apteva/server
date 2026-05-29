@@ -203,7 +203,7 @@ func providerEnvKeys(m map[string]string) []string {
 	return keys
 }
 
-func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, serverPort string, providerPool []ProviderInfo, instanceSecret string, browserConfig map[string]any, channelConfigs ...ChannelConfig) error {
+func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, serverPort string, providerPool []ProviderInfo, instanceSecret string, channelConfigs ...ChannelConfig) error {
 	log.Printf("[SPAWN] Start called for agent=%d name=%q project=%s", inst.ID, inst.Name, inst.ProjectID)
 	im.mu.Lock()
 	defer im.mu.Unlock()
@@ -337,18 +337,10 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		}
 	}
 
-	// Browser/computer config tracks the provider list authoritatively:
-	// a saved browser/browserbase/steel/browser-engine provider drives
-	// what core gets, and the absence of one strips any stale entry off
-	// disk. Without the delete, a `computer` block written by an earlier
-	// run (or carried over after the provider was removed) would survive
-	// forever and cause core to spawn a local Chrome on every boot even
-	// though the user has no provider configured.
-	if browserConfig != nil {
-		config["computer"] = browserConfig
-	} else {
-		delete(config, "computer")
-	}
+	// Core no longer owns browser sessions. Strip any stale legacy
+	// browser config so old instance files cannot register duplicate
+	// computer tools beside the Computer app MCP tools.
+	delete(config, "computer")
 
 	// Create channels infrastructure for this instance
 	ic := &AgentChannels{registry: NewChannelRegistry()}
@@ -587,10 +579,8 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 }
 
 // Stop kills a running core process and cleans up channels. Sends
-// SIGTERM first and waits up to 2s for core to release its computer
-// session (local Chrome / Browserbase) before escalating to SIGKILL.
-// Without the grace window, Chrome is orphaned to PID 1 and keeps
-// running after every instance stop.
+// SIGTERM first and waits up to 2s for core to flush state before
+// escalating to SIGKILL.
 func (im *AgentManager) Stop(instanceID int64) {
 	im.mu.Lock()
 	ri, ok := im.processes[instanceID]
@@ -663,240 +653,6 @@ func (im *AgentManager) StartTelegram(instanceID int64, token string) (string, e
 	ri.channels.telegram = gw
 	ri.channels.registry.AddFactory(gw.ChannelFactory())
 	return botName, nil
-}
-
-// browserDefaultsFor returns the recommended (width, height) for a given LLM
-// provider. Anthropic uses 1024×768 because its computer-use tool was trained
-// on that exact resolution and the docs recommend keeping screenshots at it.
-// Everything else uses 2000×1000 — a 2:1 widescreen that gives non-native
-// vision models more horizontal context per screenshot. Pure helper so both
-// the spawn path (getBrowserConfig) and the hot-attach path can share it.
-func browserDefaultsFor(providerName string) (int, int) {
-	if providerName == "anthropic" {
-		return 1024, 768
-	}
-	// 1600×800 — exact 2:1 at a common laptop width. Wide enough for
-	// desktop layouts without horizontal scroll, but small enough to
-	// keep screenshot token counts modest. Sweet spot for non-native
-	// vision models (Kimi, Gemini) where every pixel costs tokens.
-	return 1600, 800
-}
-
-// defaultProviderForInstance pulls the instance's preferred LLM provider
-// name out of inst.Config. Used to pick provider-aware defaults (e.g.
-// browser viewport size). Returns empty string when nothing is set,
-// which downstream callers treat as "non-Anthropic".
-func defaultProviderForInstance(inst *Agent) string {
-	if inst == nil || inst.Config == "" {
-		return ""
-	}
-	var ic map[string]any
-	if err := json.Unmarshal([]byte(inst.Config), &ic); err != nil || ic == nil {
-		return ""
-	}
-	name, _ := ic["default_provider"].(string)
-	return name
-}
-
-// getBrowserConfig returns the browser/computer config from providers if one exists.
-// Supports "browser" (local Chrome or existing CDP), "browserbase" (cloud), and "steel" (cloud) provider types.
-// providerName picks the default viewport when WIDTH/HEIGHT aren't set on the
-// provider record — pass the name of the LLM that will run inside the
-// instance ("anthropic", "fireworks", "google", …). Empty string falls back
-// to the non-Anthropic widescreen default.
-func (s *Server) getBrowserConfig(userID int64, providerName string, projectID ...string) map[string]any {
-	providers, err := s.store.ListProviders(userID, projectID...)
-	if err != nil {
-		return nil
-	}
-	for _, p := range providers {
-		if p.Type != "browserbase" && p.Type != "browser" && p.Type != "steel" && p.Type != "browser-engine" {
-			continue
-		}
-		_, encData, err := s.store.GetProvider(userID, p.ID)
-		if err != nil {
-			continue
-		}
-		plaintext, err := Decrypt(s.secret, encData)
-		if err != nil {
-			continue
-		}
-		var data map[string]string
-		json.Unmarshal([]byte(plaintext), &data)
-		if data == nil {
-			continue
-		}
-
-		// Parse optional resolution from provider data. Default depends on
-		// the LLM that will run in the instance: 1024×768 for Anthropic
-		// (matches Claude's native computer-use training), 2000×1000 for
-		// everything else (2:1 widescreen, better with non-native vision
-		// models like Kimi/Gemini). Override per-provider via WIDTH/HEIGHT.
-		width, height := browserDefaultsFor(providerName)
-		if w := data["WIDTH"]; w != "" {
-			fmt.Sscanf(w, "%d", &width)
-		}
-		if h := data["HEIGHT"]; h != "" {
-			fmt.Sscanf(h, "%d", &height)
-		}
-
-		if p.Type == "browser" {
-			// Local browser or existing CDP endpoint
-			cfg := map[string]any{
-				"type":   "local",
-				"width":  width,
-				"height": height,
-			}
-			if cdpURL := data["CDP_URL"]; cdpURL != "" {
-				cfg["type"] = "service"
-				cfg["url"] = cdpURL
-			}
-			// Optional residential / corporate proxy for the local
-			// backend. When set, the agent's
-			// browser_session(open, proxy=true) routes that session
-			// through this URL (Chrome relaunches with --proxy-server
-			// applied; auth is honored via CDP). Per-provider value
-			// wins; APTEVA_LOCAL_PROXY_URL is a server-wide fallback
-			// for ops who'd rather wire it once at the deployment
-			// layer instead of in every dashboard provider record.
-			proxyURL := data["LOCAL_PROXY_URL"]
-			if proxyURL == "" {
-				proxyURL = os.Getenv("APTEVA_LOCAL_PROXY_URL")
-			}
-			if proxyURL != "" {
-				cfg["proxy_url"] = proxyURL
-			}
-			return cfg
-		}
-
-		if p.Type == "browser-engine" {
-			apiKey := data["BROWSER_API_KEY"]
-			if apiKey == "" {
-				continue
-			}
-			cfg := map[string]any{
-				"type":    "browser-engine",
-				"api_key": apiKey,
-				"width":   width,
-				"height":  height,
-			}
-			// Extended Browser Engine options — all optional. Each
-			// maps to a POST /sessions field on the hosted API.
-			if v := data["BROWSER_API_URL"]; v != "" {
-				cfg["url"] = v
-			}
-			if v := data["BROWSER_INITIAL_URL"]; v != "" {
-				cfg["initial_url"] = v
-			}
-			if v := data["BROWSER_USER_AGENT"]; v != "" {
-				cfg["user_agent"] = v
-			}
-			if v := data["BROWSER_PROXY_ENABLED"]; v == "1" || v == "true" {
-				cfg["proxy_enabled"] = true
-			}
-			if v := data["BROWSER_PROXY_COUNTRY"]; v != "" {
-				cfg["proxy_country"] = v
-			}
-			if v := data["BROWSER_TIMEOUT"]; v != "" {
-				var t int
-				fmt.Sscanf(v, "%d", &t)
-				if t > 0 {
-					cfg["timeout"] = t
-				}
-			}
-			if v := data["BROWSER_PROJECT_ID"]; v != "" {
-				var id int
-				fmt.Sscanf(v, "%d", &id)
-				if id > 0 {
-					cfg["browser_project_id"] = id
-				}
-			}
-			return cfg
-		}
-
-		if p.Type == "steel" {
-			apiKey := data["STEEL_API_KEY"]
-			if apiKey == "" {
-				continue
-			}
-			cfg := map[string]any{
-				"type":    "steel",
-				"api_key": apiKey,
-				"width":   width,
-				"height":  height,
-			}
-			// Extended Steel options — all optional. Each maps to a
-			// POST /v1/sessions field. Stored as plain strings; parsed
-			// and forwarded only when set.
-			if v := data["STEEL_REGION"]; v != "" {
-				cfg["region"] = v
-			}
-			if v := data["STEEL_USER_AGENT"]; v != "" {
-				cfg["user_agent"] = v
-			}
-			if v := data["STEEL_PROXY_URL"]; v != "" {
-				cfg["proxy_url"] = v
-			}
-			if v := data["STEEL_USE_PROXY"]; v == "1" || v == "true" {
-				cfg["use_proxy"] = true
-			}
-			if v := data["STEEL_BLOCK_ADS"]; v == "1" || v == "true" {
-				cfg["block_ads"] = true
-			}
-			if v := data["STEEL_SOLVE_CAPTCHA"]; v == "1" || v == "true" {
-				cfg["solve_captcha"] = true
-			}
-			if v := data["STEEL_TIMEOUT"]; v != "" {
-				var t int
-				fmt.Sscanf(v, "%d", &t)
-				if t > 0 {
-					cfg["timeout"] = t
-				}
-			}
-			return cfg
-		}
-
-		// Browserbase
-		apiKey := data["BROWSERBASE_API_KEY"]
-		projectID := data["BROWSERBASE_PROJECT_ID"]
-		if apiKey == "" {
-			continue
-		}
-		cfg := map[string]any{
-			"type":       "browserbase",
-			"api_key":    apiKey,
-			"project_id": projectID,
-			"width":      width,
-			"height":     height,
-		}
-		// Extended Browserbase options — all optional. Each maps to a
-		// POST /v1/sessions field. Stored on the provider record as
-		// plain strings; parsed and forwarded only when set.
-		if v := data["BROWSERBASE_REGION"]; v != "" {
-			cfg["region"] = v
-		}
-		if v := data["BROWSERBASE_EXTENSION_ID"]; v != "" {
-			cfg["extension_id"] = v
-		}
-		if v := data["BROWSERBASE_KEEP_ALIVE"]; v == "1" || v == "true" {
-			cfg["keep_alive"] = true
-		}
-		if v := data["BROWSERBASE_SOLVE_CAPTCHAS"]; v == "1" || v == "true" {
-			cfg["solve_captchas"] = true
-		}
-		if v := data["BROWSERBASE_PROXIES"]; v == "1" || v == "true" {
-			cfg["proxies"] = true
-		}
-		if v := data["BROWSERBASE_TIMEOUT"]; v != "" {
-			var t int
-			fmt.Sscanf(v, "%d", &t)
-			if t > 0 {
-				cfg["timeout"] = t
-			}
-		}
-		return cfg
-	}
-	return nil
 }
 
 // loadChannelConfigs fetches persisted channel configs for auto-start.
@@ -1266,7 +1022,7 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, defaultProviderForInstance(inst), inst.ProjectID), s.loadChannelConfigs(inst.ID)...); err != nil {
+		if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.loadChannelConfigs(inst.ID)...); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -1590,7 +1346,6 @@ func (s *Server) ResumeRunningInstances() {
 			s.port,
 			pool,
 			s.instanceSecret,
-			s.getBrowserConfig(inst.UserID, defaultProviderForInstance(inst), inst.ProjectID),
 			s.loadChannelConfigs(inst.ID)...,
 		); err != nil {
 			// "already running" is a benign race with another start
@@ -1654,7 +1409,7 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, defaultProviderForInstance(inst), inst.ProjectID), s.loadChannelConfigs(inst.ID)...); err != nil {
+	if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.loadChannelConfigs(inst.ID)...); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1705,7 +1460,7 @@ func (s *Server) handleRestartInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, defaultProviderForInstance(inst), inst.ProjectID), s.loadChannelConfigs(inst.ID)...); err != nil {
+	if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.loadChannelConfigs(inst.ID)...); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1776,43 +1531,11 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	json.Unmarshal(bodyBytes, &body)
 
-	// Enrich computer config with credentials from the saved provider so the
-	// dashboard never has to handle them client-side. The dashboard sends a
-	// thin payload like {computer: {type: "browserbase"}} or
-	// {computer: {type: "service"}}; we look up the matching browser provider
-	// and inject api_key/project_id (browserbase) or url (service) before
-	// forwarding to the core. {computer: {type: ""}} (off) is forwarded
-	// as-is. {computer: {type: "local"}} also forwards untouched —
-	// chromedp doesn't need credentials.
 	var rawBody map[string]any
 	if err := json.Unmarshal(bodyBytes, &rawBody); err == nil && rawBody != nil {
-		if compRaw, ok := rawBody["computer"].(map[string]any); ok {
-			compType, _ := compRaw["type"].(string)
-			needsEnrich := (compType == "browserbase" || compType == "steel" || compType == "browser-engine" || compType == "service") &&
-				compRaw["api_key"] == nil && compRaw["url"] == nil
-			if needsEnrich {
-				if browserCfg := s.getBrowserConfig(userID, defaultProviderForInstance(inst), inst.ProjectID); browserCfg != nil {
-					// getBrowserConfig returns a fully-populated map. Merge
-					// it into the request, but let the user's explicit type
-					// win (so "service" overrides a saved "browserbase",
-					// for instance).
-					for k, v := range browserCfg {
-						if _, set := compRaw[k]; !set {
-							compRaw[k] = v
-						}
-					}
-					// Force the user's requested type back in case
-					// browserCfg overwrote it via the merge.
-					compRaw["type"] = compType
-					rawBody["computer"] = compRaw
-					if newBytes, err := json.Marshal(rawBody); err == nil {
-						bodyBytes = newBytes
-					}
-				} else {
-					http.Error(w, fmt.Sprintf("no %s provider configured for this project", compType), http.StatusBadRequest)
-					return
-				}
-			}
+		if _, ok := rawBody["computer"]; ok {
+			http.Error(w, "core computer config has been removed; use the Computer app instead", http.StatusGone)
+			return
 		}
 		if normalizeAppMCPProjectURLs(rawBody, inst.ProjectID) {
 			if newBytes, err := json.Marshal(rawBody); err == nil {
@@ -1885,7 +1608,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 
 	s.store.UpdateAgent(inst)
 
-	// Forward the FULL body to core (includes mcp_servers, computer, etc.)
+	// Forward the FULL body to core (includes mcp_servers, providers, etc.)
 	if port > 0 {
 		targetURL := fmt.Sprintf("http://127.0.0.1:%d/config", port)
 		coreKey := s.agents.GetCoreAPIKey(inst.ID)
@@ -1907,19 +1630,20 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// Stopped: persist to config.json on disk so the next core boot
 	// picks up the edit. Fields the client sent are overlaid on the
 	// existing file; unset fields are preserved. Supported keys match
-	// core.Config (directive, mode, mcp_servers, computer, providers,
+	// core.Config (directive, mode, mcp_servers, providers,
 	// threads, unconscious) and the `reset` sub-object.
 	err = s.writeStoppedConfigAtomic(inst.ID, func(cfg map[string]any) error {
+		delete(cfg, "computer")
 		if body.Directive != "" {
 			cfg["directive"] = body.Directive
 		}
 		if body.Mode == "autonomous" || body.Mode == "cautious" || body.Mode == "learn" {
 			cfg["mode"] = body.Mode
 		}
-		// rawBody was decoded above for computer enrichment; re-use it
-		// for the surface-level fields the client may set. If a key is
-		// absent in the request we keep whatever disk already held.
-		for _, k := range []string{"mcp_servers", "computer", "providers", "threads", "unconscious", "execution_control"} {
+		// rawBody was decoded above; re-use it for the surface-level
+		// fields the client may set. If a key is absent in the request
+		// we keep whatever disk already held.
+		for _, k := range []string{"mcp_servers", "providers", "threads", "unconscious", "execution_control"} {
 			if v, ok := rawBody[k]; ok {
 				cfg[k] = v
 			}
@@ -2273,7 +1997,7 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 			mode = inst.Mode
 		}
 		// Return the full persisted config surface — mcp_servers,
-		// computer, providers, threads — so the stopped-instance UI
+		// providers, threads — so the stopped-instance UI
 		// renders the real state rather than a placeholder. Before
 		// this fix we hard-coded mcp_servers:[] even though the disk
 		// config had them; the MCP pane showed empty for every
@@ -2282,7 +2006,6 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 			"directive":         directive,
 			"mode":              mode,
 			"mcp_servers":       config["mcp_servers"],
-			"computer":          config["computer"],
 			"providers":         config["providers"],
 			"threads":           config["threads"],
 			"unconscious":       config["unconscious"],

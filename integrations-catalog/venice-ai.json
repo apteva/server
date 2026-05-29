@@ -34,7 +34,7 @@
       "description": "Generate an image via Venice's POST /image/generate. Supports grok-imagine-image, gpt-image-2, venice-sd35, qwen-image-2, nano-banana-pro, and others (call list_models?type=image for the live set). Returns JSON {id, images:[<b64>], timing} by default (return_binary=false). Most Venice-specific knobs (style_preset, hide_watermark, safe_mode, variants) are exposed.",
       "method": "POST",
       "path": "/image/generate",
-      "timeout_ms": 180000,
+      "timeout_ms": 600000,
       "input_schema": {
         "type": "object",
         "properties": {

@@ -761,17 +761,17 @@ func runOpenAICodexCustomVisionSmoke(ctx context.Context, accessToken, model str
 	}
 	payload := map[string]any{
 		"model":        model,
-		"instructions": "You are validating image understanding for a custom computer_use fallback. Inspect the attached tool-result image. If the left square is red, reply exactly: apteva-vision-red-left",
+		"instructions": "You are validating image understanding for a custom function-tool fallback. Inspect the attached tool-result image. If the left square is red, reply exactly: apteva-vision-red-left",
 		"input": []map[string]any{
 			{
 				"type":    "message",
 				"role":    "user",
-				"content": "A previous computer_use screenshot result is attached below. Read the image and reply with the requested marker.",
+				"content": "A previous screenshot tool result is attached below. Read the image and reply with the requested marker.",
 			},
 			{
 				"type":      "function_call",
 				"call_id":   "call_codex_vision_smoke",
-				"name":      "computer_use",
+				"name":      "vision_screenshot",
 				"arguments": `{"action":"screenshot"}`,
 			},
 			{
@@ -785,7 +785,7 @@ func runOpenAICodexCustomVisionSmoke(ctx context.Context, accessToken, model str
 		},
 		"tools": []map[string]any{{
 			"type":        "function",
-			"name":        "computer_use",
+			"name":        "vision_screenshot",
 			"description": "Return a browser screenshot.",
 			"parameters": map[string]any{
 				"type":       "object",

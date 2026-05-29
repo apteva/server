@@ -614,7 +614,7 @@ func (s *Server) runRealEvalCore(
 				return s.writeEvalRunWithDetails(ev.ID, startedAt, time.Now(), session, &snap, lastVerdict, finalRollup(rollup), "error",
 					"seed eval config: "+err.Error(), preview, iterationsCompleted)
 			}
-			if err := s.agents.Start(evalAgent, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, defaultProviderForInstance(evalAgent), agent.ProjectID)); err != nil {
+			if err := s.agents.Start(evalAgent, providerEnv, s.port, pool, s.instanceSecret); err != nil {
 				snap := session.snapshot()
 				return s.writeEvalRunWithDetails(ev.ID, startedAt, time.Now(), session, &snap, lastVerdict, finalRollup(rollup), "error",
 					"spawn eval core: "+err.Error(), preview, iterationsCompleted)

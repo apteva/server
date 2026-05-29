@@ -178,8 +178,11 @@ func (s *channelMCPServer) toolsList() map[string]any {
 	return map[string]any{
 		"tools": []map[string]any{
 			{
-				"name": "respond",
+				"name":        "respond",
 				"description": buildRespondDescription(channelIDs, components),
+				"_meta": map[string]any{
+					"io.apteva/wakeOnResult": "on_error",
+				},
 				"inputSchema": map[string]any{
 					"type":     "object",
 					"required": []string{"text", "channel"},
@@ -187,10 +190,10 @@ func (s *channelMCPServer) toolsList() map[string]any {
 						"text":    map[string]any{"type": "string", "description": "The message to send"},
 						"channel": map[string]any{"type": "string", "description": "Target channel ID, e.g. \"cli\", \"telegram:12345\""},
 						"components": map[string]any{
-							"type": "array",
+							"type":        "array",
 							"description": "Optional rich attachments — see the AVAILABLE COMPONENTS list in the main description above for the exact catalog. Each entry is {app, name, props}. Non-chat channels (cli, slack, email, telegram) ignore this field; only chat renders attachments.",
 							"items": map[string]any{
-								"type": "object",
+								"type":     "object",
 								"required": []string{"app", "name"},
 								"properties": map[string]any{
 									"app":   map[string]any{"type": "string", "description": "Installed app's slug, e.g. \"storage\"."},
@@ -434,6 +437,12 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 			"content": []map[string]string{{"type": "text", "text": text}},
 		}
 	}
+	textToolError := func(text string) any {
+		return map[string]any{
+			"content": []map[string]string{{"type": "text", "text": text}},
+			"isError": true,
+		}
+	}
 
 	switch call.Name {
 	case "respond":
@@ -441,7 +450,7 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		channel, _ := call.Arguments["channel"].(string)
 		rawChannel := channel
 		if text == "" {
-			return nil, &mcpRPCError{Code: -32602, Message: "text required"}
+			return textToolError("text required"), nil
 		}
 		// Gate by the active channels list BEFORE attempting Send.
 		// This makes the feedback loop loud when the agent picks a
@@ -478,7 +487,7 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 					rawChannel, connected,
 				)
 			}
-			return nil, &mcpRPCError{Code: -32602, Message: msg}
+			return textToolError(msg), nil
 		}
 		// Extract components if the agent attached any. When present
 		// AND the channel implements framework.RichSender (channelchat
@@ -488,15 +497,15 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		components := extractComponents(call.Arguments["components"])
 		ch := s.registry.Get(normalized)
 		if ch == nil {
-			return nil, &mcpRPCError{Code: -32602, Message: fmt.Sprintf("channel %q not found", normalized)}
+			return textToolError(fmt.Sprintf("channel %q not found", normalized)), nil
 		}
 		if rich, ok := ch.(framework.RichSender); ok && len(components) > 0 {
 			if err := rich.SendWithComponents(text, components); err != nil {
-				return nil, &mcpRPCError{Code: -32602, Message: err.Error()}
+				return textToolError(err.Error()), nil
 			}
 		} else {
 			if err := ch.Send(text); err != nil {
-				return nil, &mcpRPCError{Code: -32602, Message: err.Error()}
+				return textToolError(err.Error()), nil
 			}
 		}
 		return textResult("delivered — do NOT send another respond for this same user message"), nil

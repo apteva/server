@@ -57,3 +57,26 @@ func TestBuildRespondDescription_EmptyCatalogOmitsBlock(t *testing.T) {
 		t.Errorf("main description missing")
 	}
 }
+
+func TestChannelMCPRespondAdvertisesWakeOnError(t *testing.T) {
+	s := &channelMCPServer{registry: NewChannelRegistry()}
+	out := s.toolsList()
+	tools, ok := out["tools"].([]map[string]any)
+	if !ok {
+		t.Fatalf("tools payload has unexpected shape: %#v", out["tools"])
+	}
+	for _, tool := range tools {
+		if tool["name"] != "respond" {
+			continue
+		}
+		meta, ok := tool["_meta"].(map[string]any)
+		if !ok {
+			t.Fatalf("respond tool missing _meta: %#v", tool)
+		}
+		if got := meta["io.apteva/wakeOnResult"]; got != "on_error" {
+			t.Fatalf("wakeOnResult=%v, want on_error", got)
+		}
+		return
+	}
+	t.Fatal("respond tool not found")
+}

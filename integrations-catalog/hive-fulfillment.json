@@ -1,0 +1,559 @@
+{
+  "slug": "hive-fulfillment",
+  "name": "Hive Fulfillment",
+  "description": "Hive Merchant API for pan-European fulfillment. Manage SKUs, warehouse inventory, inbound restocking shipments, outbound orders, shipments, returns, and fulfillment status.",
+  "logo": "https://www.google.com/s2/favicons?domain=hive.app&sz=128",
+  "categories": [
+    "fulfillment",
+    "ecommerce",
+    "inventory",
+    "orders",
+    "warehouse",
+    "logistics",
+    "3pl"
+  ],
+  "base_url": "https://app.hive.app/merchant_api/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Token",
+        "description": "Hive Merchant API bearer token."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "warehouses_list"
+  },
+  "tools": [
+    {
+      "name": "skus_list",
+      "description": "List Hive SKUs, including read-only inventory, inventory per warehouse, and batch inventory when available.",
+      "method": "GET",
+      "path": "/skus",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "merchant_sku_ids[]": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter by merchant SKU IDs."
+          },
+          "created_at[lt]": {
+            "type": "string",
+            "description": "Return SKUs created before this ISO timestamp."
+          },
+          "created_at[lte]": {
+            "type": "string",
+            "description": "Return SKUs created before or at this ISO timestamp."
+          },
+          "created_at[gt]": {
+            "type": "string",
+            "description": "Return SKUs created after this ISO timestamp."
+          },
+          "created_at[gte]": {
+            "type": "string",
+            "description": "Return SKUs created after or at this ISO timestamp."
+          }
+        }
+      }
+    },
+    {
+      "name": "skus_create",
+      "description": "Create one Hive SKU for a product that will be fulfilled by Hive.",
+      "method": "POST",
+      "path": "/skus",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Human-readable SKU name."
+          },
+          "merchant_sku_id": {
+            "type": "string",
+            "description": "Merchant SKU identifier, typically the Apteva Catalog SKU."
+          },
+          "cost_in_cents": {
+            "type": "integer",
+            "description": "Unit cost in cents."
+          },
+          "country_code_of_origin": {
+            "type": "string",
+            "description": "Two-letter country of origin code, for example CN."
+          },
+          "hs_code": {
+            "type": "string",
+            "description": "Harmonized System code."
+          },
+          "weight_in_kg": {
+            "type": "number",
+            "description": "Product weight in kilograms."
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Publicly accessible product image URL."
+          },
+          "barcode": {
+            "type": "string",
+            "description": "Product barcode."
+          },
+          "batch_tracking_enabled": {
+            "type": "boolean",
+            "description": "Enable batch inventory tracking."
+          }
+        },
+        "required": [
+          "name",
+          "merchant_sku_id"
+        ]
+      }
+    },
+    {
+      "name": "skus_update",
+      "description": "Update an existing Hive SKU by Hive SKU ID.",
+      "method": "PATCH",
+      "path": "/skus/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Hive SKU ID."
+          },
+          "merchant_sku_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "cost_in_cents": {
+            "type": "integer"
+          },
+          "country_code_of_origin": {
+            "type": "string"
+          },
+          "hs_code": {
+            "type": "string"
+          },
+          "weight_in_kg": {
+            "type": "number"
+          },
+          "image_url": {
+            "type": "string"
+          },
+          "barcode": {
+            "type": "string"
+          },
+          "batch_tracking_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "skus_bulk_upsert",
+      "description": "Create or update up to 100 Hive SKUs in one request.",
+      "method": "POST",
+      "path": "/skus/bulk_upsert",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "skus": {
+            "type": "array",
+            "description": "Array of SKU objects. Each item should include name and merchant_sku_id."
+          }
+        },
+        "required": [
+          "skus"
+        ]
+      }
+    },
+    {
+      "name": "sku_delete",
+      "description": "Mark a Hive SKU as deleted.",
+      "method": "DELETE",
+      "path": "/skus/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Hive SKU ID."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "warehouses_list",
+      "description": "List Hive warehouses available to the merchant account.",
+      "method": "GET",
+      "path": "/warehouses",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "restocking_shipments_list",
+      "description": "List inbound restocking shipments sent to Hive warehouses.",
+      "method": "GET",
+      "path": "/restocking_shipments",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "restocking_shipment_get",
+      "description": "Get one Hive restocking shipment by ID.",
+      "method": "GET",
+      "path": "/restocking_shipments/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Hive restocking shipment ID."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "restocking_shipments_create",
+      "description": "Create an inbound restocking shipment for stock on the way to Hive, such as a 10-piece Alibaba MOQ order.",
+      "method": "POST",
+      "path": "/restocking_shipments/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "warehouse_id": {
+            "type": "integer",
+            "description": "Hive destination warehouse ID."
+          },
+          "estimated_arrival_date": {
+            "type": "string",
+            "description": "Estimated arrival date."
+          },
+          "delivery_option": {
+            "type": "string",
+            "enum": [
+              "postal",
+              "courier",
+              "dropoff",
+              "hive_freight"
+            ]
+          },
+          "tracking_code": {
+            "type": "string"
+          },
+          "po_number": {
+            "type": "string"
+          },
+          "supplier_name": {
+            "type": "string"
+          },
+          "restocking_shipment_items": {
+            "type": "array",
+            "description": "Array of restocking shipment items. Include sku_id or merchant_sku_id and announced_quantity."
+          }
+        },
+        "required": [
+          "warehouse_id",
+          "estimated_arrival_date",
+          "delivery_option",
+          "restocking_shipment_items"
+        ]
+      }
+    },
+    {
+      "name": "restocking_shipment_update",
+      "description": "Replace a Hive restocking shipment. Only possible while the shipment is still editable.",
+      "method": "PUT",
+      "path": "/restocking_shipments/{id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Hive restocking shipment ID."
+          },
+          "warehouse_id": {
+            "type": "integer"
+          },
+          "estimated_arrival_date": {
+            "type": "string"
+          },
+          "delivery_option": {
+            "type": "string",
+            "enum": [
+              "postal",
+              "courier",
+              "dropoff",
+              "hive_freight"
+            ]
+          },
+          "tracking_code": {
+            "type": "string"
+          },
+          "po_number": {
+            "type": "string"
+          },
+          "supplier_name": {
+            "type": "string"
+          },
+          "restocking_shipment_items": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "warehouse_id",
+          "estimated_arrival_date",
+          "delivery_option",
+          "restocking_shipment_items"
+        ]
+      }
+    },
+    {
+      "name": "restocking_shipment_cancel",
+      "description": "Cancel a Hive restocking shipment if it is still in a cancelable state.",
+      "method": "PUT",
+      "path": "/restocking_shipments/{id}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Hive restocking shipment ID."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "orders_list",
+      "description": "List Hive orders ordered by descending creation time.",
+      "method": "GET",
+      "path": "/orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "created_at[lt]": {
+            "type": "string"
+          },
+          "created_at[lte]": {
+            "type": "string"
+          },
+          "created_at[gt]": {
+            "type": "string"
+          },
+          "created_at[gte]": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "order_get",
+      "description": "Get one Hive order by ID.",
+      "method": "GET",
+      "path": "/orders/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Hive order ID."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "orders_create",
+      "description": "Create a Hive fulfillment order from a marketplace or store order.",
+      "method": "POST",
+      "path": "/orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "merchant_order_id": {
+            "type": "string",
+            "description": "Unique merchant order ID."
+          },
+          "shipping_address": {
+            "type": "object",
+            "description": "Shipping address object."
+          },
+          "items": {
+            "type": "array",
+            "description": "Order items. Include quantity, price_per_unit_in_cents, merchant_item_id, and sku_id or merchant_sku_id."
+          },
+          "customer_order_number": {
+            "type": "string"
+          },
+          "carrier_preference": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "custom_metadata": {
+            "type": "object"
+          },
+          "payment_method": {
+            "type": "string"
+          },
+          "financial_status": {
+            "type": "string",
+            "enum": [
+              "paid",
+              "refunded",
+              "pending",
+              "failed"
+            ]
+          },
+          "currency": {
+            "type": "string",
+            "default": "EUR"
+          }
+        },
+        "required": [
+          "merchant_order_id",
+          "shipping_address",
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "order_update",
+      "description": "Update a Hive order by ID while it remains editable.",
+      "method": "PATCH",
+      "path": "/orders/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Hive order ID."
+          },
+          "merchant_order_id": {
+            "type": "string"
+          },
+          "shipping_address": {
+            "type": "object"
+          },
+          "items": {
+            "type": "array"
+          },
+          "currency": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "order_cancel",
+      "description": "Cancel a Hive order.",
+      "method": "PUT",
+      "path": "/orders/{id}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Hive order ID."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "shipments_list",
+      "description": "List Hive shipments, optionally filtered by order ID. Use for fulfillment and delivery status tracking.",
+      "method": "GET",
+      "path": "/shipments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "integer",
+            "description": "Hive order ID."
+          },
+          "created_at[lt]": {
+            "type": "string"
+          },
+          "created_at[lte]": {
+            "type": "string"
+          },
+          "created_at[gt]": {
+            "type": "string"
+          },
+          "created_at[gte]": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "returns_list",
+      "description": "List Hive returns for the merchant account.",
+      "method": "GET",
+      "path": "/returns",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "return_get",
+      "description": "Get one Hive return by ID.",
+      "method": "GET",
+      "path": "/returns/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Hive return ID."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    }
+  ]
+}

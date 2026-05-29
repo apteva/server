@@ -338,7 +338,7 @@ func (s *Server) ensureMetaAgentRunning(userID int64) (*Agent, error) {
 	// test Worlds by tool calls during evals (see world_mcp.go). Set on the
 	// DB row's config before Start so the core merges it into config.json.
 	s.ensureWorldMCPOnHelper(helper)
-	if err := s.agents.Start(helper, providerEnv, s.port, pool, s.instanceSecret, s.getBrowserConfig(userID, defaultProviderForInstance(helper), "")); err != nil {
+	if err := s.agents.Start(helper, providerEnv, s.port, pool, s.instanceSecret); err != nil {
 		return nil, fmt.Errorf("start meta-agent: %w", err)
 	}
 	// Persist new port + pid + status so future restarts pick it up.
@@ -657,9 +657,9 @@ func parseSeederReply(out string) string {
 
 // handleSeedDirective is the HTTP entrypoint the dashboard hits.
 //
-//   POST /api/agents/seed-directive
-//   body: {"goals": [...], "agent_name"?: "", "current_directive"?: ""}
-//   resp: {"directive": "..."}
+//	POST /api/agents/seed-directive
+//	body: {"goals": [...], "agent_name"?: "", "current_directive"?: ""}
+//	resp: {"directive": "..."}
 //
 // Auth is the usual session-or-API-key middleware (mounted in main.go).
 // 400 on missing goals; 500 wraps any synthesis or LLM error.
@@ -692,4 +692,3 @@ func (s *Server) handleSeedDirective(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]string{"directive": directive})
 }
-

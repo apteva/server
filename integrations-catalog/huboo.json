@@ -1,0 +1,286 @@
+{
+  "slug": "huboo",
+  "name": "Huboo",
+  "description": "Huboo fulfillment API for small-batch ecommerce operations. Create warehouse products, announce inbound stock, read inventory, create outbound orders, cancel orders, and fetch tracking.",
+  "logo": "https://www.google.com/s2/favicons?domain=huboo.com&sz=128",
+  "categories": [
+    "fulfillment",
+    "ecommerce",
+    "inventory",
+    "orders",
+    "warehouse",
+    "logistics",
+    "3pl"
+  ],
+  "base_url": "https://api.huboo.uk/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Token",
+        "description": "Huboo public API bearer token."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "inventory_get",
+    "input": {
+      "per_page": 25
+    }
+  },
+  "tools": [
+    {
+      "name": "products_list",
+      "description": "List products on the Huboo account. Filter by client SKUs when reconciling Apteva Catalog SKUs with Huboo P-numbers.",
+      "method": "GET",
+      "path": "/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "client_skus": {
+            "type": "string",
+            "description": "Comma-separated client SKUs to filter by. Enclose SKUs containing commas in backticks."
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page number."
+          },
+          "per_page": {
+            "type": "integer",
+            "default": 50,
+            "description": "Items per page, typically 25 to 250."
+          }
+        }
+      }
+    },
+    {
+      "name": "products_create",
+      "description": "Create one or more Huboo products. Use before sending Alibaba stock into Huboo so products have Huboo SKUs/P-numbers.",
+      "method": "POST",
+      "path": "/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "description": "Array of Huboo product objects. Common fields: client_sku, identifier, title, image_url, weight, customs, variations, prices."
+          }
+        },
+        "required": [
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "inventory_get",
+      "description": "Get Huboo inventory quantities for products or bundles. Returns total available and allocated quantities.",
+      "method": "GET",
+      "path": "/inventory",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "skus": {
+            "type": "string",
+            "description": "Comma-separated Huboo P-numbers without the P prefix. Maximum 50."
+          },
+          "client_bundle_skus": {
+            "type": "string",
+            "description": "Comma-separated client bundle SKUs."
+          },
+          "include_archived": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include archived products."
+          },
+          "return_negative_quantities": {
+            "type": "boolean",
+            "default": false,
+            "description": "Return negative quantities when Huboo reports an inventory deficit."
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "default": 50
+          }
+        }
+      }
+    },
+    {
+      "name": "batches_list",
+      "description": "List Huboo batch details for stock that uses batch or expiry tracking.",
+      "method": "GET",
+      "path": "/batches",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "skus": {
+            "type": "string",
+            "description": "Comma-separated Huboo P-numbers. Maximum 50."
+          },
+          "batch_reference": {
+            "type": "string",
+            "description": "Comma-separated batch references."
+          },
+          "bbe_after": {
+            "type": "string",
+            "description": "Return batches with best-before-expiry after this date, for example 2026-01-30Z."
+          },
+          "bbe_before": {
+            "type": "string",
+            "description": "Return batches with best-before-expiry before this date, for example 2026-07-12Z."
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "default": 50
+          }
+        }
+      }
+    },
+    {
+      "name": "asns_create",
+      "description": "Create an advance shipping notice for inbound stock being sent to Huboo, for example an Alibaba MOQ shipment.",
+      "method": "POST",
+      "path": "/asns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Huboo ASN object. Common fields: estimated_date, reference_number, tracking_number, delivery_details, items."
+          }
+        },
+        "required": [
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "delivery_receipts_list",
+      "description": "List delivery receipts for shipments Huboo has received. Use to confirm inbound Alibaba stock arrived and was processed.",
+      "method": "GET",
+      "path": "/delivery-receipts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "default": 15
+          }
+        }
+      }
+    },
+    {
+      "name": "orders_create",
+      "description": "Create one or more outbound Huboo orders. Use when a Shopify, Amazon, Kaufland, or direct-store order should be fulfilled from Huboo stock.",
+      "method": "POST",
+      "path": "/orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "description": "Array of Huboo order objects. Common fields: client_order_id, lines, address, order_options."
+          }
+        },
+        "required": [
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "orders_list",
+      "description": "List Huboo orders by Huboo order IDs, client order IDs, status, or creation date range.",
+      "method": "GET",
+      "path": "/orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_ids": {
+            "type": "string",
+            "description": "Comma-separated Huboo order IDs. Cannot be used with client_order_ids."
+          },
+          "client_order_ids": {
+            "type": "string",
+            "description": "Comma-separated client order IDs. Cannot be used with order_ids."
+          },
+          "statuses": {
+            "type": "string",
+            "description": "Comma-separated statuses: complete,in_progress,hold,cancelled,error."
+          },
+          "created_before": {
+            "type": "string",
+            "description": "Only orders created before this ISO timestamp."
+          },
+          "created_after": {
+            "type": "string",
+            "description": "Only orders created after this ISO timestamp."
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "default": 50
+          }
+        }
+      }
+    },
+    {
+      "name": "order_cancel",
+      "description": "Cancel a Huboo order if it has not been locked for shipping.",
+      "method": "DELETE",
+      "path": "/order/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Huboo order ID."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "order_tracking_get",
+      "description": "Get Huboo tracking information for an order, grouped by tracking number and dispatched order lines.",
+      "method": "GET",
+      "path": "/order/{id}/tracking",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Huboo order ID."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    }
+  ]
+}

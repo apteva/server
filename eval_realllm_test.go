@@ -103,9 +103,10 @@ func readDotenvKey(path, key string) string {
 
 // findCoreBinary resolves the real apteva-core binary path. Search
 // order matches what an operator would expect:
-//   1. APTEVA_CORE_BIN env override
-//   2. ../core/apteva-core (build-local.sh output)
-//   3. ~/.apteva/bin/apteva-core (installed CLI's symlink)
+//  1. APTEVA_CORE_BIN env override
+//  2. ../core/apteva-core (build-local.sh output)
+//  3. ~/.apteva/bin/apteva-core (installed CLI's symlink)
+//
 // Skips the test cleanly when nothing's found.
 func findCoreBinary(t *testing.T) string {
 	t.Helper()
@@ -271,8 +272,7 @@ func prewarmMetaAgent(t *testing.T, s *Server, userID int64, budget time.Duratio
 	if len(pool) == 0 {
 		return errors.New("no provider in pool for prewarm")
 	}
-	if err := s.agents.Start(helper, providerEnv, s.port, pool, s.instanceSecret,
-		s.getBrowserConfig(userID, defaultProviderForInstance(helper), "")); err != nil {
+	if err := s.agents.Start(helper, providerEnv, s.port, pool, s.instanceSecret); err != nil {
 		return err
 	}
 	if !waitForCoreListening(s.agents.GetPort(helper.ID), budget) {
@@ -799,8 +799,9 @@ func TestEval_EndToEnd_RealLLM_ImprovementLoop(t *testing.T) {
 }
 
 // findAppBinary looks for a built app sidecar binary. Build order:
-//   1. APTEVA_APP_<NAME>_BIN env override
-//   2. ../<app>/<app> (workspace-built binary, the usual local case)
+//  1. APTEVA_APP_<NAME>_BIN env override
+//  2. ../<app>/<app> (workspace-built binary, the usual local case)
+//
 // Skips the test if neither path resolves.
 func findAppBinary(t *testing.T, app string) string {
 	t.Helper()
@@ -863,9 +864,9 @@ func findAppMigrations(t *testing.T, app string) string {
 // Skipped without OPENCODE_GO_API_KEY, the apteva-core binary, OR
 // the app-status binary. To run locally:
 //
-//   cd ../app-status && go build .
-//   cd ../core      && go build -o apteva-core ./cmd/apteva-core
-//   cd ../server    && go test -run TestEval_EndToEnd_RealLLM_SandboxedApp -v
+//	cd ../app-status && go build .
+//	cd ../core      && go build -o apteva-core ./cmd/apteva-core
+//	cd ../server    && go test -run TestEval_EndToEnd_RealLLM_SandboxedApp -v
 func TestEval_EndToEnd_RealLLM_SandboxedApp(t *testing.T) {
 	apiKey := loadOpenCodeGoKey(t)
 	corePath := findCoreBinary(t)

@@ -1041,7 +1041,11 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	// Twilio uses {{account_sid}} on tool.path). Resolve both before
 	// path-param interpolation so a missing credential surfaces as a
 	// URL parse error rather than as a silent string concat.
-	resolvedBase := resolveTemplate(app.BaseURL, credentials)
+	baseURL := app.BaseURL
+	if tool.BaseURL != "" {
+		baseURL = tool.BaseURL
+	}
+	resolvedBase := resolveTemplate(baseURL, credentials)
 	resolvedPath := resolveTemplate(tool.Path, credentials)
 	url := buildURL(resolvedBase, resolvedPath, input)
 
