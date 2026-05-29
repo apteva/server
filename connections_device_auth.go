@@ -591,6 +591,8 @@ func parseOpenAICodexSSE(body []byte) map[string]any {
 		"object": "response",
 	}
 	var text strings.Builder
+	var output []any
+	seenOutput := map[string]bool{}
 	lines := strings.Split(string(body), "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -604,6 +606,10 @@ func parseOpenAICodexSSE(body []byte) map[string]any {
 		var event map[string]any
 		if err := json.Unmarshal([]byte(raw), &event); err != nil {
 			continue
+		}
+		collectOpenAICodexImageOutput(event, &output, seenOutput)
+		if item, ok := event["item"].(map[string]any); ok {
+			collectOpenAICodexImageOutput(item, &output, seenOutput)
 		}
 		switch event["type"] {
 		case "response.output_text.delta":
@@ -620,11 +626,49 @@ func parseOpenAICodexSSE(body []byte) map[string]any {
 				for k, v := range response {
 					out[k] = v
 				}
+				if items, ok := response["output"].([]any); ok {
+					for _, rawItem := range items {
+						if item, ok := rawItem.(map[string]any); ok {
+							collectOpenAICodexImageOutput(item, &output, seenOutput)
+						}
+					}
+				}
 			}
 		}
 	}
 	out["output_text"] = strings.TrimSpace(text.String())
+	if len(output) > 0 {
+		out["output"] = output
+	}
 	return out
+}
+
+func collectOpenAICodexImageOutput(obj map[string]any, output *[]any, seen map[string]bool) {
+	if obj == nil || obj["type"] != "image_generation_call" {
+		return
+	}
+	result, _ := obj["result"].(string)
+	if strings.TrimSpace(result) == "" {
+		return
+	}
+	key := strings.TrimSpace(fmt.Sprint(obj["id"]))
+	if key == "" || key == "<nil>" {
+		key = result
+	}
+	if seen[key] {
+		return
+	}
+	seen[key] = true
+	item := map[string]any{
+		"type":   "image_generation_call",
+		"result": result,
+	}
+	for _, k := range []string{"id", "status", "revised_prompt"} {
+		if v, ok := obj[k]; ok && strings.TrimSpace(fmt.Sprint(v)) != "" {
+			item[k] = v
+		}
+	}
+	*output = append(*output, item)
 }
 
 func refreshIntegrationOpenAICodexCredentials(credentials map[string]string) error {

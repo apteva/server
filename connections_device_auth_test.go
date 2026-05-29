@@ -142,6 +142,22 @@ func TestParseOpenAICodexSSE(t *testing.T) {
 	}
 }
 
+func TestParseOpenAICodexSSE_ImageGenerationOutputItemDone(t *testing.T) {
+	raw := []byte("event: response.output_item.done\n" +
+		"data: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"ig_1\",\"type\":\"image_generation_call\",\"status\":\"completed\",\"revised_prompt\":\"A red square.\",\"result\":\"iVBORw0KGgo=\"}}\n\n" +
+		"event: response.completed\n" +
+		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_img\",\"model\":\"gpt-5.5\"}}\n\n")
+	out := parseOpenAICodexSSE(raw)
+	images := normalizeOpenAICodexImageGeneration(out, map[string]any{"model": "gpt-5.5"}).(map[string]any)["data"].([]any)
+	if len(images) != 1 {
+		t.Fatalf("images=%#v out=%#v", images, out)
+	}
+	img := images[0].(map[string]any)
+	if img["b64_json"] != "iVBORw0KGgo=" || img["revised_prompt"] != "A red square." {
+		t.Fatalf("image=%#v", img)
+	}
+}
+
 func TestConnectionOpenAICodexNeedsRefresh(t *testing.T) {
 	soon := time.Now().Add(5 * time.Minute).UTC().Format(time.RFC3339)
 	if !connectionOpenAICodexNeedsRefresh(map[string]string{"token_expires_at": soon}, 10*time.Minute) {
