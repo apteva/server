@@ -1061,6 +1061,9 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 
 	// Build headers
 	headers := buildHeaders(app.Auth.Headers, credentials)
+	for key, tmpl := range tool.Headers {
+		headers[key] = resolveTemplate(tmpl, credentials)
+	}
 	headers["Accept"] = "application/json"
 
 	// Tool-level query_params: a set of input field names that must be

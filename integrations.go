@@ -367,12 +367,13 @@ type OAuthConfig struct {
 }
 
 type AppToolDef struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Method      string         `json:"method"`
-	BaseURL     string         `json:"base_url,omitempty"`
-	Path        string         `json:"path"`
-	InputSchema map[string]any `json:"input_schema"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Method      string            `json:"method"`
+	BaseURL     string            `json:"base_url,omitempty"`
+	Path        string            `json:"path"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	InputSchema map[string]any    `json:"input_schema"`
 	// Names of input fields that should be sent as URL query string
 	// parameters instead of being folded into the request body. Required
 	// for APIs that mix query+body on POST/PUT/PATCH (e.g. Google Sheets'

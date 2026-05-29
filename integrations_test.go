@@ -938,3 +938,57 @@ func TestExecuteIntegrationTool_BodyRoot(t *testing.T) {
 		t.Errorf("body leaked path param zoneId: %s", capturedBody)
 	}
 }
+
+func TestExecuteIntegrationTool_ToolHeadersOverrideAppHeaders(t *testing.T) {
+	var capturedCT string
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedCT = r.Header.Get("Content-Type")
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "fake-twilio",
+		BaseURL: srv.URL,
+		Auth: AppAuthConfig{Headers: map[string]string{
+			"Content-Type": "application/x-www-form-urlencoded",
+		}},
+	}
+	tool := &AppToolDef{
+		Name:    "update_whatsapp_sender",
+		Method:  "POST",
+		Path:    "/v2/Channels/Senders/{SenderSid}",
+		Headers: map[string]string{"Content-Type": "application/json"},
+	}
+	input := map[string]any{
+		"SenderSid": "XE123",
+		"webhook": map[string]any{
+			"callback_url":    "https://example.test/webhooks/twilio-inbound",
+			"callback_method": "POST",
+		},
+	}
+	res, err := executeIntegrationTool(app, tool, map[string]string{}, input, "")
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("success=%v status=%d", res.Success, res.Status)
+	}
+	if capturedCT != "application/json" {
+		t.Fatalf("Content-Type=%q, want application/json", capturedCT)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(capturedBody, &body); err != nil {
+		t.Fatalf("body is not JSON: %v body=%s", err, capturedBody)
+	}
+	if _, leaked := body["SenderSid"]; leaked {
+		t.Fatalf("path param leaked into body: %s", capturedBody)
+	}
+	if _, ok := body["webhook"].(map[string]any); !ok {
+		t.Fatalf("webhook object missing from body: %s", capturedBody)
+	}
+}

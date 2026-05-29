@@ -858,6 +858,9 @@
       "description": "Register a phone number as a WhatsApp Business sender. For SMS-capable Twilio numbers, verification is automatic. For voice-only or non-Twilio numbers, OTP verification is required separately.",
       "method": "POST",
       "base_url": "https://messaging.twilio.com",
+      "headers": {
+        "Content-Type": "application/json"
+      },
       "path": "/v2/Channels/Senders",
       "input_schema": {
         "type": "object",
@@ -936,6 +939,70 @@
         "required": [
           "sender_id",
           "profile"
+        ]
+      }
+    },
+    {
+      "name": "update_whatsapp_sender",
+      "description": "Update a WhatsApp Business sender's webhook/profile/configuration. Messaging uses this to point inbound WhatsApp messages at its Twilio inbound webhook.",
+      "method": "POST",
+      "base_url": "https://messaging.twilio.com",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "path": "/v2/Channels/Senders/{SenderSid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SenderSid": {
+            "type": "string",
+            "description": "WhatsApp Sender SID (XE...)"
+          },
+          "webhook": {
+            "type": "object",
+            "description": "Webhook settings. Example: {\"callback_url\":\"https://.../twilio-inbound\",\"callback_method\":\"POST\"}",
+            "properties": {
+              "callback_url": {
+                "type": "string",
+                "description": "URL Twilio calls for inbound WhatsApp messages"
+              },
+              "callback_method": {
+                "type": "string",
+                "enum": [
+                  "POST",
+                  "PUT"
+                ],
+                "default": "POST"
+              },
+              "fallback_url": {
+                "type": "string"
+              },
+              "fallback_method": {
+                "type": "string",
+                "enum": [
+                  "POST",
+                  "PUT"
+                ]
+              },
+              "status_callback_url": {
+                "type": "string"
+              },
+              "status_callback_method": {
+                "type": "string"
+              }
+            }
+          },
+          "profile": {
+            "type": "object",
+            "description": "Optional WhatsApp profile fields to update"
+          },
+          "configuration": {
+            "type": "object",
+            "description": "Optional sender configuration fields such as verification_code"
+          }
+        },
+        "required": [
+          "SenderSid"
         ]
       }
     },
