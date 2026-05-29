@@ -87,8 +87,8 @@ func TestBuildOpenAICodexImagePayload(t *testing.T) {
 	if len(parts) != 1 || parts[0].(map[string]any)["type"] != "input_text" || parts[0].(map[string]any)["text"] != "draw a red door" {
 		t.Fatalf("content=%#v", parts)
 	}
-	if payload["stream"] != false {
-		t.Fatalf("stream=%v, want false", payload["stream"])
+	if payload["stream"] != true {
+		t.Fatalf("stream=%v, want true", payload["stream"])
 	}
 	tools := payload["tools"].([]any)
 	tool := tools[0].(map[string]any)

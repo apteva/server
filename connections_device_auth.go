@@ -386,9 +386,10 @@ func buildOpenAICodexImagePayload(input map[string]any) map[string]any {
 		"tools":       []any{tool},
 		"tool_choice": map[string]any{"type": "image_generation"},
 		"store":       false,
-		// Keep the integration response as JSON so the generated image's
-		// base64 result is available without relying on streaming events.
-		"stream": false,
+		// The ChatGPT-backed Codex runtime requires streaming responses.
+		// callOpenAICodexResponses parses the SSE response and recovers the
+		// completed response object for normalizers below.
+		"stream": true,
 	}
 	return payload
 }
