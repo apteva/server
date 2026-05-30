@@ -33,11 +33,6 @@
         "description": "Your Twilio Auth Token (used as the HTTP Basic password)",
         "required": true,
         "type": "password"
-      },
-      {
-        "name": "phone_number",
-        "label": "Default Phone Number",
-        "description": "Optional default From number in E.164 (e.g. +15551234567)"
       }
     ]
   },
@@ -1055,6 +1050,9 @@
       "description": "Create a new content template for WhatsApp messaging. Templates must be submitted for approval before use. Supports text, media, quick reply, call-to-action, and card types.",
       "method": "POST",
       "base_url": "https://content.twilio.com",
+      "headers": {
+        "Content-Type": "application/json"
+      },
       "path": "/v1/Content",
       "input_schema": {
         "type": "object",
@@ -1089,6 +1087,9 @@
       "description": "Submit a content template for WhatsApp approval. Once approved by Meta, the template can be used to initiate conversations outside the 24-hour window.",
       "method": "POST",
       "base_url": "https://content.twilio.com",
+      "headers": {
+        "Content-Type": "application/json"
+      },
       "path": "/v1/Content/{ContentSid}/ApprovalRequests/whatsapp",
       "input_schema": {
         "type": "object",
@@ -1123,6 +1124,9 @@
       "description": "Delete a content template. Cannot delete templates that have been submitted for WhatsApp approval.",
       "method": "DELETE",
       "base_url": "https://content.twilio.com",
+      "headers": {
+        "Content-Type": "application/json"
+      },
       "path": "/v1/Content/{ContentSid}",
       "input_schema": {
         "type": "object",

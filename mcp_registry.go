@@ -640,10 +640,22 @@ func (s *Server) handleCreateMCPServer(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
 	projectID := r.URL.Query().Get("project_id")
+	includeAppOwned := r.URL.Query().Get("include_app_owned") == "1"
 	servers, err := s.store.ListMCPServers(userID, projectID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+
+	if !includeAppOwned {
+		filtered := servers[:0]
+		for _, srv := range servers {
+			if srv.ConnectionID > 0 && (connectionOwnerInstallID(s, srv.ConnectionID) != 0 || connectionCreatedVia(s, srv.ConnectionID) == "app_install") {
+				continue
+			}
+			filtered = append(filtered, srv)
+		}
+		servers = filtered
 	}
 
 	// Update running status
@@ -682,11 +694,17 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 	selfPath, _ := os.Executable()
 	type enrichedServer struct {
 		MCPServerRecord
-		ProxyConfig *map[string]any `json:"proxy_config,omitempty"`
+		CreatedVia        string          `json:"created_via,omitempty"`
+		OwnerAppInstallID int64           `json:"owner_app_install_id,omitempty"`
+		ProxyConfig       *map[string]any `json:"proxy_config,omitempty"`
 	}
 	var enriched []enrichedServer
 	for _, srv := range servers {
 		es := enrichedServer{MCPServerRecord: srv}
+		if srv.ConnectionID > 0 {
+			es.CreatedVia = connectionCreatedVia(s, srv.ConnectionID)
+			es.OwnerAppInstallID = connectionOwnerInstallID(s, srv.ConnectionID)
+		}
 		if srv.Source == "remote" && srv.URL != "" {
 			// Hosted MCP endpoint (Composio, Pipedream, ...). Cores connect
 			// directly to the upstream URL — we do not proxy.

@@ -54,18 +54,21 @@ func isBinaryContentType(ct string) bool {
 // --- DB Model ---
 
 type Connection struct {
-	ID         int64     `json:"id"`
-	UserID     int64     `json:"user_id"`
-	AppSlug    string    `json:"app_slug"`
-	AppName    string    `json:"app_name"`
-	Name       string    `json:"name"`
-	AuthType   string    `json:"auth_type"`
-	Status     string    `json:"status"`
-	Source     string    `json:"source"`                // 'local' | 'composio'
-	ProviderID int64     `json:"provider_id,omitempty"` // FK → providers (for hosted sources)
-	ExternalID string    `json:"external_id,omitempty"` // composio connected_account_id, etc.
-	ProjectID  string    `json:"project_id,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID                int64     `json:"id"`
+	UserID            int64     `json:"user_id"`
+	AppSlug           string    `json:"app_slug"`
+	AppName           string    `json:"app_name"`
+	Name              string    `json:"name"`
+	AuthType          string    `json:"auth_type"`
+	Status            string    `json:"status"`
+	Source            string    `json:"source"`                // 'local' | 'composio'
+	ProviderID        int64     `json:"provider_id,omitempty"` // FK → providers (for hosted sources)
+	ExternalID        string    `json:"external_id,omitempty"` // composio connected_account_id, etc.
+	ProjectID         string    `json:"project_id,omitempty"`
+	CreatedVia        string    `json:"created_via,omitempty"`
+	OwnerAppInstallID int64     `json:"owner_app_install_id,omitempty"`
+	AutoMCP           bool      `json:"auto_mcp"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 // ConnectionInput carries the full set of fields for creating a connection via
@@ -162,8 +165,13 @@ func (s *Store) CreateConnectionExt(in ConnectionInput) (*Connection, error) {
 	return &Connection{
 		ID: id, UserID: in.UserID, AppSlug: in.AppSlug, AppName: in.AppName, Name: in.Name,
 		AuthType: in.AuthType, Status: in.Status, Source: in.Source, ProviderID: in.ProviderID,
-		ExternalID: in.ExternalID, ProjectID: in.ProjectID, CreatedAt: time.Now(),
+		ExternalID: in.ExternalID, ProjectID: in.ProjectID, CreatedVia: in.CreatedVia,
+		OwnerAppInstallID: in.OwnerAppInstallID, AutoMCP: autoMCP != 0, CreatedAt: time.Now(),
 	}, nil
+}
+
+func isAppOwnedConnection(c Connection) bool {
+	return c.CreatedVia == "app_install" || c.OwnerAppInstallID != 0
 }
 
 func (s *Store) ListConnections(userID int64, projectID ...string) ([]Connection, error) {
@@ -178,11 +186,13 @@ func (s *Store) ListConnections(userID int64, projectID ...string) ([]Connection
 		// connection to global gets it appearing in every project's
 		// list, which is the whole point.
 		rows, err = s.db.Query(
-			`SELECT id, app_slug, app_name, name, auth_type, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''), created_at
+			`SELECT id, app_slug, app_name, name, auth_type, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''),
+			        COALESCE(created_via,'integration'), COALESCE(owner_app_install_id,0), COALESCE(auto_mcp,1), created_at
 			 FROM connections WHERE user_id = ? AND (project_id = ? OR project_id = '')`, userID, projectID[0])
 	} else {
 		rows, err = s.db.Query(
-			`SELECT id, app_slug, app_name, name, auth_type, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''), created_at
+			`SELECT id, app_slug, app_name, name, auth_type, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''),
+			        COALESCE(created_via,'integration'), COALESCE(owner_app_install_id,0), COALESCE(auto_mcp,1), created_at
 			 FROM connections WHERE user_id = ?`, userID)
 	}
 	if err != nil {
@@ -194,8 +204,10 @@ func (s *Store) ListConnections(userID int64, projectID ...string) ([]Connection
 	for rows.Next() {
 		var c Connection
 		var createdAt string
-		rows.Scan(&c.ID, &c.AppSlug, &c.AppName, &c.Name, &c.AuthType, &c.Status, &c.Source, &c.ProviderID, &c.ExternalID, &c.ProjectID, &createdAt)
+		var autoMCP int
+		rows.Scan(&c.ID, &c.AppSlug, &c.AppName, &c.Name, &c.AuthType, &c.Status, &c.Source, &c.ProviderID, &c.ExternalID, &c.ProjectID, &c.CreatedVia, &c.OwnerAppInstallID, &autoMCP, &createdAt)
 		c.UserID = userID
+		c.AutoMCP = autoMCP != 0
 		c.CreatedAt, _ = parseTime(createdAt)
 		conns = append(conns, c)
 	}
@@ -205,15 +217,18 @@ func (s *Store) ListConnections(userID int64, projectID ...string) ([]Connection
 func (s *Store) GetConnection(userID, connID int64) (*Connection, string, error) {
 	var c Connection
 	var encCreds, createdAt string
+	var autoMCP int
 	err := s.db.QueryRow(
-		`SELECT id, app_slug, app_name, name, auth_type, encrypted_credentials, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''), created_at
+		`SELECT id, app_slug, app_name, name, auth_type, encrypted_credentials, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''),
+		        COALESCE(created_via,'integration'), COALESCE(owner_app_install_id,0), COALESCE(auto_mcp,1), created_at
 		 FROM connections WHERE id = ? AND user_id = ?`,
 		connID, userID,
-	).Scan(&c.ID, &c.AppSlug, &c.AppName, &c.Name, &c.AuthType, &encCreds, &c.Status, &c.Source, &c.ProviderID, &c.ExternalID, &c.ProjectID, &createdAt)
+	).Scan(&c.ID, &c.AppSlug, &c.AppName, &c.Name, &c.AuthType, &encCreds, &c.Status, &c.Source, &c.ProviderID, &c.ExternalID, &c.ProjectID, &c.CreatedVia, &c.OwnerAppInstallID, &autoMCP, &createdAt)
 	if err != nil {
 		return nil, "", err
 	}
 	c.UserID = userID
+	c.AutoMCP = autoMCP != 0
 	c.CreatedAt, _ = parseTime(createdAt)
 	return &c, encCreds, nil
 }
@@ -2018,6 +2033,7 @@ func (s *Server) handleRenameConnection(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleListConnections(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
 	projectID := r.URL.Query().Get("project_id")
+	includeAppOwned := r.URL.Query().Get("include_app_owned") == "1"
 	conns, err := s.store.ListConnections(userID, projectID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -2043,6 +2059,9 @@ func (s *Server) handleListConnections(w http.ResponseWriter, r *http.Request) {
 	}
 	var enriched []ConnectionWithTools
 	for _, c := range conns {
+		if !includeAppOwned && isAppOwnedConnection(c) {
+			continue
+		}
 		if !includeMasters && IsMasterSlug(c.AppSlug) {
 			continue
 		}

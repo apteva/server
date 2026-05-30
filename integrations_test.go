@@ -375,6 +375,142 @@ func TestConnectionHTTPHandler(t *testing.T) {
 	}
 }
 
+func TestDashboardListsHideAppOwnedConnectionsByDefault(t *testing.T) {
+	s := newTestServer(t)
+	s.secret = testSecret()
+	s.catalog = createTestCatalog(t)
+
+	creds, _ := json.Marshal(map[string]string{"token": "test"})
+	encrypted, _ := Encrypt(s.secret, string(creds))
+	if _, err := s.store.CreateConnectionExt(ConnectionInput{
+		UserID:         1,
+		AppSlug:        "github",
+		AppName:        "GitHub",
+		Name:           "GitHub operator",
+		AuthType:       "bearer",
+		EncryptedCreds: encrypted,
+		ProjectID:      "proj",
+		CreatedVia:     "integration",
+	}); err != nil {
+		t.Fatalf("create operator connection: %v", err)
+	}
+	if _, err := s.store.CreateConnectionExt(ConnectionInput{
+		UserID:            1,
+		AppSlug:           "github",
+		AppName:           "GitHub",
+		Name:              "social:github:1",
+		AuthType:          "bearer",
+		EncryptedCreds:    encrypted,
+		ProjectID:         "proj",
+		CreatedVia:        "app_install",
+		OwnerAppInstallID: 52,
+	}); err != nil {
+		t.Fatalf("create app-owned connection: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/connections?project_id=proj", nil)
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleListConnections(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list default: status %d: %s", rec.Code, rec.Body.String())
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("decode default list: %v", err)
+	}
+	if len(rows) != 1 || rows[0]["name"] != "GitHub operator" {
+		t.Fatalf("default list should only include operator connection, got %#v", rows)
+	}
+
+	req = httptest.NewRequest("GET", "/connections?project_id=proj&include_app_owned=1", nil)
+	req.Header.Set("X-User-ID", "1")
+	rec = httptest.NewRecorder()
+	s.handleListConnections(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list include_app_owned: status %d: %s", rec.Code, rec.Body.String())
+	}
+	rows = nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("decode include list: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("include_app_owned should include both connections, got %#v", rows)
+	}
+}
+
+func TestDashboardMCPListHidesAppOwnedConnectionRowsByDefault(t *testing.T) {
+	s := newTestServer(t)
+	s.secret = testSecret()
+	s.catalog = createTestCatalog(t)
+
+	creds, _ := json.Marshal(map[string]string{"token": "test"})
+	encrypted, _ := Encrypt(s.secret, string(creds))
+	operatorConn, err := s.store.CreateConnectionExt(ConnectionInput{
+		UserID:         1,
+		AppSlug:        "github",
+		AppName:        "GitHub",
+		Name:           "GitHub operator",
+		AuthType:       "bearer",
+		EncryptedCreds: encrypted,
+		ProjectID:      "proj",
+		CreatedVia:     "integration",
+	})
+	if err != nil {
+		t.Fatalf("create operator connection: %v", err)
+	}
+	appConn, err := s.store.CreateConnectionExt(ConnectionInput{
+		UserID:            1,
+		AppSlug:           "github",
+		AppName:           "GitHub",
+		Name:              "social:github:1",
+		AuthType:          "bearer",
+		EncryptedCreds:    encrypted,
+		ProjectID:         "proj",
+		CreatedVia:        "app_install",
+		OwnerAppInstallID: 52,
+	})
+	if err != nil {
+		t.Fatalf("create app-owned connection: %v", err)
+	}
+	if _, err := s.store.CreateMCPServerFromConnection(1, operatorConn, 2); err != nil {
+		t.Fatalf("create operator mcp: %v", err)
+	}
+	if _, err := s.store.CreateMCPServerFromConnection(1, appConn, 2); err != nil {
+		t.Fatalf("create app-owned mcp: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/mcp-servers?project_id=proj", nil)
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleListMCPServers(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("mcp list default: status %d: %s", rec.Code, rec.Body.String())
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("decode default mcp list: %v", err)
+	}
+	if len(rows) != 1 || rows[0]["connection_id"].(float64) != float64(operatorConn.ID) {
+		t.Fatalf("default mcp list should only include operator row, got %#v", rows)
+	}
+
+	req = httptest.NewRequest("GET", "/mcp-servers?project_id=proj&include_app_owned=1", nil)
+	req.Header.Set("X-User-ID", "1")
+	rec = httptest.NewRecorder()
+	s.handleListMCPServers(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("mcp list include_app_owned: status %d: %s", rec.Code, rec.Body.String())
+	}
+	rows = nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("decode include mcp list: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("include_app_owned should include both mcp rows, got %#v", rows)
+	}
+}
+
 func TestMCPServerAutoCreatedFromConnection(t *testing.T) {
 	s := newTestServer(t)
 	s.secret = testSecret()
