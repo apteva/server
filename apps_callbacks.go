@@ -26,6 +26,7 @@ package main
 // of unrelated resources.
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -487,17 +488,43 @@ func (s *Server) handleCallbackInstances(w http.ResponseWriter, r *http.Request,
 	}
 	if len(parts) == 2 && parts[1] == "event" && r.Method == http.MethodPost {
 		var body struct {
-			Message string `json:"message"`
+			Message  string `json:"message"`
+			ThreadID string `json:"thread_id,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
-		// Defer to whatever the platform's existing inject path is —
-		// for now we accept the call and surface it through the
-		// telemetry broadcaster so the dashboard sees activity.
-		// Full instance-event injection lives in agents.go and
-		// can be wired here in a follow-up.
+		port := s.agents.GetPort(id)
+		if port == 0 {
+			http.Error(w, "agent is not running", http.StatusBadGateway)
+			return
+		}
+		payload := map[string]any{"message": body.Message}
+		if strings.TrimSpace(body.ThreadID) != "" {
+			payload["thread_id"] = strings.TrimSpace(body.ThreadID)
+		}
+		raw, _ := json.Marshal(payload)
+		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/event", port), bytes.NewReader(raw))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if key := s.agents.GetCoreAPIKey(id); key != "" {
+			req.Header.Set("Authorization", "Bearer "+key)
+		}
+		resp, err := (&http.Client{Timeout: 60 * time.Second}).Do(req)
+		if err != nil {
+			http.Error(w, "core event: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode/100 != 2 {
+			raw, _ := io.ReadAll(resp.Body)
+			http.Error(w, fmt.Sprintf("core event http %d: %s", resp.StatusCode, string(raw)), http.StatusBadGateway)
+			return
+		}
 		writeJSON(w, map[string]any{"queued": true, "message": body.Message})
 		return
 	}

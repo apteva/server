@@ -18,7 +18,9 @@ package main
 //   DELETE /api/environment-snapshots/<id>           delete a snapshot
 //
 // Everything is gated by authMiddleware. Environments are ephemeral test infra,
-// so we don't (yet) enforce per-user ownership beyond requiring a session.
+// so browser/API-key callers are scoped by their normal user/project access.
+// Sidecar callers additionally need explicit platform.environments.*
+// permissions on their app manifest.
 
 import (
 	"encoding/json"
@@ -29,6 +31,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	sdk "github.com/apteva/app-sdk"
 )
 
 // registerEnvironmentRoutes wires the environment endpoints onto the API mux.
@@ -225,12 +229,18 @@ func (s *Server) environmentVisibleConnectionIDs(userID int64, projectID string,
 func (s *Server) handleEnvironments(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsRead, sdk.PermEnvironmentsManage) {
+			return
+		}
 		out := []environmentSummary{}
 		for _, environment := range s.environments.List() {
 			out = append(out, s.summarizeEnvironment(environment))
 		}
 		writeJSON(w, out)
 	case http.MethodPost:
+		if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsManage) {
+			return
+		}
 		var req createEnvironmentRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -322,18 +332,27 @@ func (s *Server) handleEnvironmentByID(w http.ResponseWriter, r *http.Request) {
 
 	// /environments/<id>/apps/<name>/... — reverse-proxy to the in-environment sidecar.
 	if strings.HasPrefix(sub, "apps/") {
+		if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsCall, sdk.PermEnvironmentsManage) {
+			return
+		}
 		s.proxyToEnvironmentApp(w, r, environment, strings.TrimPrefix(sub, "apps/"))
 		return
 	}
 
 	// /environments/<id>/agents[/...] — spawn / list / stop / drive environment agents.
 	if sub == "agents" || strings.HasPrefix(sub, "agents/") {
+		if !s.requireEnvironmentAgentPermission(w, r) {
+			return
+		}
 		s.handleEnvironmentAgents(w, r, environment, strings.TrimPrefix(strings.TrimPrefix(sub, "agents"), "/"))
 		return
 	}
 
 	// /environments/<id>/agent[/...] — legacy default-agent shim.
 	if sub == "agent" || strings.HasPrefix(sub, "agent/") {
+		if !s.requireEnvironmentAgentPermission(w, r) {
+			return
+		}
 		s.handleEnvironmentAgent(w, r, environment, strings.TrimPrefix(strings.TrimPrefix(sub, "agent"), "/"))
 		return
 	}
@@ -342,16 +361,28 @@ func (s *Server) handleEnvironmentByID(w http.ResponseWriter, r *http.Request) {
 	case "":
 		switch r.Method {
 		case http.MethodGet:
+			if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsRead, sdk.PermEnvironmentsManage) {
+				return
+			}
 			writeJSON(w, s.summarizeEnvironment(environment))
 		case http.MethodDelete:
+			if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsManage) {
+				return
+			}
 			s.environments.Destroy(id)
 			writeJSON(w, map[string]any{"destroyed": id})
 		default:
 			http.Error(w, "GET or DELETE", http.StatusMethodNotAllowed)
 		}
 	case "calls":
+		if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsRead, sdk.PermEnvironmentsManage) {
+			return
+		}
 		writeJSON(w, environment.Edge().Calls())
 	case "cassette":
+		if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsRead, sdk.PermEnvironmentsManage) {
+			return
+		}
 		cas := environment.Edge().Cassette()
 		if cas == nil {
 			writeJSON(w, map[string]any{"entries": []any{}})
@@ -359,14 +390,54 @@ func (s *Server) handleEnvironmentByID(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, cas)
 	case "assert":
+		if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsRead, sdk.PermEnvironmentsManage) {
+			return
+		}
 		s.handleEnvironmentAssert(w, r, environment)
 	case "snapshot":
+		if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsManage) {
+			return
+		}
 		s.handleEnvironmentSnapshot(w, r, environment)
 	case "seed":
+		if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsCall, sdk.PermEnvironmentsManage) {
+			return
+		}
 		s.handleEnvironmentSeed(w, r, environment)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (s *Server) requireEnvironmentAgentPermission(w http.ResponseWriter, r *http.Request) bool {
+	switch r.Method {
+	case http.MethodGet:
+		return s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsRead, sdk.PermEnvironmentsManage)
+	case http.MethodPost, http.MethodDelete:
+		return s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsManage)
+	default:
+		// Proxying into an environment agent core can inject events or
+		// call tools, so treat non-lifecycle methods as call/manage.
+		return s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsCall, sdk.PermEnvironmentsManage)
+	}
+}
+
+func (s *Server) requireEnvironmentPermission(w http.ResponseWriter, r *http.Request, allowed ...sdk.Permission) bool {
+	installID, err := requireInstallID(r)
+	if err != nil || installID <= 0 {
+		return true
+	}
+	for _, perm := range allowed {
+		if installHasPermission(s, installID, perm) {
+			return true
+		}
+	}
+	names := make([]string, 0, len(allowed))
+	for _, perm := range allowed {
+		names = append(names, string(perm))
+	}
+	http.Error(w, "missing permission: "+strings.Join(names, " or "), http.StatusForbidden)
+	return false
 }
 
 type assertRequest struct {
