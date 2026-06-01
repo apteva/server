@@ -1,11 +1,11 @@
 package main
 
-// world_derive.go — build a World from an agent's app bindings.
+// environment_derive.go — build a Environment from an agent's app bindings.
 //
-// "Create eval for this agent → world built from its bindings." The agent's
+// "Create eval for this agent → environment built from its bindings." The agent's
 // app_agent_bindings (written in the wizard, see instances.go create) are the
-// source of truth for which apps it uses. This turns them into a WorldSpec the
-// World supervisor installs from local source — so the eval's environment is
+// source of truth for which apps it uses. This turns them into a EnvironmentSpec the
+// Environment supervisor installs from local source — so the eval's environment is
 // derived from the agent, not hand-listed.
 //
 // Today it derives the directly-bound apps. Sibling deps (manifest
@@ -44,21 +44,21 @@ func (s *Server) AppNamesForAgent(agentID int64) ([]string, error) {
 	return names, rows.Err()
 }
 
-// DeriveWorldSpecForAgent builds a WorldSpec from the agent's bound apps,
-// resolving each app's local source dir. Scoped to worldID as the project;
+// DeriveEnvironmentSpecForAgent builds a EnvironmentSpec from the agent's bound apps,
+// resolving each app's local source dir. Scoped to environmentID as the project;
 // edge defaults to block (no externals unless the caller adds fixtures).
-func (s *Server) DeriveWorldSpecForAgent(agent *Agent, worldID string) (WorldSpec, error) {
+func (s *Server) DeriveEnvironmentSpecForAgent(agent *Agent, environmentID string) (EnvironmentSpec, error) {
 	if agent == nil {
-		return WorldSpec{}, fmt.Errorf("derive world: nil agent")
+		return EnvironmentSpec{}, fmt.Errorf("derive environment: nil agent")
 	}
-	if worldID == "" {
-		return WorldSpec{}, fmt.Errorf("derive world: worldID required")
+	if environmentID == "" {
+		return EnvironmentSpec{}, fmt.Errorf("derive environment: environmentID required")
 	}
 	names, err := s.AppNamesForAgent(agent.ID)
 	if err != nil {
-		return WorldSpec{}, fmt.Errorf("read bindings for agent %d: %w", agent.ID, err)
+		return EnvironmentSpec{}, fmt.Errorf("read bindings for agent %d: %w", agent.ID, err)
 	}
-	resolve := s.worlds.ResolveSource
+	resolve := s.environments.ResolveSource
 	if resolve == nil {
 		resolve = defaultSourceResolver
 	}
@@ -66,12 +66,12 @@ func (s *Server) DeriveWorldSpecForAgent(agent *Agent, worldID string) (WorldSpe
 	for _, name := range names {
 		dir, rerr := resolve(name)
 		if rerr != nil {
-			return WorldSpec{}, fmt.Errorf("resolve source for bound app %q: %w", name, rerr)
+			return EnvironmentSpec{}, fmt.Errorf("resolve source for bound app %q: %w", name, rerr)
 		}
 		appSrcDirs[name] = dir
 	}
-	return WorldSpec{
-		ID:         worldID,
+	return EnvironmentSpec{
+		ID:         environmentID,
 		ProjectID:  agent.ProjectID,
 		GatewayURL: s.localGatewayURL(),
 		AppSrcDirs: appSrcDirs,
@@ -79,19 +79,19 @@ func (s *Server) DeriveWorldSpecForAgent(agent *Agent, worldID string) (WorldSpe
 	}, nil
 }
 
-// CreateWorldForAgent derives a world spec from the agent's bindings and
-// stands it up. The eval path's entry point for "world from this agent".
-func (s *Server) CreateWorldForAgent(agent *Agent, worldID string) (*World, error) {
-	spec, err := s.DeriveWorldSpecForAgent(agent, worldID)
+// CreateEnvironmentForAgent derives a environment spec from the agent's bindings and
+// stands it up. The eval path's entry point for "environment from this agent".
+func (s *Server) CreateEnvironmentForAgent(agent *Agent, environmentID string) (*Environment, error) {
+	spec, err := s.DeriveEnvironmentSpecForAgent(agent, environmentID)
 	if err != nil {
 		return nil, err
 	}
-	return s.worlds.Create(spec)
+	return s.environments.Create(spec)
 }
 
 // defaultSourceResolver locates an app's local working-copy dir by manifest
 // name (dev/CI checkout layout). Returns an error when no source is present —
-// world derivation needs source to build the app.
+// environment derivation needs source to build the app.
 func defaultSourceResolver(name string) (string, error) {
 	candidates := []string{
 		filepath.Join("..", "apps", "mcp", name),

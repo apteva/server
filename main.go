@@ -153,12 +153,11 @@ type Server struct {
 	judgeMutexesMu   sync.Mutex
 	judgeMutexes     map[int64]*sync.Mutex
 
-	// worlds supervises isolated test "Worlds" — sets of real app
-	// sidecars sharing one HTTP edge (see world.go / world_edge.go).
-	// Phase-1 scaffolding for the agent-testing-as-a-virtual-world model.
-	// Nil-safe: only ever consulted by world endpoints, so production
+	// environments supervises isolated test Environments — sets of real app
+	// sidecars sharing one HTTP edge (see environment.go / environment_edge.go).
+	// Nil-safe: only ever consulted by environment endpoints, so production
 	// agent paths never touch it.
-	worlds *WorldManager
+	environments *EnvironmentManager
 }
 
 // appsRegistry is a thin alias over framework.Registry so main.go
@@ -495,11 +494,11 @@ func main() {
 		instanceSecret: loadOrMintInstanceSecret(store),
 		platformStatus: newPlatformStatusPoller(dataDir),
 		primaryHost:    strings.TrimSpace(os.Getenv("APTEVA_PRIMARY_HOST")),
-		worlds:         NewWorldManager(filepath.Join(dataDir, "worlds")),
+		environments:   NewEnvironmentManager(environmentDataRoot(dataDir)),
 	}
-	// Back-reference so Worlds can drive real (install-backed) app seeding +
-	// teardown. Only ever used by world endpoints; production untouched.
-	s.worlds.server = s
+	// Back-reference so Environments can drive real (install-backed) app
+	// seeding + teardown. Only ever used by environment endpoints.
+	s.environments.server = s
 
 	// Start console telemetry logger
 	if os.Getenv("QUIET") != "1" {
@@ -685,6 +684,8 @@ func main() {
 		path := strings.TrimPrefix(r.URL.Path, "/subscriptions/")
 		if strings.HasSuffix(path, "/enable") || strings.HasSuffix(path, "/disable") {
 			s.handleToggleSubscription(w, r)
+		} else if strings.HasSuffix(path, "/notify-agent") {
+			s.handleSetSubscriptionNotifyAgent(w, r)
 		} else if strings.HasSuffix(path, "/test") {
 			s.handleTestSubscription(w, r)
 		} else {
@@ -1159,19 +1160,17 @@ func main() {
 	// and agent_evals.go for the handler logic.
 	apiMux.HandleFunc("/eval-mock-gateway/", s.handleEvalMockGateway)
 
-	// /worlds, /world-snapshots — isolated test environments (the
-	// agent-testing-as-a-virtual-world model). See world*.go.
-	s.registerWorldRoutes(apiMux)
+	// /environments, /environment-snapshots — isolated test environments.
+	s.registerEnvironmentRoutes(apiMux)
 
-	// /world-mcp — World control surface as MCP tools (create/seed/list/
-	// destroy). Added to the meta-agent's mcp_servers so it drives Worlds
-	// by tool calls. Loopback; backed in-process by s.worlds. See world_mcp.go.
-	apiMux.HandleFunc("/world-mcp", s.handleWorldMCP)
+	// /environment-mcp — Environment control surface as MCP tools
+	// (create/seed/list/destroy).
+	apiMux.HandleFunc("/environment-mcp", s.handleEnvironmentMCP)
 
-	// /world-app-gateway/<worldID>/<app>/... — token-brokering proxy so an
-	// in-world agent core can reach the world's token-protected app sidecars.
-	// Loopback; world id in path is the credential. See world_app_gateway.go.
-	apiMux.HandleFunc("/world-app-gateway/", s.handleWorldAppGateway)
+	// /environment-app-gateway/<environmentID>/<app>/... — token-brokering
+	// proxy so an in-environment agent core can reach token-protected app
+	// sidecars.
+	apiMux.HandleFunc("/environment-app-gateway/", s.handleEnvironmentAppGateway)
 
 	instancesCollectionHandler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -1515,8 +1514,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\napteva-server received %s — stopping children\n", sig)
 		s.stopApps(appsReg)
 		s.agents.StopAll(5 * time.Second)
-		if s.worlds != nil {
-			s.worlds.StopAll()
+		if s.environments != nil {
+			s.environments.StopAll()
 		}
 		// Sidecars are spawned with Setpgid; StopAll fans out SIGTERM
 		// and falls back to SIGKILL after the grace window. Without

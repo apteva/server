@@ -187,7 +187,7 @@ func TestDiscoverProjects_Happy(t *testing.T) {
 		Slug:    "testsuite-storage",
 		BaseURL: srv.URL,
 		Auth:    AppAuthConfig{Headers: map[string]string{"X-API-Key": "{{api_key}}"}},
-		Scopes: &AppScopes{Account: &AppScope{AuthHeaders: map[string]string{"X-API-Key": "{{api_key}}"}}},
+		Scopes:  &AppScopes{Account: &AppScope{AuthHeaders: map[string]string{"X-API-Key": "{{api_key}}"}}},
 	}
 	group := &CredentialGroup{
 		ID: "testsuite", Name: "TestSuite", Logo: &logo,

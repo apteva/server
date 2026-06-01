@@ -340,7 +340,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "setup token required for first registration", http.StatusForbidden)
 			return
 		}
-	// "open" — no restriction
+		// "open" — no restriction
 	}
 
 	var body struct {

@@ -26,18 +26,18 @@ func seedBoundApp(t *testing.T, s *Server, appName, projectID string, agentID in
 	return installID
 }
 
-// TestDeriveWorldSpecForAgent: an agent's bindings become the world's apps.
-func TestDeriveWorldSpecForAgent(t *testing.T) {
+// TestDeriveEnvironmentSpecForAgent: an agent's bindings become the environment's apps.
+func TestDeriveEnvironmentSpecForAgent(t *testing.T) {
 	dataDir := t.TempDir()
 	store, err := NewStore(filepath.Join(dataDir, "s.db"))
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}
 	defer store.Close()
-	s := &Server{store: store, port: "5280", worlds: NewWorldManager(filepath.Join(dataDir, "worlds"))}
-	s.worlds.server = s
+	s := &Server{store: store, port: "5280", environments: NewEnvironmentManager(environmentDataRoot(dataDir))}
+	s.environments.server = s
 	// Mock the source resolver so the test doesn't depend on the filesystem.
-	s.worlds.ResolveSource = func(name string) (string, error) { return "/src/" + name, nil }
+	s.environments.ResolveSource = func(name string) (string, error) { return "/src/" + name, nil }
 
 	agent, err := store.CreateAgent(1, "files-agent", "handle files", "autonomous", "{}", "proj-1")
 	if err != nil {
@@ -46,7 +46,7 @@ func TestDeriveWorldSpecForAgent(t *testing.T) {
 	seedBoundApp(t, s, "storage", "proj-1", agent.ID)
 	seedBoundApp(t, s, "crm", "proj-1", agent.ID)
 
-	spec, err := s.DeriveWorldSpecForAgent(agent, "w1")
+	spec, err := s.DeriveEnvironmentSpecForAgent(agent, "w1")
 	if err != nil {
 		t.Fatalf("derive: %v", err)
 	}
@@ -60,23 +60,23 @@ func TestDeriveWorldSpecForAgent(t *testing.T) {
 	}
 
 	// An unresolvable bound app surfaces as an error (you can't build it).
-	s.worlds.ResolveSource = defaultSourceResolver
+	s.environments.ResolveSource = defaultSourceResolver
 	seedBoundApp(t, s, "definitely-not-real-app-xyz", "proj-1", agent.ID)
-	if _, err := s.DeriveWorldSpecForAgent(agent, "w2"); err == nil {
+	if _, err := s.DeriveEnvironmentSpecForAgent(agent, "w2"); err == nil {
 		t.Fatalf("expected error for unresolvable bound app")
 	}
 }
 
-// TestWorld_DerivedFromAgentBindings (gated) is the full bridge: bind the real
-// storage app to an agent → CreateWorldForAgent → the world stands up storage
-// from local source. This is the "create eval for this agent → world built
+// TestEnvironment_DerivedFromAgentBindings (gated) is the full bridge: bind the real
+// storage app to an agent → CreateEnvironmentForAgent → the environment stands up storage
+// from local source. This is the "create eval for this agent → environment built
 // from its bindings" path, end to end.
-func TestWorld_DerivedFromAgentBindings(t *testing.T) {
+func TestEnvironment_DerivedFromAgentBindings(t *testing.T) {
 	if testing.Short() {
-		t.Skip("real-app world test builds the storage sidecar")
+		t.Skip("real-app environment test builds the storage sidecar")
 	}
 	_ = findAppSource(t, "storage") // skip early if storage source is absent
-	s := newWorldTestServer(t)
+	s := newEnvironmentTestServer(t)
 
 	agent, err := s.store.CreateAgent(1, "files-agent", "handle files via storage", "autonomous", "{}", "proj-files")
 	if err != nil {
@@ -85,21 +85,21 @@ func TestWorld_DerivedFromAgentBindings(t *testing.T) {
 	// The agent is bound to storage (as the wizard would write).
 	seedBoundApp(t, s, "storage", "proj-files", agent.ID)
 
-	// World is derived from the binding — no manual app list.
-	world, err := s.CreateWorldForAgent(agent, "w-files")
+	// Environment is derived from the binding — no manual app list.
+	environment, err := s.CreateEnvironmentForAgent(agent, "w-files")
 	if err != nil {
-		t.Fatalf("create world from agent bindings: %v", err)
+		t.Fatalf("create environment from agent bindings: %v", err)
 	}
-	defer world.Stop()
+	defer environment.Stop()
 
-	inst, ok := world.Install("storage")
+	inst, ok := environment.Install("storage")
 	if !ok {
-		t.Fatal("storage not installed in the derived world")
+		t.Fatal("storage not installed in the derived environment")
 	}
 	token := fmt.Sprintf("dev-%d", inst.InstallID)
 	res := callMCP(t, inst.SidecarURL+"/mcp", token, "tools/list", map[string]any{})
 	if len(res) == 0 {
 		t.Fatal("storage tools/list returned nothing")
 	}
-	t.Logf("✓ world derived from agent bindings: storage installed (id=%d) + serving MCP", inst.InstallID)
+	t.Logf("✓ environment derived from agent bindings: storage installed (id=%d) + serving MCP", inst.InstallID)
 }

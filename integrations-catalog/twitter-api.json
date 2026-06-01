@@ -1217,6 +1217,11 @@
               "type": "string"
             },
             "description": "User IDs who can use this media"
+          },
+          "shared": {
+            "type": "boolean",
+            "description": "Whether this media can be shared with additional owners",
+            "default": false
           }
         },
         "required": [
@@ -1328,6 +1333,33 @@
       }
     },
     {
+      "name": "get_media_upload_status",
+      "description": "Poll the processing status for an initialized/finalized media upload. Required for videos and other media that return processing_info before they can be attached to a post.",
+      "method": "GET",
+      "path": "/2/media/upload",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "media_id": {
+            "type": "string",
+            "description": "Media ID returned by upload_init or upload_media"
+          }
+        },
+        "required": [
+          "media_id"
+        ]
+      },
+      "mock_response": {
+        "data": {
+          "id": "1790000000000000300",
+          "processing_info": {
+            "state": "succeeded",
+            "progress_percent": 100
+          }
+        }
+      }
+    },
+    {
       "name": "get_tweet_analytics",
       "description": "Get engagement metrics for a single tweet. Returns public_metrics (impression_count, like_count, retweet_count, reply_count, quote_count, bookmark_count) under data.public_metrics. Calls X API v2: GET /2/tweets/{id}?tweet.fields=public_metrics.",
       "method": "GET",
@@ -1351,30 +1383,45 @@
       }
     },
     {
-      "name": "get_account_analytics",
-      "description": "Get account-level analytics for an X/Twitter user. Returns profile public_metrics (followers, following, tweet count, listed count) and optionally aggregated engagement metrics from recent original tweets (total impressions, likes, retweets, replies, quotes, bookmarks, and average engagement rate).\n\nExample:\n{\n  \"userId\": \"1234567890\",\n  \"include_recent_tweets\": true,\n  \"recent_tweet_count\": 20\n}",
+      "name": "get_post_analytics",
+      "description": "Get time-series or total analytics for one or more posts owned by the authenticated user. Use for richer owner metrics such as impressions, engagements, media views, URL clicks, follows, and profile clicks when the X API plan permits analytics access.",
       "method": "GET",
-      "path": "/get-account-analytics",
+      "path": "/2/tweets/analytics",
       "input_schema": {
         "type": "object",
         "properties": {
-          "userId": {
+          "ids": {
             "type": "string",
-            "description": "X/Twitter user ID"
+            "description": "Comma-separated post IDs to fetch analytics for"
           },
-          "include_recent_tweets": {
-            "type": "boolean",
-            "description": "Include recent tweets and engagement summary",
-            "default": true
+          "granularity": {
+            "type": "string",
+            "enum": [
+              "hourly",
+              "daily",
+              "weekly",
+              "total"
+            ],
+            "description": "Analytics aggregation granularity",
+            "default": "total"
           },
-          "recent_tweet_count": {
-            "type": "integer",
-            "description": "Number of recent tweets to analyze (max 100)",
-            "default": 10
+          "analytics.fields": {
+            "type": "string",
+            "description": "Comma-separated analytics fields to return",
+            "default": "impressions,engagements,likes,replies,retweets,quote_tweets,bookmarks,media_views,url_clicks,user_profile_clicks"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "Optional ISO 8601 start time"
+          },
+          "end_time": {
+            "type": "string",
+            "description": "Optional ISO 8601 end time"
           }
         },
         "required": [
-          "userId"
+          "ids",
+          "granularity"
         ]
       }
     }

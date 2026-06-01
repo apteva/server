@@ -838,7 +838,7 @@ func (s *Server) ResumeLocalInstalls() {
 	// port, different binary, different cache dir) — sequential resume
 	// adds up to ~300ms × N where the dominant cost is killOrphan's
 	// SIGTERM-grace + waitHealthy on /health. With N=20+ that's a
-	// painful 6-10s of stop-the-world boot. Parallelizing drops it to
+	// painful 6-10s of stop-the-environment boot. Parallelizing drops it to
 	// the slowest single sidecar's wall time.
 	//
 	// Concurrency cap protects hosts with hundreds of installs from

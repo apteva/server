@@ -318,6 +318,7 @@ func (s *Store) migrate() error {
 			webhook_path TEXT UNIQUE NOT NULL,
 			encrypted_hmac_secret TEXT DEFAULT '',
 			enabled INTEGER DEFAULT 1,
+			notify_agent INTEGER DEFAULT 0,
 			thread_id TEXT DEFAULT '',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
@@ -571,6 +572,7 @@ func (s *Store) migrate() error {
 	s.db.Exec("ALTER TABLE agents ADD COLUMN mode TEXT DEFAULT 'autonomous'")
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN external_webhook_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN events TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN notify_agent INTEGER NOT NULL DEFAULT 0")
 	// Source discriminator for the subscription. Default 'webhook'
 	// preserves existing rows: token-keyed external delivery via
 	// /webhooks/<token>. New value 'app_event' attaches the row to the
@@ -939,7 +941,7 @@ func (s *Store) migrate() error {
 	//   2. every existing project gets a project_members row with
 	//      role='owner' for its projects.user_id, so the new authz
 	//      helper finds an explicit ownership row matching the implicit
-	//      single-user world.
+	//      single-user environment.
 	s.db.Exec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'`)
 	s.db.Exec(`CREATE TABLE IF NOT EXISTS project_members (
 		project_id TEXT    NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

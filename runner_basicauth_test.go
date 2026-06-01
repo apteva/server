@@ -84,11 +84,11 @@ func TestFormEncode_BasicShape(t *testing.T) {
 	got := formEncode(map[string]any{
 		"From": "+15551112222",
 		"To":   "+15553334444",
-		"Body": "hello world",
+		"Body": "hello environment",
 	})
 	// url.Values.Encode sorts keys alphabetically, so the order is
 	// deterministic.
-	if !strings.Contains(got, "Body=hello+world") {
+	if !strings.Contains(got, "Body=hello+environment") {
 		t.Errorf("missing Body field: %q", got)
 	}
 	if !strings.Contains(got, "From=%2B15551112222") {

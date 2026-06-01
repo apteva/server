@@ -22,17 +22,17 @@ func TestOmitPath(t *testing.T) {
 				{
 					"alternatives": [
 						{
-							"transcript": "hello world",
+							"transcript": "hello environment",
 							"confidence": 0.99,
 							"words": [
 								{"word":"hello","start":0.0,"end":0.5,"confidence":0.99},
-								{"word":"world","start":0.5,"end":1.0,"confidence":0.99}
+								{"word":"environment","start":0.5,"end":1.0,"confidence":0.99}
 							]
 						}
 					]
 				}
 			],
-			"utterances": [{"start":0,"end":1,"transcript":"hello world"}]
+			"utterances": [{"start":0,"end":1,"transcript":"hello environment"}]
 		}
 	}`
 	var data any
@@ -56,7 +56,7 @@ func TestOmitPath(t *testing.T) {
 			t.Errorf("expected %q to be stripped; still present in: %s", shouldBeGone, s)
 		}
 	}
-	for _, shouldStay := range []string{"transcript", "hello world", "confidence", "1085.22"} {
+	for _, shouldStay := range []string{"transcript", "hello environment", "confidence", "1085.22"} {
 		if !strings.Contains(s, shouldStay) {
 			t.Errorf("expected %q to remain; missing from: %s", shouldStay, s)
 		}

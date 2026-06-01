@@ -1,12 +1,12 @@
 package main
 
-// world_edge.go — the cassette-backed HTTP edge for test Worlds.
+// environment_edge.go — the cassette-backed HTTP edge for test Environments.
 //
 // This generalises eval_sandbox.go's sandboxProxy (allow | mock | block)
 // into a five-mode edge that also supports record/replay cassettes — the
-// VCR/Polly pattern, applied to a whole agent world. Every process inside
-// a World (app sidecars today; the agent core + meta-agent later) gets
-// HTTP_PROXY pointed at one WorldEdge, so all of their outbound HTTP is
+// VCR/Polly pattern, applied to a whole agent environment. Every process inside
+// a Environment (app sidecars today; the agent core + meta-agent later) gets
+// HTTP_PROXY pointed at one EnvironmentEdge, so all of their outbound HTTP is
 // classified here without any code changes in the apps themselves.
 //
 // Per request the edge decides, in order:
@@ -21,7 +21,7 @@ package main
 //                     that makes replay runs deterministic).
 //
 // This file is additive: sandboxProxy stays as-is so the current eval path
-// is untouched. A later phase migrates eval onto WorldEdge and removes the
+// is untouched. A later phase migrates eval onto EnvironmentEdge and removes the
 // duplication. It reuses eval_sandbox.go's HTTPMock / InterceptedCall /
 // SandboxPolicy / hostMatchesSuffix / mockMatches / defaultAllowSuffixes
 // (same package), so the edge and the sandbox speak the same vocabulary.
@@ -156,8 +156,8 @@ func (c *Cassette) Save(path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// WorldEdge is the live intercept server. One per World.
-type WorldEdge struct {
+// EnvironmentEdge is the live intercept server. One per Environment.
+type EnvironmentEdge struct {
 	listener net.Listener
 	server   *http.Server
 	policy   SandboxPolicy
@@ -168,13 +168,13 @@ type WorldEdge struct {
 	calls []InterceptedCall
 }
 
-// startWorldEdge binds a loopback port and starts serving. The caller sets
-// the returned ProxyURL() as HTTP_PROXY/HTTPS_PROXY on every in-world
+// startEnvironmentEdge binds a loopback port and starts serving. The caller sets
+// the returned ProxyURL() as HTTP_PROXY/HTTPS_PROXY on every in-environment
 // process. defaultAllowSuffixes (LLM hosts + loopback) is always merged in.
-func startWorldEdge(policy SandboxPolicy, mode EdgeMode, cassette *Cassette) (*WorldEdge, error) {
+func startEnvironmentEdge(policy SandboxPolicy, mode EdgeMode, cassette *Cassette) (*EnvironmentEdge, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return nil, fmt.Errorf("world edge listen: %w", err)
+		return nil, fmt.Errorf("environment edge listen: %w", err)
 	}
 	policy.AllowHostSuffixes = append(append([]string{}, defaultAllowSuffixes...), policy.AllowHostSuffixes...)
 	if mode == "" {
@@ -183,7 +183,7 @@ func startWorldEdge(policy SandboxPolicy, mode EdgeMode, cassette *Cassette) (*W
 	if (mode == EdgeRecord || mode == EdgeReplay) && cassette == nil {
 		cassette = newCassette()
 	}
-	e := &WorldEdge{listener: ln, policy: policy, mode: mode, cassette: cassette}
+	e := &EnvironmentEdge{listener: ln, policy: policy, mode: mode, cassette: cassette}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", e.handle)
 	e.server = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
@@ -191,11 +191,11 @@ func startWorldEdge(policy SandboxPolicy, mode EdgeMode, cassette *Cassette) (*W
 	return e, nil
 }
 
-// ProxyURL is the value to set as HTTP_PROXY / HTTPS_PROXY on in-world processes.
-func (e *WorldEdge) ProxyURL() string { return "http://" + e.listener.Addr().String() }
+// ProxyURL is the value to set as HTTP_PROXY / HTTPS_PROXY on in-environment processes.
+func (e *EnvironmentEdge) ProxyURL() string { return "http://" + e.listener.Addr().String() }
 
 // Stop shuts the edge down. Idempotent.
-func (e *WorldEdge) Stop() {
+func (e *EnvironmentEdge) Stop() {
 	if e.server != nil {
 		_ = e.server.Close()
 	}
@@ -203,11 +203,11 @@ func (e *WorldEdge) Stop() {
 
 // Cassette returns the live cassette (nil unless record/replay was selected
 // or one was supplied). Callers Save() it after a record run.
-func (e *WorldEdge) Cassette() *Cassette { return e.cassette }
+func (e *EnvironmentEdge) Cassette() *Cassette { return e.cassette }
 
 // Calls returns a snapshot of every request the edge has classified — the
 // raw material for edge assertions ("exactly 1 POST to api.twitter.com").
-func (e *WorldEdge) Calls() []InterceptedCall {
+func (e *EnvironmentEdge) Calls() []InterceptedCall {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	out := make([]InterceptedCall, len(e.calls))
@@ -215,13 +215,13 @@ func (e *WorldEdge) Calls() []InterceptedCall {
 	return out
 }
 
-func (e *WorldEdge) record(c InterceptedCall) {
+func (e *EnvironmentEdge) record(c InterceptedCall) {
 	e.mu.Lock()
 	e.calls = append(e.calls, c)
 	e.mu.Unlock()
 }
 
-func (e *WorldEdge) handle(w http.ResponseWriter, r *http.Request) {
+func (e *EnvironmentEdge) handle(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodConnect {
 		e.handleConnect(w, r)
 		return
@@ -244,7 +244,7 @@ func (e *WorldEdge) handle(w http.ResponseWriter, r *http.Request) {
 	if hostMatchesSuffix(host, e.policy.AllowHostSuffixes) {
 		st, hdr, rb, err := e.forward(r, body)
 		if err != nil {
-			e.fail(w, &rec, http.StatusBadGateway, "world edge: upstream error: "+err.Error())
+			e.fail(w, &rec, http.StatusBadGateway, "environment edge: upstream error: "+err.Error())
 			return
 		}
 		rec.Allowed = true
@@ -275,7 +275,7 @@ func (e *WorldEdge) handle(w http.ResponseWriter, r *http.Request) {
 	case EdgeRecord:
 		st, hdr, rb, err := e.forward(r, body)
 		if err != nil {
-			e.fail(w, &rec, http.StatusBadGateway, "world edge: upstream error: "+err.Error())
+			e.fail(w, &rec, http.StatusBadGateway, "environment edge: upstream error: "+err.Error())
 			return
 		}
 		if e.cassette != nil {
@@ -288,7 +288,7 @@ func (e *WorldEdge) handle(w http.ResponseWriter, r *http.Request) {
 	case EdgePassthrough:
 		st, hdr, rb, err := e.forward(r, body)
 		if err != nil {
-			e.fail(w, &rec, http.StatusBadGateway, "world edge: upstream error: "+err.Error())
+			e.fail(w, &rec, http.StatusBadGateway, "environment edge: upstream error: "+err.Error())
 			return
 		}
 		rec.Allowed = true
@@ -297,11 +297,11 @@ func (e *WorldEdge) handle(w http.ResponseWriter, r *http.Request) {
 		e.record(rec)
 	default: // EdgeBlock, EdgeMock, or an EdgeReplay miss → fail loud.
 		e.fail(w, &rec, http.StatusBadGateway,
-			fmt.Sprintf("world edge: blocked %s %s%s (mode=%s; no allow/mock/cassette match)", method, host, path, e.mode))
+			fmt.Sprintf("environment edge: blocked %s %s%s (mode=%s; no allow/mock/cassette match)", method, host, path, e.mode))
 	}
 }
 
-func (e *WorldEdge) serveMock(w http.ResponseWriter, m HTTPMock, rec *InterceptedCall) {
+func (e *EnvironmentEdge) serveMock(w http.ResponseWriter, m HTTPMock, rec *InterceptedCall) {
 	rec.Mocked = true
 	status := m.Status
 	if status == 0 {
@@ -323,7 +323,7 @@ func (e *WorldEdge) serveMock(w http.ResponseWriter, m HTTPMock, rec *Intercepte
 	e.record(*rec)
 }
 
-func (e *WorldEdge) serveCassette(w http.ResponseWriter, ent CassetteEntry, rec *InterceptedCall) {
+func (e *EnvironmentEdge) serveCassette(w http.ResponseWriter, ent CassetteEntry, rec *InterceptedCall) {
 	rec.Mocked = true // a cassette hit is a recorded mock as far as the trajectory cares
 	for k, v := range ent.Headers {
 		w.Header().Set(k, v)
@@ -341,7 +341,7 @@ func (e *WorldEdge) serveCassette(w http.ResponseWriter, ent CassetteEntry, rec 
 	e.record(*rec)
 }
 
-func (e *WorldEdge) fail(w http.ResponseWriter, rec *InterceptedCall, status int, msg string) {
+func (e *EnvironmentEdge) fail(w http.ResponseWriter, rec *InterceptedCall, status int, msg string) {
 	rec.Blocked = true
 	rec.Status = status
 	w.Header().Set("Content-Type", "application/json")
@@ -354,7 +354,7 @@ func (e *WorldEdge) fail(w http.ResponseWriter, rec *InterceptedCall, status int
 
 // forward makes the real outbound call. The edge runs inside apteva-server,
 // which itself has no HTTP_PROXY, so this reaches the actual host.
-func (e *WorldEdge) forward(r *http.Request, body []byte) (int, http.Header, []byte, error) {
+func (e *EnvironmentEdge) forward(r *http.Request, body []byte) (int, http.Header, []byte, error) {
 	target := *r.URL
 	if target.Scheme == "" {
 		target.Scheme = "http"
@@ -384,7 +384,7 @@ func (e *WorldEdge) forward(r *http.Request, body []byte) (int, http.Header, []b
 // handleConnect tunnels HTTPS only for allowlisted hosts (LLM endpoints).
 // Everything else is blocked — mocking/recording HTTPS bodies needs a MITM
 // CA, which is Phase 2.
-func (e *WorldEdge) handleConnect(w http.ResponseWriter, r *http.Request) {
+func (e *EnvironmentEdge) handleConnect(w http.ResponseWriter, r *http.Request) {
 	host := strings.SplitN(r.Host, ":", 2)[0]
 	rec := InterceptedCall{Host: host, Path: r.URL.Path, Method: "CONNECT", Timestamp: time.Now()}
 	if hostMatchesSuffix(host, e.policy.AllowHostSuffixes) {
@@ -415,7 +415,7 @@ func (e *WorldEdge) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rec.Blocked, rec.Status = true, http.StatusBadGateway
-	http.Error(w, "world edge: blocked CONNECT to "+host+" (HTTPS mocking is Phase 2 / MITM)", http.StatusBadGateway)
+	http.Error(w, "environment edge: blocked CONNECT to "+host+" (HTTPS mocking is Phase 2 / MITM)", http.StatusBadGateway)
 	e.record(rec)
 }
 

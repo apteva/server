@@ -345,4 +345,3 @@ func formatToolArgs(data map[string]any) string {
 	}
 	return ""
 }
-

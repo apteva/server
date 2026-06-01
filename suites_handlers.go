@@ -186,15 +186,15 @@ func (s *Server) handleCreateGroupMaster(w http.ResponseWriter, r *http.Request)
 			name = g.Meta.Name + " master"
 		}
 		conn, err := s.store.CreateConnectionExt(ConnectionInput{
-			UserID:               userID,
-			AppSlug:              MasterSlug(groupID),
-			AppName:              g.Meta.Name,
-			Name:                 name,
-			AuthType:             "api_key",
+			UserID:         userID,
+			AppSlug:        MasterSlug(groupID),
+			AppName:        g.Meta.Name,
+			Name:           name,
+			AuthType:       "api_key",
 			EncryptedCreds: enc,
-			Status:               "active",
-			Source:               "local",
-			ProjectID:            body.ProjectID,
+			Status:         "active",
+			Source:         "local",
+			ProjectID:      body.ProjectID,
 		})
 		if err != nil {
 			log.Printf("[SUITE] master create failed user=%d group=%s project=%s: %v", userID, groupID, body.ProjectID, err)
@@ -311,9 +311,9 @@ func (s *Server) handleGetGroupMaster(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, map[string]any{
 		"master": map[string]any{
-			"id":         master.ID,
-			"project_id": master.ProjectID,
-			"name":       master.Name,
+			"id":                 master.ID,
+			"project_id":         master.ProjectID,
+			"name":               master.Name,
 			"credentials_masked": masked,
 		},
 		"projects": projects,
@@ -382,9 +382,11 @@ func (s *Server) handleRefreshGroupMaster(w http.ResponseWriter, r *http.Request
 
 // POST /integrations/groups/{id}/master/enable
 // Body: { "project_id": "apteva-project",
-//         "selections": [{"app_slug":"omnikit-storage","external_project_id":"proj_abc","label":"marketing-prod"}, ...],
-//         "replace": false  // if true, remove child rows that aren't in the new selection
-//       }
+//
+//	  "selections": [{"app_slug":"omnikit-storage","external_project_id":"proj_abc","label":"marketing-prod"}, ...],
+//	  "replace": false  // if true, remove child rows that aren't in the new selection
+//	}
+//
 // Idempotent: re-calling with the same selections is a no-op.
 func (s *Server) handleEnableGroupApps(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -566,15 +568,15 @@ func (s *Server) handleEnableGroupApps(w http.ResponseWriter, r *http.Request) {
 			connName = sel.ExternalProjectID
 		}
 		conn, err := s.store.CreateConnectionExt(ConnectionInput{
-			UserID:               userID,
-			AppSlug:              sel.AppSlug,
-			AppName:              app.Name,
-			Name:                 connName,
-			AuthType:             "api_key",
+			UserID:         userID,
+			AppSlug:        sel.AppSlug,
+			AppName:        app.Name,
+			Name:           connName,
+			AuthType:       "api_key",
 			EncryptedCreds: enc,
-			Status:               "active",
-			Source:               "local",
-			ProjectID:            body.ProjectID,
+			Status:         "active",
+			Source:         "local",
+			ProjectID:      body.ProjectID,
 		})
 		if err != nil {
 			log.Printf("[SUITE] child create failed user=%d slug=%s project=%s ext=%s: %v", userID, sel.AppSlug, body.ProjectID, sel.ExternalProjectID, err)

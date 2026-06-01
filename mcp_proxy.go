@@ -122,8 +122,8 @@ func runMCPProxy(dbPath string, connectionID int64, secret []byte) error {
 		case "initialize":
 			result = map[string]any{
 				"protocolVersion": "2024-11-05",
-				"capabilities":   map[string]any{"tools": map[string]any{}},
-				"serverInfo":     map[string]string{"name": appSlug + "-proxy", "version": "1.0.0"},
+				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"serverInfo":      map[string]string{"name": appSlug + "-proxy", "version": "1.0.0"},
 			}
 
 		case "tools/list":
@@ -171,8 +171,8 @@ func runMCPProxy(dbPath string, connectionID int64, secret []byte) error {
 					)
 					return err
 				}
-				// stdio proxy subprocess — no HTTP request to read a world
-				// id from, so worldID="" (production path, no interception).
+				// stdio proxy subprocess — no HTTP request to read a environment
+				// id from, so environmentID="" (production path, no interception).
 				execResult, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, "", persist)
 				if err != nil {
 					result = map[string]any{

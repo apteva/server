@@ -21,7 +21,7 @@ type Skill struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	Body        string         `json:"body"`
-	Source      string         `json:"source"`     // app | user | builtin
+	Source      string         `json:"source"` // app | user | builtin
 	InstallID   *int64         `json:"install_id,omitempty"`
 	ProjectID   string         `json:"project_id"`
 	Command     string         `json:"command,omitempty"`
@@ -48,7 +48,7 @@ var commandRe = regexp.MustCompile(`^/[a-z0-9][a-z0-9-]{0,63}$`)
 // GET /api/skills?project_id=<id>
 //
 // Lists every skill visible to the project: project-scoped rows +
-// globals (project_id=''). Joined to apps + app_installs to
+// globals (project_id=”). Joined to apps + app_installs to
 // surface the AppName for source='app' rows. Returns enabled +
 // disabled — the dashboard's filter pills decide what to show.
 func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {

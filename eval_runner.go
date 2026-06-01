@@ -392,8 +392,8 @@ func unregisterEvalSession(token string) {
 // (>1) — the route picks the default and the request body can
 // override.
 func (s *Server) runEval(ctx context.Context, userID int64, agent *Agent, ev *Eval, opts RunOptions) (*EvalRun, error) {
-	if opts.UseWorld {
-		return s.runEvalInWorld(ctx, userID, agent, ev, false, opts)
+	if opts.UseEnvironment {
+		return s.runEvalInEnvironment(ctx, userID, agent, ev, false, opts)
 	}
 	return s.runRealEvalCore(ctx, userID, agent, ev, false, opts, nil)
 }
@@ -866,9 +866,10 @@ func waitForCoreListening(port int, budget time.Duration) bool {
 }
 
 // collectAssistantReplies polls the eval core's thread context
-// until the agent goes idle (no new messages for 3s) or max_turns
-// assistant turns have been captured into the trajectory. Returns
-// nil on a clean idle, error on timeout / network failure.
+// until the agent goes idle or max_turns assistant turns have been
+// captured into the trajectory. Tool-result turns get a longer idle
+// window than plain prose because the next model iteration can start
+// several seconds after a real MCP tool result lands.
 //
 // Polling cadence is 500ms — fast enough to catch each turn shortly
 // after it lands, slow enough not to thrash core.
@@ -879,7 +880,9 @@ func collectAssistantReplies(ctx context.Context, port int, apiKey, threadID str
 	overallDeadline := time.Now().Add(120 * time.Second)
 	idleSince := time.Time{}
 	idleWindow := 3 * time.Second
+	postToolIdleWindow := 18 * time.Second
 	seenLastUpdate := time.Now()
+	lastToolActivity := time.Time{}
 	// lastMsgCount is the total number of messages (any role) we've
 	// already processed. Each poll, we walk the suffix from this
 	// index forward and record anything new — assistant text via
@@ -913,6 +916,7 @@ func collectAssistantReplies(ctx context.Context, port int, apiKey, threadID str
 					}
 					for _, tc := range m.ToolCalls {
 						session.recordRealToolCall(tc.ID, tc.Name, tc.Args)
+						lastToolActivity = time.Now()
 					}
 					if m.text() != "" || len(m.ToolCalls) > 0 {
 						assistantTurns++
@@ -926,6 +930,7 @@ func collectAssistantReplies(ctx context.Context, port int, apiKey, threadID str
 					// the runner itself.
 					for _, tr := range m.ToolResults {
 						session.attachToolResult(tr.CallID, tr.Content, tr.IsError)
+						lastToolActivity = time.Now()
 					}
 				}
 			}
@@ -948,8 +953,8 @@ func collectAssistantReplies(ctx context.Context, port int, apiKey, threadID str
 			// its result — that gap is exactly the case where the
 			// judge needs the full picture to grade tool usage.
 			effectiveIdle := idleWindow
-			if session.hasPendingTools() {
-				effectiveIdle = 15 * time.Second
+			if session.hasPendingTools() || (!lastToolActivity.IsZero() && time.Since(lastToolActivity) < postToolIdleWindow) {
+				effectiveIdle = postToolIdleWindow
 			}
 			if time.Since(idleSince) >= effectiveIdle && assistantTurns > 0 {
 				return nil

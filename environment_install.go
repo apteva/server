@@ -1,19 +1,19 @@
 package main
 
-// world_install.go — install an app from a LOCAL working-copy directory.
+// environment_install.go — install an app from a LOCAL working-copy directory.
 //
-// This is the World's app-seeding path. It reuses the PRODUCTION install
+// This is the Environment's app-seeding path. It reuses the PRODUCTION install
 // machinery — the same app/app_installs rows, the same build→spawn→health
-// tail (buildAndSpawn), the same installedApps registry — so an in-world app
+// tail (buildAndSpawn), the same installedApps registry — so an in-environment app
 // is a real, project-scoped install: its platform callbacks authenticate
 // (real install id + token + permissions) and inter-app routing resolves
 // through the registry. The only differences from a git install are (a) the
 // source is a local dir built with a temp go.work so the developer's CURRENT
 // code + local sibling modules (app-sdk) are used, and (b) everything is
-// scoped to the given project id (the World id) and removed on teardown.
+// scoped to the given project id (the Environment id) and removed on teardown.
 //
 // It does NOT touch the production install path (installFromSource /
-// handleInstallApp). Nothing here runs unless a World calls it.
+// handleInstallApp). Nothing here runs unless a Environment calls it.
 
 import (
 	"encoding/json"
@@ -40,7 +40,7 @@ type localInstall struct {
 // installLocalSource builds + installs the app whose source lives at srcDir,
 // scoped to projectID, and returns its running coordinates. env is the spawn
 // env the caller wants threaded to the sidecar (e.g. HTTP_PROXY=<edge>,
-// APTEVA_WORLD_ID); installLocalSource fills in the platform identity vars.
+// APTEVA_ENVIRONMENT_ID); installLocalSource fills in the platform identity vars.
 func (s *Server) installLocalSource(srcDir, projectID string, env map[string]string, progress func(string)) (*localInstall, error) {
 	if s.localApps == nil {
 		return nil, fmt.Errorf("installLocalSource: local supervisor not configured")
@@ -138,11 +138,11 @@ func (s *Server) installLocalSource(srcDir, projectID string, env map[string]str
 	}, nil
 }
 
-// deleteWorldInstall removes the install + (orphaned) app rows for one
-// in-world install. Guarded to project-scoped rows by the caller (World
-// teardown passes only world-project installs) so it can never delete a
+// deleteEnvironmentInstall removes the install + (orphaned) app rows for one
+// in-environment install. Guarded to project-scoped rows by the caller (Environment
+// teardown passes only environment-project installs) so it can never delete a
 // production install.
-func (s *Server) deleteWorldInstall(installID int64) {
+func (s *Server) deleteEnvironmentInstall(installID int64) {
 	var appID int64
 	_ = s.store.db.QueryRow(`SELECT app_id FROM app_installs WHERE id=?`, installID).Scan(&appID)
 	_ = s.localApps.Stop(installID)
@@ -188,7 +188,7 @@ func genLocalGoWork(appDir string) (path string, cleanup func(), err error) {
 		}
 	}
 
-	tmp, err := os.MkdirTemp("", "world-gowork-")
+	tmp, err := os.MkdirTemp("", "environment-gowork-")
 	if err != nil {
 		return "", noop, err
 	}

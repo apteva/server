@@ -13,8 +13,8 @@ import (
 // handleGetInstallConfig returns the operator-set settings for one
 // install plus the schema (for the dashboard's auto-generated form).
 //
-//   GET /api/apps/installs/:id/config →
-//     { config: {…}, schema: [...config_schema entries...] }
+//	GET /api/apps/installs/:id/config →
+//	  { config: {…}, schema: [...config_schema entries...] }
 //
 // Empty `config` for fresh installs that haven't had settings touched
 // since install. The schema is whatever the manifest declares —
@@ -46,8 +46,8 @@ func (s *Server) handleGetInstallConfig(w http.ResponseWriter, r *http.Request) 
 // field at a time without round-tripping the whole config), and
 // re-encrypts.
 //
-//   PUT /api/apps/installs/:id/config
-//   Body: { config: { default_visibility: "private", … } }
+//	PUT /api/apps/installs/:id/config
+//	Body: { config: { default_visibility: "private", … } }
 //
 // Validates that every key appears in the manifest's config_schema —
 // rejects unknown keys with 400 so silent typos can't accumulate

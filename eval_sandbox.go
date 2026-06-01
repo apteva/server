@@ -46,12 +46,12 @@ import (
 // callers wanting an exact match include a trailing space-or-tab
 // (won't match any real URL).
 type HTTPMock struct {
-	Host       string            `json:"host"`        // e.g. "api.twitter.com"
-	Path       string            `json:"path"`        // e.g. "/2/tweets"
-	Method     string            `json:"method"`      // GET/POST/...
-	Status     int               `json:"status"`      // defaults to 200
-	Headers    map[string]string `json:"headers"`     // optional response headers
-	Body       json.RawMessage   `json:"body"`        // canned response body
+	Host    string            `json:"host"`    // e.g. "api.twitter.com"
+	Path    string            `json:"path"`    // e.g. "/2/tweets"
+	Method  string            `json:"method"`  // GET/POST/...
+	Status  int               `json:"status"`  // defaults to 200
+	Headers map[string]string `json:"headers"` // optional response headers
+	Body    json.RawMessage   `json:"body"`    // canned response body
 }
 
 // InterceptedCall captures one proxy-handled request for the eval
@@ -61,10 +61,10 @@ type InterceptedCall struct {
 	Host      string    `json:"host"`
 	Path      string    `json:"path"`
 	Method    string    `json:"method"`
-	Mocked    bool      `json:"mocked"`     // true if a mock or cassette entry matched
-	Allowed   bool      `json:"allowed"`    // true if passed through (LLM, loopback)
-	Blocked   bool      `json:"blocked"`    // true if no allow/mock matched
-	Recorded  bool      `json:"recorded"`   // true if forwarded-and-captured into a cassette (WorldEdge record mode)
+	Mocked    bool      `json:"mocked"`   // true if a mock or cassette entry matched
+	Allowed   bool      `json:"allowed"`  // true if passed through (LLM, loopback)
+	Blocked   bool      `json:"blocked"`  // true if no allow/mock matched
+	Recorded  bool      `json:"recorded"` // true if forwarded-and-captured into a cassette (EnvironmentEdge record mode)
 	ReqBody   string    `json:"req_body,omitempty"`
 	RespBody  string    `json:"resp_body,omitempty"`
 	Status    int       `json:"status"`
@@ -91,9 +91,10 @@ type SandboxPolicy struct {
 var defaultAllowSuffixes = []string{
 	"127.0.0.1",
 	"localhost",
-	"opencode.ai",         // the workspace's LLM provider
+	"opencode.ai", // the workspace's LLM provider
 	"api.anthropic.com",
 	"api.openai.com",
+	"chatgpt.com", // OpenAI Codex subscription-backed Responses runtime
 }
 
 // sandboxProxy is the live intercept HTTP server. One per eval run.
@@ -186,7 +187,7 @@ func (p *sandboxProxy) handle(w http.ResponseWriter, r *http.Request) {
 
 	rec := InterceptedCall{
 		Host: host, Path: path, Method: method,
-		ReqBody: truncate(string(bodyBytes), 1000),
+		ReqBody:   truncate(string(bodyBytes), 1000),
 		Timestamp: time.Now(),
 	}
 
@@ -387,20 +388,20 @@ func (p *sandboxProxy) ProxyURL() string {
 // wired into the agent core's mcp_servers config so the agent can
 // discover its tools naturally.
 type SandboxApp struct {
-	Name        string // matches the app's manifest.name
-	BinaryPath  string // override; otherwise the runner searches conventional paths
-	Migrations  string // override; otherwise the runner derives from BinaryPath
-	GatewayURL  string // optional override for APTEVA_GATEWAY_URL
-	ExtraEnv    map[string]string
+	Name       string // matches the app's manifest.name
+	BinaryPath string // override; otherwise the runner searches conventional paths
+	Migrations string // override; otherwise the runner derives from BinaryPath
+	GatewayURL string // optional override for APTEVA_GATEWAY_URL
+	ExtraEnv   map[string]string
 	// DataDir, when set, is used as the sidecar's data directory instead
 	// of a fresh os.MkdirTemp. Used by snapshot restore to seed a
 	// pre-populated SQLite DB into the sidecar before it boots, so a
-	// World can start from a captured state rather than empty.
+	// Environment can start from a captured state rather than empty.
 	DataDir string
-	// WorldID, when set, is exported as APTEVA_WORLD_ID so the SDK forwards
-	// X-Apteva-World-Id on platform callbacks → per-world integration
-	// interception routing (see worldInterceptors in connections.go).
-	WorldID string
+	// EnvironmentID, when set, is exported as APTEVA_ENVIRONMENT_ID so the SDK forwards
+	// X-Apteva-Environment-Id on platform callbacks → per-environment integration
+	// interception routing (see environmentInterceptors in connections.go).
+	EnvironmentID string
 }
 
 // SandboxAppInstance is the live result of spawning one app: enough
@@ -479,8 +480,8 @@ func SpawnSandboxedApp(spec SandboxApp, proxyURL, gatewayURL string, healthBudge
 	if spec.Migrations != "" {
 		env = append(env, "APTEVA_MIGRATIONS_DIR="+spec.Migrations)
 	}
-	if spec.WorldID != "" {
-		env = append(env, "APTEVA_WORLD_ID="+spec.WorldID)
+	if spec.EnvironmentID != "" {
+		env = append(env, "APTEVA_ENVIRONMENT_ID="+spec.EnvironmentID)
 	}
 	for k, v := range spec.ExtraEnv {
 		env = append(env, k+"="+v)
@@ -541,4 +542,3 @@ func allocFreePort() (int, error) {
 	l.Close()
 	return port, nil
 }
-

@@ -24,15 +24,15 @@ import (
 // (catalog skill ∪ orphan journal record). The dashboard renders
 // these as cards with a status badge.
 type instanceSkillView struct {
-	SkillID     int64     `json:"skill_id"`     // 0 for orphaned journal entries
+	SkillID     int64     `json:"skill_id"` // 0 for orphaned journal entries
 	Slug        string    `json:"slug"`
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
-	Source      string    `json:"source"`       // app | user | builtin | "" for orphan
+	Source      string    `json:"source"` // app | user | builtin | "" for orphan
 	AppName     string    `json:"app_name,omitempty"`
-	MemoryID    string    `json:"memory_id,omitempty"`  // present when status != missing
+	MemoryID    string    `json:"memory_id,omitempty"` // present when status != missing
 	PushedAt    time.Time `json:"pushed_at,omitempty"`
-	Status      string    `json:"status"`       // synced | stale | missing | orphaned
+	Status      string    `json:"status"` // synced | stale | missing | orphaned
 }
 
 // handleInstanceSkills dispatches GET /skills, POST /skills/:id, DELETE /skills/:id.
@@ -116,10 +116,10 @@ func (s *Server) handleListInstanceSkills(w http.ResponseWriter, r *http.Request
 // journal (keyed by slug), produces the instanceSkillView slice with
 // per-skill status:
 //
-//   synced   — record present, hash tag matches current body hash
-//   stale    — record present, hash differs (catalog body changed)
-//   missing  — catalog row exists, no record on agent
-//   orphaned — record on agent, no matching catalog row
+//	synced   — record present, hash tag matches current body hash
+//	stale    — record present, hash differs (catalog body changed)
+//	missing  — catalog row exists, no record on agent
+//	orphaned — record on agent, no matching catalog row
 func computeInstanceSkillView(cat []Skill, active map[string]journalRecord) []instanceSkillView {
 	out := make([]instanceSkillView, 0, len(cat))
 	seen := map[string]bool{}
@@ -217,7 +217,7 @@ func (s *Server) handleUnassignInstanceSkill(w http.ResponseWriter, r *http.Requ
 // ---- catalog queries (lookups skills_handlers.go doesn't already expose) ----
 
 // listProjectSkills returns every enabled skill visible to the project:
-// project-scoped rows (project_id == projectID) + globals (project_id == '').
+// project-scoped rows (project_id == projectID) + globals (project_id == ”).
 // Joined with apps for the AppName field.
 func (s *Server) listProjectSkills(projectID string) ([]Skill, error) {
 	rows, err := s.store.db.Query(`

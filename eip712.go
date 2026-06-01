@@ -59,7 +59,8 @@ type EIP712Field struct {
 }
 
 // typedDataDigest computes the EIP-712 digest:
-//   keccak256(0x1901 || domainSeparator || hashStruct(primaryType, msg))
+//
+//	keccak256(0x1901 || domainSeparator || hashStruct(primaryType, msg))
 //
 // `msg` is a generic map[string]any decoded from the request body at
 // the configured body_path. Numeric values may arrive as float64 (JSON
@@ -117,8 +118,8 @@ func typeHash(typeName string, types map[string][]EIP712Field) []byte {
 
 // encodeType emits the canonical type-definition string. Format:
 //
-//   PrimaryType(field1 type1,field2 type2,...)
-//   followed by every dependent struct's definition, sorted by name.
+//	PrimaryType(field1 type1,field2 type2,...)
+//	followed by every dependent struct's definition, sorted by name.
 //
 // Dependencies are gathered transitively; arrays of structs (Foo[])
 // count as depending on Foo.
@@ -299,11 +300,12 @@ func encodeValue(typeStr string, val any, types map[string][]EIP712Field) ([]byt
 // ─── Value coercion ─────────────────────────────────────────────────
 
 // padInteger encodes uint*/int* as 32-byte big-endian. Accepts:
-//   string  — decimal or 0x-hex
-//   float64 — must be exactly integral (JSON number path)
-//   int / int64 / uint64 — direct
-//   *big.Int — direct
-//   nil → 0
+//
+//	string  — decimal or 0x-hex
+//	float64 — must be exactly integral (JSON number path)
+//	int / int64 / uint64 — direct
+//	*big.Int — direct
+//	nil → 0
 func padInteger(v any, typeStr string) ([]byte, error) {
 	signed := strings.HasPrefix(typeStr, "int")
 	n := new(big.Int)

@@ -277,4 +277,3 @@ func (s *Server) handleEmailWebhook(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	writeJSON(w, map[string]string{"status": "ok"})
 }
-

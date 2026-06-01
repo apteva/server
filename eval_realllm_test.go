@@ -142,6 +142,14 @@ func findCoreBinary(t *testing.T) string {
 // caller should run evals against. Cleans up listeners, DB,
 // and tmp dirs via t.Cleanup.
 func setupRealServer(t *testing.T, apiKey, corePath, agentName, agentDirective string) (*Server, int64, *Agent) {
+	providerData := map[string]any{
+		"OPENCODE_GO_API_KEY": apiKey,
+		"model_large":         "kimi-k2.6",
+	}
+	return setupRealServerWithProviderState(t, corePath, agentName, agentDirective, 0, "opencode-go", "OpenCode Go", providerData)
+}
+
+func setupRealServerWithProviderState(t *testing.T, corePath, agentName, agentDirective string, providerTypeID int64, providerType, providerName string, providerData map[string]any) (*Server, int64, *Agent) {
 	t.Helper()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -170,29 +178,41 @@ func setupRealServer(t *testing.T, apiKey, corePath, agentName, agentDirective s
 		agents:         NewAgentManager(filepath.Join(dataDir, "agents"), corePath),
 		broadcaster:    NewTelemetryBroadcaster(),
 		instanceSecret: "real-llm-test-secret",
-		// World wiring so real-LLM tests can run evals in a World too
-		// (UseWorld). Harmless for the mock-gateway tests — unused unless
-		// a World is created. Stable appcache (outside t.TempDir) so the
-		// read-only Go module cache doesn't break TempDir cleanup.
-		localApps:     NewLocalSupervisor(filepath.Join(os.TempDir(), "apteva-world-test-appcache")),
+		// Environment wiring so real-LLM tests can run evals in a Environment too
+		// (UseEnvironment). Harmless for the mock-gateway tests — unused unless
+		// a Environment is created. Use a fresh appcache per run: Go module caches
+		// contain read-only extracted modules, and reusing a stale cache can
+		// make app builds fail before the agent even starts.
+		localApps:     NewLocalSupervisor(filepath.Join(os.TempDir(), fmt.Sprintf("apteva-environment-test-appcache-%d", time.Now().UnixNano()))),
 		installedApps: NewInstalledAppsRegistry(),
+		appBus:        NewAppEventBus(),
 		catalog:       NewAppCatalog(),
-		worlds:        NewWorldManager(filepath.Join(dataDir, "worlds")),
+		environments:  NewEnvironmentManager(environmentDataRoot(dataDir)),
 	}
-	s.worlds.server = s
+	s.environments.server = s
+	s.appEventDispatcher = NewAppEventDispatcher(s)
+	s.appEventDispatcher.Start()
 
 	// Routes the spawned core(s) call back to. eval-mock-gateway for the
-	// classic path; world-app-gateway (token-brokered app access) +
-	// world-mcp for the World path. Path is sans /api prefix (production
+	// classic path; environment-app-gateway (token-brokered app access) +
+	// environment-mcp for the Environment path. Path is sans /api prefix (production
 	// wraps apiMux in http.StripPrefix("/api")), mirrored here.
 	apiMux := http.NewServeMux()
 	apiMux.HandleFunc("/eval-mock-gateway/", s.handleEvalMockGateway)
-	apiMux.HandleFunc("/world-app-gateway/", s.handleWorldAppGateway)
-	apiMux.HandleFunc("/world-mcp", s.handleWorldMCP)
+	apiMux.HandleFunc("/environment-app-gateway/", s.handleEnvironmentAppGateway)
+	apiMux.HandleFunc("/environment-mcp", s.handleEnvironmentMCP)
+	apiMux.HandleFunc("/app-events/internal/emit", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		s.handleAppEventEmit(w, r)
+	}))
+	apiMux.HandleFunc("/app-events/", s.authMiddleware(s.handleAppEventStream))
 	mux := http.NewServeMux()
 	mux.Handle("/api/", http.StripPrefix("/api", apiMux))
 	// /mcp/<connID> — the integration connection MCP endpoint (top-level in
-	// production, main.go), reached by agents (incl. in-world agents) for
+	// production, main.go), reached by agents (incl. in-environment agents) for
 	// direct integration tools like Pushover.
 	mux.HandleFunc("/mcp/", s.handleMCPEndpoint)
 	httpServer := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
@@ -208,23 +228,15 @@ func setupRealServer(t *testing.T, apiKey, corePath, agentName, agentDirective s
 		t.Fatalf("create user: %v", err)
 	}
 
-	// Encrypt + persist the OpenCode Go provider. Two keys land in
-	// the encrypted blob:
-	//   OPENCODE_GO_API_KEY — injected as env var via
-	//     GetAllProviderEnvVars (isEnvVar is true → spawned core sees
-	//     it, providers.go:262).
-	//   model_large — used by GetProviderPool to set the default
-	//     model in config.json (kimi-k2.6 is OpenCode Go's flagship).
-	providerData := map[string]string{
-		"OPENCODE_GO_API_KEY": apiKey,
-		"model_large":         "kimi-k2.6",
-	}
+	// Encrypt + persist the requested LLM provider. This mirrors what the
+	// dashboard writes in Settings → Providers, so spawned cores pick up
+	// provider env/config through the normal Store read path.
 	plaintext, _ := json.Marshal(providerData)
 	enc, err := Encrypt(secret, string(plaintext))
 	if err != nil {
 		t.Fatalf("encrypt provider: %v", err)
 	}
-	if _, err := store.CreateProvider(user.ID, 0, "opencode-go", "OpenCode Go", enc); err != nil {
+	if _, err := store.CreateProvider(user.ID, providerTypeID, providerType, providerName, enc); err != nil {
 		t.Fatalf("create provider: %v", err)
 	}
 

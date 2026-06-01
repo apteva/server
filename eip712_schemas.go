@@ -30,8 +30,8 @@ import (
 var (
 	schemasMu sync.RWMutex
 	schemas   = map[string]TypedDataSchema{
-		"polymarket_order_v1":          polymarketOrderSchemaV1(),
-		"polymarket_order_negrisk_v1":  polymarketNegRiskOrderSchemaV1(),
+		"polymarket_order_v1":         polymarketOrderSchemaV1(),
+		"polymarket_order_negrisk_v1": polymarketNegRiskOrderSchemaV1(),
 	}
 )
 
@@ -56,7 +56,9 @@ func getTypedDataSchema(name string) (TypedDataSchema, error) {
 // polymarketNegRiskOrderSchemaV1.
 //
 // Contract addresses come from Polymarket's published constants:
-//   https://docs.polymarket.com/developers/CLOB/orders/orders
+//
+//	https://docs.polymarket.com/developers/CLOB/orders/orders
+//
 // Domain values must match the contract's EIP712Domain exactly; any
 // drift produces a different domain separator and rejected signatures.
 func polymarketOrderSchemaV1() TypedDataSchema {

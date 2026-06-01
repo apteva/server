@@ -1463,7 +1463,7 @@ type jsonRPCNotification struct {
 // do not run a subprocess, we only verify the endpoint is reachable and cache
 // its tool list.
 //
-// Compatibility notes for real-world MCP servers (observed against Composio):
+// Compatibility notes for real-environment MCP servers (observed against Composio):
 //   - Some servers return SSE-framed responses (`Content-Type: text/event-stream`
 //     with `event: message\ndata: {...}\n\n` bodies) even for POSTs. We parse
 //     both plain JSON and SSE frames.

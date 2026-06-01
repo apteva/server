@@ -94,11 +94,11 @@ type ComposioToolkitDetails struct {
 	Slug                       string              `json:"slug"`
 	Name                       string              `json:"name"`
 	ComposioManagedAuthSchemes []string            `json:"composio_managed_auth_schemes"`
-	AuthMode                   string              `json:"auth_mode"`              // lowercased
-	AuthModeDisplay            string              `json:"auth_mode_display"`      // human readable
+	AuthMode                   string              `json:"auth_mode"`         // lowercased
+	AuthModeDisplay            string              `json:"auth_mode_display"` // human readable
 	AuthGuideURL               string              `json:"auth_guide_url,omitempty"`
-	ConfigFields               []ComposioCredField `json:"config_fields"`          // for auth_configs create
-	InitFields                 []ComposioCredField `json:"init_fields"`            // for per-connection init
+	ConfigFields               []ComposioCredField `json:"config_fields"` // for auth_configs create
+	InitFields                 []ComposioCredField `json:"init_fields"`   // for per-connection init
 	IsComposioManaged          bool                `json:"is_composio_managed"`
 }
 
@@ -538,10 +538,10 @@ func (c *ComposioClient) FindMCPServerByName(name string) (*ComposioMCPServer, e
 // NOT idempotent — it returns HTTP 400 / code 1151 when a server with the
 // same name already exists. This method makes it idempotent from the
 // caller's perspective:
-//   1. POST /api/v3/mcp/servers/custom
-//   2. If the error is a duplicate-name error, look up the existing server
-//      by name via FindMCPServerByName and return it.
-//   3. Any other error propagates.
+//  1. POST /api/v3/mcp/servers/custom
+//  2. If the error is a duplicate-name error, look up the existing server
+//     by name via FindMCPServerByName and return it.
+//  3. Any other error propagates.
 //
 // The optional `actions` list scopes the hosted MCP endpoint to specific
 // action ids; nil/empty exposes every tool from every toolkit in the
@@ -660,8 +660,8 @@ func (c *ComposioClient) GenerateMCPURL(serverID, userID string) (string, error)
 		"user_ids":                 []string{userID},
 	}
 	var resp struct {
-		MCPURL      string   `json:"mcp_url"`
-		UserIDsURL  []string `json:"user_ids_url"`
+		MCPURL     string   `json:"mcp_url"`
+		UserIDsURL []string `json:"user_ids_url"`
 	}
 	if err := c.do("POST", "/api/v3/mcp/servers/generate", body, &resp); err != nil {
 		return "", err
@@ -836,11 +836,11 @@ func (c *ComposioClient) ListTriggerTypes(toolkitSlug string) ([]ComposioTrigger
 		}
 		var resp struct {
 			Items []struct {
-				Slug         string                 `json:"slug"`
-				Name         string                 `json:"name"`
-				Description  string                 `json:"description"`
-				Instructions string                 `json:"instructions"`
-				Type         string                 `json:"type"`
+				Slug         string `json:"slug"`
+				Name         string `json:"name"`
+				Description  string `json:"description"`
+				Instructions string `json:"instructions"`
+				Type         string `json:"type"`
 				Toolkit      struct {
 					Slug string `json:"slug"`
 				} `json:"toolkit"`

@@ -83,7 +83,7 @@ func BumpBootAttempts() int {
 // local listener and, once it's been 200 for `healthyDuration` of
 // continuous uptime, writes last-good-version and zeros boot-
 // attempts. We poll instead of marking immediately because a real-
-// world bad release can boot, accept a request or two, then segv —
+// environment bad release can boot, accept a request or two, then segv —
 // we want last-good to stick only AFTER the binary's demonstrably
 // stable.
 func ScheduleHealthyMark(port string, version string) {

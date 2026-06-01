@@ -11,8 +11,8 @@ import (
 )
 
 // proxiedClient returns an http.Client that routes everything through the
-// given WorldEdge, exactly as an in-world sidecar would via HTTP_PROXY.
-func proxiedClient(t *testing.T, edge *WorldEdge) *http.Client {
+// given EnvironmentEdge, exactly as an in-environment sidecar would via HTTP_PROXY.
+func proxiedClient(t *testing.T, edge *EnvironmentEdge) *http.Client {
 	t.Helper()
 	pu, err := url.Parse(edge.ProxyURL())
 	if err != nil {
@@ -61,8 +61,8 @@ func TestCassetteRoundTrip(t *testing.T) {
 	}
 }
 
-func TestWorldEdgeMockAndBlock(t *testing.T) {
-	edge, err := startWorldEdge(SandboxPolicy{
+func TestEnvironmentEdgeMockAndBlock(t *testing.T) {
+	edge, err := startEnvironmentEdge(SandboxPolicy{
 		Mocks: []HTTPMock{{
 			Host:   "api.example.com",
 			Path:   "/v1/things",
@@ -111,11 +111,11 @@ func TestWorldEdgeMockAndBlock(t *testing.T) {
 	}
 }
 
-func TestWorldEdgeReplay(t *testing.T) {
+func TestEnvironmentEdgeReplay(t *testing.T) {
 	c := newCassette()
 	c.put("GET", "api.example.com", "/v1/replayme", nil, 200, map[string]string{"Content-Type": "application/json"}, []byte(`{"replayed":true}`))
 
-	edge, err := startWorldEdge(SandboxPolicy{}, EdgeReplay, c)
+	edge, err := startEnvironmentEdge(SandboxPolicy{}, EdgeReplay, c)
 	if err != nil {
 		t.Fatalf("start edge: %v", err)
 	}

@@ -30,6 +30,9 @@ func TestSubscriptionCRUD(t *testing.T) {
 	if sub.WebhookPath != "webhook-abc" {
 		t.Errorf("expected webhook-abc, got %s", sub.WebhookPath)
 	}
+	if sub.NotifyAgent {
+		t.Error("expected agent notifications off by default")
+	}
 
 	// List
 	subs, err := s.store.ListSubscriptions(1)
@@ -68,6 +71,28 @@ func TestSubscriptionCRUD(t *testing.T) {
 	subs4, _ := s.store.ListSubscriptions(1)
 	if len(subs4) != 0 {
 		t.Errorf("expected 0 after delete, got %d", len(subs4))
+	}
+
+	notifying, err := s.store.CreateSubscription(1, 1, 0, "Notify", "notify", "", "webhook-notify", "", "", "", nil, true)
+	if err != nil {
+		t.Fatalf("CreateSubscription notify_agent: %v", err)
+	}
+	fetched, err := s.store.GetSubscription(1, notifying.ID)
+	if err != nil {
+		t.Fatalf("GetSubscription notify_agent: %v", err)
+	}
+	if !fetched.NotifyAgent {
+		t.Error("expected agent notifications on when requested")
+	}
+	if err := s.store.SetSubscriptionNotifyAgent(1, notifying.ID, false); err != nil {
+		t.Fatalf("SetSubscriptionNotifyAgent: %v", err)
+	}
+	fetched, err = s.store.GetSubscription(1, notifying.ID)
+	if err != nil {
+		t.Fatalf("GetSubscription notify_agent off: %v", err)
+	}
+	if fetched.NotifyAgent {
+		t.Error("expected agent notifications off after update")
 	}
 }
 

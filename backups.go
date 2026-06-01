@@ -274,15 +274,15 @@ const (
 )
 
 type restoreInstallReport struct {
-	InstallID  int64  `json:"install_id"`
+	InstallID   int64  `json:"install_id"`
 	ArchivePath string `json:"archive_path"`
-	Status     string `json:"status"` // "applied" | "skipped" | "error"
-	Note       string `json:"note,omitempty"`
+	Status      string `json:"status"` // "applied" | "skipped" | "error"
+	Note        string `json:"note,omitempty"`
 }
 
 type restoreReport struct {
 	FormatVersion   int                    `json:"format_version_seen"`
-	ServerDB        string                 `json:"server_db"`        // "staged" | "skipped"
+	ServerDB        string                 `json:"server_db"` // "staged" | "skipped"
 	RestartRequired bool                   `json:"restart_required"`
 	Installs        []restoreInstallReport `json:"installs"`
 }

@@ -168,8 +168,8 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppT
 	case "initialize":
 		result = map[string]any{
 			"protocolVersion": "2025-03-26",
-			"capabilities":   map[string]any{"tools": map[string]any{}},
-			"serverInfo":     map[string]string{"name": app.Slug + "-mcp", "version": "1.0.0"},
+			"capabilities":    map[string]any{"tools": map[string]any{}},
+			"serverInfo":      map[string]string{"name": app.Slug + "-mcp", "version": "1.0.0"},
 		}
 		// Set session ID header per spec
 		sessionID := generateID()
@@ -255,15 +255,21 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppT
 				}
 				return s.store.UpdateConnectionCredentials(persistTargetID, enc)
 			}
-			// World routing: an in-world agent tags its connection MCP URL
-			// with ?world_id (see SpawnAgentInWorld); in-world sidecars send
-			// the X-Apteva-World-Id header. Either makes the executor mock
+			// Environment routing: an in-environment agent tags its connection MCP URL
+			// with ?environment_id or legacy ?environment_id; sidecars send
+			// X-Apteva-Environment-Id. Either makes the executor mock
 			// the call instead of hitting the real API. Empty in production.
-			worldID := r.URL.Query().Get("world_id")
-			if worldID == "" {
-				worldID = r.Header.Get("X-Apteva-World-Id")
+			environmentID := r.URL.Query().Get("environment_id")
+			if environmentID == "" {
+				environmentID = r.URL.Query().Get("environment_id")
 			}
-			execResult, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, worldID, persist)
+			if environmentID == "" {
+				environmentID = r.Header.Get("X-Apteva-Environment-Id")
+			}
+			if environmentID == "" {
+				environmentID = r.Header.Get("X-Apteva-Environment-Id")
+			}
+			execResult, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
 			if err != nil {
 				result = map[string]any{
 					"content": []map[string]any{{"type": "text", "text": fmt.Sprintf("error: %v", err)}},

@@ -170,13 +170,13 @@ func newStaticAppFileHandler(s *Server, e *InstalledApp) http.Handler {
 	// changes when the operator installs / uninstalls another app)
 	// gets layered in per-request below.
 	stableInjection := map[string]any{
-		"base":             mountPath,
-		"api_base":         "/api",
-		"app_name":         e.AppName,
-		"install_id":       e.InstallID,
-		"default_project":  cfg["default_project"],
-		"kiosk_api_key":    cfg["kiosk_api_key"],
-		"branding":         branding,
+		"base":            mountPath,
+		"api_base":        "/api",
+		"app_name":        e.AppName,
+		"install_id":      e.InstallID,
+		"default_project": cfg["default_project"],
+		"kiosk_api_key":   cfg["kiosk_api_key"],
+		"branding":        branding,
 	}
 
 	fileServer := http.FileServer(http.Dir(root))

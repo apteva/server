@@ -295,11 +295,11 @@ func (s *Server) handleChannelList(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
 	type channelInfo struct {
-		ID         int64  `json:"id"`
+		ID      int64  `json:"id"`
 		AgentID int64  `json:"instance_id"`
-		Type       string `json:"type"`
-		Name       string `json:"name"`
-		Status     string `json:"status"`
+		Type    string `json:"type"`
+		Name    string `json:"name"`
+		Status  string `json:"status"`
 	}
 
 	// By instance
@@ -360,8 +360,9 @@ func (s *Server) handleChannelList(w http.ResponseWriter, r *http.Request) {
 // POST /api/channels/connect
 // POST /api/channels/connect
 // Body: {"instance_id": 5, "type": "telegram", "token": "..."}
-//   or: {"instance_id": 5, "type": "slack", "channel_id": "C123", "channel_name": "ops"}
-//   or: {"instance_id": 5, "type": "email"}
+//
+//	or: {"instance_id": 5, "type": "slack", "channel_id": "C123", "channel_name": "ops"}
+//	or: {"instance_id": 5, "type": "email"}
 func (s *Server) handleChannelConnect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -370,12 +371,12 @@ func (s *Server) handleChannelConnect(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
 
 	var body struct {
-		AgentID     int64  `json:"agent_id"`     // Phase 2 canonical
-		InstanceID  int64  `json:"instance_id"`  // legacy alias
+		AgentID     int64  `json:"agent_id"`    // Phase 2 canonical
+		InstanceID  int64  `json:"instance_id"` // legacy alias
 		Type        string `json:"type"`
 		Token       string `json:"token"`        // telegram
-		ChannelID   string `json:"channel_id"`    // slack
-		ChannelName string `json:"channel_name"`  // slack
+		ChannelID   string `json:"channel_id"`   // slack
+		ChannelName string `json:"channel_name"` // slack
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)

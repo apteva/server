@@ -53,11 +53,11 @@ import (
 // stable — the dashboard renders the summary inline so the operator
 // can see what actually moved.
 type scopeChangeResult struct {
-	InstallID            int64  `json:"install_id"`
-	OldProjectID         string `json:"old_project_id"`
-	NewProjectID         string `json:"new_project_id"`
-	ConnectionsMigrated  int    `json:"connections_migrated"`
-	SidecarRestarted     bool   `json:"sidecar_restarted"`
+	InstallID           int64  `json:"install_id"`
+	OldProjectID        string `json:"old_project_id"`
+	NewProjectID        string `json:"new_project_id"`
+	ConnectionsMigrated int    `json:"connections_migrated"`
+	SidecarRestarted    bool   `json:"sidecar_restarted"`
 }
 
 func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
@@ -86,10 +86,10 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 	// scope list to validate the move + the app_id for the UNIQUE
 	// collision check.
 	var (
-		appID         int64
-		oldProjectID  string
-		manifestJSON  string
-		appName       string
+		appID        int64
+		oldProjectID string
+		manifestJSON string
+		appName      string
 	)
 	err = s.store.db.QueryRow(
 		`SELECT i.app_id, COALESCE(i.project_id,''), a.manifest_json, a.name

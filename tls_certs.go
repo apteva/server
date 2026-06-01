@@ -146,10 +146,10 @@ func (c *CertCache) fetchMaterial(fqdn string) (*tls.Certificate, error) {
 		return nil, errors.New("cert_material: empty envelope")
 	}
 	var payload struct {
-		Found    bool   `json:"found"`
-		FQDN     string `json:"fqdn"`
-		CertPEM  string `json:"cert_pem"`
-		KeyPEM   string `json:"key_pem"`
+		Found   bool   `json:"found"`
+		FQDN    string `json:"fqdn"`
+		CertPEM string `json:"cert_pem"`
+		KeyPEM  string `json:"key_pem"`
 	}
 	if err := json.Unmarshal([]byte(env.Result.Content[0].Text), &payload); err != nil {
 		return nil, fmt.Errorf("cert_material: decode: %w", err)

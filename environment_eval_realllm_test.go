@@ -8,27 +8,28 @@ import (
 	"time"
 )
 
-// TestEval_InWorld_RealLLM_Storage is the real end-to-end proof: an eval runs
-// the agent IN a World, using the real stuff —
+// TestEval_InEnvironment_RealLLM_Storage is the real end-to-end proof: an eval runs
+// the agent IN a Environment, using the real stuff —
 //   - the REAL apteva-core binary spawns the agent (and the judge),
-//   - the REAL storage app is built from local source + installed in the world,
-//   - the agent reaches it through the world-app gateway (token brokered),
+//   - the REAL storage app is built from local source + installed in the environment,
+//   - the agent reaches it through the environment-app gateway (token brokered),
 //   - the REAL LLM (OpenCode) drives the agent,
 //   - the REAL meta-agent judges the trajectory against plain-English goals.
 //
 // Gated: skips without the OpenCode key (env or ../core/.env), the core
 // binary, or the storage source. Run:
-//   go test -run TestEval_InWorld_RealLLM_Storage -v -timeout 600s
-func TestEval_InWorld_RealLLM_Storage(t *testing.T) {
-	apiKey := loadOpenCodeGoKey(t) // skips if no key
-	corePath := findCoreBinary(t)  // skips if core binary absent
+//
+//	go test -run TestEval_InEnvironment_RealLLM_Storage -v -timeout 600s
+func TestEval_InEnvironment_RealLLM_Storage(t *testing.T) {
+	apiKey := loadOpenCodeGoKey(t)  // skips if no key
+	corePath := findCoreBinary(t)   // skips if core binary absent
 	_ = findAppSource(t, "storage") // skips if storage source absent
 
 	directive := "You manage files using the storage app. When asked to save text to a file, " +
 		"call the storage upload tool with the file name and the content encoded as base64, " +
 		"then reply confirming the file was saved."
 	s, userID, agent := setupRealServer(t, apiKey, corePath, "files-agent", directive)
-	// Stop EVERY spawned core (under-test agent, world agent, meta-agent) so a
+	// Stop EVERY spawned core (under-test agent, environment agent, meta-agent) so a
 	// lingering child's stdio pipe doesn't hang `go test` after the run.
 	t.Cleanup(func() { s.agents.StopAll(3 * time.Second) })
 
@@ -37,7 +38,7 @@ func TestEval_InWorld_RealLLM_Storage(t *testing.T) {
 		t.Fatalf("prewarm meta-agent: %v", err)
 	}
 
-	// Bind storage to the agent → the World derives + installs it from source.
+	// Bind storage to the agent → the Environment derives + installs it from source.
 	res, err := s.store.db.Exec(`INSERT INTO apps (name, source, repo, ref, manifest_json) VALUES ('storage','local','','','{}')`)
 	if err != nil {
 		t.Fatalf("seed app: %v", err)
@@ -71,9 +72,9 @@ func TestEval_InWorld_RealLLM_Storage(t *testing.T) {
 	// RUN IT IN A WORLD.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	run, err := s.runEval(ctx, userID, agent, ev, RunOptions{UseWorld: true})
+	run, err := s.runEval(ctx, userID, agent, ev, RunOptions{UseEnvironment: true})
 	if err != nil {
-		t.Fatalf("runEval(UseWorld): %v", err)
+		t.Fatalf("runEval(UseEnvironment): %v", err)
 	}
 
 	t.Logf("status=%s turns=%d", run.Status, run.TurnsUsed)
@@ -92,11 +93,11 @@ func TestEval_InWorld_RealLLM_Storage(t *testing.T) {
 	if run.Status == "error" {
 		t.Fatalf("eval errored (infra, not agent behavior): %s", run.ErrorMessage)
 	}
-	// Proof the agent ran IN the world against the REAL storage app: an actual
+	// Proof the agent ran IN the environment against the REAL storage app: an actual
 	// storage TOOL CALL in the trajectory (only possible if the agent reached
-	// the in-world storage sidecar via the token-brokering world-app gateway).
+	// the in-environment storage sidecar via the token-brokering environment-app gateway).
 	// Check the ToolCall records specifically — not the whole trajectory JSON,
-	// which would also match our own "in-world apps: [storage]" system note.
+	// which would also match our own "in-environment apps: [storage]" system note.
 	calledStorage := false
 	for _, turn := range run.Trajectory.Turns {
 		if turn.ToolCall == nil {
@@ -109,8 +110,8 @@ func TestEval_InWorld_RealLLM_Storage(t *testing.T) {
 	}
 	if !calledStorage {
 		trajJSON, _ := json.Marshal(run.Trajectory)
-		t.Fatalf("agent never called a storage tool in the world.\nTrajectory: %s", trajJSON)
+		t.Fatalf("agent never called a storage tool in the environment.\nTrajectory: %s", trajJSON)
 	}
-	t.Logf("✓ real core ran the agent IN a derived World and called the REAL storage app via the world-app gateway; meta-agent judged (overall=%s)",
+	t.Logf("✓ real core ran the agent IN a derived Environment and called the REAL storage app via the environment-app gateway; meta-agent judged (overall=%s)",
 		run.Status)
 }

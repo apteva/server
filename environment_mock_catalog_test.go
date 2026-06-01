@@ -7,9 +7,9 @@ import (
 
 // TestCatalogMockResponses_Parse asserts the curated mock_response shapes ship
 // in the embedded catalog and parse into AppToolDef.MockResponse for the
-// common integrations an agent reaches in a World. These are what
+// common integrations an agent reaches in a Environment. These are what
 // executeIntegrationTool serves (instead of hitting the real API) when an
-// agent runs inside a World — so they must load and be valid JSON objects.
+// agent runs inside a Environment — so they must load and be valid JSON objects.
 //
 // Not gated: pure catalog parse, no core/LLM.
 func TestCatalogMockResponses_Parse(t *testing.T) {

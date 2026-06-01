@@ -387,10 +387,10 @@ type AppToolDef struct {
 	ResponsePath *string  `json:"response_path,omitempty"`
 
 	// MockResponse is the curated, real-shaped reply returned for this tool
-	// when it runs inside a test World and no per-world fixture/cassette
+	// when it runs inside a test Environment and no per-environment fixture/cassette
 	// matches — so the agent gets a faithful response and the real API is
 	// never hit. Shipped in the catalog JSON (`mock_response`). Consumed by
-	// the world branch of executeIntegrationTool.
+	// the environment branch of executeIntegrationTool.
 	MockResponse json.RawMessage `json:"mock_response,omitempty"`
 
 	// ResponseOmit declares JSON paths in the tool's response that

@@ -53,7 +53,7 @@ type platformComponentStatus struct {
 
 type platformStatusView struct {
 	PolledAt        time.Time                 `json:"polled_at"`
-	BundleVersion   string                    `json:"bundle_version,omitempty"`     // version of the published tarball
+	BundleVersion   string                    `json:"bundle_version,omitempty"` // version of the published tarball
 	ReleaseNotesURL string                    `json:"release_notes_url,omitempty"`
 	Components      []platformComponentStatus `json:"components"`
 	UpdateAvailable bool                      `json:"update_available"` // true if any component says so
@@ -165,9 +165,9 @@ func (p *platformStatusPoller) poll() {
 	// component list reads naturally for dashboard consumers.
 	current := versionInfo()
 	pairs := []struct {
-		display       string // what the dashboard shows
-		manifestKey   string // key in the published manifest
-		localKey      string // key in versionInfo()
+		display     string // what the dashboard shows
+		manifestKey string // key in the published manifest
+		localKey    string // key in versionInfo()
 	}{
 		{"apteva", "apteva", "cli"},
 		{"apteva-server", "apteva-server", "apteva"},

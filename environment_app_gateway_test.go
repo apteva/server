@@ -9,25 +9,25 @@ import (
 	"time"
 )
 
-// TestWorldAppGateway_BrokersToken (gated) proves an agent core can reach a
-// token-protected in-world app: we call the gateway with NO Authorization;
+// TestEnvironmentAppGateway_BrokersToken (gated) proves an agent core can reach a
+// token-protected in-environment app: we call the gateway with NO Authorization;
 // it must inject the install's dev token, so storage accepts the call and the
 // file lands. Without brokering, storage's /mcp would 401 and nothing writes.
-func TestWorldAppGateway_BrokersToken(t *testing.T) {
+func TestEnvironmentAppGateway_BrokersToken(t *testing.T) {
 	if testing.Short() {
-		t.Skip("real-app world test builds the storage sidecar")
+		t.Skip("real-app environment test builds the storage sidecar")
 	}
 	src := findAppSource(t, "storage")
-	s := newWorldTestServer(t)
+	s := newEnvironmentTestServer(t)
 
-	world, err := s.worlds.Create(WorldSpec{
+	environment, err := s.environments.Create(EnvironmentSpec{
 		ID: "gw-w", ProjectID: "gw-w", GatewayURL: s.localGatewayURL(),
 		AppSrcDirs: map[string]string{"storage": src}, Mode: EdgeBlock, HealthBudget: 120 * time.Second,
 	})
 	if err != nil {
-		t.Fatalf("create world: %v", err)
+		t.Fatalf("create environment: %v", err)
 	}
-	defer world.Stop()
+	defer environment.Stop()
 
 	body, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -40,9 +40,9 @@ func TestWorldAppGateway_BrokersToken(t *testing.T) {
 		},
 	})
 	// No Authorization header — the gateway must add it.
-	r := httptest.NewRequest("POST", "/world-app-gateway/gw-w/storage/mcp", bytes.NewReader(body))
+	r := httptest.NewRequest("POST", "/environment-app-gateway/gw-w/storage/mcp", bytes.NewReader(body))
 	w := httptest.NewRecorder()
-	s.handleWorldAppGateway(w, r)
+	s.handleEnvironmentAppGateway(w, r)
 
 	if w.Code != 200 {
 		t.Fatalf("gateway returned %d: %s", w.Code, w.Body.String())
@@ -57,9 +57,9 @@ func TestWorldAppGateway_BrokersToken(t *testing.T) {
 		t.Fatalf("MCP error through gateway: %s", env.Error.Message)
 	}
 
-	dbPath, _ := world.AppDBPath("storage")
+	dbPath, _ := environment.AppDBPath("storage")
 	if n := countRows(t, dbPath, `SELECT COUNT(*) FROM files WHERE name='gw.txt' AND deleted_at IS NULL`); n != 1 {
 		t.Fatalf("expected 1 file written via brokered gateway, got %d", n)
 	}
-	t.Logf("✓ agent→in-world-app works: gateway injected the install token; storage wrote the file")
+	t.Logf("✓ agent→in-environment-app works: gateway injected the install token; storage wrote the file")
 }

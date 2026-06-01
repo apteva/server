@@ -290,10 +290,10 @@ func fetchGoogleModels(apiKey string) ([]ModelInfo, error) {
 	}
 	var resp struct {
 		Models []struct {
-			Name               string `json:"name"`
-			DisplayName        string `json:"displayName"`
-			InputTokenLimit    int    `json:"inputTokenLimit"`
-			SupportedMethods   []string `json:"supportedGenerationMethods"`
+			Name             string   `json:"name"`
+			DisplayName      string   `json:"displayName"`
+			InputTokenLimit  int      `json:"inputTokenLimit"`
+			SupportedMethods []string `json:"supportedGenerationMethods"`
 		} `json:"models"`
 	}
 	json.Unmarshal(data, &resp)
@@ -398,6 +398,7 @@ type modelPricing struct {
 //   - Fireworks:  https://fireworks.ai/pricing
 //   - Anthropic:  https://platform.claude.com/docs/en/about-claude/pricing
 //   - OpenAI:     https://openai.com/api/pricing/
+//
 // Bump the comment date when you refresh the table against the vendors.
 var modelPricingTable = map[string]modelPricing{
 	// Anthropic (https://platform.claude.com/docs/en/about-claude/pricing)

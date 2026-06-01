@@ -708,7 +708,11 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		}
 		return s.store.UpdateConnectionCredentials(persistTargetID, enc)
 	}
-	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, r.Header.Get("X-Apteva-World-Id"), persist)
+	environmentID := r.Header.Get("X-Apteva-Environment-Id")
+	if environmentID == "" {
+		environmentID = r.Header.Get("X-Apteva-Environment-Id")
+	}
+	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
 	if err != nil {
 		writeJSON(w, map[string]any{"success": false, "data": err.Error()})
 		return

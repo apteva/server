@@ -38,15 +38,15 @@ import (
 // InvitePayload is what gets signed into the token. Keep keys short — the
 // token ends up in the URL and we'd rather not waste bytes.
 type InvitePayload struct {
-	Op      int64  `json:"op"`             // operator user_id — the invite acts on their behalf
-	Proj    string `json:"proj,omitempty"` // project_id the connection lands in
-	App     string `json:"app"`            // app_slug (e.g. "gmail")
-	Src     string `json:"src"`            // "local" | "composio"
-	ConnID  int64  `json:"cid,omitempty"`  // if set, update an existing connection; else create new
-	ProvID  int64  `json:"pid,omitempty"`  // composio provider_id (for src=composio)
-	Tools   string `json:"tools,omitempty"`
-	Name    string `json:"name,omitempty"`
-	Exp     int64  `json:"exp"`
+	Op     int64  `json:"op"`             // operator user_id — the invite acts on their behalf
+	Proj   string `json:"proj,omitempty"` // project_id the connection lands in
+	App    string `json:"app"`            // app_slug (e.g. "gmail")
+	Src    string `json:"src"`            // "local" | "composio"
+	ConnID int64  `json:"cid,omitempty"`  // if set, update an existing connection; else create new
+	ProvID int64  `json:"pid,omitempty"`  // composio provider_id (for src=composio)
+	Tools  string `json:"tools,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Exp    int64  `json:"exp"`
 }
 
 // signInvite produces a `payload.sig` URL-safe token.
@@ -107,9 +107,9 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ProjectID    string `json:"project_id"`
 		AppSlug      string `json:"app_slug"`
-		Source       string `json:"source"`                   // "local" | "composio"
-		ConnectionID int64  `json:"connection_id"`            // optional — reauth an existing conn
-		ProviderID   int64  `json:"provider_id,omitempty"`    // composio
+		Source       string `json:"source"`                // "local" | "composio"
+		ConnectionID int64  `json:"connection_id"`         // optional — reauth an existing conn
+		ProviderID   int64  `json:"provider_id,omitempty"` // composio
 		Tools        string `json:"allowed_tools,omitempty"`
 		Name         string `json:"name,omitempty"`
 		TTLSeconds   int64  `json:"ttl_seconds,omitempty"`
@@ -226,11 +226,14 @@ func (s *Server) handlePublicInvite(w http.ResponseWriter, r *http.Request) {
 
 // POST /connect/:token/fulfill — client submits credentials (api_key flow)
 // or triggers the OAuth / Composio redirect. Body:
-//   { credentials?: {...}, name?: "..." }
+//
+//	{ credentials?: {...}, name?: "..." }
+//
 // Response:
-//   { status: "connected", connection_id }         // api_key path, new
-//   { status: "updated",   connection_id }         // api_key path, reauth
-//   { status: "redirect",  redirect_url }          // oauth2 / composio
+//
+//	{ status: "connected", connection_id }         // api_key path, new
+//	{ status: "updated",   connection_id }         // api_key path, reauth
+//	{ status: "redirect",  redirect_url }          // oauth2 / composio
 func (s *Server) handleFulfillInvite(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)

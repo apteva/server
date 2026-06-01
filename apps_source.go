@@ -207,7 +207,7 @@ func (sup *LocalSupervisor) buildAndSpawn(installID int64, m *sdk.Manifest, srcD
 }
 
 // BuildFromLocalSource compiles + spawns an app from a local working-copy
-// directory (no git clone) — used by World test installs so the developer's
+// directory (no git clone) — used by Environment test installs so the developer's
 // CURRENT code runs, not a published ref. entry defaults to the manifest's
 // source.entry (or "."). extraGoEnv lets the caller inject build env (e.g.
 // GOWORK pointing at a temp workspace so the local app-sdk overlay applies).

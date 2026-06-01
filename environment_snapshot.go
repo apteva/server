@@ -1,14 +1,14 @@
 package main
 
-// world_snapshot.go — snapshot/restore of World state.
+// environment_snapshot.go — snapshot/restore of Environment state.
 //
 // A snapshot is the reusable fixture an eval forks from (see the design:
-// "World snapshot : eval run :: test DB template : test case"). It freezes:
+// "Environment snapshot : eval run :: test DB template : test case"). It freezes:
 //   - an agent's full state: config.json + history/ + memory.jsonl
-//   - each in-world sidecar's SQLite data dir (real rows the apps wrote)
-//   - the world's cassette (recorded external responses)
+//   - each in-environment sidecar's SQLite data dir (real rows the apps wrote)
+//   - the environment's cassette (recorded external responses)
 //
-// Snapshots are plain filesystem artifacts under <dataDir>/worlds/snapshots/
+// Snapshots are plain filesystem artifacts under <dataDir>/environments/snapshots/
 // — no DB schema change. The directory layout IS the format:
 //
 //   <root>/<snapshotID>/
@@ -18,8 +18,8 @@ package main
 //     cassette.json          — the edge cassette (optional)
 //
 // Restore materialises those back into a fresh agent instance dir and fresh
-// per-app data dirs, which a new World's SpawnSandboxedApp consumes via
-// SandboxApp.DataDir — so the forked world starts byte-identical, the
+// per-app data dirs, which a new Environment's SpawnSandboxedApp consumes via
+// SandboxApp.DataDir — so the forked environment starts byte-identical, the
 // property that makes runs independent and repeatable.
 
 import (
@@ -46,9 +46,9 @@ type SnapshotStore struct {
 	root string
 }
 
-// NewSnapshotStore roots the store at <dataDir>/worlds/snapshots.
-func NewSnapshotStore(worldsDir string) *SnapshotStore {
-	root := filepath.Join(worldsDir, "snapshots")
+// NewSnapshotStore roots the store at <dataDir>/environments/snapshots.
+func NewSnapshotStore(environmentsDir string) *SnapshotStore {
+	root := filepath.Join(environmentsDir, "snapshots")
 	_ = os.MkdirAll(root, 0755)
 	return &SnapshotStore{root: root}
 }
@@ -162,7 +162,7 @@ func (ss *SnapshotStore) Cassette(id string) (*Cassette, error) {
 	return LoadCassette(p)
 }
 
-// Restore materialises a snapshot for a fresh World run. It copies each
+// Restore materialises a snapshot for a fresh Environment run. It copies each
 // app's captured data dir into a new temp dir and returns name→dir, ready
 // to feed into SandboxApp.DataDir. If agentInto is non-empty the agent
 // state is copied there too.
@@ -181,7 +181,7 @@ func (ss *SnapshotStore) Restore(id, agentInto string) (appDataDirs map[string]s
 
 	appDataDirs = make(map[string]string, len(man.Apps))
 	for _, name := range man.Apps {
-		dst, err := os.MkdirTemp("", "apteva-world-restore-"+name+"-")
+		dst, err := os.MkdirTemp("", "apteva-environment-restore-"+name+"-")
 		if err != nil {
 			return nil, err
 		}

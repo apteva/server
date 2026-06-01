@@ -173,9 +173,9 @@ func TestProviderUpdateMerge(t *testing.T) {
 	// Create provider with API key + model
 	origData := map[string]string{
 		"ANTHROPIC_API_KEY": "sk-ant-real-key-12345",
-		"model_large":      "claude-opus-4-6",
-		"model_medium":     "claude-sonnet-4-6",
-		"model_small":      "claude-haiku-4-5-20251001",
+		"model_large":       "claude-opus-4-6",
+		"model_medium":      "claude-sonnet-4-6",
+		"model_small":       "claude-haiku-4-5-20251001",
 	}
 	dataJSON, _ := json.Marshal(origData)
 	enc, _ := Encrypt(s.secret, string(dataJSON))

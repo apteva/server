@@ -39,7 +39,7 @@ import (
 type ConnectionTestResult struct {
 	OK         bool   `json:"ok"`
 	Skipped    bool   `json:"skipped,omitempty"`
-	Reason     string `json:"reason,omitempty"`      // why skipped (e.g. "no health_check in catalog")
+	Reason     string `json:"reason,omitempty"` // why skipped (e.g. "no health_check in catalog")
 	LatencyMS  int64  `json:"latency_ms"`
 	StatusCode int    `json:"status_code,omitempty"` // upstream HTTP status
 	Error      string `json:"error,omitempty"`       // human-readable failure message

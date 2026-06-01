@@ -39,7 +39,7 @@ func TestComposeSigners_EIP712ThenHMAC(t *testing.T) {
 			"side":          "0",
 			"signatureType": "0",
 		},
-		"owner":  "key-uuid",
+		"owner":     "key-uuid",
 		"orderType": "GTC",
 	})
 	req, _ := http.NewRequest("POST", "https://clob.polymarket.com/order", strings.NewReader(string(body)))

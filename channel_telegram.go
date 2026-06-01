@@ -13,9 +13,9 @@ import (
 
 // TelegramGateway manages the Telegram bot connection and per-chat channels.
 type TelegramGateway struct {
-	token    string
-	client   *http.Client
-	registry *ChannelRegistry
+	token     string
+	client    *http.Client
+	registry  *ChannelRegistry
 	sendEvent func(text, threadID string) // inject events into core
 
 	botName string

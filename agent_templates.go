@@ -27,22 +27,22 @@ import (
 // recommended_apps is stored as JSON in the DB and emitted as a flat
 // []string here so the dashboard doesn't have to parse it itself.
 type AgentTemplate struct {
-	ID              string    `json:"id"`
-	UserID          int64     `json:"user_id,omitempty"`
-	Source          string    `json:"source"`      // "builtin" | "app" | "user"
-	SourceRef       string    `json:"source_ref,omitempty"`
-	Name            string    `json:"name"`
+	ID        string `json:"id"`
+	UserID    int64  `json:"user_id,omitempty"`
+	Source    string `json:"source"` // "builtin" | "app" | "user"
+	SourceRef string `json:"source_ref,omitempty"`
+	Name      string `json:"name"`
 	// Icon is a short name (e.g. "user", "search", "code") that the
 	// dashboard resolves to a stroked SVG component. Keeps the wire
 	// payload tiny and the rendering consistent with the rest of
 	// the platform's lucide-style icon set — no emojis, no per-app
 	// PNG fetches at render time.
-	Icon            string    `json:"icon,omitempty"`
-	Description     string    `json:"description"`
-	Directive       string    `json:"directive"`
-	Mode            string    `json:"mode"`
-	Unconscious     bool      `json:"unconscious"`
-	RecommendedApps []string  `json:"recommended_apps"`
+	Icon            string   `json:"icon,omitempty"`
+	Description     string   `json:"description"`
+	Directive       string   `json:"directive"`
+	Mode            string   `json:"mode"`
+	Unconscious     bool     `json:"unconscious"`
+	RecommendedApps []string `json:"recommended_apps"`
 	// Requirements is the structured TODO list the wizard's Setup
 	// step renders into install + bind + connect actions, and that
 	// the future meta-agent reads as a checklist. Persisted as a
@@ -61,27 +61,27 @@ type AgentTemplate struct {
 	// Go-side builtin slice in this file. PR-2 will support
 	// app-contributed suggested evals via the manifest.
 	SuggestedEvals []SuggestedEval `json:"suggested_evals,omitempty"`
-	SortOrder       int       `json:"sort_order"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	SortOrder      int             `json:"sort_order"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
 // Requirement is one entry on a template's setup checklist. Four
 // kinds:
 //
-//   kind=app          — sidecar app the agent uses. Wizard installs
-//                       via apps.install. Slug names the app
-//                       (storage, media, channel-email, ...).
-//   kind=integration  — third-party SaaS credential (slack, github,
-//                       stripe). compatible_slugs lists any one of
-//                       which can satisfy the role; the wizard
-//                       picks the first that has a bound connection
-//                       or prompts to create one.
-//   kind=channel      — agent-time delivery channel (email, slack,
-//                       telegram). Channel binding lives on the
-//                       agent, not on the project.
-//   kind=skill        — markdown playbook the agent loads. Wizard
-//                       pushes via skills.push.
+//	kind=app          — sidecar app the agent uses. Wizard installs
+//	                    via apps.install. Slug names the app
+//	                    (storage, media, channel-email, ...).
+//	kind=integration  — third-party SaaS credential (slack, github,
+//	                    stripe). compatible_slugs lists any one of
+//	                    which can satisfy the role; the wizard
+//	                    picks the first that has a bound connection
+//	                    or prompts to create one.
+//	kind=channel      — agent-time delivery channel (email, slack,
+//	                    telegram). Channel binding lives on the
+//	                    agent, not on the project.
+//	kind=skill        — markdown playbook the agent loads. Wizard
+//	                    pushes via skills.push.
 //
 // Reason is operator-facing copy ("Used to send drafted replies").
 // Required gates Setup advancement when true.
@@ -89,7 +89,7 @@ type Requirement struct {
 	Kind            string         `json:"kind"`
 	Slug            string         `json:"slug,omitempty"`
 	Role            string         `json:"role,omitempty"`
-	Type            string         `json:"type,omitempty"`   // for kind=channel
+	Type            string         `json:"type,omitempty"` // for kind=channel
 	CompatibleSlugs []string       `json:"compatible_slugs,omitempty"`
 	Capabilities    []string       `json:"capabilities,omitempty"`
 	BindTo          *BindTo        `json:"bind_to,omitempty"`
@@ -111,10 +111,10 @@ type BindTo struct {
 // TemplateLogo is one icon resolved from a Requirement. Emitted in
 // AgentTemplate.ResolvedLogos for the wizard's card render.
 //
-//   kind = "app" | "integration" | "channel"
-//   source = "direct" (declared on the template) | "derived" (pulled
-//            from a required app's requires.integrations)
-//   via = app slug that pulled in a derived entry, empty otherwise
+//	kind = "app" | "integration" | "channel"
+//	source = "direct" (declared on the template) | "derived" (pulled
+//	         from a required app's requires.integrations)
+//	via = app slug that pulled in a derived entry, empty otherwise
 type TemplateLogo struct {
 	Kind    string `json:"kind"`
 	Slug    string `json:"slug"`
@@ -852,16 +852,16 @@ Tone: skeptical of single-source claims, comfortable saying "I couldn't find a c
 		},
 	},
 	{
-		ID:          "empty",
-		Source:      "builtin",
-		Name:        "Empty",
-		Icon:        "box",
-		Description: "Start from scratch. I'll write the directive myself.",
-		Mode:        "learn",
-		Unconscious: false,
-		SortOrder:   999,
+		ID:           "empty",
+		Source:       "builtin",
+		Name:         "Empty",
+		Icon:         "box",
+		Description:  "Start from scratch. I'll write the directive myself.",
+		Mode:         "learn",
+		Unconscious:  false,
+		SortOrder:    999,
 		Requirements: []Requirement{},
-		Directive:   "",
+		Directive:    "",
 	},
 }
 
@@ -1334,7 +1334,8 @@ func (s *Server) handleCreateAgentTemplate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if t != nil {
-		s.resolveTemplateLogos(t); mergeSuggestedEvals(t)
+		s.resolveTemplateLogos(t)
+		mergeSuggestedEvals(t)
 	}
 	writeJSON(w, t)
 }
@@ -1370,7 +1371,8 @@ func (s *Server) handleAgentTemplateByID(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		s.resolveTemplateLogos(t); mergeSuggestedEvals(t)
+		s.resolveTemplateLogos(t)
+		mergeSuggestedEvals(t)
 		writeJSON(w, t)
 	case http.MethodPut:
 		var body AgentTemplate
@@ -1384,7 +1386,8 @@ func (s *Server) handleAgentTemplateByID(w http.ResponseWriter, r *http.Request)
 		}
 		t, _ := s.store.GetAgentTemplate(userID, id)
 		if t != nil {
-			s.resolveTemplateLogos(t); mergeSuggestedEvals(t)
+			s.resolveTemplateLogos(t)
+			mergeSuggestedEvals(t)
 		}
 		writeJSON(w, t)
 	case http.MethodDelete:

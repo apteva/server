@@ -24,7 +24,7 @@ func TestSkillMemoryID_Deterministic(t *testing.T) {
 func TestSkillBodyHash_Stable(t *testing.T) {
 	a := skillBodyHash("hello")
 	b := skillBodyHash("hello")
-	c := skillBodyHash("world")
+	c := skillBodyHash("environment")
 	if a != b {
 		t.Errorf("hash should be stable: %s vs %s", a, b)
 	}
@@ -49,13 +49,13 @@ func TestSkillTags_Composition(t *testing.T) {
 	}
 	tags := skillTags(sk)
 	want := map[string]bool{
-		SkillTag:                                 false,
+		SkillTag: false,
 		SkillSlugTagPrefix + "storage:upload-files": false,
-		SkillIDTagPrefix + "17":                   false,
-		SkillSourceTagPrefix + "app":              false,
-		SkillAppTagPrefix + "storage":             false,
-		"workflow":                                false,
-		"io":                                      false,
+		SkillIDTagPrefix + "17":                     false,
+		SkillSourceTagPrefix + "app":                false,
+		SkillAppTagPrefix + "storage":               false,
+		"workflow":                                  false,
+		"io":                                        false,
 	}
 	for _, tg := range tags {
 		if _, ok := want[tg]; ok {

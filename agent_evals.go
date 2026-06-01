@@ -52,22 +52,22 @@ import (
 // reads of legacy rows backfill Description from Trigger via
 // triggerToText so handlers + runner only ever look at Description.
 type Eval struct {
-	ID          string       `json:"id"`
-	AgentID     int64        `json:"agent_id"`
-	Name        string       `json:"name"`
-	Description string       `json:"description"`
-	Trigger     EvalTrigger  `json:"trigger,omitempty"` // deprecated; backfilled to description on read
-	Goals       []string     `json:"goals"`
-	Mocks       []EvalMock   `json:"mocks"`
-	MaxTurns    int          `json:"max_turns"`
-	Schedule    string       `json:"schedule"`
-	LastStatus  string       `json:"last_status,omitempty"`
-	LastRunAt   *time.Time   `json:"last_run_at,omitempty"`
-	Source      string       `json:"source"`      // 'user' | 'template' | 'app'
-	SourceRef   string       `json:"source_ref,omitempty"`
-	SortOrder   int          `json:"sort_order"`
-	CreatedAt   time.Time    `json:"created_at"`
-	UpdatedAt   time.Time    `json:"updated_at"`
+	ID          string      `json:"id"`
+	AgentID     int64       `json:"agent_id"`
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Trigger     EvalTrigger `json:"trigger,omitempty"` // deprecated; backfilled to description on read
+	Goals       []string    `json:"goals"`
+	Mocks       []EvalMock  `json:"mocks"`
+	MaxTurns    int         `json:"max_turns"`
+	Schedule    string      `json:"schedule"`
+	LastStatus  string      `json:"last_status,omitempty"`
+	LastRunAt   *time.Time  `json:"last_run_at,omitempty"`
+	Source      string      `json:"source"` // 'user' | 'template' | 'app'
+	SourceRef   string      `json:"source_ref,omitempty"`
+	SortOrder   int         `json:"sort_order"`
+	CreatedAt   time.Time   `json:"created_at"`
+	UpdatedAt   time.Time   `json:"updated_at"`
 }
 
 // EvalTrigger is the legacy "situation we drive the agent with"
@@ -75,8 +75,8 @@ type Eval struct {
 // to Description on read via triggerToText. Removed in the next
 // release once all rows have description populated.
 type EvalTrigger struct {
-	Type    string                 `json:"type"`
-	Payload map[string]any         `json:"payload,omitempty"`
+	Type    string         `json:"type"`
+	Payload map[string]any `json:"payload,omitempty"`
 }
 
 // RunOptions controls a single eval run's execution policy. The
@@ -84,9 +84,9 @@ type EvalTrigger struct {
 // passes RunOptions to choose strict-verification vs improvement
 // mode at run time. Defaults come from the route:
 //
-//   /evals/preview                  → {MaxIterations: 5, StrictMocks: false}
-//   /agents/:id/evals/:id/run       → {MaxIterations: 1, StrictMocks: false}
-//   (future) continuous monitor     → {MaxIterations: 1, StrictMocks: true}
+//	/evals/preview                  → {MaxIterations: 5, StrictMocks: false}
+//	/agents/:id/evals/:id/run       → {MaxIterations: 1, StrictMocks: false}
+//	(future) continuous monitor     → {MaxIterations: 1, StrictMocks: true}
 //
 // MaxIterations=1 disables the improvement loop entirely: one
 // attempt, one judge pass, final verdict. >1 enables the revise
@@ -101,18 +101,25 @@ type RunOptions struct {
 	MaxIterations int  `json:"max_iterations,omitempty"`
 	StrictMocks   bool `json:"strict_mocks,omitempty"`
 
-	// UseWorld runs the eval in a real World derived from the agent's app
-	// bindings (CreateWorldForAgent) instead of the mock gateway: the agent
-	// runs against real in-world apps, externals virtualised by the edge +
-	// per-world interceptor. See world_eval.go::runEvalInWorld. Opt-in so
-	// the existing mock-gateway path is unchanged.
-	UseWorld bool `json:"use_world,omitempty"`
+	// UseEnvironment runs the eval in a real Environment derived from the
+	// agent's app bindings instead of the mock gateway: the agent runs against
+	// real in-environment apps, externals virtualised by the edge.
+	UseEnvironment bool `json:"use_environment,omitempty"`
 
-	// SeedPlan sets up the World's starting state before the agent runs, by
-	// driving the in-world apps' real tools (ExecuteSeedPlan). Lets an eval
-	// test behavior over pre-existing state. Only used with UseWorld. The
+	// SeedPlan sets up the Environment's starting state before the agent runs, by
+	// driving the in-environment apps' real tools (ExecuteSeedPlan). Lets an eval
+	// test behavior over pre-existing state. Only used with environment runs. The
 	// plan can be authored by hand or proposed by the meta-agent.
 	SeedPlan []SeedCall `json:"seed_plan,omitempty"`
+	// SeedBaseDir is the allowlisted directory for SeedCall.file fixtures.
+	// Relative fixture paths resolve from here and may not escape it.
+	SeedBaseDir string `json:"seed_base_dir,omitempty"`
+	// SeedAfterSpawn runs SeedPlan only after the transient environment-agent
+	// is spawned. Useful when seed-time app events should wake the agent.
+	SeedAfterSpawn bool `json:"seed_after_spawn,omitempty"`
+	// AppEventSubscriptions creates source='app_event' subscriptions for the
+	// transient environment-agent before seed_after_spawn plans run.
+	AppEventSubscriptions []RunAppEventSubscription `json:"app_event_subscriptions,omitempty"`
 
 	// SandboxApps + HTTPMocks switch the eval into "real-app sandbox"
 	// mode (see eval_sandbox.go). When either is non-empty, the runner:
@@ -129,17 +136,25 @@ type RunOptions struct {
 	HTTPMocks   []HTTPMock   `json:"http_mocks,omitempty"`
 }
 
+type RunAppEventSubscription struct {
+	App         string `json:"app"`
+	Topic       string `json:"topic"`
+	ThreadID    string `json:"thread_id,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 // EvalMock declares how a single tool should answer in this eval's
 // sandboxed run. First match wins on (App, Tool, optional ArgsMatch).
 // One of Return or Error must be set; Return is the normal path,
 // Error is the negative-path-testing path that surfaces an MCP error
 // back to the agent.
 type EvalMock struct {
-	App       string         `json:"app"`
-	Tool      string         `json:"tool"`
-	ArgsMatch map[string]any `json:"args_match,omitempty"`
+	App       string          `json:"app"`
+	Tool      string          `json:"tool"`
+	ArgsMatch map[string]any  `json:"args_match,omitempty"`
 	Return    json.RawMessage `json:"return,omitempty"`
-	Error     string         `json:"error,omitempty"`
+	Error     string          `json:"error,omitempty"`
 }
 
 // EvalRun is one entry in the history. trajectory + verdict are
@@ -152,7 +167,7 @@ type EvalRun struct {
 	EvalID         string          `json:"eval_id"`
 	StartedAt      time.Time       `json:"started_at"`
 	FinishedAt     *time.Time      `json:"finished_at,omitempty"`
-	Status         string          `json:"status"`      // 'pass' | 'fail' | 'error'
+	Status         string          `json:"status"` // 'pass' | 'fail' | 'error'
 	Trajectory     Trajectory      `json:"trajectory"`
 	Verdict        *JudgeVerdict   `json:"verdict,omitempty"`
 	Suggestions    *RunSuggestions `json:"suggestions,omitempty"`
@@ -181,10 +196,10 @@ type RunSuggestions struct {
 // to commit any to the live agent's stored directive via the
 // apply-improvements handler.
 type DirectiveEditSuggestion struct {
-	ID     string `json:"id"`                // stable per-run id; "edit-1", "edit-2"
-	Add    string `json:"add"`               // text to append to the directive
-	Reason string `json:"reason,omitempty"`  // judge's rationale (one sentence)
-	Helped bool   `json:"helped,omitempty"`  // true if a subsequent iteration passed after applying
+	ID     string `json:"id"`               // stable per-run id; "edit-1", "edit-2"
+	Add    string `json:"add"`              // text to append to the directive
+	Reason string `json:"reason,omitempty"` // judge's rationale (one sentence)
+	Helped bool   `json:"helped,omitempty"` // true if a subsequent iteration passed after applying
 }
 
 // MissingCapabilitySuggestion is the judge's read on "the agent
@@ -210,13 +225,14 @@ type Trajectory struct {
 // call attempt, a tool response (mocked or stubbed), a judge
 // feedback message between iterations, or a system note. Role
 // narrows the shape:
-//   role=user      content = the description (opening event)
-//   role=agent     content = the agent's reply text
-//   role=tool      tool_call = the call + response that just happened
-//   role=judge     content = judge feedback fed back between iterations,
-//                  plus iteration = the attempt number it preceded
-//   role=system    content = a runner note (e.g. "max_turns reached",
-//                  "iteration 2 of 5", "applied directive edit: ...")
+//
+//	role=user      content = the description (opening event)
+//	role=agent     content = the agent's reply text
+//	role=tool      tool_call = the call + response that just happened
+//	role=judge     content = judge feedback fed back between iterations,
+//	               plus iteration = the attempt number it preceded
+//	role=system    content = a runner note (e.g. "max_turns reached",
+//	               "iteration 2 of 5", "applied directive edit: ...")
 type TrajectoryTurn struct {
 	Role      string          `json:"role"`
 	Content   string          `json:"content,omitempty"`
@@ -247,28 +263,28 @@ type ToolCallRecord struct {
 // alongside the verdict when the verdict is fail. The runner reads
 // it to drive the improvement loop:
 //   - InRunFeedback   → posted as a follow-up message in the same
-//                       thread so the agent can address it without
-//                       respawning. Cheap.
+//     thread so the agent can address it without
+//     respawning. Cheap.
 //   - DirectiveEdits  → applied ephemerally on respawn for the next
-//                       iteration (don't touch the live agent).
+//     iteration (don't touch the live agent).
 //   - MissingCapabilities → reserved for the simulator+catalog pass;
-//                       judge returns []  in this release.
+//     judge returns []  in this release.
 type JudgeVerdict struct {
-	Overall              string                `json:"overall"`   // 'pass' | 'fail'
-	Reasoning            string                `json:"reasoning"`
-	PerGoal              []GoalVerdict         `json:"per_goal"`
-	SuggestedImprovements *JudgeSuggestions    `json:"suggested_improvements,omitempty"`
-	JudgeModel           string                `json:"judge_model,omitempty"`
-	JudgeTokens          *TokenUsage           `json:"judge_tokens,omitempty"`
+	Overall               string            `json:"overall"` // 'pass' | 'fail'
+	Reasoning             string            `json:"reasoning"`
+	PerGoal               []GoalVerdict     `json:"per_goal"`
+	SuggestedImprovements *JudgeSuggestions `json:"suggested_improvements,omitempty"`
+	JudgeModel            string            `json:"judge_model,omitempty"`
+	JudgeTokens           *TokenUsage       `json:"judge_tokens,omitempty"`
 }
 
 // JudgeSuggestions is the judge's per-iteration improvement bundle.
 // Distinct from RunSuggestions (which rolls up everything across
 // the run) — this is what the judge emits for one verdict.
 type JudgeSuggestions struct {
-	InRunFeedback       string                          `json:"in_run_feedback,omitempty"`
-	DirectiveEdits      []DirectiveEditSuggestion       `json:"directive_edits,omitempty"`
-	MissingCapabilities []MissingCapabilitySuggestion   `json:"missing_capabilities,omitempty"`
+	InRunFeedback       string                        `json:"in_run_feedback,omitempty"`
+	DirectiveEdits      []DirectiveEditSuggestion     `json:"directive_edits,omitempty"`
+	MissingCapabilities []MissingCapabilitySuggestion `json:"missing_capabilities,omitempty"`
 }
 
 // GoalVerdict is one row of the rubric grading. Why is the
@@ -295,13 +311,13 @@ type TokenUsage struct {
 // via triggerToText; new templates set Description directly and
 // leave Trigger empty.
 type SuggestedEval struct {
-	ID          string        `json:"id"`       // stable per-template; "<template_id>:default"
-	Name        string        `json:"name"`
-	Description string        `json:"description,omitempty"`
-	Trigger     EvalTrigger   `json:"trigger,omitempty"` // legacy; backfilled to description at seed time
-	Goals       []string      `json:"goals"`
-	Mocks       []EvalMock    `json:"mocks"`
-	MaxTurns    int           `json:"max_turns,omitempty"`
+	ID          string      `json:"id"` // stable per-template; "<template_id>:default"
+	Name        string      `json:"name"`
+	Description string      `json:"description,omitempty"`
+	Trigger     EvalTrigger `json:"trigger,omitempty"` // legacy; backfilled to description at seed time
+	Goals       []string    `json:"goals"`
+	Mocks       []EvalMock  `json:"mocks"`
+	MaxTurns    int         `json:"max_turns,omitempty"`
 }
 
 // ─── Store helpers ─────────────────────────────────────────────────
@@ -642,13 +658,13 @@ func scanEvalRun(r rowScanner) (EvalRun, error) {
 // route after the main router has already normalised /agents/ →
 // /instances/. Sub-routes:
 //
-//   GET    /instances/:agentId/evals                 — list
-//   POST   /instances/:agentId/evals                 — create
-//   GET    /instances/:agentId/evals/:evalId         — get one
-//   PUT    /instances/:agentId/evals/:evalId         — update
-//   DELETE /instances/:agentId/evals/:evalId         — remove
-//   POST   /instances/:agentId/evals/:evalId/run     — execute now
-//   GET    /instances/:agentId/evals/:evalId/runs    — run history
+//	GET    /instances/:agentId/evals                 — list
+//	POST   /instances/:agentId/evals                 — create
+//	GET    /instances/:agentId/evals/:evalId         — get one
+//	PUT    /instances/:agentId/evals/:evalId         — update
+//	DELETE /instances/:agentId/evals/:evalId         — remove
+//	POST   /instances/:agentId/evals/:evalId/run     — execute now
+//	GET    /instances/:agentId/evals/:evalId/runs    — run history
 //
 // agentId ownership is checked via getUserID + ListAgents lookup;
 // returns 404 if the caller doesn't own the agent, so the eval
@@ -755,10 +771,10 @@ func (s *Server) handleAgentEvals(w http.ResponseWriter, r *http.Request) {
 				budget = 8 * time.Minute
 			}
 		}
-		// A world run builds the agent's apps from source, spawns real
+		// A environment run builds the agent's apps from source, spawns real
 		// sidecars + a fresh core, then drives + judges — far more than a
 		// mock-gateway single-shot. Give it room.
-		if opts.UseWorld && budget < 8*time.Minute {
+		if opts.UseEnvironment && budget < 8*time.Minute {
 			budget = 8 * time.Minute
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), budget)
@@ -815,7 +831,7 @@ func (s *Server) handleAgentEvals(w http.ResponseWriter, r *http.Request) {
 			}
 			body.ID = evalID
 			body.AgentID = agentID
-			body.Source = existing.Source       // operator can't reassign provenance
+			body.Source = existing.Source // operator can't reassign provenance
 			body.SourceRef = existing.SourceRef
 			if err := s.store.UpdateAgentEval(body); err != nil {
 				http.Error(w, "update eval: "+err.Error(), http.StatusInternalServerError)
@@ -966,13 +982,13 @@ func (s *Server) handleEvalMockGateway(w http.ResponseWriter, r *http.Request) {
 // so operators can iterate on directive + goals before the agent
 // row exists. Request body shape:
 //
-//   {
-//     "directive": "<wizard's current directive>",
-//     "name":      "<wizard's current name, used only in the system prompt>",
-//     "project_id": "<scope for picking the LLM provider>",
-//     "eval": { "name", "description", "goals", "mocks", "max_turns" },
-//     "options": { "max_iterations": N, "strict_mocks": bool } // optional
-//   }
+//	{
+//	  "directive": "<wizard's current directive>",
+//	  "name":      "<wizard's current name, used only in the system prompt>",
+//	  "project_id": "<scope for picking the LLM provider>",
+//	  "eval": { "name", "description", "goals", "mocks", "max_turns" },
+//	  "options": { "max_iterations": N, "strict_mocks": bool } // optional
+//	}
 //
 // Default RunOptions for preview: MaxIterations=5. The wizard wants
 // the agent to have multiple shots at the spec so the operator sees
@@ -1055,9 +1071,10 @@ func (s *Server) handleEvalPreview(w http.ResponseWriter, r *http.Request) {
 // a row is written to agent_directive_history for audit.
 //
 // Body shape:
-//   {
-//     "directive_edit_ids": ["edit-1", "edit-3"]   // ids from RunSuggestions.DirectiveEdits
-//   }
+//
+//	{
+//	  "directive_edit_ids": ["edit-1", "edit-3"]   // ids from RunSuggestions.DirectiveEdits
+//	}
 //
 // We do NOT apply MissingCapabilities here — that pathway lands in
 // a follow-up release with the simulator + marketplace catalog.
@@ -1185,20 +1202,20 @@ func (s *Server) seedTemplateEvalsForAgent(agentID int64, templateID string) {
 // scanAgentTemplate so it works for both QueryRow and Query.Next.
 //
 // Legacy-row handling: rows written under the older trigger-only
-// schema have description='' and a populated trigger_json. We derive
+// schema have description=” and a populated trigger_json. We derive
 // description from trigger on read so the runner + handlers never
 // have to know about the legacy shape.
 func scanEval(r rowScanner) (Eval, error) {
 	var (
-		e            Eval
-		description  string
-		triggerJSON  string
-		goalsJSON    string
-		mocksJSON    string
-		lastStatus   sql.NullString
-		lastRunAt    sql.NullString
-		createdAt    string
-		updatedAt    string
+		e           Eval
+		description string
+		triggerJSON string
+		goalsJSON   string
+		mocksJSON   string
+		lastStatus  sql.NullString
+		lastRunAt   sql.NullString
+		createdAt   string
+		updatedAt   string
 	)
 	if err := r.Scan(
 		&e.ID, &e.AgentID, &e.Name, &description, &triggerJSON, &goalsJSON, &mocksJSON,

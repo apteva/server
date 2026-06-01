@@ -793,7 +793,7 @@ func executeIntegrationToolWithRefresh(
 	tool *AppToolDef,
 	credentials map[string]string,
 	input map[string]any,
-	worldID string,
+	environmentID string,
 	onRefresh onCredsRefresh,
 ) (*ExecuteResult, error) {
 	if app != nil && app.Slug == integrationOpenAICodexSlug && connectionOpenAICodexNeedsRefresh(credentials, 10*time.Minute) {
@@ -803,7 +803,7 @@ func executeIntegrationToolWithRefresh(
 			}
 		}
 	}
-	result, err := executeIntegrationTool(app, tool, credentials, input, worldID)
+	result, err := executeIntegrationTool(app, tool, credentials, input, environmentID)
 	if err != nil {
 		return result, err
 	}
@@ -817,7 +817,7 @@ func executeIntegrationToolWithRefresh(
 				fmt.Fprintf(os.Stderr, "[codex-refresh] persist failed for %s: %v\n", app.Slug, err)
 			}
 		}
-		return executeIntegrationTool(app, tool, credentials, input, worldID)
+		return executeIntegrationTool(app, tool, credentials, input, environmentID)
 	}
 	if result.Status != 401 {
 		return result, nil
@@ -853,7 +853,7 @@ func executeIntegrationToolWithRefresh(
 	}
 	// Retry the original call with the refreshed token. executeIntegrationTool
 	// reads from the same credentials map so the new token is picked up.
-	return executeIntegrationTool(app, tool, credentials, input, worldID)
+	return executeIntegrationTool(app, tool, credentials, input, environmentID)
 }
 
 func addQueryValue(q neturl.Values, key string, v any) {
@@ -999,23 +999,23 @@ func refreshOAuthAccessToken(app *AppTemplate, credentials map[string]string) er
 // "not mine — make the real call".
 type integrationInterceptorFn func(app *AppTemplate, tool *AppToolDef, input map[string]any) (*ExecuteResult, bool)
 
-// worldInterceptors maps a world id → its integration interceptor. Empty in
-// production; populated by the WorldManager for the lifetime of a World.
-// Per-world keying (vs a single global) is what makes this multi-world
-// safe: a call only consults the interceptor for ITS world id, threaded in
-// from the X-Apteva-World-Id header that in-world sidecars send on their
-// platform callbacks. worldID=="" — every production call — never touches
+// environmentInterceptors maps an environment id to its integration interceptor. Empty in
+// production; populated by the manager for the lifetime of an Environment.
+// Per-environment keying (vs a single global) is what makes this multi-environment
+// safe: a call only consults the interceptor for ITS environment id, threaded in
+// from the X-Apteva-Environment-Id header that in-environment sidecars send on their
+// platform callbacks. environmentID=="" — every production call — never touches
 // this map, so behavior off the test path is byte-identical to before.
-var worldInterceptors sync.Map // worldID string -> integrationInterceptorFn
+var environmentInterceptors sync.Map // environmentID string -> integrationInterceptorFn
 
-func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, worldID string) (*ExecuteResult, error) {
-	// World test-mode seam: a call inside a World must NEVER reach the real
+func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string) (*ExecuteResult, error) {
+	// Environment test-mode seam: a call inside a Environment must NEVER reach the real
 	// API. Resolve it fail-safe, in order:
-	//   1. a per-world interceptor fixture (eval-specific override);
+	//   1. a per-environment interceptor fixture (eval-specific override);
 	//   2. the catalog tool's curated mock_response (faithful default);
 	//   3. a generic stub-ok.
-	if worldID != "" {
-		if v, ok := worldInterceptors.Load(worldID); ok {
+	if environmentID != "" {
+		if v, ok := environmentInterceptors.Load(environmentID); ok {
 			if res, handled := v.(integrationInterceptorFn)(app, tool, input); handled {
 				return res, nil
 			}
@@ -2325,7 +2325,11 @@ func (s *Server) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
 		}
 		return s.store.UpdateConnectionCredentials(persistTargetID, enc)
 	}
-	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, r.Header.Get("X-Apteva-World-Id"), persist)
+	environmentID := r.Header.Get("X-Apteva-Environment-Id")
+	if environmentID == "" {
+		environmentID = r.Header.Get("X-Apteva-Environment-Id")
+	}
+	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

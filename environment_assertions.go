@@ -1,15 +1,15 @@
 package main
 
-// world_assertions.go — deterministic assertions for World runs.
+// environment_assertions.go — deterministic assertions for Environment runs.
 //
 // The meta-agent judge grades open-ended quality; assertions catch
 // regressions deterministically. A run passes only if assertions pass AND
-// the judge passes. Three kinds, each reading a different World output:
+// the judge passes. Three kinds, each reading a different Environment output:
 //
-//   edge       — over the WorldEdge's recorded calls. "exactly 1 POST to
+//   edge       — over the EnvironmentEdge's recorded calls. "exactly 1 POST to
 //                api.twitter.com/2/tweets", "no call to billing".
-//   state      — a SQL scalar against an in-world sidecar's SQLite DB.
-//                Only possible because Worlds do REAL DB writes:
+//   state      — a SQL scalar against an in-environment sidecar's SQLite DB.
+//                Only possible because Environments do REAL DB writes:
 //                "crm has 1 contact where email='x'".
 //   trajectory — over the ordered list of tool names the agent called.
 //                "called create_invoice", "never called refund_customer",
@@ -54,7 +54,7 @@ type EdgeAssertion struct {
 	Max    *int   `json:"max,omitempty"`
 }
 
-// StateAssertion runs a single-scalar SQL query against an in-world
+// StateAssertion runs a single-scalar SQL query against an in-environment
 // sidecar's DB and compares the integer result.
 type StateAssertion struct {
 	App    string `json:"app"`   // sidecar name whose DB to query
@@ -84,8 +84,8 @@ type AssertionResult struct {
 type AssertionInputs struct {
 	EdgeCalls    []InterceptedCall
 	ToolSequence []string
-	// AppDBPath resolves an in-world sidecar name to its SQLite file path.
-	// Returns ok=false when the app isn't in the world.
+	// AppDBPath resolves an in-environment sidecar name to its SQLite file path.
+	// Returns ok=false when the app isn't in the environment.
 	AppDBPath func(app string) (path string, ok bool)
 }
 
@@ -152,7 +152,7 @@ func evalState(sa *StateAssertion, resolve func(string) (string, bool)) (bool, s
 	}
 	path, ok := resolve(sa.App)
 	if !ok {
-		return false, fmt.Sprintf("app %q not in world", sa.App)
+		return false, fmt.Sprintf("app %q not in environment", sa.App)
 	}
 	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(2000)")
 	if err != nil {

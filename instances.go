@@ -142,7 +142,7 @@ func (im *AgentManager) instanceDir(id int64) string {
 }
 
 // InstanceDir is the exported accessor for an instance's on-disk directory
-// (config.json, history/, memory.jsonl). Used by world snapshotting to
+// (config.json, history/, memory.jsonl). Used by environment snapshotting to
 // capture/restore an agent's full state. Like instanceDir it ensures the
 // directory exists.
 func (im *AgentManager) InstanceDir(id int64) string { return im.instanceDir(id) }
@@ -1028,6 +1028,7 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		}
 		s.restoreSlackForInstance(inst)
 		s.restoreEmailForInstance(inst)
+		s.notifyAgentSubscriptionStartup(inst)
 	}
 
 	s.store.UpdateAgent(inst)
@@ -1366,6 +1367,7 @@ func (s *Server) ResumeRunningInstances() {
 		s.store.UpdateAgent(inst)
 		s.restoreSlackForInstance(inst)
 		s.restoreEmailForInstance(inst)
+		s.notifyAgentSubscriptionStartup(inst)
 		log.Printf("[RESUME] instance %d (%s): resumed on port %d pid %d", inst.ID, inst.Name, inst.Port, inst.Pid)
 	}
 }
@@ -1415,6 +1417,7 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	s.restoreSlackForInstance(inst)
 	s.restoreEmailForInstance(inst)
+	s.notifyAgentSubscriptionStartup(inst)
 
 	s.store.UpdateAgent(inst)
 	writeJSON(w, inst)
@@ -1466,6 +1469,7 @@ func (s *Server) handleRestartInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	s.restoreSlackForInstance(inst)
 	s.restoreEmailForInstance(inst)
+	s.notifyAgentSubscriptionStartup(inst)
 
 	s.store.UpdateAgent(inst)
 	writeJSON(w, map[string]string{"status": "restarted"})

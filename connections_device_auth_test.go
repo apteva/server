@@ -130,11 +130,11 @@ func TestParseOpenAICodexSSE(t *testing.T) {
 	raw := []byte("event: response.output_text.delta\n" +
 		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n" +
 		"event: response.output_text.delta\n" +
-		"data: {\"type\":\"response.output_text.delta\",\"delta\":\" world\"}\n\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"delta\":\" environment\"}\n\n" +
 		"event: response.completed\n" +
 		"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-5.5\",\"usage\":{\"total_tokens\":3}}}\n\n")
 	out := parseOpenAICodexSSE(raw)
-	if out["output_text"] != "hello world" {
+	if out["output_text"] != "hello environment" {
 		t.Fatalf("output_text=%v", out["output_text"])
 	}
 	if out["id"] != "resp_1" {

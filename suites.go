@@ -48,12 +48,12 @@ func GroupIDFromMasterSlug(slug string) string {
 // was chosen because no known integration uses it as a credential
 // field name. If any future template does, rename all keys.
 const (
-	credKeyType          = "_type"            // "master" | "child"
-	credKeyGroup         = "_group"           // "omnikit" (master only)
-	credKeyScope         = "_scope"           // "account" | "project" (master only)
-	credKeyProjectsCache = "_projects_cache"  // discovery snapshot (master only)
-	credKeyMasterID      = "_master_id"       // child → master row id
-	credKeyProjectID     = "_project_id"      // child → external project id
+	credKeyType          = "_type"           // "master" | "child"
+	credKeyGroup         = "_group"          // "omnikit" (master only)
+	credKeyScope         = "_scope"          // "account" | "project" (master only)
+	credKeyProjectsCache = "_projects_cache" // discovery snapshot (master only)
+	credKeyMasterID      = "_master_id"      // child → master row id
+	credKeyProjectID     = "_project_id"     // child → external project id
 	// ApiLookup result cached on the master after first provisioning,
 	// so subsequent fan-outs don't repeat the lookup call.
 	credKeyAPILookupID = "_api_lookup_id" // master only — e.g. omnikit api UUID
@@ -74,11 +74,11 @@ type CachedProject struct {
 // connectionContext is what the HTTP executor actually consumes for a
 // single tool call. Built by resolveConnectionContext below.
 type connectionContext struct {
-	App              *AppTemplate      // possibly cloned to carry binding headers
-	Credentials      map[string]string // master creds for child rows, own creds otherwise
-	Input            map[string]any    // possibly augmented with path_param project id
-	ProjectBinding   *ProjectBinding   // copy of the active binding, for the header path
-	ExternalProjectID string           // child's project id (empty for non-children)
+	App               *AppTemplate      // possibly cloned to carry binding headers
+	Credentials       map[string]string // master creds for child rows, own creds otherwise
+	Input             map[string]any    // possibly augmented with path_param project id
+	ProjectBinding    *ProjectBinding   // copy of the active binding, for the header path
+	ExternalProjectID string            // child's project id (empty for non-children)
 	// MasterConnID is the connection row that owns the credentials.
 	// Non-zero when the request resolved through a master. Refresh
 	// persistence must write back to this row, not the child.

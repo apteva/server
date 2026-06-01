@@ -1,12 +1,12 @@
 package main
 
-// world_social_e2e_test.go — the test that actually exercises the World
+// environment_social_e2e_test.go — the test that actually exercises the Environment
 // system with a REAL app. It installs the real social sidecar from local
-// source into a World (real build, real isolated SQLite, real migrations),
+// source into a Environment (real build, real isolated SQLite, real migrations),
 // drives its post_create tool over MCP, and asserts the real DB write.
 //
 // Gated: skips unless the social source tree is present (it builds the app),
-// and under -short. Run with:  go test -run TestWorld_RealSocial -v
+// and under -short. Run with:  go test -run TestEnvironment_RealSocial -v
 
 import (
 	"bytes"
@@ -36,15 +36,15 @@ func findAppSource(t *testing.T, app string) string {
 			return abs
 		}
 	}
-	t.Skipf("%s source not found (need apps/mcp/%s); skipping real-app world test", app, app)
+	t.Skipf("%s source not found (need apps/mcp/%s); skipping real-app environment test", app, app)
 	return ""
 }
 
-// newWorldTestServer builds the minimum Server needed to install + run an
-// app in a World: a store, a secret, a real loopback listener (so in-world
+// newEnvironmentTestServer builds the minimum Server needed to install + run an
+// app in a Environment: a store, a secret, a real loopback listener (so in-environment
 // sidecars' gateway callbacks don't hang), a LocalSupervisor, and an empty
 // installed-apps registry. No core, no production routes.
-func newWorldTestServer(t *testing.T) *Server {
+func newEnvironmentTestServer(t *testing.T) *Server {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -61,25 +61,25 @@ func newWorldTestServer(t *testing.T) *Server {
 	_, _ = rand.Read(secret)
 
 	s := &Server{
-		store:          store,
-		secret:         secret,
-		port:           strconv.Itoa(port),
-		dataDir:        dataDir,
-		agents: NewAgentManager(filepath.Join(dataDir, "agents"), ""),
+		store:   store,
+		secret:  secret,
+		port:    strconv.Itoa(port),
+		dataDir: dataDir,
+		agents:  NewAgentManager(filepath.Join(dataDir, "agents"), ""),
 		// Stable cache OUTSIDE t.TempDir: Go's module cache is written
 		// read-only, which breaks TempDir's RemoveAll cleanup; keeping it
 		// here also reuses the build cache across runs. Per-install data
-		// dirs under it are removed by World.Stop.
-		localApps:      NewLocalSupervisor(filepath.Join(os.TempDir(), "apteva-world-test-appcache")),
+		// dirs under it are removed by Environment.Stop.
+		localApps:      NewLocalSupervisor(filepath.Join(os.TempDir(), "apteva-environment-test-appcache")),
 		installedApps:  NewInstalledAppsRegistry(),
 		broadcaster:    NewTelemetryBroadcaster(),
-		instanceSecret: "world-e2e-secret",
-		worlds:         NewWorldManager(filepath.Join(dataDir, "worlds")),
+		instanceSecret: "environment-e2e-secret",
+		environments:   NewEnvironmentManager(environmentDataRoot(dataDir)),
 	}
-	s.worlds.server = s
+	s.environments.server = s
 
 	// A catalog with a synthetic twitter-api app so the integration callback
-	// can resolve the app + tool. The per-world interceptor short-circuits
+	// can resolve the app + tool. The per-environment interceptor short-circuits
 	// before any real request is built, so a minimal tool def suffices.
 	cat := NewAppCatalog()
 	cat.apps["twitter-api"] = &AppTemplate{
@@ -91,13 +91,13 @@ func newWorldTestServer(t *testing.T) *Server {
 
 	// A user so the dev-token callback (installed_by → user) resolves to a
 	// real owner the seeded connection belongs to.
-	if _, err := store.CreateUser("world-e2e@example.com", "x"); err != nil {
+	if _, err := store.CreateUser("environment-e2e@example.com", "x"); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 
-	// Mount the app-callback route so in-world sidecars' platform calls
+	// Mount the app-callback route so in-environment sidecars' platform calls
 	// (ExecuteIntegrationTool → /api/apps/callback/integrations/:id/execute)
-	// reach the real handler → the per-world interceptor.
+	// reach the real handler → the per-environment interceptor.
 	apiMux := http.NewServeMux()
 	apiMux.HandleFunc("/apps/callback/", s.authMiddleware(s.handleAppCallback))
 	mux := http.NewServeMux()
@@ -108,7 +108,7 @@ func newWorldTestServer(t *testing.T) *Server {
 	return s
 }
 
-// seedConnection inserts a world-scoped integration connection owned by the
+// seedConnection inserts a environment-scoped integration connection owned by the
 // given install, and returns its id. Mirrors the real connections schema.
 func seedConnection(t *testing.T, s *Server, projectID string, ownerInstallID int64) int64 {
 	t.Helper()
@@ -160,14 +160,14 @@ func callMCP(t *testing.T, mcpURL, token, method string, params any) json.RawMes
 	return env.Result
 }
 
-func TestWorld_RealSocial_DBWrite(t *testing.T) {
+func TestEnvironment_RealSocial_DBWrite(t *testing.T) {
 	if testing.Short() {
-		t.Skip("real-app world test builds the social sidecar")
+		t.Skip("real-app environment test builds the social sidecar")
 	}
 	srcDir := findAppSource(t, "social")
-	s := newWorldTestServer(t)
+	s := newEnvironmentTestServer(t)
 
-	world, err := s.worlds.Create(WorldSpec{
+	environment, err := s.environments.Create(EnvironmentSpec{
 		ID:           "e2e-social",
 		GatewayURL:   s.localGatewayURL(),
 		AppSrcDirs:   map[string]string{"social": srcDir},
@@ -175,25 +175,25 @@ func TestWorld_RealSocial_DBWrite(t *testing.T) {
 		HealthBudget: 120 * time.Second,
 	})
 	if err != nil {
-		t.Fatalf("create world with real social: %v", err)
+		t.Fatalf("create environment with real social: %v", err)
 	}
-	defer world.Stop()
+	defer environment.Stop()
 
-	inst, ok := world.Install("social")
+	inst, ok := environment.Install("social")
 	if !ok {
-		t.Fatal("social install missing from world")
+		t.Fatal("social install missing from environment")
 	}
 	t.Logf("social installed: id=%d port=%d db=%s", inst.InstallID, inst.Port, inst.DBPath)
 	token := fmt.Sprintf("dev-%d", inst.InstallID) // the install's dev token (set by installLocalSource)
 
-	// 1. The real sidecar serves MCP — proves it booted in the World.
+	// 1. The real sidecar serves MCP — proves it booted in the Environment.
 	res := callMCP(t, inst.SidecarURL+"/mcp", token, "tools/list", map[string]any{})
 	if !bytes.Contains(res, []byte("post_create")) {
 		t.Fatalf("tools/list missing post_create: %s", res)
 	}
 
 	// 2. Its isolated DB ran migrations — proves real, isolated persistence.
-	dbPath, ok := world.AppDBPath("social")
+	dbPath, ok := environment.AppDBPath("social")
 	if !ok {
 		t.Fatal("no AppDBPath for social")
 	}
@@ -205,21 +205,21 @@ func TestWorld_RealSocial_DBWrite(t *testing.T) {
 
 	// 3. Seed a destination account directly in the isolated DB, then drive
 	//    post_create over MCP and assert the REAL row landed. project_id must
-	//    match the sidecar's APTEVA_PROJECT_ID (= the world id).
-	seedSocialAccount(t, dbPath, world.ID, 1)
+	//    match the sidecar's APTEVA_PROJECT_ID (= the environment id).
+	seedSocialAccount(t, dbPath, environment.ID, 1)
 	_ = callMCP(t, inst.SidecarURL+"/mcp", token, "tools/call", map[string]any{
 		"name": "post_create",
 		"arguments": map[string]any{
-			"body":               "hello from the world test",
+			"body":               "hello from the environment test",
 			"social_account_ids": []any{1},
 		},
 	})
 
-	got := countRows(t, dbPath, `SELECT COUNT(*) FROM posts WHERE body = 'hello from the world test'`)
+	got := countRows(t, dbPath, `SELECT COUNT(*) FROM posts WHERE body = 'hello from the environment test'`)
 	if got != 1 {
-		t.Fatalf("expected 1 real post row written by the in-world sidecar, got %d", got)
+		t.Fatalf("expected 1 real post row written by the in-environment sidecar, got %d", got)
 	}
-	t.Logf("✓ real social sidecar wrote %d post row(s) to its isolated DB inside the World", got)
+	t.Logf("✓ real social sidecar wrote %d post row(s) to its isolated DB inside the Environment", got)
 }
 
 func assertTableExists(t *testing.T, dbPath, table string) {
@@ -260,23 +260,23 @@ func seedSocialAccount(t *testing.T, dbPath, projectID string, connID int64) {
 	}
 }
 
-// TestWorld_RealSocial_InterceptorMocksTweet is the full-loop proof: the real
+// TestEnvironment_RealSocial_InterceptorMocksTweet is the full-loop proof: the real
 // social sidecar publishes a tweet via ExecuteIntegrationTool, the call hits
-// the per-world interceptor (NOT the real Twitter), and social records the
-// target as published from the mocked response — all inside the World.
-func TestWorld_RealSocial_InterceptorMocksTweet(t *testing.T) {
+// the per-environment interceptor (NOT the real Twitter), and social records the
+// target as published from the mocked response — all inside the Environment.
+func TestEnvironment_RealSocial_InterceptorMocksTweet(t *testing.T) {
 	if testing.Short() {
-		t.Skip("real-app world test builds the social sidecar")
+		t.Skip("real-app environment test builds the social sidecar")
 	}
 	srcDir := findAppSource(t, "social")
-	s := newWorldTestServer(t)
+	s := newEnvironmentTestServer(t)
 
-	world, err := s.worlds.Create(WorldSpec{
+	environment, err := s.environments.Create(EnvironmentSpec{
 		ID:         "e2e-social-tweet",
 		GatewayURL: s.localGatewayURL(),
 		AppSrcDirs: map[string]string{"social": srcDir},
 		Mode:       EdgeBlock,
-		// The interceptor that answers social's tweet, keyed to this world.
+		// The interceptor that answers social's tweet, keyed to this environment.
 		IntegrationFixtures: []IntegrationFixture{{
 			App:    "twitter-api",
 			Tool:   "post_tweet",
@@ -286,21 +286,21 @@ func TestWorld_RealSocial_InterceptorMocksTweet(t *testing.T) {
 		HealthBudget: 120 * time.Second,
 	})
 	if err != nil {
-		t.Fatalf("create world: %v", err)
+		t.Fatalf("create environment: %v", err)
 	}
-	defer world.Stop()
+	defer environment.Stop()
 
-	inst, ok := world.Install("social")
+	inst, ok := environment.Install("social")
 	if !ok {
 		t.Fatal("social install missing")
 	}
 	token := fmt.Sprintf("dev-%d", inst.InstallID)
-	dbPath, _ := world.AppDBPath("social")
+	dbPath, _ := environment.AppDBPath("social")
 
-	// Seed a world-scoped twitter connection owned by the social install,
+	// Seed a environment-scoped twitter connection owned by the social install,
 	// plus the social_account that points at it.
-	connID := seedConnection(t, s, world.ID, inst.InstallID)
-	seedSocialAccount(t, dbPath, world.ID, connID)
+	connID := seedConnection(t, s, environment.ID, inst.InstallID)
+	seedSocialAccount(t, dbPath, environment.ID, connID)
 
 	// Publish — inline (no schedule_at), so social calls post_tweet now.
 	_ = callMCP(t, inst.SidecarURL+"/mcp", token, "tools/call", map[string]any{
@@ -319,7 +319,7 @@ func TestWorld_RealSocial_InterceptorMocksTweet(t *testing.T) {
 		t.Fatalf("expected post_target status 'published' (via interceptor), got %q", status)
 	}
 	gotID := scalarString(t, dbPath, `SELECT COALESCE(platform_post_id,'') FROM post_targets ORDER BY id DESC LIMIT 1`)
-	t.Logf("✓ real social published via the per-world interceptor — platform_post_id=%q (mocked, no real Twitter call)", gotID)
+	t.Logf("✓ real social published via the per-environment interceptor — platform_post_id=%q (mocked, no real Twitter call)", gotID)
 }
 
 func scalarString(t *testing.T, dbPath, query string) string {

@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-func ptrInt(i int) *int       { return &i }
-func ptrI64(i int64) *int64   { return &i }
+func ptrInt(i int) *int     { return &i }
+func ptrI64(i int64) *int64 { return &i }
 
 // makeSqlite creates a sqlite db at path with a contacts table holding the
 // given emails. Uses the same driver the store registers (modernc.org/sqlite).
@@ -34,7 +34,7 @@ func makeSqlite(t *testing.T, path string, emails ...string) {
 
 func TestSnapshotCaptureRestore(t *testing.T) {
 	tmp := t.TempDir()
-	ss := NewSnapshotStore(filepath.Join(tmp, "worlds"))
+	ss := NewSnapshotStore(filepath.Join(tmp, "environments"))
 
 	// A live crm sidecar data dir with a real DB (2 rows).
 	liveDir := filepath.Join(tmp, "live-crm")
@@ -139,6 +139,45 @@ func TestStateAssertions(t *testing.T) {
 	}
 }
 
+func TestEnvironmentMultipleAgents(t *testing.T) {
+	var stopped []int64
+	environment := &Environment{
+		ID:           "environment-multi",
+		agents:       map[int64]*EnvironmentAgent{},
+		agentAliases: map[string]int64{},
+	}
+	a1 := &EnvironmentAgent{AgentID: 10, Alias: "main", Port: 4100, cleanup: func() { stopped = append(stopped, 10) }}
+	a2 := &EnvironmentAgent{AgentID: 11, Alias: "reviewer", Port: 4101, cleanup: func() { stopped = append(stopped, 11) }}
+	if err := environment.AttachAgent(a1); err != nil {
+		t.Fatalf("attach main: %v", err)
+	}
+	if err := environment.AttachAgent(a2); err != nil {
+		t.Fatalf("attach reviewer: %v", err)
+	}
+	if err := environment.AttachAgent(&EnvironmentAgent{AgentID: 12, Alias: "reviewer"}); err == nil {
+		t.Fatalf("expected duplicate alias to fail")
+	}
+	if got := environment.Agent(); got == nil || got.AgentID != 10 {
+		t.Fatalf("default agent = %+v, want main", got)
+	}
+	if got := environment.GetAgent(11); got == nil || got.Alias != "reviewer" {
+		t.Fatalf("get agent 11 = %+v", got)
+	}
+	if got := environment.AgentByAlias("reviewer"); got == nil || got.AgentID != 11 {
+		t.Fatalf("alias lookup = %+v", got)
+	}
+	if !environment.StopAgent(10) {
+		t.Fatalf("stop main returned false")
+	}
+	if got := environment.Agent(); got == nil || got.AgentID != 11 {
+		t.Fatalf("default after stopping main = %+v, want reviewer", got)
+	}
+	environment.Stop()
+	if len(stopped) != 2 || stopped[0] != 10 || stopped[1] != 11 {
+		t.Fatalf("stopped agents = %v, want [10 11]", stopped)
+	}
+}
+
 func TestTrajectoryAssertions(t *testing.T) {
 	seq := []string{"lookup_customer", "charge_card"}
 	cases := []struct {
@@ -161,16 +200,16 @@ func TestTrajectoryAssertions(t *testing.T) {
 }
 
 func TestIntegrationInterceptorSeam(t *testing.T) {
-	const wid = "test-world-1"
+	const wid = "test-environment-1"
 	app := &AppTemplate{Slug: "twitter"}
 	tool := &AppToolDef{Name: "post_tweet", Method: "POST"}
 
-	remove := RegisterWorldInterceptor(wid, []IntegrationFixture{
+	remove := RegisterEnvironmentInterceptor(wid, []IntegrationFixture{
 		{App: "twitter", Tool: "post_tweet", Status: 201, Data: map[string]any{"id": "123"}},
 	})
 	defer remove()
 
-	// Owned call in this world short-circuits — no network, canned result.
+	// Owned call in this environment short-circuits — no network, canned result.
 	res, err := executeIntegrationTool(app, tool, map[string]string{}, map[string]any{}, wid)
 	if err != nil {
 		t.Fatalf("intercepted call errored: %v", err)
@@ -179,20 +218,20 @@ func TestIntegrationInterceptorSeam(t *testing.T) {
 		t.Fatalf("interceptor result wrong: %+v", res)
 	}
 
-	// Different world id → not routed here. We can't run the real call in a
-	// unit test, so assert the registry has nothing for an unknown world.
-	if _, ok := worldInterceptors.Load("other-world"); ok {
-		t.Fatalf("unexpected interceptor for other-world")
+	// Different environment id → not routed here. We can't run the real call in a
+	// unit test, so assert the registry has nothing for an unknown environment.
+	if _, ok := environmentInterceptors.Load("other-environment"); ok {
+		t.Fatalf("unexpected interceptor for other-environment")
 	}
 
-	// Unowned (app,tool) within the same world passes through (handled=false).
-	v, _ := worldInterceptors.Load(wid)
+	// Unowned (app,tool) within the same environment passes through (handled=false).
+	v, _ := environmentInterceptors.Load(wid)
 	if _, handled := v.(integrationInterceptorFn)(&AppTemplate{Slug: "hubspot"}, &AppToolDef{Name: "create_contact"}, nil); handled {
 		t.Fatalf("interceptor wrongly claimed an unowned call")
 	}
 
 	remove()
-	if _, ok := worldInterceptors.Load(wid); ok {
+	if _, ok := environmentInterceptors.Load(wid); ok {
 		t.Fatalf("remove() did not clear the interceptor")
 	}
 }

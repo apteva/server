@@ -296,7 +296,11 @@ func (s *Server) executeImportIntegrationTool(r *http.Request, connID int64, too
 		}
 		return s.store.UpdateConnectionCredentials(persistTargetID, enc)
 	}
-	result, err := executeIntegrationToolWithRefresh(resolved.App, tool, resolved.Credentials, resolved.Input, r.Header.Get("X-Apteva-World-Id"), persist)
+	environmentID := r.Header.Get("X-Apteva-Environment-Id")
+	if environmentID == "" {
+		environmentID = r.Header.Get("X-Apteva-Environment-Id")
+	}
+	result, err := executeIntegrationToolWithRefresh(resolved.App, tool, resolved.Credentials, resolved.Input, environmentID, persist)
 	if err != nil {
 		return nil, err
 	}

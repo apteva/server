@@ -177,7 +177,7 @@ func (s *Server) handleUserByID(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			writeJSON(w, map[string]any{
-				"user":        map[string]any{"id": u.ID, "email": u.Email},
+				"user":         map[string]any{"id": u.ID, "email": u.Email},
 				"would_delete": s.store.CountUserResources(u.ID),
 			})
 			return

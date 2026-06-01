@@ -90,10 +90,10 @@ func TestEIP712_TypeHash_Mail(t *testing.T) {
 
 // TestEIP712_PolymarketOrderRoundtrip — sign a Polymarket-shaped order
 // with a fixed private key + message, then assert the signer:
-//   1. Computes the same digest twice (deterministic)
-//   2. Returns a 65-byte 0x-hex signature
-//   3. v byte is 27 or 28 (Ethereum recovery convention, not 0/1)
-//   4. Injects the signature next to the order in the body
+//  1. Computes the same digest twice (deterministic)
+//  2. Returns a 65-byte 0x-hex signature
+//  3. v byte is 27 or 28 (Ethereum recovery convention, not 0/1)
+//  4. Injects the signature next to the order in the body
 //
 // We don't pin the signature value because ECDSA k is deterministic
 // per the dcrec implementation but the convention isn't universal —

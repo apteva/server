@@ -8,16 +8,17 @@ import (
 	"time"
 )
 
-// TestEval_InWorld_RealLLM_Pushover is the direct-integration analog of the
+// TestEval_InEnvironment_RealLLM_Pushover is the direct-integration analog of the
 // storage test: an agent that just has a Pushover *connection* (no app),
-// running in a World. The real core + real LLM drive it; when it calls the
-// Pushover tool through its connection MCP (/mcp/<connID>?world_id=…), the
+// running in a Environment. The real core + real LLM drive it; when it calls the
+// Pushover tool through its connection MCP (/mcp/<connID>?environment_id=…), the
 // executor returns the catalog's mock_response — the real Pushover API is
 // never hit. The real meta-agent judges.
 //
 // Gated: needs the OpenCode key + core binary (the catalog ships pushover).
-//   go test -run TestEval_InWorld_RealLLM_Pushover -v -timeout 600s
-func TestEval_InWorld_RealLLM_Pushover(t *testing.T) {
+//
+//	go test -run TestEval_InEnvironment_RealLLM_Pushover -v -timeout 600s
+func TestEval_InEnvironment_RealLLM_Pushover(t *testing.T) {
 	apiKey := loadOpenCodeGoKey(t)
 	corePath := findCoreBinary(t)
 
@@ -35,7 +36,7 @@ func TestEval_InWorld_RealLLM_Pushover(t *testing.T) {
 		t.Skip("pushover not in catalog")
 	}
 
-	// A Pushover connection — creds are irrelevant, the world mocks the call.
+	// A Pushover connection — creds are irrelevant, the environment mocks the call.
 	enc, err := Encrypt(s.secret, "{}")
 	if err != nil {
 		t.Fatalf("encrypt: %v", err)
@@ -46,8 +47,8 @@ func TestEval_InWorld_RealLLM_Pushover(t *testing.T) {
 	}
 
 	// Give the agent the connection's MCP, exactly as the wizard's
-	// boundConnectionIDs would. SpawnAgentInWorld carries this over, tagging
-	// the URL with the world id so the executor mocks it.
+	// boundConnectionIDs would. SpawnAgentInEnvironment carries this over, tagging
+	// the URL with the environment id so the executor mocks it.
 	agent.Config = fmt.Sprintf(`{"mcp_servers":[{"name":"pushover","url":"http://127.0.0.1:%s/mcp/%d","transport":"http"}]}`, s.port, conn.ID)
 	if err := s.store.UpdateAgent(agent); err != nil {
 		t.Fatalf("update agent config: %v", err)
@@ -74,9 +75,9 @@ func TestEval_InWorld_RealLLM_Pushover(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	run, err := s.runEval(ctx, userID, agent, ev, RunOptions{UseWorld: true})
+	run, err := s.runEval(ctx, userID, agent, ev, RunOptions{UseEnvironment: true})
 	if err != nil {
-		t.Fatalf("runEval(UseWorld): %v", err)
+		t.Fatalf("runEval(UseEnvironment): %v", err)
 	}
 
 	t.Logf("status=%s turns=%d", run.Status, run.TurnsUsed)
@@ -96,7 +97,7 @@ func TestEval_InWorld_RealLLM_Pushover(t *testing.T) {
 	if run.Status == "error" {
 		t.Fatalf("eval errored (infra, not agent behavior): %s", run.ErrorMessage)
 	}
-	// Proof: the agent called the Pushover tool in the world, and (with fake
+	// Proof: the agent called the Pushover tool in the environment, and (with fake
 	// creds) only the mock could succeed — the response carries the catalog
 	// mock_response (status:1 / its request id), never a real Pushover ack.
 	calledPushover, gotMock := false, false
@@ -114,7 +115,7 @@ func TestEval_InWorld_RealLLM_Pushover(t *testing.T) {
 		}
 	}
 	if !calledPushover {
-		t.Fatalf("agent never called the Pushover tool in the world.\nTrajectory: %+v", run.Trajectory.Turns)
+		t.Fatalf("agent never called the Pushover tool in the environment.\nTrajectory: %+v", run.Trajectory.Turns)
 	}
-	t.Logf("✓ agent called Pushover in the world via its connection MCP; mock_response served=%v (no real notification sent)", gotMock)
+	t.Logf("✓ agent called Pushover in the environment via its connection MCP; mock_response served=%v (no real notification sent)", gotMock)
 }

@@ -40,10 +40,10 @@ import (
 )
 
 type connectionScopeResult struct {
-	ConnectionID  int64  `json:"connection_id"`
-	OldProjectID  string `json:"old_project_id"`
-	NewProjectID  string `json:"new_project_id"`
-	MCPsMigrated  int    `json:"mcp_servers_migrated"`
+	ConnectionID int64  `json:"connection_id"`
+	OldProjectID string `json:"old_project_id"`
+	NewProjectID string `json:"new_project_id"`
+	MCPsMigrated int    `json:"mcp_servers_migrated"`
 }
 
 func (s *Server) handleSetConnectionScope(w http.ResponseWriter, r *http.Request) {

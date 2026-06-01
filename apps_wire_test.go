@@ -11,12 +11,12 @@ import (
 )
 
 // Smoke-test the channel-chat app end-to-end through HTTP:
-//   1. framework loads, manifest lists channel-chat
-//   2. default chat is auto-created on instance attach
-//   3. POST /messages writes a user row and returns it
-//   4. GET  /messages reads it back
-//   5. agent-side Send writes an agent row
-//   6. SSE stream delivers new messages
+//  1. framework loads, manifest lists channel-chat
+//  2. default chat is auto-created on instance attach
+//  3. POST /messages writes a user row and returns it
+//  4. GET  /messages reads it back
+//  5. agent-side Send writes an agent row
+//  6. SSE stream delivers new messages
 func TestChannelChatApp_EndToEnd(t *testing.T) {
 	s := newTestServer(t)
 	user := mkUser(t, s, "chat-test@test")

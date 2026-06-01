@@ -277,11 +277,11 @@ func waitForFirstAssistantReply(ctx context.Context, port int, apiKey, threadID 
 	return "", errors.New("no assistant reply within timeout")
 }
 
-// ensureWorldMCPOnHelper adds the World control MCP (world_create_for_agent,
-// world_call_app, …) to the meta-agent's mcp_servers so it can build + seed
-// test Worlds by tool calls. Idempotent. Mutates helper.Config in place; the
+// ensureEnvironmentMCPOnHelper adds the Environment control MCP to the meta-agent's
+// mcp_servers so it can build + seed test Environments by tool calls.
+// Idempotent. Mutates helper.Config in place; the
 // caller persists it (UpdateAgent) and Start merges it into the core's config.
-func (s *Server) ensureWorldMCPOnHelper(helper *Agent) {
+func (s *Server) ensureEnvironmentMCPOnHelper(helper *Agent) {
 	var cfg map[string]any
 	if helper.Config != "" {
 		_ = json.Unmarshal([]byte(helper.Config), &cfg)
@@ -290,17 +290,17 @@ func (s *Server) ensureWorldMCPOnHelper(helper *Agent) {
 		cfg = map[string]any{}
 	}
 	servers, _ := cfg["mcp_servers"].([]any)
-	worldURL := fmt.Sprintf("http://127.0.0.1:%s/api/world-mcp", s.port)
+	environmentURL := fmt.Sprintf("http://127.0.0.1:%s/api/environment-mcp", s.port)
 	for _, e := range servers {
 		if m, ok := e.(map[string]any); ok {
-			if m["name"] == "worlds" || m["url"] == worldURL {
+			if m["name"] == "environments" || m["url"] == environmentURL {
 				return // already present
 			}
 		}
 	}
 	servers = append(servers, map[string]any{
-		"name":      "worlds",
-		"url":       worldURL,
+		"name":      "environments",
+		"url":       environmentURL,
 		"transport": "http",
 		"no_spawn":  true,
 	})
@@ -334,10 +334,10 @@ func (s *Server) ensureMetaAgentRunning(userID int64) (*Agent, error) {
 	if len(pool) == 0 {
 		return nil, errors.New("no LLM provider configured — add one in Settings → Providers to enable evals")
 	}
-	// Give the meta-agent the World control tools so it can create + seed
-	// test Worlds by tool calls during evals (see world_mcp.go). Set on the
+	// Give the meta-agent the Environment control tools so it can create + seed
+	// test Environments by tool calls during evals (see environment_mcp.go). Set on the
 	// DB row's config before Start so the core merges it into config.json.
-	s.ensureWorldMCPOnHelper(helper)
+	s.ensureEnvironmentMCPOnHelper(helper)
 	if err := s.agents.Start(helper, providerEnv, s.port, pool, s.instanceSecret); err != nil {
 		return nil, fmt.Errorf("start meta-agent: %w", err)
 	}

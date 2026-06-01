@@ -29,10 +29,11 @@ import (
 // distinctly and prevent the Update button from chasing a remote.
 //
 // Layout convention:
-//   /opt/apteva/apps/
-//     simple/
-//       apteva.yaml          ← parsed
-//       dist/                ← already referenced by manifest.runtime.static_dir
+//
+//	/opt/apteva/apps/
+//	  simple/
+//	    apteva.yaml          ← parsed
+//	    dist/                ← already referenced by manifest.runtime.static_dir
 //
 // Manifests with malformed YAML are logged and skipped — never
 // block boot.

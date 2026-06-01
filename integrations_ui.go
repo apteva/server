@@ -10,7 +10,8 @@ import (
 )
 
 // handleIntegrationStatic serves UI bundles for a given integration:
-//   GET /api/integrations/<slug>/ui/<file>
+//
+//	GET /api/integrations/<slug>/ui/<file>
 //
 // Resolves to <uiDir>/<slug>/<file>. The uiDir is set at boot from
 // either APTEVA_INTEGRATIONS_UI_DIR (preferred), the dev path

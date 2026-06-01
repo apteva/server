@@ -41,11 +41,14 @@ func (s *Server) recomputePendingOptions() {
 		return
 	}
 	defer rows.Close()
-	type pending struct{ id int64; flag int }
+	type pending struct {
+		id   int64
+		flag int
+	}
 	var updates []pending
 	for rows.Next() {
 		var (
-			id                              int64
+			id                                int64
 			projectID, manifestJSON, bindJSON string
 		)
 		if err := rows.Scan(&id, &projectID, &manifestJSON, &bindJSON); err != nil {
@@ -164,8 +167,8 @@ func (s *Server) dependentsOfConnection(connID int64) ([]ConnectionDependent, er
 	var out []ConnectionDependent
 	for rows.Next() {
 		var (
-			id     int64
-			name   string
+			id       int64
+			name     string
 			bindJSON string
 		)
 		if err := rows.Scan(&id, &name, &bindJSON); err != nil {
@@ -202,8 +205,8 @@ func (s *Server) dependentsOfApp(targetInstallID int64) ([]ConnectionDependent, 
 	var out []ConnectionDependent
 	for rows.Next() {
 		var (
-			id     int64
-			name   string
+			id       int64
+			name     string
 			bindJSON string
 		)
 		if err := rows.Scan(&id, &name, &bindJSON); err != nil {

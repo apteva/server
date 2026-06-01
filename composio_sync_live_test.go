@@ -9,7 +9,8 @@ import (
 )
 
 // Run with:
-//   COMPOSIO_KEY=ak_... go test -tags live -run TestComposioSync_Live -v -count=1
+//
+//	COMPOSIO_KEY=ak_... go test -tags live -run TestComposioSync_Live -v -count=1
 //
 // Not a normal unit test — exercises syncComposioProviderData against the
 // real Composio API using a fresh SQLite DB. Prints the resulting
