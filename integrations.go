@@ -1047,7 +1047,7 @@ func buildURL(baseURL, path string, input map[string]any) string {
 	for key, val := range input {
 		placeholder := "{" + key + "}"
 		if strings.Contains(resolved, placeholder) {
-			resolved = strings.ReplaceAll(resolved, placeholder, fmt.Sprintf("%v", val))
+			resolved = replaceURLPathParam(resolved, placeholder, fmt.Sprintf("%v", val))
 		}
 	}
 	// If the resolved path is itself absolute, treat it as the full URL
@@ -1061,6 +1061,36 @@ func buildURL(baseURL, path string, input map[string]any) string {
 		return resolved
 	}
 	return baseURL + resolved
+}
+
+func replaceURLPathParam(path, placeholder, value string) string {
+	// Full-URL passthrough: tools like Gemini's download_video declare
+	// path="{videoUrl}" and expect the input to become the complete
+	// request URL, not an escaped path segment.
+	if path == placeholder && (strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://")) {
+		return value
+	}
+
+	// Absolute URL host placeholders: Pinecone data-plane tools use
+	// "https://{index_host}/..." where the placeholder is the authority,
+	// so escaping dots/slashes would corrupt the host. Path placeholders
+	// after the authority are still escaped below.
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		if idx := strings.Index(path, placeholder); idx >= 0 {
+			schemeEnd := strings.Index(path, "://")
+			firstPathSlash := -1
+			if schemeEnd >= 0 {
+				if rel := strings.Index(path[schemeEnd+3:], "/"); rel >= 0 {
+					firstPathSlash = schemeEnd + 3 + rel
+				}
+			}
+			if firstPathSlash < 0 || idx < firstPathSlash {
+				return strings.ReplaceAll(path, placeholder, value)
+			}
+		}
+	}
+
+	return strings.ReplaceAll(path, placeholder, url.PathEscape(value))
 }
 
 // buildAuthQuery returns the auth credentials encoded as "k=v&k=v" with no

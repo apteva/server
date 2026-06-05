@@ -58,6 +58,8 @@ var reservedAppSiblings = map[string]bool{
 
 const appVersionRetainPrevious = 1
 
+var gitRetryDelays = []time.Duration{1 * time.Second, 3 * time.Second}
+
 // humaniseBuildLine turns a stray go build output line into something
 // short enough for the status pill in the dashboard. We ignore noise
 // like "verifying" / module-version chatter and fall back to a short
@@ -110,10 +112,12 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 
 	progress(fmt.Sprintf("Cloning %s@%s…", src.Repo, ref))
 	if err := cloneOrUpdate(srcDir, src.Repo, ref); err != nil {
+		cleanupFailedSourceVersionDir(dir, binPath)
 		return 0, "", fmt.Errorf("clone %s@%s: %w", src.Repo, ref, err)
 	}
 	port, err = sup.buildAndSpawn(installID, m, srcDir, entry, binPath, gobuildDir, nil, env, progress)
 	if err != nil {
+		cleanupFailedSourceVersionDir(dir, binPath)
 		return 0, "", err
 	}
 	if err := stripGitMetadata(srcDir); err != nil {
@@ -240,7 +244,7 @@ func (sup *LocalSupervisor) BuildFromLocalSource(installID int64, m *sdk.Manifes
 func cloneOrUpdate(srcDir, repo, ref string) error {
 	repoURL := normalizeRepoURL(repo)
 	if _, err := os.Stat(filepath.Join(srcDir, ".git")); err == nil {
-		if err := runGit(srcDir, "fetch", "--tags", "--force", "origin"); err != nil {
+		if err := runGitWithRetry(srcDir, "fetch", "--tags", "--force", "origin"); err != nil {
 			// Cache poisoned (different remote, etc.) — wipe and reclone.
 			os.RemoveAll(srcDir)
 		} else {
@@ -261,10 +265,40 @@ func cloneOrUpdate(srcDir, repo, ref string) error {
 	if err := os.MkdirAll(filepath.Dir(srcDir), 0755); err != nil {
 		return err
 	}
-	if err := runGit("", "clone", repoURL, srcDir); err != nil {
+	parent := filepath.Dir(srcDir)
+	tmpDir, err := os.MkdirTemp(parent, ".clone-")
+	if err != nil {
 		return err
 	}
-	return runGit(srcDir, "checkout", "--detach", refExpr(ref))
+	cleanupTmp := true
+	defer func() {
+		if cleanupTmp {
+			_ = os.RemoveAll(tmpDir)
+		}
+	}()
+	if err := runGitWithRetry("", "clone", repoURL, tmpDir); err != nil {
+		return err
+	}
+	if err := runGit(tmpDir, "checkout", "--detach", refExpr(ref)); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(srcDir); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpDir, srcDir); err != nil {
+		return err
+	}
+	cleanupTmp = false
+	return nil
+}
+
+func cleanupFailedSourceVersionDir(versionDir, binPath string) {
+	if _, err := os.Stat(binPath); err == nil {
+		return
+	}
+	if err := os.RemoveAll(versionDir); err != nil {
+		log.Printf("[APPS-SOURCE] cleanup failed source dir %s: %v", versionDir, err)
+	}
 }
 
 func stripGitMetadata(srcDir string) error {
@@ -333,6 +367,26 @@ func runGit(dir string, args ...string) error {
 		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func runGitWithRetry(dir string, args ...string) error {
+	var lastErr error
+	attempts := len(gitRetryDelays) + 1
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if attempt > 1 {
+			time.Sleep(gitRetryDelays[attempt-2])
+		}
+		err := runGit(dir, args...)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if attempt < attempts {
+			log.Printf("[APPS-SOURCE] git %s failed attempt %d/%d: %v; retrying",
+				strings.Join(args, " "), attempt, attempts, err)
+		}
+	}
+	return lastErr
 }
 
 // goBuild runs `go build -o <binPath> .` inside srcDir/<entry>. The

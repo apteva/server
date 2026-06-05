@@ -208,6 +208,35 @@ func TestBuildURL(t *testing.T) {
 	}
 }
 
+func TestBuildURL_EscapesPathParams(t *testing.T) {
+	url := buildURL("https://sheets.googleapis.com/v4", "/spreadsheets/{spreadsheetId}/values/{range}", map[string]any{
+		"spreadsheetId": "sheet123",
+		"range":         "'Form Responses 1'!1:30",
+	})
+	want := "https://sheets.googleapis.com/v4/spreadsheets/sheet123/values/%27Form%20Responses%201%27%211:30"
+	if url != want {
+		t.Errorf("got %s, want %s", url, want)
+	}
+}
+
+func TestBuildURL_PreservesAbsoluteURLHostAndFullURLParams(t *testing.T) {
+	url := buildURL("https://api.pinecone.io", "https://{index_host}/query", map[string]any{
+		"index_host": "idx-123.svc.us-east-1.pinecone.io",
+	})
+	want := "https://idx-123.svc.us-east-1.pinecone.io/query"
+	if url != want {
+		t.Errorf("got %s, want %s", url, want)
+	}
+
+	url = buildURL("https://generativelanguage.googleapis.com/v1beta", "{videoUrl}", map[string]any{
+		"videoUrl": "https://download.example.com/video file.mp4?token=a/b",
+	})
+	want = "https://download.example.com/video file.mp4?token=a/b"
+	if url != want {
+		t.Errorf("got %s, want %s", url, want)
+	}
+}
+
 func TestBuildAuthQuery(t *testing.T) {
 	q := buildAuthQuery(map[string]string{"token": "{{app_token}}"}, map[string]string{"app_token": "abc123"})
 	if q != "token=abc123" {

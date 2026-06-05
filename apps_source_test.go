@@ -10,6 +10,8 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -187,6 +189,137 @@ func TestStripGitMetadata_RemovesOnlyGitDir(t *testing.T) {
 	if got, err := os.ReadFile(mainFile); err != nil || string(got) != "package main\n" {
 		t.Fatalf("source file changed: got=%q err=%v", got, err)
 	}
+}
+
+func TestCloneOrUpdateRetriesFreshCloneAndPromotesOnlyOnSuccess(t *testing.T) {
+	countFile := installFakeGit(t, 3)
+	withFastGitRetries(t)
+	srcDir := filepath.Join(t.TempDir(), "trading", "0.4.16", "src")
+
+	if err := cloneOrUpdate(srcDir, "github.com/apteva/apps", "main"); err != nil {
+		t.Fatalf("cloneOrUpdate: %v", err)
+	}
+
+	if got := strings.TrimSpace(readFile(t, countFile)); got != "3" {
+		t.Fatalf("clone attempts=%q, want 3", got)
+	}
+	if _, err := os.Stat(filepath.Join(srcDir, ".git")); err != nil {
+		t.Fatalf("successful clone was not promoted to srcDir: %v", err)
+	}
+	assertNoCloneTemps(t, filepath.Dir(srcDir))
+}
+
+func TestCloneOrUpdateCleansPartialCloneOnFailure(t *testing.T) {
+	countFile := installFakeGit(t, 99)
+	withFastGitRetries(t)
+	srcDir := filepath.Join(t.TempDir(), "trading", "0.4.16", "src")
+
+	err := cloneOrUpdate(srcDir, "github.com/apteva/apps", "main")
+	if err == nil {
+		t.Fatal("expected clone failure")
+	}
+
+	if got := strings.TrimSpace(readFile(t, countFile)); got != "3" {
+		t.Fatalf("clone attempts=%q, want 3", got)
+	}
+	if _, statErr := os.Stat(srcDir); !os.IsNotExist(statErr) {
+		t.Fatalf("partial clone should not be promoted to srcDir, stat err=%v", statErr)
+	}
+	assertNoCloneTemps(t, filepath.Dir(srcDir))
+}
+
+func TestCleanupFailedSourceVersionDirRemovesOnlyWhenNoBinaryExists(t *testing.T) {
+	root := t.TempDir()
+	failedVersion := filepath.Join(root, "trading", "0.4.16")
+	if err := os.MkdirAll(filepath.Join(failedVersion, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir failed version: %v", err)
+	}
+	cleanupFailedSourceVersionDir(failedVersion, filepath.Join(failedVersion, "bin"))
+	if _, err := os.Stat(failedVersion); !os.IsNotExist(err) {
+		t.Fatalf("failed version without binary should be removed, err=%v", err)
+	}
+
+	healthyVersion := filepath.Join(root, "trading", "0.4.15")
+	binPath := filepath.Join(healthyVersion, "bin")
+	if err := os.MkdirAll(healthyVersion, 0o755); err != nil {
+		t.Fatalf("mkdir healthy version: %v", err)
+	}
+	if err := os.WriteFile(binPath, []byte("binary"), 0o755); err != nil {
+		t.Fatalf("write bin: %v", err)
+	}
+	cleanupFailedSourceVersionDir(healthyVersion, binPath)
+	if _, err := os.Stat(healthyVersion); err != nil {
+		t.Fatalf("version with binary should be preserved: %v", err)
+	}
+}
+
+func installFakeGit(t *testing.T, succeedOnAttempt int) string {
+	t.Helper()
+	dir := t.TempDir()
+	countFile := filepath.Join(dir, "count")
+	script := filepath.Join(dir, "git")
+	body := `#!/bin/sh
+set -eu
+cmd="${1:-}"
+case "$cmd" in
+  clone)
+    count=0
+    if [ -f "$APTEVA_FAKE_GIT_COUNT" ]; then count=$(cat "$APTEVA_FAKE_GIT_COUNT"); fi
+    count=$((count + 1))
+    echo "$count" > "$APTEVA_FAKE_GIT_COUNT"
+    dest="$3"
+    mkdir -p "$dest/partial"
+    if [ "$count" -lt "$APTEVA_FAKE_GIT_SUCCEED_ON" ]; then
+      echo "LibreSSL SSL_connect: SSL_ERROR_SYSCALL in connection to github.com:443" >&2
+      exit 56
+    fi
+    mkdir -p "$dest/.git"
+    echo "package main" > "$dest/main.go"
+    exit 0
+    ;;
+  checkout|fetch)
+    exit 0
+    ;;
+esac
+echo "unexpected git command: $*" >&2
+exit 2
+`
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatalf("write fake git: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("APTEVA_FAKE_GIT_COUNT", countFile)
+	t.Setenv("APTEVA_FAKE_GIT_SUCCEED_ON", strconv.Itoa(succeedOnAttempt))
+	return countFile
+}
+
+func withFastGitRetries(t *testing.T) {
+	t.Helper()
+	prev := gitRetryDelays
+	gitRetryDelays = []time.Duration{0, 0}
+	t.Cleanup(func() { gitRetryDelays = prev })
+}
+
+func assertNoCloneTemps(t *testing.T, dir string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read clone parent: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".clone-") {
+			t.Fatalf("temporary clone dir was not removed: %s", entry.Name())
+		}
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(data)
 }
 
 // TestVersionDirRE_AcceptsRejects pins the regex behaviour. Without
