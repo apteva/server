@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -254,6 +255,130 @@ func TestPersistentEnvironmentListedWithoutRuntime(t *testing.T) {
 	}
 	if app := list[0].Apps["crm"]; app.Kind != "install" || app.InstallID != installID {
 		t.Fatalf("persisted app summary wrong: %+v", list[0].Apps)
+	}
+}
+
+func TestEnvironmentInstallIDsPreferCachedInstallSource(t *testing.T) {
+	dataDir := t.TempDir()
+	store, err := NewStore(filepath.Join(dataDir, "server.db"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	defer store.Close()
+	cacheDir := filepath.Join(dataDir, "apps", "trading", "0.4.16")
+	srcDir := filepath.Join(cacheDir, "src", "mcp", "trading")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "apteva.yaml"), []byte("name: trading\nversion: 0.4.16\n"), 0644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	binPath := filepath.Join(cacheDir, "bin")
+	if err := os.WriteFile(binPath, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatalf("write bin: %v", err)
+	}
+	s := &Server{
+		store:        store,
+		environments: NewEnvironmentManager(environmentDataRoot(dataDir)),
+	}
+	s.environments.ResolveSource = func(name string) (string, error) {
+		return filepath.Join(dataDir, "stale", name), nil
+	}
+	res, err := store.db.Exec(`INSERT INTO apps (name, source, manifest_json) VALUES ('trading', 'git', '{}')`)
+	if err != nil {
+		t.Fatalf("seed app: %v", err)
+	}
+	appID, _ := res.LastInsertId()
+	res, err = store.db.Exec(
+		`INSERT INTO app_installs (app_id, project_id, status, local_bin_path) VALUES (?, 'proj-1', 'running', ?)`,
+		appID, binPath)
+	if err != nil {
+		t.Fatalf("seed install: %v", err)
+	}
+	installID, _ := res.LastInsertId()
+
+	dirs, err := s.environmentAppSrcDirsForInstalls("proj-1", []int64{installID})
+	if err != nil {
+		t.Fatalf("resolve source dirs: %v", err)
+	}
+	if got := dirs["trading"]; got != srcDir {
+		t.Fatalf("source dir = %q, want cached install source %q", got, srcDir)
+	}
+}
+
+func TestGenLocalGoWorkAllowsStandaloneCachedSource(t *testing.T) {
+	appDir := filepath.Join(t.TempDir(), "cache", "apps", "trading", "0.4.16", "src", "mcp", "trading")
+	if err := os.MkdirAll(appDir, 0755); err != nil {
+		t.Fatalf("mkdir app: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "go.mod"), []byte("module example.com/trading\n\ngo 1.25.0\n"), 0644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	goWork, cleanup, err := genLocalGoWork(appDir)
+	if err != nil {
+		t.Fatalf("genLocalGoWork: %v", err)
+	}
+	defer cleanup()
+	body, err := os.ReadFile(goWork)
+	if err != nil {
+		t.Fatalf("read go.work: %v", err)
+	}
+	if !strings.Contains(string(body), appDir) {
+		t.Fatalf("go.work should include cached app dir %q, got:\n%s", appDir, string(body))
+	}
+}
+
+func TestCreatePersistentEnvironmentAutostartFailureReturnsError(t *testing.T) {
+	dataDir := t.TempDir()
+	store, err := NewStore(filepath.Join(dataDir, "server.db"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	defer store.Close()
+	srcDir := filepath.Join(dataDir, "apps", "mcp", "trading")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "apteva.yaml"), []byte("name: trading\nversion: 0.4.16\n"), 0644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	s := &Server{
+		store:        store,
+		port:         "5280",
+		environments: NewEnvironmentManager(environmentDataRoot(dataDir)),
+	}
+	s.environments.server = s
+	s.environments.ResolveSource = func(name string) (string, error) {
+		if name == "trading" {
+			return srcDir, nil
+		}
+		return "", os.ErrNotExist
+	}
+	res, err := store.db.Exec(`INSERT INTO apps (name, source, manifest_json) VALUES ('trading', 'git', '{}')`)
+	if err != nil {
+		t.Fatalf("seed app: %v", err)
+	}
+	appID, _ := res.LastInsertId()
+	res, err = store.db.Exec(`INSERT INTO app_installs (app_id, project_id, status) VALUES (?, 'proj-1', 'running')`, appID)
+	if err != nil {
+		t.Fatalf("seed install: %v", err)
+	}
+	installID, _ := res.LastInsertId()
+
+	if _, err := s.createPersistentEnvironment(createEnvironmentRequest{
+		ID:            "bt-autostart-fails",
+		ProjectID:     "proj-1",
+		AppInstallIDs: []int64{installID},
+		Mode:          "block",
+	}, 1); err == nil {
+		t.Fatalf("expected autostart failure to be returned")
+	}
+	rec, err := store.GetEnvironmentRecord("bt-autostart-fails")
+	if err != nil {
+		t.Fatalf("environment record should keep error state: %v", err)
+	}
+	if rec.Status != "error" || rec.ErrorMessage == "" {
+		t.Fatalf("record status/error = %q/%q, want error with message", rec.Status, rec.ErrorMessage)
 	}
 }
 

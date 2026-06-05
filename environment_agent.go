@@ -255,6 +255,11 @@ func (s *Server) environmentAgentAppMCPNames(environment *Environment, src *Agen
 	for _, name := range appMCPNamesFromAgentConfig(src, available) {
 		selected[name] = true
 	}
+	if len(selected) == 0 {
+		for name := range available {
+			selected[name] = true
+		}
+	}
 	return sortedMapKeys(selected)
 }
 

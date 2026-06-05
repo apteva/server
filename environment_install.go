@@ -164,21 +164,34 @@ func (s *Server) deleteEnvironmentInstall(installID int64) {
 func genLocalGoWork(appDir string) (path string, cleanup func(), err error) {
 	noop := func() {}
 	root := findWorkspaceRoot(appDir)
-	if root == "" {
-		return "", noop, fmt.Errorf("no workspace go.work found above %s", appDir)
-	}
 	appAbs, err := filepath.Abs(appDir)
 	if err != nil {
 		return "", noop, err
 	}
-	sdkAbs := filepath.Join(root, "app-sdk")
-	if _, err := os.Stat(filepath.Join(sdkAbs, "go.mod")); err != nil {
-		return "", noop, fmt.Errorf("app-sdk not found at %s", sdkAbs)
+	sdkAbs := ""
+	if root != "" {
+		candidate := filepath.Join(root, "app-sdk")
+		if _, err := os.Stat(filepath.Join(candidate, "go.mod")); err == nil {
+			sdkAbs = candidate
+		}
+	}
+	if sdkAbs == "" {
+		sdkAbs = findLocalAppSDKDir(appAbs)
 	}
 
 	// Mirror the workspace's go directive so the temp workspace parses.
 	goVer := "1.25"
-	if data, e := os.ReadFile(filepath.Join(root, "go.work")); e == nil {
+	if root != "" {
+		if data, e := os.ReadFile(filepath.Join(root, "go.work")); e == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				l := strings.TrimSpace(line)
+				if strings.HasPrefix(l, "go ") {
+					goVer = strings.TrimSpace(strings.TrimPrefix(l, "go "))
+					break
+				}
+			}
+		}
+	} else if data, e := os.ReadFile(filepath.Join(appAbs, "go.mod")); e == nil {
 		for _, line := range strings.Split(string(data), "\n") {
 			l := strings.TrimSpace(line)
 			if strings.HasPrefix(l, "go ") {
@@ -192,13 +205,50 @@ func genLocalGoWork(appDir string) (path string, cleanup func(), err error) {
 	if err != nil {
 		return "", noop, err
 	}
-	content := fmt.Sprintf("go %s\n\nuse (\n\t%s\n\t%s\n)\n", goVer, appAbs, sdkAbs)
+	uses := []string{appAbs}
+	if sdkAbs != "" {
+		uses = append(uses, sdkAbs)
+	}
+	content := fmt.Sprintf("go %s\n\nuse (\n\t%s\n)\n", goVer, strings.Join(uses, "\n\t"))
 	p := filepath.Join(tmp, "go.work")
 	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
 		os.RemoveAll(tmp)
 		return "", noop, err
 	}
 	return p, func() { os.RemoveAll(tmp) }, nil
+}
+
+func findLocalAppSDKDir(start string) string {
+	candidates := []string{}
+	if root := findWorkspaceRoot("."); root != "" {
+		candidates = append(candidates, filepath.Join(root, "app-sdk"))
+	}
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		candidates = append(candidates,
+			filepath.Join(exeDir, "..", "app-sdk"),
+			filepath.Join(exeDir, "..", "..", "app-sdk"),
+		)
+	}
+	for d := start; ; d = filepath.Dir(d) {
+		candidates = append(candidates, filepath.Join(d, "app-sdk"))
+		parent := filepath.Dir(d)
+		if parent == d {
+			break
+		}
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if fi, err := os.Stat(filepath.Join(candidate, "go.mod")); err == nil && !fi.IsDir() {
+			if abs, aerr := filepath.Abs(candidate); aerr == nil {
+				return abs
+			}
+			return candidate
+		}
+	}
+	return ""
 }
 
 // findWorkspaceRoot walks up from start to the first dir containing go.work.

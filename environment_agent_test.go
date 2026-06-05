@@ -52,7 +52,7 @@ func TestEnvironmentAgentAppMCPNames_UsesExplicitSourceAppMCPs(t *testing.T) {
 	}
 }
 
-func TestEnvironmentAgentAppMCPNames_UnboundAgentGetsNoEnvironmentApps(t *testing.T) {
+func TestEnvironmentAgentAppMCPNames_UnboundAgentGetsExplicitEnvironmentApps(t *testing.T) {
 	s := newTestServer(t)
 	agent, err := s.store.CreateAgent(1, "unbound-agent", "do work", "autonomous", "{}", "proj-1")
 	if err != nil {
@@ -60,7 +60,8 @@ func TestEnvironmentAgentAppMCPNames_UnboundAgentGetsNoEnvironmentApps(t *testin
 	}
 
 	got := s.environmentAgentAppMCPNames(testEnvironmentWithInstalls("media", "storage"), agent)
-	if len(got) != 0 {
-		t.Fatalf("environmentAgentAppMCPNames = %#v, want no app MCPs", got)
+	want := []string{"media", "storage"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("environmentAgentAppMCPNames = %#v, want %#v", got, want)
 	}
 }
