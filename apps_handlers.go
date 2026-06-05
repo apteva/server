@@ -1174,13 +1174,26 @@ func (s *Server) handleSetInstallStatus(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "status must be running|disabled|error", http.StatusBadRequest)
 		return
 	}
+	effectiveSidecarURL := strings.TrimSpace(body.SidecarURL)
+	if body.Status == "running" {
+		var localBinPath string
+		var localPort int64
+		if err := s.store.db.QueryRow(
+			`SELECT COALESCE(local_bin_path, ''), COALESCE(local_port, 0)
+				   FROM app_installs
+				  WHERE id = ?`,
+			installID,
+		).Scan(&localBinPath, &localPort); err == nil && localBinPath != "" && localPort > 0 {
+			effectiveSidecarURL = localSidecarURL(localPort)
+		}
+	}
 	upd, err := s.store.db.Exec(
 		`UPDATE app_installs SET
-			status = ?,
-			service_name = COALESCE(NULLIF(?, ''), service_name),
-			sidecar_url_override = COALESCE(NULLIF(?, ''), sidecar_url_override)
-		 WHERE id = ?`,
-		body.Status, body.ServiceName, body.SidecarURL, installID)
+				status = ?,
+				service_name = COALESCE(NULLIF(?, ''), service_name),
+				sidecar_url_override = COALESCE(NULLIF(?, ''), sidecar_url_override)
+			 WHERE id = ?`,
+		body.Status, body.ServiceName, effectiveSidecarURL, installID)
 	if err != nil {
 		http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
 		return

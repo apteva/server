@@ -35,3 +35,26 @@ func TestEnsureEnvironmentMCPOnHelper(t *testing.T) {
 		t.Fatalf("expected exactly 1 'environments' mcp_server, got %d: %s", n, helper.Config)
 	}
 }
+
+func TestEnsureEnvironmentMCPOnHelperRemovesLegacyWorlds(t *testing.T) {
+	s := &Server{port: "5280"}
+	helper := &Agent{Config: `{"mcp_servers":[{"name":"worlds","no_spawn":true,"transport":"http","url":"http://127.0.0.1:5280/api/world-mcp"},{"name":"environments","no_spawn":true,"transport":"http","url":"http://127.0.0.1:5280/api/environment-mcp"}]}`}
+
+	s.ensureEnvironmentMCPOnHelper(helper)
+
+	var cfg struct {
+		MCPServers []map[string]any `json:"mcp_servers"`
+	}
+	if err := json.Unmarshal([]byte(helper.Config), &cfg); err != nil {
+		t.Fatalf("config not valid JSON: %v", err)
+	}
+	for _, m := range cfg.MCPServers {
+		url, _ := m["url"].(string)
+		if m["name"] == "worlds" || strings.Contains(url, "/api/world-mcp") {
+			t.Fatalf("legacy worlds mcp_server was not removed: %s", helper.Config)
+		}
+	}
+	if len(cfg.MCPServers) != 1 || cfg.MCPServers[0]["name"] != "environments" {
+		t.Fatalf("expected only environments mcp_server, got: %s", helper.Config)
+	}
+}

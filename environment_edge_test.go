@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"testing"
@@ -108,6 +109,69 @@ func TestEnvironmentEdgeMockAndBlock(t *testing.T) {
 	}
 	if !calls[1].Blocked {
 		t.Errorf("second call should be Blocked: %+v", calls[1])
+	}
+}
+
+func TestEnvironmentEdgeConnectPassthroughMode(t *testing.T) {
+	cases := []struct {
+		mode EdgeMode
+		want bool
+	}{
+		{mode: EdgePassthrough, want: true},
+		{mode: EdgeRecord, want: true},
+		{mode: EdgeBlock, want: false},
+		{mode: EdgeMock, want: false},
+		{mode: EdgeReplay, want: false},
+	}
+	for _, tc := range cases {
+		edge := &EnvironmentEdge{mode: tc.mode}
+		if got := edge.shouldTunnelConnect("example.com"); got != tc.want {
+			t.Fatalf("mode %s tunnel CONNECT = %v, want %v", tc.mode, got, tc.want)
+		}
+	}
+	edge := &EnvironmentEdge{mode: EdgeBlock, policy: SandboxPolicy{AllowHostSuffixes: []string{"example.com"}}}
+	if !edge.shouldTunnelConnect("api.example.com") {
+		t.Fatalf("allowlisted host should tunnel CONNECT even in block mode")
+	}
+}
+
+func TestEnvironmentEdgePassthroughHTTPS(t *testing.T) {
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/video.mp4" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "video/mp4")
+		_, _ = w.Write([]byte("video bytes"))
+	}))
+	defer upstream.Close()
+
+	edge, err := startEnvironmentEdge(SandboxPolicy{}, EdgePassthrough, nil)
+	if err != nil {
+		t.Fatalf("start edge: %v", err)
+	}
+	defer edge.Stop()
+
+	pu, err := url.Parse(edge.ProxyURL())
+	if err != nil {
+		t.Fatalf("parse proxy url: %v", err)
+	}
+	client := upstream.Client()
+	tr := upstream.Client().Transport.(*http.Transport).Clone()
+	tr.Proxy = http.ProxyURL(pu)
+	client.Transport = tr
+	resp, err := client.Get(upstream.URL + "/video.mp4")
+	if err != nil {
+		t.Fatalf("GET via proxy: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || string(body) != "video bytes" {
+		t.Fatalf("response = %d %q, want 200 video bytes", resp.StatusCode, body)
+	}
+	calls := edge.Calls()
+	if len(calls) == 0 || calls[0].Method != "CONNECT" || !calls[0].Allowed {
+		t.Fatalf("expected allowed CONNECT call, got %+v", calls)
 	}
 }
 

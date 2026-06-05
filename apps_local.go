@@ -31,6 +31,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -425,23 +426,19 @@ func (sup *LocalSupervisor) spawn(installID int64, appName, bin string, port int
 	}
 	cmd := exec.CommandContext(context.Background(), bin)
 	cmd.Dir = dataDir
-	// Strip the parent's DB_PATH and APTEVA_DATA_DIR so the sidecar
-	// doesn't accidentally inherit apteva-server's own paths (the SDK
-	// respects these env vars over manifest defaults, and os.Environ()
-	// would otherwise leak them through).
-	envv := envWithout(os.Environ(), "DB_PATH", "APTEVA_DATA_DIR")
-	envv = append(envv, fmt.Sprintf("APTEVA_APP_PORT=%d", port))
-	envv = append(envv, "DB_PATH="+dbPath)
+	overrides := make(map[string]string, len(env)+3)
+	overrides["APTEVA_APP_PORT"] = fmt.Sprintf("%d", port)
+	overrides["DB_PATH"] = dbPath
 	// Writable per-install dir for any persistent file the app needs
 	// outside its DB (blobs, cloned repos, generated artifacts, …) —
 	// same dir AppDB lives in. The SDK surfaces this via ctx.DataDir()
 	// so apps stop hardcoding paths like "/data/foo" that only exist
 	// inside container deployments.
-	envv = append(envv, "APTEVA_DATA_DIR="+persistentRoot)
 	for k, v := range env {
-		envv = append(envv, k+"="+v)
+		overrides[k] = v
 	}
-	cmd.Env = envv
+	overrides["APTEVA_DATA_DIR"] = persistentRoot
+	cmd.Env = childEnvWithOverrides(os.Environ(), overrides)
 	cmd.Stdout = logf
 	cmd.Stderr = logf
 	// Setpgid puts the child into a new process group with itself as
@@ -529,6 +526,33 @@ outer:
 		out = append(out, e)
 	}
 	return out
+}
+
+// childEnvWithOverrides applies subprocess env overrides exactly once.
+// This matters for Environment sidecars because inherited HTTP_PROXY /
+// HTTPS_PROXY / NO_PROXY values can change which proxy Go uses if they
+// appear before the EnvironmentEdge values in cmd.Env.
+func childEnvWithOverrides(base []string, overrides map[string]string) []string {
+	keys := make([]string, 0, len(overrides))
+	for k := range overrides {
+		keys = append(keys, k)
+	}
+	scrubKeys := append([]string(nil), keys...)
+	if _, ok := overrides["HTTP_PROXY"]; ok {
+		scrubKeys = append(scrubKeys, "http_proxy")
+	}
+	if _, ok := overrides["HTTPS_PROXY"]; ok {
+		scrubKeys = append(scrubKeys, "https_proxy")
+	}
+	if _, ok := overrides["NO_PROXY"]; ok {
+		scrubKeys = append(scrubKeys, "no_proxy")
+	}
+	envv := envWithout(append([]string(nil), base...), scrubKeys...)
+	sort.Strings(keys)
+	for _, k := range keys {
+		envv = append(envv, k+"="+overrides[k])
+	}
+	return envv
 }
 
 func (sup *LocalSupervisor) waitHealthy(installID int64, port int, healthPath string, deadline time.Duration) error {
@@ -666,7 +690,7 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 		return err
 	}
 	pid := s.localApps.PID(installID)
-	url := fmt.Sprintf("http://127.0.0.1:%d", port)
+	url := localSidecarURL(int64(port))
 	s.store.db.Exec(
 		`UPDATE app_installs SET
 			status='running',
@@ -1028,7 +1052,7 @@ func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, projectID, 
 		return
 	}
 	newPID := s.localApps.PID(id)
-	s.store.db.Exec(`UPDATE app_installs SET local_pid=? WHERE id=?`, newPID, id)
+	s.updateLocalInstallRuntime(id, newPID, port)
 }
 
 // envResumeConcurrency returns APTEVA_RESUME_CONCURRENCY parsed as
@@ -1131,8 +1155,34 @@ func (s *Server) RespawnLocalInstall(installID int64) error {
 		return err
 	}
 	newPID := s.localApps.PID(installID)
-	s.store.db.Exec(`UPDATE app_installs SET local_pid=?, error_message='' WHERE id=?`, newPID, installID)
+	s.updateLocalInstallRuntime(installID, newPID, port)
+	s.LoadInstalledApps()
+	if err := s.registerAppMCP(installID); err != nil {
+		log.Printf("[APPS] register MCP after respawn install=%d: %v", installID, err)
+	}
 	return nil
+}
+
+func localSidecarURL(port int64) string {
+	if port <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("http://127.0.0.1:%d", port)
+}
+
+func (s *Server) updateLocalInstallRuntime(installID int64, pid int, port int64) {
+	if _, err := s.store.db.Exec(
+		`UPDATE app_installs SET
+			status='running',
+			local_pid=?,
+			sidecar_url_override=?,
+			status_message='',
+			error_message=''
+		 WHERE id=?`,
+		pid, localSidecarURL(port), installID,
+	); err != nil {
+		log.Printf("[APPS-LOCAL] update runtime install=%d: %v", installID, err)
+	}
 }
 
 // processAlive — best-effort: kill -0 returns nil if the pid exists and

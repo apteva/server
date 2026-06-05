@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -178,6 +179,161 @@ func TestEnvironmentMultipleAgents(t *testing.T) {
 	}
 }
 
+func TestSummarizeEnvironmentAgentsUsesRuntimeStatus(t *testing.T) {
+	s := &Server{agents: NewAgentManager(t.TempDir(), "apteva-core")}
+	s.agents.processes[10] = &runningAgent{cmd: &exec.Cmd{}, port: 4100}
+	infos := s.summarizeEnvironmentAgents([]*EnvironmentAgent{
+		{AgentID: 10, Alias: "main", Port: 4100},
+		{AgentID: 11, Alias: "stale", Port: 4101},
+	})
+	if len(infos) != 2 {
+		t.Fatalf("infos len = %d, want 2", len(infos))
+	}
+	if infos[0].Status != "running" {
+		t.Fatalf("running status = %q, want running", infos[0].Status)
+	}
+	if infos[1].Status != "stopped" {
+		t.Fatalf("stale status = %q, want stopped", infos[1].Status)
+	}
+}
+
+func TestPersistentEnvironmentListedWithoutRuntime(t *testing.T) {
+	dataDir := t.TempDir()
+	store, err := NewStore(filepath.Join(dataDir, "server.db"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	defer store.Close()
+	s := &Server{
+		store:        store,
+		port:         "5280",
+		agents:       NewAgentManager(filepath.Join(dataDir, "agents"), ""),
+		environments: NewEnvironmentManager(environmentDataRoot(dataDir)),
+	}
+	s.environments.server = s
+
+	res, err := store.db.Exec(`INSERT INTO apps (name, source, manifest_json) VALUES ('crm', 'local', '{}')`)
+	if err != nil {
+		t.Fatalf("seed app: %v", err)
+	}
+	appID, _ := res.LastInsertId()
+	res, err = store.db.Exec(`INSERT INTO app_installs (app_id, project_id, status) VALUES (?, 'proj-1', 'running')`, appID)
+	if err != nil {
+		t.Fatalf("seed install: %v", err)
+	}
+	installID, _ := res.LastInsertId()
+
+	autostart := false
+	summary, err := s.createPersistentEnvironment(createEnvironmentRequest{
+		ID:            "crm-demo",
+		ProjectID:     "proj-1",
+		AppInstallIDs: []int64{installID},
+		Mode:          "block",
+		Autostart:     &autostart,
+	}, 1)
+	if err != nil {
+		t.Fatalf("create persistent environment: %v", err)
+	}
+	if !summary.Persisted || summary.Ephemeral || summary.Status != "stopped" {
+		t.Fatalf("summary persistence/status wrong: %+v", summary)
+	}
+	if _, ok := s.environments.Get("crm-demo"); ok {
+		t.Fatalf("autostart=false should not create a runtime")
+	}
+
+	// Simulate a fresh manager after server restart: the DB row still
+	// drives list output even with no live runtime object.
+	s.environments = NewEnvironmentManager(environmentDataRoot(dataDir))
+	s.environments.server = s
+	list := s.listEnvironmentSummaries(1)
+	if len(list) != 1 {
+		t.Fatalf("list len = %d, want 1: %+v", len(list), list)
+	}
+	if list[0].ID != "crm-demo" || list[0].Status != "stopped" || !list[0].Persisted {
+		t.Fatalf("listed summary wrong: %+v", list[0])
+	}
+	if app := list[0].Apps["crm"]; app.Kind != "install" || app.InstallID != installID {
+		t.Fatalf("persisted app summary wrong: %+v", list[0].Apps)
+	}
+}
+
+func TestEphemeralEnvironmentDoesNotCreatePersistentRecord(t *testing.T) {
+	dataDir := t.TempDir()
+	store, err := NewStore(filepath.Join(dataDir, "server.db"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	defer store.Close()
+	s := &Server{
+		store:        store,
+		port:         "5280",
+		agents:       NewAgentManager(filepath.Join(dataDir, "agents"), ""),
+		environments: NewEnvironmentManager(environmentDataRoot(dataDir)),
+	}
+	s.environments.server = s
+
+	environment, err := s.createEnvironmentRuntime(createEnvironmentRequest{ID: "temp-env", Ephemeral: true, Mode: "block"}, 1)
+	if err != nil {
+		t.Fatalf("create runtime: %v", err)
+	}
+	defer s.environments.Destroy(environment.ID)
+	if _, err := store.GetEnvironmentRecord("temp-env"); err == nil {
+		t.Fatalf("ephemeral environment unexpectedly persisted")
+	}
+	list := s.listEnvironmentSummaries(1)
+	if len(list) != 1 || !list[0].Ephemeral || list[0].Persisted {
+		t.Fatalf("ephemeral summary wrong: %+v", list)
+	}
+}
+
+func TestStartPersistentEnvironmentRecreatesRuntime(t *testing.T) {
+	dataDir := t.TempDir()
+	store, err := NewStore(filepath.Join(dataDir, "server.db"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	defer store.Close()
+	s := &Server{
+		store:        store,
+		port:         "5280",
+		agents:       NewAgentManager(filepath.Join(dataDir, "agents"), ""),
+		environments: NewEnvironmentManager(environmentDataRoot(dataDir)),
+	}
+	s.environments.server = s
+
+	autostart := false
+	if _, err := s.createPersistentEnvironment(createEnvironmentRequest{
+		ID:        "restartable",
+		ProjectID: "proj-1",
+		Mode:      "block",
+		Autostart: &autostart,
+	}, 1); err != nil {
+		t.Fatalf("create persistent: %v", err)
+	}
+	rec, err := store.GetEnvironmentRecord("restartable")
+	if err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	if _, ok := s.environments.Get("restartable"); ok {
+		t.Fatalf("runtime should not exist before start")
+	}
+	runtime, err := s.startPersistentEnvironment(*rec, 1)
+	if err != nil {
+		t.Fatalf("start persistent: %v", err)
+	}
+	defer s.environments.Destroy(runtime.ID)
+	if runtime.ID != "restartable" {
+		t.Fatalf("runtime id = %q", runtime.ID)
+	}
+	rec, err = store.GetEnvironmentRecord("restartable")
+	if err != nil {
+		t.Fatalf("record after start: %v", err)
+	}
+	if rec.Status != "running" {
+		t.Fatalf("status after start = %q, want running", rec.Status)
+	}
+}
+
 func TestTrajectoryAssertions(t *testing.T) {
 	seq := []string{"lookup_customer", "charge_card"}
 	cases := []struct {
@@ -233,5 +389,23 @@ func TestIntegrationInterceptorSeam(t *testing.T) {
 	remove()
 	if _, ok := environmentInterceptors.Load(wid); ok {
 		t.Fatalf("remove() did not clear the interceptor")
+	}
+}
+
+func TestEnvironmentModeSplitDefaults(t *testing.T) {
+	if got := normalizeEnvironmentNetworkMode("", ""); got != EdgePassthrough {
+		t.Fatalf("empty network mode = %q, want %q", got, EdgePassthrough)
+	}
+	if got := normalizeEnvironmentNetworkMode("", EdgeMock); got != EdgePassthrough {
+		t.Fatalf("legacy mock network mode = %q, want %q", got, EdgePassthrough)
+	}
+	if got := normalizeEnvironmentNetworkMode("", EdgeBlock); got != EdgeBlock {
+		t.Fatalf("legacy block network mode = %q, want %q", got, EdgeBlock)
+	}
+	if got := normalizeEnvironmentIntegrationMode("", ""); got != IntegrationModeMock {
+		t.Fatalf("empty integration mode = %q, want %q", got, IntegrationModeMock)
+	}
+	if got := normalizeEnvironmentIntegrationMode(IntegrationModeReal, EdgeMock); got != IntegrationModeReal {
+		t.Fatalf("explicit real integration mode = %q, want %q", got, IntegrationModeReal)
 	}
 }

@@ -55,7 +55,9 @@ type EnvironmentSpec struct {
 	// and this field carries the starting state.
 	RestoredAppDataDirs map[string]string
 	Policy              SandboxPolicy // edge allowlist + hand-written mocks
-	Mode                EdgeMode      // edge default mode (block | passthrough | record | replay | mock)
+	Mode                EdgeMode      // legacy edge mode; prefer NetworkMode
+	NetworkMode         EdgeMode      // outbound HTTP mode (passthrough | block | record | replay)
+	IntegrationMode     string        // third-party integration mode (mock | real)
 	Cassette            *Cassette     // optional preloaded cassette (for replay)
 
 	// IntegrationFixtures answer third-party integration tool calls made by
@@ -68,6 +70,11 @@ type EnvironmentSpec struct {
 	// their real project; environment_id routing makes their tool calls mock-only.
 	ConnectionIDs []int64
 
+	// Subscriptions are environment-owned event routes. They are materialised
+	// as normal subscriptions rows scoped to project_id=Environment.ID once
+	// their target agent alias exists.
+	Subscriptions []EnvironmentSubscriptionSpec
+
 	// HealthBudget bounds how long each sidecar gets to answer /health
 	// before the create fails. Defaults to 20s.
 	HealthBudget time.Duration
@@ -75,9 +82,11 @@ type EnvironmentSpec struct {
 
 // Environment is a live test environment.
 type Environment struct {
-	ID        string
-	ProjectID string
-	Mode      EdgeMode
+	ID              string
+	ProjectID       string
+	Mode            EdgeMode // legacy alias for NetworkMode
+	NetworkMode     EdgeMode
+	IntegrationMode string
 
 	edge              *EnvironmentEdge
 	server            *Server // back-ref for real installs + teardown (nil for edge-only environments)
@@ -87,13 +96,43 @@ type Environment struct {
 	installs          map[string]*localInstall    // real installs (AppSrcDirs path), keyed by app name
 	agents            map[int64]*EnvironmentAgent // running agent cores in this environment, keyed by transient agent id
 	agentAliases      map[string]int64            // stable environment-local alias → agent id
-	removeInterceptor func()                      // unregisters this environment's integration interceptor
+	subscriptions     []EnvironmentSubscriptionSpec
+	removeInterceptor func() // unregisters this environment's integration interceptor
 	createdAt         time.Time
 }
 
 type environmentAppSource struct {
 	Name string
 	Dir  string
+}
+
+const (
+	IntegrationModeMock = "mock"
+	IntegrationModeReal = "real"
+)
+
+func normalizeEnvironmentNetworkMode(networkMode, legacy EdgeMode) EdgeMode {
+	if networkMode != "" {
+		return networkMode
+	}
+	switch legacy {
+	case EdgeMock:
+		return EdgePassthrough
+	case "":
+		return EdgePassthrough
+	default:
+		return legacy
+	}
+}
+
+func normalizeEnvironmentIntegrationMode(mode string, legacy EdgeMode) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case IntegrationModeReal:
+		return IntegrationModeReal
+	case IntegrationModeMock:
+		return IntegrationModeMock
+	}
+	return IntegrationModeMock
 }
 
 // Install returns a real in-environment install by app name.
@@ -123,6 +162,37 @@ func (w *Environment) ConnectionIDs() []int64 {
 	out := make([]int64, len(w.connectionIDs))
 	copy(out, w.connectionIDs)
 	return out
+}
+
+// SubscriptionSpecs returns the environment-owned subscription declarations.
+func (w *Environment) SubscriptionSpecs() []EnvironmentSubscriptionSpec {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := make([]EnvironmentSubscriptionSpec, len(w.subscriptions))
+	copy(out, w.subscriptions)
+	return out
+}
+
+func (w *Environment) AddSubscriptionSpec(spec EnvironmentSubscriptionSpec) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.subscriptions = upsertEnvironmentSubscriptionSpec(w.subscriptions, spec)
+}
+
+func (w *Environment) RemoveSubscriptionSpec(id string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	next := w.subscriptions[:0]
+	removed := false
+	for _, spec := range w.subscriptions {
+		if spec.ID == id {
+			removed = true
+			continue
+		}
+		next = append(next, spec)
+	}
+	w.subscriptions = next
+	return removed
 }
 
 // AttachAgent records a running agent copy so Environment.Stop tears it down.
@@ -318,6 +388,9 @@ func (w *Environment) Stop() {
 	w.agentAliases = map[string]int64{}
 	w.mu.Unlock()
 
+	if w.server != nil && w.server.store != nil && w.ID != "" {
+		_ = w.server.deleteEnvironmentSubscriptionRows(w.ID)
+	}
 	for _, agent := range agents {
 		if agent != nil {
 			agent.Stop()
@@ -337,6 +410,9 @@ func (w *Environment) Stop() {
 		// removes environment-scoped rows.
 		if w.ID != "" {
 			_, _ = w.server.store.db.Exec(`DELETE FROM connections WHERE project_id = ?`, w.ID)
+		}
+		if w.server.appEventDispatcher != nil {
+			_ = w.server.appEventDispatcher.Reconcile()
 		}
 	}
 	for _, a := range apps {
@@ -426,9 +502,16 @@ func RegisterEnvironmentInterceptor(environmentID string, fixtures []Integration
 // pre-populated state. This is the eval-run fork path — independent,
 // repeatable, starting from a known fixture.
 func (wm *EnvironmentManager) CreateFromSnapshot(spec EnvironmentSpec, snapshotID string) (*Environment, error) {
+	man, merr := wm.snapshots.Get(snapshotID)
+	if merr != nil {
+		return nil, fmt.Errorf("restore: %w", merr)
+	}
 	appDataDirs, err := wm.snapshots.Restore(snapshotID, "")
 	if err != nil {
 		return nil, err
+	}
+	if len(spec.Subscriptions) == 0 {
+		spec.Subscriptions = append([]EnvironmentSubscriptionSpec(nil), man.Subscriptions...)
 	}
 	// Seed each declared app with its restored data dir.
 	for i := range spec.Apps {
@@ -466,7 +549,9 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 	}
 	wm.mu.Unlock()
 
-	edge, err := startEnvironmentEdge(spec.Policy, spec.Mode, spec.Cassette)
+	networkMode := normalizeEnvironmentNetworkMode(spec.NetworkMode, spec.Mode)
+	integrationMode := normalizeEnvironmentIntegrationMode(spec.IntegrationMode, spec.Mode)
+	edge, err := startEnvironmentEdge(spec.Policy, networkMode, spec.Cassette)
 	if err != nil {
 		return nil, err
 	}
@@ -476,23 +561,33 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 		budget = 20 * time.Second
 	}
 	w := &Environment{
-		ID:            spec.ID,
-		ProjectID:     spec.ProjectID,
-		Mode:          edge.mode,
-		edge:          edge,
-		server:        wm.server,
-		connectionIDs: append([]int64(nil), spec.ConnectionIDs...),
-		apps:          map[string]*SandboxAppInstance{},
-		installs:      map[string]*localInstall{},
-		agents:        map[int64]*EnvironmentAgent{},
-		agentAliases:  map[string]int64{},
-		createdAt:     time.Now(),
+		ID:              spec.ID,
+		ProjectID:       spec.ProjectID,
+		Mode:            edge.mode,
+		NetworkMode:     edge.mode,
+		IntegrationMode: integrationMode,
+		edge:            edge,
+		server:          wm.server,
+		connectionIDs:   append([]int64(nil), spec.ConnectionIDs...),
+		apps:            map[string]*SandboxAppInstance{},
+		installs:        map[string]*localInstall{},
+		agents:          map[int64]*EnvironmentAgent{},
+		agentAliases:    map[string]int64{},
+		subscriptions:   append([]EnvironmentSubscriptionSpec(nil), spec.Subscriptions...),
+		createdAt:       time.Now(),
 	}
+	removeIntegrationMode := registerEnvironmentIntegrationMode(spec.ID, integrationMode)
 
 	// Register this environment's integration interceptor (if any) before
 	// spawning sidecars, so their first callback already routes correctly.
 	if len(spec.IntegrationFixtures) > 0 {
-		w.removeInterceptor = RegisterEnvironmentInterceptor(spec.ID, spec.IntegrationFixtures)
+		removeFixtures := RegisterEnvironmentInterceptor(spec.ID, spec.IntegrationFixtures)
+		w.removeInterceptor = func() {
+			removeFixtures()
+			removeIntegrationMode()
+		}
+	} else {
+		w.removeInterceptor = removeIntegrationMode
 	}
 
 	appSources, depBindings, err := wm.expandAppSourcesWithRequiredDeps(spec.AppSrcDirs)

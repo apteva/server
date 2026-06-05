@@ -159,13 +159,16 @@ func (s *Store) CreateAppEventSubscription(userID, instanceID int64, name, slug,
 func (s *Store) ListSubscriptions(userID int64, projectID ...string) ([]Subscription, error) {
 	var rows *sql.Rows
 	var err error
-	const cols = "id, agent_id, connection_id, name, slug, description, webhook_path, enabled, COALESCE(notify_agent,0), COALESCE(thread_id,''), COALESCE(events,''), created_at"
+	const cols = `id, agent_id, connection_id, name, slug, description, webhook_path,
+		enabled, COALESCE(notify_agent,0), COALESCE(thread_id,''), COALESCE(events,''),
+		COALESCE(project_id,''), COALESCE(external_webhook_id,''),
+		COALESCE(source,'webhook'), COALESCE(last_seq_delivered,0), created_at`
 	if len(projectID) > 0 && projectID[0] != "" {
 		rows, err = s.db.Query(
-			"SELECT "+cols+" FROM subscriptions WHERE user_id = ? AND (project_id = ? OR project_id = '')", userID, projectID[0])
+			"SELECT "+cols+" FROM subscriptions WHERE user_id = ? AND (project_id = ? OR project_id = '') ORDER BY created_at, id", userID, projectID[0])
 	} else {
 		rows, err = s.db.Query(
-			"SELECT "+cols+" FROM subscriptions WHERE user_id = ?", userID)
+			"SELECT "+cols+" FROM subscriptions WHERE user_id = ? ORDER BY created_at, id", userID)
 	}
 	if err != nil {
 		return nil, err
@@ -177,17 +180,23 @@ func (s *Store) ListSubscriptions(userID int64, projectID ...string) ([]Subscrip
 		var sub Subscription
 		var enabled, notifyAgent int
 		var createdAt, eventsJSON string
-		rows.Scan(&sub.ID, &sub.AgentID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath, &enabled, &notifyAgent, &sub.ThreadID, &eventsJSON, &createdAt)
+		if err := rows.Scan(
+			&sub.ID, &sub.AgentID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description,
+			&sub.WebhookPath, &enabled, &notifyAgent, &sub.ThreadID, &eventsJSON, &sub.ProjectID,
+			&sub.ExternalWebhookID, &sub.Source, &sub.LastSeqDelivered, &createdAt,
+		); err != nil {
+			return nil, err
+		}
 		sub.UserID = userID
 		sub.Enabled = enabled == 1
 		sub.NotifyAgent = notifyAgent == 1
 		sub.CreatedAt, _ = parseTime(createdAt)
 		if eventsJSON != "" {
-			json.Unmarshal([]byte(eventsJSON), &sub.Events)
+			_ = json.Unmarshal([]byte(eventsJSON), &sub.Events)
 		}
 		subs = append(subs, sub)
 	}
-	return subs, nil
+	return subs, rows.Err()
 }
 
 func (s *Store) ListSubscriptionsForAgent(userID, agentID int64) ([]Subscription, error) {

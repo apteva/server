@@ -83,19 +83,26 @@ func (s *Server) runEvalInEnvironment(ctx context.Context, userID int64, agent *
 	// 3. Drive: post the eval's brief, collect the agent's replies + tool
 	//    calls from its thread history.
 	const threadID = "main"
+	eventDriven := len(opts.AppEventSubscriptions) > 0
 	preTrajLen := session.trajectoryLen()
 	if err := postCoreEvent(ctx, wa.Port, wa.APIKey, threadID, ev.Description); err != nil {
 		snap := session.snapshot()
 		return s.writeEvalRunWithDetails(ev.ID, startedAt, time.Now(), session, &snap, nil, nil, "error",
 			"post brief to environment agent: "+err.Error(), preview, 1)
 	}
-	if err := collectAssistantReplies(ctx, wa.Port, wa.APIKey, threadID, session, ev.MaxTurns); err != nil {
+	collectOpts := collectAssistantRepliesOptions{CollectAllThreads: true}
+	if eventDriven {
+		collectOpts.OverallTimeout = 5 * time.Minute
+		collectOpts.RequireMeaningfulActivityIdle = true
+		collectOpts.FailOnCoreExit = true
+	}
+	if err := collectAssistantRepliesWithOptions(ctx, wa.Port, wa.APIKey, threadID, session, ev.MaxTurns, collectOpts); err != nil {
 		session.recordSystem("runner: " + err.Error())
 	}
 	// iter-1 autonomous-loop race recovery (same as runRealEvalCore): if the
 	// core's loop fired "(no events)" → paced before our brief landed, the
 	// brief is effectively lost. Reset main + re-post once and re-collect.
-	if session.iter1RaceLikelySince(preTrajLen) {
+	if !eventDriven && session.iter1RaceLikelySince(preTrajLen) {
 		session.recordSystem("runner: iter-1 race detected (agent only paced/idled) — resetting + retrying brief")
 		if err := resetMainThread(ctx, wa.Port, wa.APIKey); err == nil {
 			time.Sleep(1500 * time.Millisecond)
@@ -121,16 +128,12 @@ func (s *Server) runEvalInEnvironment(ctx context.Context, userID int64, agent *
 }
 
 func (s *Server) subscribeEnvironmentAgentToAppEvents(userID int64, environment *Environment, wa *EnvironmentAgent, subs []RunAppEventSubscription) error {
-	if s == nil || s.store == nil {
-		return fmt.Errorf("server store not configured")
-	}
 	if s.appEventDispatcher == nil {
 		return fmt.Errorf("app event dispatcher not configured")
 	}
 	if environment == nil || wa == nil {
 		return fmt.Errorf("environment agent not running")
 	}
-	projectID := environment.ID
 	for i, sub := range subs {
 		app := strings.TrimSpace(sub.App)
 		topic := strings.TrimSpace(sub.Topic)
@@ -140,16 +143,20 @@ func (s *Server) subscribeEnvironmentAgentToAppEvents(userID int64, environment 
 		if strings.Contains(app, ":") {
 			return fmt.Errorf("subscription %d: app must not contain ':'", i)
 		}
-		threadID := strings.TrimSpace(sub.ThreadID)
-		name := strings.TrimSpace(sub.Name)
-		if name == "" {
-			name = fmt.Sprintf("environment %s %s.%s", environment.ID, app, topic)
+		spec, err := normalizeEnvironmentSubscriptionSpec(EnvironmentSubscriptionSpec{
+			Source:           environmentSubscriptionSourceAppEvent,
+			App:              app,
+			Topic:            topic,
+			TargetAgentAlias: wa.Alias,
+			ThreadID:         strings.TrimSpace(sub.ThreadID),
+			Name:             strings.TrimSpace(sub.Name),
+			Description:      strings.TrimSpace(sub.Description),
+		})
+		if err != nil {
+			return fmt.Errorf("subscription %d: %w", i, err)
 		}
-		description := strings.TrimSpace(sub.Description)
-		if description == "" {
-			description = "Environment eval app-event subscription"
-		}
-		if _, err := s.store.CreateAppEventSubscription(userID, wa.AgentID, name, app+":"+topic, description, threadID, projectID); err != nil {
+		environment.AddSubscriptionSpec(spec)
+		if err := s.installEnvironmentSubscription(userID, environment, wa, spec); err != nil {
 			return err
 		}
 	}

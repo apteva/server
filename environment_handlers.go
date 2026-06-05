@@ -25,6 +25,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -44,37 +45,50 @@ func (s *Server) registerEnvironmentRoutes(apiMux *http.ServeMux) {
 }
 
 type createEnvironmentRequest struct {
-	ID                  string               `json:"id"`
-	ProjectID           string               `json:"project_id"`
-	GatewayURL          string               `json:"gateway_url"`
-	Apps                []string             `json:"apps"`
-	AppInstallIDs       []int64              `json:"app_install_ids"`
-	ConnectionIDs       []int64              `json:"connection_ids"`
-	Mode                string               `json:"mode"`
-	AllowSuffixes       []string             `json:"allow_suffixes"`
-	Mocks               []HTTPMock           `json:"mocks"`
-	IntegrationFixtures []IntegrationFixture `json:"integration_fixtures"`
-	SeedPlan            []SeedCall           `json:"seed_plan"`
-	SeedBaseDir         string               `json:"seed_base_dir"`
-	SnapshotID          string               `json:"snapshot_id"` // optional: fork from this snapshot
+	ID                  string                        `json:"id"`
+	ProjectID           string                        `json:"project_id"`
+	GatewayURL          string                        `json:"gateway_url"`
+	Apps                []string                      `json:"apps"`
+	AppInstallIDs       []int64                       `json:"app_install_ids"`
+	ConnectionIDs       []int64                       `json:"connection_ids"`
+	Mode                string                        `json:"mode"`
+	NetworkMode         string                        `json:"network_mode"`
+	IntegrationMode     string                        `json:"integration_mode"`
+	AllowSuffixes       []string                      `json:"allow_suffixes"`
+	Mocks               []HTTPMock                    `json:"mocks"`
+	IntegrationFixtures []IntegrationFixture          `json:"integration_fixtures"`
+	Subscriptions       []EnvironmentSubscriptionSpec `json:"subscriptions"`
+	SeedPlan            []SeedCall                    `json:"seed_plan"`
+	SeedBaseDir         string                        `json:"seed_base_dir"`
+	SnapshotID          string                        `json:"snapshot_id"` // optional: fork from this snapshot
+	Ephemeral           bool                          `json:"ephemeral"`
+	Autostart           *bool                         `json:"autostart"`
 }
 
 type environmentSummary struct {
-	ID          string                        `json:"id"`
-	ProjectID   string                        `json:"project_id"`
-	Mode        EdgeMode                      `json:"mode"`
-	ProxyURL    string                        `json:"proxy_url"`
-	Apps        map[string]environmentAppInfo `json:"apps"`
-	Connections []environmentConnectionInfo   `json:"connections"`
-	Agents      []environmentAgentInfo        `json:"agents"`
+	ID              string                        `json:"id"`
+	ProjectID       string                        `json:"project_id"`
+	Mode            EdgeMode                      `json:"mode"` // legacy alias for network_mode
+	NetworkMode     EdgeMode                      `json:"network_mode"`
+	IntegrationMode string                        `json:"integration_mode"`
+	Status          string                        `json:"status"`
+	Persisted       bool                          `json:"persisted"`
+	Ephemeral       bool                          `json:"ephemeral"`
+	ErrorMessage    string                        `json:"error_message,omitempty"`
+	ProxyURL        string                        `json:"proxy_url"`
+	Apps            map[string]environmentAppInfo `json:"apps"`
+	Connections     []environmentConnectionInfo   `json:"connections"`
+	Agents          []environmentAgentInfo        `json:"agents"`
+	Subscriptions   []environmentSubscriptionInfo `json:"subscriptions"`
 }
 
 type environmentAppInfo struct {
-	URL       string `json:"url"`
-	MCPURL    string `json:"mcp_url"`
-	DataDir   string `json:"data_dir"`
-	Kind      string `json:"kind"`
-	InstallID int64  `json:"install_id,omitempty"`
+	URL       string           `json:"url"`
+	MCPURL    string           `json:"mcp_url"`
+	DataDir   string           `json:"data_dir"`
+	Kind      string           `json:"kind"`
+	InstallID int64            `json:"install_id,omitempty"`
+	Bindings  map[string]int64 `json:"bindings,omitempty"`
 }
 
 type environmentConnectionInfo struct {
@@ -84,6 +98,7 @@ type environmentConnectionInfo struct {
 	Name      string `json:"name"`
 	Status    string `json:"status"`
 	ProjectID string `json:"project_id"`
+	Logo      string `json:"logo,omitempty"`
 }
 
 type environmentAgentInfo struct {
@@ -91,6 +106,7 @@ type environmentAgentInfo struct {
 	SourceAgentID int64     `json:"source_agent_id"`
 	SourceName    string    `json:"source_name"`
 	Alias         string    `json:"alias"`
+	Status        string    `json:"status"`
 	Port          int       `json:"port"`
 	CreatedAt     time.Time `json:"created_at"`
 }
@@ -108,34 +124,200 @@ func (s *Server) summarizeEnvironment(w *Environment) environmentSummary {
 				DataDir:   inst.DataDir,
 				Kind:      "install",
 				InstallID: inst.InstallID,
+				Bindings:  s.environmentAppBindings(inst.InstallID),
 			}
 		}
 	}
 	return environmentSummary{
-		ID:          w.ID,
-		ProjectID:   w.ProjectID,
-		Mode:        w.Mode,
-		ProxyURL:    w.ProxyURL(),
-		Apps:        apps,
-		Connections: s.environmentConnectionSummaries(w.ConnectionIDs()),
-		Agents:      summarizeEnvironmentAgents(w.Agents()),
+		ID:              w.ID,
+		ProjectID:       w.ProjectID,
+		Mode:            w.NetworkMode,
+		NetworkMode:     w.NetworkMode,
+		IntegrationMode: w.IntegrationMode,
+		Status:          "running",
+		Ephemeral:       true,
+		ProxyURL:        w.ProxyURL(),
+		Apps:            apps,
+		Connections:     s.environmentConnectionSummaries(w.ConnectionIDs()),
+		Agents:          s.summarizeEnvironmentAgents(w.Agents()),
+		Subscriptions:   s.environmentSubscriptionInfos(w, nil),
 	}
 }
 
-func summarizeEnvironmentAgents(agents []*EnvironmentAgent) []environmentAgentInfo {
+func (s *Server) summarizeEnvironmentAgents(agents []*EnvironmentAgent) []environmentAgentInfo {
 	out := make([]environmentAgentInfo, 0, len(agents))
 	for _, a := range agents {
 		if a == nil {
 			continue
+		}
+		status := "running"
+		if s == nil || s.agents == nil || !s.agents.IsRunning(a.AgentID) {
+			status = "stopped"
 		}
 		out = append(out, environmentAgentInfo{
 			AgentID:       a.AgentID,
 			SourceAgentID: a.SourceAgentID,
 			SourceName:    a.SourceName,
 			Alias:         a.Alias,
+			Status:        status,
 			Port:          a.Port,
 			CreatedAt:     a.CreatedAt,
 		})
+	}
+	return out
+}
+
+type persistedEnvironmentSpec struct {
+	Apps                []string                      `json:"apps,omitempty"`
+	AppInstallIDs       []int64                       `json:"app_install_ids,omitempty"`
+	ConnectionIDs       []int64                       `json:"connection_ids,omitempty"`
+	NetworkMode         EdgeMode                      `json:"network_mode,omitempty"`
+	IntegrationMode     string                        `json:"integration_mode,omitempty"`
+	AllowSuffixes       []string                      `json:"allow_suffixes,omitempty"`
+	Mocks               []HTTPMock                    `json:"mocks,omitempty"`
+	IntegrationFixtures []IntegrationFixture          `json:"integration_fixtures,omitempty"`
+	Subscriptions       []EnvironmentSubscriptionSpec `json:"subscriptions,omitempty"`
+	SeedPlan            []SeedCall                    `json:"seed_plan,omitempty"`
+	SeedBaseDir         string                        `json:"seed_base_dir,omitempty"`
+	SnapshotID          string                        `json:"snapshot_id,omitempty"`
+}
+
+func persistentSpecFromCreateRequest(req createEnvironmentRequest) persistedEnvironmentSpec {
+	return persistedEnvironmentSpec{
+		Apps:                append([]string(nil), req.Apps...),
+		AppInstallIDs:       append([]int64(nil), req.AppInstallIDs...),
+		ConnectionIDs:       append([]int64(nil), req.ConnectionIDs...),
+		NetworkMode:         normalizeEnvironmentNetworkMode(EdgeMode(req.NetworkMode), EdgeMode(req.Mode)),
+		IntegrationMode:     normalizeEnvironmentIntegrationMode(req.IntegrationMode, EdgeMode(req.Mode)),
+		AllowSuffixes:       append([]string(nil), req.AllowSuffixes...),
+		Mocks:               append([]HTTPMock(nil), req.Mocks...),
+		IntegrationFixtures: append([]IntegrationFixture(nil), req.IntegrationFixtures...),
+		Subscriptions:       append([]EnvironmentSubscriptionSpec(nil), req.Subscriptions...),
+		SeedPlan:            append([]SeedCall(nil), req.SeedPlan...),
+		SeedBaseDir:         req.SeedBaseDir,
+		SnapshotID:          req.SnapshotID,
+	}
+}
+
+func decodePersistedEnvironmentSpec(rec *EnvironmentRecord) persistedEnvironmentSpec {
+	var spec persistedEnvironmentSpec
+	if rec != nil && rec.SpecJSON != "" {
+		_ = json.Unmarshal([]byte(rec.SpecJSON), &spec)
+	}
+	return spec
+}
+
+func (s *Server) summarizeLiveEnvironment(environment *Environment, rec *EnvironmentRecord) environmentSummary {
+	out := s.summarizeEnvironment(environment)
+	if rec != nil {
+		out.Persisted = true
+		out.Ephemeral = false
+		out.ErrorMessage = rec.ErrorMessage
+	}
+	return out
+}
+
+func (s *Server) summarizePersistedEnvironment(rec EnvironmentRecord) environmentSummary {
+	spec := decodePersistedEnvironmentSpec(&rec)
+	live, ok := s.environments.Get(rec.ID)
+	if ok {
+		return s.summarizeLiveEnvironment(live, &rec)
+	}
+	networkMode := normalizeEnvironmentNetworkMode(spec.NetworkMode, EdgeMode(rec.Mode))
+	integrationMode := normalizeEnvironmentIntegrationMode(spec.IntegrationMode, EdgeMode(rec.Mode))
+	apps := map[string]environmentAppInfo{}
+	for _, name := range spec.Apps {
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		apps[name] = environmentAppInfo{Kind: "legacy"}
+	}
+	for _, info := range s.environmentInstallInfos(spec.AppInstallIDs) {
+		apps[info.Name] = environmentAppInfo{Kind: "install", InstallID: info.InstallID, Bindings: s.environmentAppBindings(info.InstallID)}
+	}
+	status := "stopped"
+	if rec.Status == "error" {
+		status = "error"
+	}
+	return environmentSummary{
+		ID:              rec.ID,
+		ProjectID:       rec.ProjectID,
+		Mode:            networkMode,
+		NetworkMode:     networkMode,
+		IntegrationMode: integrationMode,
+		Status:          status,
+		Persisted:       true,
+		Ephemeral:       false,
+		ErrorMessage:    rec.ErrorMessage,
+		Apps:            apps,
+		Connections:     s.environmentConnectionSummaries(spec.ConnectionIDs),
+		Agents:          []environmentAgentInfo{},
+		Subscriptions:   s.environmentSubscriptionInfos(nil, &rec),
+	}
+}
+
+type environmentInstallInfo struct {
+	Name      string
+	InstallID int64
+}
+
+func (s *Server) environmentInstallInfos(ids []int64) []environmentInstallInfo {
+	out := []environmentInstallInfo{}
+	if s == nil || s.store == nil || len(ids) == 0 {
+		return out
+	}
+	seen := map[int64]bool{}
+	for _, id := range ids {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		var name string
+		if err := s.store.db.QueryRow(
+			`SELECT a.name FROM app_installs i JOIN apps a ON a.id = i.app_id WHERE i.id = ?`,
+			id,
+		).Scan(&name); err == nil {
+			out = append(out, environmentInstallInfo{Name: name, InstallID: id})
+		}
+	}
+	return out
+}
+
+func (s *Server) environmentAppBindings(installID int64) map[string]int64 {
+	if s == nil || s.store == nil || installID <= 0 {
+		return nil
+	}
+	var raw string
+	if err := s.store.db.QueryRow(`SELECT COALESCE(integration_bindings, '{}') FROM app_installs WHERE id = ?`, installID).Scan(&raw); err != nil {
+		return nil
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil || len(decoded) == 0 {
+		return nil
+	}
+	out := map[string]int64{}
+	for role, value := range decoded {
+		switch v := value.(type) {
+		case float64:
+			if v > 0 {
+				out[role] = int64(v)
+			}
+		case int64:
+			if v > 0 {
+				out[role] = v
+			}
+		case int:
+			if v > 0 {
+				out[role] = int64(v)
+			}
+		case string:
+			if parsed, err := strconv.ParseInt(v, 10, 64); err == nil && parsed > 0 {
+				out[role] = parsed
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }
@@ -152,6 +334,11 @@ func (s *Server) environmentConnectionSummaries(ids []int64) []environmentConnec
 			 FROM connections WHERE id = ?`,
 			id,
 		).Scan(&c.ID, &c.AppSlug, &c.AppName, &c.Name, &c.Status, &c.ProjectID); err == nil {
+			if s.catalog != nil {
+				if app := s.catalog.Get(c.AppSlug); app != nil && app.Logo != nil {
+					c.Logo = *app.Logo
+				}
+			}
 			out = append(out, c)
 		}
 	}
@@ -226,16 +413,206 @@ func (s *Server) environmentVisibleConnectionIDs(userID int64, projectID string,
 	return out, nil
 }
 
+func (s *Server) listEnvironmentSummaries(userID int64) []environmentSummary {
+	out := []environmentSummary{}
+	seen := map[string]bool{}
+	if s != nil && s.store != nil {
+		if records, err := s.store.ListEnvironmentRecords(userID); err == nil {
+			for _, rec := range records {
+				out = append(out, s.summarizePersistedEnvironment(rec))
+				seen[rec.ID] = true
+			}
+		}
+	}
+	for _, environment := range s.environments.List() {
+		if seen[environment.ID] {
+			continue
+		}
+		out = append(out, s.summarizeEnvironment(environment))
+	}
+	return out
+}
+
+func (s *Server) createPersistentEnvironment(req createEnvironmentRequest, userID int64) (environmentSummary, error) {
+	if s == nil || s.store == nil {
+		return environmentSummary{}, fmt.Errorf("store not configured")
+	}
+	if _, exists := s.environments.Get(req.ID); exists {
+		return environmentSummary{}, fmt.Errorf("environment %q already exists", req.ID)
+	}
+	if _, err := s.store.GetEnvironmentRecord(req.ID); err == nil {
+		return environmentSummary{}, fmt.Errorf("environment %q already exists", req.ID)
+	}
+	subscriptions, err := normalizeEnvironmentSubscriptionSpecs(req.Subscriptions)
+	if err != nil {
+		return environmentSummary{}, err
+	}
+	req.Subscriptions = subscriptions
+	spec := persistentSpecFromCreateRequest(req)
+	specJSON, _ := json.Marshal(spec)
+	networkMode := normalizeEnvironmentNetworkMode(EdgeMode(req.NetworkMode), EdgeMode(req.Mode))
+	integrationMode := normalizeEnvironmentIntegrationMode(req.IntegrationMode, EdgeMode(req.Mode))
+	req.NetworkMode = string(networkMode)
+	req.IntegrationMode = integrationMode
+	rec := EnvironmentRecord{
+		ID:        req.ID,
+		ProjectID: req.ProjectID,
+		Name:      req.ID,
+		Mode:      string(networkMode),
+		Status:    "stopped",
+		SpecJSON:  string(specJSON),
+		CreatedBy: userID,
+	}
+	if err := s.store.CreateEnvironmentRecord(rec); err != nil {
+		return environmentSummary{}, err
+	}
+	created, err := s.store.GetEnvironmentRecord(req.ID)
+	if err != nil {
+		return environmentSummary{}, err
+	}
+	autostart := true
+	if req.Autostart != nil {
+		autostart = *req.Autostart
+	}
+	if !autostart {
+		return s.summarizePersistedEnvironment(*created), nil
+	}
+	environment, err := s.startPersistentEnvironment(*created, userID)
+	if err != nil {
+		_ = s.store.UpdateEnvironmentRecordStatus(req.ID, "error", err.Error())
+		errored, _ := s.store.GetEnvironmentRecord(req.ID)
+		if errored != nil {
+			return s.summarizePersistedEnvironment(*errored), nil
+		}
+		return environmentSummary{}, err
+	}
+	running, _ := s.store.GetEnvironmentRecord(req.ID)
+	return s.summarizeLiveEnvironment(environment, running), nil
+}
+
+func (s *Server) startPersistentEnvironment(rec EnvironmentRecord, userID int64) (*Environment, error) {
+	if live, ok := s.environments.Get(rec.ID); ok {
+		_ = s.store.UpdateEnvironmentRecordStatus(rec.ID, "running", "")
+		return live, nil
+	}
+	spec := decodePersistedEnvironmentSpec(&rec)
+	req := createEnvironmentRequest{
+		ID:                  rec.ID,
+		ProjectID:           rec.ProjectID,
+		Apps:                spec.Apps,
+		AppInstallIDs:       spec.AppInstallIDs,
+		ConnectionIDs:       spec.ConnectionIDs,
+		Mode:                rec.Mode,
+		NetworkMode:         string(spec.NetworkMode),
+		IntegrationMode:     spec.IntegrationMode,
+		AllowSuffixes:       spec.AllowSuffixes,
+		Mocks:               spec.Mocks,
+		IntegrationFixtures: spec.IntegrationFixtures,
+		Subscriptions:       spec.Subscriptions,
+		SeedPlan:            spec.SeedPlan,
+		SeedBaseDir:         spec.SeedBaseDir,
+		SnapshotID:          spec.SnapshotID,
+	}
+	_ = s.store.UpdateEnvironmentRecordStatus(rec.ID, "starting", "")
+	environment, err := s.createEnvironmentRuntime(req, userID)
+	if err != nil {
+		_ = s.store.UpdateEnvironmentRecordStatus(rec.ID, "error", err.Error())
+		return nil, err
+	}
+	_ = s.store.UpdateEnvironmentRecordStatus(rec.ID, "running", "")
+	return environment, nil
+}
+
+func (s *Server) createEnvironmentRuntime(req createEnvironmentRequest, userID int64) (*Environment, error) {
+	gateway := req.GatewayURL
+	if gateway == "" {
+		gateway = "http://127.0.0.1:" + s.port
+	}
+	apps := make([]SandboxApp, 0, len(req.Apps))
+	for _, name := range req.Apps {
+		apps = append(apps, SandboxApp{Name: name})
+	}
+	appSrcDirs, err := s.environmentAppSrcDirsForInstalls(req.ProjectID, req.AppInstallIDs)
+	if err != nil {
+		return nil, err
+	}
+	connectionIDs, err := s.environmentVisibleConnectionIDs(userID, req.ProjectID, req.ConnectionIDs)
+	if err != nil {
+		return nil, err
+	}
+	subscriptions, err := normalizeEnvironmentSubscriptionSpecs(req.Subscriptions)
+	if err != nil {
+		return nil, err
+	}
+	spec := EnvironmentSpec{
+		ID:                  req.ID,
+		ProjectID:           req.ProjectID,
+		GatewayURL:          gateway,
+		Apps:                apps,
+		AppSrcDirs:          appSrcDirs,
+		Policy:              SandboxPolicy{AllowHostSuffixes: req.AllowSuffixes, Mocks: req.Mocks},
+		Mode:                EdgeMode(req.Mode),
+		NetworkMode:         normalizeEnvironmentNetworkMode(EdgeMode(req.NetworkMode), EdgeMode(req.Mode)),
+		IntegrationMode:     normalizeEnvironmentIntegrationMode(req.IntegrationMode, EdgeMode(req.Mode)),
+		IntegrationFixtures: req.IntegrationFixtures,
+		Subscriptions:       subscriptions,
+		ConnectionIDs:       connectionIDs,
+	}
+	var environment *Environment
+	if req.SnapshotID != "" {
+		environment, err = s.environments.CreateFromSnapshot(spec, req.SnapshotID)
+	} else {
+		environment, err = s.environments.Create(spec)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(req.SeedPlan) > 0 {
+		if _, err := s.ExecuteSeedPlanWithBaseDir(environment, req.SeedPlan, req.SeedBaseDir); err != nil {
+			log.Printf("[ENVIRONMENT] seed failed env=%s err=%v edge_calls=%s",
+				environment.ID, err, summarizeEnvironmentEdgeCalls(environment.Edge().Calls()))
+			s.environments.Destroy(environment.ID)
+			return nil, fmt.Errorf("seed environment: %w", err)
+		}
+	}
+	return environment, nil
+}
+
+func summarizeEnvironmentEdgeCalls(calls []InterceptedCall) string {
+	if len(calls) == 0 {
+		return "none"
+	}
+	const maxCalls = 6
+	parts := make([]string, 0, min(len(calls), maxCalls))
+	for i, call := range calls {
+		if i >= maxCalls {
+			parts = append(parts, fmt.Sprintf("...+%d", len(calls)-maxCalls))
+			break
+		}
+		disposition := "seen"
+		switch {
+		case call.Blocked:
+			disposition = "blocked"
+		case call.Mocked:
+			disposition = "mocked"
+		case call.Recorded:
+			disposition = "recorded"
+		case call.Allowed:
+			disposition = "allowed"
+		}
+		target := call.Host + call.Path
+		parts = append(parts, fmt.Sprintf("%s %s status=%d %s", call.Method, target, call.Status, disposition))
+	}
+	return strings.Join(parts, "; ")
+}
+
 func (s *Server) handleEnvironments(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsRead, sdk.PermEnvironmentsManage) {
 			return
 		}
-		out := []environmentSummary{}
-		for _, environment := range s.environments.List() {
-			out = append(out, s.summarizeEnvironment(environment))
-		}
+		out := s.listEnvironmentSummaries(getUserID(r))
 		writeJSON(w, out)
 	case http.MethodPost:
 		if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsManage) {
@@ -254,54 +631,24 @@ func (s *Server) handleEnvironments(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		gateway := req.GatewayURL
-		if gateway == "" {
-			gateway = "http://127.0.0.1:" + s.port
-		}
-		apps := make([]SandboxApp, 0, len(req.Apps))
-		for _, name := range req.Apps {
-			apps = append(apps, SandboxApp{Name: name})
-		}
-		appSrcDirs, err := s.environmentAppSrcDirsForInstalls(req.ProjectID, req.AppInstallIDs)
-		if err != nil {
-			http.Error(w, "create environment: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		connectionIDs, err := s.environmentVisibleConnectionIDs(getUserID(r), req.ProjectID, req.ConnectionIDs)
-		if err != nil {
-			http.Error(w, "create environment: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		spec := EnvironmentSpec{
-			ID:                  req.ID,
-			ProjectID:           req.ProjectID,
-			GatewayURL:          gateway,
-			Apps:                apps,
-			AppSrcDirs:          appSrcDirs,
-			Policy:              SandboxPolicy{AllowHostSuffixes: req.AllowSuffixes, Mocks: req.Mocks},
-			Mode:                EdgeMode(req.Mode),
-			IntegrationFixtures: req.IntegrationFixtures,
-			ConnectionIDs:       connectionIDs,
-		}
-		var environment *Environment
-		if req.SnapshotID != "" {
-			environment, err = s.environments.CreateFromSnapshot(spec, req.SnapshotID)
-		} else {
-			environment, err = s.environments.Create(spec)
-		}
-		if err != nil {
-			http.Error(w, "create environment: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		if len(req.SeedPlan) > 0 {
-			if _, err := s.ExecuteSeedPlanWithBaseDir(environment, req.SeedPlan, req.SeedBaseDir); err != nil {
-				s.environments.Destroy(environment.ID)
-				http.Error(w, "seed environment: "+err.Error(), http.StatusBadRequest)
+		if req.Ephemeral {
+			environment, err := s.createEnvironmentRuntime(req, getUserID(r))
+			if err != nil {
+				http.Error(w, "create environment: "+err.Error(), http.StatusBadRequest)
 				return
 			}
+			w.WriteHeader(http.StatusCreated)
+			writeJSON(w, s.summarizeEnvironment(environment))
+			return
+		}
+
+		summary, err := s.createPersistentEnvironment(req, getUserID(r))
+		if err != nil {
+			http.Error(w, "create environment: "+err.Error(), http.StatusBadRequest)
+			return
 		}
 		w.WriteHeader(http.StatusCreated)
-		writeJSON(w, s.summarizeEnvironment(environment))
+		writeJSON(w, summary)
 	default:
 		http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
 	}
@@ -324,15 +671,73 @@ func (s *Server) handleEnvironmentByID(w http.ResponseWriter, r *http.Request) {
 	if len(parts) == 2 {
 		sub = parts[1]
 	}
-	environment, ok := s.environments.Get(id)
-	if !ok {
+	environment, live := s.environments.Get(id)
+	var rec *EnvironmentRecord
+	if s.store != nil {
+		if got, err := s.store.GetEnvironmentRecord(id); err == nil {
+			rec = got
+		}
+	}
+	if !live && rec == nil {
 		http.Error(w, "environment not found: "+id, http.StatusNotFound)
+		return
+	}
+	if rec != nil && rec.ProjectID != "" {
+		need := ProjectViewer
+		if r.Method != http.MethodGet {
+			need = ProjectEditor
+		}
+		if _, _, ok := s.requireProjectAccess(w, r, rec.ProjectID, need); !ok {
+			return
+		}
+	}
+
+	if sub == "start" {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if rec == nil {
+			http.Error(w, "environment is ephemeral and cannot be restarted", http.StatusBadRequest)
+			return
+		}
+		environment, err := s.startPersistentEnvironment(*rec, getUserID(r))
+		if err != nil {
+			http.Error(w, "start environment: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		updated, _ := s.store.GetEnvironmentRecord(id)
+		writeJSON(w, s.summarizeLiveEnvironment(environment, updated))
+		return
+	}
+
+	if sub == "stop" {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if live {
+			s.environments.Destroy(id)
+		}
+		if rec != nil {
+			_ = s.store.UpdateEnvironmentRecordStatus(id, "stopped", "")
+			updated, _ := s.store.GetEnvironmentRecord(id)
+			if updated != nil {
+				writeJSON(w, s.summarizePersistedEnvironment(*updated))
+				return
+			}
+		}
+		writeJSON(w, map[string]any{"stopped": true})
 		return
 	}
 
 	// /environments/<id>/apps/<name>/... — reverse-proxy to the in-environment sidecar.
 	if strings.HasPrefix(sub, "apps/") {
 		if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsCall, sdk.PermEnvironmentsManage) {
+			return
+		}
+		if !live {
+			http.Error(w, "environment is not running: "+id, http.StatusConflict)
 			return
 		}
 		s.proxyToEnvironmentApp(w, r, environment, strings.TrimPrefix(sub, "apps/"))
@@ -344,13 +749,26 @@ func (s *Server) handleEnvironmentByID(w http.ResponseWriter, r *http.Request) {
 		if !s.requireEnvironmentAgentPermission(w, r) {
 			return
 		}
+		if !live {
+			http.Error(w, "environment is not running: "+id, http.StatusConflict)
+			return
+		}
 		s.handleEnvironmentAgents(w, r, environment, strings.TrimPrefix(strings.TrimPrefix(sub, "agents"), "/"))
+		return
+	}
+
+	if sub == "subscriptions" || strings.HasPrefix(sub, "subscriptions/") {
+		s.handleEnvironmentSubscriptions(w, r, environment, rec, id, strings.TrimPrefix(strings.TrimPrefix(sub, "subscriptions"), "/"))
 		return
 	}
 
 	// /environments/<id>/agent[/...] — legacy default-agent shim.
 	if sub == "agent" || strings.HasPrefix(sub, "agent/") {
 		if !s.requireEnvironmentAgentPermission(w, r) {
+			return
+		}
+		if !live {
+			http.Error(w, "environment is not running: "+id, http.StatusConflict)
 			return
 		}
 		s.handleEnvironmentAgent(w, r, environment, strings.TrimPrefix(strings.TrimPrefix(sub, "agent"), "/"))
@@ -364,12 +782,21 @@ func (s *Server) handleEnvironmentByID(w http.ResponseWriter, r *http.Request) {
 			if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsRead, sdk.PermEnvironmentsManage) {
 				return
 			}
-			writeJSON(w, s.summarizeEnvironment(environment))
+			if live {
+				writeJSON(w, s.summarizeLiveEnvironment(environment, rec))
+			} else {
+				writeJSON(w, s.summarizePersistedEnvironment(*rec))
+			}
 		case http.MethodDelete:
 			if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsManage) {
 				return
 			}
-			s.environments.Destroy(id)
+			if live {
+				s.environments.Destroy(id)
+			}
+			if rec != nil {
+				_ = s.store.DeleteEnvironmentRecord(id)
+			}
 			writeJSON(w, map[string]any{"destroyed": id})
 		default:
 			http.Error(w, "GET or DELETE", http.StatusMethodNotAllowed)
@@ -378,9 +805,17 @@ func (s *Server) handleEnvironmentByID(w http.ResponseWriter, r *http.Request) {
 		if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsRead, sdk.PermEnvironmentsManage) {
 			return
 		}
+		if !live {
+			http.Error(w, "environment is not running: "+id, http.StatusConflict)
+			return
+		}
 		writeJSON(w, environment.Edge().Calls())
 	case "cassette":
 		if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsRead, sdk.PermEnvironmentsManage) {
+			return
+		}
+		if !live {
+			http.Error(w, "environment is not running: "+id, http.StatusConflict)
 			return
 		}
 		cas := environment.Edge().Cassette()
@@ -393,14 +828,26 @@ func (s *Server) handleEnvironmentByID(w http.ResponseWriter, r *http.Request) {
 		if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsRead, sdk.PermEnvironmentsManage) {
 			return
 		}
+		if !live {
+			http.Error(w, "environment is not running: "+id, http.StatusConflict)
+			return
+		}
 		s.handleEnvironmentAssert(w, r, environment)
 	case "snapshot":
 		if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsManage) {
 			return
 		}
+		if !live {
+			http.Error(w, "environment is not running: "+id, http.StatusConflict)
+			return
+		}
 		s.handleEnvironmentSnapshot(w, r, environment)
 	case "seed":
 		if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsCall, sdk.PermEnvironmentsManage) {
+			return
+		}
+		if !live {
+			http.Error(w, "environment is not running: "+id, http.StatusConflict)
 			return
 		}
 		s.handleEnvironmentSeed(w, r, environment)
@@ -486,6 +933,120 @@ func (s *Server) handleEnvironmentSeed(w http.ResponseWriter, r *http.Request, e
 	writeJSON(w, map[string]any{"results": results})
 }
 
+func (s *Server) handleEnvironmentSubscriptions(w http.ResponseWriter, r *http.Request, environment *Environment, rec *EnvironmentRecord, environmentID, tail string) {
+	userID := getUserID(r)
+	if tail == "" {
+		switch r.Method {
+		case http.MethodGet:
+			writeJSON(w, s.environmentSubscriptionInfos(environment, rec))
+		case http.MethodPost:
+			var req EnvironmentSubscriptionSpec
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid JSON", http.StatusBadRequest)
+				return
+			}
+			spec, err := normalizeEnvironmentSubscriptionSpec(req)
+			if err != nil {
+				http.Error(w, "subscription: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			if environment != nil {
+				environment.AddSubscriptionSpec(spec)
+				if wa := environment.AgentByAlias(spec.TargetAgentAlias); wa != nil {
+					if err := s.installEnvironmentSubscription(userID, environment, wa, spec); err != nil {
+						http.Error(w, "install subscription: "+err.Error(), http.StatusBadRequest)
+						return
+					}
+					if s.appEventDispatcher != nil {
+						_ = s.appEventDispatcher.Reconcile()
+					}
+				}
+			}
+			if rec != nil {
+				if err := s.upsertPersistedEnvironmentSubscription(rec, spec); err != nil {
+					http.Error(w, "persist subscription: "+err.Error(), http.StatusInternalServerError)
+					return
+				}
+				if updated, err := s.store.GetEnvironmentRecord(rec.ID); err == nil {
+					rec = updated
+				}
+			}
+			w.WriteHeader(http.StatusCreated)
+			writeJSON(w, s.environmentSubscriptionInfos(environment, rec))
+		default:
+			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
+		}
+		return
+	}
+
+	id := strings.Trim(tail, "/")
+	if id == "" {
+		http.Error(w, "subscription id required", http.StatusBadRequest)
+		return
+	}
+	switch r.Method {
+	case http.MethodDelete:
+		var removedSpec *EnvironmentSubscriptionSpec
+		specs := []EnvironmentSubscriptionSpec{}
+		if environment != nil {
+			specs = environment.SubscriptionSpecs()
+		} else if rec != nil {
+			specs = decodePersistedEnvironmentSpec(rec).Subscriptions
+		}
+		for _, spec := range specs {
+			if spec.ID == id {
+				copySpec := spec
+				removedSpec = &copySpec
+				break
+			}
+		}
+		if environment != nil {
+			environment.RemoveSubscriptionSpec(id)
+		}
+		if rec != nil {
+			if err := s.removePersistedEnvironmentSubscription(rec, id); err != nil {
+				http.Error(w, "persist subscription: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		if removedSpec != nil {
+			_ = s.deleteEnvironmentSubscriptionRowsForSpec(environmentID, *removedSpec)
+		} else {
+			_ = s.deleteEnvironmentSubscriptionRow(environmentID, id)
+		}
+		writeJSON(w, map[string]any{"deleted": id})
+	default:
+		http.Error(w, "DELETE", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) upsertPersistedEnvironmentSubscription(rec *EnvironmentRecord, spec EnvironmentSubscriptionSpec) error {
+	if s == nil || s.store == nil || rec == nil {
+		return nil
+	}
+	persisted := decodePersistedEnvironmentSpec(rec)
+	persisted.Subscriptions = upsertEnvironmentSubscriptionSpec(persisted.Subscriptions, spec)
+	b, _ := json.Marshal(persisted)
+	return s.store.UpdateEnvironmentRecordSpec(rec.ID, string(b))
+}
+
+func (s *Server) removePersistedEnvironmentSubscription(rec *EnvironmentRecord, id string) error {
+	if s == nil || s.store == nil || rec == nil {
+		return nil
+	}
+	persisted := decodePersistedEnvironmentSpec(rec)
+	next := persisted.Subscriptions[:0]
+	for _, spec := range persisted.Subscriptions {
+		if spec.ID == id {
+			continue
+		}
+		next = append(next, spec)
+	}
+	persisted.Subscriptions = next
+	b, _ := json.Marshal(persisted)
+	return s.store.UpdateEnvironmentRecordSpec(rec.ID, string(b))
+}
+
 type snapshotRequest struct {
 	SnapshotID  string `json:"snapshot_id"`
 	Description string `json:"description"`
@@ -513,11 +1074,12 @@ func (s *Server) handleEnvironmentSnapshot(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	man, err := s.environments.Snapshots().Capture(CaptureSpec{
-		ID:          req.SnapshotID,
-		ProjectID:   environment.ProjectID,
-		Description: req.Description,
-		AppDataDirs: appDirs,
-		Cassette:    environment.Edge().Cassette(),
+		ID:            req.SnapshotID,
+		ProjectID:     environment.ProjectID,
+		Description:   req.Description,
+		AppDataDirs:   appDirs,
+		Cassette:      environment.Edge().Cassette(),
+		Subscriptions: environment.SubscriptionSpecs(),
 	})
 	if err != nil {
 		http.Error(w, "snapshot: "+err.Error(), http.StatusBadRequest)
@@ -627,14 +1189,14 @@ func (s *Server) handleEnvironmentAgent(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
-		writeJSON(w, summarizeEnvironmentAgents([]*EnvironmentAgent{wa})[0])
+		writeJSON(w, s.summarizeEnvironmentAgents([]*EnvironmentAgent{wa})[0])
 	case http.MethodGet:
 		wa := environment.Agent()
 		if wa == nil {
 			http.Error(w, "no agent in environment", http.StatusNotFound)
 			return
 		}
-		writeJSON(w, summarizeEnvironmentAgents([]*EnvironmentAgent{wa})[0])
+		writeJSON(w, s.summarizeEnvironmentAgents([]*EnvironmentAgent{wa})[0])
 	case http.MethodDelete:
 		environment.StopDefaultAgent()
 		writeJSON(w, map[string]any{"stopped": true})
@@ -676,9 +1238,9 @@ func (s *Server) handleEnvironmentAgents(w http.ResponseWriter, r *http.Request,
 				return
 			}
 			w.WriteHeader(http.StatusCreated)
-			writeJSON(w, summarizeEnvironmentAgents([]*EnvironmentAgent{wa})[0])
+			writeJSON(w, s.summarizeEnvironmentAgents([]*EnvironmentAgent{wa})[0])
 		case http.MethodGet:
-			writeJSON(w, summarizeEnvironmentAgents(environment.Agents()))
+			writeJSON(w, s.summarizeEnvironmentAgents(environment.Agents()))
 		default:
 			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
 		}
@@ -697,7 +1259,7 @@ func (s *Server) handleEnvironmentAgents(w http.ResponseWriter, r *http.Request,
 	}
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, summarizeEnvironmentAgents([]*EnvironmentAgent{wa})[0])
+		writeJSON(w, s.summarizeEnvironmentAgents([]*EnvironmentAgent{wa})[0])
 	case http.MethodDelete:
 		stopped := environment.StopAgent(wa.AgentID)
 		writeJSON(w, map[string]any{"stopped": stopped})

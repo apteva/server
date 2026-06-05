@@ -16,6 +16,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -93,26 +94,30 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		s.store.DeleteAgent(userID, wAgent.ID)
 	}
 
-	// Point mcp_servers at the Environment's apps. Real (install-backed) apps are
-	// token-protected, so route them through the environment-app gateway which
-	// brokers the install token; legacy sandbox apps run tokenless (dev
-	// mode) so the agent reaches their MCP directly.
+	// Point mcp_servers at the Environment apps the source agent can actually
+	// use. Real (install-backed) apps are token-protected, so route them through
+	// the environment-app gateway which brokers the install token; legacy sandbox
+	// apps run tokenless (dev mode) so the agent reaches their MCP directly.
 	mcpServers := []any{}
-	for _, name := range environment.InstallNames() {
-		mcpServers = append(mcpServers, map[string]any{
-			"name":      name,
-			"url":       s.environmentAppMCPURL(environment.ID, name),
-			"transport": "http",
-			"no_spawn":  true,
-		})
-	}
-	for name, inst := range environment.Apps() {
-		mcpServers = append(mcpServers, map[string]any{
-			"name":      name,
-			"url":       inst.MCPURL,
-			"transport": "http",
-			"no_spawn":  true,
-		})
+	legacyApps := environment.Apps()
+	for _, name := range s.environmentAgentAppMCPNames(environment, src) {
+		if _, ok := environment.Install(name); ok {
+			mcpServers = append(mcpServers, map[string]any{
+				"name":      name,
+				"url":       s.environmentAppMCPURL(environment.ID, name),
+				"transport": "http",
+				"no_spawn":  true,
+			})
+			continue
+		}
+		if inst, ok := legacyApps[name]; ok && inst != nil {
+			mcpServers = append(mcpServers, map[string]any{
+				"name":      name,
+				"url":       inst.MCPURL,
+				"transport": "http",
+				"no_spawn":  true,
+			})
+		}
 	}
 	for _, cid := range environment.ConnectionIDs() {
 		conn, _, err := s.store.GetConnection(userID, cid)
@@ -192,6 +197,10 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		teardown()
 		return nil, fmt.Errorf("environment core never started listening")
 	}
+	if err := s.store.UpdateAgent(wAgent); err != nil {
+		teardown()
+		return nil, fmt.Errorf("persist environment agent runtime state: %w", err)
+	}
 
 	wa := &EnvironmentAgent{
 		AgentID:       wAgent.ID,
@@ -207,5 +216,89 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		wa.Stop()
 		return nil, err
 	}
+	if err := s.installEnvironmentSubscriptionsForAgent(userID, environment, wa); err != nil {
+		environment.StopAgent(wa.AgentID)
+		return nil, fmt.Errorf("install environment subscriptions: %w", err)
+	}
 	return wa, nil
+}
+
+func (s *Server) environmentAgentAppMCPNames(environment *Environment, src *Agent) []string {
+	if environment == nil {
+		return nil
+	}
+	available := map[string]bool{}
+	for _, name := range environment.InstallNames() {
+		if strings.TrimSpace(name) != "" {
+			available[name] = true
+		}
+	}
+	for name := range environment.Apps() {
+		if strings.TrimSpace(name) != "" {
+			available[name] = true
+		}
+	}
+	if len(available) == 0 {
+		return nil
+	}
+
+	selected := map[string]bool{}
+	if s != nil && s.store != nil && src != nil && src.ID != 0 {
+		if names, err := s.AppNamesForAgent(src.ID); err == nil {
+			for _, name := range names {
+				if available[name] {
+					selected[name] = true
+				}
+			}
+		}
+	}
+	for _, name := range appMCPNamesFromAgentConfig(src, available) {
+		selected[name] = true
+	}
+	return sortedMapKeys(selected)
+}
+
+func appMCPNamesFromAgentConfig(agent *Agent, available map[string]bool) []string {
+	if agent == nil || strings.TrimSpace(agent.Config) == "" || len(available) == 0 {
+		return nil
+	}
+	var cfg map[string]any
+	if json.Unmarshal([]byte(agent.Config), &cfg) != nil {
+		return nil
+	}
+	servers, ok := cfg["mcp_servers"].([]any)
+	if !ok {
+		return nil
+	}
+	selected := map[string]bool{}
+	for _, entry := range servers {
+		m, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := m["name"].(string)
+		url, _ := m["url"].(string)
+		name = strings.TrimSpace(name)
+		if name == "" || !available[name] {
+			continue
+		}
+		// /mcp/<id> entries are integration connections, not environment app
+		// installs. Those are carried over separately below.
+		if strings.Contains(url, "/mcp/") {
+			continue
+		}
+		selected[name] = true
+	}
+	return sortedMapKeys(selected)
+}
+
+func sortedMapKeys(values map[string]bool) []string {
+	out := make([]string, 0, len(values))
+	for key, ok := range values {
+		if ok {
+			out = append(out, key)
+		}
+	}
+	sort.Strings(out)
+	return out
 }

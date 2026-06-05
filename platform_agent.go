@@ -137,7 +137,8 @@ func (s *Server) judgeWithMetaAgent(
 	}
 	coreAPIKey := s.agents.GetCoreAPIKey(helper.ID)
 	const threadID = "main"
-	prompt := buildJudgePrompt(ev, trajectory, agentDirective, allowImprovements)
+	marker := fmt.Sprintf("JUDGE_REQUEST_ID: %d", time.Now().UnixNano())
+	prompt := marker + "\n\n" + buildJudgePrompt(ev, trajectory, agentDirective, allowImprovements)
 
 	// Wipe any prior conversation so this judge call sees a clean
 	// thread (the autonomous loop on "main" otherwise carries forward
@@ -155,7 +156,7 @@ func (s *Server) judgeWithMetaAgent(
 	// Poll for the first assistant message to appear on main. Since
 	// we reset just above, the pre-call count is 0 — any assistant
 	// message is the judge's verdict reply.
-	reply, err := waitForFirstAssistantReply(ctx, corePort, coreAPIKey, threadID)
+	reply, err := waitForAssistantReplyAfterUserMarker(ctx, corePort, coreAPIKey, threadID, marker)
 	if err != nil {
 		return nil, fmt.Errorf("wait for judge reply: %w", err)
 	}
@@ -277,6 +278,38 @@ func waitForFirstAssistantReply(ctx context.Context, port int, apiKey, threadID 
 	return "", errors.New("no assistant reply within timeout")
 }
 
+func waitForAssistantReplyAfterUserMarker(ctx context.Context, port int, apiKey, threadID, marker string) (string, error) {
+	deadline, _ := ctx.Deadline()
+	if deadline.IsZero() {
+		deadline = time.Now().Add(120 * time.Second)
+	}
+	for time.Now().Before(deadline) {
+		msgs, err := fetchThreadMessages(ctx, port, apiKey, threadID)
+		if err != nil {
+			time.Sleep(400 * time.Millisecond)
+			continue
+		}
+		markerIdx := -1
+		for i, m := range msgs {
+			if m.Role == "user" && strings.Contains(m.text(), marker) {
+				markerIdx = i
+			}
+		}
+		if markerIdx >= 0 {
+			for _, m := range msgs[markerIdx+1:] {
+				if m.Role != "assistant" {
+					continue
+				}
+				if text := strings.TrimSpace(m.text()); text != "" {
+					return text, nil
+				}
+			}
+		}
+		time.Sleep(400 * time.Millisecond)
+	}
+	return "", fmt.Errorf("no assistant reply after marker %q within timeout", marker)
+}
+
 // ensureEnvironmentMCPOnHelper adds the Environment control MCP to the meta-agent's
 // mcp_servers so it can build + seed test Environments by tool calls.
 // Idempotent. Mutates helper.Config in place; the
@@ -291,20 +324,30 @@ func (s *Server) ensureEnvironmentMCPOnHelper(helper *Agent) {
 	}
 	servers, _ := cfg["mcp_servers"].([]any)
 	environmentURL := fmt.Sprintf("http://127.0.0.1:%s/api/environment-mcp", s.port)
+	cleaned := make([]any, 0, len(servers)+1)
+	hasEnvironment := false
 	for _, e := range servers {
 		if m, ok := e.(map[string]any); ok {
-			if m["name"] == "environments" || m["url"] == environmentURL {
-				return // already present
+			name, _ := m["name"].(string)
+			url, _ := m["url"].(string)
+			if name == "worlds" || strings.Contains(url, "/api/world-mcp") {
+				continue
+			}
+			if name == "environments" || url == environmentURL {
+				hasEnvironment = true
 			}
 		}
+		cleaned = append(cleaned, e)
 	}
-	servers = append(servers, map[string]any{
-		"name":      "environments",
-		"url":       environmentURL,
-		"transport": "http",
-		"no_spawn":  true,
-	})
-	cfg["mcp_servers"] = servers
+	if !hasEnvironment {
+		cleaned = append(cleaned, map[string]any{
+			"name":      "environments",
+			"url":       environmentURL,
+			"transport": "http",
+			"no_spawn":  true,
+		})
+	}
+	cfg["mcp_servers"] = cleaned
 	if out, err := json.Marshal(cfg); err == nil {
 		helper.Config = string(out)
 	}
@@ -381,6 +424,7 @@ Each user message you receive is a single eval grading request. The message cont
 - An improvements flag: either "[improvements: on]" or "[improvements: off]"
 
 Grade each goal independently against the trajectory. A goal passes only when the trajectory directly demonstrates it; "the agent could plausibly do this next" is not pass.
+Tool calls, tool responses, and inter-thread send/done messages are valid evidence. Do not require a final natural-language summary from the main thread unless a goal explicitly asks for one.
 
 Respond with one JSON object, no surrounding prose, no markdown fences:
 
@@ -586,14 +630,15 @@ func (s *Server) SynthesizeDirective(ctx context.Context, userID int64, goals []
 	}
 	coreAPIKey := s.agents.GetCoreAPIKey(helper.ID)
 
-	prompt := buildSeederPrompt(goals, agentName, currentDirective)
+	marker := fmt.Sprintf("SEEDER_REQUEST_ID: %d", time.Now().UnixNano())
+	prompt := marker + "\n\n" + buildSeederPrompt(goals, agentName, currentDirective)
 	if err := resetMainThread(ctx, corePort, coreAPIKey); err != nil {
 		return "", fmt.Errorf("reset thread for seeder: %w", err)
 	}
 	if err := postCoreEvent(ctx, corePort, coreAPIKey, "main", prompt); err != nil {
 		return "", fmt.Errorf("post seeder prompt: %w", err)
 	}
-	reply, err := waitForFirstAssistantReply(ctx, corePort, coreAPIKey, "main")
+	reply, err := waitForAssistantReplyAfterUserMarker(ctx, corePort, coreAPIKey, "main", marker)
 	if err != nil {
 		return "", fmt.Errorf("wait for seeder reply: %w", err)
 	}

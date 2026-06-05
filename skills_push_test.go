@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -240,6 +241,23 @@ func TestNewServerULID_Unique(t *testing.T) {
 	}
 	if len(a) != 32 {
 		t.Errorf("len(ulid) = %d, want 32", len(a))
+	}
+}
+
+func TestDeleteMemoryURL_EscapesReason(t *testing.T) {
+	raw := deleteMemoryURL(3210, "skill_4_0", "user skill deleted & cleaned")
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse delete URL: %v", err)
+	}
+	if parsed.Path != "/memory/by-id/skill_4_0" {
+		t.Fatalf("path = %q", parsed.Path)
+	}
+	if got := parsed.Query().Get("reason"); got != "user skill deleted & cleaned" {
+		t.Fatalf("reason = %q", got)
+	}
+	if strings.Contains(raw, " ") {
+		t.Fatalf("delete URL contains raw spaces: %q", raw)
 	}
 }
 

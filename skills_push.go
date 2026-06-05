@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -297,11 +298,7 @@ func (s *Server) deleteMemoryHTTP(instanceID int64, id, reason string) error {
 	if port == 0 {
 		return fmt.Errorf("instance %d not running", instanceID)
 	}
-	url := fmt.Sprintf("http://127.0.0.1:%d/memory/by-id/%s", port, id)
-	if reason != "" {
-		url += "?reason=" + reason
-	}
-	req, _ := http.NewRequest(http.MethodDelete, url, nil)
+	req, _ := http.NewRequest(http.MethodDelete, deleteMemoryURL(port, id, reason), nil)
 	if coreKey != "" {
 		req.Header.Set("Authorization", "Bearer "+coreKey)
 	}
@@ -315,6 +312,16 @@ func (s *Server) deleteMemoryHTTP(instanceID int64, id, reason string) error {
 		return fmt.Errorf("delete agent=%d: status=%d body=%s", instanceID, resp.StatusCode, string(b))
 	}
 	return nil
+}
+
+func deleteMemoryURL(port int, id, reason string) string {
+	u := fmt.Sprintf("http://127.0.0.1:%d/memory/by-id/%s", port, url.PathEscape(id))
+	if reason != "" {
+		q := url.Values{}
+		q.Set("reason", reason)
+		u += "?" + q.Encode()
+	}
+	return u
 }
 
 // ---- transport: stopped instance (direct journal append) --------------

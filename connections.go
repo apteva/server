@@ -1006,7 +1006,16 @@ type integrationInterceptorFn func(app *AppTemplate, tool *AppToolDef, input map
 // from the X-Apteva-Environment-Id header that in-environment sidecars send on their
 // platform callbacks. environmentID=="" — every production call — never touches
 // this map, so behavior off the test path is byte-identical to before.
-var environmentInterceptors sync.Map // environmentID string -> integrationInterceptorFn
+var environmentInterceptors sync.Map     // environmentID string -> integrationInterceptorFn
+var environmentIntegrationModes sync.Map // environmentID string -> integration mode
+
+func registerEnvironmentIntegrationMode(environmentID, mode string) func() {
+	if environmentID == "" {
+		return func() {}
+	}
+	environmentIntegrationModes.Store(environmentID, normalizeEnvironmentIntegrationMode(mode, ""))
+	return func() { environmentIntegrationModes.Delete(environmentID) }
+}
 
 func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string) (*ExecuteResult, error) {
 	// Environment test-mode seam: a call inside a Environment must NEVER reach the real
@@ -1014,7 +1023,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	//   1. a per-environment interceptor fixture (eval-specific override);
 	//   2. the catalog tool's curated mock_response (faithful default);
 	//   3. a generic stub-ok.
-	if environmentID != "" {
+	if environmentID != "" && environmentIntegrationMode(environmentID) != IntegrationModeReal {
 		if v, ok := environmentInterceptors.Load(environmentID); ok {
 			if res, handled := v.(integrationInterceptorFn)(app, tool, input); handled {
 				return res, nil
@@ -1389,6 +1398,18 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		Data:    data,
 		Headers: hdrs,
 	}, nil
+}
+
+func environmentIntegrationMode(environmentID string) string {
+	if environmentID == "" {
+		return IntegrationModeReal
+	}
+	if v, ok := environmentIntegrationModes.Load(environmentID); ok {
+		if mode, ok := v.(string); ok && mode != "" {
+			return normalizeEnvironmentIntegrationMode(mode, "")
+		}
+	}
+	return IntegrationModeMock
 }
 
 func extractPath(data map[string]any, path string) any {

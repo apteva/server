@@ -201,14 +201,7 @@ func setupRealServerWithProviderState(t *testing.T, corePath, agentName, agentDi
 	apiMux.HandleFunc("/eval-mock-gateway/", s.handleEvalMockGateway)
 	apiMux.HandleFunc("/environment-app-gateway/", s.handleEnvironmentAppGateway)
 	apiMux.HandleFunc("/environment-mcp", s.handleEnvironmentMCP)
-	apiMux.HandleFunc("/app-events/internal/emit", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "POST only", http.StatusMethodNotAllowed)
-			return
-		}
-		s.handleAppEventEmit(w, r)
-	}))
-	apiMux.HandleFunc("/app-events/", s.authMiddleware(s.handleAppEventStream))
+	s.registerAppRuntimeRoutes(apiMux)
 	mux := http.NewServeMux()
 	mux.Handle("/api/", http.StripPrefix("/api", apiMux))
 	// /mcp/<connID> — the integration connection MCP endpoint (top-level in

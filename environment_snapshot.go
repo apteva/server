@@ -32,13 +32,14 @@ import (
 
 // SnapshotManifest is the metadata written at the root of every snapshot.
 type SnapshotManifest struct {
-	ID          string    `json:"id"`
-	ProjectID   string    `json:"project_id"`
-	Description string    `json:"description,omitempty"`
-	Apps        []string  `json:"apps"`         // sidecar names captured
-	HasAgent    bool      `json:"has_agent"`    // agent/ dir present
-	HasCassette bool      `json:"has_cassette"` // cassette.json present
-	CreatedAt   time.Time `json:"created_at"`
+	ID            string                        `json:"id"`
+	ProjectID     string                        `json:"project_id"`
+	Description   string                        `json:"description,omitempty"`
+	Apps          []string                      `json:"apps"`         // sidecar names captured
+	HasAgent      bool                          `json:"has_agent"`    // agent/ dir present
+	HasCassette   bool                          `json:"has_cassette"` // cassette.json present
+	Subscriptions []EnvironmentSubscriptionSpec `json:"subscriptions,omitempty"`
+	CreatedAt     time.Time                     `json:"created_at"`
 }
 
 // SnapshotStore manages snapshot artifacts on disk.
@@ -66,6 +67,9 @@ type CaptureSpec struct {
 	AppDataDirs map[string]string
 	// Cassette, when non-nil, is saved as cassette.json.
 	Cassette *Cassette
+	// Subscriptions are logical environment-owned event routes. Raw DB row ids
+	// are intentionally not captured.
+	Subscriptions []EnvironmentSubscriptionSpec
 }
 
 // Capture writes a new snapshot. Fails if the id already exists.
@@ -82,10 +86,11 @@ func (ss *SnapshotStore) Capture(spec CaptureSpec) (*SnapshotManifest, error) {
 	}
 
 	man := &SnapshotManifest{
-		ID:          spec.ID,
-		ProjectID:   spec.ProjectID,
-		Description: spec.Description,
-		CreatedAt:   time.Now(),
+		ID:            spec.ID,
+		ProjectID:     spec.ProjectID,
+		Description:   spec.Description,
+		Subscriptions: append([]EnvironmentSubscriptionSpec(nil), spec.Subscriptions...),
+		CreatedAt:     time.Now(),
 	}
 
 	if spec.AgentInstanceDir != "" {

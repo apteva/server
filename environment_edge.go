@@ -184,9 +184,11 @@ func startEnvironmentEdge(policy SandboxPolicy, mode EdgeMode, cassette *Cassett
 		cassette = newCassette()
 	}
 	e := &EnvironmentEdge{listener: ln, policy: policy, mode: mode, cassette: cassette}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", e.handle)
-	e.server = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	// Do not put the edge behind http.ServeMux: forward-proxy CONNECT
+	// requests use an authority-form target ("host:port"), not a
+	// slash-prefixed path, and ServeMux answers those with 404 before
+	// handleConnect can classify them.
+	e.server = &http.Server{Handler: http.HandlerFunc(e.handle), ReadHeaderTimeout: 5 * time.Second}
 	go e.server.Serve(ln) //nolint:errcheck
 	return e, nil
 }
@@ -381,13 +383,13 @@ func (e *EnvironmentEdge) forward(r *http.Request, body []byte) (int, http.Heade
 	return resp.StatusCode, resp.Header, rb, nil
 }
 
-// handleConnect tunnels HTTPS only for allowlisted hosts (LLM endpoints).
-// Everything else is blocked — mocking/recording HTTPS bodies needs a MITM
-// CA, which is Phase 2.
+// handleConnect tunnels HTTPS for explicit allowlist entries and for modes
+// whose default behavior is real outbound network. Mocking/replaying HTTPS
+// bodies still needs a MITM CA, so block/replay misses fail loud.
 func (e *EnvironmentEdge) handleConnect(w http.ResponseWriter, r *http.Request) {
 	host := strings.SplitN(r.Host, ":", 2)[0]
 	rec := InterceptedCall{Host: host, Path: r.URL.Path, Method: "CONNECT", Timestamp: time.Now()}
-	if hostMatchesSuffix(host, e.policy.AllowHostSuffixes) {
+	if e.shouldTunnelConnect(host) {
 		dest, err := net.DialTimeout("tcp", r.Host, 5*time.Second)
 		if err != nil {
 			http.Error(w, "dial: "+err.Error(), http.StatusBadGateway)
@@ -417,6 +419,13 @@ func (e *EnvironmentEdge) handleConnect(w http.ResponseWriter, r *http.Request) 
 	rec.Blocked, rec.Status = true, http.StatusBadGateway
 	http.Error(w, "environment edge: blocked CONNECT to "+host+" (HTTPS mocking is Phase 2 / MITM)", http.StatusBadGateway)
 	e.record(rec)
+}
+
+func (e *EnvironmentEdge) shouldTunnelConnect(host string) bool {
+	if hostMatchesSuffix(host, e.policy.AllowHostSuffixes) {
+		return true
+	}
+	return e.mode == EdgePassthrough || e.mode == EdgeRecord
 }
 
 func writeUpstream(w http.ResponseWriter, status int, hdr http.Header, body []byte) {

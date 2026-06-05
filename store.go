@@ -42,6 +42,21 @@ type Project struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+type EnvironmentRecord struct {
+	ID            string
+	ProjectID     string
+	Name          string
+	Mode          string
+	Status        string
+	SpecJSON      string
+	CreatedBy     int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	LastStartedAt *time.Time
+	LastStoppedAt *time.Time
+	ErrorMessage  string
+}
+
 type Agent struct {
 	ID        int64     `json:"id"`
 	UserID    int64     `json:"user_id"`
@@ -515,6 +530,21 @@ func (s *Store) migrate() error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_agent_directive_history_agent
 			ON agent_directive_history(agent_id, applied_at DESC);
+
+		CREATE TABLE IF NOT EXISTS environments (
+			id TEXT PRIMARY KEY,
+			project_id TEXT NOT NULL DEFAULT '',
+			name TEXT NOT NULL DEFAULT '',
+			mode TEXT NOT NULL DEFAULT 'block',
+			status TEXT NOT NULL DEFAULT 'stopped',
+			spec_json TEXT NOT NULL DEFAULT '{}',
+			created_by INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			last_started_at DATETIME,
+			last_stopped_at DATETIME,
+			error_message TEXT NOT NULL DEFAULT ''
+		);
 	`)
 	if err != nil {
 		return err
@@ -1430,6 +1460,123 @@ func (s *Store) ListAgentsByStatus(status string) ([]Agent, error) {
 		instances = append(instances, inst)
 	}
 	return instances, nil
+}
+
+func (s *Store) CreateEnvironmentRecord(rec EnvironmentRecord) error {
+	_, err := s.db.Exec(
+		`INSERT INTO environments (id, project_id, name, mode, status, spec_json, created_by, error_message)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.ID, rec.ProjectID, rec.Name, rec.Mode, rec.Status, rec.SpecJSON, rec.CreatedBy, rec.ErrorMessage,
+	)
+	return err
+}
+
+func (s *Store) GetEnvironmentRecord(id string) (*EnvironmentRecord, error) {
+	row := s.db.QueryRow(
+		`SELECT id, project_id, name, mode, status, spec_json, created_by, created_at, updated_at,
+		        last_started_at, last_stopped_at, error_message
+		   FROM environments WHERE id = ?`,
+		id,
+	)
+	rec, err := scanEnvironmentRecord(row)
+	if err != nil {
+		return nil, err
+	}
+	return &rec, nil
+}
+
+func (s *Store) ListEnvironmentRecords(userID int64) ([]EnvironmentRecord, error) {
+	rows, err := s.db.Query(
+		`SELECT id, project_id, name, mode, status, spec_json, created_by, created_at, updated_at,
+		        last_started_at, last_stopped_at, error_message
+		   FROM environments
+		  WHERE created_by = ?
+		  ORDER BY created_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []EnvironmentRecord{}
+	for rows.Next() {
+		rec, err := scanEnvironmentRecord(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rec)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) UpdateEnvironmentRecordStatus(id, status, errorMessage string) error {
+	switch status {
+	case "running":
+		_, err := s.db.Exec(
+			`UPDATE environments
+			    SET status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP, last_started_at = CURRENT_TIMESTAMP
+			  WHERE id = ?`,
+			status, errorMessage, id,
+		)
+		return err
+	case "stopped":
+		_, err := s.db.Exec(
+			`UPDATE environments
+			    SET status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP, last_stopped_at = CURRENT_TIMESTAMP
+			  WHERE id = ?`,
+			status, errorMessage, id,
+		)
+		return err
+	default:
+		_, err := s.db.Exec(
+			`UPDATE environments
+			    SET status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
+			  WHERE id = ?`,
+			status, errorMessage, id,
+		)
+		return err
+	}
+}
+
+func (s *Store) UpdateEnvironmentRecordSpec(id, specJSON string) error {
+	_, err := s.db.Exec(
+		`UPDATE environments SET spec_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		specJSON, id,
+	)
+	return err
+}
+
+func (s *Store) DeleteEnvironmentRecord(id string) error {
+	_, err := s.db.Exec(`DELETE FROM environments WHERE id = ?`, id)
+	return err
+}
+
+type environmentRecordScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanEnvironmentRecord(scanner environmentRecordScanner) (EnvironmentRecord, error) {
+	var rec EnvironmentRecord
+	var createdAt, updatedAt string
+	var lastStarted, lastStopped sql.NullString
+	err := scanner.Scan(
+		&rec.ID, &rec.ProjectID, &rec.Name, &rec.Mode, &rec.Status, &rec.SpecJSON, &rec.CreatedBy,
+		&createdAt, &updatedAt, &lastStarted, &lastStopped, &rec.ErrorMessage,
+	)
+	if err != nil {
+		return rec, err
+	}
+	rec.CreatedAt, _ = parseTime(createdAt)
+	rec.UpdatedAt, _ = parseTime(updatedAt)
+	if lastStarted.Valid {
+		t, _ := parseTime(lastStarted.String)
+		rec.LastStartedAt = &t
+	}
+	if lastStopped.Valid {
+		t, _ := parseTime(lastStopped.String)
+		rec.LastStoppedAt = &t
+	}
+	return rec, nil
 }
 
 // DeleteAgent removes an instance row plus every per-instance row

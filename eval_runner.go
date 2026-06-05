@@ -29,7 +29,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -873,25 +872,42 @@ func waitForCoreListening(port int, budget time.Duration) bool {
 //
 // Polling cadence is 500ms — fast enough to catch each turn shortly
 // after it lands, slow enough not to thrash core.
+type collectAssistantRepliesOptions struct {
+	OverallTimeout                time.Duration
+	RequireMeaningfulActivityIdle bool
+	FailOnCoreExit                bool
+	CollectAllThreads             bool
+}
+
 func collectAssistantReplies(ctx context.Context, port int, apiKey, threadID string, session *runSession, maxTurns int) error {
+	return collectAssistantRepliesWithOptions(ctx, port, apiKey, threadID, session, maxTurns, collectAssistantRepliesOptions{})
+}
+
+func collectAssistantRepliesWithOptions(ctx context.Context, port int, apiKey, threadID string, session *runSession, maxTurns int, opts collectAssistantRepliesOptions) error {
 	if maxTurns <= 0 {
 		maxTurns = 5
 	}
-	overallDeadline := time.Now().Add(120 * time.Second)
+	overallTimeout := opts.OverallTimeout
+	if overallTimeout <= 0 {
+		overallTimeout = 120 * time.Second
+	}
+	overallDeadline := time.Now().Add(overallTimeout)
 	idleSince := time.Time{}
 	idleWindow := 3 * time.Second
 	postToolIdleWindow := 18 * time.Second
 	seenLastUpdate := time.Now()
 	lastToolActivity := time.Time{}
+	meaningfulActivity := false
+	consecutiveFetchErrors := 0
 	// lastMsgCount is the total number of messages (any role) we've
-	// already processed. Each poll, we walk the suffix from this
-	// index forward and record anything new — assistant text via
-	// recordAgent, assistant tool_calls via recordRealToolCall, and
-	// user tool_results via attachToolResult. Tracking by overall
-	// message index (instead of just assistant count, the old way)
-	// is what lets tool_calls + tool_results land in the trajectory
-	// — they live on assistant + user messages respectively.
-	lastMsgCount := 0
+	// already processed per thread. Each poll, we walk the suffix from
+	// this index forward and record anything new — assistant text via
+	// recordAgent, assistant tool_calls via recordRealToolCall, and user
+	// tool_results via attachToolResult. Tracking by overall message
+	// index (instead of just assistant count, the old way) is what lets
+	// tool_calls + tool_results land in the trajectory — they live on
+	// assistant + user messages respectively.
+	lastMsgCount := map[string]int{threadID: 0}
 	// assistantTurns counts assistant messages (with text OR tool
 	// calls) for the max_turns gate. A tool-call-only assistant
 	// message still counts as a turn — it's real LLM work.
@@ -902,39 +918,81 @@ func collectAssistantReplies(ctx context.Context, port int, apiKey, threadID str
 			return ctx.Err()
 		default:
 		}
-		msgs, err := fetchThreadMessages(ctx, port, apiKey, threadID)
-		if err != nil {
-			time.Sleep(500 * time.Millisecond)
-			continue
-		}
-		if len(msgs) > lastMsgCount {
-			for _, m := range msgs[lastMsgCount:] {
-				switch m.Role {
-				case "assistant":
-					if text := m.text(); text != "" {
-						session.recordAgent(text)
+		threadIDs := []string{threadID}
+		if opts.CollectAllThreads {
+			if ids, err := fetchThreadIDs(ctx, port, apiKey); err == nil && len(ids) > 0 {
+				seen := map[string]bool{}
+				threadIDs = threadIDs[:0]
+				for _, id := range ids {
+					if id == "" || seen[id] {
+						continue
 					}
-					for _, tc := range m.ToolCalls {
-						session.recordRealToolCall(tc.ID, tc.Name, tc.Args)
-						lastToolActivity = time.Now()
-					}
-					if m.text() != "" || len(m.ToolCalls) > 0 {
-						assistantTurns++
-					}
-				case "user":
-					// User messages can carry tool_results back-filling
-					// prior tool calls. The Content field is usually
-					// empty in that case; the framework events ("(no
-					// events)" / "Events:..." / judge feedback) we
-					// don't re-record from here since those come from
-					// the runner itself.
-					for _, tr := range m.ToolResults {
-						session.attachToolResult(tr.CallID, tr.Content, tr.IsError)
-						lastToolActivity = time.Now()
+					seen[id] = true
+					threadIDs = append(threadIDs, id)
+					if _, ok := lastMsgCount[id]; !ok {
+						lastMsgCount[id] = 0
 					}
 				}
+				if !seen[threadID] {
+					threadIDs = append([]string{threadID}, threadIDs...)
+				}
 			}
-			lastMsgCount = len(msgs)
+		}
+		hadNewMessages := false
+		mainFetchOK := false
+		for _, id := range threadIDs {
+			msgs, err := fetchThreadMessages(ctx, port, apiKey, id)
+			if err != nil {
+				if id == threadID {
+					consecutiveFetchErrors++
+				}
+				continue
+			}
+			if id == threadID {
+				mainFetchOK = true
+			}
+			last := lastMsgCount[id]
+			if len(msgs) > last {
+				for _, m := range msgs[last:] {
+					switch m.Role {
+					case "assistant":
+						if text := m.text(); text != "" {
+							session.recordAgent(text)
+						}
+						for _, tc := range m.ToolCalls {
+							session.recordRealToolCall(tc.ID, tc.Name, tc.Args)
+							lastToolActivity = time.Now()
+							if !isPacingToolName(tc.Name) {
+								meaningfulActivity = true
+							}
+						}
+						if m.text() != "" || len(m.ToolCalls) > 0 {
+							assistantTurns++
+						}
+					case "user":
+						// User messages can carry tool_results back-filling
+						// prior tool calls. The Content field is usually
+						// empty in that case; the framework events ("(no
+						// events)" / "Events:..." / judge feedback) we
+						// don't re-record from here since those come from
+						// the runner itself.
+						for _, tr := range m.ToolResults {
+							session.attachToolResult(tr.CallID, tr.Content, tr.IsError)
+							lastToolActivity = time.Now()
+						}
+					}
+				}
+				lastMsgCount[id] = len(msgs)
+				hadNewMessages = true
+			}
+		}
+		if !mainFetchOK && opts.FailOnCoreExit && consecutiveFetchErrors >= 3 && !isCoreListening(port) {
+			return fmt.Errorf("eval core on port %d stopped while collecting replies", port)
+		}
+		if mainFetchOK {
+			consecutiveFetchErrors = 0
+		}
+		if hadNewMessages {
 			seenLastUpdate = time.Now()
 			idleSince = time.Time{}
 			if assistantTurns >= maxTurns {
@@ -956,13 +1014,22 @@ func collectAssistantReplies(ctx context.Context, port int, apiKey, threadID str
 			if session.hasPendingTools() || (!lastToolActivity.IsZero() && time.Since(lastToolActivity) < postToolIdleWindow) {
 				effectiveIdle = postToolIdleWindow
 			}
-			if time.Since(idleSince) >= effectiveIdle && assistantTurns > 0 {
+			canIdleOut := assistantTurns > 0
+			if opts.RequireMeaningfulActivityIdle && !meaningfulActivity {
+				canIdleOut = false
+			}
+			if time.Since(idleSince) >= effectiveIdle && canIdleOut {
 				return nil
 			}
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	return errors.New("overall eval timeout (120s)")
+	return fmt.Errorf("overall eval timeout (%s)", overallTimeout)
+}
+
+func isPacingToolName(name string) bool {
+	name = strings.TrimSpace(strings.ToLower(name))
+	return name == "pace" || strings.HasSuffix(name, ".pace")
 }
 
 // threadMessage is the parsed shape of one entry in core's
@@ -1035,6 +1102,32 @@ func fetchThreadMessages(ctx context.Context, port int, apiKey, threadID string)
 		return nil, err
 	}
 	return parsed.Messages, nil
+}
+
+func fetchThreadIDs(ctx context.Context, port int, apiKey string) ([]string, error) {
+	url := fmt.Sprintf("http://127.0.0.1:%d/threads", port)
+	req, _ := newHTTPRequest(ctx, "GET", url, nil, apiKey)
+	resp, err := httpClient5s.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("http %d", resp.StatusCode)
+	}
+	var parsed []struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(parsed))
+	for _, t := range parsed {
+		if strings.TrimSpace(t.ID) != "" {
+			out = append(out, t.ID)
+		}
+	}
+	return out, nil
 }
 
 // triggerToText renders an EvalTrigger as the opening user message

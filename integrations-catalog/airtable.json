@@ -23,19 +23,10 @@
     "credential_fields": [
       {
         "name": "token",
-        "label": "access_token"
-      },
-      {
-        "name": "refresh_token",
-        "label": "refresh_token"
-      },
-      {
-        "name": "expires_in",
-        "label": "expires_in"
-      },
-      {
-        "name": "token_type",
-        "label": "token_type"
+        "label": "Personal Access Token",
+        "description": "Your Airtable personal access token for bearer auth",
+        "required": true,
+        "type": "password"
       }
     ],
     "oauth2": {

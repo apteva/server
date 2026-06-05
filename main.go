@@ -881,25 +881,6 @@ func main() {
 		}
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 	}))
-	// App event bus — generic SDK-level pub/sub for app→dashboard live UI.
-	// Sidecars POST emits via APTEVA_APP_TOKEN; browsers SSE-subscribe via
-	// cookie/API-key auth. Mounted under /api/app-events/ to sidestep the
-	// catch-all /api/apps/<name>/... proxy further down.
-	apiMux.HandleFunc("/app-events/internal/emit", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			s.handleAppEventEmit(w, r)
-			return
-		}
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-	}))
-	apiMux.HandleFunc("/app-events/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			s.handleAppEventStream(w, r)
-			return
-		}
-		http.Error(w, "GET only", http.StatusMethodNotAllowed)
-	}))
-	apiMux.HandleFunc("/apps/callback/", s.authMiddleware(s.handleAppCallback))
 	apiMux.HandleFunc("/apps/preview", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			s.handlePreviewApp(w, r)
@@ -980,24 +961,7 @@ func main() {
 			http.Error(w, "not found", http.StatusNotFound)
 		}
 	}))
-	// Reverse-proxy: any non-management /apps/<name>/... goes to the
-	// installed app's sidecar. Registered LAST so /apps/preview etc.
-	// match first via Go's longest-prefix rule.
-	apiMux.HandleFunc("/apps/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		// Don't shadow management routes — this branch only fires when
-		// the prefix is /apps/<name>/... and <name> isn't a reserved word.
-		path := strings.TrimPrefix(r.URL.Path, "/apps/")
-		first := path
-		if i := strings.Index(path, "/"); i >= 0 {
-			first = path[:i]
-		}
-		switch first {
-		case "preview", "install", "installs", "marketplace", "callback":
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		s.handleAppProxy(w, r)
-	}))
+	s.registerAppRuntimeRoutes(apiMux)
 
 	apiMux.HandleFunc("/mcp-servers", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
