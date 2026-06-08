@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -220,45 +221,118 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
-		// Anonymous app-route fall-through. Apps decide for themselves
-		// whether GET requests need auth. Storage's visibility=public
-		// uses this — the file's URL is the same as for authenticated
-		// requests, the app handler just doesn't require credentials.
-		// X-User-ID is intentionally NOT set so the app can tell this
-		// is an anonymous request and refuse private resources.
-		//
-		// Scoped to GET (and HEAD) on /api/apps/<name>/...; never the
-		// management surfaces under /api/apps/installs, /api/apps/
-		// callback, /api/apps/preview etc., which always require auth.
-		//
-		// Note: apiMux is wrapped in http.StripPrefix("/api"), so the
-		// path here is /apps/<name>/... not /api/apps/<name>/.... We
-		// match either form for safety in case of routing changes.
-		if r.Method == http.MethodGet || r.Method == http.MethodHead {
-			path := ""
-			switch {
-			case strings.HasPrefix(r.URL.Path, "/api/apps/"):
-				path = strings.TrimPrefix(r.URL.Path, "/api/apps/")
-			case strings.HasPrefix(r.URL.Path, "/apps/"):
-				path = strings.TrimPrefix(r.URL.Path, "/apps/")
-			}
-			if path != "" {
-				first := path
-				if i := strings.Index(path, "/"); i >= 0 {
-					first = path[:i]
-				}
-				switch first {
-				case "installs", "callback", "preview", "install", "marketplace":
-					// management routes — fall through to 401
-				default:
-					next(w, r)
-					return
-				}
-			}
+		// Anonymous app-route fall-through. Explicit manifest-declared
+		// no_auth routes may accept any method; legacy GET/HEAD app
+		// routes still fall through for public read handlers such as
+		// Storage public files. X-User-ID is intentionally NOT set so
+		// the app can tell this is an anonymous request and apply its
+		// own token/signature/resource checks.
+		if s.anonymousAppRouteAllowed(r) {
+			next(w, r)
+			return
 		}
 
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	}
+}
+
+func (s *Server) anonymousAppRouteAllowed(r *http.Request) bool {
+	appName, appPath, ok := splitAppProxyPath(r.URL.Path)
+	if !ok || isAppManagementRoute(appName) {
+		return false
+	}
+	if s.anonymousAppNoAuthRouteAllowed(r, appName, appPath) {
+		return true
+	}
+	return r.Method == http.MethodGet || r.Method == http.MethodHead
+}
+
+func splitAppProxyPath(path string) (appName, appPath string, ok bool) {
+	switch {
+	case strings.HasPrefix(path, "/api/apps/"):
+		path = strings.TrimPrefix(path, "/api/apps/")
+	case strings.HasPrefix(path, "/apps/"):
+		path = strings.TrimPrefix(path, "/apps/")
+	default:
+		return "", "", false
+	}
+	if path == "" {
+		return "", "", false
+	}
+	parts := strings.SplitN(path, "/", 2)
+	appName = parts[0]
+	appPath = "/"
+	if len(parts) == 2 {
+		appPath = "/" + parts[1]
+	}
+	return appName, appPath, appName != ""
+}
+
+func isAppManagementRoute(first string) bool {
+	switch first {
+	case "installs", "callback", "preview", "install", "marketplace":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Server) anonymousAppNoAuthRouteAllowed(r *http.Request, appName, appPath string) bool {
+	if s == nil || s.installedApps == nil {
+		return false
+	}
+	entry := s.installedAppForRequest(appName, r)
+	if entry == nil {
+		return false
+	}
+	for _, route := range entry.Manifest.Provides.HTTPRoutes {
+		if !route.NoAuth {
+			continue
+		}
+		if route.Method != "" && !strings.EqualFold(route.Method, r.Method) {
+			continue
+		}
+		if appRouteMatches(route.Prefix, appPath) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) installedAppForRequest(appName string, r *http.Request) *InstalledApp {
+	q := r.URL.Query()
+	if installIDRaw := q.Get("install_id"); installIDRaw != "" {
+		installID, err := strconv.ParseInt(installIDRaw, 10, 64)
+		if err == nil && installID > 0 {
+			if entry := s.installedApps.Get(installID); entry != nil && entry.AppName == appName {
+				return entry
+			}
+		}
+		return nil
+	}
+	if installID := installIDFromDevAPIKey(q.Get("api_key")); installID > 0 {
+		if entry := s.installedApps.Get(installID); entry != nil && entry.AppName == appName {
+			return entry
+		}
+		return nil
+	}
+	if projectID := q.Get("project_id"); projectID != "" {
+		return s.installedApps.GetByNameAndProject(appName, projectID)
+	}
+	return s.installedApps.GetByName(appName)
+}
+
+func appRouteMatches(pattern, path string) bool {
+	if pattern == "" {
+		pattern = "/"
+	}
+	if !strings.HasPrefix(pattern, "/") {
+		pattern = "/" + pattern
+	}
+	if strings.HasSuffix(pattern, "/") {
+		return strings.HasPrefix(path, pattern)
+	}
+	return path == pattern
 }
 
 func getUserID(r *http.Request) int64 {

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	sdk "github.com/apteva/app-sdk"
 )
 
 func newTestServer(t *testing.T) *Server {
@@ -248,6 +250,92 @@ func TestAuthMiddleware_AnonymousAppMutation_Refused(t *testing.T) {
 		if w.Code != 401 {
 			t.Errorf("%s on app route should require auth (status %d)", method, w.Code)
 		}
+	}
+}
+
+func TestAuthMiddleware_AnonymousNoAuthAppRoute_AllowsMutation(t *testing.T) {
+	s := newTestServer(t)
+	s.installedApps = NewInstalledAppsRegistry()
+	s.installedApps.Add(&InstalledApp{
+		InstallID: 1,
+		AppName:   "functions",
+		ProjectID: "proj-1",
+		Manifest: sdk.Manifest{
+			Provides: sdk.Provides{HTTPRoutes: []sdk.RouteSpec{
+				{Prefix: "/url/", NoAuth: true},
+			}},
+		},
+	})
+
+	called := false
+	var sawUserID string
+	handler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		sawUserID = r.Header.Get("X-User-ID")
+		w.WriteHeader(200)
+	})
+	req := httptest.NewRequest("POST", "/apps/functions/url/ingest/token?project_id=proj-1", nil)
+	w := httptest.NewRecorder()
+	handler(w, req)
+	if !called {
+		t.Fatalf("anonymous POST to no_auth app route should fall through; got %d", w.Code)
+	}
+	if sawUserID != "" {
+		t.Errorf("anonymous no_auth request leaked X-User-ID = %q", sawUserID)
+	}
+}
+
+func TestAuthMiddleware_AnonymousNoAuthAppRoute_MethodSpecific(t *testing.T) {
+	s := newTestServer(t)
+	s.installedApps = NewInstalledAppsRegistry()
+	s.installedApps.Add(&InstalledApp{
+		InstallID: 1,
+		AppName:   "hooks",
+		Manifest: sdk.Manifest{
+			Provides: sdk.Provides{HTTPRoutes: []sdk.RouteSpec{
+				{Method: "POST", Prefix: "/public", NoAuth: true},
+			}},
+		},
+	})
+
+	handler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	})
+	post := httptest.NewRequest("POST", "/apps/hooks/public", nil)
+	postW := httptest.NewRecorder()
+	handler(postW, post)
+	if postW.Code != 200 {
+		t.Fatalf("POST to matching no_auth route got %d", postW.Code)
+	}
+
+	patch := httptest.NewRequest("PATCH", "/apps/hooks/public", nil)
+	patchW := httptest.NewRecorder()
+	handler(patchW, patch)
+	if patchW.Code != 401 {
+		t.Fatalf("PATCH to POST-only no_auth route got %d, want 401", patchW.Code)
+	}
+}
+
+func TestAuthMiddleware_AnonymousNoAuthAppRoute_DoesNotExposeOtherRoutes(t *testing.T) {
+	s := newTestServer(t)
+	s.installedApps = NewInstalledAppsRegistry()
+	s.installedApps.Add(&InstalledApp{
+		InstallID: 1,
+		AppName:   "functions",
+		Manifest: sdk.Manifest{
+			Provides: sdk.Provides{HTTPRoutes: []sdk.RouteSpec{
+				{Prefix: "/url/", NoAuth: true},
+			}},
+		},
+	})
+
+	req := httptest.NewRequest("POST", "/apps/functions/fn/old-private-path", nil)
+	w := httptest.NewRecorder()
+	s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	})(w, req)
+	if w.Code != 401 {
+		t.Fatalf("anonymous POST outside no_auth route got %d, want 401", w.Code)
 	}
 }
 
