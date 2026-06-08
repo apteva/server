@@ -1,0 +1,600 @@
+{
+  "slug": "leadbyte",
+  "name": "LeadByte",
+  "description": "LeadByte lead management REST API for lead submission, search, updates, quarantine processing, buyers, deliveries, queue polling, reports, mobile validation, and responder triggers.",
+  "logo": "https://www.google.com/s2/favicons?domain=leadbyte.co.uk&sz=128",
+  "categories": [
+    "leads",
+    "lead-management",
+    "crm",
+    "marketing",
+    "sales",
+    "automation"
+  ],
+  "base_url": "https://{{credential.account}}.leadbyte.com/restapi/v1.3",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X_KEY": "{{api_key}}",
+      "Accept": "application/json"
+    },
+    "body_params": {
+      "key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "account",
+        "label": "Account",
+        "description": "LeadByte account subdomain from https://ACCOUNT.leadbyte.com.",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "api_key",
+        "label": "REST API Key",
+        "description": "LeadByte REST API key from Admin > Tech Hub > REST API. API version 1.3 is expected.",
+        "type": "password",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "submit_lead",
+      "description": "Submit a lead into a LeadByte campaign. Include campid plus the campaign's required lead fields as top-level properties. Use delivery_ids to restrict buyer deliveries after a delivery checker consent flow.",
+      "method": "POST",
+      "path": "/leads",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "campid": {
+            "type": "string",
+            "description": "Campaign reference/code."
+          },
+          "delivery_ids": {
+            "type": "array",
+            "description": "Optional delivery IDs the lead has consented to use.",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "campid"
+        ]
+      }
+    },
+    {
+      "name": "search_leads",
+      "description": "Search for existing leads in one or more campaigns using email or phone. LeadByte does not support arbitrary on-demand lead listing; search requires email or phone values.",
+      "method": "POST",
+      "path": "/leads/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "searches": {
+            "type": "array",
+            "description": "Search requests. Each item needs campaignId plus email or phone.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "campaignId": {
+                  "type": "integer",
+                  "description": "LeadByte campaign ID."
+                },
+                "email": {
+                  "type": "string",
+                  "description": "Email address to search for."
+                },
+                "phone": {
+                  "type": "string",
+                  "description": "Phone number to search for."
+                },
+                "extrafields": {
+                  "type": "array",
+                  "description": "Additional lead field names to include in results.",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "campaignId"
+              ]
+            }
+          }
+        },
+        "required": [
+          "searches"
+        ]
+      }
+    },
+    {
+      "name": "update_leads",
+      "description": "Update lead data for one or more valid leads. Can also trigger delivery IDs or reprocess leads when those fields/actions are included.",
+      "method": "PUT",
+      "path": "/leads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leads": {
+            "type": "array",
+            "description": "Lead update requests.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Lead ID to update."
+                },
+                "update": {
+                  "type": "object",
+                  "description": "Lead fields to update."
+                },
+                "triggerDeliveryId": {
+                  "type": "string",
+                  "description": "Optional delivery ID to trigger after update."
+                },
+                "triggerDeliveryIds": {
+                  "type": "array",
+                  "description": "Optional delivery IDs to trigger after update.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "action": {
+                  "type": "string",
+                  "description": "Optional action.",
+                  "enum": [
+                    "reprocess"
+                  ]
+                }
+              },
+              "required": [
+                "id"
+              ]
+            }
+          }
+        },
+        "required": [
+          "leads"
+        ]
+      }
+    },
+    {
+      "name": "update_lead_financials",
+      "description": "Update payout and/or revenue for approved leads.",
+      "method": "PUT",
+      "path": "/leadfinancials",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leads": {
+            "type": "array",
+            "description": "Lead IDs to update.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "newPayout": {
+            "type": "number",
+            "description": "New supplier payout."
+          },
+          "newRevenue": {
+            "type": "number",
+            "description": "New lead revenue."
+          },
+          "BID": {
+            "type": "string",
+            "description": "Optional buyer ID for reporting accuracy."
+          }
+        },
+        "required": [
+          "leads"
+        ]
+      }
+    },
+    {
+      "name": "update_quarantine_leads",
+      "description": "Update quarantined lead data. Include action=process or action=reject to release or reject after updating.",
+      "method": "PUT",
+      "path": "/leads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leads": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "quarantineId": {
+                  "type": "string",
+                  "description": "Quarantined lead ID."
+                },
+                "update": {
+                  "type": "object",
+                  "description": "Lead fields to update."
+                },
+                "action": {
+                  "type": "string",
+                  "description": "Optional quarantine processing action.",
+                  "enum": [
+                    "process",
+                    "reject"
+                  ]
+                }
+              },
+              "required": [
+                "quarantineId"
+              ]
+            }
+          }
+        },
+        "required": [
+          "leads"
+        ]
+      }
+    },
+    {
+      "name": "process_quarantine_lead",
+      "description": "Release or reject a quarantined lead without updating its data.",
+      "method": "POST",
+      "path": "/quarantine/process",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "quarantineId": {
+            "type": "integer",
+            "description": "Quarantined lead ID."
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "process",
+              "reject"
+            ]
+          }
+        },
+        "required": [
+          "quarantineId",
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "reprocess_leads",
+      "description": "Queue one or more unsold leads for reprocessing.",
+      "method": "POST",
+      "path": "/leads/reprocess",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leadId": {
+            "type": "integer",
+            "description": "Single lead ID to reprocess."
+          },
+          "leadIds": {
+            "type": "array",
+            "description": "Multiple lead IDs to reprocess.",
+            "items": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "get_api_queue_result",
+      "description": "Poll a LeadByte API queue ID returned by lead submission to see whether the lead was accepted, sold, and which buyer/deliveries were involved. Returned detail depends on the API key's API Queue permissions.",
+      "method": "GET",
+      "path": "/apiqueue/{queue_id}?key={{credential.api_key}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "queue_id": {
+            "type": "string",
+            "description": "Queue ID returned by a lead submission."
+          }
+        },
+        "required": [
+          "queue_id"
+        ]
+      }
+    },
+    {
+      "name": "check_deliveries",
+      "description": "Run LeadByte's delivery checker before lead submission. Include campid plus the campaign fields used by delivery rules as top-level properties; optionally request buyer extrafields.",
+      "method": "POST",
+      "path": "/leads/deliverychecker",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "campid": {
+            "type": "string",
+            "description": "Campaign reference/code."
+          },
+          "extrafields": {
+            "type": "array",
+            "description": "Optional buyer fields to include, such as street1, postcode, external_ref, buyer_revenue.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "campid"
+        ]
+      }
+    },
+    {
+      "name": "create_buyer",
+      "description": "Create a buyer, optionally with a buyer portal user and/or an initial delivery when allowed by permissions.",
+      "method": "POST",
+      "path": "/buyers/create",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "company": {
+            "type": "string",
+            "description": "Buyer company/name."
+          },
+          "firstname": {
+            "type": "string",
+            "description": "Optional buyer user first name."
+          },
+          "lastname": {
+            "type": "string",
+            "description": "Optional buyer user last name."
+          },
+          "email": {
+            "type": "string",
+            "description": "Optional buyer user email."
+          },
+          "credit_amount": {
+            "type": "string",
+            "description": "Optional buyer credit amount when creating delivery."
+          },
+          "create_delivery": {
+            "type": "string",
+            "description": "Use Yes to create a delivery in the same call.",
+            "enum": [
+              "Yes",
+              "No"
+            ]
+          }
+        },
+        "required": [
+          "company"
+        ]
+      }
+    },
+    {
+      "name": "add_buyer_credit",
+      "description": "Add credit to a LeadByte buyer.",
+      "method": "POST",
+      "path": "/credit/add",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "BID": {
+            "type": "string",
+            "description": "Buyer ID."
+          },
+          "amount": {
+            "type": "string",
+            "description": "Credit amount, for example 100.00."
+          }
+        },
+        "required": [
+          "BID",
+          "amount"
+        ]
+      }
+    },
+    {
+      "name": "create_delivery",
+      "description": "Create a buyer delivery. LeadByte documents API delivery creation for Store Lead, Email, and SMS deliveries using buyer credit in an evenly weighted distribution model.",
+      "method": "POST",
+      "path": "/deliveries/create",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "campaign_code": {
+            "type": "string",
+            "description": "Campaign reference/code."
+          },
+          "delivery_type": {
+            "type": "string",
+            "enum": [
+              "Store Lead",
+              "Email",
+              "SMS"
+            ]
+          },
+          "delivery_name": {
+            "type": "string",
+            "description": "Delivery name."
+          },
+          "bid": {
+            "type": "string",
+            "description": "Buyer ID, unless create_buyer is Yes."
+          },
+          "company": {
+            "type": "string",
+            "description": "Buyer company when create_buyer is Yes."
+          },
+          "credit_amount": {
+            "type": "string",
+            "description": "Credit amount to add; use 0 for no credit."
+          },
+          "revenue": {
+            "type": "string",
+            "description": "Revenue for the delivery."
+          },
+          "sms_recipient": {
+            "type": "string",
+            "description": "SMS recipient when delivery_type is SMS."
+          },
+          "email_recipient": {
+            "type": "string",
+            "description": "Email recipient when delivery_type is Email."
+          },
+          "rules": {
+            "type": "array",
+            "description": "Optional delivery rules.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "operator": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "campaign_code",
+          "delivery_type",
+          "delivery_name",
+          "credit_amount",
+          "revenue"
+        ]
+      }
+    },
+    {
+      "name": "update_delivery",
+      "description": "Update a delivery's status, caps, revenue, or other supported delivery settings.",
+      "method": "PUT",
+      "path": "/deliveries/{delivery_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "delivery_id": {
+            "type": "integer",
+            "description": "Delivery ID."
+          },
+          "update": {
+            "type": "object",
+            "description": "Delivery update object, such as {\"status\":\"Active\"} or {\"revenue\":\"4.00\",\"caps\":{\"day\":3}}."
+          }
+        },
+        "required": [
+          "delivery_id",
+          "update"
+        ]
+      }
+    },
+    {
+      "name": "trigger_responder",
+      "description": "Manually trigger a responder, multiple responders, or a specific push for a lead.",
+      "method": "POST",
+      "path": "/responders/trigger",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leadId": {
+            "type": "integer",
+            "description": "Lead ID."
+          },
+          "responderId": {
+            "type": "integer",
+            "description": "Single responder ID."
+          },
+          "responders": {
+            "type": "array",
+            "description": "Multiple responder IDs.",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "pushId": {
+            "type": "integer",
+            "description": "Specific push ID to trigger."
+          }
+        },
+        "required": [
+          "leadId"
+        ]
+      }
+    },
+    {
+      "name": "run_report",
+      "description": "Run a LeadByte report endpoint, for example report_type=campaign with campaignId plus from/to dates or datePreset. Report-specific parameters can be passed as additional query fields.",
+      "method": "GET",
+      "path": "/reports/{report_type}?key={{credential.api_key}}",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "report_type": {
+            "type": "string",
+            "description": "Report path segment, such as campaign."
+          },
+          "campaignId": {
+            "type": "integer",
+            "description": "Campaign ID when required by the report."
+          },
+          "responderId": {
+            "type": "integer",
+            "description": "Responder ID when required by the report."
+          },
+          "from": {
+            "type": "string",
+            "description": "Start date/time, e.g. 2026-01-01T00:00:00Z."
+          },
+          "to": {
+            "type": "string",
+            "description": "End date/time, e.g. 2026-01-31T00:00:00Z."
+          },
+          "datePreset": {
+            "type": "string",
+            "description": "Preset date range.",
+            "enum": [
+              "today",
+              "yesterday",
+              "this_week",
+              "last_7d",
+              "lastweek",
+              "last_30d",
+              "this_month",
+              "last_month"
+            ]
+          }
+        },
+        "required": [
+          "report_type"
+        ]
+      }
+    },
+    {
+      "name": "validate_mobile",
+      "description": "Perform LeadByte HLR/mobile validation for a phone number.",
+      "method": "GET",
+      "path": "/validate/mobile?key={{credential.api_key}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "description": "Mobile number to validate."
+          }
+        },
+        "required": [
+          "value"
+        ]
+      }
+    }
+  ]
+}

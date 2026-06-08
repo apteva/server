@@ -134,6 +134,10 @@ type Server struct {
 	// CRUD; gap-free across server restarts via per-row
 	// last_seq_delivered + bus since-cursor.
 	appEventDispatcher *AppEventDispatcher
+	// Polling dispatcher runs integration-declared webhooks.events with
+	// delivery='poll'. Rows remain source='webhook' so this is an
+	// alternate delivery mode, not a separate subscription source.
+	pollingDispatcher *PollingSubscriptionDispatcher
 
 	// liveTelemetryHook is an optional callback invoked for every
 	// batch of events received on /telemetry/live, after enrichment
@@ -1354,6 +1358,8 @@ func main() {
 	// since-cursor (replays from the ring up to last_seq_delivered).
 	s.appEventDispatcher = NewAppEventDispatcher(s)
 	s.appEventDispatcher.Start()
+	s.pollingDispatcher = NewPollingSubscriptionDispatcher(s)
+	s.pollingDispatcher.Start()
 	s.orchestratorURL = os.Getenv("ORCHESTRATOR_URL")
 	if s.orchestratorURL == "" {
 		s.orchestratorURL = "http://46.224.26.45:8099"

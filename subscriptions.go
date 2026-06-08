@@ -34,6 +34,13 @@ type Subscription struct {
 	// 'app_event' (ingress via the in-process AppEventBus, slug
 	// carries '<app>:<topic_pattern>').
 	Source           string    `json:"source,omitempty"`
+	Delivery         string    `json:"delivery,omitempty"`
+	PollConfigJSON   string    `json:"-"`
+	PollStateJSON    string    `json:"-"`
+	LastRunAt        string    `json:"last_run_at,omitempty"`
+	NextRunAt        string    `json:"next_run_at,omitempty"`
+	LastError        string    `json:"last_error,omitempty"`
+	FailureCount     int       `json:"failure_count,omitempty"`
 	LastSeqDelivered uint64    `json:"last_seq_delivered,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 }
@@ -121,7 +128,39 @@ func (s *Store) CreateSubscription(userID, instanceID, connectionID int64, name,
 	if err != nil {
 		return nil, err
 	}
-	return &Subscription{ID: id, UserID: userID, AgentID: instanceID, ConnectionID: connectionID, Name: name, Slug: slug, Description: description, WebhookPath: webhookPath, Enabled: true, NotifyAgent: notifyAgent, ThreadID: threadID, ProjectID: projectID, Events: events, Source: "webhook", CreatedAt: time.Now()}, nil
+	return &Subscription{ID: id, UserID: userID, AgentID: instanceID, ConnectionID: connectionID, Name: name, Slug: slug, Description: description, WebhookPath: webhookPath, Enabled: true, NotifyAgent: notifyAgent, ThreadID: threadID, ProjectID: projectID, Events: events, Source: "webhook", Delivery: "webhook", CreatedAt: time.Now()}, nil
+}
+
+func (s *Store) CreatePollSubscription(userID, instanceID, connectionID int64, name, slug, description, threadID, projectID string, events []string, pollConfigJSON string, nextRunAt time.Time, notifyAgentOpt ...bool) (*Subscription, error) {
+	notifyAgent := len(notifyAgentOpt) > 0 && notifyAgentOpt[0]
+	id := generateID()
+	webhookPath := "poll-" + generateToken(16)
+	eventsJSON := ""
+	if len(events) > 0 {
+		if b, merr := json.Marshal(events); merr == nil {
+			eventsJSON = string(b)
+		}
+	}
+	nextRun := formatPollTime(nextRunAt)
+	_, err := s.db.Exec(
+		`INSERT INTO subscriptions
+			(id, user_id, agent_id, connection_id, name, slug, description,
+			 webhook_path, encrypted_hmac_secret, thread_id, project_id, events,
+			 source, delivery, poll_config_json, poll_state_json, next_run_at, notify_agent)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, 'webhook', 'poll', ?, '', ?, ?)`,
+		id, userID, instanceID, connectionID, name, slug, description,
+		webhookPath, threadID, projectID, eventsJSON, pollConfigJSON, nextRun, boolToInt(notifyAgent),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &Subscription{
+		ID: id, UserID: userID, AgentID: instanceID, ConnectionID: connectionID,
+		Name: name, Slug: slug, Description: description, WebhookPath: webhookPath,
+		Enabled: true, NotifyAgent: notifyAgent, ThreadID: threadID, ProjectID: projectID,
+		Events: events, Source: "webhook", Delivery: "poll", PollConfigJSON: pollConfigJSON,
+		NextRunAt: nextRun, CreatedAt: time.Now(),
+	}, nil
 }
 
 // CreateAppEventSubscription is the source='app_event' counterpart
@@ -152,7 +191,7 @@ func (s *Store) CreateAppEventSubscription(userID, instanceID int64, name, slug,
 		ID: id, UserID: userID, AgentID: instanceID,
 		Name: name, Slug: slug, Description: description,
 		Enabled: true, NotifyAgent: notifyAgent, ThreadID: threadID, ProjectID: projectID,
-		Source: "app_event", CreatedAt: time.Now(),
+		Source: "app_event", Delivery: "app_event", CreatedAt: time.Now(),
 	}, nil
 }
 
@@ -162,7 +201,9 @@ func (s *Store) ListSubscriptions(userID int64, projectID ...string) ([]Subscrip
 	const cols = `id, agent_id, connection_id, name, slug, description, webhook_path,
 		enabled, COALESCE(notify_agent,0), COALESCE(thread_id,''), COALESCE(events,''),
 		COALESCE(project_id,''), COALESCE(external_webhook_id,''),
-		COALESCE(source,'webhook'), COALESCE(last_seq_delivered,0), created_at`
+		COALESCE(source,'webhook'), COALESCE(delivery,'webhook'),
+		COALESCE(last_run_at,''), COALESCE(next_run_at,''), COALESCE(last_error,''),
+		COALESCE(failure_count,0), COALESCE(last_seq_delivered,0), created_at`
 	if len(projectID) > 0 && projectID[0] != "" {
 		rows, err = s.db.Query(
 			"SELECT "+cols+" FROM subscriptions WHERE user_id = ? AND (project_id = ? OR project_id = '') ORDER BY created_at, id", userID, projectID[0])
@@ -183,7 +224,9 @@ func (s *Store) ListSubscriptions(userID int64, projectID ...string) ([]Subscrip
 		if err := rows.Scan(
 			&sub.ID, &sub.AgentID, &sub.ConnectionID, &sub.Name, &sub.Slug, &sub.Description,
 			&sub.WebhookPath, &enabled, &notifyAgent, &sub.ThreadID, &eventsJSON, &sub.ProjectID,
-			&sub.ExternalWebhookID, &sub.Source, &sub.LastSeqDelivered, &createdAt,
+			&sub.ExternalWebhookID, &sub.Source, &sub.Delivery,
+			&sub.LastRunAt, &sub.NextRunAt, &sub.LastError, &sub.FailureCount,
+			&sub.LastSeqDelivered, &createdAt,
 		); err != nil {
 			return nil, err
 		}
@@ -203,7 +246,9 @@ func (s *Store) ListSubscriptionsForAgent(userID, agentID int64) ([]Subscription
 	const cols = `id, user_id, agent_id, connection_id, name, slug, description,
 		webhook_path, enabled, COALESCE(notify_agent,0), COALESCE(thread_id,''), COALESCE(events,''),
 		COALESCE(project_id,''), COALESCE(external_webhook_id,''),
-		COALESCE(source,'webhook'), COALESCE(last_seq_delivered,0), created_at`
+		COALESCE(source,'webhook'), COALESCE(delivery,'webhook'),
+		COALESCE(last_run_at,''), COALESCE(next_run_at,''), COALESCE(last_error,''),
+		COALESCE(failure_count,0), COALESCE(last_seq_delivered,0), created_at`
 	rows, err := s.db.Query(
 		"SELECT "+cols+" FROM subscriptions WHERE user_id = ? AND agent_id = ? ORDER BY created_at, id",
 		userID, agentID,
@@ -222,8 +267,9 @@ func (s *Store) ListSubscriptionsForAgent(userID, agentID int64) ([]Subscription
 			&sub.ID, &sub.UserID, &sub.AgentID, &sub.ConnectionID,
 			&sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath,
 			&enabled, &notifyAgent, &sub.ThreadID, &eventsJSON, &sub.ProjectID,
-			&sub.ExternalWebhookID, &sub.Source, &sub.LastSeqDelivered,
-			&createdAt,
+			&sub.ExternalWebhookID, &sub.Source, &sub.Delivery,
+			&sub.LastRunAt, &sub.NextRunAt, &sub.LastError, &sub.FailureCount,
+			&sub.LastSeqDelivered, &createdAt,
 		); err != nil {
 			return nil, err
 		}
@@ -246,15 +292,18 @@ func (s *Store) GetSubscription(userID int64, id string) (*Subscription, error) 
 		`SELECT id, agent_id, connection_id, name, slug, description,
 			webhook_path, enabled, COALESCE(notify_agent,0), COALESCE(thread_id,''), COALESCE(events,''),
 			COALESCE(project_id,''), COALESCE(external_webhook_id,''),
-			COALESCE(source,'webhook'), COALESCE(last_seq_delivered,0), created_at
+			COALESCE(source,'webhook'), COALESCE(delivery,'webhook'),
+			COALESCE(last_run_at,''), COALESCE(next_run_at,''), COALESCE(last_error,''),
+			COALESCE(failure_count,0), COALESCE(last_seq_delivered,0), created_at
 		 FROM subscriptions WHERE id = ? AND user_id = ?`,
 		id, userID,
 	).Scan(
 		&sub.ID, &sub.AgentID, &sub.ConnectionID, &sub.Name,
 		&sub.Slug, &sub.Description, &sub.WebhookPath, &enabled,
 		&notifyAgent, &sub.ThreadID, &eventsJSON, &sub.ProjectID,
-		&sub.ExternalWebhookID, &sub.Source, &sub.LastSeqDelivered,
-		&createdAt,
+		&sub.ExternalWebhookID, &sub.Source, &sub.Delivery,
+		&sub.LastRunAt, &sub.NextRunAt, &sub.LastError, &sub.FailureCount,
+		&sub.LastSeqDelivered, &createdAt,
 	)
 	if err != nil {
 		return nil, err
@@ -348,6 +397,81 @@ func (s *Store) SetSubscriptionEnabled(userID int64, id string, enabled bool) er
 
 func (s *Store) SetSubscriptionNotifyAgent(userID int64, id string, notifyAgent bool) error {
 	_, err := s.db.Exec("UPDATE subscriptions SET notify_agent = ? WHERE id = ? AND user_id = ?", boolToInt(notifyAgent), id, userID)
+	return err
+}
+
+func (s *Store) ListDuePollSubscriptions(now time.Time, limit int) ([]*Subscription, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.Query(
+		`SELECT id, user_id, agent_id, connection_id, name, slug, description,
+			webhook_path, enabled, COALESCE(notify_agent,0), COALESCE(thread_id,''), COALESCE(events,''),
+			COALESCE(project_id,''), COALESCE(external_webhook_id,''),
+			COALESCE(source,'webhook'), COALESCE(delivery,'webhook'),
+			COALESCE(poll_config_json,''), COALESCE(poll_state_json,''),
+			COALESCE(last_run_at,''), COALESCE(next_run_at,''), COALESCE(last_error,''),
+			COALESCE(failure_count,0), COALESCE(last_seq_delivered,0), created_at
+		 FROM subscriptions
+		 WHERE enabled = 1
+		   AND COALESCE(delivery,'webhook') = 'poll'
+		   AND (next_run_at IS NULL OR next_run_at = '' OR next_run_at <= ?)
+		 ORDER BY COALESCE(next_run_at, created_at), id
+		 LIMIT ?`,
+		formatPollTime(now), limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subs []*Subscription
+	for rows.Next() {
+		sub := &Subscription{}
+		var enabled, notifyAgent int
+		var eventsJSON, createdAt string
+		if err := rows.Scan(
+			&sub.ID, &sub.UserID, &sub.AgentID, &sub.ConnectionID,
+			&sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath,
+			&enabled, &notifyAgent, &sub.ThreadID, &eventsJSON, &sub.ProjectID,
+			&sub.ExternalWebhookID, &sub.Source, &sub.Delivery,
+			&sub.PollConfigJSON, &sub.PollStateJSON,
+			&sub.LastRunAt, &sub.NextRunAt, &sub.LastError, &sub.FailureCount,
+			&sub.LastSeqDelivered, &createdAt,
+		); err != nil {
+			return nil, err
+		}
+		sub.Enabled = enabled == 1
+		sub.NotifyAgent = notifyAgent == 1
+		sub.CreatedAt, _ = parseTime(createdAt)
+		if eventsJSON != "" {
+			_ = json.Unmarshal([]byte(eventsJSON), &sub.Events)
+		}
+		subs = append(subs, sub)
+	}
+	return subs, rows.Err()
+}
+
+func (s *Store) UpdatePollSubscriptionSuccess(id, stateJSON string, lastRunAt, nextRunAt time.Time) error {
+	_, err := s.db.Exec(
+		`UPDATE subscriptions
+		 SET poll_state_json = ?, last_run_at = ?, next_run_at = ?, last_error = '', failure_count = 0
+		 WHERE id = ?`,
+		stateJSON, formatPollTime(lastRunAt), formatPollTime(nextRunAt), id,
+	)
+	return err
+}
+
+func (s *Store) UpdatePollSubscriptionFailure(id, errMsg string, lastRunAt, nextRunAt time.Time, failureCount int) error {
+	if len(errMsg) > 1000 {
+		errMsg = errMsg[:1000]
+	}
+	_, err := s.db.Exec(
+		`UPDATE subscriptions
+		 SET last_run_at = ?, next_run_at = ?, last_error = ?, failure_count = ?
+		 WHERE id = ?`,
+		formatPollTime(lastRunAt), formatPollTime(nextRunAt), errMsg, failureCount, id,
+	)
 	return err
 }
 
@@ -795,8 +919,10 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 		// Composio-source only: which Composio trigger template to
 		// instantiate and its per-trigger config (e.g. spreadsheet_id,
 		// range, channel_id). Ignored for local-source subscriptions.
-		TriggerSlug   string         `json:"trigger_slug"`
-		TriggerConfig map[string]any `json:"trigger_config"`
+		TriggerSlug     string         `json:"trigger_slug"`
+		TriggerConfig   map[string]any `json:"trigger_config"`
+		IntervalSeconds int            `json:"interval_seconds"`
+		PollInput       map[string]any `json:"poll_input"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -850,6 +976,52 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 		if conn, _, cerr := s.store.GetConnection(userID, body.ConnectionID); cerr == nil && conn != nil && conn.Source == "composio" {
 			s.createComposioSubscription(w, userID, body.AgentID, body.ConnectionID, body.Name, body.Slug, body.Description, body.ThreadID, body.ProjectID, body.TriggerSlug, body.TriggerConfig, body.NotifyAgent, conn)
 			return
+		}
+	}
+
+	if body.ConnectionID > 0 {
+		conn, _, err := s.store.GetConnection(userID, body.ConnectionID)
+		if err != nil || conn == nil {
+			http.Error(w, "connection not found", http.StatusBadRequest)
+			return
+		}
+		if app := s.catalog.Get(conn.AppSlug); app != nil {
+			cfg, event, err := buildStoredPollConfig(app, body.Events, body.IntervalSeconds, body.PollInput)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if cfg != nil && event != nil {
+				if len(body.Events) == 0 {
+					body.Events = []string{event.Name}
+				}
+				if body.Slug == "" {
+					body.Slug = conn.AppSlug
+				}
+				if body.Description == "" {
+					body.Description = event.Description
+				}
+				cfgJSON, _ := json.Marshal(cfg)
+				nextRun := time.Now().UTC()
+				sub, err := s.store.CreatePollSubscription(userID, body.AgentID, body.ConnectionID, body.Name, body.Slug, body.Description, body.ThreadID, body.ProjectID, body.Events, string(cfgJSON), nextRun, body.NotifyAgent)
+				if err != nil {
+					http.Error(w, "failed to create poll subscription: "+err.Error(), http.StatusInternalServerError)
+					return
+				}
+				log.Printf("[SUB-CREATE] sub=%s delivery=poll app=%s event=%s tool=%s interval=%ds",
+					sub.ID, app.Slug, event.Name, cfg.Tool, cfg.IntervalSeconds)
+				if s.pollingDispatcher != nil {
+					s.pollingDispatcher.Wake()
+				}
+				s.notifySubscriptionCreated(sub)
+				writeJSON(w, map[string]any{
+					"subscription":    sub,
+					"delivery":        "poll",
+					"events":          body.Events,
+					"auto_registered": false,
+				})
+				return
+			}
 		}
 	}
 
@@ -1117,9 +1289,14 @@ func (s *Server) handleListSubscriptions(w http.ResponseWriter, r *http.Request)
 	}
 	var enriched []subWithURL
 	for _, sub := range subs {
+		webhookURL := s.webhookURL(sub.WebhookPath)
+		if sub.Delivery == "poll" {
+			webhookURL = ""
+			sub.WebhookPath = ""
+		}
 		enriched = append(enriched, subWithURL{
 			Subscription: sub,
-			WebhookURL:   s.webhookURL(sub.WebhookPath),
+			WebhookURL:   webhookURL,
 		})
 	}
 	writeJSON(w, enriched)

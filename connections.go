@@ -1182,7 +1182,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			}
 		} else {
 			// Merge default credential fields into body
-			bodyMap := make(map[string]any)
+			bodyMap := buildAuthBodyParams(app.Auth.BodyParams, credentials)
 			for _, f := range app.Auth.CredentialFields {
 				if val, ok := credentials[f.Name]; ok {
 					// Map credential fields to common input names

@@ -272,8 +272,23 @@ type AppWebhookConfig struct {
 }
 
 type AppWebhookEvent struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Delivery    string             `json:"delivery,omitempty"`
+	Poll        *WebhookPollConfig `json:"poll,omitempty"`
+}
+
+type WebhookPollConfig struct {
+	Tool                   string         `json:"tool"`
+	DefaultIntervalSeconds int            `json:"default_interval_seconds,omitempty"`
+	MinIntervalSeconds     int            `json:"min_interval_seconds,omitempty"`
+	Input                  map[string]any `json:"input,omitempty"`
+	ItemsPath              string         `json:"items_path,omitempty"`
+	IDFields               []string       `json:"id_fields"`
+	TimestampField         string         `json:"timestamp_field,omitempty"`
+	Mode                   string         `json:"mode,omitempty"`
+	EmitInitial            bool           `json:"emit_initial,omitempty"`
+	MaxSeen                int            `json:"max_seen,omitempty"`
 }
 
 type WebhookRegConfig struct {
@@ -293,6 +308,7 @@ type AppAuthConfig struct {
 	Types            []string          `json:"types"`
 	Headers          map[string]string `json:"headers,omitempty"`
 	QueryParams      map[string]string `json:"query_params,omitempty"`
+	BodyParams       map[string]string `json:"body_params,omitempty"`
 	CredentialFields []CredentialField `json:"credential_fields,omitempty"`
 	OAuth2           *OAuthConfig      `json:"oauth2,omitempty"`
 	// AwsSigV4 configures AWS Signature V4 request signing (SES, S3,
@@ -1111,6 +1127,17 @@ func buildAuthQuery(queryParams map[string]string, credentials map[string]string
 		}
 	}
 	return strings.Join(parts, "&")
+}
+
+func buildAuthBodyParams(bodyParams map[string]string, credentials map[string]string) map[string]any {
+	out := map[string]any{}
+	for key, tmpl := range bodyParams {
+		val := resolveTemplate(tmpl, credentials)
+		if val != "" {
+			out[key] = val
+		}
+	}
+	return out
 }
 
 func buildHeaders(authHeaders map[string]string, credentials map[string]string) map[string]string {

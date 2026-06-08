@@ -1,0 +1,1143 @@
+{
+  "name": "ringover",
+  "display_name": "Ringover",
+  "logo": "https://www.ringover.com/favicon.ico",
+  "category": "communication",
+  "description": "Ringover cloud phone, SMS, contacts, conversations, call history, live calls, and Empower call intelligence.",
+  "base_url": "https://public-api.ringover.com/v2",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "Authorization": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Ringover public API key from Dashboard > Developer > API Keys. The API expects this value directly in the Authorization header.",
+        "type": "password",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_team"
+  },
+  "webhooks": {
+    "events": [
+      {
+        "name": "call.created",
+        "description": "Emitted when a new Ringover call appears in call history.",
+        "delivery": "poll",
+        "poll": {
+          "tool": "list_calls",
+          "default_interval_seconds": 300,
+          "min_interval_seconds": 60,
+          "input": {
+            "limit_count": 50
+          },
+          "id_fields": [
+            "call_id",
+            "id",
+            "calluuid",
+            "call_uuid"
+          ],
+          "timestamp_field": "start_time",
+          "mode": "new_items",
+          "emit_initial": false,
+          "max_seen": 1000
+        }
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_team",
+      "display_name": "Get Team",
+      "description": "Get the Ringover team linked to the API key.",
+      "method": "GET",
+      "path": "/teams"
+    },
+    {
+      "name": "get_team_plan_data",
+      "display_name": "Get Team Plan Data",
+      "description": "Get team subscription and plan data.",
+      "method": "GET",
+      "path": "/teams/plans_data"
+    },
+    {
+      "name": "list_users",
+      "display_name": "List Users",
+      "description": "List Ringover users in the team.",
+      "method": "GET",
+      "path": "/users"
+    },
+    {
+      "name": "get_user",
+      "display_name": "Get User",
+      "description": "Get one Ringover user by ID.",
+      "method": "GET",
+      "path": "/users/{user_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "description": "Ringover user ID."
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "get_user_presence",
+      "display_name": "Get User Presence",
+      "description": "Get the current presence for a Ringover user.",
+      "method": "GET",
+      "path": "/users/{user_id}/presences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "description": "Ringover user ID."
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "list_presences",
+      "display_name": "List Presences",
+      "description": "List available team presence states.",
+      "method": "GET",
+      "path": "/presences"
+    },
+    {
+      "name": "list_numbers",
+      "display_name": "List Numbers",
+      "description": "List phone numbers assigned to the team.",
+      "method": "GET",
+      "path": "/numbers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "is_fax": {
+            "type": "boolean",
+            "description": "Filter fax numbers."
+          },
+          "is_user": {
+            "type": "boolean",
+            "description": "Filter numbers assigned to users."
+          },
+          "is_ivr": {
+            "type": "boolean",
+            "description": "Filter numbers assigned to IVRs."
+          },
+          "is_conference": {
+            "type": "boolean",
+            "description": "Filter numbers assigned to conference rooms."
+          },
+          "is_available": {
+            "type": "boolean",
+            "description": "Filter available unassigned numbers."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_number",
+      "display_name": "Get Number",
+      "description": "Get metadata for one Ringover phone number.",
+      "method": "GET",
+      "path": "/numbers/{number}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "string",
+            "description": "Phone number to inspect."
+          }
+        },
+        "required": [
+          "number"
+        ]
+      }
+    },
+    {
+      "name": "list_groups",
+      "display_name": "List Groups",
+      "description": "List Ringover groups.",
+      "method": "GET",
+      "path": "/groups"
+    },
+    {
+      "name": "get_group",
+      "display_name": "Get Group",
+      "description": "Get one Ringover group by ID.",
+      "method": "GET",
+      "path": "/groups/{group_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "description": "Ringover group ID."
+          }
+        },
+        "required": [
+          "group_id"
+        ]
+      }
+    },
+    {
+      "name": "list_ivrs",
+      "display_name": "List IVRs",
+      "description": "List Ringover IVRs.",
+      "method": "GET",
+      "path": "/ivrs"
+    },
+    {
+      "name": "get_ivr",
+      "display_name": "Get IVR",
+      "description": "Get one Ringover IVR by ID.",
+      "method": "GET",
+      "path": "/ivrs/{ivr_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ivr_id": {
+            "type": "integer",
+            "description": "Ringover IVR ID."
+          }
+        },
+        "required": [
+          "ivr_id"
+        ]
+      }
+    },
+    {
+      "name": "list_ivr_scenarios",
+      "display_name": "List IVR Scenarios",
+      "description": "List scenarios configured for an IVR.",
+      "method": "GET",
+      "path": "/ivrs/{ivr_id}/scenarios",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ivr_id": {
+            "type": "integer",
+            "description": "Ringover IVR ID."
+          }
+        },
+        "required": [
+          "ivr_id"
+        ]
+      }
+    },
+    {
+      "name": "list_tags",
+      "display_name": "List Tags",
+      "description": "List call/contact tags.",
+      "method": "GET",
+      "path": "/tags"
+    },
+    {
+      "name": "create_tag",
+      "display_name": "Create Tag",
+      "description": "Create a Ringover tag.",
+      "method": "POST",
+      "path": "/tags",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Tag name."
+          },
+          "color": {
+            "type": "string",
+            "description": "Tag color."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional tag description."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_calls",
+      "display_name": "List Calls",
+      "description": "List call history with common filters.",
+      "method": "GET",
+      "path": "/calls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "description": "Start date/time filter."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date/time filter."
+          },
+          "call_type": {
+            "type": "string",
+            "description": "Call type filter.",
+            "enum": [
+              "ANSWERED",
+              "MISSED",
+              "OUT",
+              "VOICEMAIL"
+            ]
+          },
+          "limit_count": {
+            "type": "integer",
+            "description": "Maximum number of calls to return."
+          },
+          "limit_offset": {
+            "type": "integer",
+            "description": "Offset for paginated results."
+          },
+          "last_id_returned": {
+            "type": "integer",
+            "description": "Last call ID returned by a previous request."
+          }
+        }
+      }
+    },
+    {
+      "name": "search_calls",
+      "display_name": "Search Calls",
+      "description": "Search call history with richer filters.",
+      "method": "POST",
+      "path": "/calls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "string",
+            "description": "Text filter for calls."
+          },
+          "call_type": {
+            "type": "array",
+            "description": "Call type filters.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "ANSWERED",
+                "MISSED",
+                "OUT",
+                "VOICEMAIL"
+              ]
+            }
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date/time filter."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date/time filter."
+          },
+          "users": {
+            "type": "array",
+            "description": "User IDs to include.",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "groups": {
+            "type": "array",
+            "description": "Group IDs to include.",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "contacts": {
+            "type": "array",
+            "description": "Contact IDs to include.",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "description": "Tag IDs to include.",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "stars": {
+            "type": "array",
+            "description": "Star ratings to include.",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "limit_count": {
+            "type": "integer",
+            "description": "Maximum number of calls to return."
+          },
+          "limit_offset": {
+            "type": "integer",
+            "description": "Offset for paginated results."
+          },
+          "last_id_returned": {
+            "type": "integer",
+            "description": "Last call ID returned by a previous request."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_call",
+      "display_name": "Get Call",
+      "description": "Get details for one call.",
+      "method": "GET",
+      "path": "/calls/{call_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_id": {
+            "type": "string",
+            "description": "Ringover call ID."
+          }
+        },
+        "required": [
+          "call_id"
+        ]
+      }
+    },
+    {
+      "name": "get_call_channel",
+      "display_name": "Get Call Channel",
+      "description": "Get media or channel data for a call channel, including recording data when available.",
+      "method": "GET",
+      "path": "/calls/{call_id}/channels/{channel_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_id": {
+            "type": "string",
+            "description": "Ringover call ID."
+          },
+          "channel_id": {
+            "type": "string",
+            "description": "Ringover channel ID."
+          }
+        },
+        "required": [
+          "call_id",
+          "channel_id"
+        ]
+      }
+    },
+    {
+      "name": "archive_call",
+      "display_name": "Archive Call",
+      "description": "Archive a call from call history.",
+      "method": "DELETE",
+      "path": "/calls/{call_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_id": {
+            "type": "string",
+            "description": "Ringover call ID."
+          }
+        },
+        "required": [
+          "call_id"
+        ]
+      }
+    },
+    {
+      "name": "list_current_calls",
+      "display_name": "List Current Calls",
+      "description": "List live calls currently active in the team.",
+      "method": "POST",
+      "path": "/calls/current",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "array",
+            "description": "Live call statuses.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "ANSWERED",
+                "RINGING"
+              ]
+            }
+          },
+          "interface": {
+            "type": "array",
+            "description": "Call interfaces.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "WEBRTC",
+                "SIP",
+                "MOBILE",
+                "APP"
+              ]
+            }
+          },
+          "direction": {
+            "type": "string",
+            "description": "Call direction.",
+            "enum": [
+              "IN",
+              "OUT"
+            ]
+          },
+          "limit_count": {
+            "type": "integer",
+            "description": "Maximum number of calls to return."
+          },
+          "limit_offset": {
+            "type": "integer",
+            "description": "Offset for paginated results."
+          }
+        }
+      }
+    },
+    {
+      "name": "toggle_channel_mute",
+      "display_name": "Toggle Channel Mute",
+      "description": "Mute or unmute a live call channel.",
+      "method": "POST",
+      "path": "/channels/{channel_id}/events/mute/toggle",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string",
+            "description": "Live call channel ID."
+          }
+        },
+        "required": [
+          "channel_id"
+        ]
+      }
+    },
+    {
+      "name": "toggle_channel_hold",
+      "display_name": "Toggle Channel Hold",
+      "description": "Put a live call channel on hold or resume it.",
+      "method": "POST",
+      "path": "/channels/{channel_id}/events/hold/toggle",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string",
+            "description": "Live call channel ID."
+          }
+        },
+        "required": [
+          "channel_id"
+        ]
+      }
+    },
+    {
+      "name": "toggle_channel_record",
+      "display_name": "Toggle Channel Record",
+      "description": "Start or stop recording a live call channel.",
+      "method": "POST",
+      "path": "/channels/{channel_id}/events/record/toggle",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string",
+            "description": "Live call channel ID."
+          }
+        },
+        "required": [
+          "channel_id"
+        ]
+      }
+    },
+    {
+      "name": "hangup_channel",
+      "display_name": "Hang Up Channel",
+      "description": "Hang up a live call channel.",
+      "method": "POST",
+      "path": "/channels/{channel_id}/events/hangup",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string",
+            "description": "Live call channel ID."
+          }
+        },
+        "required": [
+          "channel_id"
+        ]
+      }
+    },
+    {
+      "name": "transfer_channel",
+      "display_name": "Transfer Channel",
+      "description": "Transfer a live call channel to another phone number.",
+      "method": "POST",
+      "path": "/channels/{channel_id}/events/transfer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string",
+            "description": "Live call channel ID."
+          },
+          "phone_number": {
+            "type": "integer",
+            "description": "Destination phone number, digits only."
+          }
+        },
+        "required": [
+          "channel_id",
+          "phone_number"
+        ]
+      }
+    },
+    {
+      "name": "send_channel_dtmf",
+      "display_name": "Send Channel DTMF",
+      "description": "Send DTMF digits to a live call channel.",
+      "method": "POST",
+      "path": "/channels/{channel_id}/events/dtmf",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string",
+            "description": "Live call channel ID."
+          },
+          "dtmf": {
+            "type": "string",
+            "description": "DTMF sequence using digits, #, or *."
+          }
+        },
+        "required": [
+          "channel_id",
+          "dtmf"
+        ]
+      }
+    },
+    {
+      "name": "list_contacts",
+      "display_name": "List Contacts",
+      "description": "List Ringover contacts with optional search filters.",
+      "method": "GET",
+      "path": "/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "string",
+            "description": "Text search filter."
+          },
+          "limit_count": {
+            "type": "integer",
+            "description": "Maximum number of contacts to return."
+          },
+          "limit_offset": {
+            "type": "integer",
+            "description": "Offset for paginated results."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_contacts",
+      "display_name": "Create Contacts",
+      "description": "Create up to 50 Ringover contacts.",
+      "method": "POST",
+      "path": "/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contacts": {
+            "type": "array",
+            "description": "Contacts to create.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "firstname": {
+                  "type": "string"
+                },
+                "lastname": {
+                  "type": "string"
+                },
+                "company": {
+                  "type": "string"
+                },
+                "is_shared": {
+                  "type": "boolean"
+                },
+                "numbers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "number": {
+                        "type": "string",
+                        "description": "Phone number."
+                      },
+                      "type": {
+                        "type": "string",
+                        "description": "Phone number label, such as mobile or office."
+                      }
+                    },
+                    "required": [
+                      "number"
+                    ]
+                  }
+                }
+              }
+            },
+            "maxItems": 50
+          }
+        },
+        "required": [
+          "contacts"
+        ]
+      }
+    },
+    {
+      "name": "get_contact",
+      "display_name": "Get Contact",
+      "description": "Get one Ringover contact by ID.",
+      "method": "GET",
+      "path": "/contacts/{contact_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact_id": {
+            "type": "integer",
+            "description": "Ringover contact ID."
+          }
+        },
+        "required": [
+          "contact_id"
+        ]
+      }
+    },
+    {
+      "name": "update_contact",
+      "display_name": "Update Contact",
+      "description": "Replace a Ringover contact's main fields.",
+      "method": "PUT",
+      "path": "/contacts/{contact_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact_id": {
+            "type": "integer",
+            "description": "Ringover contact ID."
+          },
+          "firstname": {
+            "type": "string"
+          },
+          "lastname": {
+            "type": "string"
+          },
+          "company": {
+            "type": "string"
+          },
+          "is_shared": {
+            "type": "boolean"
+          },
+          "numbers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "number": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "number"
+              ]
+            }
+          }
+        },
+        "required": [
+          "contact_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_contact",
+      "display_name": "Delete Contact",
+      "description": "Delete a Ringover contact.",
+      "method": "DELETE",
+      "path": "/contacts/{contact_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact_id": {
+            "type": "integer",
+            "description": "Ringover contact ID."
+          }
+        },
+        "required": [
+          "contact_id"
+        ]
+      }
+    },
+    {
+      "name": "add_contact_numbers",
+      "display_name": "Add Contact Numbers",
+      "description": "Add phone numbers to a Ringover contact.",
+      "method": "POST",
+      "path": "/contacts/{contact_id}/numbers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact_id": {
+            "type": "integer",
+            "description": "Ringover contact ID."
+          },
+          "numbers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "number": {
+                  "type": "string",
+                  "description": "Phone number."
+                },
+                "type": {
+                  "type": "string",
+                  "description": "Phone number label."
+                }
+              },
+              "required": [
+                "number"
+              ]
+            }
+          }
+        },
+        "required": [
+          "contact_id",
+          "numbers"
+        ]
+      }
+    },
+    {
+      "name": "list_conversations",
+      "display_name": "List Conversations",
+      "description": "List Ringover conversations.",
+      "method": "GET",
+      "path": "/conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "array",
+            "description": "Conversation filters.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "limit_count": {
+            "type": "integer",
+            "description": "Maximum number of conversations to return."
+          },
+          "limit_offset": {
+            "type": "integer",
+            "description": "Offset for paginated results."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_conversation",
+      "display_name": "Get Conversation",
+      "description": "Get one conversation by ID.",
+      "method": "GET",
+      "path": "/conversations/{conversation_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "integer",
+            "description": "Ringover conversation ID."
+          }
+        },
+        "required": [
+          "conversation_id"
+        ]
+      }
+    },
+    {
+      "name": "list_conversation_messages",
+      "display_name": "List Conversation Messages",
+      "description": "List messages in a Ringover conversation.",
+      "method": "GET",
+      "path": "/conversations/{conversation_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "integer",
+            "description": "Ringover conversation ID."
+          },
+          "limit_count": {
+            "type": "integer",
+            "description": "Maximum number of messages to return."
+          },
+          "limit_offset": {
+            "type": "integer",
+            "description": "Offset for paginated results."
+          }
+        },
+        "required": [
+          "conversation_id"
+        ]
+      }
+    },
+    {
+      "name": "rename_conversation",
+      "display_name": "Rename Conversation",
+      "description": "Rename a Ringover conversation.",
+      "method": "POST",
+      "path": "/conversations/{conversation_id}/rename/{new_name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "integer",
+            "description": "Ringover conversation ID."
+          },
+          "new_name": {
+            "type": "string",
+            "description": "New conversation name."
+          }
+        },
+        "required": [
+          "conversation_id",
+          "new_name"
+        ]
+      }
+    },
+    {
+      "name": "set_conversation_purpose",
+      "display_name": "Set Conversation Purpose",
+      "description": "Set or update a Ringover conversation purpose.",
+      "method": "POST",
+      "path": "/conversations/{conversation_id}/purpose",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "integer",
+            "description": "Ringover conversation ID."
+          },
+          "purpose": {
+            "type": "string",
+            "description": "Conversation purpose."
+          }
+        },
+        "required": [
+          "conversation_id",
+          "purpose"
+        ]
+      }
+    },
+    {
+      "name": "send_sms",
+      "display_name": "Send SMS",
+      "description": "Send an SMS from a Ringover number.",
+      "method": "POST",
+      "path": "/push/sms",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from_number": {
+            "type": "string",
+            "description": "Sender phone number in E.164 format."
+          },
+          "to_number": {
+            "type": "string",
+            "description": "Recipient phone number in E.164 format."
+          },
+          "content": {
+            "type": "string",
+            "description": "SMS message content."
+          },
+          "archived_auto": {
+            "type": "boolean",
+            "description": "Automatically archive the SMS conversation."
+          },
+          "user_id_forced": {
+            "type": "integer",
+            "description": "Force the SMS to be sent as this Ringover user ID. Requires Monitoring scope."
+          },
+          "scheduled_at": {
+            "type": "string",
+            "description": "UTC scheduled send date/time."
+          }
+        },
+        "required": [
+          "from_number",
+          "to_number",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "start_callback",
+      "display_name": "Start Callback",
+      "description": "Start a Ringover callback call.",
+      "method": "POST",
+      "path": "/callback",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "to_number": {
+            "type": "integer",
+            "description": "Destination phone number, digits only."
+          },
+          "device": {
+            "type": "string",
+            "description": "Device to use for the callback.",
+            "enum": [
+              "ALL",
+              "APP",
+              "WEB",
+              "SIP",
+              "MOB",
+              "EXT"
+            ]
+          },
+          "from_number": {
+            "type": "integer",
+            "description": "Caller ID number, digits only. Requires Monitoring scope."
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Callback timeout in seconds, from 10 to 300."
+          },
+          "clir": {
+            "type": "boolean",
+            "description": "Hide caller ID."
+          }
+        },
+        "required": [
+          "to_number",
+          "device"
+        ]
+      }
+    },
+    {
+      "name": "list_empower_calls",
+      "display_name": "List Empower Calls",
+      "description": "List analyzed Ringover Empower calls.",
+      "method": "GET",
+      "path": "/empower/calls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "description": "Start date/time filter."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date/time filter."
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "Filter by Ringover user ID."
+          },
+          "limit_count": {
+            "type": "integer",
+            "description": "Maximum number of calls to return."
+          },
+          "limit_offset": {
+            "type": "integer",
+            "description": "Offset for paginated results."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_empower_call",
+      "display_name": "Get Empower Call",
+      "description": "Get an analyzed Ringover Empower call by UUID.",
+      "method": "GET",
+      "path": "/empower/call/{call_uuid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_uuid": {
+            "type": "string",
+            "description": "Ringover Empower call UUID."
+          }
+        },
+        "required": [
+          "call_uuid"
+        ]
+      }
+    },
+    {
+      "name": "get_empower_call_summary",
+      "display_name": "Get Empower Call Summary",
+      "description": "Get the AI-generated summary for an Empower call.",
+      "method": "GET",
+      "path": "/empower/call/{call_uuid}/summary",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_uuid": {
+            "type": "string",
+            "description": "Ringover Empower call UUID."
+          }
+        },
+        "required": [
+          "call_uuid"
+        ]
+      }
+    },
+    {
+      "name": "get_empower_call_moments",
+      "display_name": "Get Empower Call Moments",
+      "description": "Get key moments for an Empower call.",
+      "method": "GET",
+      "path": "/empower/call/{call_uuid}/moments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_uuid": {
+            "type": "string",
+            "description": "Ringover Empower call UUID."
+          }
+        },
+        "required": [
+          "call_uuid"
+        ]
+      }
+    }
+  ]
+}

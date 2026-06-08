@@ -335,6 +335,13 @@ func (s *Store) migrate() error {
 			enabled INTEGER DEFAULT 1,
 			notify_agent INTEGER DEFAULT 0,
 			thread_id TEXT DEFAULT '',
+			delivery TEXT NOT NULL DEFAULT 'webhook',
+			poll_config_json TEXT NOT NULL DEFAULT '',
+			poll_state_json TEXT NOT NULL DEFAULT '',
+			last_run_at DATETIME,
+			next_run_at DATETIME,
+			last_error TEXT NOT NULL DEFAULT '',
+			failure_count INTEGER NOT NULL DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE INDEX IF NOT EXISTS idx_sub_webhook ON subscriptions(webhook_path);
@@ -616,6 +623,14 @@ func (s *Store) migrate() error {
 	// since=last_seq_delivered so events emitted while we were down
 	// (within the bus's 256-event ring) replay automatically.
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN last_seq_delivered INTEGER NOT NULL DEFAULT 0")
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN delivery TEXT NOT NULL DEFAULT 'webhook'")
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN poll_config_json TEXT NOT NULL DEFAULT ''")
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN poll_state_json TEXT NOT NULL DEFAULT ''")
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN last_run_at DATETIME")
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN next_run_at DATETIME")
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN last_error TEXT NOT NULL DEFAULT ''")
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0")
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_sub_poll_due ON subscriptions(delivery, enabled, next_run_at)")
 
 	// Provider webhook_token: per-provider-per-project opaque token used
 	// as the path component of /webhooks/<token>. The unified ingress
@@ -1764,6 +1779,7 @@ func parseTime(s string) (time.Time, error) {
 		"2006-01-02T15:04:05",
 		"2006-01-02 15:04:05+00:00",
 		"2006-01-02 15:04:05-07:00",
+		time.RFC3339Nano,
 		time.RFC3339,
 	}
 	for _, f := range formats {

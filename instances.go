@@ -25,6 +25,26 @@ type runningAgent struct {
 	port       int
 	coreAPIKey string         // API key injected into core for auth
 	channels   *AgentChannels // channel infrastructure for this instance
+	diagMu     sync.Mutex
+	lastProc   string // latest /proc snapshot captured while the child was alive
+}
+
+func (r *runningAgent) setProcSnapshot(snapshot string) {
+	if r == nil || snapshot == "" {
+		return
+	}
+	r.diagMu.Lock()
+	r.lastProc = snapshot
+	r.diagMu.Unlock()
+}
+
+func (r *runningAgent) procSnapshot() string {
+	if r == nil {
+		return ""
+	}
+	r.diagMu.Lock()
+	defer r.diagMu.Unlock()
+	return r.lastProc
 }
 
 type AgentManager struct {
@@ -63,6 +83,68 @@ type AgentManager struct {
 	// media MCP attached can't accidentally attach storage cards (or
 	// any other app's components) it has no tool access to.
 	ComponentCatalog func(projectID string, attachedMCPNames []string) []componentEntry
+}
+
+func describeProcessState(ps *os.ProcessState) string {
+	if ps == nil {
+		return "processState=nil"
+	}
+	parts := []string{fmt.Sprintf("exitCode=%d", ps.ExitCode())}
+	if ws, ok := ps.Sys().(syscall.WaitStatus); ok {
+		parts = append(parts, fmt.Sprintf("waitStatus=%#x", int(ws)))
+		if ws.Signaled() {
+			parts = append(parts, fmt.Sprintf("signal=%s", ws.Signal()))
+		}
+		if ws.CoreDump() {
+			parts = append(parts, "coreDump=true")
+		}
+		if ws.Exited() {
+			parts = append(parts, fmt.Sprintf("status=%d", ws.ExitStatus()))
+		}
+		if ws.Stopped() {
+			parts = append(parts, fmt.Sprintf("stopped=%s", ws.StopSignal()))
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func coreProcSnapshot(pid int) string {
+	status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	if err != nil {
+		return fmt.Sprintf("pid=%d proc_status_unavailable=%v", pid, err)
+	}
+	want := map[string]bool{
+		"Name": true, "State": true, "PPid": true, "Threads": true,
+		"VmSize": true, "VmRSS": true, "VmData": true, "VmStk": true,
+	}
+	parts := []string{fmt.Sprintf("pid=%d", pid)}
+	for _, line := range strings.Split(string(status), "\n") {
+		key, val, ok := strings.Cut(line, ":")
+		if ok && want[key] {
+			parts = append(parts, key+"="+strings.Join(strings.Fields(val), " "))
+		}
+	}
+	if fds, err := os.ReadDir(fmt.Sprintf("/proc/%d/fd", pid)); err == nil {
+		parts = append(parts, fmt.Sprintf("FDs=%d", len(fds)))
+	}
+	return strings.Join(parts, " ")
+}
+
+func monitorCoreProc(ri *runningAgent, pid int, stop <-chan struct{}) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	sample := func() {
+		ri.setProcSnapshot(coreProcSnapshot(pid))
+	}
+	sample()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			sample()
+		}
+	}
 }
 
 // extractMCPNames pulls the user-configured MCP server names off
@@ -523,10 +605,13 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		log.Printf("[SPAWN] core agent=%d pid=%d port=%d FAILED to listen within 5s (last check: connection refused)", id, pid, p)
 	}(inst.ID, cmd.Process.Pid, port)
 
-	im.processes[inst.ID] = &runningAgent{cmd: cmd, port: port, coreAPIKey: coreAPIKey, channels: ic}
+	ri := &runningAgent{cmd: cmd, port: port, coreAPIKey: coreAPIKey, channels: ic}
+	im.processes[inst.ID] = ri
 	inst.Port = port
 	inst.Pid = cmd.Process.Pid
 	inst.Status = "running"
+	procDiagStop := make(chan struct{})
+	go monitorCoreProc(ri, cmd.Process.Pid, procDiagStop)
 
 	// Auto-start persisted channels (e.g. telegram)
 	for _, cc := range channelConfigs {
@@ -559,16 +644,15 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	go func() {
 		waitErr := cmd.Wait()
 		lived := time.Since(startedAt)
-		exitCode := -1
-		if cmd.ProcessState != nil {
-			exitCode = cmd.ProcessState.ExitCode()
-		}
-		log.Printf("[SPAWN] core EXITED agent=%d pid=%d port=%d exitCode=%d lived=%s waitErr=%v",
-			instID, spawnedPid, spawnedPort, exitCode, lived, waitErr)
+		close(procDiagStop)
+		procSnapshot := ri.procSnapshot()
+		stateDesc := describeProcessState(cmd.ProcessState)
+		log.Printf("[SPAWN] core EXITED agent=%d pid=%d port=%d lived=%s waitErr=%v %s lastProc={%s}",
+			instID, spawnedPid, spawnedPort, lived, waitErr, stateDesc, procSnapshot)
 		im.mu.Lock()
-		ri := im.processes[instID]
-		if ri != nil && ri.channels != nil {
-			ri.channels.Stop()
+		current := im.processes[instID]
+		if current != nil && current.channels != nil {
+			current.channels.Stop()
 		}
 		delete(im.processes, instID)
 		im.mu.Unlock()
@@ -598,15 +682,21 @@ func (im *AgentManager) Stop(instanceID int64) {
 		return
 	}
 	// Phase 1: polite SIGTERM.
+	log.Printf("[SPAWN] Stop requested agent=%d pid=%d port=%d lastProc={%s}", instanceID, ri.cmd.Process.Pid, ri.port, ri.procSnapshot())
 	_ = ri.cmd.Process.Signal(syscall.SIGTERM)
 	done := make(chan struct{})
-	go func() { ri.cmd.Wait(); close(done) }()
+	go func() {
+		err := ri.cmd.Wait()
+		log.Printf("[SPAWN] Stop wait agent=%d pid=%d err=%v %s", instanceID, ri.cmd.Process.Pid, err, describeProcessState(ri.cmd.ProcessState))
+		close(done)
+	}()
 	select {
 	case <-done:
 		// clean exit
 	case <-time.After(2 * time.Second):
 		// Phase 2: escalate. Chrome may be stuck on a navigation or
 		// an agent may be ignoring SIGTERM — don't wait forever.
+		log.Printf("[SPAWN] Stop escalating SIGKILL agent=%d pid=%d lastProc={%s}", instanceID, ri.cmd.Process.Pid, ri.procSnapshot())
 		ri.cmd.Process.Kill()
 		<-done
 	}

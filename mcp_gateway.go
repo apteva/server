@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // runMCPGateway runs the server as a stdio MCP server exposing management tools.
@@ -46,9 +47,9 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		Description string `json:"description,omitempty"`
 	}
 	type toolSchema struct {
-		Type       string                `json:"type"`
-		Properties map[string]toolParam  `json:"properties,omitempty"`
-		Required   []string              `json:"required,omitempty"`
+		Type       string               `json:"type"`
+		Properties map[string]toolParam `json:"properties,omitempty"`
+		Required   []string             `json:"required,omitempty"`
 	}
 	type toolDef struct {
 		Name        string     `json:"name"`
@@ -73,8 +74,8 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "delete_mcp_server", Description: "Delete an MCP server.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Server ID"}}, Required: []string{"id"}}},
 		{Name: "list_server_tools", Description: "List tools from a running MCP server.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Server ID"}}, Required: []string{"id"}}},
 		// Subscriptions
-		{Name: "list_subscribable", Description: "List connected integrations that support automatic webhook subscriptions.", InputSchema: toolSchema{Type: "object"}},
-		{Name: "create_subscription", Description: "Subscribe to events from a connected integration. Auto-registers the webhook with the external service. Use list_subscribable to see available events. Set thread_id to deliver webhook events directly to a specific thread instead of main.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"connection_id": {Type: "string", Description: "Connection ID"}, "name": {Type: "string", Description: "Subscription name"}, "events": {Type: "string", Description: "Comma-separated event names from list_subscribable. Use EXACT event names (e.g. 'messaging.inbound_message_processed'). Do NOT invent event names."}, "thread_id": {Type: "string", Description: "Target thread ID for webhook events. Must be an already-running thread (spawn it first). If omitted, events go to main thread."}}, Required: []string{"connection_id"}}},
+		{Name: "list_subscribable", Description: "List connected integrations that support native or poll-backed webhook event subscriptions.", InputSchema: toolSchema{Type: "object"}},
+		{Name: "create_subscription", Description: "Subscribe to events from a connected integration. Native events auto-register a webhook with the external service; poll-backed events are refreshed by Apteva. Use list_subscribable to see available events. Set thread_id to deliver webhook events directly to a specific thread instead of main.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"connection_id": {Type: "string", Description: "Connection ID"}, "name": {Type: "string", Description: "Subscription name"}, "events": {Type: "string", Description: "Comma-separated event names from list_subscribable. Use EXACT event names (e.g. 'messaging.inbound_message_processed'). Do NOT invent event names."}, "thread_id": {Type: "string", Description: "Target thread ID for webhook events. Must be an already-running thread (spawn it first). If omitted, events go to main thread."}, "interval_seconds": {Type: "string", Description: "Optional poll interval in seconds for poll-backed events."}, "poll_input": {Type: "string", Description: "Optional JSON object merged into the poll tool input."}}, Required: []string{"connection_id"}}},
 		{Name: "list_subscriptions", Description: "List active webhook subscriptions for this instance.", InputSchema: toolSchema{Type: "object"}},
 		{Name: "delete_subscription", Description: "Remove a webhook subscription.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Subscription ID"}}, Required: []string{"id"}}},
 		// Providers
@@ -446,6 +447,18 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			subName, _ := args["name"].(string)
 			eventsStr, _ := args["events"].(string)
 			threadID, _ := args["thread_id"].(string)
+			intervalSeconds, _ := parseIntArg(args["interval_seconds"])
+			pollInput := map[string]any{}
+			switch v := args["poll_input"].(type) {
+			case string:
+				if strings.TrimSpace(v) != "" {
+					if err := json.Unmarshal([]byte(v), &pollInput); err != nil {
+						return nil, fmt.Errorf("poll_input must be a JSON object")
+					}
+				}
+			case map[string]any:
+				pollInput = v
+			}
 			var eventsList []string
 			if eventsStr != "" {
 				for _, e := range strings.Split(eventsStr, ",") {
@@ -496,6 +509,26 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				fmt.Sscanf(id, "%d", &instanceID)
 			}
 
+			if cfg, event, err := buildStoredPollConfig(app, eventsList, int(intervalSeconds), pollInput); err != nil {
+				return nil, err
+			} else if cfg != nil && event != nil {
+				if len(eventsList) == 0 {
+					eventsList = []string{event.Name}
+				}
+				cfgJSON, _ := json.Marshal(cfg)
+				sub, err := store.CreatePollSubscription(userID, instanceID, conn.ID, subName, conn.AppSlug, event.Description, threadID, conn.ProjectID, eventsList, string(cfgJSON), time.Now().UTC())
+				if err != nil {
+					return nil, fmt.Errorf("create poll subscription: %w", err)
+				}
+				return map[string]any{
+					"id":               sub.ID,
+					"delivery":         "poll",
+					"events":           eventsList,
+					"auto_registered":  false,
+					"interval_seconds": cfg.IntervalSeconds,
+				}, nil
+			}
+
 			webhookPath := generateToken(16)
 			// Resolve public base URL the same way the parent server does:
 			// server_settings.public_url > PUBLIC_URL env > localhost. The
@@ -516,7 +549,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				webhookURL = fmt.Sprintf("http://127.0.0.1:%s/webhooks/%s", serverPort, webhookPath)
 			}
 
-			sub, err := store.CreateSubscription(userID, instanceID, conn.ID, subName, conn.AppSlug, "", webhookPath, "", threadID, conn.ProjectID, nil)
+			sub, err := store.CreateSubscription(userID, instanceID, conn.ID, subName, conn.AppSlug, "", webhookPath, "", threadID, conn.ProjectID, eventsList)
 			if err != nil {
 				return nil, fmt.Errorf("create subscription: %w", err)
 			}
@@ -921,8 +954,8 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		case "initialize":
 			result = map[string]any{
 				"protocolVersion": "2024-11-05",
-				"capabilities":   map[string]any{"tools": map[string]any{}},
-				"serverInfo":     map[string]string{"name": "apteva-gateway", "version": "1.0.0"},
+				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"serverInfo":      map[string]string{"name": "apteva-gateway", "version": "1.0.0"},
 			}
 
 		case "tools/list":
