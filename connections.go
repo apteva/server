@@ -12,6 +12,7 @@ import (
 	"net/http"
 	neturl "net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,8 @@ var binaryMIMEPrefixes = []string{
 	"font/",
 }
 
+var integrationProxyEnvNameRE = regexp.MustCompile(`[^A-Z0-9]+`)
+
 func isBinaryContentType(ct string) bool {
 	ct = strings.ToLower(strings.TrimSpace(ct))
 	if i := strings.Index(ct, ";"); i >= 0 {
@@ -49,6 +52,65 @@ func isBinaryContentType(ct string) bool {
 		}
 	}
 	return false
+}
+
+func integrationProxyEnvName(slug string) string {
+	normalized := strings.ToUpper(strings.TrimSpace(slug))
+	normalized = integrationProxyEnvNameRE.ReplaceAllString(normalized, "_")
+	normalized = strings.Trim(normalized, "_")
+	if normalized == "" {
+		return ""
+	}
+	return "APTEVA_INTEGRATION_PROXY_" + normalized
+}
+
+func integrationProxyURL(app *AppTemplate) (string, string, error) {
+	if app != nil {
+		if name := integrationProxyEnvName(app.Slug); name != "" {
+			if raw := strings.TrimSpace(os.Getenv(name)); raw != "" {
+				if err := validateIntegrationProxyURL(raw); err != nil {
+					return "", name, fmt.Errorf("invalid %s: %w", name, err)
+				}
+				return raw, name, nil
+			}
+		}
+	}
+	const fallback = "APTEVA_INTEGRATION_PROXY"
+	if raw := strings.TrimSpace(os.Getenv(fallback)); raw != "" {
+		if err := validateIntegrationProxyURL(raw); err != nil {
+			return "", fallback, fmt.Errorf("invalid %s: %w", fallback, err)
+		}
+		return raw, fallback, nil
+	}
+	return "", "", nil
+}
+
+func validateIntegrationProxyURL(raw string) error {
+	u, err := neturl.Parse(raw)
+	if err != nil {
+		return err
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return fmt.Errorf("must be an absolute proxy URL")
+	}
+	return nil
+}
+
+func integrationHTTPClient(app *AppTemplate, timeout time.Duration) (*http.Client, error) {
+	proxyRaw, proxyEnv, err := integrationProxyURL(app)
+	if err != nil {
+		return nil, err
+	}
+	if proxyRaw == "" {
+		return &http.Client{Timeout: timeout}, nil
+	}
+	proxyURL, err := neturl.Parse(proxyRaw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s: %w", proxyEnv, err)
+	}
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.Proxy = http.ProxyURL(proxyURL)
+	return &http.Client{Timeout: timeout, Transport: base}, nil
 }
 
 // --- DB Model ---
@@ -1305,7 +1367,10 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			timeout = 10 * time.Minute
 		}
 	}
-	client := &http.Client{Timeout: timeout}
+	client, err := integrationHTTPClient(app, timeout)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

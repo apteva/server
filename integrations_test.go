@@ -927,6 +927,58 @@ func TestExecuteIntegrationTool_AuthQueryWithPathQuery(t *testing.T) {
 	}
 }
 
+func TestExecuteIntegrationTool_UsesIntegrationSpecificProxy(t *testing.T) {
+	targetHit := false
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetHit = true
+		http.Error(w, "target should not be hit directly", http.StatusTeapot)
+	}))
+	defer target.Close()
+
+	var proxiedURL string
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxiedURL = r.URL.String()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"via":"proxy"}`))
+	}))
+	defer proxy.Close()
+
+	t.Setenv("APTEVA_INTEGRATION_PROXY_RINGOVER", proxy.URL)
+
+	app := &AppTemplate{
+		Slug:    "ringover",
+		BaseURL: target.URL,
+		Auth:    AppAuthConfig{Types: []string{"api_key"}},
+	}
+	tool := &AppToolDef{
+		Name:   "teams",
+		Method: http.MethodGet,
+		Path:   "/v2/teams",
+	}
+	res, err := executeIntegrationTool(app, tool, map[string]string{"api_key": "secret"}, map[string]any{}, "")
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if targetHit {
+		t.Fatal("request hit target directly; expected proxy")
+	}
+	if !strings.HasPrefix(proxiedURL, target.URL+"/v2/teams") {
+		t.Fatalf("proxied URL=%q, want target absolute URL", proxiedURL)
+	}
+	if !res.Success || res.Status != http.StatusOK {
+		t.Fatalf("status=%d success=%v data=%v", res.Status, res.Success, res.Data)
+	}
+}
+
+func TestIntegrationProxyEnvName_NormalizesSlug(t *testing.T) {
+	got := integrationProxyEnvName("google-sheets.v2")
+	want := "APTEVA_INTEGRATION_PROXY_GOOGLE_SHEETS_V2"
+	if got != want {
+		t.Fatalf("env name=%q, want %q", got, want)
+	}
+}
+
 func TestExecuteIntegrationTool_QueryParamArraysRepeatValues(t *testing.T) {
 	var declaredRanges []string
 	var genericRanges []string
