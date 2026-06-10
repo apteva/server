@@ -1,8 +1,8 @@
 {
-  "name": "ringover",
-  "display_name": "Ringover",
+  "slug": "ringover",
+  "name": "Ringover",
   "logo": "https://www.ringover.com/favicon.ico",
-  "category": "communication",
+  "categories": ["communication"],
   "description": "Ringover cloud phone, SMS, contacts, conversations, call history, live calls, and Empower call intelligence.",
   "base_url": "https://public-api.ringover.com/v2",
   "auth": {
