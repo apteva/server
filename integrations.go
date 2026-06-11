@@ -466,6 +466,16 @@ type AppToolDef struct {
 	// same field in @apteva/integrations/src/types.ts AppToolTemplate.
 	BodyRoot string `json:"body_root_param,omitempty"`
 
+	// RequestTransform rewrites friendly tool inputs into provider-specific
+	// request bodies before the default JSON/form body path runs. It keeps
+	// agent-facing schemas simple for APIs that need encoded MIME, nested
+	// JSON wrappers, or encoded payload fields.
+	RequestTransform *RequestTransformDef `json:"request_transform,omitempty"`
+
+	// ResponseTransform rewrites provider-specific responses into
+	// agent-friendly output after response_path and before response_omit.
+	ResponseTransform *ResponseTransformDef `json:"response_transform,omitempty"`
+
 	// Signing overrides the app-level auth.signers[] chain for this
 	// specific tool. Use when most endpoints share one auth flavor but
 	// a handful need extra work — e.g. Polymarket's CLOB reads with
@@ -476,6 +486,24 @@ type AppToolDef struct {
 	// signing for this tool — useful for public endpoints inside an
 	// otherwise-authenticated app catalog entry.
 	Signing *ToolSigningConfig `json:"signing,omitempty"`
+}
+
+type RequestTransformDef struct {
+	Type          string            `json:"type"`
+	Output        string            `json:"output,omitempty"`
+	Target        string            `json:"target,omitempty"`
+	Encoding      string            `json:"encoding,omitempty"`
+	Source        string            `json:"source,omitempty"`
+	Fields        []string          `json:"fields,omitempty"`
+	IncludeFields map[string]string `json:"include_fields,omitempty"`
+}
+
+type ResponseTransformDef struct {
+	Type     string            `json:"type"`
+	Source   string            `json:"source,omitempty"`
+	Target   string            `json:"target,omitempty"`
+	Encoding string            `json:"encoding,omitempty"`
+	Fields   map[string]string `json:"fields,omitempty"`
 }
 
 // ToolSigningConfig — per-tool override of the app-level signer chain.

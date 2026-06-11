@@ -76,7 +76,7 @@
     },
     {
       "name": "send_email",
-      "description": "Send an email message. Provide plain-text fields (to, subject, body) \u2014 the system handles RFC 2822 encoding and UTF-8 character support automatically. For HTML emails, use htmlBody instead of or alongside body.",
+      "description": "Send an email message. Provide plain-text fields (to, subject, body) \u2014 the system handles RFC 2822 encoding and UTF-8 character support automatically. Provide body or htmlBody; HTML-only messages are supported.",
       "method": "POST",
       "path": "/users/me/messages/send",
       "input_schema": {
@@ -121,12 +121,40 @@
           "references": {
             "type": "string",
             "description": "Space-separated Message-IDs for threading context"
+          },
+          "from": {
+            "type": "string",
+            "description": "Optional From address. Must be the Gmail account or a configured Gmail send-as alias."
+          },
+          "attachments": {
+            "type": "array",
+            "description": "Optional attachments. Each item may provide filename, mimeType, and either base64 or text content.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "filename": {
+                  "type": "string",
+                  "description": "Attachment filename"
+                },
+                "mimeType": {
+                  "type": "string",
+                  "description": "Attachment MIME type, e.g. application/pdf or image/png"
+                },
+                "base64": {
+                  "type": "string",
+                  "description": "Base64-encoded attachment bytes"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Text content to attach when base64 is not provided"
+                }
+              }
+            }
           }
         },
         "required": [
           "to",
-          "subject",
-          "body"
+          "subject"
         ]
       },
       "mock_response": {
@@ -135,6 +163,15 @@
         "labelIds": [
           "SENT"
         ]
+      },
+      "request_transform": {
+        "type": "mime_email",
+        "output": "json",
+        "target": "raw",
+        "encoding": "base64url",
+        "include_fields": {
+          "threadId": "threadId"
+        }
       }
     },
     {
@@ -212,8 +249,11 @@
             "default": "full"
           },
           "metadataHeaders": {
-            "type": "string",
-            "description": "Headers to include when format is 'metadata' (comma-separated, e.g. 'From,To,Subject,Date')"
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Headers to include when format is 'metadata' (e.g. ['From', 'To', 'Subject', 'Date'])"
           }
         },
         "required": [
@@ -246,11 +286,22 @@
             {
               "name": "Date",
               "value": "Wed, 22 May 2026 10:00:00 +0000"
+            },
+            {
+              "name": "Message-ID",
+              "value": "<msg-1@example.com>"
             }
-          ]
+          ],
+          "body": {
+            "size": 80,
+            "data": "SGkgdGhlcmUsIGp1c3QgZm9sbG93aW5nIHVwIG9uIHRoZSBwcm9wb3NhbCB3ZSBkaXNjdXNzZWQgbGFzdCB3ZWVrLi4u"
+          }
         },
         "sizeEstimate": 4096,
         "internalDate": "1747908000000"
+      },
+      "response_transform": {
+        "type": "email_message"
       }
     },
     {
@@ -495,9 +546,43 @@
               "INBOX",
               "UNREAD"
             ],
-            "snippet": "Hi there, just following up on the proposal..."
+            "snippet": "Hi there, just following up on the proposal...",
+            "payload": {
+              "mimeType": "text/plain",
+              "headers": [
+                {
+                  "name": "From",
+                  "value": "Alice Martin <alice@example.com>"
+                },
+                {
+                  "name": "To",
+                  "value": "agent@example.com"
+                },
+                {
+                  "name": "Subject",
+                  "value": "Following up on the proposal"
+                },
+                {
+                  "name": "Date",
+                  "value": "Wed, 22 May 2026 10:00:00 +0000"
+                },
+                {
+                  "name": "Message-ID",
+                  "value": "<msg-1@example.com>"
+                }
+              ],
+              "body": {
+                "size": 55,
+                "data": "SGkgdGhlcmUsIGp1c3QgZm9sbG93aW5nIHVwIG9uIHRoZSBwcm9wb3NhbC4uLg"
+              }
+            },
+            "internalDate": "1779444000000",
+            "sizeEstimate": 2048
           }
         ]
+      },
+      "response_transform": {
+        "type": "email_thread"
       }
     },
     {
@@ -818,7 +903,7 @@
     },
     {
       "name": "create_draft",
-      "description": "Create a new email draft. Provide plain-text fields (to, subject, body) \u2014 the system handles RFC 2822 encoding and UTF-8 character support automatically. For HTML drafts, use htmlBody.",
+      "description": "Create a new email draft. Provide plain-text fields (to, subject, body) \u2014 the system handles RFC 2822 encoding and UTF-8 character support automatically. Provide body or htmlBody; HTML-only messages are supported.",
       "method": "POST",
       "path": "/users/me/drafts",
       "input_schema": {
@@ -855,12 +940,40 @@
           "threadId": {
             "type": "string",
             "description": "Thread ID if this draft is a reply"
+          },
+          "from": {
+            "type": "string",
+            "description": "Optional From address. Must be the Gmail account or a configured Gmail send-as alias."
+          },
+          "attachments": {
+            "type": "array",
+            "description": "Optional attachments. Each item may provide filename, mimeType, and either base64 or text content.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "filename": {
+                  "type": "string",
+                  "description": "Attachment filename"
+                },
+                "mimeType": {
+                  "type": "string",
+                  "description": "Attachment MIME type, e.g. application/pdf or image/png"
+                },
+                "base64": {
+                  "type": "string",
+                  "description": "Base64-encoded attachment bytes"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Text content to attach when base64 is not provided"
+                }
+              }
+            }
           }
         },
         "required": [
           "to",
-          "subject",
-          "body"
+          "subject"
         ]
       },
       "mock_response": {
@@ -872,11 +985,20 @@
             "DRAFT"
           ]
         }
+      },
+      "request_transform": {
+        "type": "mime_email",
+        "output": "json",
+        "target": "message.raw",
+        "encoding": "base64url",
+        "include_fields": {
+          "threadId": "message.threadId"
+        }
       }
     },
     {
       "name": "update_draft",
-      "description": "Update an existing draft's content (replaces the entire draft message). Provide plain-text fields \u2014 the system handles RFC 2822 encoding automatically.",
+      "description": "Update an existing draft's content (replaces the entire draft message). Provide plain-text fields \u2014 the system handles RFC 2822 encoding automatically. Provide body or htmlBody; HTML-only messages are supported.",
       "method": "PUT",
       "path": "/users/me/drafts/{draftId}",
       "input_schema": {
@@ -917,14 +1039,51 @@
           "threadId": {
             "type": "string",
             "description": "Thread ID if this draft is a reply"
+          },
+          "from": {
+            "type": "string",
+            "description": "Optional From address. Must be the Gmail account or a configured Gmail send-as alias."
+          },
+          "attachments": {
+            "type": "array",
+            "description": "Optional attachments. Each item may provide filename, mimeType, and either base64 or text content.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "filename": {
+                  "type": "string",
+                  "description": "Attachment filename"
+                },
+                "mimeType": {
+                  "type": "string",
+                  "description": "Attachment MIME type, e.g. application/pdf or image/png"
+                },
+                "base64": {
+                  "type": "string",
+                  "description": "Base64-encoded attachment bytes"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Text content to attach when base64 is not provided"
+                }
+              }
+            }
           }
         },
         "required": [
           "draftId",
           "to",
-          "subject",
-          "body"
+          "subject"
         ]
+      },
+      "request_transform": {
+        "type": "mime_email",
+        "output": "json",
+        "target": "message.raw",
+        "encoding": "base64url",
+        "include_fields": {
+          "threadId": "message.threadId"
+        }
       }
     },
     {

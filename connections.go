@@ -1094,6 +1094,13 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		if len(tool.MockResponse) > 0 {
 			var data any
 			_ = json.Unmarshal(tool.MockResponse, &data)
+			if tool.ResponseTransform != nil && data != nil {
+				transformed, _, err := buildResponseTransformData(tool.ResponseTransform, data)
+				if err != nil {
+					return nil, err
+				}
+				data = transformed
+			}
 			return &ExecuteResult{Success: true, Status: 200, Data: data}, nil
 		}
 		return &ExecuteResult{Success: true, Status: 200, Data: map[string]any{"ok": true, "_stub": true}}, nil
@@ -1187,6 +1194,11 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		url += sep + encoded
 	}
 
+	transformedBody, hasTransformedBody, err := buildRequestTransformBody(tool.RequestTransform, input)
+	if err != nil {
+		return nil, err
+	}
+
 	// Build body for POST/PUT/PATCH
 	var bodyReader io.Reader
 	if tool.Method != "GET" && tool.Method != "DELETE" {
@@ -1239,6 +1251,23 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 				}
 				bodyReader = strings.NewReader(string(data))
 			}
+			if _, set := headers["Content-Type"]; !set {
+				headers["Content-Type"] = "application/json"
+			}
+		} else if hasTransformedBody {
+			body := transformedBody
+			if bodyMap, ok := transformedBody.(map[string]any); ok {
+				merged := buildAuthBodyParams(app.Auth.BodyParams, credentials)
+				for k, v := range bodyMap {
+					merged[k] = v
+				}
+				body = merged
+			}
+			data, err := json.Marshal(body)
+			if err != nil {
+				return nil, fmt.Errorf("marshal request_transform body: %w", err)
+			}
+			bodyReader = strings.NewReader(string(data))
 			if _, set := headers["Content-Type"]; !set {
 				headers["Content-Type"] = "application/json"
 			}
@@ -1445,6 +1474,14 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		if m, ok := data.(map[string]any); ok {
 			data = extractPath(m, *tool.ResponsePath)
 		}
+	}
+
+	if tool.ResponseTransform != nil && data != nil && !binary {
+		transformed, _, err := buildResponseTransformData(tool.ResponseTransform, data)
+		if err != nil {
+			return nil, err
+		}
+		data = transformed
 	}
 
 	// Strip any fields the tool declared we shouldn't expose. Runs
