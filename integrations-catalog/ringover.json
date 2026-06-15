@@ -2,7 +2,9 @@
   "slug": "ringover",
   "name": "Ringover",
   "logo": "https://www.ringover.com/favicon.ico",
-  "categories": ["communication"],
+  "categories": [
+    "communication"
+  ],
   "description": "Ringover cloud phone, SMS, contacts, conversations, call history, live calls, and Empower call intelligence.",
   "base_url": "https://public-api.ringover.com/v2",
   "auth": {
@@ -85,7 +87,7 @@
         "type": "object",
         "properties": {
           "user_id": {
-            "type": "integer",
+            "type": "string",
             "description": "Ringover user ID."
           }
         },
@@ -104,7 +106,7 @@
         "type": "object",
         "properties": {
           "user_id": {
-            "type": "integer",
+            "type": "string",
             "description": "Ringover user ID."
           }
         },
@@ -188,7 +190,7 @@
         "type": "object",
         "properties": {
           "group_id": {
-            "type": "integer",
+            "type": "string",
             "description": "Ringover group ID."
           }
         },
@@ -214,7 +216,7 @@
         "type": "object",
         "properties": {
           "ivr_id": {
-            "type": "integer",
+            "type": "string",
             "description": "Ringover IVR ID."
           }
         },
@@ -233,7 +235,7 @@
         "type": "object",
         "properties": {
           "ivr_id": {
-            "type": "integer",
+            "type": "string",
             "description": "Ringover IVR ID."
           }
         },
@@ -730,7 +732,7 @@
         "type": "object",
         "properties": {
           "contact_id": {
-            "type": "integer",
+            "type": "string",
             "description": "Ringover contact ID."
           }
         },
@@ -749,7 +751,7 @@
         "type": "object",
         "properties": {
           "contact_id": {
-            "type": "integer",
+            "type": "string",
             "description": "Ringover contact ID."
           },
           "firstname": {
@@ -797,7 +799,7 @@
         "type": "object",
         "properties": {
           "contact_id": {
-            "type": "integer",
+            "type": "string",
             "description": "Ringover contact ID."
           }
         },
@@ -816,7 +818,7 @@
         "type": "object",
         "properties": {
           "contact_id": {
-            "type": "integer",
+            "type": "string",
             "description": "Ringover contact ID."
           },
           "numbers": {
@@ -1052,6 +1054,52 @@
       }
     },
     {
+      "name": "start_ivr_callback",
+      "display_name": "Start IVR Callback",
+      "description": "Start a Ringover callback through an IVR/standard number. Use this when the displayed caller number is assigned to an IVR/standard, not a user.",
+      "method": "POST",
+      "path": "/ivrs/{ivr_id}/callback",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "to_number",
+          "from_number",
+          "timeout",
+          "clir"
+        ]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ivr_id": {
+            "type": "integer",
+            "description": "Ringover IVR/standard ID."
+          },
+          "to_number": {
+            "type": "integer",
+            "description": "Destination phone number, digits only."
+          },
+          "from_number": {
+            "type": "integer",
+            "description": "IVR/standard phone number to display, digits only."
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Callback timeout in seconds, from 20 to 300."
+          },
+          "clir": {
+            "type": "boolean",
+            "description": "Hide caller ID."
+          }
+        },
+        "required": [
+          "ivr_id",
+          "to_number",
+          "from_number"
+        ]
+      }
+    },
+    {
       "name": "list_empower_calls",
       "display_name": "List Empower Calls",
       "description": "List analyzed Ringover Empower calls.",
@@ -1069,7 +1117,7 @@
             "description": "End date/time filter."
           },
           "user_id": {
-            "type": "integer",
+            "type": "string",
             "description": "Filter by Ringover user ID."
           },
           "limit_count": {

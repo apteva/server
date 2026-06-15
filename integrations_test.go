@@ -1209,3 +1209,48 @@ func TestExecuteIntegrationTool_ToolHeadersOverrideAppHeaders(t *testing.T) {
 		t.Fatalf("webhook object missing from body: %s", capturedBody)
 	}
 }
+
+func TestExecuteIntegrationTool_NumericPathParamAvoidsScientificNotation(t *testing.T) {
+	var capturedPath string
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "fake-ringover",
+		BaseURL: srv.URL,
+		Auth:    AppAuthConfig{Types: []string{"api_key"}},
+	}
+	tool := &AppToolDef{
+		Name:   "start_ivr_callback",
+		Method: "POST",
+		Path:   "/ivrs/{ivr_id}/callback",
+	}
+	input := map[string]any{
+		// json.Unmarshal decodes numbers into float64 in the HTTP executor path.
+		"ivr_id":      float64(17560906),
+		"to_number":   float64(34648257793),
+		"from_number": float64(34930494946),
+		"timeout":     float64(20),
+	}
+
+	res, err := executeIntegrationTool(app, tool, map[string]string{}, input, "")
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("success=%v status=%d", res.Success, res.Status)
+	}
+	if capturedPath != "/ivrs/17560906/callback" {
+		t.Fatalf("path=%q, want /ivrs/17560906/callback", capturedPath)
+	}
+	if strings.Contains(string(capturedBody), "ivr_id") {
+		t.Fatalf("path param leaked into body: %s", capturedBody)
+	}
+}

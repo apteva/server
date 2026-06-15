@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -1091,7 +1092,7 @@ func buildURL(baseURL, path string, input map[string]any) string {
 	for key, val := range input {
 		placeholder := "{" + key + "}"
 		if strings.Contains(resolved, placeholder) {
-			resolved = replaceURLPathParam(resolved, placeholder, fmt.Sprintf("%v", val))
+			resolved = replaceURLPathParam(resolved, placeholder, formatURLPathParamValue(val))
 		}
 	}
 	// If the resolved path is itself absolute, treat it as the full URL
@@ -1135,6 +1136,19 @@ func replaceURLPathParam(path, placeholder, value string) string {
 	}
 
 	return strings.ReplaceAll(path, placeholder, url.PathEscape(value))
+}
+
+func formatURLPathParamValue(value any) string {
+	switch v := value.(type) {
+	case json.Number:
+		return v.String()
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case float32:
+		return strconv.FormatFloat(float64(v), 'f', -1, 32)
+	default:
+		return fmt.Sprintf("%v", value)
+	}
 }
 
 // buildAuthQuery returns the auth credentials encoded as "k=v&k=v" with no
