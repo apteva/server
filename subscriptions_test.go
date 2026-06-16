@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestSubscriptionCRUD(t *testing.T) {
@@ -93,6 +97,113 @@ func TestSubscriptionCRUD(t *testing.T) {
 	}
 	if fetched.NotifyAgent {
 		t.Error("expected agent notifications off after update")
+	}
+}
+
+func TestAppEventSubscriptionsUseUniqueInternalWebhookPaths(t *testing.T) {
+	s := newTestServer(t)
+	s.secret = testSecret()
+
+	first, err := s.store.CreateAppEventSubscription(1, 11, "CRM contact added", "crm:contact.added", "", "main", "project-a")
+	if err != nil {
+		t.Fatalf("CreateAppEventSubscription first: %v", err)
+	}
+	second, err := s.store.CreateAppEventSubscription(1, 22, "CRM contact added", "crm:contact.added", "", "main", "project-b")
+	if err != nil {
+		t.Fatalf("CreateAppEventSubscription second same app/topic in another project: %v", err)
+	}
+
+	if first.WebhookPath == "" || second.WebhookPath == "" {
+		t.Fatalf("internal webhook paths should not be empty: first=%q second=%q", first.WebhookPath, second.WebhookPath)
+	}
+	if first.WebhookPath == second.WebhookPath {
+		t.Fatalf("internal webhook paths should be unique, both were %q", first.WebhookPath)
+	}
+	if !strings.HasPrefix(first.WebhookPath, "app-event-") || !strings.HasPrefix(second.WebhookPath, "app-event-") {
+		t.Fatalf("expected app-event internal paths, got %q and %q", first.WebhookPath, second.WebhookPath)
+	}
+
+	if _, _, err := s.store.GetSubscriptionByPath(first.WebhookPath); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("internal app-event path should not be publicly routable, err=%v", err)
+	}
+
+	subs, err := s.store.ListSubscriptions(1)
+	if err != nil {
+		t.Fatalf("ListSubscriptions: %v", err)
+	}
+	if len(subs) != 2 {
+		t.Fatalf("expected 2 subscriptions, got %d", len(subs))
+	}
+}
+
+func TestEmptyWebhookPathFallbackIsUniqueAndNotPubliclyRoutable(t *testing.T) {
+	s := newTestServer(t)
+	s.secret = testSecret()
+
+	first, err := s.store.CreateSubscription(1, 11, 101, "Provider trigger A", "crm", "", "", "", "main", "project-a", []string{"contact.added"})
+	if err != nil {
+		t.Fatalf("CreateSubscription first empty path: %v", err)
+	}
+	second, err := s.store.CreateSubscription(1, 22, 102, "Provider trigger B", "crm", "", "", "", "main", "project-b", []string{"contact.added"})
+	if err != nil {
+		t.Fatalf("CreateSubscription second empty path: %v", err)
+	}
+
+	if first.WebhookPath == "" || second.WebhookPath == "" {
+		t.Fatalf("fallback paths should not be empty: first=%q second=%q", first.WebhookPath, second.WebhookPath)
+	}
+	if first.WebhookPath == second.WebhookPath {
+		t.Fatalf("fallback paths should be unique, both were %q", first.WebhookPath)
+	}
+	if !strings.HasPrefix(first.WebhookPath, "internal-") || !strings.HasPrefix(second.WebhookPath, "internal-") {
+		t.Fatalf("expected internal fallback paths, got %q and %q", first.WebhookPath, second.WebhookPath)
+	}
+	if _, _, err := s.store.GetSubscriptionByPath(first.WebhookPath); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("internal fallback path should not be publicly routable, err=%v", err)
+	}
+}
+
+func TestPollSubscriptionWebhookPathIsNotPubliclyRoutable(t *testing.T) {
+	s := newTestServer(t)
+	s.secret = testSecret()
+
+	sub, err := s.store.CreatePollSubscription(1, 11, 101, "Polling trigger", "crm", "", "main", "project-a", []string{"contact.added"}, "{}", time.Now())
+	if err != nil {
+		t.Fatalf("CreatePollSubscription: %v", err)
+	}
+	if !strings.HasPrefix(sub.WebhookPath, "poll-") {
+		t.Fatalf("expected poll internal path, got %q", sub.WebhookPath)
+	}
+	if _, _, err := s.store.GetSubscriptionByPath(sub.WebhookPath); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("poll internal path should not be publicly routable, err=%v", err)
+	}
+}
+
+func TestMigrateEmptySubscriptionWebhookPaths(t *testing.T) {
+	s := newTestServer(t)
+	s.secret = testSecret()
+
+	_, err := s.store.db.Exec(`
+		INSERT INTO subscriptions
+			(id, user_id, agent_id, connection_id, name, slug, webhook_path, source, delivery)
+		VALUES
+			('legacy-app-event', 1, 11, 0, 'Legacy app event', 'crm:contact.added', '', 'app_event', 'webhook')
+	`)
+	if err != nil {
+		t.Fatalf("insert legacy empty webhook_path row: %v", err)
+	}
+
+	migrateEmptySubscriptionWebhookPaths(s.store.db)
+
+	var path string
+	if err := s.store.db.QueryRow(`SELECT webhook_path FROM subscriptions WHERE id = 'legacy-app-event'`).Scan(&path); err != nil {
+		t.Fatalf("query migrated row: %v", err)
+	}
+	if path != "app-event-legacy-app-event" {
+		t.Fatalf("migrated path = %q, want app-event-legacy-app-event", path)
+	}
+	if _, _, err := s.store.GetSubscriptionByPath(path); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("migrated internal path should not be publicly routable, err=%v", err)
 	}
 }
 

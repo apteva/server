@@ -631,6 +631,12 @@ func (s *Store) migrate() error {
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN last_error TEXT NOT NULL DEFAULT ''")
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0")
 	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_sub_poll_due ON subscriptions(delivery, enabled, next_run_at)")
+	// Older app-event / provider-trigger subscriptions used an empty
+	// webhook_path because they do not expose a per-subscription public
+	// webhook. The column is globally UNIQUE, so the first such row
+	// blocked every later internal subscription. Give existing rows a
+	// deterministic internal key; new rows use random internal keys.
+	migrateEmptySubscriptionWebhookPaths(s.db)
 
 	// Provider webhook_token: per-provider-per-project opaque token used
 	// as the path component of /webhooks/<token>. The unified ingress
@@ -1021,6 +1027,23 @@ func (s *Store) migrate() error {
 	           SELECT id, user_id, 'owner', user_id FROM projects`)
 
 	return nil
+}
+
+func migrateEmptySubscriptionWebhookPaths(db *sql.DB) {
+	if db == nil {
+		return
+	}
+	db.Exec(`
+		UPDATE subscriptions
+		SET webhook_path =
+			CASE
+				WHEN COALESCE(source,'') = 'app_event' THEN 'app-event-' || id
+				WHEN COALESCE(delivery,'') = 'poll' THEN 'poll-' || id
+				WHEN COALESCE(external_webhook_id,'') != '' THEN 'composio-' || id
+				ELSE 'internal-' || id
+			END
+		WHERE webhook_path = ''
+	`)
 }
 
 func (s *Store) Close() error {

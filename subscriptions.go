@@ -112,9 +112,27 @@ func (s *Store) ListSubscriptionsByConnection(userID, connectionID int64) ([]Sub
 
 // --- Store methods ---
 
+func internalSubscriptionWebhookPath(kind string) string {
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		kind = "internal"
+	}
+	return kind + "-" + generateToken(16)
+}
+
+func isInternalSubscriptionWebhookPath(path string) bool {
+	return strings.HasPrefix(path, "app-event-") ||
+		strings.HasPrefix(path, "composio-") ||
+		strings.HasPrefix(path, "poll-") ||
+		strings.HasPrefix(path, "internal-")
+}
+
 func (s *Store) CreateSubscription(userID, instanceID, connectionID int64, name, slug, description, webhookPath, encryptedSecret, threadID, projectID string, events []string, notifyAgentOpt ...bool) (*Subscription, error) {
 	notifyAgent := len(notifyAgentOpt) > 0 && notifyAgentOpt[0]
 	id := generateID()
+	if strings.TrimSpace(webhookPath) == "" {
+		webhookPath = internalSubscriptionWebhookPath("internal")
+	}
 	eventsJSON := ""
 	if len(events) > 0 {
 		if b, merr := json.Marshal(events); merr == nil {
@@ -171,6 +189,7 @@ func (s *Store) CreatePollSubscription(userID, instanceID, connectionID int64, n
 func (s *Store) CreateAppEventSubscription(userID, instanceID int64, name, slug, description, threadID, projectID string, notifyAgentOpt ...bool) (*Subscription, error) {
 	notifyAgent := len(notifyAgentOpt) > 0 && notifyAgentOpt[0]
 	id := generateID()
+	webhookPath := internalSubscriptionWebhookPath("app-event")
 	// 13 columns / 13 values. agent_id binds instanceID; connection_id
 	// is the literal 0 because app-event subscriptions don't go through
 	// a connection. Pre-fix this had only 12 values (agent_id was a
@@ -181,15 +200,15 @@ func (s *Store) CreateAppEventSubscription(userID, instanceID int64, name, slug,
 		`INSERT INTO subscriptions
 				(id, user_id, agent_id, connection_id, name, slug, description,
 				 webhook_path, encrypted_hmac_secret, thread_id, project_id, events, source, notify_agent)
-			 VALUES (?, ?, ?, 0, ?, ?, ?, '', '', ?, ?, '', 'app_event', ?)`,
-		id, userID, instanceID, name, slug, description, threadID, projectID, boolToInt(notifyAgent),
+			 VALUES (?, ?, ?, 0, ?, ?, ?, ?, '', ?, ?, '', 'app_event', ?)`,
+		id, userID, instanceID, name, slug, description, webhookPath, threadID, projectID, boolToInt(notifyAgent),
 	)
 	if err != nil {
 		return nil, err
 	}
 	return &Subscription{
 		ID: id, UserID: userID, AgentID: instanceID,
-		Name: name, Slug: slug, Description: description,
+		Name: name, Slug: slug, Description: description, WebhookPath: webhookPath,
 		Enabled: true, NotifyAgent: notifyAgent, ThreadID: threadID, ProjectID: projectID,
 		Source: "app_event", Delivery: "app_event", CreatedAt: time.Now(),
 	}, nil
@@ -319,6 +338,9 @@ func (s *Store) GetSubscription(userID int64, id string) (*Subscription, error) 
 }
 
 func (s *Store) GetSubscriptionByPath(webhookPath string) (*Subscription, string, error) {
+	if isInternalSubscriptionWebhookPath(webhookPath) {
+		return nil, "", sql.ErrNoRows
+	}
 	var sub Subscription
 	var enabled int
 	var encSecret, createdAt string
@@ -1221,9 +1243,10 @@ func (s *Server) createComposioSubscription(
 
 	// 3. Persist the apteva subscription row. No per-sub HMAC secret —
 	//    validation happens at the project level via the ingress
-	//    handler. We store an empty webhook_path (not used for
-	//    composio) and set events to [trigger_slug] so the list view
-	//    shows something meaningful.
+	//    handler. The webhook_path is an internal unique DB key only;
+	//    Composio deliveries route through the provider webhook token
+	//    and external_webhook_id. We still store events=[trigger_slug]
+	//    so the list view shows something meaningful.
 	events := []string{triggerSlug}
 	sub, err := s.store.CreateSubscription(
 		userID,
@@ -1232,7 +1255,7 @@ func (s *Server) createComposioSubscription(
 		name,
 		slug,
 		description,
-		"", // webhook_path: unused for composio
+		internalSubscriptionWebhookPath("composio"),
 		"", // encrypted_hmac_secret: unused for composio
 		threadID,
 		projectID,
