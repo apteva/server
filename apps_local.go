@@ -538,6 +538,12 @@ func childEnvWithOverrides(base []string, overrides map[string]string) []string 
 		keys = append(keys, k)
 	}
 	scrubKeys := append([]string(nil), keys...)
+	scrubKeys = append(scrubKeys,
+		"APTEVA_DELEGATED_DNS_FLEET_URL",
+		"APTEVA_DELEGATED_DNS_TOKEN",
+		"APTEVA_DELEGATED_DNS_TENANT_ID",
+		"APTEVA_DELEGATED_DNS_PROJECT_ID",
+	)
 	if _, ok := overrides["HTTP_PROXY"]; ok {
 		scrubKeys = append(scrubKeys, "http_proxy")
 	}

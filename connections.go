@@ -1199,9 +1199,12 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		return nil, err
 	}
 
-	// Build body for POST/PUT/PATCH
+	// Build body for POST/PUT/PATCH, plus DELETE only when a template
+	// explicitly declares a body slot. Some APIs, including Spaceship's
+	// DNS delete endpoint, require a JSON body on DELETE; keeping the
+	// default DELETE path query-only preserves existing integrations.
 	var bodyReader io.Reader
-	if tool.Method != "GET" && tool.Method != "DELETE" {
+	if tool.Method != "GET" && (tool.Method != "DELETE" || tool.BodyInput != "" || tool.BodyRoot != "" || hasTransformedBody) {
 		// Raw-body path: tool declared a single input field that
 		// carries the request body verbatim (S3 PutObject, R2
 		// PutObject, etc.). Skip the JSON map assembly entirely.
@@ -1890,6 +1893,7 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "encryption failed", http.StatusInternalServerError)
 		return
 	}
+	isDelegatedProvider := isDelegatedProviderCredentialsMap(body.Credentials)
 
 	// Pre-flight: if the catalog declares a health_check, run it
 	// against the encrypted blob BEFORE persisting. The motivation
@@ -1905,7 +1909,7 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 	// universally available across 431 catalog entries; absence is
 	// the catalog author's signal of "I haven't characterised a
 	// safe probe for this app yet" rather than an error.
-	if app.HealthCheck != nil && (app.HealthCheck.Tool != "" || app.HealthCheck.Path != "") {
+	if app.HealthCheck != nil && (app.HealthCheck.Tool != "" || app.HealthCheck.Path != "") && !isDelegatedProvider {
 		probe := s.runHealthCheck(app, encrypted)
 		if !probe.OK && !probe.Skipped {
 			log.Printf("[CONN] preflight FAILED slug=%s status=%d err=%q",
@@ -1927,6 +1931,8 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		log.Printf("[CONN] preflight OK slug=%s latency_ms=%d", body.AppSlug, probe.LatencyMS)
+	} else if isDelegatedProvider {
+		log.Printf("[CONN] delegated provider connection slug=%s project=%s skips local credential health check", body.AppSlug, body.ProjectID)
 	}
 
 	conn, err := s.store.CreateConnectionExt(ConnectionInput{
@@ -2426,6 +2432,7 @@ func (s *Server) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
 	// connections (no `_type` key) this is a no-op passthrough.
 	ctx, err := s.resolveConnectionContext(userID, app, credentials, body.Input)
 	if err != nil {
+		s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "dashboard", tool.Name, body.Input, nil, err))
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -2454,9 +2461,11 @@ func (s *Server) handleExecuteTool(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
 	if err != nil {
+		s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "dashboard", tool.Name, body.Input, nil, err))
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "dashboard", tool.Name, body.Input, result, nil))
 
 	writeJSON(w, result)
 }

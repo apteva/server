@@ -181,11 +181,21 @@ func (s *Server) startRouteCache() {
 }
 
 func (s *Server) hydrateRouteCache(timeout time.Duration) {
+	internalRoutes := s.loadIngressRoutesForRouter()
+	legacyRoutes := s.fetchLegacyRoutes(timeout)
+	combined := make([]Route, 0, len(legacyRoutes)+len(internalRoutes))
+	combined = append(combined, legacyRoutes...)
+	// Internal ingress routes are appended last so they win hostname
+	// conflicts in RouteCache.Replace's map assignment.
+	combined = append(combined, internalRoutes...)
+	s.routeCache.Replace(combined)
+	log.Printf("[ROUTES-CACHE] hydrated %d internal + %d legacy route(s)", len(internalRoutes), len(legacyRoutes))
+}
+
+func (s *Server) fetchLegacyRoutes(timeout time.Duration) []Route {
 	entry := s.installedApps.GetByName("routes")
 	if entry == nil {
-		// Routes app isn't installed; cache stays empty. Subscribe
-		// loop will hydrate later if it gets installed.
-		return
+		return nil
 	}
 	url := entry.SidecarURL + "/api/routes"
 	client := &http.Client{Timeout: timeout}
@@ -196,23 +206,22 @@ func (s *Server) hydrateRouteCache(timeout time.Duration) {
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("[ROUTES-CACHE] hydrate: %v", err)
-		return
+		return nil
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		log.Printf("[ROUTES-CACHE] hydrate status=%d body=%s", resp.StatusCode, string(body))
-		return
+		return nil
 	}
 	var body struct {
 		Routes []Route `json:"routes"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		log.Printf("[ROUTES-CACHE] hydrate decode: %v", err)
-		return
+		return nil
 	}
-	s.routeCache.Replace(body.Routes)
-	log.Printf("[ROUTES-CACHE] hydrated %d route(s)", len(body.Routes))
+	return body.Routes
 }
 
 // subscribeRouteEvents opens an SSE connection to the platform's
@@ -287,18 +296,24 @@ func (s *Server) consumeRouteEvents(entry *InstalledApp) {
 		if env.Topic != "routes.changed" {
 			continue
 		}
-		applyRouteEvent(s.routeCache, env.Data)
+		applyRouteEvent(s, env.Data)
 	}
 	if err := scanner.Err(); err != nil {
 		log.Printf("[ROUTES-CACHE] sub read: %v", err)
 	}
 }
 
-func applyRouteEvent(cache *RouteCache, data map[string]any) {
+func applyRouteEvent(s *Server, data map[string]any) {
 	action, _ := data["action"].(string)
 	hostname, _ := data["hostname"].(string)
 	if action == "" || hostname == "" {
 		return
+	}
+	if s != nil {
+		if r, err := s.GetIngressRoute(hostname); err == nil && r.Status == "active" {
+			s.routeCache.Apply("updated", r.Hostname, r.Target, r.CertFQDN, r.AllowHTTP, r.OwnerInstallID, r.OwnerKind)
+			return
+		}
 	}
 	target, _ := data["target"].(string)
 	certFQDN, _ := data["cert_fqdn"].(string)
@@ -308,7 +323,7 @@ func applyRouteEvent(cache *RouteCache, data map[string]any) {
 		owner = int64(v)
 	}
 	kind, _ := data["owner_kind"].(string)
-	cache.Apply(action, hostname, target, certFQDN, allowHTTP, owner, kind)
+	s.routeCache.Apply(action, hostname, target, certFQDN, allowHTTP, owner, kind)
 }
 
 // ─── HostRouter integration ───────────────────────────────────────

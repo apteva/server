@@ -279,6 +279,7 @@ func (s *Server) executeImportIntegrationTool(r *http.Request, connID int64, too
 	_ = json.Unmarshal([]byte(plain), &credentials)
 	resolved, err := s.resolveConnectionContext(userID, app, credentials, input)
 	if err != nil {
+		s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "imports", tool.Name, input, nil, err))
 		return nil, err
 	}
 	persistTargetID := connID
@@ -302,8 +303,10 @@ func (s *Server) executeImportIntegrationTool(r *http.Request, connID int64, too
 	}
 	result, err := executeIntegrationToolWithRefresh(resolved.App, tool, resolved.Credentials, resolved.Input, environmentID, persist)
 	if err != nil {
+		s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "imports", tool.Name, input, nil, err))
 		return nil, err
 	}
+	s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "imports", tool.Name, input, result, nil))
 	if result == nil || !result.Success {
 		return nil, fmt.Errorf("%s failed: %v", toolName, result)
 	}

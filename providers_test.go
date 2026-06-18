@@ -92,7 +92,12 @@ func TestGetAllProviderEnvVars(t *testing.T) {
 	enc1, _ := Encrypt(s.secret, string(data1))
 	s.store.CreateProvider(1, 0, "llm", "Fireworks", enc1)
 
-	data2, _ := json.Marshal(map[string]string{"OLLAMA_HOST": "http://localhost:11434"})
+	data2, _ := json.Marshal(map[string]string{
+		"OLLAMA_HOST":        "http://localhost:11434",
+		"OLLAMA_MODEL":       "llama3.2",
+		"OLLAMA_EMBED_MODEL": "qwen3-embedding:0.6b",
+		"OLLAMA_EMBED_DIM":   "1024",
+	})
 	enc2, _ := Encrypt(s.secret, string(data2))
 	s.store.CreateProvider(1, 0, "llm", "Ollama", enc2)
 
@@ -102,15 +107,42 @@ func TestGetAllProviderEnvVars(t *testing.T) {
 		t.Fatalf("GetAllProviderEnvVars: %v", err)
 	}
 
-	// Should have FIREWORKS_API_KEY and OLLAMA_HOST, but NOT "model"
+	// Should have uppercase provider fields, but NOT lowercase "model".
 	if envVars["FIREWORKS_API_KEY"] != "fw-key" {
 		t.Errorf("expected fw-key, got %s", envVars["FIREWORKS_API_KEY"])
 	}
 	if envVars["OLLAMA_HOST"] != "http://localhost:11434" {
 		t.Errorf("expected http://localhost:11434, got %s", envVars["OLLAMA_HOST"])
 	}
+	if envVars["OLLAMA_MODEL"] != "llama3.2" {
+		t.Errorf("expected llama3.2, got %s", envVars["OLLAMA_MODEL"])
+	}
+	if envVars["OLLAMA_EMBED_MODEL"] != "qwen3-embedding:0.6b" {
+		t.Errorf("expected qwen3-embedding:0.6b, got %s", envVars["OLLAMA_EMBED_MODEL"])
+	}
+	if envVars["OLLAMA_EMBED_DIM"] != "1024" {
+		t.Errorf("expected 1024, got %s", envVars["OLLAMA_EMBED_DIM"])
+	}
 	if _, ok := envVars["model"]; ok {
 		t.Error("lowercase 'model' should not be in env vars")
+	}
+}
+
+func TestOllamaProviderTypeIncludesEmbeddingFields(t *testing.T) {
+	s := newTestServer(t)
+
+	pt, err := s.store.GetProviderType(4)
+	if err != nil {
+		t.Fatalf("GetProviderType(4): %v", err)
+	}
+	got := map[string]bool{}
+	for _, field := range pt.Fields {
+		got[field] = true
+	}
+	for _, field := range []string{"OLLAMA_HOST", "OLLAMA_MODEL", "OLLAMA_EMBED_MODEL", "OLLAMA_EMBED_DIM"} {
+		if !got[field] {
+			t.Fatalf("Ollama provider fields missing %s: %+v", field, pt.Fields)
+		}
 	}
 }
 

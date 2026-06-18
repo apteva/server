@@ -509,7 +509,7 @@
     },
     {
       "name": "get_thread",
-      "description": "Get all messages in an email thread (conversation)",
+      "description": "Get an email thread efficiently. Defaults to metadata-only so long conversations do not flood the agent context. Use this first to inspect senders, dates, subjects, snippets, labels, and message IDs. If you need full body text, fetch only the specific message(s) you need with gmail_get_message; avoid format=full on large threads unless explicitly necessary.",
       "method": "GET",
       "path": "/users/me/threads/{threadId}",
       "input_schema": {
@@ -521,19 +521,22 @@
           },
           "format": {
             "type": "string",
-            "description": "Message format in the thread",
+            "description": "Message format in the thread. Use metadata by default for efficient thread inspection. Prefer gmail_get_message for full body text of one specific message. Avoid full/raw on long threads because Gmail can return huge repeated HTML conversation bodies.",
             "enum": [
               "minimal",
               "full",
               "raw",
               "metadata"
             ],
-            "default": "full"
+            "default": "metadata"
           }
         },
         "required": [
           "threadId"
         ]
+      },
+      "response_transform": {
+        "type": "email_thread"
       },
       "mock_response": {
         "id": "18f1a2b3c4d5e6f7",

@@ -267,7 +267,7 @@ func (s *Store) migrate() error {
 			(1, 'llm', 'Fireworks', 'LLM inference via Fireworks AI', '["FIREWORKS_API_KEY"]', 1, 10),
 			(2, 'llm', 'OpenAI', 'LLM inference and embeddings', '["OPENAI_API_KEY","OPENAI_BASE_URL"]', 1, 11),
 			(3, 'llm', 'Anthropic', 'LLM inference via Anthropic', '["ANTHROPIC_API_KEY"]', 1, 12),
-			(4, 'llm', 'Ollama', 'Local LLM inference', '["OLLAMA_HOST"]', 1, 13),
+			(4, 'llm', 'Ollama', 'Local LLM inference', '["OLLAMA_HOST","OLLAMA_MODEL","OLLAMA_EMBED_MODEL","OLLAMA_EMBED_DIM"]', 1, 13),
 			(5, 'integrations', 'Apteva Local', '200+ app integrations (GitHub, Slack, Stripe, etc.)', '[]', 0, 15),
 			(6, 'embeddings', 'Voyage', 'Text embeddings', '["VOYAGE_API_KEY"]', 1, 20),
 			(7, 'tts', 'ElevenLabs', 'Text-to-speech', '["ELEVENLABS_API_KEY"]', 1, 30),
@@ -304,6 +304,23 @@ func (s *Store) migrate() error {
 			project_id TEXT DEFAULT '',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
+
+		CREATE TABLE IF NOT EXISTS ingress_routes (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			hostname TEXT NOT NULL UNIQUE,
+			target TEXT NOT NULL,
+			project_id TEXT NOT NULL DEFAULT '',
+			owner_install_id INTEGER NOT NULL DEFAULT 0,
+			owner_kind TEXT NOT NULL DEFAULT '',
+			cert_fqdn TEXT NOT NULL DEFAULT '',
+			allow_http INTEGER NOT NULL DEFAULT 0,
+			tls_mode TEXT NOT NULL DEFAULT 'auto',
+			status TEXT NOT NULL DEFAULT 'active',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_ingress_routes_project ON ingress_routes(project_id);
+		CREATE INDEX IF NOT EXISTS idx_ingress_routes_owner ON ingress_routes(owner_install_id);
 
 		CREATE TABLE IF NOT EXISTS mcp_servers (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -762,9 +779,12 @@ func (s *Store) migrate() error {
 	// via providerKeyFromName below — lowercase + spaces→hyphens — so
 	// pretty display names work without a separate column.
 	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
-		(13, 'llm', 'OpenCode Go', 'Flat-rate gateway ($10/mo) for Kimi K2.6, Qwen, GLM, MiMo, DeepSeek and more (opencode.ai/go)', '["OPENCODE_GO_API_KEY"]', 1, 15)`)
+			(13, 'llm', 'OpenCode Go', 'Flat-rate gateway ($10/mo) for Kimi K2.6, Qwen, GLM, MiMo, DeepSeek and more (opencode.ai/go)', '["OPENCODE_GO_API_KEY"]', 1, 15)`)
 	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
-			(14, 'llm', 'Venice', 'Privacy-focused inference gateway — Llama, Qwen, GLM, Mistral plus Claude / Grok / Gemini reseller variants (venice.ai)', '["VENICE_API_KEY"]', 1, 16)`)
+				(14, 'llm', 'Venice', 'Privacy-focused inference gateway — Llama, Qwen, GLM, Mistral plus Claude / Grok / Gemini reseller variants (venice.ai)', '["VENICE_API_KEY"]', 1, 16)`)
+	s.db.Exec(`UPDATE provider_types
+			SET fields='["OLLAMA_HOST","OLLAMA_MODEL","OLLAMA_EMBED_MODEL","OLLAMA_EMBED_DIM"]'
+			WHERE id=4 AND name='Ollama'`)
 	// Provider auth metadata: older DBs only have fields/requires_credentials.
 	// These columns let the dashboard render API-key, device-code, browser
 	// OAuth, and future auth methods without provider-specific routes.
@@ -900,6 +920,53 @@ func (s *Store) migrate() error {
 			PRIMARY KEY (install_id, agent_id)
 		)
 	`)
+	s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS delegated_provider_usage (
+			id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+			grant_id             TEXT NOT NULL DEFAULT '',
+			connection_id         INTEGER NOT NULL DEFAULT 0,
+			parent_connection_id  INTEGER NOT NULL DEFAULT 0,
+			child_install_id      INTEGER NOT NULL DEFAULT 0,
+			app_slug              TEXT NOT NULL DEFAULT '',
+			tool                  TEXT NOT NULL DEFAULT '',
+			resource              TEXT NOT NULL DEFAULT 'provider.connection',
+			quantity              INTEGER NOT NULL DEFAULT 1,
+			status                TEXT NOT NULL DEFAULT '',
+			error                 TEXT NOT NULL DEFAULT '',
+			direction             TEXT NOT NULL DEFAULT '',
+			created_at            DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_delegated_provider_usage_grant_time ON delegated_provider_usage(grant_id, created_at)`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_delegated_provider_usage_conn_time ON delegated_provider_usage(connection_id, created_at)`)
+	s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS integration_usage_events (
+			id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+			created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+			project_id           TEXT NOT NULL DEFAULT '',
+			caller_install_id    INTEGER NOT NULL DEFAULT 0,
+			caller_app_name      TEXT NOT NULL DEFAULT '',
+			connection_id         INTEGER NOT NULL DEFAULT 0,
+			parent_connection_id  INTEGER NOT NULL DEFAULT 0,
+			app_slug              TEXT NOT NULL DEFAULT '',
+			tool                  TEXT NOT NULL DEFAULT '',
+			grant_id              TEXT NOT NULL DEFAULT '',
+			grant_resource        TEXT NOT NULL DEFAULT '',
+			child_install_id      INTEGER NOT NULL DEFAULT 0,
+			child_connection_id   INTEGER NOT NULL DEFAULT 0,
+			direction             TEXT NOT NULL DEFAULT 'local',
+			quantity              INTEGER NOT NULL DEFAULT 1,
+			unit                  TEXT NOT NULL DEFAULT 'request',
+			status                TEXT NOT NULL DEFAULT '',
+			error                 TEXT NOT NULL DEFAULT '',
+			provider_request_id   TEXT NOT NULL DEFAULT '',
+			metadata_json         TEXT NOT NULL DEFAULT '{}'
+		)
+	`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_integration_usage_time ON integration_usage_events(created_at)`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_integration_usage_connection_time ON integration_usage_events(connection_id, created_at)`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_integration_usage_grant_time ON integration_usage_events(grant_id, created_at)`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_integration_usage_app_tool_time ON integration_usage_events(app_slug, tool, created_at)`)
 
 	// Skills — markdown-bodied playbooks the agent will load on
 	// demand. v1 stores + serves them; agent integration is a

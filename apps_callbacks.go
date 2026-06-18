@@ -76,6 +76,10 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		s.handleCallbackOAuth(w, r, parts[1:])
 	case "grants":
 		s.handleCallbackGrants(w, r, parts[1:])
+	case "ingress":
+		s.handleCallbackIngress(w, r, parts[1:])
+	case "dns":
+		s.handleCallbackDNS(w, r, parts[1:])
 	case "projects":
 		s.handleCallbackProjects(w, r, parts[1:])
 	case "threads":
@@ -715,8 +719,26 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	var credentials map[string]string
 	_ = json.Unmarshal([]byte(plain), &credentials)
 
+	if grant, ok, err := parseDelegatedProviderCredentials(plain); err != nil {
+		http.Error(w, "delegated provider credentials invalid: "+err.Error(), http.StatusBadGateway)
+		return
+	} else if ok {
+		result, err := s.executeDelegatedProviderTool(installID, connID, conn, grant, tool.Name, body.Input)
+		if err != nil {
+			writeJSON(w, map[string]any{"success": false, "data": err.Error()})
+			return
+		}
+		if result == nil {
+			writeJSON(w, map[string]any{"success": true})
+			return
+		}
+		writeJSON(w, result)
+		return
+	}
+
 	ctx, err := s.resolveConnectionContext(userID, app, credentials, body.Input)
 	if err != nil {
+		s.recordIntegrationUsage(integrationUsageFromResult(conn, installID, s.callerAppName(installID), tool.Name, body.Input, nil, err))
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -741,8 +763,23 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	}
 	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
 	if err != nil {
+		if ev, ok := delegatedUsageFromHeaders(r, connID, conn, tool.Name, body.Input, "error", err.Error()); ok {
+			s.recordDelegatedProviderUsage(ev)
+		} else {
+			s.recordIntegrationUsage(integrationUsageFromResult(conn, installID, s.callerAppName(installID), tool.Name, body.Input, nil, err))
+		}
 		writeJSON(w, map[string]any{"success": false, "data": err.Error()})
 		return
+	}
+	if ev, ok := delegatedUsageFromHeaders(r, connID, conn, tool.Name, body.Input, "success", ""); ok {
+		ev.Quantity, ev.Unit, _ = integrationUsageMetric(conn, tool.Name, body.Input, result)
+		if result != nil && (!result.Success || result.Status >= 400) {
+			ev.Status = "error"
+			ev.Error = truncate(fmt.Sprintf("%v", result.Data), 500)
+		}
+		s.recordDelegatedProviderUsage(ev)
+	} else {
+		s.recordIntegrationUsage(integrationUsageFromResult(conn, installID, s.callerAppName(installID), tool.Name, body.Input, result, nil))
 	}
 	// Match handleExecuteTool's response shape. The SDK caller can
 	// json.Unmarshal the data field into whatever type they expect.
@@ -1115,8 +1152,22 @@ func (s *Server) handleCallbackKillThread(w http.ResponseWriter, r *http.Request
 // *Server.
 func (s *Server) resolver() *serverResolver { return &serverResolver{srv: s} }
 
-// installHasPermission checks the install's manifest's requires.permissions.
+// installHasPermission checks the install's effective granted permissions.
 func installHasPermission(s *Server, installID int64, perm sdk.Permission) bool {
+	var rawPerms string
+	if err := s.store.db.QueryRow(
+		`SELECT COALESCE(permissions_json, '[]') FROM app_installs WHERE id=?`, installID,
+	).Scan(&rawPerms); err == nil {
+		var perms []sdk.Permission
+		if json.Unmarshal([]byte(rawPerms), &perms) == nil {
+			for _, p := range perms {
+				if p == perm {
+					return true
+				}
+			}
+		}
+	}
+
 	m, err := installManifest(s, installID)
 	if err != nil || m == nil {
 		return false

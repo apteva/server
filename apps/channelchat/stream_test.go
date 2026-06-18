@@ -60,6 +60,99 @@ func TestStreamerIngest_NonChatWorkerIgnored(t *testing.T) {
 	}
 }
 
+func TestStreamerIngest_ToolChunkPayloadAliases(t *testing.T) {
+	h := newHub()
+	st := newStreamer(h)
+	chatID := defaultChatID(42)
+	ch, _, cancel := h.subscribeStream(chatID)
+	defer cancel()
+
+	st.Ingest(
+		"llm.tool_chunk",
+		42,
+		"main",
+		`{"name":"channels_respond","call_id":"call-2","delta":"{\"text\":\"Hi"}`,
+		time.Now(),
+	)
+
+	select {
+	case frame := <-ch:
+		if frame.ChatID != chatID {
+			t.Fatalf("ChatID = %q, want %q", frame.ChatID, chatID)
+		}
+		if frame.CallID != "call-2" {
+			t.Fatalf("CallID = %q, want call-2", frame.CallID)
+		}
+		if frame.Text != "Hi" {
+			t.Fatalf("Text = %q, want Hi", frame.Text)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for stream frame")
+	}
+}
+
+func TestStreamerIngest_FinalArgsPayloadAliases(t *testing.T) {
+	h := newHub()
+	st := newStreamer(h)
+	chatID := defaultChatID(42)
+	ch, _, cancel := h.subscribeStream(chatID)
+	defer cancel()
+
+	st.Ingest(
+		"tool.call",
+		42,
+		"main",
+		`{"tool":"channels_respond","tool_call_id":"call-3","arguments":{"channel":"chat","text":"Final text"}}`,
+		time.Now(),
+	)
+
+	select {
+	case frame := <-ch:
+		if frame.ChatID != chatID {
+			t.Fatalf("ChatID = %q, want %q", frame.ChatID, chatID)
+		}
+		if frame.CallID != "call-3" {
+			t.Fatalf("CallID = %q, want call-3", frame.CallID)
+		}
+		if frame.Text != "Final text" {
+			t.Fatalf("Text = %q, want Final text", frame.Text)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for stream frame")
+	}
+}
+
+func TestStreamerIngest_ToolResultEmitsDone(t *testing.T) {
+	h := newHub()
+	st := newStreamer(h)
+	chatID := defaultChatID(42)
+	ch, _, cancel := h.subscribeStream(chatID)
+	defer cancel()
+
+	st.Ingest(
+		"tool.result",
+		42,
+		"main",
+		`{"name":"channels_respond","call_id":"call-4"}`,
+		time.Now(),
+	)
+
+	select {
+	case frame := <-ch:
+		if frame.ChatID != chatID {
+			t.Fatalf("ChatID = %q, want %q", frame.ChatID, chatID)
+		}
+		if frame.CallID != "call-4" {
+			t.Fatalf("CallID = %q, want call-4", frame.CallID)
+		}
+		if !frame.Done {
+			t.Fatalf("Done = false, want true")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for done frame")
+	}
+}
+
 func TestFormatDashboardContext(t *testing.T) {
 	got := formatDashboardContext(map[string]any{
 		"source":       "dashboard-floating",

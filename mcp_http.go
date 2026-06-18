@@ -60,9 +60,10 @@ func (s *Server) handleMCPEndpoint(w http.ResponseWriter, r *http.Request) {
 	// the owning user when this connection is a child of a suite master.
 	var appSlug, encCreds string
 	var connUserID int64
+	var connProjectID string
 	err = s.store.db.QueryRow(
-		"SELECT app_slug, encrypted_credentials, user_id FROM connections WHERE id = ?", connectionID,
-	).Scan(&appSlug, &encCreds, &connUserID)
+		"SELECT app_slug, encrypted_credentials, user_id, COALESCE(project_id, '') FROM connections WHERE id = ?", connectionID,
+	).Scan(&appSlug, &encCreds, &connUserID, &connProjectID)
 	if err != nil {
 		http.Error(w, "connection not found", http.StatusNotFound)
 		return
@@ -86,7 +87,8 @@ func (s *Server) handleMCPEndpoint(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPost:
-		s.handleMCPPost(w, r, app, credentials, connectionID, connUserID, allowedTools, mcpRowName)
+		conn := &Connection{ID: connectionID, UserID: connUserID, AppSlug: appSlug, ProjectID: connProjectID}
+		s.handleMCPPost(w, r, app, conn, credentials, connUserID, allowedTools, mcpRowName)
 	case http.MethodGet:
 		// GET = SSE stream for server notifications (not needed for simple request-response)
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -103,7 +105,11 @@ func (s *Server) handleMCPEndpoint(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppTemplate, credentials map[string]string, connectionID int64, connUserID int64, allowedTools []string, mcpRowName string) {
+func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppTemplate, conn *Connection, credentials map[string]string, connUserID int64, allowedTools []string, mcpRowName string) {
+	connectionID := int64(0)
+	if conn != nil {
+		connectionID = conn.ID
+	}
 	// Fast membership lookup for the tool filter. nil map = no filter.
 	// Stored names may arrive in any of three forms depending on which
 	// UI wrote them:
@@ -237,6 +243,7 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppT
 			// tenant-scoped.
 			ctx, err := s.resolveConnectionContext(connUserID, app, credentials, params.Arguments)
 			if err != nil {
+				s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "mcp-http", tool.Name, params.Arguments, nil, err))
 				rpcErr = &jsonRPCError{Code: -32603, Message: fmt.Sprintf("resolve context: %v", err)}
 				break
 			}
@@ -271,11 +278,13 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppT
 			}
 			execResult, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
 			if err != nil {
+				s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "mcp-http", tool.Name, params.Arguments, nil, err))
 				result = map[string]any{
 					"content": []map[string]any{{"type": "text", "text": fmt.Sprintf("error: %v", err)}},
 					"isError": true,
 				}
 			} else {
+				s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "mcp-http", tool.Name, params.Arguments, execResult, nil))
 				text, _ := json.Marshal(execResult.Data)
 				result = map[string]any{
 					"content": []map[string]any{{"type": "text", "text": string(text)}},

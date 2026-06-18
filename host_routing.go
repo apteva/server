@@ -68,6 +68,9 @@ func (hr *HostRouter) lookup(host string) (RouteHit, bool) {
 }
 
 func (hr *HostRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if hr.server != nil && hr.server.ingressCerts != nil && hr.server.ingressCerts.ServeHTTPChallenge(w, r) {
+		return
+	}
 	host := r.Host
 	if hr.server != nil && hr.server.primaryHost != "" {
 		stripped := host

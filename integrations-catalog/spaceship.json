@@ -1,0 +1,883 @@
+{
+  "slug": "spaceship",
+  "name": "Spaceship",
+  "logo": "https://www.spaceship.com/favicon.ico",
+  "categories": ["domains"],
+  "description": "Spaceship public API for domain portfolio management, DNS records, contacts, personal nameservers, transfer metadata, async operation status, and SellerHub.",
+  "base_url": "https://spaceship.dev/api",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}",
+      "X-API-Secret": "{{api_secret}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Spaceship API key from API Manager. Grant only the scopes needed by the tools you plan to expose.",
+        "type": "password",
+        "required": true
+      },
+      {
+        "name": "api_secret",
+        "label": "API Secret",
+        "description": "Spaceship API secret paired with the API key.",
+        "type": "password",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_domains",
+      "display_name": "List Domains",
+      "description": "List domains in the Spaceship account. Requires domains:read.",
+      "method": "GET",
+      "path": "/v1/domains",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "take": {
+            "type": "integer",
+            "description": "Number of domains to return, 1-100."
+          },
+          "skip": {
+            "type": "integer",
+            "description": "Number of domains to skip."
+          },
+          "orderBy": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "name",
+                "-name",
+                "unicodeName",
+                "-unicodeName",
+                "registrationDate",
+                "-registrationDate",
+                "expirationDate",
+                "-expirationDate"
+              ]
+            },
+            "description": "Optional sort, max one item."
+          }
+        },
+        "required": [
+          "take",
+          "skip"
+        ]
+      }
+    },
+    {
+      "name": "get_domain_info",
+      "display_name": "Get Domain Info",
+      "description": "Get details for a specific domain. Requires domains:read.",
+      "method": "GET",
+      "path": "/v1/domains/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Fully-qualified domain name, e.g. example.com."
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "check_domains_availability",
+      "display_name": "Check Domains Availability",
+      "description": "Check availability for up to 20 domains. Requires domains:read.",
+      "method": "POST",
+      "path": "/v1/domains/available",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Domain names to check."
+          }
+        },
+        "required": [
+          "domains"
+        ]
+      }
+    },
+    {
+      "name": "check_single_domain_availability",
+      "display_name": "Check Single Domain Availability",
+      "description": "Check availability for one domain. Requires domains:read.",
+      "method": "GET",
+      "path": "/v1/domains/{domain}/available",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "update_autorenewal",
+      "display_name": "Update Autorenewal",
+      "description": "Enable or disable autorenewal for a domain. Requires domains:write.",
+      "method": "PUT",
+      "path": "/v1/domains/{domain}/autorenew",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "isEnabled": {
+            "type": "boolean",
+            "description": "Desired autorenewal state."
+          }
+        },
+        "required": [
+          "domain",
+          "isEnabled"
+        ]
+      }
+    },
+    {
+      "name": "update_domain_nameservers",
+      "display_name": "Update Domain Nameservers",
+      "description": "Replace a domain's nameserver provider and custom hosts. Requires domains:write.",
+      "method": "PUT",
+      "path": "/v1/domains/{domain}/nameservers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "basic",
+              "custom"
+            ],
+            "description": "Use basic for Spaceship nameservers or custom for explicit hosts."
+          },
+          "hosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Custom nameserver hostnames. Required for provider=custom; omit for provider=basic."
+          }
+        },
+        "required": [
+          "domain",
+          "provider"
+        ]
+      }
+    },
+    {
+      "name": "update_domain_contacts",
+      "display_name": "Update Domain Contacts",
+      "description": "Set contact IDs on a domain. Requires domains:write.",
+      "method": "PUT",
+      "path": "/v1/domains/{domain}/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "registrant": {
+            "type": "string",
+            "description": "Registrant contact ID."
+          },
+          "admin": {
+            "type": "string",
+            "description": "Admin contact ID."
+          },
+          "tech": {
+            "type": "string",
+            "description": "Technical contact ID."
+          },
+          "billing": {
+            "type": "string",
+            "description": "Billing contact ID."
+          },
+          "attributes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Extended attribute contact point IDs."
+          }
+        },
+        "required": [
+          "domain",
+          "registrant"
+        ]
+      }
+    },
+    {
+      "name": "update_domain_email_protection_preference",
+      "display_name": "Update Email Protection Preference",
+      "description": "Control whether WHOIS displays a contact form link. Requires domains:write.",
+      "method": "PUT",
+      "path": "/v1/domains/{domain}/privacy/email-protection-preference",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "contactForm": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "domain",
+          "contactForm"
+        ]
+      }
+    },
+    {
+      "name": "update_domain_privacy_preference",
+      "display_name": "Update Domain Privacy Preference",
+      "description": "Set domain privacy level. Requires domains:write and userConsent=true.",
+      "method": "PUT",
+      "path": "/v1/domains/{domain}/privacy/preference",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "privacyLevel": {
+            "type": "string",
+            "enum": [
+              "public",
+              "high"
+            ]
+          },
+          "userConsent": {
+            "type": "boolean",
+            "description": "Must be true for the operation to proceed."
+          }
+        },
+        "required": [
+          "domain",
+          "privacyLevel",
+          "userConsent"
+        ]
+      }
+    },
+    {
+      "name": "get_personal_nameservers",
+      "display_name": "Get Personal Nameservers",
+      "description": "Get personal nameservers configured on a domain. Requires domains:read.",
+      "method": "GET",
+      "path": "/v1/domains/{domain}/personal-nameservers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "get_personal_nameserver_host",
+      "display_name": "Get Personal Nameserver Host",
+      "description": "Get host configuration for one personal nameserver. Spaceship currently marks this endpoint as under development in their docs. Requires domains:read.",
+      "method": "GET",
+      "path": "/v1/domains/{domain}/personal-nameservers/{currentHost}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "currentHost": {
+            "type": "string",
+            "description": "Host part, e.g. ns1."
+          }
+        },
+        "required": [
+          "domain",
+          "currentHost"
+        ]
+      }
+    },
+    {
+      "name": "update_personal_nameserver_host",
+      "display_name": "Update Personal Nameserver Host",
+      "description": "Create, update, or rename personal nameserver host glue configuration. Requires domains:write.",
+      "method": "PUT",
+      "path": "/v1/domains/{domain}/personal-nameservers/{currentHost}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "currentHost": {
+            "type": "string",
+            "description": "Current host part, e.g. ns1."
+          },
+          "host": {
+            "type": "string",
+            "description": "New host part."
+          },
+          "ips": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "IPv4/IPv6 addresses for the personal nameserver host."
+          }
+        },
+        "required": [
+          "domain",
+          "currentHost",
+          "host",
+          "ips"
+        ]
+      }
+    },
+    {
+      "name": "delete_personal_nameserver_host",
+      "display_name": "Delete Personal Nameserver Host",
+      "description": "Delete personal nameserver host glue configuration. Requires domains:write.",
+      "method": "DELETE",
+      "path": "/v1/domains/{domain}/personal-nameservers/{currentHost}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "currentHost": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain",
+          "currentHost"
+        ]
+      }
+    },
+    {
+      "name": "get_transfer_info",
+      "display_name": "Get Transfer Info",
+      "description": "Get transfer details for a domain. Requires domains:transfer.",
+      "method": "GET",
+      "path": "/v1/domains/{domain}/transfer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "get_auth_code",
+      "display_name": "Get Auth Code",
+      "description": "Get the domain transfer auth/EPP code. Sensitive output. Requires domains:transfer.",
+      "method": "GET",
+      "path": "/v1/domains/{domain}/transfer/auth-code",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "update_transfer_lock",
+      "display_name": "Update Transfer Lock",
+      "description": "Enable or disable transfer lock for a domain. Requires domains:transfer.",
+      "method": "PUT",
+      "path": "/v1/domains/{domain}/transfer/lock",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "isLocked": {
+            "type": "boolean",
+            "description": "Desired transfer lock state."
+          }
+        },
+        "required": [
+          "domain",
+          "isLocked"
+        ]
+      }
+    },
+    {
+      "name": "list_dns_records",
+      "display_name": "List DNS Records",
+      "description": "List DNS resource records for a domain. Requires dnsrecords:read.",
+      "method": "GET",
+      "path": "/v1/dns/records/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "take": {
+            "type": "integer",
+            "description": "Number of records to return, 1-500."
+          },
+          "skip": {
+            "type": "integer",
+            "description": "Number of records to skip."
+          },
+          "orderBy": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "type",
+                "-type",
+                "name",
+                "-name"
+              ]
+            }
+          }
+        },
+        "required": [
+          "domain",
+          "take",
+          "skip"
+        ]
+      }
+    },
+    {
+      "name": "save_dns_records",
+      "display_name": "Save DNS Records",
+      "description": "Create or update DNS resource records in a batch. Requires dnsrecords:write. Use list_dns_records first when changing existing records.",
+      "method": "PUT",
+      "path": "/v1/dns/records/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Disable conflict checks and force zone update."
+          },
+          "items": {
+            "type": "array",
+            "description": "DNS records to save. Each item requires type and name plus type-specific fields, e.g. A uses address, TXT uses value, CNAME uses cname.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "ttl": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "type",
+                "name"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "domain",
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "delete_dns_records",
+      "display_name": "Delete DNS Records",
+      "description": "Delete DNS resource records in a batch. Requires dnsrecords:write. Pass the type/name and type-specific identifiers for records to delete.",
+      "method": "DELETE",
+      "path": "/v1/dns/records/{domain}",
+      "body_root_param": "records",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "name"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "domain",
+          "records"
+        ]
+      }
+    },
+    {
+      "name": "save_contact",
+      "display_name": "Save Contact",
+      "description": "Save contact details and receive a generated contact ID. Requires contacts:write.",
+      "method": "PUT",
+      "path": "/v1/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "organization": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "address1": {
+            "type": "string"
+          },
+          "address2": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code."
+          },
+          "stateProvince": {
+            "type": "string"
+          },
+          "postalCode": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Phone in +country.local format, e.g. +1.123456789."
+          },
+          "phoneExt": {
+            "type": "string"
+          },
+          "fax": {
+            "type": "string"
+          },
+          "faxExt": {
+            "type": "string"
+          },
+          "taxNumber": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "firstName",
+          "lastName",
+          "email",
+          "address1",
+          "city",
+          "country",
+          "phone"
+        ]
+      }
+    },
+    {
+      "name": "get_contact",
+      "display_name": "Get Contact",
+      "description": "Read contact details by contact ID. Requires contacts:read.",
+      "method": "GET",
+      "path": "/v1/contacts/{contact}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact": {
+            "type": "string",
+            "description": "Contact ID."
+          }
+        },
+        "required": [
+          "contact"
+        ]
+      }
+    },
+    {
+      "name": "save_contact_attributes",
+      "display_name": "Save Contact Attributes",
+      "description": "Save registry-specific contact attributes and receive an attribute contact ID. Requires contacts:write.",
+      "method": "PUT",
+      "path": "/v1/contacts/attributes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Attribute type, e.g. us or ca."
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "get_contact_attributes",
+      "display_name": "Get Contact Attributes",
+      "description": "Read registry-specific contact attributes by attribute contact ID. Requires contacts:read.",
+      "method": "GET",
+      "path": "/v1/contacts/attributes/{contact}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact": {
+            "type": "string",
+            "description": "Attribute contact ID."
+          }
+        },
+        "required": [
+          "contact"
+        ]
+      }
+    },
+    {
+      "name": "get_async_operation",
+      "display_name": "Get Async Operation",
+      "description": "Get status and details for a long-running Spaceship operation. Requires asyncoperations:read.",
+      "method": "GET",
+      "path": "/v1/async-operations/{operationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operationId"
+        ]
+      }
+    },
+    {
+      "name": "list_sellerhub_domains",
+      "display_name": "List SellerHub Domains",
+      "description": "List domains configured in SellerHub. Requires sellerhub:read.",
+      "method": "GET",
+      "path": "/v1/sellerhub/domains",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "take": {
+            "type": "integer"
+          },
+          "skip": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_sellerhub_domain",
+      "display_name": "Get SellerHub Domain",
+      "description": "Get details for one SellerHub domain. Requires sellerhub:read.",
+      "method": "GET",
+      "path": "/v1/sellerhub/domains/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "create_sellerhub_domain",
+      "display_name": "Create SellerHub Domain",
+      "description": "List a domain in SellerHub with optional BIN/minimum pricing. Requires sellerhub:write.",
+      "method": "POST",
+      "path": "/v1/sellerhub/domains",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "binPriceEnabled": {
+            "type": "boolean"
+          },
+          "binPrice": {
+            "type": "object",
+            "description": "Money object, e.g. {\"amount\":\"1000.00\",\"currency\":\"USD\"}."
+          },
+          "minPriceEnabled": {
+            "type": "boolean"
+          },
+          "minPrice": {
+            "type": "object",
+            "description": "Money object, e.g. {\"amount\":\"800.00\",\"currency\":\"USD\"}."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_sellerhub_domain",
+      "display_name": "Update SellerHub Domain",
+      "description": "Update SellerHub domain description, display name, and pricing flags. Requires sellerhub:write.",
+      "method": "PATCH",
+      "path": "/v1/sellerhub/domains/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "binPriceEnabled": {
+            "type": "boolean"
+          },
+          "binPrice": {
+            "type": "object"
+          },
+          "minPriceEnabled": {
+            "type": "boolean"
+          },
+          "minPrice": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "delete_sellerhub_domain",
+      "display_name": "Delete SellerHub Domain",
+      "description": "Remove a domain from SellerHub. Requires sellerhub:write.",
+      "method": "DELETE",
+      "path": "/v1/sellerhub/domains/{domain}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "create_sellerhub_checkout_link",
+      "display_name": "Create SellerHub Checkout Link",
+      "description": "Create a checkout link for a SellerHub domain. Requires sellerhub:write.",
+      "method": "POST",
+      "path": "/v1/sellerhub/checkout-links",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "buyNow"
+            ]
+          },
+          "domainName": {
+            "type": "string"
+          },
+          "basePrice": {
+            "type": "object",
+            "description": "Optional money object, e.g. {\"amount\":\"1000.00\",\"currency\":\"USD\"}."
+          },
+          "feePercentageShare": {
+            "type": "object",
+            "description": "Optional commission split, e.g. {\"seller\":0,\"buyer\":100}."
+          }
+        },
+        "required": [
+          "type",
+          "domainName"
+        ]
+      }
+    },
+    {
+      "name": "get_sellerhub_verification_records",
+      "display_name": "Get SellerHub Verification Records",
+      "description": "Get verification DNS records accepted by SellerHub. Requires sellerhub:read.",
+      "method": "GET",
+      "path": "/v1/sellerhub/verification-records"
+    }
+  ]
+}

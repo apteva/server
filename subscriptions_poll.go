@@ -167,6 +167,7 @@ func (d *PollingSubscriptionDispatcher) run(sub *Subscription) error {
 	input := cloneAnyMap(cfg.Input)
 	ctx, err := d.server.resolveConnectionContext(sub.UserID, app, credentials, input)
 	if err != nil {
+		d.server.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "subscription-poller", tool.Name, input, nil, err))
 		return d.recordFailure(sub, now, fmt.Errorf("resolve connection: %w", err), interval)
 	}
 	persistTargetID := conn.ID
@@ -186,8 +187,10 @@ func (d *PollingSubscriptionDispatcher) run(sub *Subscription) error {
 	}
 	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, "", persist)
 	if err != nil {
+		d.server.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "subscription-poller", tool.Name, input, nil, err))
 		return d.recordFailure(sub, now, fmt.Errorf("execute %s: %w", cfg.Tool, err), interval)
 	}
+	d.server.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "subscription-poller", tool.Name, input, result, nil))
 	if result == nil || !result.Success {
 		status := 0
 		if result != nil {

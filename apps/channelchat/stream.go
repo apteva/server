@@ -123,7 +123,7 @@ func (s *Streamer) Ingest(eventType string, agentID int64, threadID, dataJSON st
 		// UI to drop the streaming bubble. The next real message
 		// arriving for this chat would do the same, but this is the
 		// authoritative signal.
-		s.onToolEnd(threadID, dataJSON)
+		s.onToolEnd(threadID, chatID, dataJSON, eventTime)
 	}
 }
 
@@ -135,33 +135,41 @@ func (s *Streamer) onChunk(threadID, chatID, dataJSON string, ts time.Time) {
 	// we re-extract from the data because the tap delivers the
 	// outer event with thread_id, but the call id lives in data.
 	var d struct {
-		Tool  string `json:"tool"`
-		ID    string `json:"id"`
-		Chunk string `json:"chunk"`
+		Tool       string `json:"tool"`
+		Name       string `json:"name"`
+		ID         string `json:"id"`
+		CallID     string `json:"call_id"`
+		ToolCallID string `json:"tool_call_id"`
+		Chunk      string `json:"chunk"`
+		Delta      string `json:"delta"`
+		Text       string `json:"text"`
 	}
 	if err := json.Unmarshal([]byte(dataJSON), &d); err != nil {
 		return
 	}
-	if d.Tool != "channels_respond" {
+	tool := firstNonEmpty(d.Tool, d.Name)
+	callID := firstNonEmpty(d.ID, d.CallID, d.ToolCallID)
+	chunk := firstNonEmpty(d.Chunk, d.Delta, d.Text)
+	if tool != "channels_respond" {
 		return
 	}
-	if d.ID == "" {
+	if callID == "" {
 		return
 	}
-	key := threadID + "\x00" + d.ID
+	key := threadID + "\x00" + callID
 	s.mu.Lock()
 	st, ok := s.buffers[key]
 	if !ok {
 		st = &streamState{
 			chatID:    chatID,
 			threadID:  threadID,
-			callID:    d.ID,
-			tool:      d.Tool,
+			callID:    callID,
+			tool:      tool,
 			createdAt: ts,
 		}
 		s.buffers[key] = st
 	}
-	st.buf.WriteString(d.Chunk)
+	st.buf.WriteString(chunk)
 	current := st.buf.String()
 	text, _ := extractTextField(current)
 	last := s.lastEmit[key]
@@ -176,7 +184,7 @@ func (s *Streamer) onChunk(threadID, chatID, dataJSON string, ts time.Time) {
 		Type:      "stream",
 		ChatID:    chatID,
 		ThreadID:  threadID,
-		CallID:    d.ID,
+		CallID:    callID,
 		Text:      text,
 		CreatedAt: ts,
 	})
@@ -187,74 +195,126 @@ func (s *Streamer) onChunk(threadID, chatID, dataJSON string, ts time.Time) {
 // we can guarantee a clean final text extraction.
 func (s *Streamer) onFinalArgs(threadID, chatID, dataJSON string, ts time.Time) {
 	var d struct {
-		Name string          `json:"name"`
-		ID   string          `json:"id"`
-		Args json.RawMessage `json:"args"`
+		Name       string          `json:"name"`
+		Tool       string          `json:"tool"`
+		ID         string          `json:"id"`
+		CallID     string          `json:"call_id"`
+		ToolCallID string          `json:"tool_call_id"`
+		Args       json.RawMessage `json:"args"`
+		Arguments  json.RawMessage `json:"arguments"`
+		Input      json.RawMessage `json:"input"`
+		Params     json.RawMessage `json:"params"`
 	}
 	if err := json.Unmarshal([]byte(dataJSON), &d); err != nil {
 		return
 	}
-	if d.Name != "channels_respond" || d.ID == "" {
+	name := firstNonEmpty(d.Name, d.Tool)
+	callID := firstNonEmpty(d.ID, d.CallID, d.ToolCallID)
+	if name != "channels_respond" || callID == "" {
 		return
 	}
-	var args struct {
-		Channel string `json:"channel"`
-		Text    string `json:"text"`
-	}
-	if err := json.Unmarshal(d.Args, &args); err != nil {
+	argsRaw := firstRaw(d.Args, d.Arguments, d.Input, d.Params)
+	channel, text, ok := decodeRespondArgs(argsRaw)
+	if !ok {
 		return
 	}
-	if args.Channel != "" && args.Channel != "chat" {
+	if channel != "" && channel != "chat" {
 		// Tool call targeted a different channel — not our problem.
 		return
 	}
-	key := threadID + "\x00" + d.ID
+	key := threadID + "\x00" + callID
 	s.mu.Lock()
 	last := s.lastEmit[key]
 	s.mu.Unlock()
-	if args.Text == "" || args.Text == last {
+	if text == "" || text == last {
 		return
 	}
 	s.mu.Lock()
-	s.lastEmit[key] = args.Text
+	s.lastEmit[key] = text
 	s.mu.Unlock()
 	s.hub.publishStream(StreamFrame{
 		Type:      "stream",
 		ChatID:    chatID,
 		ThreadID:  threadID,
-		CallID:    d.ID,
-		Text:      args.Text,
+		CallID:    callID,
+		Text:      text,
 		CreatedAt: ts,
 	})
 }
 
-// onToolEnd clears state when the respond tool has run. Doesn't emit
-// a Done frame for the chat — the real DB message landing on the
-// normal SSE path is what the UI swaps in.
-func (s *Streamer) onToolEnd(threadID, dataJSON string) {
+// onToolEnd clears state when the respond tool has run. The real DB
+// message landing on the normal SSE path is still what the UI swaps
+// in; Done is only a cleanup signal for stale ephemeral bubbles.
+func (s *Streamer) onToolEnd(threadID, chatID, dataJSON string, ts time.Time) {
 	var d struct {
-		Name string `json:"name"`
-		Tool string `json:"tool"`
-		ID   string `json:"id"`
+		Name       string `json:"name"`
+		Tool       string `json:"tool"`
+		ID         string `json:"id"`
+		CallID     string `json:"call_id"`
+		ToolCallID string `json:"tool_call_id"`
 	}
 	if err := json.Unmarshal([]byte(dataJSON), &d); err != nil {
 		return
 	}
-	name := d.Name
-	if name == "" {
-		name = d.Tool
-	}
-	if name != "channels_respond" || d.ID == "" {
+	name := firstNonEmpty(d.Name, d.Tool)
+	callID := firstNonEmpty(d.ID, d.CallID, d.ToolCallID)
+	if name != "channels_respond" || callID == "" {
 		// Not our tool, or the provider didn't surface the call id —
 		// leave any stale buffer; it gets superseded on the next
 		// tool_chunk for a new call id.
 		return
 	}
-	key := threadID + "\x00" + d.ID
+	key := threadID + "\x00" + callID
 	s.mu.Lock()
 	delete(s.buffers, key)
 	delete(s.lastEmit, key)
 	s.mu.Unlock()
+	s.hub.publishStream(StreamFrame{
+		Type:      "stream",
+		ChatID:    chatID,
+		ThreadID:  threadID,
+		CallID:    callID,
+		Done:      true,
+		CreatedAt: ts,
+	})
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func firstRaw(values ...json.RawMessage) json.RawMessage {
+	for _, v := range values {
+		if len(strings.TrimSpace(string(v))) > 0 && strings.TrimSpace(string(v)) != "null" {
+			return v
+		}
+	}
+	return nil
+}
+
+func decodeRespondArgs(raw json.RawMessage) (channel, text string, ok bool) {
+	if len(strings.TrimSpace(string(raw))) == 0 {
+		return "", "", false
+	}
+	var args struct {
+		Channel string `json:"channel"`
+		Text    string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &args); err == nil {
+		return args.Channel, args.Text, args.Channel != "" || args.Text != ""
+	}
+	var encoded string
+	if err := json.Unmarshal(raw, &encoded); err == nil && encoded != "" {
+		if err := json.Unmarshal([]byte(encoded), &args); err == nil {
+			return args.Channel, args.Text, args.Channel != "" || args.Text != ""
+		}
+	}
+	return "", "", false
 }
 
 // extractTextField pulls the value of the JSON object's `text` key

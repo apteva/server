@@ -116,6 +116,11 @@ type Server struct {
 	routeCache  *RouteCache
 	primaryHost string // APTEVA_PRIMARY_HOST — never matched by route cache (dashboard wins).
 
+	// ingressCerts is the server-native ACME manager. It is backed by
+	// the ingress_routes table for host policy and falls back to the
+	// legacy certs app cache for compatibility.
+	ingressCerts *IngressCertManager
+
 	// In-process edge cache for HostRouter-proxied responses the origin
 	// marked publicly cacheable (Cache-Control: public, max-age>0).
 	// See edge_cache.go.
@@ -500,6 +505,7 @@ func main() {
 		primaryHost:    strings.TrimSpace(os.Getenv("APTEVA_PRIMARY_HOST")),
 		environments:   NewEnvironmentManager(environmentDataRoot(dataDir)),
 	}
+	s.ingressCerts = NewIngressCertManager(s)
 	// Back-reference so Environments can drive real (install-backed) app
 	// seeding + teardown. Only ever used by environment endpoints.
 	s.environments.server = s
@@ -730,6 +736,8 @@ func main() {
 	apiMux.HandleFunc("/admin/users/", s.authMiddleware(s.handleAdminUsers))
 
 	// Integration catalog routes
+	apiMux.HandleFunc("/integrations/usage", s.authMiddleware(s.handleIntegrationUsage))
+
 	// Integration UI bundles. Serves /api/integrations/<slug>/ui/<file>
 	// from the integrations dist tree the dashboard picked up at build
 	// time. Public — no auth — same as /vendor/*.mjs, since bundles are
@@ -800,6 +808,9 @@ func main() {
 	// user with a session can edit these (server is single-tenant by
 	// default and the setup-token flow ensures only the operator gets in).
 	apiMux.HandleFunc("/settings/server", s.authMiddleware(s.handleServerSettings))
+	apiMux.HandleFunc("/ingress/routes", s.authMiddleware(s.handleIngressRoutes))
+	apiMux.HandleFunc("/ingress/routes/", s.authMiddleware(s.handleIngressRoute))
+	apiMux.HandleFunc("/ingress/certs", s.authMiddleware(s.handleIngressCerts))
 
 	apiMux.HandleFunc("/connections/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/connections/")
@@ -1455,10 +1466,15 @@ func main() {
 			os.Exit(1)
 		}
 	}()
-	if tlsAddr := strings.TrimSpace(os.Getenv("APTEVA_TLS_LISTEN_ADDR")); tlsAddr != "" {
-		certCache := NewCertCache(s)
-		certCache.Start(60 * time.Second)
-		startTLSListener(tlsAddr, hostRouter, certCache)
+	httpIngressAddr, httpsIngressAddr := ingressListenAddrs(listenAddr)
+	if s.ingressCerts != nil && httpsIngressAddr != "" {
+		s.ingressCerts.Start(60 * time.Second)
+	}
+	if httpIngressAddr != "" && httpIngressAddr != listenAddr {
+		startIngressHTTPListener(httpIngressAddr, hostRouter)
+	}
+	if httpsIngressAddr != "" {
+		startIngressTLSListener(httpsIngressAddr, hostRouter, s.ingressCerts)
 	}
 
 	s.ResumeLocalInstalls()
