@@ -1,0 +1,220 @@
+{
+  "slug": "signalwire",
+  "name": "SignalWire",
+  "description": "SignalWire Compatibility API for Twilio-like voice calls, cXML call control, and bidirectional <Connect><Stream> WebSocket audio for AI voice-agent backends.",
+  "logo": "https://www.google.com/s2/favicons?domain=signalwire.com&sz=128",
+  "categories": [
+    "voice",
+    "calls",
+    "telephony",
+    "phone",
+    "communications",
+    "ai"
+  ],
+  "base_url": "https://{{space}}.signalwire.com/api/laml/2010-04-01/Accounts/{{account_sid}}",
+  "auth": {
+    "types": [
+      "basic"
+    ],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "username",
+        "label": "Project ID",
+        "description": "SignalWire Project ID. Also used as the HTTP Basic username.",
+        "required": true
+      },
+      {
+        "name": "password",
+        "label": "API Token",
+        "description": "SignalWire API token. Also used as the HTTP Basic password.",
+        "type": "password",
+        "required": true
+      },
+      {
+        "name": "account_sid",
+        "label": "Account SID / Project ID",
+        "description": "SignalWire Project ID used in Compatibility API paths.",
+        "required": true
+      },
+      {
+        "name": "space",
+        "label": "Space",
+        "description": "SignalWire space subdomain, without .signalwire.com.",
+        "required": true
+      },
+      {
+        "name": "phone_number",
+        "label": "Default From Number",
+        "description": "Default SignalWire phone number to call from, in E.164 format."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_calls",
+    "input": {
+      "PageSize": 1
+    }
+  },
+  "tools": [
+    {
+      "name": "make_call",
+      "description": "Place an outbound SignalWire call. Provide Url for cXML, or inline Twiml/cXML containing <Connect><Stream> for bidirectional AI audio.",
+      "method": "POST",
+      "path": "/Calls.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "To": {
+            "type": "string",
+            "description": "Destination phone number in E.164 format."
+          },
+          "From": {
+            "type": "string",
+            "description": "SignalWire phone number to call from, in E.164 format."
+          },
+          "Url": {
+            "type": "string",
+            "description": "URL returning SignalWire cXML call-control instructions."
+          },
+          "Method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST"
+          },
+          "Twiml": {
+            "type": "string",
+            "description": "Inline cXML/TwiML instructions."
+          },
+          "StatusCallback": {
+            "type": "string"
+          },
+          "StatusCallbackMethod": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST"
+          },
+          "Timeout": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "To",
+          "From"
+        ]
+      },
+      "mock_response": {
+        "sid": "mock-call-sid",
+        "status": "queued",
+        "direction": "outbound-api"
+      }
+    },
+    {
+      "name": "get_call",
+      "description": "Retrieve one SignalWire call.",
+      "method": "GET",
+      "path": "/Calls/{Sid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Sid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "Sid"
+        ]
+      }
+    },
+    {
+      "name": "list_calls",
+      "description": "List SignalWire calls.",
+      "method": "GET",
+      "path": "/Calls.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "To": {
+            "type": "string"
+          },
+          "From": {
+            "type": "string"
+          },
+          "Status": {
+            "type": "string"
+          },
+          "StartTime": {
+            "type": "string"
+          },
+          "PageSize": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_call",
+      "description": "Update or end a SignalWire call. Set Status=completed to hang up, or provide Url/Twiml to redirect call control.",
+      "method": "POST",
+      "path": "/Calls/{Sid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Sid": {
+            "type": "string"
+          },
+          "Status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "canceled"
+            ]
+          },
+          "Url": {
+            "type": "string"
+          },
+          "Method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ]
+          },
+          "Twiml": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "Sid"
+        ]
+      }
+    },
+    {
+      "name": "list_phone_numbers",
+      "description": "List SignalWire incoming phone numbers.",
+      "method": "GET",
+      "path": "/IncomingPhoneNumbers.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PhoneNumber": {
+            "type": "string"
+          },
+          "PageSize": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  ]
+}

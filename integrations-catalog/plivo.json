@@ -1,0 +1,269 @@
+{
+  "slug": "plivo",
+  "name": "Plivo",
+  "description": "Plivo Voice API for outbound calls, call control, and bidirectional audio streaming over WebSockets for AI voice-agent backends.",
+  "logo": "https://www.google.com/s2/favicons?domain=plivo.com&sz=128",
+  "categories": [
+    "voice",
+    "calls",
+    "telephony",
+    "phone",
+    "communications",
+    "ai"
+  ],
+  "base_url": "https://api.plivo.com/v1/Account/{{auth_id}}",
+  "auth": {
+    "types": [
+      "basic"
+    ],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "username",
+        "label": "Auth ID",
+        "description": "Plivo Auth ID. Also used as the HTTP Basic username.",
+        "required": true
+      },
+      {
+        "name": "password",
+        "label": "Auth Token",
+        "description": "Plivo Auth Token. Also used as the HTTP Basic password.",
+        "type": "password",
+        "required": true
+      },
+      {
+        "name": "auth_id",
+        "label": "Auth ID",
+        "description": "Same Plivo Auth ID, used in REST paths.",
+        "required": true
+      },
+      {
+        "name": "phone_number",
+        "label": "Default From Number",
+        "description": "Default Plivo phone number to call from, in E.164 format."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_calls",
+    "input": {
+      "limit": 1
+    }
+  },
+  "tools": [
+    {
+      "name": "make_call",
+      "description": "Place an outbound Plivo call. For AI voice agents, answer_url should return Plivo XML with a bidirectional <Stream> element pointing to the Telephony WebSocket.",
+      "method": "POST",
+      "path": "/Call/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "Plivo number to call from, in E.164 format."
+          },
+          "to": {
+            "type": "string",
+            "description": "Destination phone number in E.164 format."
+          },
+          "answer_url": {
+            "type": "string",
+            "description": "HTTPS URL returning Plivo XML call-control instructions."
+          },
+          "answer_method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST"
+          },
+          "hangup_url": {
+            "type": "string"
+          },
+          "hangup_method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST"
+          },
+          "time_limit": {
+            "type": "integer"
+          },
+          "ring_timeout": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "answer_url"
+        ]
+      },
+      "mock_response": {
+        "api_id": "mock-api-id",
+        "message": "call fired",
+        "request_uuid": "mock-request-uuid"
+      }
+    },
+    {
+      "name": "update_call",
+      "description": "Redirect or transfer an active Plivo call by making it fetch new XML.",
+      "method": "POST",
+      "path": "/Call/{call_uuid}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_uuid": {
+            "type": "string"
+          },
+          "legs": {
+            "type": "string",
+            "enum": [
+              "aleg",
+              "bleg",
+              "both"
+            ],
+            "default": "aleg"
+          },
+          "aleg_url": {
+            "type": "string"
+          },
+          "aleg_method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ]
+          },
+          "bleg_url": {
+            "type": "string"
+          },
+          "bleg_method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ]
+          }
+        },
+        "required": [
+          "call_uuid"
+        ]
+      }
+    },
+    {
+      "name": "hangup_call",
+      "description": "Hang up an active Plivo call.",
+      "method": "DELETE",
+      "path": "/Call/{call_uuid}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_uuid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_uuid"
+        ]
+      }
+    },
+    {
+      "name": "start_stream",
+      "description": "Start an audio stream on an active Plivo call using the Audio Streams API.",
+      "method": "POST",
+      "path": "/Call/{call_uuid}/Stream/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_uuid": {
+            "type": "string"
+          },
+          "service_url": {
+            "type": "string",
+            "description": "WebSocket URL that receives call audio."
+          },
+          "bidirectional": {
+            "type": "boolean",
+            "default": true
+          },
+          "audio_track": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound",
+              "both"
+            ],
+            "default": "inbound"
+          },
+          "content_type": {
+            "type": "string",
+            "description": "Audio content type, for example audio/x-mulaw;rate=8000."
+          },
+          "status_callback_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_uuid",
+          "service_url"
+        ]
+      }
+    },
+    {
+      "name": "stop_stream",
+      "description": "Stop one Plivo audio stream.",
+      "method": "DELETE",
+      "path": "/Call/{call_uuid}/Stream/{stream_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_uuid": {
+            "type": "string"
+          },
+          "stream_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_uuid",
+          "stream_id"
+        ]
+      }
+    },
+    {
+      "name": "list_calls",
+      "description": "List Plivo calls.",
+      "method": "GET",
+      "path": "/Call/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from_number": {
+            "type": "string"
+          },
+          "to_number": {
+            "type": "string"
+          },
+          "call_direction": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  ]
+}

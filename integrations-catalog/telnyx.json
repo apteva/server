@@ -1,0 +1,321 @@
+{
+  "slug": "telnyx",
+  "name": "Telnyx",
+  "description": "Telnyx Programmable Voice and Numbers API. Place and control calls, start bidirectional media streams over WebSockets, and manage phone numbers for AI voice-agent backends.",
+  "logo": "https://www.google.com/s2/favicons?domain=telnyx.com&sz=128",
+  "categories": [
+    "voice",
+    "calls",
+    "telephony",
+    "phone",
+    "communications",
+    "ai"
+  ],
+  "base_url": "https://api.telnyx.com/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "description": "Telnyx API key with Voice API and Numbers permissions.",
+        "type": "password",
+        "required": true
+      },
+      {
+        "name": "connection_id",
+        "label": "Call Control Connection ID",
+        "description": "Default Telnyx Voice API connection ID used when placing calls.",
+        "required": true
+      },
+      {
+        "name": "phone_number",
+        "label": "Default From Number",
+        "description": "Default Telnyx phone number to call from, in E.164 format."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_phone_numbers",
+    "input": {
+      "page[size]": 1
+    }
+  },
+  "tools": [
+    {
+      "name": "make_call",
+      "description": "Place an outbound Telnyx call. For AI voice agents, pass stream_url plus stream_bidirectional_mode=rtp and stream_bidirectional_codec=L16 or PCMU.",
+      "method": "POST",
+      "path": "/calls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "description": "Voice API connection ID. Defaults to the connection credential when omitted."
+          },
+          "to": {
+            "type": "string",
+            "description": "Destination phone number in E.164 format."
+          },
+          "from": {
+            "type": "string",
+            "description": "Caller ID phone number in E.164 format."
+          },
+          "stream_url": {
+            "type": "string",
+            "description": "Optional WebSocket URL for Telnyx media streaming."
+          },
+          "stream_track": {
+            "type": "string",
+            "enum": [
+              "inbound_track",
+              "outbound_track",
+              "both_tracks"
+            ],
+            "default": "inbound_track"
+          },
+          "stream_bidirectional_mode": {
+            "type": "string",
+            "enum": [
+              "rtp",
+              "mp3"
+            ],
+            "description": "Set to rtp for low-latency AI audio injected back into the call."
+          },
+          "stream_bidirectional_codec": {
+            "type": "string",
+            "enum": [
+              "PCMU",
+              "PCMA",
+              "G722",
+              "OPUS",
+              "AMR-WB",
+              "L16"
+            ],
+            "description": "Codec for audio sent from the WebSocket back to Telnyx."
+          },
+          "stream_codec": {
+            "type": "string",
+            "enum": [
+              "PCMU",
+              "PCMA",
+              "G722",
+              "OPUS",
+              "AMR-WB",
+              "L16",
+              "default"
+            ],
+            "description": "Codec for audio streamed from Telnyx to the WebSocket."
+          },
+          "timeout_secs": {
+            "type": "integer",
+            "default": 30,
+            "minimum": 5,
+            "maximum": 600
+          },
+          "time_limit_secs": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 14400
+          },
+          "client_state": {
+            "type": "string",
+            "description": "Base64-encoded state copied to subsequent Telnyx webhooks."
+          },
+          "command_id": {
+            "type": "string",
+            "description": "Client-provided idempotency key."
+          }
+        },
+        "required": [
+          "to",
+          "from"
+        ]
+      },
+      "mock_response": {
+        "data": {
+          "call_control_id": "v2:mock-call-control-id",
+          "call_leg_id": "mock-call-leg-id",
+          "call_session_id": "mock-call-session-id",
+          "record_type": "call"
+        }
+      }
+    },
+    {
+      "name": "answer_call",
+      "description": "Answer an inbound Telnyx call and optionally start media streaming to a WebSocket.",
+      "method": "POST",
+      "path": "/calls/{call_control_id}/actions/answer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_control_id": {
+            "type": "string"
+          },
+          "stream_url": {
+            "type": "string"
+          },
+          "stream_track": {
+            "type": "string",
+            "enum": [
+              "inbound_track",
+              "outbound_track",
+              "both_tracks"
+            ]
+          },
+          "stream_bidirectional_mode": {
+            "type": "string",
+            "enum": [
+              "rtp",
+              "mp3"
+            ]
+          },
+          "stream_bidirectional_codec": {
+            "type": "string"
+          },
+          "client_state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_control_id"
+        ]
+      }
+    },
+    {
+      "name": "start_streaming",
+      "description": "Start media streaming on an active Telnyx call.",
+      "method": "POST",
+      "path": "/calls/{call_control_id}/actions/streaming_start",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_control_id": {
+            "type": "string"
+          },
+          "stream_url": {
+            "type": "string"
+          },
+          "stream_track": {
+            "type": "string",
+            "enum": [
+              "inbound_track",
+              "outbound_track",
+              "both_tracks"
+            ],
+            "default": "inbound_track"
+          },
+          "stream_codec": {
+            "type": "string"
+          },
+          "stream_bidirectional_mode": {
+            "type": "string",
+            "enum": [
+              "rtp",
+              "mp3"
+            ]
+          },
+          "stream_bidirectional_codec": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_control_id",
+          "stream_url"
+        ]
+      }
+    },
+    {
+      "name": "stop_streaming",
+      "description": "Stop media streaming on an active Telnyx call.",
+      "method": "POST",
+      "path": "/calls/{call_control_id}/actions/streaming_stop",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_control_id": {
+            "type": "string"
+          },
+          "stream_id": {
+            "type": "string",
+            "description": "Optional stream ID to stop."
+          }
+        },
+        "required": [
+          "call_control_id"
+        ]
+      }
+    },
+    {
+      "name": "update_call",
+      "description": "End an active Telnyx call. This is the voice.update carrier action used for hangup.",
+      "method": "POST",
+      "path": "/calls/{call_control_id}/actions/hangup",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_control_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_control_id"
+        ]
+      }
+    },
+    {
+      "name": "list_calls",
+      "description": "List Telnyx calls.",
+      "method": "GET",
+      "path": "/calls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter[call_session_id]": {
+            "type": "string"
+          },
+          "filter[call_leg_id]": {
+            "type": "string"
+          },
+          "page[size]": {
+            "type": "integer"
+          },
+          "page[number]": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_phone_numbers",
+      "description": "List Telnyx phone numbers.",
+      "method": "GET",
+      "path": "/phone_numbers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter[phone_number]": {
+            "type": "string"
+          },
+          "filter[connection_id]": {
+            "type": "string"
+          },
+          "page[size]": {
+            "type": "integer"
+          },
+          "page[number]": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  ]
+}

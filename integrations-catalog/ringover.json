@@ -22,6 +22,11 @@
         "description": "Ringover public API key from Dashboard > Developer > API Keys. The API expects this value directly in the Authorization header.",
         "type": "password",
         "required": true
+      },
+      {
+        "name": "phone_number",
+        "label": "Default From Number",
+        "description": "Default Ringover number to present or route from when starting callbacks."
       }
     ]
   },

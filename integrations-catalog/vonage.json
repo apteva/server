@@ -22,11 +22,125 @@
     "credential_fields": [
       {
         "name": "token",
-        "label": "API Key"
+        "label": "Bearer JWT",
+        "description": "Vonage Voice API JWT. Generate from a Vonage application private key with voice capability enabled.",
+        "type": "password",
+        "required": true
+      },
+      {
+        "name": "phone_number",
+        "label": "Default From Number",
+        "description": "Default Vonage phone number to call from, in E.164 format without leading '+'."
       }
     ]
   },
   "tools": [
+    {
+      "name": "create_voice_call",
+      "description": "Create a Vonage Voice API call using official /v1/calls. For AI voice agents, provide ncco with a connect action whose endpoint type is websocket.",
+      "method": "POST",
+      "base_url": "https://api.nexmo.com/v1",
+      "path": "/calls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "array",
+            "description": "Vonage endpoint array, e.g. [{\"type\":\"phone\",\"number\":\"14155551234\"}]."
+          },
+          "from": {
+            "type": "object",
+            "description": "Vonage from endpoint, e.g. {\"type\":\"phone\",\"number\":\"14155550100\"}."
+          },
+          "ncco": {
+            "type": "array",
+            "description": "NCCO call control array. Use connect/websocket endpoint for live bidirectional audio."
+          },
+          "answer_url": {
+            "type": "array",
+            "description": "Optional URL array returning NCCO."
+          },
+          "event_url": {
+            "type": "array",
+            "description": "Optional webhook URL array for call events."
+          },
+          "machine_detection": {
+            "type": "string",
+            "enum": [
+              "continue",
+              "hangup"
+            ]
+          },
+          "random_from_number": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "to",
+          "from"
+        ]
+      },
+      "mock_response": {
+        "uuid": "mock-call-uuid",
+        "status": "started",
+        "direction": "outbound"
+      }
+    },
+    {
+      "name": "update_voice_call",
+      "description": "Transfer or redirect a Vonage Voice API call to a new NCCO or answer URL.",
+      "method": "PUT",
+      "base_url": "https://api.nexmo.com/v1",
+      "path": "/calls/{uuid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "transfer"
+            ],
+            "default": "transfer"
+          },
+          "destination": {
+            "type": "object",
+            "description": "Transfer destination, e.g. {\"type\":\"ncco\",\"ncco\":[...]} or {\"type\":\"url\",\"url\":[...]}"
+          }
+        },
+        "required": [
+          "uuid",
+          "destination"
+        ]
+      }
+    },
+    {
+      "name": "hangup_voice_call",
+      "description": "Hang up a Vonage Voice API call.",
+      "method": "PUT",
+      "base_url": "https://api.nexmo.com/v1",
+      "path": "/calls/{uuid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "hangup"
+            ],
+            "default": "hangup"
+          }
+        },
+        "required": [
+          "uuid"
+        ]
+      }
+    },
     {
       "name": "make_call",
       "description": "Make an outbound voice call using Vonage Voice API. Supports TTS (text-to-speech), NCCO (call control), or answer URL for webhooks.",
