@@ -18,10 +18,10 @@
   "base_url": "https://api.dataforseo.com/v3",
   "auth": {
     "types": [
-      "bearer"
+      "basic"
     ],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Authorization": "Basic {{basic_auth}}"
     },
     "credential_fields": [
       {
@@ -52,6 +52,7 @@
       "description": "Get search volume, competition, CPC data, and monthly trends for keywords via Google Ads API. Max 1000 keywords per request.",
       "method": "POST",
       "path": "/keywords_data/google_ads/search_volume/live",
+      "body_root_param": "tasks",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -393,6 +394,7 @@
       "description": "Get domain-level SEO overview: organic traffic estimate, total keywords, visibility score, and rank distribution",
       "method": "POST",
       "path": "/dataforseo_labs/google/domain_rank_overview/live",
+      "body_root_param": "tasks",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -625,6 +627,7 @@
       "description": "Get detailed list of backlinks with anchor text, source URLs, link type, and attributes",
       "method": "POST",
       "path": "/backlinks/backlinks/live",
+      "body_root_param": "tasks",
       "input_schema": {
         "type": "object",
         "properties": {
