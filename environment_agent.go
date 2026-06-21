@@ -27,6 +27,11 @@ type EnvironmentAgentSpec struct {
 	Source            *Agent // clone directive/mode/config/project from this live agent
 	DirectiveOverride string // optional: run with a modified directive
 	Alias             string // stable environment-local label; defaults to "main"
+	ProviderPool      []ProviderInfo
+	// StartPaused gates the cloned core at main's first iteration.start. This
+	// lets eval runners inject the opening event into main before the initial
+	// autonomous no-event loop can race ahead.
+	StartPaused bool
 }
 
 // EnvironmentAgent is a running agent core living inside a Environment.
@@ -66,7 +71,10 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	}
 
 	// Provider preflight — same fail-fast as the eval runner.
-	pool := s.GetProviderPool(userID, src.ProjectID)
+	pool := spec.ProviderPool
+	if len(pool) == 0 {
+		pool = s.GetProviderPool(userID, src.ProjectID)
+	}
 	if len(pool) == 0 {
 		return nil, fmt.Errorf("no LLM provider configured — add one in Settings → Providers")
 	}
@@ -168,6 +176,12 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		"mcp_servers":           mcpServers,
 		"include_apteva_server": false,
 		"include_channels":      false,
+	}
+	if spec.StartPaused {
+		cfg["execution_control"] = map[string]any{
+			"mode":        "paused",
+			"breakpoints": []string{"iteration.start"},
+		}
 	}
 	cfgJSON, _ := json.Marshal(cfg)
 	wAgent.Directive = directive

@@ -179,3 +179,24 @@ func TestFormatDashboardContext(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatAgentChatEventIncludesReplyContract(t *testing.T) {
+	got := formatAgentChatEvent("What can you do?", map[string]any{
+		"source": "dashboard-floating",
+		"title":  "Overview",
+		"route":  "/",
+	})
+	for _, want := range []string{
+		"[chat]",
+		"Plain assistant text and thoughts are NOT visible to the user",
+		"channels_respond with channel=\"chat\"",
+		"User message:",
+		"What can you do?",
+		"Dashboard context:",
+		"- page: Overview",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("chat event missing %q:\n%s", want, got)
+		}
+	}
+}

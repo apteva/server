@@ -1037,6 +1037,142 @@ func TestExecuteIntegrationTool_QueryParamArraysRepeatValues(t *testing.T) {
 	}
 }
 
+func TestExecuteIntegrationTool_QueryParamAliases(t *testing.T) {
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "fake-bunny-stream",
+		BaseURL: srv.URL,
+		Auth:    AppAuthConfig{Types: []string{"api_key"}},
+	}
+	tool := &AppToolDef{
+		Name:              "list_videos",
+		Method:            "GET",
+		Path:              "/library/123/videos",
+		QueryParamAliases: map[string]string{"collectionId": "collection"},
+	}
+	input := map[string]any{
+		"collectionId": "collection-123",
+		"page":         2,
+	}
+	if _, err := executeIntegrationTool(app, tool, map[string]string{"api_key": "tok"}, input, ""); err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if got := gotQuery.Get("collection"); got != "collection-123" {
+		t.Fatalf("collection query=%q, want collection-123 (all=%v)", got, gotQuery)
+	}
+	if got := gotQuery.Get("collectionId"); got != "" {
+		t.Fatalf("collectionId leaked into query as %q (all=%v)", got, gotQuery)
+	}
+	if got := gotQuery.Get("page"); got != "2" {
+		t.Fatalf("page query=%q, want 2 (all=%v)", got, gotQuery)
+	}
+}
+
+func TestExecuteIntegrationTool_PostQueryParamsExcludedFromBody(t *testing.T) {
+	var gotQuery url.Values
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{"success":true}`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "fake-bunny-stream",
+		BaseURL: srv.URL,
+		Auth:    AppAuthConfig{Types: []string{"api_key"}},
+	}
+	tool := &AppToolDef{
+		Name:        "fetch_video",
+		Method:      "POST",
+		Path:        "/library/123/videos/fetch",
+		QueryParams: []string{"collectionId", "thumbnailTime"},
+	}
+	input := map[string]any{
+		"url":           "https://example.com/video.mp4",
+		"title":         "video.mp4",
+		"collectionId":  "collection-123",
+		"thumbnailTime": 1000,
+	}
+	if _, err := executeIntegrationTool(app, tool, map[string]string{"api_key": "tok"}, input, ""); err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if got := gotQuery.Get("collectionId"); got != "collection-123" {
+		t.Fatalf("collectionId query=%q, want collection-123 (all=%v)", got, gotQuery)
+	}
+	if got := gotQuery.Get("thumbnailTime"); got != "1000" {
+		t.Fatalf("thumbnailTime query=%q, want 1000 (all=%v)", got, gotQuery)
+	}
+	if _, leaked := gotBody["collectionId"]; leaked {
+		t.Fatalf("collectionId leaked into body: %#v", gotBody)
+	}
+	if _, leaked := gotBody["thumbnailTime"]; leaked {
+		t.Fatalf("thumbnailTime leaked into body: %#v", gotBody)
+	}
+	if gotBody["url"] != "https://example.com/video.mp4" || gotBody["title"] != "video.mp4" {
+		t.Fatalf("body lost fetch fields: %#v", gotBody)
+	}
+}
+
+func TestExecuteIntegrationTool_DeleteVideoPathParamNoBody(t *testing.T) {
+	var gotMethod string
+	var gotPath string
+	var gotQuery url.Values
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotQuery = r.URL.Query()
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{"success":true,"message":"OK","statusCode":200}`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "fake-bunny-stream",
+		BaseURL: srv.URL,
+		Auth:    AppAuthConfig{Types: []string{"api_key"}},
+	}
+	tool := &AppToolDef{
+		Name:   "delete_video",
+		Method: "DELETE",
+		Path:   "/library/374587/videos/{videoId}",
+	}
+	input := map[string]any{
+		"videoId": "94a1872d-7296-4ec7-8cb1-d814b1eddafe",
+	}
+	if _, err := executeIntegrationTool(app, tool, map[string]string{"api_key": "tok"}, input, ""); err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if gotMethod != http.MethodDelete {
+		t.Fatalf("method=%q, want DELETE", gotMethod)
+	}
+	if gotPath != "/library/374587/videos/94a1872d-7296-4ec7-8cb1-d814b1eddafe" {
+		t.Fatalf("path=%q", gotPath)
+	}
+	if len(gotQuery) != 0 {
+		t.Fatalf("unexpected query: %v", gotQuery)
+	}
+	if len(gotBody) != 0 {
+		t.Fatalf("DELETE sent body: %s", gotBody)
+	}
+}
+
 func TestExecuteIntegrationTool_BinaryResponse(t *testing.T) {
 	payload := []byte{0x1f, 0x8b, 0x08, 0x00, 0xde, 0xad, 0xbe, 0xef, 'a', 'b', 'c'}
 

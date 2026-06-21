@@ -1720,7 +1720,9 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		// Manifest dropped its skills — clear the rows.
-		s.store.db.Exec(`DELETE FROM skills WHERE install_id = ?`, installID)
+		if err := s.deleteAppSkillsForInstall(installID, "app skill removed"); err != nil {
+			log.Printf("[APPS-SKILLS] clear install=%d failed: %v", installID, err)
+		}
 	}
 	s.store.db.Exec(
 		`UPDATE app_installs SET status='pending', status_message='Upgrading…', error_message='' WHERE id=?`,

@@ -37,7 +37,7 @@ func TestCatalogMockResponses_Parse(t *testing.T) {
 		"bluesky":       {"create_post", "get_profile", "get_feed", "search_posts"},
 		// Bunny.net CDN + Stream.
 		"bunny-cdn":    {"create_pullzone", "purge_cache", "create_storagezone", "upload_file", "list_pullzones"},
-		"bunny-stream": {"create_video", "fetch_video", "create_library", "list_videos", "create_collection"},
+		"bunny-stream": {"create_video", "fetch_video", "delete_video", "create_library", "list_videos", "create_collection"},
 	}
 
 	for app, tools := range want {

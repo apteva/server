@@ -258,10 +258,10 @@ func (s *Server) handleEvalPreviewStream(w http.ResponseWriter, r *http.Request)
 	}
 	opts := RunOptions{MaxIterations: 5}
 	if body.Options != nil {
-		if body.Options.MaxIterations > 0 {
-			opts.MaxIterations = body.Options.MaxIterations
+		opts = *body.Options
+		if opts.MaxIterations <= 0 {
+			opts.MaxIterations = 5
 		}
-		opts.StrictMocks = body.Options.StrictMocks
 	}
 	draft := &Agent{
 		Name:      body.Name,

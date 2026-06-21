@@ -73,6 +73,7 @@ type runSession struct {
 	turnsUsed        int
 	strict           bool     // RunOptions.StrictMocks — fail on unmocked tool calls
 	strictViolations []string // first violation message bubbles up to error_message
+	metrics          *EvalRunMetrics
 
 	// pendingTools maps a real-MCP tool call's id (as assigned by
 	// apteva-core's provider) to the trajectory turn that records
@@ -288,20 +289,20 @@ func (s *runSession) trajectoryLen() int {
 // swallowed silently. Results for unknown call_ids (e.g. a tool call
 // that landed on the gateway path and was already recorded with its
 // canned response there) are also swallowed.
-func (s *runSession) attachToolResult(callID, content string, isError bool) {
+func (s *runSession) attachToolResult(callID, content string, isError bool) string {
 	if callID == "" {
-		return
+		return ""
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec, ok := s.pendingTools[callID]
 	if !ok {
-		return
+		return ""
 	}
 	delete(s.pendingTools, callID)
 	if isError {
 		rec.Error = content
-		return
+		return rec.Tool
 	}
 	// content is plain text from core's ToolResult.Content. Most MCP
 	// servers return JSON-encoded payloads but a few return prose;
@@ -314,6 +315,7 @@ func (s *runSession) attachToolResult(callID, content string, isError bool) {
 		b, _ := json.Marshal(content)
 		rec.Response = json.RawMessage(b)
 	}
+	return rec.Tool
 }
 
 // matchMock walks mocks[] and returns the first entry matching
@@ -469,6 +471,13 @@ func (s *Server) runRealEvalCore(
 	if len(pool) == 0 {
 		return s.writeEvalRun(ev.ID, startedAt, session, nil, nil, "error",
 			"no LLM provider configured — add one in Settings → Providers", preview, 0)
+	}
+	pool, overrideSummary, err := evalProviderPoolForOptions(pool, opts)
+	if err != nil {
+		return s.writeEvalRun(ev.ID, startedAt, session, nil, nil, "error", err.Error(), preview, 0)
+	}
+	if overrideSummary != "" {
+		session.recordSystem(overrideSummary)
 	}
 
 	// Create transient kind='eval_run' agent row whether preview or
@@ -801,6 +810,43 @@ func (s *Server) runRealEvalCore(
 	return s.writeEvalRunWithDetails(ev.ID, startedAt, finishedAt, session, &trajectory, lastVerdict, finalRollup(rollup), status, errMsg, preview, iterationsCompleted)
 }
 
+func evalProviderPoolForOptions(pool []ProviderInfo, opts RunOptions) ([]ProviderInfo, string, error) {
+	providerOverride := providerKeyFromName(opts.ProviderOverride)
+	modelOverride := strings.TrimSpace(opts.ModelOverride)
+	if providerOverride == "" && modelOverride == "" {
+		return pool, "", nil
+	}
+	if len(pool) == 0 {
+		return nil, "", fmt.Errorf("no LLM provider configured — add one in Settings → Providers")
+	}
+
+	selected := pool[0]
+	if providerOverride != "" {
+		found := false
+		for _, p := range pool {
+			if providerKeyFromName(p.Type) == providerOverride {
+				selected = p
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, "", fmt.Errorf("LLM provider override %q is not configured for this project", providerOverride)
+		}
+	}
+	if modelOverride != "" {
+		selected.ModelLarge = modelOverride
+		selected.ModelMedium = modelOverride
+		selected.ModelSmall = modelOverride
+	}
+
+	summary := "eval provider override: provider=" + selected.Type
+	if modelOverride != "" {
+		summary += " model=" + modelOverride
+	}
+	return []ProviderInfo{selected}, summary, nil
+}
+
 // finalRollup nils the RunSuggestions pointer when it carries
 // nothing actionable, so InsertEvalRun leaves suggestions_json NULL
 // for clean strict runs.
@@ -840,6 +886,7 @@ func (s *Server) writeEvalRunWithDetails(evalID string, startedAt, finishedAt ti
 		TurnsUsed:      session.turnsUsed,
 		IterationsUsed: iterations,
 		ErrorMessage:   errMsg,
+		Metrics:        session.metrics,
 	}
 	if !preview {
 		id, _ := s.store.InsertEvalRun(run)
@@ -847,6 +894,76 @@ func (s *Server) writeEvalRunWithDetails(evalID string, startedAt, finishedAt ti
 		_ = s.store.RollupEvalLastRun(evalID, status, finishedAt)
 	}
 	return &run, nil
+}
+
+func (s *Server) evalRunMetricsFromTelemetry(agentID int64, since time.Time) *EvalRunMetrics {
+	if s == nil || s.store == nil || agentID == 0 {
+		return nil
+	}
+	events, err := s.store.QueryTelemetry(agentID, "", since, 1000)
+	if err != nil || len(events) == 0 {
+		return nil
+	}
+	m := &EvalRunMetrics{AgentID: agentID}
+	for _, ev := range events {
+		switch ev.Type {
+		case "llm.done":
+			m.LLMCalls++
+			var data map[string]any
+			if json.Unmarshal(ev.Data, &data) == nil {
+				m.TokensIn += intFromJSONNumber(data["tokens_in"])
+				m.TokensOut += intFromJSONNumber(data["tokens_out"])
+				m.TokensCached += intFromJSONNumber(data["tokens_cached"])
+				m.LLMDurationMS += intFromJSONNumber(data["duration_ms"])
+				m.CostUSD += floatFromJSONNumber(data["cost_usd"])
+			}
+		case "tool.call":
+			m.ToolCalls++
+		case "llm.error", "tool.error", "error":
+			m.Errors++
+		case "tool.result":
+			var data map[string]any
+			if json.Unmarshal(ev.Data, &data) == nil {
+				if isErr, _ := data["is_error"].(bool); isErr {
+					m.Errors++
+				}
+			}
+		}
+	}
+	m.TokensTotal = m.TokensIn + m.TokensOut
+	return m
+}
+
+func intFromJSONNumber(v any) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case json.Number:
+		i, _ := n.Int64()
+		return int(i)
+	default:
+		return 0
+	}
+}
+
+func floatFromJSONNumber(v any) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	case json.Number:
+		f, _ := n.Float64()
+		return f
+	default:
+		return 0
+	}
 }
 
 // waitForCoreListening dials the core's port until it accepts a
@@ -873,10 +990,13 @@ func waitForCoreListening(port int, budget time.Duration) bool {
 // Polling cadence is 500ms — fast enough to catch each turn shortly
 // after it lands, slow enough not to thrash core.
 type collectAssistantRepliesOptions struct {
-	OverallTimeout                time.Duration
-	RequireMeaningfulActivityIdle bool
-	FailOnCoreExit                bool
-	CollectAllThreads             bool
+	OverallTimeout                    time.Duration
+	IdleWindow                        time.Duration
+	PostToolIdleWindow                time.Duration
+	MaxNonToolAssistantTurnsAfterTool int
+	RequireMeaningfulActivityIdle     bool
+	FailOnCoreExit                    bool
+	CollectAllThreads                 bool
 }
 
 func collectAssistantReplies(ctx context.Context, port int, apiKey, threadID string, session *runSession, maxTurns int) error {
@@ -893,11 +1013,18 @@ func collectAssistantRepliesWithOptions(ctx context.Context, port int, apiKey, t
 	}
 	overallDeadline := time.Now().Add(overallTimeout)
 	idleSince := time.Time{}
-	idleWindow := 3 * time.Second
-	postToolIdleWindow := 18 * time.Second
+	idleWindow := opts.IdleWindow
+	if idleWindow <= 0 {
+		idleWindow = 3 * time.Second
+	}
+	postToolIdleWindow := opts.PostToolIdleWindow
+	if postToolIdleWindow <= 0 {
+		postToolIdleWindow = 18 * time.Second
+	}
 	seenLastUpdate := time.Now()
 	lastToolActivity := time.Time{}
 	meaningfulActivity := false
+	nonToolAssistantTurnsAfterTool := 0
 	consecutiveFetchErrors := 0
 	// lastMsgCount is the total number of messages (any role) we've
 	// already processed per thread. Each poll, we walk the suffix from
@@ -956,17 +1083,24 @@ func collectAssistantRepliesWithOptions(ctx context.Context, port int, apiKey, t
 				for _, m := range msgs[last:] {
 					switch m.Role {
 					case "assistant":
-						if text := m.text(); text != "" {
+						text := m.text()
+						if text != "" {
 							session.recordAgent(text)
 						}
+						hasToolCalls := len(m.ToolCalls) > 0
 						for _, tc := range m.ToolCalls {
 							session.recordRealToolCall(tc.ID, tc.Name, tc.Args)
-							lastToolActivity = time.Now()
-							if !isPacingToolName(tc.Name) {
-								meaningfulActivity = true
+							if isPacingToolName(tc.Name) {
+								continue
 							}
+							lastToolActivity = time.Now()
+							nonToolAssistantTurnsAfterTool = 0
+							meaningfulActivity = true
 						}
-						if m.text() != "" || len(m.ToolCalls) > 0 {
+						if text != "" && !hasToolCalls && !lastToolActivity.IsZero() {
+							nonToolAssistantTurnsAfterTool++
+						}
+						if text != "" || hasToolCalls {
 							assistantTurns++
 						}
 					case "user":
@@ -977,8 +1111,12 @@ func collectAssistantRepliesWithOptions(ctx context.Context, port int, apiKey, t
 						// don't re-record from here since those come from
 						// the runner itself.
 						for _, tr := range m.ToolResults {
-							session.attachToolResult(tr.CallID, tr.Content, tr.IsError)
+							toolName := session.attachToolResult(tr.CallID, tr.Content, tr.IsError)
+							if toolName == "" || isPacingToolName(toolName) {
+								continue
+							}
 							lastToolActivity = time.Now()
+							nonToolAssistantTurnsAfterTool = 0
 						}
 					}
 				}
@@ -997,6 +1135,14 @@ func collectAssistantRepliesWithOptions(ctx context.Context, port int, apiKey, t
 			idleSince = time.Time{}
 			if assistantTurns >= maxTurns {
 				session.recordSystem(fmt.Sprintf("max_turns reached (%d)", maxTurns))
+				return nil
+			}
+			if opts.MaxNonToolAssistantTurnsAfterTool > 0 &&
+				meaningfulActivity &&
+				!lastToolActivity.IsZero() &&
+				!session.hasPendingTools() &&
+				nonToolAssistantTurnsAfterTool >= opts.MaxNonToolAssistantTurnsAfterTool {
+				session.recordSystem(fmt.Sprintf("no completed tool call after %d assistant turns", nonToolAssistantTurnsAfterTool))
 				return nil
 			}
 		} else if time.Since(seenLastUpdate) > 500*time.Millisecond {

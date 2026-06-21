@@ -20,10 +20,18 @@ func TestEnsureEnvironmentMCPOnHelper(t *testing.T) {
 	// Idempotent: second call must not add a duplicate.
 	s.ensureEnvironmentMCPOnHelper(helper)
 	var cfg struct {
-		MCPServers []map[string]any `json:"mcp_servers"`
+		IncludeAptevaServer bool             `json:"include_apteva_server"`
+		IncludeChannels     bool             `json:"include_channels"`
+		MCPServers          []map[string]any `json:"mcp_servers"`
 	}
 	if err := json.Unmarshal([]byte(helper.Config), &cfg); err != nil {
 		t.Fatalf("config not valid JSON: %v", err)
+	}
+	if !cfg.IncludeAptevaServer {
+		t.Fatalf("expected platform helper to force include_apteva_server=true: %s", helper.Config)
+	}
+	if !cfg.IncludeChannels {
+		t.Fatalf("expected platform helper to force include_channels=true: %s", helper.Config)
 	}
 	n := 0
 	for _, m := range cfg.MCPServers {

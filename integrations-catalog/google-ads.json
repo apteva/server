@@ -19,7 +19,9 @@
       "oauth2"
     ],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Authorization": "Bearer {{token}}",
+      "developer-token": "{{developer_token}}",
+      "login-customer-id": "{{manager_customer_id}}"
     },
     "credential_fields": [
       {
@@ -246,6 +248,240 @@
           "operations": {
             "type": "array",
             "description": "Array of budget operations (create/update/remove)",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "customer_id",
+          "operations"
+        ]
+      }
+    },
+    {
+      "name": "asset_mutate",
+      "description": "Create, update, or remove reusable Google Ads assets: images, text assets, YouTube video assets, lead form assets, call assets, sitelinks, callouts, structured snippets, and other asset types supported by the Google Ads API. Use campaign_asset_mutate, customer_asset_mutate, asset_group_asset_mutate, or ad assets on ads to attach created assets where needed.",
+      "method": "POST",
+      "path": "/customers/{customer_id}/assets:mutate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Google Ads customer ID (without hyphens)"
+          },
+          "operations": {
+            "type": "array",
+            "description": "Array of asset operations (create/update/remove)",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "customer_id",
+          "operations"
+        ]
+      }
+    },
+    {
+      "name": "campaign_asset_mutate",
+      "description": "Attach, update, or remove assets at campaign scope. Use for campaign-level sitelinks, callouts, lead forms, images, and other asset links. Operations target campaignAsset resources.",
+      "method": "POST",
+      "path": "/customers/{customer_id}/campaignAssets:mutate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Google Ads customer ID (without hyphens)"
+          },
+          "operations": {
+            "type": "array",
+            "description": "Array of campaign asset operations (create/update/remove)",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "customer_id",
+          "operations"
+        ]
+      }
+    },
+    {
+      "name": "customer_asset_mutate",
+      "description": "Attach, update, or remove assets at customer/account scope. Use for account-level assets such as sitelinks, callouts, lead forms, calls, and other supported asset links. Operations target customerAsset resources.",
+      "method": "POST",
+      "path": "/customers/{customer_id}/customerAssets:mutate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Google Ads customer ID (without hyphens)"
+          },
+          "operations": {
+            "type": "array",
+            "description": "Array of customer asset operations (create/update/remove)",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "customer_id",
+          "operations"
+        ]
+      }
+    },
+    {
+      "name": "ad_group_criterion_mutate",
+      "description": "Create, update, or remove ad group criteria beyond keywords: audiences, placements, topics, demographics, listing groups, and other ad-group targeting criteria. keyword_mutate is a convenience alias for keyword criteria on this same endpoint.",
+      "method": "POST",
+      "path": "/customers/{customer_id}/adGroupCriteria:mutate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Google Ads customer ID (without hyphens)"
+          },
+          "operations": {
+            "type": "array",
+            "description": "Array of ad group criterion operations (create/update/remove)",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "customer_id",
+          "operations"
+        ]
+      }
+    },
+    {
+      "name": "campaign_criterion_mutate",
+      "description": "Create, update, or remove campaign-level criteria: locations, languages, negative keywords, audiences, and other campaign targeting or exclusions.",
+      "method": "POST",
+      "path": "/customers/{customer_id}/campaignCriteria:mutate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Google Ads customer ID (without hyphens)"
+          },
+          "operations": {
+            "type": "array",
+            "description": "Array of campaign criterion operations (create/update/remove)",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "customer_id",
+          "operations"
+        ]
+      }
+    },
+    {
+      "name": "user_list_mutate",
+      "description": "Create, update, or remove remarketing/customer match user lists. Use this for audience resources that can be targeted from campaigns or ad groups.",
+      "method": "POST",
+      "path": "/customers/{customer_id}/userLists:mutate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Google Ads customer ID (without hyphens)"
+          },
+          "operations": {
+            "type": "array",
+            "description": "Array of user list operations (create/update/remove)",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "customer_id",
+          "operations"
+        ]
+      }
+    },
+    {
+      "name": "conversion_action_mutate",
+      "description": "Create, update, or remove conversion actions for tracking leads, purchases, signups, page views, and other conversion goals.",
+      "method": "POST",
+      "path": "/customers/{customer_id}/conversionActions:mutate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Google Ads customer ID (without hyphens)"
+          },
+          "operations": {
+            "type": "array",
+            "description": "Array of conversion action operations (create/update/remove)",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "customer_id",
+          "operations"
+        ]
+      }
+    },
+    {
+      "name": "asset_group_mutate",
+      "description": "Create, update, or remove Performance Max asset groups. Use together with asset_group_asset_mutate to attach images, logos, headlines, descriptions, videos, and other assets to a Performance Max campaign.",
+      "method": "POST",
+      "path": "/customers/{customer_id}/assetGroups:mutate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Google Ads customer ID (without hyphens)"
+          },
+          "operations": {
+            "type": "array",
+            "description": "Array of asset group operations (create/update/remove)",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "customer_id",
+          "operations"
+        ]
+      }
+    },
+    {
+      "name": "asset_group_asset_mutate",
+      "description": "Attach, update, or remove assets inside Performance Max asset groups. Operations target assetGroupAsset resources.",
+      "method": "POST",
+      "path": "/customers/{customer_id}/assetGroupAssets:mutate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Google Ads customer ID (without hyphens)"
+          },
+          "operations": {
+            "type": "array",
+            "description": "Array of asset group asset operations (create/update/remove)",
             "items": {
               "type": "object"
             }

@@ -146,6 +146,57 @@ func TestOllamaProviderTypeIncludesEmbeddingFields(t *testing.T) {
 	}
 }
 
+func TestGoogleProviderTypeSeeded(t *testing.T) {
+	s := newTestServer(t)
+
+	pt, err := s.store.GetProviderType(16)
+	if err != nil {
+		t.Fatalf("GetProviderType(16): %v", err)
+	}
+	if pt.Type != "llm" {
+		t.Fatalf("Type=%q, want llm", pt.Type)
+	}
+	if pt.Name != "Google" {
+		t.Fatalf("Name=%q, want Google", pt.Name)
+	}
+	if pt.AuthType != "api_key" {
+		t.Fatalf("AuthType=%q, want api_key", pt.AuthType)
+	}
+	if pt.AuthProvider != "google" {
+		t.Fatalf("AuthProvider=%q, want google", pt.AuthProvider)
+	}
+	if pt.RuntimeStatus != "available" {
+		t.Fatalf("RuntimeStatus=%q, want available", pt.RuntimeStatus)
+	}
+
+	got := map[string]bool{}
+	for _, field := range pt.Fields {
+		got[field] = true
+	}
+	if !got["GOOGLE_API_KEY"] {
+		t.Fatalf("Google provider fields missing GOOGLE_API_KEY: %+v", pt.Fields)
+	}
+}
+
+func TestLegacyBrowserProviderTypesUnsupported(t *testing.T) {
+	s := newTestServer(t)
+
+	types, err := s.store.ListProviderTypes()
+	if err != nil {
+		t.Fatalf("ListProviderTypes: %v", err)
+	}
+
+	statusByName := map[string]string{}
+	for _, pt := range types {
+		statusByName[pt.Name] = pt.RuntimeStatus
+	}
+	for _, name := range []string{"Browserbase", "Steel", "Browser Engine"} {
+		if statusByName[name] != "unsupported" {
+			t.Fatalf("%s runtime_status=%q, want unsupported", name, statusByName[name])
+		}
+	}
+}
+
 func TestIsEnvVar(t *testing.T) {
 	cases := []struct {
 		input    string

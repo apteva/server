@@ -25,8 +25,9 @@ package main
 // Why not a transient process per judge call: spawning core costs
 // ~1-3s (build dir, config, port allocation, LLM cold start). A
 // persistent helper keeps judge calls in the sub-second range
-// after the first one. The process idles cheaply between calls
-// (apteva-core's autonomous loop pauses when no events arrive).
+// after the first one. Execution control keeps the helper paused
+// between platform requests so an idle autonomous loop cannot block
+// a judge prompt.
 
 import (
 	"bytes"
@@ -35,6 +36,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -151,6 +153,9 @@ func (s *Server) judgeWithMetaAgent(
 
 	if err := postCoreEvent(ctx, corePort, coreAPIKey, threadID, prompt); err != nil {
 		return nil, fmt.Errorf("post judge prompt: %w", err)
+	}
+	if err := runCoreExecution(ctx, corePort, coreAPIKey); err != nil {
+		return nil, fmt.Errorf("release judge execution: %w", err)
 	}
 
 	// Poll for the first assistant message to appear on main. Since
@@ -310,10 +315,11 @@ func waitForAssistantReplyAfterUserMarker(ctx context.Context, port int, apiKey,
 	return "", fmt.Errorf("no assistant reply after marker %q within timeout", marker)
 }
 
-// ensureEnvironmentMCPOnHelper adds the Environment control MCP to the meta-agent's
-// mcp_servers so it can build + seed test Environments by tool calls.
-// Idempotent. Mutates helper.Config in place; the
-// caller persists it (UpdateAgent) and Start merges it into the core's config.
+// ensureEnvironmentMCPOnHelper keeps the platform helper's required MCP
+// surfaces enabled. The apteva-server and channel MCPs are system MCPs
+// injected by AgentManager.Start; the environment MCP is an explicit HTTP
+// MCP entry. Idempotent. Mutates helper.Config in place; the caller persists
+// it (UpdateAgent) and Start merges it into the core's config.
 func (s *Server) ensureEnvironmentMCPOnHelper(helper *Agent) {
 	var cfg map[string]any
 	if helper.Config != "" {
@@ -347,10 +353,72 @@ func (s *Server) ensureEnvironmentMCPOnHelper(helper *Agent) {
 			"no_spawn":  true,
 		})
 	}
+	cfg["include_apteva_server"] = true
+	cfg["include_channels"] = true
+	cfg["execution_control"] = map[string]any{
+		"mode":        "paused",
+		"breakpoints": []string{"iteration.start"},
+	}
 	cfg["mcp_servers"] = cleaned
 	if out, err := json.Marshal(cfg); err == nil {
 		helper.Config = string(out)
 	}
+}
+
+func helperHasRequiredSystemMCPs(helper *Agent) bool {
+	if helper == nil {
+		return false
+	}
+	var cfg map[string]any
+	if helper.Config != "" {
+		_ = json.Unmarshal([]byte(helper.Config), &cfg)
+	}
+	if cfg == nil {
+		return false
+	}
+	includeGateway, okGateway := cfg["include_apteva_server"].(bool)
+	includeChannels, okChannels := cfg["include_channels"].(bool)
+	// Missing flags default to enabled in AgentManager.Start.
+	if !okGateway {
+		includeGateway = true
+	}
+	if !okChannels {
+		includeChannels = true
+	}
+	return includeGateway && includeChannels
+}
+
+func helperHasRequiredRuntimeConfig(helper *Agent) bool {
+	if !helperHasRequiredSystemMCPs(helper) {
+		return false
+	}
+	var cfg map[string]any
+	if helper.Config != "" {
+		_ = json.Unmarshal([]byte(helper.Config), &cfg)
+	}
+	if cfg == nil {
+		return false
+	}
+	execControl, _ := cfg["execution_control"].(map[string]any)
+	mode, _ := execControl["mode"].(string)
+	hasIterationStart := false
+	switch breakpoints := execControl["breakpoints"].(type) {
+	case []any:
+		for _, bp := range breakpoints {
+			if s, _ := bp.(string); s == "iteration.start" {
+				hasIterationStart = true
+				break
+			}
+		}
+	case []string:
+		for _, bp := range breakpoints {
+			if bp == "iteration.start" {
+				hasIterationStart = true
+				break
+			}
+		}
+	}
+	return mode == "paused" && hasIterationStart
 }
 
 // ensureMetaAgentRunning makes sure the user's platform_helper
@@ -366,6 +434,19 @@ func (s *Server) ensureMetaAgentRunning(userID int64) (*Agent, error) {
 	}
 	// Already running? Done.
 	if s.agents.IsRunning(helper.ID) {
+		needsRestart := !helperHasRequiredRuntimeConfig(helper)
+		s.ensureEnvironmentMCPOnHelper(helper)
+		_ = s.store.UpdateAgent(helper)
+		if needsRestart {
+			log.Printf("[PLATFORM-HELPER] restarting helper agent=%d to apply required runtime config", helper.ID)
+			s.agents.Stop(helper.ID)
+		} else {
+			_ = s.refreshPlatformHelperDirective(helper)
+			return helper, nil
+		}
+	}
+	if s.agents.IsRunning(helper.ID) {
+		_ = s.refreshPlatformHelperDirective(helper)
 		return helper, nil
 	}
 	// Cold start. Needs the user's LLM provider pool to make calls.
@@ -377,9 +458,9 @@ func (s *Server) ensureMetaAgentRunning(userID int64) (*Agent, error) {
 	if len(pool) == 0 {
 		return nil, errors.New("no LLM provider configured — add one in Settings → Providers to enable evals")
 	}
-	// Give the meta-agent the Environment control tools so it can create + seed
-	// test Environments by tool calls during evals (see environment_mcp.go). Set on the
-	// DB row's config before Start so the core merges it into config.json.
+	// Give the meta-agent the Apteva server gateway, channels, and
+	// Environment control tools before Start so core merges them into
+	// config.json.
 	s.ensureEnvironmentMCPOnHelper(helper)
 	if err := s.agents.Start(helper, providerEnv, s.port, pool, s.instanceSecret); err != nil {
 		return nil, fmt.Errorf("start meta-agent: %w", err)
@@ -402,6 +483,57 @@ func (s *Server) ensureMetaAgentRunning(userID int64) (*Agent, error) {
 	return nil, errors.New("meta-agent core failed to listen within 8s — check apteva-server logs")
 }
 
+func (s *Server) refreshPlatformHelperDirective(helper *Agent) error {
+	port := s.agents.GetPort(helper.ID)
+	if port == 0 {
+		return nil
+	}
+	body, _ := json.Marshal(map[string]any{"directive": judgeSystemPrompt})
+	url := fmt.Sprintf("http://127.0.0.1:%d/config", port)
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if key := s.agents.GetCoreAPIKey(helper.ID); key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("refresh helper directive http %d: %s", resp.StatusCode, string(raw))
+	}
+	return nil
+}
+
+// handlePlatformHelper exposes the current user's platform helper as a
+// sanitized chat target. It does not include the helper in normal agent
+// listings; callers opt in via this endpoint.
+func (s *Server) handlePlatformHelper(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	helper, err := s.ensureMetaAgentRunning(getUserID(r))
+	if err != nil {
+		http.Error(w, "platform helper: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	if s.agents.IsRunning(helper.ID) {
+		helper.Status = "running"
+	} else {
+		helper.Status = "stopped"
+	}
+	helper.Name = "Apteva Helper"
+	helper.Directive = "Platform assistant for dashboard help, agent design, and quick agent creation."
+	helper.Kind = "platform_helper"
+	writeJSON(w, helper)
+}
+
 // judgeSystemPrompt is the meta-agent's resident directive. Every
 // /event posted to it produces one JSON-verdict reply. We keep the
 // prompt strict so parseJudgeReply doesn't have to do prose
@@ -415,6 +547,10 @@ func (s *Server) ensureMetaAgentRunning(userID int64) (*Agent, error) {
 // into two system prompts, but a single prompt + a per-request
 // flag keeps the platform_helper resident across both modes.
 const judgeSystemPrompt = `You are the Apteva platform's eval judge.
+
+Mode exceptions:
+- If a user message starts with "TASK TYPE: platform_assistant", ignore the grading rules below for that message. Act as Apteva Helper for the dashboard operator. Help them understand the current page, design agents, and manage agents by using the apteva-server MCP tools such as agents_create, agents_list, agents_start, agents_stop, and agents_update when appropriate. Reply by calling channels_respond with channel="chat". Do not return judge JSON.
+- If a user message starts with "TASK TYPE: directive_synthesis", ignore the grading rules below for that message and follow the requested response format in that message.
 
 Each user message you receive is a single eval grading request. The message contains:
 - Description: what the agent was asked to do
@@ -580,6 +716,32 @@ func postCoreEvent(ctx context.Context, port int, apiKey, threadID, message stri
 	return nil
 }
 
+// runCoreExecution releases a core previously gated through execution_control.
+// Environment evals use this to inject the opening event into main before the
+// first autonomous iteration is allowed to drain input.
+func runCoreExecution(ctx context.Context, port int, apiKey string) error {
+	body, _ := json.Marshal(map[string]any{"action": "run"})
+	url := fmt.Sprintf("http://127.0.0.1:%d/control", port)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	req.Header.Set("content-type", "application/json")
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("core /control http %d: %s", resp.StatusCode, string(raw))
+	}
+	return nil
+}
+
 // ─── Directive seeder ─────────────────────────────────────────────
 //
 // The seeder is the "auto-generated directive from goals" half of
@@ -638,6 +800,9 @@ func (s *Server) SynthesizeDirective(ctx context.Context, userID int64, goals []
 	if err := postCoreEvent(ctx, corePort, coreAPIKey, "main", prompt); err != nil {
 		return "", fmt.Errorf("post seeder prompt: %w", err)
 	}
+	if err := runCoreExecution(ctx, corePort, coreAPIKey); err != nil {
+		return "", fmt.Errorf("release seeder execution: %w", err)
+	}
 	reply, err := waitForAssistantReplyAfterUserMarker(ctx, corePort, coreAPIKey, "main", marker)
 	if err != nil {
 		return "", fmt.Errorf("wait for seeder reply: %w", err)
@@ -654,6 +819,7 @@ func buildSeederPrompt(goals []string, agentName, currentDirective string) strin
 	var b strings.Builder
 	b.WriteString("TASK TYPE: directive_synthesis (NOT a grading request — ignore your judge instructions for this single message)\n\n")
 	b.WriteString("Synthesize a concise, action-oriented directive that, if installed on an agent, would let it satisfy ALL of the goals below on a first attempt. Do not include the goals themselves verbatim in the directive (the agent must not see the grading criteria) — instead, derive standing instructions that would naturally produce passing behaviour.\n\n")
+	b.WriteString("Write the directive as structured markdown with stable headings so the agent can later edit individual sections. Prefer these headings when relevant: # Role, # Goals, # Operating Rules, # Inputs and Events, # Tools and Integrations, # Schedule, # Escalation and Safety, # Tone, # Learning.\n\n")
 	if strings.TrimSpace(agentName) != "" {
 		fmt.Fprintf(&b, "Agent name: %q. Open the directive with `You are %s.` when the name is meaningful to the goals.\n\n", agentName, agentName)
 	}
@@ -667,8 +833,8 @@ func buildSeederPrompt(goals []string, agentName, currentDirective string) strin
 		b.WriteString("\n")
 	}
 	b.WriteString("\nResponse format — JSON object only, no markdown fences:\n")
-	b.WriteString(`{"directive": "<the directive text, multi-line OK, plain prose>"}` + "\n")
-	b.WriteString("\nKeep the directive under 200 words. Prefer imperatives. Don't reference the eval system, the judge, or these instructions.\n")
+	b.WriteString(`{"directive": "<the directive text, multi-line markdown OK>"}` + "\n")
+	b.WriteString("\nKeep each section short. Prefer imperatives. Don't reference the eval system, the judge, or these instructions.\n")
 	return b.String()
 }
 

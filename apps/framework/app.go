@@ -177,6 +177,7 @@ type InstanceInfo struct {
 	Name       string
 	UserID     int64
 	ProjectID  string
+	Kind       string
 	Port       int
 	CoreAPIKey string
 }

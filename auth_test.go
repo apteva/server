@@ -423,6 +423,47 @@ func TestAuthMiddleware_InvalidToken(t *testing.T) {
 	}
 }
 
+func TestAuthMiddleware_InternalGatewaySecretLoopback(t *testing.T) {
+	s := newTestServer(t)
+	var gotUserID string
+	handler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		gotUserID = r.Header.Get("X-User-ID")
+		w.WriteHeader(200)
+	})
+
+	req := httptest.NewRequest("GET", "/api/agents", nil)
+	req.RemoteAddr = "127.0.0.1:49152"
+	req.Header.Set("X-Agent-Secret", "test-secret")
+	req.Header.Set("X-Apteva-MCP-User-ID", "42")
+	w := httptest.NewRecorder()
+	handler(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200 with internal gateway auth, got %d", w.Code)
+	}
+	if gotUserID != "42" {
+		t.Fatalf("expected X-User-ID 42, got %q", gotUserID)
+	}
+}
+
+func TestAuthMiddleware_InternalGatewaySecretRejectsNonLoopback(t *testing.T) {
+	s := newTestServer(t)
+	handler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	})
+
+	req := httptest.NewRequest("GET", "/api/agents", nil)
+	req.RemoteAddr = "203.0.113.10:49152"
+	req.Header.Set("X-Agent-Secret", "test-secret")
+	req.Header.Set("X-Apteva-MCP-User-ID", "42")
+	w := httptest.NewRecorder()
+	handler(w, req)
+
+	if w.Code != 401 {
+		t.Fatalf("expected 401 from non-loopback internal gateway auth, got %d", w.Code)
+	}
+}
+
 // --- API Keys endpoints ---
 
 func TestCreateKey(t *testing.T) {

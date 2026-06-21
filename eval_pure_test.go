@@ -521,3 +521,62 @@ func TestBuildJudgePrompt_ToolCallError_RendersErrorNotResponse(t *testing.T) {
 		t.Errorf("error path should not render a response line:\n%s", out)
 	}
 }
+
+// ─── evalProviderPoolForOptions ───────────────────────────────────
+
+func TestEvalProviderPoolForOptions_ProviderAndModelOverride(t *testing.T) {
+	pool := []ProviderInfo{
+		{Type: "anthropic", ModelLarge: "claude-sonnet", ModelMedium: "claude-haiku", ModelSmall: "claude-haiku"},
+		{Type: "opencode-go", ModelLarge: "kimi-k2.6", ModelMedium: "kimi-k2.6", ModelSmall: "kimi-k2.6"},
+	}
+
+	got, summary, err := evalProviderPoolForOptions(pool, RunOptions{
+		ProviderOverride: "OpenCode Go",
+		ModelOverride:    "kimi-k2.5",
+	})
+	if err != nil {
+		t.Fatalf("evalProviderPoolForOptions: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(got) = %d, want 1", len(got))
+	}
+	if got[0].Type != "opencode-go" {
+		t.Fatalf("provider = %q, want opencode-go", got[0].Type)
+	}
+	if got[0].ModelLarge != "kimi-k2.5" || got[0].ModelMedium != "kimi-k2.5" || got[0].ModelSmall != "kimi-k2.5" {
+		t.Fatalf("models not pinned across tiers: %+v", got[0])
+	}
+	if !strings.Contains(summary, "provider=opencode-go") || !strings.Contains(summary, "model=kimi-k2.5") {
+		t.Fatalf("summary = %q", summary)
+	}
+}
+
+func TestEvalProviderPoolForOptions_ModelOnlyPinsFirstProvider(t *testing.T) {
+	pool := []ProviderInfo{
+		{Type: "anthropic", ModelLarge: "claude-sonnet", ModelMedium: "claude-haiku", ModelSmall: "claude-haiku"},
+		{Type: "opencode-go", ModelLarge: "kimi-k2.6", ModelMedium: "kimi-k2.6", ModelSmall: "kimi-k2.6"},
+	}
+
+	got, _, err := evalProviderPoolForOptions(pool, RunOptions{ModelOverride: "claude-haiku-4-5-20251001"})
+	if err != nil {
+		t.Fatalf("evalProviderPoolForOptions: %v", err)
+	}
+	if len(got) != 1 || got[0].Type != "anthropic" {
+		t.Fatalf("got = %+v, want first provider only", got)
+	}
+	if got[0].ModelLarge != "claude-haiku-4-5-20251001" ||
+		got[0].ModelMedium != "claude-haiku-4-5-20251001" ||
+		got[0].ModelSmall != "claude-haiku-4-5-20251001" {
+		t.Fatalf("models not pinned across tiers: %+v", got[0])
+	}
+}
+
+func TestEvalProviderPoolForOptions_MissingProvider(t *testing.T) {
+	_, _, err := evalProviderPoolForOptions([]ProviderInfo{{Type: "anthropic"}}, RunOptions{ProviderOverride: "fireworks"})
+	if err == nil {
+		t.Fatal("expected missing provider error")
+	}
+	if !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("err = %v", err)
+	}
+}

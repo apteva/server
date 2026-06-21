@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -63,6 +64,28 @@ func TestPrepareSeedInput_InputFileConvenience(t *testing.T) {
 	}
 	if input["content_base64"] != base64.StdEncoding.EncodeToString([]byte("hello")) {
 		t.Fatalf("content_base64 not injected from input.file")
+	}
+}
+
+func TestPrepareSeedInput_SeedResultRefs(t *testing.T) {
+	raw := json.RawMessage(`{"content":[{"type":"text","text":"{\"id\":42,\"contact\":{\"id\":7}}"}]}`)
+	input, err := prepareSeedInput(nil, SeedCall{
+		Input: map[string]any{
+			"calendar_id": map[string]any{"$ref": "0.id"},
+			"nested": map[string]any{
+				"contact_id": map[string]any{"$ref": "0.contact.id"},
+			},
+		},
+	}, "", raw)
+	if err != nil {
+		t.Fatalf("prepare seed input: %v", err)
+	}
+	if input["calendar_id"] != float64(42) {
+		t.Fatalf("calendar_id = %#v, want 42", input["calendar_id"])
+	}
+	nested := input["nested"].(map[string]any)
+	if nested["contact_id"] != float64(7) {
+		t.Fatalf("nested.contact_id = %#v, want 7", nested["contact_id"])
 	}
 }
 

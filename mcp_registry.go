@@ -180,6 +180,22 @@ func (s *Store) ListMCPServers(userID int64, projectID ...string) ([]MCPServerRe
 		}
 		servers = append(servers, r)
 	}
+	if len(projectID) > 0 && projectID[0] != "" {
+		projectScoped := map[string]bool{}
+		for _, srv := range servers {
+			if srv.ProjectID == projectID[0] && srv.Name != "" {
+				projectScoped[srv.Name] = true
+			}
+		}
+		filtered := servers[:0]
+		for _, srv := range servers {
+			if srv.ProjectID == "" && projectScoped[srv.Name] {
+				continue
+			}
+			filtered = append(filtered, srv)
+		}
+		servers = filtered
+	}
 	return servers, nil
 }
 

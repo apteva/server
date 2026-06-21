@@ -69,6 +69,31 @@ func TestProviderHealthCheck_HappyPathParsesModelCount(t *testing.T) {
 	}
 }
 
+func TestProviderHealthCheck_GoogleQueryKeyProbe(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("key") != "google-good-key" {
+			http.Error(w, "missing key", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"models/gemini-2.5-flash"},{"name":"models/gemini-2.5-pro"}]}`))
+	}))
+	defer srv.Close()
+
+	defer withTestProbe(t, "FakeGoogle", providerProbe{
+		url:            srv.URL + "/v1beta/models?key={GOOGLE_API_KEY}",
+		modelCountPath: "models",
+	})()
+
+	res := runProviderHealthCheck("FakeGoogle", map[string]string{"GOOGLE_API_KEY": "google-good-key"})
+	if !res.OK {
+		t.Fatalf("expected ok=true, got %+v", res)
+	}
+	if res.ModelCount != 2 {
+		t.Errorf("model_count=%d, want 2", res.ModelCount)
+	}
+}
+
 func TestProviderHealthCheck_UpstreamAuthFailure(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

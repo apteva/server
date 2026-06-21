@@ -68,6 +68,7 @@ type Agent struct {
 	Pid       int       `json:"pid"`
 	Status    string    `json:"status"` // running, stopped
 	ProjectID string    `json:"project_id,omitempty"`
+	Kind      string    `json:"kind,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -275,7 +276,8 @@ func (s *Store) migrate() error {
 			(9, 'integrations', 'Composio', '250+ app integrations via Composio (MCP-native)', '["COMPOSIO_API_KEY"]', 1, 16),
 			(10, 'llm', 'NVIDIA', 'LLM inference via NVIDIA NIM (integrate.api.nvidia.com)', '["NVIDIA_API_KEY"]', 1, 14),
 			(11, 'steel', 'Steel', 'Cloud browser automation via Steel.dev', '["STEEL_API_KEY"]', 1, 41),
-			(12, 'browser-engine', 'Browser Engine', 'Cloud browser automation via Browser Engine (self-hosted)', '["BROWSER_API_KEY","BROWSER_API_URL"]', 1, 42);
+			(12, 'browser-engine', 'Browser Engine', 'Cloud browser automation via Browser Engine (self-hosted)', '["BROWSER_API_KEY","BROWSER_API_URL"]', 1, 42),
+			(16, 'llm', 'Google', 'Gemini models via the Google Generative Language API', '["GOOGLE_API_KEY"]', 1, 13);
 
 		-- Update existing Fireworks provider type to include model override fields
 		UPDATE provider_types SET fields = '["FIREWORKS_API_KEY"]' WHERE id = 1;
@@ -771,6 +773,8 @@ func (s *Store) migrate() error {
 	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
 		(10, 'llm', 'NVIDIA', 'LLM inference via NVIDIA NIM (integrate.api.nvidia.com)', '["NVIDIA_API_KEY"]', 1, 14)`)
 	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
+		(16, 'llm', 'Google', 'Gemini models via the Google Generative Language API', '["GOOGLE_API_KEY"]', 1, 13)`)
+	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
 		(11, 'browser', 'Local Browser', 'Local Chromium via chromedp (requires Chromium in the runtime image)', '[]', 0, 41)`)
 	s.db.Exec(`INSERT OR IGNORE INTO provider_types (id, type, name, description, fields, requires_credentials, sort_order) VALUES
 		(12, 'browser', 'Remote CDP', 'Connect to an existing Chrome over CDP (ws:// or http://)', '["CDP_URL"]', 1, 42)`)
@@ -822,6 +826,15 @@ func (s *Store) migrate() error {
 	s.db.Exec(`UPDATE providers
 		SET type='browserbase'
 		WHERE type='browser' AND provider_type_id=8`)
+
+	// Browser automation is now delivered through apps/integrations, not
+	// generic provider rows. Keep historical provider_types around so existing
+	// saved providers can still be inspected/deactivated, but stop presenting
+	// them as addable runtime providers.
+	s.db.Exec(`UPDATE provider_types
+		SET runtime_status='unsupported'
+		WHERE type IN ('browser', 'browserbase', 'steel', 'browser-engine')
+		   OR name IN ('Browserbase', 'Steel', 'Browser Engine', 'Local Browser', 'Remote CDP')`)
 
 	// Server-wide settings table — simple key/value bag for things the
 	// admin needs to configure from the dashboard, not just from env
@@ -1401,9 +1414,9 @@ func (s *Store) GetAgentByID(instanceID int64) (*Agent, error) {
 	var inst Agent
 	var createdAt string
 	err := s.db.QueryRow(
-		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, status, COALESCE(project_id,''), created_at FROM agents WHERE id = ?",
+		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, status, COALESCE(project_id,''), COALESCE(kind,'user'), created_at FROM agents WHERE id = ?",
 		instanceID,
-	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &createdAt)
+	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &inst.Kind, &createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -1415,9 +1428,9 @@ func (s *Store) GetAgent(userID, instanceID int64) (*Agent, error) {
 	var inst Agent
 	var createdAt string
 	err := s.db.QueryRow(
-		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, status, COALESCE(project_id,''), created_at FROM agents WHERE id = ? AND user_id = ?",
+		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, status, COALESCE(project_id,''), COALESCE(kind,'user'), created_at FROM agents WHERE id = ? AND user_id = ?",
 		instanceID, userID,
-	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &createdAt)
+	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &inst.Kind, &createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -1447,6 +1460,11 @@ func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agen
 	).Scan(&ag.ID, &ag.UserID, &ag.Name, &ag.Directive, &ag.Mode,
 		&ag.Config, &ag.Port, &ag.Pid, &ag.Status, &ag.ProjectID, &ag.CreatedAt)
 	if err == nil {
+		ag.Kind = "platform_helper"
+		if ag.Name == "__platform_helper__" || strings.TrimSpace(ag.Name) == "" {
+			s.db.Exec(`UPDATE agents SET name = ? WHERE id = ?`, "Apteva Helper", ag.ID)
+			ag.Name = "Apteva Helper"
+		}
 		// Refresh the directive if the platform's version has drifted
 		// (we roll new judge prompts under the same row).
 		if ag.Directive != directive {
@@ -1464,7 +1482,7 @@ func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agen
 	res, err := s.db.Exec(
 		`INSERT INTO agents (user_id, name, directive, mode, config, status, project_id, kind)
 		 VALUES (?, ?, ?, 'autonomous', '{}', 'stopped', '', 'platform_helper')`,
-		userID, "__platform_helper__", directive,
+		userID, "Apteva Helper", directive,
 	)
 	if err != nil {
 		return nil, err
@@ -1531,6 +1549,53 @@ func (s *Store) ListAgents(userID int64, projectID string) ([]Agent, error) {
 		instances = append(instances, inst)
 	}
 	return instances, nil
+}
+
+// ListTelemetryAgentIDs returns the agent ids a user may receive from
+// the project-wide telemetry stream. Unlike ListAgents, this includes
+// the user's platform helper: the helper is intentionally hidden from
+// normal agent lists but still needs telemetry for the dashboard chat
+// widget's thinking/tool-call UI.
+func (s *Store) ListTelemetryAgentIDs(userID int64, projectID string) (map[int64]bool, error) {
+	var rows *sql.Rows
+	var err error
+	if projectID != "" {
+		rows, err = s.db.Query(
+			`SELECT id
+			   FROM agents
+			  WHERE user_id = ?
+			    AND (
+			      (COALESCE(kind,'user') = 'user' AND project_id = ?)
+			      OR COALESCE(kind,'user') = 'platform_helper'
+			    )`,
+			userID, projectID,
+		)
+	} else {
+		rows, err = s.db.Query(
+			`SELECT id
+			   FROM agents
+			  WHERE user_id = ?
+			    AND COALESCE(kind,'user') IN ('user', 'platform_helper')`,
+			userID,
+		)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[int64]bool)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *Store) UpdateAgent(inst *Agent) error {

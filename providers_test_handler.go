@@ -118,6 +118,10 @@ var providerProbes = map[string]providerProbe{
 		headers:        map[string]string{"Authorization": "Bearer {FIREWORKS_API_KEY}"},
 		modelCountPath: "data",
 	},
+	"Google": {
+		url:            "https://generativelanguage.googleapis.com/v1beta/models?key={GOOGLE_API_KEY}",
+		modelCountPath: "models",
+	},
 	"NVIDIA": {
 		url:            "https://integrate.api.nvidia.com/v1/models",
 		headers:        map[string]string{"Authorization": "Bearer {NVIDIA_API_KEY}"},

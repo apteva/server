@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -48,6 +49,7 @@ func (s *Server) ExecuteSeedPlan(environment *Environment, plan []SeedCall) ([]j
 // ExecuteSeedPlanWithBaseDir is ExecuteSeedPlan plus local fixture support.
 // If a call sets file (or input.file), the path is resolved under baseDir,
 // read, and injected as content_base64 before the app tool is called.
+// Input values can reference earlier seed results with {"$ref":"0.id"}.
 func (s *Server) ExecuteSeedPlanWithBaseDir(environment *Environment, plan []SeedCall, baseDir string) ([]json.RawMessage, error) {
 	results := make([]json.RawMessage, 0, len(plan))
 	for i, call := range plan {
@@ -55,7 +57,7 @@ func (s *Server) ExecuteSeedPlanWithBaseDir(environment *Environment, plan []See
 		if !ok {
 			return results, fmt.Errorf("seed call %d: app %q not in environment", i, call.App)
 		}
-		input, err := prepareSeedInput(environment, call, baseDir)
+		input, err := prepareSeedInput(environment, call, baseDir, results...)
 		if err != nil {
 			return results, fmt.Errorf("seed call %d (%s.%s): %w", i, call.App, call.Tool, err)
 		}
@@ -68,10 +70,14 @@ func (s *Server) ExecuteSeedPlanWithBaseDir(environment *Environment, plan []See
 	return results, nil
 }
 
-func prepareSeedInput(environment *Environment, call SeedCall, baseDir string) (map[string]any, error) {
+func prepareSeedInput(environment *Environment, call SeedCall, baseDir string, priorResults ...json.RawMessage) (map[string]any, error) {
 	input := map[string]any{}
 	for k, v := range call.Input {
-		input[k] = v
+		resolved, err := resolveSeedRefs(v, priorResults)
+		if err != nil {
+			return nil, fmt.Errorf("resolve input.%s: %w", k, err)
+		}
+		input[k] = resolved
 	}
 	file := strings.TrimSpace(call.File)
 	if file == "" {
@@ -101,6 +107,113 @@ func prepareSeedInput(environment *Environment, call SeedCall, baseDir string) (
 		}
 	}
 	return input, nil
+}
+
+func resolveSeedRefs(v any, priorResults []json.RawMessage) (any, error) {
+	switch typed := v.(type) {
+	case map[string]any:
+		if refRaw, ok := typed["$ref"]; ok && len(typed) == 1 {
+			ref, ok := refRaw.(string)
+			if !ok {
+				return nil, fmt.Errorf("$ref must be a string")
+			}
+			return resolveSeedRef(ref, priorResults)
+		}
+		out := make(map[string]any, len(typed))
+		for k, child := range typed {
+			resolved, err := resolveSeedRefs(child, priorResults)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", k, err)
+			}
+			out[k] = resolved
+		}
+		return out, nil
+	case []any:
+		out := make([]any, len(typed))
+		for i, child := range typed {
+			resolved, err := resolveSeedRefs(child, priorResults)
+			if err != nil {
+				return nil, fmt.Errorf("[%d]: %w", i, err)
+			}
+			out[i] = resolved
+		}
+		return out, nil
+	default:
+		return v, nil
+	}
+}
+
+func resolveSeedRef(ref string, priorResults []json.RawMessage) (any, error) {
+	idxRaw, path, ok := strings.Cut(strings.TrimSpace(ref), ".")
+	if !ok || idxRaw == "" || path == "" {
+		return nil, fmt.Errorf("invalid seed ref %q, want <index>.<field>", ref)
+	}
+	idx, err := strconv.Atoi(idxRaw)
+	if err != nil || idx < 0 || idx >= len(priorResults) {
+		return nil, fmt.Errorf("seed ref %q points to unavailable result", ref)
+	}
+	root, err := decodeSeedResult(priorResults[idx])
+	if err != nil {
+		return nil, err
+	}
+	current := root
+	for _, part := range strings.Split(path, ".") {
+		if part == "" {
+			return nil, fmt.Errorf("invalid empty path segment in seed ref %q", ref)
+		}
+		switch node := current.(type) {
+		case map[string]any:
+			next, ok := node[part]
+			if !ok {
+				return nil, fmt.Errorf("seed ref %q missing field %q", ref, part)
+			}
+			current = next
+		case []any:
+			i, err := strconv.Atoi(part)
+			if err != nil || i < 0 || i >= len(node) {
+				return nil, fmt.Errorf("seed ref %q has invalid array index %q", ref, part)
+			}
+			current = node[i]
+		default:
+			return nil, fmt.Errorf("seed ref %q cannot traverse %q on %T", ref, part, current)
+		}
+	}
+	return current, nil
+}
+
+func decodeSeedResult(raw json.RawMessage) (any, error) {
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, fmt.Errorf("decode seed result: %w", err)
+	}
+	if unwrapped, ok := unwrapMCPTextResult(v); ok {
+		return unwrapped, nil
+	}
+	return v, nil
+}
+
+func unwrapMCPTextResult(v any) (any, bool) {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	contentRaw, ok := m["content"].([]any)
+	if !ok || len(contentRaw) == 0 {
+		return nil, false
+	}
+	first, ok := contentRaw[0].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	text, ok := first["text"].(string)
+	if !ok || strings.TrimSpace(text) == "" {
+		return nil, false
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(text), &decoded); err != nil {
+		return nil, false
+	}
+	return decoded, true
 }
 
 func resolveSeedFixturePath(baseDir, file string) (string, error) {

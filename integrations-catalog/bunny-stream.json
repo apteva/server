@@ -257,10 +257,13 @@
     },
     {
       "name": "list_videos",
-      "description": "List videos in the library with pagination and filtering. Each video includes guid, title, status, length, views, and more.\n\nTo get play/embed URLs for a video, construct from guid and libraryId:\n- Embed: https://iframe.mediadelivery.net/embed/{libraryId}/{guid}\n- Player: https://player.mediadelivery.net/embed/{libraryId}/{guid}\n\nUse list_libraries to get your libraryId if needed.",
+      "description": "List videos in the library with pagination and filtering. Each video includes guid, title, status, length, views, collectionId, and more. Pass collectionId to filter to one Bunny collection; the integration sends this to Bunny as the required collection query parameter.\n\nTo get play/embed URLs for a video, construct from guid and libraryId:\n- Embed: https://iframe.mediadelivery.net/embed/{libraryId}/{guid}\n- Player: https://player.mediadelivery.net/embed/{libraryId}/{guid}\n\nUse list_libraries to get your libraryId if needed.",
       "method": "GET",
       "base_url": "https://video.bunnycdn.com",
       "path": "/library/{{credential.libraryId}}/videos",
+      "query_param_aliases": {
+        "collectionId": "collection"
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -478,6 +481,30 @@
       }
     },
     {
+      "name": "delete_video",
+      "description": "Permanently delete a Bunny Stream video from the configured library. This cannot be undone. Args: videoId.",
+      "method": "DELETE",
+      "base_url": "https://video.bunnycdn.com",
+      "path": "/library/{{credential.libraryId}}/videos/{videoId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Video ID (guid) to delete"
+          }
+        },
+        "required": [
+          "videoId"
+        ]
+      },
+      "mock_response": {
+        "success": true,
+        "message": "OK",
+        "statusCode": 200
+      }
+    },
+    {
       "name": "list_collections",
       "description": "List all video collections in the library",
       "method": "GET",
@@ -550,10 +577,14 @@
     },
     {
       "name": "fetch_video",
-      "description": "Fetch and upload a video from an external URL to Bunny Stream for processing",
+      "description": "Fetch and upload a video from an external URL to Bunny Stream for processing. If collectionId is provided, it is sent as Bunny's collectionId query parameter so the fetched video is assigned to that collection.",
       "method": "POST",
       "base_url": "https://video.bunnycdn.com",
       "path": "/library/{{credential.libraryId}}/videos/fetch",
+      "query_params": [
+        "collectionId",
+        "thumbnailTime"
+      ],
       "input_schema": {
         "type": "object",
         "properties": {

@@ -56,6 +56,18 @@ func clientIP(r *http.Request) string {
 	return ip
 }
 
+func requestFromLoopback(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	host := r.RemoteAddr
+	if h, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		host = h
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 const sessionDuration = 7 * 24 * time.Hour
 const cookieName = "session"
 
@@ -154,6 +166,26 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				r.Header.Set("X-User-ID", itoa(userID))
 				next(w, r)
 				return
+			}
+		}
+
+		// Internal gateway auth. The per-agent apteva-server MCP runs
+		// as a local subprocess and needs to call the normal dashboard
+		// API handlers so lifecycle logic stays centralized. Accept
+		// the shared instance secret only from loopback, and only with
+		// an explicit gateway user header supplied by the server-spawned
+		// process.
+		if s.instanceSecret != "" && requestFromLoopback(r) {
+			got := r.Header.Get("X-Agent-Secret")
+			if got == "" {
+				got = r.Header.Get("X-Instance-Secret")
+			}
+			if got == s.instanceSecret {
+				if uid, err := strconv.ParseInt(r.Header.Get("X-Apteva-MCP-User-ID"), 10, 64); err == nil && uid > 0 {
+					r.Header.Set("X-User-ID", itoa(uid))
+					next(w, r)
+					return
+				}
 			}
 		}
 

@@ -1169,8 +1169,11 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	// query_params, in which case the new code path is a complete no-op
 	// and behavior is identical to before — which is why this change is
 	// safe for the other 261 templates that don't use the field.
-	toolQuerySet := make(map[string]bool, len(tool.QueryParams))
+	toolQuerySet := make(map[string]bool, len(tool.QueryParams)+len(tool.QueryParamAliases))
 	for _, name := range tool.QueryParams {
+		toolQuerySet[name] = true
+	}
+	for name := range tool.QueryParamAliases {
 		toolQuerySet[name] = true
 	}
 	// Collect tool-declared query params from input. Skip empty-string
@@ -1185,6 +1188,19 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			continue
 		}
 		addQueryValue(toolQuery, name, v)
+	}
+	for inputName, queryName := range tool.QueryParamAliases {
+		if queryName == "" {
+			continue
+		}
+		v, ok := input[inputName]
+		if !ok || v == nil {
+			continue
+		}
+		if str, isStr := v.(string); isStr && str == "" {
+			continue
+		}
+		addQueryValue(toolQuery, queryName, v)
 	}
 	if encoded := toolQuery.Encode(); encoded != "" {
 		sep := "&"

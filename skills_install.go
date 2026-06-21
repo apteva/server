@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,19 +31,29 @@ func (s *Server) registerAppSkills(
 	skills []sdk.Skill,
 	fetchBodyFile func(path string) (string, error),
 ) error {
+	ownerID, err := s.appSkillOwnerID(installID)
+	if err != nil {
+		ownerID = 0
+	}
 	tx, err := s.store.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}
 	defer tx.Rollback()
 
+	oldRefs, err := appSkillRefsForInstall(tx, installID)
+	if err != nil {
+		return fmt.Errorf("list existing: %w", err)
+	}
 	// Wipe the install's existing skills so an upgrade that drops a
 	// skill cleans up the row. Cheap — installs ship a handful, not
-	// hundreds.
+	// hundreds. Assigned memories are refreshed/swept after commit.
 	if _, err := tx.Exec(`DELETE FROM skills WHERE install_id = ?`, installID); err != nil {
 		return fmt.Errorf("clear: %w", err)
 	}
 
+	newSlugs := map[string]bool{}
+	insertedIDs := []int64{}
 	for i, skill := range skills {
 		resolved, err := resolveSkill(skill, fetchBodyFile)
 		if err != nil {
@@ -52,16 +63,88 @@ func (s *Server) registerAppSkills(
 		// with app-shipped ones (those use "user:<name>").
 		slug := appName + ":" + resolved.Name
 		metaJSON, _ := json.Marshal(coalesceMetadata(resolved.Metadata))
-		if _, err := tx.Exec(`
+		res, err := tx.Exec(`
 			INSERT INTO skills (slug, name, description, body, source, install_id, project_id, command, metadata_json)
 			VALUES (?, ?, ?, ?, 'app', ?, ?, ?, ?)`,
 			slug, resolved.Name, resolved.Description, resolved.Body,
 			installID, projectID, resolved.Command, string(metaJSON),
-		); err != nil {
+		)
+		if err != nil {
 			return fmt.Errorf("insert %s: %w", slug, err)
 		}
+		id, _ := res.LastInsertId()
+		insertedIDs = append(insertedIDs, id)
+		newSlugs[slug] = true
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	for _, ref := range oldRefs {
+		if !newSlugs[ref.Slug] {
+			s.sweepSkillFromProject(ownerID, ref.ProjectID, ref.ID, ref.Slug, "app skill removed")
+		}
+	}
+	for _, id := range insertedIDs {
+		sk, err := s.loadSkillByID(id)
+		if err != nil {
+			fmt.Printf("[APPS-SKILLS] load refreshed skill=%d install=%d: %v\n", id, installID, err)
+			continue
+		}
+		n := s.refreshSkillInAssignedInstances(ownerID, sk.ProjectID, sk, "app skill refreshed")
+		if n > 0 {
+			fmt.Printf("[APPS-SKILLS] refreshed skill=%s install=%d agents=%d\n", sk.Slug, installID, n)
+		}
+	}
+	return nil
+}
+
+type skillRef struct {
+	ID        int64
+	Slug      string
+	ProjectID string
+}
+
+type queryer interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+func appSkillRefsForInstall(q queryer, installID int64) ([]skillRef, error) {
+	rows, err := q.Query(`SELECT id, slug, COALESCE(project_id, '') FROM skills WHERE install_id = ?`, installID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	refs := []skillRef{}
+	for rows.Next() {
+		var ref skillRef
+		if err := rows.Scan(&ref.ID, &ref.Slug, &ref.ProjectID); err != nil {
+			return nil, err
+		}
+		refs = append(refs, ref)
+	}
+	return refs, rows.Err()
+}
+
+func (s *Server) appSkillOwnerID(installID int64) (int64, error) {
+	var ownerID int64
+	if err := s.store.db.QueryRow(`SELECT COALESCE(installed_by, 0) FROM app_installs WHERE id = ?`, installID).Scan(&ownerID); err != nil {
+		return 0, err
+	}
+	return ownerID, nil
+}
+
+func (s *Server) deleteAppSkillsForInstall(installID int64, reason string) error {
+	ownerID, _ := s.appSkillOwnerID(installID)
+	refs, err := appSkillRefsForInstall(s.store.db, installID)
+	if err != nil {
+		return err
+	}
+	for _, ref := range refs {
+		s.sweepSkillFromProject(ownerID, ref.ProjectID, ref.ID, ref.Slug, reason)
+	}
+	_, err = s.store.db.Exec(`DELETE FROM skills WHERE install_id = ?`, installID)
+	return err
 }
 
 // resolveSkill collapses a manifest-declared skill (which may carry

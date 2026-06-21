@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -61,6 +64,125 @@ func TestTelemetryInsertAndQuery(t *testing.T) {
 	if len(threadResults) != 1 {
 		t.Fatalf("expected 1 thread.*, got %d", len(threadResults))
 	}
+}
+
+func TestTelemetryProjectAllowlistIncludesPlatformHelper(t *testing.T) {
+	s := newTestServer(t)
+	user, err := s.store.CreateUser("telemetry-helper@test.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inProject, err := s.store.CreateAgent(user.ID, "project agent", "d", "autonomous", "{}", "project-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherProject, err := s.store.CreateAgent(user.ID, "other agent", "d", "autonomous", "{}", "project-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	helper, err := s.store.GetOrCreatePlatformHelper(user.ID, judgeSystemPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	allowed, err := s.store.ListTelemetryAgentIDs(user.ID, "project-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !allowed[inProject.ID] {
+		t.Fatalf("project agent %d missing from telemetry allowlist", inProject.ID)
+	}
+	if !allowed[helper.ID] {
+		t.Fatalf("platform helper %d missing from telemetry allowlist", helper.ID)
+	}
+	if allowed[otherProject.ID] {
+		t.Fatalf("other project agent %d leaked into telemetry allowlist", otherProject.ID)
+	}
+}
+
+func TestTelemetryProjectStreamForwardsPlatformHelperEvents(t *testing.T) {
+	s := newTestServer(t)
+	user, err := s.store.CreateUser("telemetry-helper-stream@test.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.CreateAgent(user.ID, "project agent", "d", "autonomous", "{}", "project-a"); err != nil {
+		t.Fatal(err)
+	}
+	helper, err := s.store.GetOrCreatePlatformHelper(user.ID, judgeSystemPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := "telemetry-helper-stream-session"
+	if err := s.store.CreateSession(token, user.ID, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(s.authMiddleware(s.handleTelemetryStream)))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"?all=1&project_id=project-a", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+
+	respCh := make(chan *http.Response, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		respCh <- resp
+	}()
+
+	ev := TelemetryEvent{
+		ID:       "helper-tool-call",
+		AgentID:  helper.ID,
+		ThreadID: "chat-default-1",
+		Type:     "tool.call",
+		Time:     time.Now().UTC(),
+		Data:     json.RawMessage(`{"name":"apteva-server_agents_list"}`),
+	}
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	var resp *http.Response
+	for resp == nil {
+		select {
+		case resp = <-respCh:
+		case err := <-errCh:
+			t.Fatal(err)
+		case <-ticker.C:
+			s.broadcaster.Broadcast([]TelemetryEvent{ev})
+		case <-ctx.Done():
+			t.Fatal("timed out waiting for telemetry stream response")
+		}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("stream status=%d", resp.StatusCode)
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		if strings.Contains(line, `"instance_id":`+itoa(helper.ID)) &&
+			strings.Contains(line, `"type":"tool.call"`) {
+			return
+		}
+	}
+	if err := scanner.Err(); err != nil && ctx.Err() == nil {
+		t.Fatal(err)
+	}
+	t.Fatal("helper telemetry event was not forwarded on project stream")
 }
 
 func TestTelemetryStats(t *testing.T) {

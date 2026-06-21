@@ -253,7 +253,13 @@ func (s *Server) handleUpdateSkill(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"updated": 1})
+	refreshed := 0
+	if sk, err := s.loadSkillByID(id); err == nil {
+		refreshed = s.refreshSkillInAssignedInstances(getUserID(r), sk.ProjectID, sk, "skill updated")
+	} else {
+		fmt.Printf("[SKILLS-REFRESH] load updated skill=%d: %v\n", id, err)
+	}
+	writeJSON(w, map[string]any{"updated": 1, "refreshed": refreshed})
 }
 
 // DELETE /api/skills/:id
@@ -328,6 +334,19 @@ func (s *Server) handleSetSkillEnabled(w http.ResponseWriter, r *http.Request) {
 // rather than aborting the request.
 type rowScanner interface {
 	Scan(dest ...any) error
+}
+
+func (s *Server) loadSkillByID(skillID int64) (Skill, error) {
+	row := s.store.db.QueryRow(`
+		SELECT sk.id, sk.slug, sk.name, sk.description, sk.body, sk.source,
+		       sk.install_id, sk.project_id, sk.command, sk.metadata_json,
+		       sk.enabled, sk.version, sk.created_at, sk.updated_at,
+		       COALESCE(a.name, '')
+		FROM skills sk
+		LEFT JOIN app_installs i ON i.id = sk.install_id
+		LEFT JOIN apps a ON a.id = i.app_id
+		WHERE sk.id = ?`, skillID)
+	return scanSkill(row)
 }
 
 func scanSkill(r rowScanner) (Skill, error) {

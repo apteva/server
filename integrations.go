@@ -400,8 +400,13 @@ type AppToolDef struct {
 	// request — google-sheets.write_range / append_rows were broken
 	// before this field existed on the Go side. Mirrors the same field
 	// in @apteva/integrations/src/types.ts AppToolTemplate.
-	QueryParams  []string `json:"query_params,omitempty"`
-	ResponsePath *string  `json:"response_path,omitempty"`
+	QueryParams []string `json:"query_params,omitempty"`
+	// QueryParamAliases maps a friendly input field name to a different
+	// provider query-string key. Use this when the agent-facing schema should
+	// stay consistent but the upstream API uses an odd name, e.g. Bunny Stream
+	// list_videos accepts input collectionId but requires query key collection.
+	QueryParamAliases map[string]string `json:"query_param_aliases,omitempty"`
+	ResponsePath      *string           `json:"response_path,omitempty"`
 
 	// MockResponse is the curated, real-shaped reply returned for this tool
 	// when it runs inside a test Environment and no per-environment fixture/cassette

@@ -101,6 +101,16 @@ type RunOptions struct {
 	MaxIterations int  `json:"max_iterations,omitempty"`
 	StrictMocks   bool `json:"strict_mocks,omitempty"`
 
+	// ProviderOverride pins this eval run to one configured provider
+	// ("anthropic", "opencode-go", "fireworks", ...). The spawned eval core
+	// sees only that provider so the agent cannot drift to another model during
+	// the run.
+	ProviderOverride string `json:"provider_override,omitempty"`
+	// ModelOverride pins the selected provider's large/medium/small tiers to
+	// one concrete model id. This keeps benchmark comparisons clean even if the
+	// agent paces/spawns with model="small" mid-run.
+	ModelOverride string `json:"model_override,omitempty"`
+
 	// UseEnvironment runs the eval in a real Environment derived from the
 	// agent's app bindings instead of the mock gateway: the agent runs against
 	// real in-environment apps, externals virtualised by the edge.
@@ -175,6 +185,20 @@ type EvalRun struct {
 	TurnsUsed      int             `json:"turns_used"`
 	IterationsUsed int             `json:"iterations_used"`
 	ErrorMessage   string          `json:"error_message,omitempty"`
+	Metrics        *EvalRunMetrics `json:"metrics,omitempty"`
+}
+
+type EvalRunMetrics struct {
+	AgentID       int64   `json:"agent_id,omitempty"`
+	LLMCalls      int     `json:"llm_calls"`
+	TokensIn      int     `json:"tokens_in"`
+	TokensOut     int     `json:"tokens_out"`
+	TokensCached  int     `json:"tokens_cached"`
+	TokensTotal   int     `json:"tokens_total"`
+	CostUSD       float64 `json:"cost_usd"`
+	LLMDurationMS int     `json:"llm_duration_ms"`
+	ToolCalls     int     `json:"tool_calls"`
+	Errors        int     `json:"errors"`
 }
 
 // RunSuggestions rolls up everything the judge proposed across the
@@ -1037,10 +1061,10 @@ func (s *Server) handleEvalPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	opts := RunOptions{MaxIterations: 5}
 	if body.Options != nil {
-		if body.Options.MaxIterations > 0 {
-			opts.MaxIterations = body.Options.MaxIterations
+		opts = *body.Options
+		if opts.MaxIterations <= 0 {
+			opts.MaxIterations = 5
 		}
-		opts.StrictMocks = body.Options.StrictMocks
 	}
 	draft := &Agent{
 		Name:      body.Name,
@@ -1067,8 +1091,9 @@ func (s *Server) handleEvalPreview(w http.ResponseWriter, r *http.Request) {
 // handleApplyEvalSuggestions persists a selection of the judge's
 // directive-edit suggestions onto the live agent's stored directive.
 // The operator picks which suggestion ids to apply; the rest are
-// discarded. Each applied edit is appended to agent.Directive and
-// a row is written to agent_directive_history for audit.
+// discarded. Each applied edit is appended to agent.Directive, or
+// into # Learning for structured markdown directives, and a row is
+// written to agent_directive_history for audit.
 //
 // Body shape:
 //
@@ -1125,17 +1150,7 @@ func (s *Server) handleApplyEvalSuggestions(w http.ResponseWriter, r *http.Reque
 	}
 
 	before := agent.Directive
-	after := before
-	for _, add := range toAppend {
-		if add == "" {
-			continue
-		}
-		if strings.TrimSpace(after) == "" {
-			after = add
-		} else {
-			after = after + "\n\n" + add
-		}
-	}
+	after := appendDirectiveLearning(before, toAppend)
 	agent.Directive = after
 	if err := s.store.UpdateAgent(agent); err != nil {
 		http.Error(w, "save directive: "+err.Error(), http.StatusInternalServerError)

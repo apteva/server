@@ -187,8 +187,8 @@ func (s *channelMCPServer) toolsList() map[string]any {
 					"type":     "object",
 					"required": []string{"text", "channel"},
 					"properties": map[string]any{
-						"text":    map[string]any{"type": "string", "description": "The message to send"},
-						"channel": map[string]any{"type": "string", "description": "Target channel ID, e.g. \"cli\", \"telegram:12345\""},
+						"text":    map[string]any{"type": "string", "description": "User-visible message body. This is the ONLY text the user receives; plain assistant output/thoughts are internal and invisible."},
+						"channel": map[string]any{"type": "string", "description": "Exact target channel ID from KNOWN CHANNELS in this tool description. For dashboard chat use exactly \"chat\". Do not default to cli unless cli is listed and the incoming event was [cli]."},
 						"components": map[string]any{
 							"type":        "array",
 							"description": "Optional rich attachments — see the AVAILABLE COMPONENTS list in the main description above for the exact catalog. Each entry is {app, name, props}. Non-chat channels (cli, slack, email, telegram) ignore this field; only chat renders attachments.",

@@ -1909,12 +1909,6 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	// Copy response headers
-	for k, v := range resp.Header {
-		w.Header()[k] = v
-	}
-	w.WriteHeader(resp.StatusCode)
-
 	// /events is telemetry-only now (thoughts, tool activity, status).
 	// It used to double as "user is present on cli" — the dashboard
 	// opened /events and the agent was expected to reply via
@@ -1929,6 +1923,10 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	isSSE := canFlush && resp.Header.Get("Content-Type") == "text/event-stream"
 
 	if isSSE {
+		for k, v := range resp.Header {
+			w.Header()[k] = v
+		}
+		w.WriteHeader(resp.StatusCode)
 		br := bufio.NewReader(resp.Body)
 		for {
 			line, err := br.ReadBytes('\n')
@@ -1954,7 +1952,29 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		io.Copy(w, resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			http.Error(w, "failed to read core response", http.StatusBadGateway)
+			return
+		}
+		rewritten := false
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 && r.Method == http.MethodGet {
+			switch corePath {
+			case "/status":
+				body, rewritten = s.enrichAgentStatusBody(inst.ID, body, time.Now())
+			case "/threads":
+				body, rewritten = s.enrichAgentThreadsBody(inst.ID, body, time.Now())
+			}
+		}
+		for k, v := range resp.Header {
+			w.Header()[k] = v
+		}
+		if rewritten {
+			w.Header().Del("Content-Length")
+			w.Header().Set("Content-Type", "application/json")
+		}
+		w.WriteHeader(resp.StatusCode)
+		_, _ = w.Write(body)
 	}
 }
 
@@ -2031,13 +2051,14 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 		var threads []map[string]any
 		// Add main
 		threads = append(threads, map[string]any{
-			"id":        "main",
-			"directive": inst.Directive,
-			"depth":     0,
-			"iteration": 0,
-			"rate":      "stopped",
-			"model":     "",
-			"age":       "",
+			"id":          "main",
+			"directive":   inst.Directive,
+			"depth":       0,
+			"iteration":   0,
+			"rate":        "stopped",
+			"model":       "",
+			"age":         "",
+			"sleep_state": "stopped",
 		})
 		// Add persisted threads
 		if rawThreads, ok := config["threads"].([]any); ok {
@@ -2048,16 +2069,17 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 						depth = int(d)
 					}
 					threads = append(threads, map[string]any{
-						"id":        t["id"],
-						"parent_id": t["parent_id"],
-						"depth":     depth,
-						"directive": t["directive"],
-						"tools":     t["tools"],
-						"mcp_names": t["mcp_names"],
-						"iteration": 0,
-						"rate":      "stopped",
-						"model":     "",
-						"age":       "",
+						"id":          t["id"],
+						"parent_id":   t["parent_id"],
+						"depth":       depth,
+						"directive":   t["directive"],
+						"tools":       t["tools"],
+						"mcp_names":   t["mcp_names"],
+						"iteration":   0,
+						"rate":        "stopped",
+						"model":       "",
+						"age":         "",
+						"sleep_state": "stopped",
 					})
 				}
 			}
@@ -2070,15 +2092,17 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 			executionControl = map[string]any{"mode": "auto", "scope": "instance", "follow": "active", "waiting": false}
 		}
 		writeJSON(w, map[string]any{
-			"iteration":         0,
-			"rate":              "stopped",
-			"model":             "",
-			"paused":            false,
-			"threads":           0,
-			"memories":          0,
-			"uptime_seconds":    0,
-			"mode":              inst.Mode,
-			"execution_control": executionControl,
+			"iteration":          0,
+			"rate":               "stopped",
+			"model":              "",
+			"paused":             false,
+			"threads":            0,
+			"memories":           0,
+			"uptime_seconds":     0,
+			"mode":               inst.Mode,
+			"execution_control":  executionControl,
+			"sleep_state":        "stopped",
+			"sleep_remaining_ms": 0,
 		})
 
 	case "/config":

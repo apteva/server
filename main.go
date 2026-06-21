@@ -152,6 +152,7 @@ type Server struct {
 	// so the whole feature can be turned off with a single env var
 	// without redeploying. Set once at startApps boot.
 	liveTelemetryHook func([]TelemetryEvent)
+	latestLLMDone     latestLLMDoneCache
 
 	// judgeMutexes serializes judge calls per user. The meta-agent's
 	// "main" thread is shared across calls and we reset+repost on
@@ -1121,6 +1122,7 @@ func main() {
 	// button so operators don't have to hand-write a directive for
 	// simple cases. See platform_agent.go.
 	apiMux.HandleFunc("/agents/seed-directive", s.authMiddleware(s.handleSeedDirective))
+	apiMux.HandleFunc("/platform/helper", s.authMiddleware(s.handlePlatformHelper))
 
 	// /evals/preview/stream — SSE counterpart of /evals/preview that
 	// emits a per-iteration event so the wizard can pause-and-confirm

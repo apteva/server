@@ -1,9 +1,17 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"sort"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	sdk "github.com/apteva/app-sdk"
 )
 
 // computeInstanceSkillView is the pure status logic — tested without
@@ -167,6 +175,140 @@ func TestPushSkillToInstance_StoppedUpsertsOnRePush(t *testing.T) {
 	rec := active["user:foo"]
 	if extractTag(rec.Tags, SkillHashTagPrefix) != skillBodyHash("v2 — updated body") {
 		t.Errorf("active record hash should match v2, tags=%v", rec.Tags)
+	}
+}
+
+func TestUpdateSkillRefreshesAssignedInstanceMemories(t *testing.T) {
+	s := newTestServer(t)
+	res, err := s.store.db.Exec(`
+		INSERT INTO skills (slug, name, description, body, source, project_id, metadata_json)
+		VALUES ('user:briefing', 'briefing', 'old description', 'old body', 'user', 'proj-x', '{}')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skillID, _ := res.LastInsertId()
+	assigned, _ := s.store.CreateAgent(1, "assigned", "d", "autonomous", "{}", "proj-x")
+	unassigned, _ := s.store.CreateAgent(1, "unassigned", "d", "autonomous", "{}", "proj-x")
+	otherProject, _ := s.store.CreateAgent(1, "other", "d", "autonomous", "{}", "proj-y")
+
+	oldSkill, err := s.loadSkillByID(skillID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PushSkillToInstance(assigned.ID, oldSkill); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PushSkillToInstance(otherProject.ID, oldSkill); err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ := json.Marshal(map[string]string{
+		"description": "new description",
+		"body":        "new body",
+	})
+	req := httptest.NewRequest(http.MethodPut, "/skills/"+strconv.FormatInt(skillID, 10), bytes.NewReader(body))
+	req.Header.Set("X-User-ID", "1")
+	w := httptest.NewRecorder()
+	s.handleUpdateSkill(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("update status=%d body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]int
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["refreshed"] != 1 {
+		t.Fatalf("refreshed=%d, want 1", resp["refreshed"])
+	}
+
+	assignedActive, err := journalActiveSkillRecords(s.agents.instanceDir(assigned.ID) + "/memory.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := assignedActive["user:briefing"]
+	if extractTag(rec.Tags, SkillHashTagPrefix) != skillBodyHash("new body") {
+		t.Fatalf("assigned skill hash = %q, want %q; tags=%v", extractTag(rec.Tags, SkillHashTagPrefix), skillBodyHash("new body"), rec.Tags)
+	}
+	if !strings.Contains(rec.Content, "new description") || !strings.Contains(rec.Content, "new body") {
+		t.Fatalf("assigned skill content was not refreshed: %q", rec.Content)
+	}
+	unassignedActive, err := journalActiveSkillRecords(s.agents.instanceDir(unassigned.ID) + "/memory.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := unassignedActive["user:briefing"]; ok {
+		t.Fatalf("unassigned agent should not receive skill refresh")
+	}
+	otherActive, err := journalActiveSkillRecords(s.agents.instanceDir(otherProject.ID) + "/memory.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if extractTag(otherActive["user:briefing"].Tags, SkillHashTagPrefix) != skillBodyHash("old body") {
+		t.Fatalf("other project should remain on old body")
+	}
+}
+
+func TestRegisterAppSkillsRefreshesAssignedMemoriesBySlug(t *testing.T) {
+	s := newTestServer(t)
+	appRes, err := s.store.db.Exec(`INSERT INTO apps (name, source, manifest_json) VALUES ('media', 'git', '{}')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appID, _ := appRes.LastInsertId()
+	installRes, err := s.store.db.Exec(`INSERT INTO app_installs (app_id, project_id, status, installed_by) VALUES (?, 'proj-x', 'running', 1)`, appID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installID, _ := installRes.LastInsertId()
+	skillRes, err := s.store.db.Exec(`
+		INSERT INTO skills (slug, name, description, body, source, install_id, project_id, metadata_json)
+		VALUES ('media:clip', 'clip', 'old description', 'old body', 'app', ?, 'proj-x', '{}')`, installID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldSkillID, _ := skillRes.LastInsertId()
+	assigned, _ := s.store.CreateAgent(1, "assigned", "d", "autonomous", "{}", "proj-x")
+	unassigned, _ := s.store.CreateAgent(1, "unassigned", "d", "autonomous", "{}", "proj-x")
+
+	oldSkill, err := s.loadSkillByID(oldSkillID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PushSkillToInstance(assigned.ID, oldSkill); err != nil {
+		t.Fatal(err)
+	}
+
+	err = s.registerAppSkills(installID, "media", "proj-x", []sdk.Skill{
+		{Name: "clip", Description: "new description", Body: "new body"},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assignedActive, err := journalActiveSkillRecords(s.agents.instanceDir(assigned.ID) + "/memory.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := assignedActive["media:clip"]
+	if extractTag(rec.Tags, SkillHashTagPrefix) != skillBodyHash("new body") {
+		t.Fatalf("assigned app skill hash = %q, want %q; tags=%v", extractTag(rec.Tags, SkillHashTagPrefix), skillBodyHash("new body"), rec.Tags)
+	}
+	if extractTag(rec.Tags, SkillIDTagPrefix) == strconv.FormatInt(oldSkillID, 10) {
+		t.Fatalf("expected refreshed memory to carry new skill row id, tags=%v", rec.Tags)
+	}
+	unassignedActive, err := journalActiveSkillRecords(s.agents.instanceDir(unassigned.ID) + "/memory.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := unassignedActive["media:clip"]; ok {
+		t.Fatalf("unassigned agent should not receive app skill refresh")
+	}
+	var count int
+	if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM skills WHERE install_id = ? AND slug = 'media:clip'`, installID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("skill row count = %d, want 1", count)
 	}
 }
 

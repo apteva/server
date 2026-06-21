@@ -1,0 +1,514 @@
+{
+  "slug": "taboola",
+  "name": "Taboola",
+  "description": "Taboola Backstage API v1.0 — manage advertiser accounts, campaigns, campaign items/native ads, first-party audiences, and campaign performance reports for Taboola native advertising.",
+  "logo": "https://www.google.com/s2/favicons?domain=taboola.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "native-ads",
+    "taboola",
+    "content-discovery",
+    "performance"
+  ],
+  "base_url": "https://backstage.taboola.com/backstage/api/1.0",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token",
+        "type": "password",
+        "description": "Bearer token from POST https://backstage.taboola.com/backstage/oauth/token using client_credentials. Tokens typically expire after 12 hours."
+      },
+      {
+        "name": "client_id",
+        "label": "Client ID",
+        "description": "Taboola API client ID from your Taboola account manager or API access settings"
+      },
+      {
+        "name": "client_secret",
+        "label": "Client Secret",
+        "type": "password"
+      },
+      {
+        "name": "account_id",
+        "label": "Default Account ID",
+        "description": "Alphabetic advertiser account ID, available from get_account_details or list_allowed_accounts"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token",
+        "type": "password"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://backstage.taboola.com/backstage/oauth/authorize",
+      "token_url": "https://backstage.taboola.com/backstage/oauth/token",
+      "scopes": [],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "grant_type": "client_credentials"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "get_account_details",
+      "description": "Get the current Taboola account details, including account_id.",
+      "method": "GET",
+      "path": "/users/current/account",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_allowed_accounts",
+      "description": "List all Taboola accounts available to the authenticated credentials.",
+      "method": "GET",
+      "path": "/users/current/allowed-accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "Get campaigns for an advertiser account. Supports paging/sorting and optional campaign filters on the Backstage API.",
+      "method": "GET",
+      "path": "/{account_id}/campaigns/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "Alphabetic Taboola advertiser account ID"
+          },
+          "fetch_level": {
+            "type": "string",
+            "description": "Campaign detail level. Taboola defaults to R when omitted."
+          },
+          "campaign_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional campaign IDs to filter. Sent as repeated query parameters when supported by the executor."
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "sort": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "get_campaign",
+      "description": "Get one Taboola campaign by campaign ID.",
+      "method": "GET",
+      "path": "/{account_id}/campaigns/{campaign_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "campaign_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "campaign_id"
+        ]
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create a Taboola campaign. Body is the raw campaign object, for example {name, branding_text, cpc, spending_limit, spending_limit_model, marketing_objective}.",
+      "method": "POST",
+      "path": "/{account_id}/campaigns/",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object",
+            "description": "Raw Taboola campaign object"
+          }
+        },
+        "required": [
+          "account_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "update_campaign",
+      "description": "Update a Taboola campaign. Body contains only fields to update.",
+      "method": "POST",
+      "path": "/{account_id}/campaigns/{campaign_id}/",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "campaign_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object",
+            "description": "Campaign fields to update"
+          }
+        },
+        "required": [
+          "account_id",
+          "campaign_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "bulk_update_campaigns",
+      "description": "Bulk update multiple campaigns in one request. Body shape: {campaigns:[ids], update:{fields}}.",
+      "method": "POST",
+      "path": "/{account_id}/campaigns/bulk-update",
+      "query_params": [
+        "is_atomic"
+      ],
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "is_atomic": {
+            "type": "boolean",
+            "description": "If true, no campaigns are updated when one update fails"
+          },
+          "body": {
+            "type": "object",
+            "description": "Bulk update payload"
+          }
+        },
+        "required": [
+          "account_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "list_campaign_items",
+      "description": "List campaign items/native ads for a Taboola campaign.",
+      "method": "GET",
+      "path": "/{account_id}/campaigns/{campaign_id}/items/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "campaign_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "campaign_id"
+        ]
+      }
+    },
+    {
+      "name": "get_campaign_item",
+      "description": "Get one campaign item/native ad.",
+      "method": "GET",
+      "path": "/{account_id}/campaigns/{campaign_id}/items/{item_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "campaign_id": {
+            "type": "string"
+          },
+          "item_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "campaign_id",
+          "item_id"
+        ]
+      }
+    },
+    {
+      "name": "create_campaign_item",
+      "description": "Create a campaign item/native ad. Body is the raw item object, commonly {url} first, with Taboola enrichment creating item details.",
+      "method": "POST",
+      "path": "/{account_id}/campaigns/{campaign_id}/items/",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "campaign_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object",
+            "description": "Raw Taboola item object"
+          }
+        },
+        "required": [
+          "account_id",
+          "campaign_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "update_campaign_item",
+      "description": "Update a campaign item/native ad. Body contains fields such as title, thumbnail_url, url, approval_state, or status when supported by the account.",
+      "method": "POST",
+      "path": "/{account_id}/campaigns/{campaign_id}/items/{item_id}/",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "campaign_id": {
+            "type": "string"
+          },
+          "item_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object",
+            "description": "Item fields to update"
+          }
+        },
+        "required": [
+          "account_id",
+          "campaign_id",
+          "item_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "delete_campaign_item",
+      "description": "Delete/stop a campaign item/native ad. Taboola returns the item with status STOPPED.",
+      "method": "DELETE",
+      "path": "/{account_id}/campaigns/{campaign_id}/items/{item_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "campaign_id": {
+            "type": "string"
+          },
+          "item_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "campaign_id",
+          "item_id"
+        ]
+      }
+    },
+    {
+      "name": "campaign_summary_report",
+      "description": "Run a standard Campaign Summary report. Dimensions include day, campaign, campaign_site_day_breakdown, country, platform, and other Taboola dimensions supported by the account.",
+      "method": "GET",
+      "path": "/{account_id}/reports/campaign-summary/dimensions/{dimension}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "dimension": {
+            "type": "string",
+            "description": "Report dimension such as day, campaign, campaign_site_day_breakdown, country, platform"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Report start date/time"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "Report end date/time"
+          },
+          "campaign": {
+            "type": "string",
+            "description": "Comma-separated campaign IDs"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "site_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "dimension",
+          "start_date",
+          "end_date"
+        ]
+      }
+    },
+    {
+      "name": "realtime_campaign_summary_report",
+      "description": "Run a near-real-time Campaign Summary report. Dimensions include by_hour, by_campaign, by_site, by_country, by_platform and related smallest-time-bucket variants.",
+      "method": "GET",
+      "path": "/{account_id}/reports/realtime-campaign-summary/dimensions/{dimension}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "dimension": {
+            "type": "string",
+            "description": "Realtime dimension such as by_hour, by_campaign, by_site, by_country, by_platform"
+          },
+          "start_date": {
+            "type": "string"
+          },
+          "end_date": {
+            "type": "string"
+          },
+          "campaign": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "site_id": {
+            "type": "string"
+          },
+          "fetch_config": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "account_id",
+          "dimension",
+          "start_date",
+          "end_date"
+        ]
+      }
+    },
+    {
+      "name": "list_available_audiences",
+      "description": "List available Taboola combined audiences/resources for an account.",
+      "method": "GET",
+      "path": "/{account_id}/combined_audiences/resources/audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "search_text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
+      "name": "create_first_party_audience",
+      "description": "Create a first-party audience for audience onboarding/customer match use cases.",
+      "method": "POST",
+      "path": "/{account_id}/audience_onboarding/create",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object",
+            "description": "Raw Taboola first-party audience object"
+          }
+        },
+        "required": [
+          "account_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "audience_onboarding",
+      "description": "Add or remove users from a first-party audience. Body includes operation, audience_id, integration_source, and identities.",
+      "method": "POST",
+      "path": "/{account_id}/audience_onboarding",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object",
+            "description": "Audience onboarding payload"
+          }
+        },
+        "required": [
+          "account_id",
+          "body"
+        ]
+      }
+    }
+  ]
+}

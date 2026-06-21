@@ -33,6 +33,13 @@ func (s *Server) runEvalInEnvironment(ctx context.Context, userID int64, agent *
 		return s.writeEvalRun(ev.ID, startedAt, session, nil, nil, "error",
 			"no LLM provider configured — add one in Settings → Providers", preview, 0)
 	}
+	pool, overrideSummary, err := evalProviderPoolForOptions(pool, opts)
+	if err != nil {
+		return s.writeEvalRun(ev.ID, startedAt, session, nil, nil, "error", err.Error(), preview, 0)
+	}
+	if overrideSummary != "" {
+		session.recordSystem(overrideSummary)
+	}
 
 	// 1. Build the Environment from the agent's bindings (real, isolated apps).
 	environmentID := fmt.Sprintf("eval-%d-%d", agent.ID, time.Now().UnixNano())
@@ -60,7 +67,13 @@ func (s *Server) runEvalInEnvironment(ctx context.Context, userID int64, agent *
 	// 2. Spawn the agent-under-test INSIDE the environment. Its mcp_servers point
 	//    at the in-environment apps (via the token-brokering environment-app gateway);
 	//    egress runs through the environment edge. Torn down by environment.Stop().
-	wa, err := s.SpawnAgentInEnvironment(environment, EnvironmentAgentSpec{UserID: userID, Source: agent})
+	eventDriven := len(opts.AppEventSubscriptions) > 0
+	wa, err := s.SpawnAgentInEnvironment(environment, EnvironmentAgentSpec{
+		UserID:       userID,
+		Source:       agent,
+		ProviderPool: pool,
+		StartPaused:  !eventDriven,
+	})
 	if err != nil {
 		return s.writeEvalRun(ev.ID, startedAt, session, nil, nil, "error",
 			"spawn agent in environment: "+err.Error(), preview, 0)
@@ -83,16 +96,30 @@ func (s *Server) runEvalInEnvironment(ctx context.Context, userID int64, agent *
 	// 3. Drive: post the eval's brief, collect the agent's replies + tool
 	//    calls from its thread history.
 	const threadID = "main"
-	eventDriven := len(opts.AppEventSubscriptions) > 0
 	preTrajLen := session.trajectoryLen()
 	if err := postCoreEvent(ctx, wa.Port, wa.APIKey, threadID, ev.Description); err != nil {
 		snap := session.snapshot()
 		return s.writeEvalRunWithDetails(ev.ID, startedAt, time.Now(), session, &snap, nil, nil, "error",
 			"post brief to environment agent: "+err.Error(), preview, 1)
 	}
-	collectOpts := collectAssistantRepliesOptions{CollectAllThreads: true}
+	if !eventDriven {
+		if err := runCoreExecution(ctx, wa.Port, wa.APIKey); err != nil {
+			snap := session.snapshot()
+			return s.writeEvalRunWithDetails(ev.ID, startedAt, time.Now(), session, &snap, nil, nil, "error",
+				"release environment agent execution: "+err.Error(), preview, 1)
+		}
+	}
+	// Environment runs pay startup + real-sidecar + hosted-model latency. Give
+	// slow hosted tool-call streams room to complete, but stop once the agent
+	// repeatedly talks without producing another completed tool call.
+	collectOpts := collectAssistantRepliesOptions{
+		CollectAllThreads:                 true,
+		OverallTimeout:                    6 * time.Minute,
+		IdleWindow:                        20 * time.Second,
+		PostToolIdleWindow:                45 * time.Second,
+		MaxNonToolAssistantTurnsAfterTool: 1,
+	}
 	if eventDriven {
-		collectOpts.OverallTimeout = 5 * time.Minute
 		collectOpts.RequireMeaningfulActivityIdle = true
 		collectOpts.FailOnCoreExit = true
 	}
@@ -111,6 +138,7 @@ func (s *Server) runEvalInEnvironment(ctx context.Context, userID int64, agent *
 			}
 		}
 	}
+	session.metrics = s.evalRunMetricsFromTelemetry(wa.AgentID, startedAt)
 
 	// 4. Judge against the goals (no deterministic criteria — the meta-agent
 	//    reads the plain-English goals and grades).

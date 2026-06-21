@@ -59,10 +59,14 @@ func FetchModels(providerType, apiKey string) ([]ModelInfo, error) {
 	case "nvidia":
 		models, err = fetchOpenAICompatModels("https://integrate.api.nvidia.com/v1/models", apiKey)
 	case "opencode-go":
-		// OpenCode Go's plan exposes a fixed curated list — there's no
-		// /v1/models endpoint to discover from. Return the published
-		// catalog directly so the dashboard's model picker has options.
-		models = openCodeGoModels()
+		models, err = fetchOpenCodeGoModels(apiKey)
+		if err != nil {
+			// OpenCode Go's model catalog is public but not critical to core
+			// operation. Keep the picker usable if the endpoint is temporarily
+			// unavailable or network egress is blocked.
+			models = openCodeGoModels()
+			err = nil
+		}
 	case "venice":
 		// Venice's /api/v1/models returns rich metadata (display name,
 		// context_length, capabilities). Use the dedicated fetcher so
@@ -110,35 +114,106 @@ func apiGet(url string, headers map[string]string) ([]byte, error) {
 
 // ── Fireworks ──
 
-// openCodeGoModels returns the fixed curated catalog OpenCode Go's
-// flat-rate plan exposes. There is no /v1/models endpoint to query
-// (the plan defines the catalog), so we hardcode it from
-// https://opencode.ai/docs/go/. Update this list when OpenCode Go's
-// docs change.
+func fetchOpenCodeGoModels(apiKey string) ([]ModelInfo, error) {
+	headers := map[string]string{}
+	if strings.TrimSpace(apiKey) != "" {
+		headers["Authorization"] = "Bearer " + apiKey
+	}
+	data, err := apiGet("https://opencode.ai/zen/go/v1/models", headers)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	var models []ModelInfo
+	for _, m := range resp.Data {
+		id := strings.TrimSpace(m.ID)
+		if id == "" {
+			continue
+		}
+		models = append(models, enrichOpenCodeGoModel(ModelInfo{ID: id, Name: openCodeGoDisplayName(id)}))
+	}
+	return models, nil
+}
+
+func enrichOpenCodeGoModel(model ModelInfo) ModelInfo {
+	for _, fallback := range openCodeGoModels() {
+		if fallback.ID == model.ID {
+			if strings.TrimSpace(model.Name) == "" {
+				model.Name = fallback.Name
+			}
+			if model.ContextSize == 0 {
+				model.ContextSize = fallback.ContextSize
+			}
+			return model
+		}
+	}
+	if strings.TrimSpace(model.Name) == "" {
+		model.Name = openCodeGoDisplayName(model.ID)
+	}
+	return model
+}
+
+func openCodeGoDisplayName(id string) string {
+	switch id {
+	case "glm-5.2":
+		return "GLM-5.2"
+	case "glm-5.1":
+		return "GLM-5.1"
+	case "glm-5":
+		return "GLM-5"
+	case "hy3-preview":
+		return "HY3 Preview"
+	}
+	parts := strings.FieldsFunc(id, func(r rune) bool {
+		return r == '-' || r == '_'
+	})
+	for i, part := range parts {
+		switch strings.ToLower(part) {
+		case "glm", "kimi", "qwen", "mimo", "minimax", "deepseek":
+			parts[i] = strings.Title(part)
+		default:
+			parts[i] = strings.ToUpper(part[:1]) + part[1:]
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// openCodeGoModels returns a fallback catalog for OpenCode Go. The live
+// /v1/models endpoint is the source of truth; keep this list current enough
+// for offline development and temporary endpoint failures.
 //
 // All prices are zero — OpenCode Go is subscription-priced, not
 // per-token, so per-call $ figures don't apply. The dashboard's model
 // picker still gets the IDs it needs.
 func openCodeGoModels() []ModelInfo {
 	return []ModelInfo{
-		// OpenAI-compat endpoint variants
-		{ID: "kimi-k2.6", Name: "Kimi K2.6", ContextSize: 256_000},
-		{ID: "kimi-k2.5", Name: "Kimi K2.5", ContextSize: 256_000},
-		{ID: "qwen3.6-plus", Name: "Qwen3.6 Plus", ContextSize: 128_000},
-		{ID: "qwen3.5-plus", Name: "Qwen3.5 Plus", ContextSize: 128_000},
+		{ID: "glm-5.2", Name: "GLM-5.2", ContextSize: 128_000},
 		{ID: "glm-5.1", Name: "GLM-5.1", ContextSize: 128_000},
 		{ID: "glm-5", Name: "GLM-5", ContextSize: 128_000},
+		{ID: "kimi-k2.7-code", Name: "Kimi K2.7 Code", ContextSize: 256_000},
+		{ID: "kimi-k2.6", Name: "Kimi K2.6", ContextSize: 256_000},
+		{ID: "kimi-k2.5", Name: "Kimi K2.5", ContextSize: 256_000},
+		{ID: "qwen3.7-max", Name: "Qwen3.7 Max", ContextSize: 128_000},
+		{ID: "qwen3.7-plus", Name: "Qwen3.7 Plus", ContextSize: 128_000},
+		{ID: "qwen3.6-plus", Name: "Qwen3.6 Plus", ContextSize: 128_000},
+		{ID: "qwen3.5-plus", Name: "Qwen3.5 Plus", ContextSize: 128_000},
 		{ID: "mimo-v2.5-pro", Name: "MiMo V2.5 Pro", ContextSize: 256_000},
 		{ID: "mimo-v2.5", Name: "MiMo V2.5", ContextSize: 256_000},
 		{ID: "mimo-v2-pro", Name: "MiMo V2 Pro", ContextSize: 256_000},
 		{ID: "mimo-v2-omni", Name: "MiMo V2 Omni", ContextSize: 256_000},
-		// Anthropic-style endpoint variants — exposed in the picker
-		// for completeness; using them requires routing the request
-		// through provider_anthropic.go's path (separate work to wire).
+		{ID: "minimax-m3", Name: "MiniMax M3", ContextSize: 196_608},
 		{ID: "minimax-m2.7", Name: "MiniMax M2.7", ContextSize: 196_608},
 		{ID: "minimax-m2.5", Name: "MiniMax M2.5", ContextSize: 196_608},
 		{ID: "deepseek-v4-pro", Name: "DeepSeek V4 Pro", ContextSize: 128_000},
 		{ID: "deepseek-v4-flash", Name: "DeepSeek V4 Flash", ContextSize: 128_000},
+		{ID: "hy3-preview", Name: "HY3 Preview"},
 	}
 }
 
@@ -429,20 +504,26 @@ var modelPricingTable = map[string]modelPricing{
 	// (the real cost is the monthly subscription divided by usage).
 	// If we later want to surface "% of monthly cap consumed" we'd
 	// add a separate gauge keyed by provider name, not pricing.
-	"kimi-k2.6":         {0, 0, 0},
-	"kimi-k2.5":         {0, 0, 0},
-	"qwen3.6-plus":      {0, 0, 0},
-	"qwen3.5-plus":      {0, 0, 0},
+	"glm-5.2":           {0, 0, 0},
 	"glm-5.1":           {0, 0, 0},
 	"glm-5":             {0, 0, 0},
+	"kimi-k2.7-code":    {0, 0, 0},
+	"kimi-k2.6":         {0, 0, 0},
+	"kimi-k2.5":         {0, 0, 0},
+	"qwen3.7-max":       {0, 0, 0},
+	"qwen3.7-plus":      {0, 0, 0},
+	"qwen3.6-plus":      {0, 0, 0},
+	"qwen3.5-plus":      {0, 0, 0},
 	"mimo-v2.5-pro":     {0, 0, 0},
 	"mimo-v2.5":         {0, 0, 0},
 	"mimo-v2-pro":       {0, 0, 0},
 	"mimo-v2-omni":      {0, 0, 0},
+	"minimax-m3":        {0, 0, 0},
 	"minimax-m2.7":      {0, 0, 0},
 	"minimax-m2.5":      {0, 0, 0},
 	"deepseek-v4-pro":   {0, 0, 0},
 	"deepseek-v4-flash": {0, 0, 0},
+	"hy3-preview":       {0, 0, 0},
 }
 
 // LookupModelPricing returns the per-1M pricing for a model, derived

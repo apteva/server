@@ -670,6 +670,7 @@ func (s *Server) handleLiveTelemetry(w http.ResponseWriter, r *http.Request) {
 	// streaming path shows $0.00 until the persistence ingest catches
 	// up and the caller refetches.
 	s.enrichCostInPlace(events)
+	s.latestLLMDone.remember(events)
 
 	s.broadcaster.Broadcast(events)
 
@@ -764,14 +765,10 @@ func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
 	// Mode 2: all-instances stream, scoped to the caller's agents.
 	if q.Get("all") == "1" {
 		projectID := q.Get("project_id")
-		insts, err := s.store.ListAgents(userID, projectID)
+		allowed, err := s.store.ListTelemetryAgentIDs(userID, projectID)
 		if err != nil {
-			http.Error(w, "failed to list instances: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "failed to list telemetry agents: "+err.Error(), http.StatusInternalServerError)
 			return
-		}
-		allowed := make(map[int64]bool, len(insts))
-		for _, in := range insts {
-			allowed[in.ID] = true
 		}
 
 		ch := s.broadcaster.SubscribeAll()
@@ -796,10 +793,8 @@ func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
 					// New instance created mid-stream — refresh allowed
 					// set lazily before dropping. This catches "user starts
 					// instance after page load" without polling.
-					if newInsts, err := s.store.ListAgents(userID, projectID); err == nil {
-						for _, in := range newInsts {
-							allowed[in.ID] = true
-						}
+					if refreshed, err := s.store.ListTelemetryAgentIDs(userID, projectID); err == nil {
+						allowed = refreshed
 					}
 					if !allowed[ev.AgentID] {
 						continue

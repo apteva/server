@@ -299,9 +299,9 @@ func (h *handlers) postMessage(w http.ResponseWriter, r *http.Request, _ *framew
 	// "agent unreachable, will see the message when it's running again"
 	// instead of an indefinite quiet.
 	go func(inst framework.InstanceInfo, text string, chatID string) {
-		evText := fmt.Sprintf("[chat] %s", text)
-		if ctx := formatDashboardContext(body.Context); ctx != "" {
-			evText = fmt.Sprintf("[chat]\n%s\n\nUser message:\n%s", ctx, text)
+		evText := formatAgentChatEvent(text, body.Context)
+		if inst.Kind == "platform_helper" {
+			evText = formatPlatformHelperChatEvent(text, body.Context)
 		}
 		threadID := h.resolveChatThread(inst, chatID)
 		if err := h.instances.ForwardEvent(inst, evText, threadID); err != nil {
@@ -689,13 +689,46 @@ func formatDashboardContext(v any) string {
 	return strings.Join(lines, "\n")
 }
 
+func formatAgentChatEvent(text string, context any) string {
+	var b strings.Builder
+	b.WriteString("[chat]\n")
+	b.WriteString("A user is talking to you in the dashboard chat. Plain assistant text and thoughts are NOT visible to the user. ")
+	b.WriteString("To answer, you must call channels_respond with channel=\"chat\" and useful text. ")
+	b.WriteString("If you use tools first, call channels_respond after the tool results with the final answer before going idle.\n\n")
+	if ctx := formatDashboardContext(context); ctx != "" {
+		b.WriteString(ctx)
+		b.WriteString("\n\n")
+	}
+	b.WriteString("User message:\n")
+	b.WriteString(strings.TrimSpace(text))
+	return b.String()
+}
+
+func formatPlatformHelperChatEvent(text string, context any) string {
+	var b strings.Builder
+	b.WriteString("[chat]\n")
+	b.WriteString("TASK TYPE: platform_assistant (NOT eval grading)\n\n")
+	b.WriteString("You are Apteva Helper in the dashboard. Help the operator understand the current page, design agents, and turn rough goals into concrete next steps. ")
+	b.WriteString("When the operator wants to create or manage agents, ask briefly for missing details, then use the apteva-server MCP tools such as agents_create, agents_list, agents_start, agents_stop, and agents_update when appropriate. ")
+	b.WriteString("Do not grade anything. Do not return judge JSON. Reply by calling channels_respond with channel=\"chat\" and useful text.\n\n")
+	if ctx := formatDashboardContext(context); ctx != "" {
+		b.WriteString(ctx)
+		b.WriteString("\n\n")
+	}
+	b.WriteString("User message:\n")
+	b.WriteString(strings.TrimSpace(text))
+	return b.String()
+}
+
 // resolveChatThread decides which core thread the chat's events
-// should target. Flag off → "main" (legacy behavior). Flag on →
-// look up (or assign) the chat's persisted thread id and spawn it
-// idempotently on first use this process. Falls back to "main" on
-// any error so a transient DB/network glitch can't drop messages.
+// should target. Flag off → "main" (legacy behavior) for normal
+// agents. Platform-helper chats always get a dedicated thread because
+// the helper's internal judge/seeder paths reuse and reset main. Flag
+// on → look up (or assign) the chat's persisted thread id and spawn it
+// idempotently on first use this process. Falls back to "main" on any
+// error so a transient DB/network glitch can't drop messages.
 func (h *handlers) resolveChatThread(inst framework.InstanceInfo, chatID string) string {
-	if !perThreadEnabled() {
+	if !perThreadEnabled() && inst.Kind != "platform_helper" {
 		return "main"
 	}
 	threadID, err := h.store.EnsureChatThread(chatID)

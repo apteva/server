@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -37,6 +38,8 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 	// Project scoping — instance's project_id is passed via env
 	projectID := os.Getenv("PROJECT_ID")
 
+	serverAPI := newGatewayAPIClient(userID)
+
 	// The server binary path (for stdio server configs)
 	selfPath, _ := os.Executable()
 	_ = selfPath // used for stdio MCP servers
@@ -58,6 +61,15 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 	}
 
 	tools := []toolDef{
+		// Agents
+		{Name: "agents_list", Description: "List Apteva agents visible to this user. Defaults to the current project when the gateway was launched for one.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}}}},
+		{Name: "agents_get", Description: "Get one Apteva agent by ID, including current running/stopped status.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
+		{Name: "agents_create", Description: "Create an Apteva agent using the same server path as the dashboard. Provide a clear name and directive. Prefer structured markdown headings such as # Role, # Goals, # Operating Rules, # Tools and Integrations, # Schedule, # Escalation and Safety, # Tone, and # Learning. By default the new agent starts immediately and receives the built-in apteva-server and channel MCPs.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"name": {Type: "string", Description: "Agent name"}, "directive": {Type: "string", Description: "Agent directive / system instructions. Prefer structured markdown with stable sections."}, "mode": {Type: "string", Description: "autonomous, cautious, or learn. Defaults to autonomous."}, "project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "start": {Type: "string", Description: "true/false. Defaults to true."}, "include_apteva_server": {Type: "string", Description: "true/false. Defaults to true."}, "include_channels": {Type: "string", Description: "true/false. Defaults to true."}, "unconscious": {Type: "string", Description: "true/false. Optional background memory setting."}, "config": {Type: "string", Description: "Optional JSON object or JSON string for advanced agent config."}, "bound_app_install_ids": {Type: "string", Description: "Optional comma-separated installed app IDs to bind to the new agent."}, "bound_connection_ids": {Type: "string", Description: "Optional comma-separated integration connection IDs to attach as MCP servers."}, "template_id": {Type: "string", Description: "Optional template ID for seeded evals."}}, Required: []string{"name", "directive"}}},
+		{Name: "agents_update", Description: "Update an Apteva agent using the normal dashboard/server handlers. Supports rename, full directive/mode/config updates, markdown directive section edits, and MCP server attachment changes via mcp_server_ids from list_mcp_servers.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}, "name": {Type: "string", Description: "New display name"}, "directive": {Type: "string", Description: "New full directive. Prefer structured markdown with stable sections."}, "directive_edit_mode": {Type: "string", Description: "Optional section edit mode: section_append, section_replace, section_replace_line, or section_remove_line. Ignored when directive is provided."}, "directive_section": {Type: "string", Description: "Markdown section name to edit, e.g. Learning or Tools and Integrations."}, "directive_match": {Type: "string", Description: "Line substring to match for section_replace_line or section_remove_line."}, "directive_content": {Type: "string", Description: "Content to append, replace, or use as the replacement line."}, "directive_edits": {Type: "string", Description: "Optional JSON array of section edits with mode, section, match, and content fields."}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "config": {Type: "string", Description: "Optional JSON object or JSON string for advanced agent config"}, "mcp_server_ids": {Type: "string", Description: "Optional comma-separated MCP server IDs from list_mcp_servers"}, "mcp_action": {Type: "string", Description: "set, add, or remove MCP servers. Defaults to set when mcp_server_ids is provided."}}, Required: []string{"id"}}},
+		{Name: "agents_start", Description: "Start a stopped Apteva agent using the server lifecycle handler.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
+		{Name: "agents_stop", Description: "Stop a running Apteva agent using the server lifecycle handler.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
+		{Name: "agents_delete", Description: "Delete an Apteva agent using the same server cleanup path as the dashboard.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
+		{Name: "agent_list_activity", Description: "List recent agent activity actions from stored telemetry. Returns merged thought, tool, thread, event, and error rows; chat reply actions are omitted. Use include_payloads=true for built thought text and tool args/results, include_raw=true only for debugging.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "agent_id": {Type: "string", Description: "Optional agent ID. Omit to list activity for all agents in the project."}, "thread_id": {Type: "string", Description: "Optional thread ID filter, e.g. main."}, "kind": {Type: "string", Description: "Optional filter: all, thought, tool, thread, event, or error."}, "status": {Type: "string", Description: "Optional filter: all, running, success, error, or info."}, "period": {Type: "string", Description: "Lookback window such as 1h, 24h, 7d, 30d, or a Go duration like 15m. Defaults to 24h."}, "since": {Type: "string", Description: "Optional RFC3339 timestamp; overrides period."}, "limit": {Type: "string", Description: "Maximum action rows to return, up to 320. Defaults to 100."}, "query": {Type: "string", Description: "Optional text search across agent, thread, title, detail, and included payloads."}, "include_payloads": {Type: "string", Description: "true/false. When true, includes built thought text and tool args/results. Defaults to false."}, "include_raw": {Type: "string", Description: "true/false. Include raw telemetry events used to build each row. Defaults to false."}}}},
 		// Integrations
 		{Name: "list_integrations", Description: "Browse available integrations. Returns name, slug, description, tool count.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"query": {Type: "string", Description: "Search query"}}}},
 		{Name: "get_integration", Description: "Get full details of an integration including credential fields and tools.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}}, Required: []string{"slug"}}},
@@ -67,7 +79,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "create_mcp_server_from_connection", Description: "Create a second MCP server row over an existing connection with a different tool scope. Lets a team give some workers a read-only surface while others see the full tool set over the same credentials.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"connection_id": {Type: "string", Description: "Connection ID to attach to"}, "name": {Type: "string", Description: "Friendly name for this scoped server (e.g. \"sheets-readonly\")"}, "allowed_tools": {Type: "string", Description: "Comma-separated list of tool names this view exposes. Required — use list_integrations/get_integration to pick."}}, Required: []string{"connection_id", "allowed_tools"}}},
 		{Name: "update_mcp_server_tools", Description: "Change the allowed_tools filter on an existing MCP server row. Pass an empty string to clear the filter (all tools re-enabled). Takes effect immediately for local MCP servers; remote (Composio) rows require a reconcile to propagate.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "MCP server ID"}, "allowed_tools": {Type: "string", Description: "Comma-separated tool names (empty = all)"}}, Required: []string{"id"}}},
 		// MCP Servers
-		{Name: "list_mcp_servers", Description: "List registered MCP servers with status, tool count, and mcp_url. Use the mcp_url with [[connect]] to access the server's tools.", InputSchema: toolSchema{Type: "object"}},
+		{Name: "list_mcp_servers", Description: "List registered MCP servers with status, tool count, kind, source, and connection/app ownership metadata. Use kind=app to list only app MCP servers, kind=integration for integration MCP servers, kind=custom for manually registered MCP servers, or kind=remote for hosted MCP servers. Use mcp_url or proxy_config to connect to tools.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "kind": {Type: "string", Description: "Optional filter: app, integration, custom, remote, or all."}, "include_app_owned": {Type: "string", Description: "true/false. When false, hides app-owned MCP rows from unfiltered results. Defaults to true for backward compatibility."}}}},
 		{Name: "create_mcp_server", Description: "Register a new custom MCP server.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"name": {Type: "string"}, "command": {Type: "string"}, "args": {Type: "string", Description: "Comma-separated arguments"}, "description": {Type: "string"}}, Required: []string{"name", "command"}}},
 		{Name: "start_mcp_server", Description: "Start a registered MCP server.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Server ID"}}, Required: []string{"id"}}},
 		{Name: "stop_mcp_server", Description: "Stop a running MCP server.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Server ID"}}, Required: []string{"id"}}},
@@ -93,6 +105,9 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 
 	// Handler dispatch
 	handle := func(name string, args map[string]any) (any, error) {
+		if strings.HasPrefix(name, "agents_") || name == "agent_list_activity" {
+			return handleGatewayAgentTool(name, args, projectID, serverAPI, store, selfPath)
+		}
 		switch name {
 		// --- Integrations ---
 		case "list_integrations":
@@ -327,28 +342,11 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 
 		// --- MCP Servers ---
 		case "list_mcp_servers":
-			servers, err := store.ListMCPServers(userID, projectID)
-			if err != nil {
-				return nil, err
-			}
 			serverPort := os.Getenv("PORT")
 			if serverPort == "" {
 				serverPort = "8080"
 			}
-			type serverWithURL struct {
-				MCPServerRecord
-				MCPURL string `json:"mcp_url,omitempty"`
-			}
-			var result []serverWithURL
-			for _, s := range servers {
-				sw := serverWithURL{MCPServerRecord: s}
-				if s.Source == "local" && s.ConnectionID > 0 {
-					// URL keyed on row id so scoped views are distinct.
-					sw.MCPURL = fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, s.ID)
-				}
-				result = append(result, sw)
-			}
-			return result, nil
+			return listGatewayMCPServers(store, userID, projectID, args, serverPort, selfPath)
 
 		case "create_mcp_server":
 			name, _ := args["name"].(string)
@@ -999,14 +997,723 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 	return nil
 }
 
+type gatewayMCPServer struct {
+	MCPServerRecord
+	Kind              string         `json:"kind"`
+	CreatedVia        string         `json:"created_via,omitempty"`
+	OwnerAppInstallID int64          `json:"owner_app_install_id,omitempty"`
+	MCPURL            string         `json:"mcp_url,omitempty"`
+	ProxyConfig       map[string]any `json:"proxy_config,omitempty"`
+}
+
+func listGatewayMCPServers(store *Store, userID int64, defaultProjectID string, args map[string]any, serverPort, selfPath string) ([]gatewayMCPServer, error) {
+	projectID, _ := args["project_id"].(string)
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		projectID = defaultProjectID
+	}
+
+	kindFilter, err := normalizeGatewayMCPKind(args["kind"])
+	if err != nil {
+		return nil, err
+	}
+
+	includeAppOwned := true
+	if v, ok, err := optionalBoolArg(args["include_app_owned"]); err != nil {
+		return nil, fmt.Errorf("include_app_owned must be true or false")
+	} else if ok {
+		includeAppOwned = v
+	}
+
+	servers, err := store.ListMCPServers(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]gatewayMCPServer, 0, len(servers))
+	for _, srv := range servers {
+		createdVia, ownerID := gatewayMCPConnectionMeta(store, srv.ConnectionID)
+		kind := classifyGatewayMCPServer(srv, createdVia, ownerID)
+		if kindFilter != "" && kind != kindFilter {
+			continue
+		}
+		if kindFilter == "" && !includeAppOwned && kind == "app" {
+			continue
+		}
+
+		row := gatewayMCPServer{
+			MCPServerRecord:   srv,
+			Kind:              kind,
+			CreatedVia:        createdVia,
+			OwnerAppInstallID: ownerID,
+		}
+
+		switch {
+		case srv.Source == "local" && srv.ConnectionID > 0:
+			row.Status = "running"
+			row.MCPURL = fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, srv.ID)
+			row.ProxyConfig = map[string]any{
+				"name":      srv.Name,
+				"transport": "http",
+				"url":       row.MCPURL,
+			}
+		case srv.Source == "app" && srv.URL != "":
+			row.Status = "running"
+			row.MCPURL = srv.URL
+			if projectID != "" {
+				row.MCPURL = addQueryParam(row.MCPURL, "project_id", projectID)
+			}
+			row.ProxyConfig = map[string]any{
+				"name":      srv.Name,
+				"transport": "http",
+				"url":       row.MCPURL,
+			}
+		case srv.Source == "remote" && srv.URL != "":
+			if row.Status == "" {
+				row.Status = "unprobed"
+			}
+			row.MCPURL = srv.URL
+			row.ProxyConfig = map[string]any{
+				"name":      srv.Name,
+				"transport": "http",
+				"url":       srv.URL,
+			}
+		case srv.Command != "":
+			var parsedArgs []string
+			_ = json.Unmarshal([]byte(srv.Args), &parsedArgs)
+			row.ProxyConfig = map[string]any{
+				"name":      srv.Name,
+				"transport": "stdio",
+				"command":   selfPath,
+				"args":      parsedArgs,
+			}
+		}
+
+		result = append(result, row)
+	}
+	return result, nil
+}
+
+func gatewayMCPConnectionMeta(store *Store, connID int64) (string, int64) {
+	if connID <= 0 {
+		return "", 0
+	}
+	var createdVia string
+	var ownerID int64
+	_ = store.db.QueryRow(
+		`SELECT COALESCE(created_via, ''), COALESCE(owner_app_install_id, 0) FROM connections WHERE id=?`,
+		connID,
+	).Scan(&createdVia, &ownerID)
+	return createdVia, ownerID
+}
+
+func classifyGatewayMCPServer(srv MCPServerRecord, createdVia string, ownerID int64) string {
+	if srv.Source == "app" || ownerID > 0 || createdVia == "app_install" {
+		return "app"
+	}
+	if srv.Source == "remote" {
+		return "remote"
+	}
+	if srv.Source == "local" && srv.ConnectionID > 0 {
+		return "integration"
+	}
+	return "custom"
+}
+
+func normalizeGatewayMCPKind(v any) (string, error) {
+	if v == nil {
+		return "", nil
+	}
+	raw, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("kind must be app, integration, custom, remote, or all")
+	}
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	switch raw {
+	case "", "all", "any":
+		return "", nil
+	case "app", "apps", "app_mcp", "app-mcp", "app_owned", "app-owned":
+		return "app", nil
+	case "integration", "integrations", "integration_mcp", "integration-mcp", "local":
+		return "integration", nil
+	case "custom", "manual", "stdio":
+		return "custom", nil
+	case "remote", "hosted":
+		return "remote", nil
+	default:
+		return "", fmt.Errorf("kind must be app, integration, custom, remote, or all")
+	}
+}
+
 func parseIntArg(v any) (int64, error) {
 	switch val := v.(type) {
 	case string:
 		return strconv.ParseInt(val, 10, 64)
+	case int:
+		return int64(val), nil
+	case int64:
+		return val, nil
 	case float64:
 		return int64(val), nil
 	default:
 		return 0, fmt.Errorf("invalid ID")
+	}
+}
+
+type gatewayAPIClient struct {
+	baseURL        string
+	userID         int64
+	instanceSecret string
+}
+
+func newGatewayAPIClient(userID int64) gatewayAPIClient {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	baseURL := strings.TrimRight(os.Getenv("APTEVA_INTERNAL_SERVER_URL"), "/")
+	if baseURL == "" {
+		baseURL = "http://127.0.0.1:" + port
+	}
+	baseURL = strings.TrimRight(baseURL, "/") + "/api"
+	secret := os.Getenv("INSTANCE_SECRET")
+	if secret == "" {
+		secret = os.Getenv("AGENT_SECRET")
+	}
+	return gatewayAPIClient{baseURL: baseURL, userID: userID, instanceSecret: secret}
+}
+
+func (c gatewayAPIClient) do(method, path string, body any, out any) error {
+	if c.instanceSecret == "" {
+		return fmt.Errorf("internal server API auth unavailable: INSTANCE_SECRET is not set")
+	}
+	var reader io.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("encode request: %w", err)
+		}
+		reader = bytes.NewReader(data)
+	}
+	req, err := http.NewRequest(method, c.baseURL+path, reader)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Agent-Secret", c.instanceSecret)
+	req.Header.Set("X-Apteva-MCP-User-ID", strconv.FormatInt(c.userID, 10))
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("%s %s failed: status=%d body=%s", method, path, resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+	if out == nil || len(respBody) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(respBody, out); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+	return nil
+}
+
+func handleGatewayAgentTool(name string, args map[string]any, projectID string, serverAPI gatewayAPIClient, store *Store, selfPath string) (any, error) {
+	switch name {
+	case "agents_list":
+		pid, _ := args["project_id"].(string)
+		if pid == "" {
+			pid = projectID
+		}
+		path := "/agents"
+		if pid != "" {
+			path += "?project_id=" + urlQueryEscape(pid)
+		}
+		var out any
+		if err := serverAPI.do(http.MethodGet, path, nil, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
+
+	case "agent_list_activity":
+		if store == nil {
+			return nil, fmt.Errorf("store unavailable")
+		}
+		opts, err := gatewayAgentActivityOptions(args, projectID)
+		if err != nil {
+			return nil, err
+		}
+		return BuildAgentActivity(store, serverAPI.userID, opts)
+
+	case "agents_get":
+		id, _ := parseIntArg(args["id"])
+		var out any
+		if err := serverAPI.do(http.MethodGet, fmt.Sprintf("/agents/%d", id), nil, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
+
+	case "agents_create":
+		agentName, _ := args["name"].(string)
+		directive, _ := args["directive"].(string)
+		agentName = strings.TrimSpace(agentName)
+		directive = strings.TrimSpace(directive)
+		if agentName == "" {
+			return nil, fmt.Errorf("name is required")
+		}
+		if directive == "" {
+			return nil, fmt.Errorf("directive is required")
+		}
+		pid, _ := args["project_id"].(string)
+		if pid == "" {
+			pid = projectID
+		}
+		body := map[string]any{
+			"name":       agentName,
+			"directive":  directive,
+			"project_id": pid,
+		}
+		if mode, _ := args["mode"].(string); mode != "" {
+			body["mode"] = mode
+		}
+		if v, ok, err := optionalBoolArg(args["start"]); err != nil {
+			return nil, fmt.Errorf("start must be true or false")
+		} else if ok {
+			body["start"] = v
+		}
+		if v, ok, err := optionalBoolArg(args["include_apteva_server"]); err != nil {
+			return nil, fmt.Errorf("include_apteva_server must be true or false")
+		} else if ok {
+			body["include_apteva_server"] = v
+		}
+		if v, ok, err := optionalBoolArg(args["include_channels"]); err != nil {
+			return nil, fmt.Errorf("include_channels must be true or false")
+		} else if ok {
+			body["include_channels"] = v
+		}
+		if v, ok, err := optionalBoolArg(args["unconscious"]); err != nil {
+			return nil, fmt.Errorf("unconscious must be true or false")
+		} else if ok {
+			body["unconscious"] = v
+		}
+		if cfg, ok, err := optionalConfigArg(args["config"]); err != nil {
+			return nil, err
+		} else if ok {
+			body["config"] = cfg
+		}
+		if ids, err := parseIntListArg(args["bound_app_install_ids"]); err != nil {
+			return nil, fmt.Errorf("bound_app_install_ids must be comma-separated IDs")
+		} else if len(ids) > 0 {
+			body["bound_app_install_ids"] = ids
+		}
+		if ids, err := parseIntListArg(args["bound_connection_ids"]); err != nil {
+			return nil, fmt.Errorf("bound_connection_ids must be comma-separated IDs")
+		} else if len(ids) > 0 {
+			body["bound_connection_ids"] = ids
+		}
+		if templateID, _ := args["template_id"].(string); strings.TrimSpace(templateID) != "" {
+			body["template_id"] = strings.TrimSpace(templateID)
+		}
+		var out any
+		if err := serverAPI.do(http.MethodPost, "/agents", body, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
+
+	case "agents_update":
+		id, _ := parseIntArg(args["id"])
+		result := map[string]any{"id": id}
+		if newName, _ := args["name"].(string); strings.TrimSpace(newName) != "" {
+			var out any
+			if err := serverAPI.do(http.MethodPut, fmt.Sprintf("/agents/%d", id), map[string]any{"name": strings.TrimSpace(newName)}, &out); err != nil {
+				return nil, err
+			}
+			result["rename"] = out
+		}
+		configBody := map[string]any{}
+		if directive, _ := args["directive"].(string); strings.TrimSpace(directive) != "" {
+			configBody["directive"] = strings.TrimSpace(directive)
+		} else if nextDirective, changed, err := directiveEditsForGatewayAgent(id, args, serverAPI); err != nil {
+			return nil, err
+		} else if changed {
+			configBody["directive"] = nextDirective
+		}
+		if mode, _ := args["mode"].(string); strings.TrimSpace(mode) != "" {
+			configBody["mode"] = strings.TrimSpace(mode)
+		}
+		if cfg, ok, err := optionalConfigArg(args["config"]); err != nil {
+			return nil, err
+		} else if ok {
+			configBody["config"] = cfg
+		}
+		if len(configBody) > 0 {
+			var out any
+			if err := serverAPI.do(http.MethodPut, fmt.Sprintf("/agents/%d/config", id), configBody, &out); err != nil {
+				return nil, err
+			}
+			result["config"] = out
+		}
+		if _, ok := args["mcp_server_ids"]; ok {
+			if store == nil {
+				return nil, fmt.Errorf("store unavailable")
+			}
+			serverIDs, err := parseIntListArg(args["mcp_server_ids"])
+			if err != nil {
+				return nil, fmt.Errorf("mcp_server_ids must be comma-separated IDs")
+			}
+			action, _ := args["mcp_action"].(string)
+			action = strings.ToLower(strings.TrimSpace(action))
+			if action == "" {
+				action = "set"
+			}
+			if action != "set" && action != "add" && action != "remove" {
+				return nil, fmt.Errorf("mcp_action must be set, add, or remove")
+			}
+			out, err := updateAgentMCPServersFromGateway(id, serverIDs, action, projectID, serverAPI, store, selfPath)
+			if err != nil {
+				return nil, err
+			}
+			result["mcp_servers"] = out
+		}
+		if len(result) == 1 {
+			return nil, fmt.Errorf("nothing to update; pass name, directive, directive edit fields, mode, config, or mcp_server_ids")
+		}
+		return result, nil
+
+	case "agents_start":
+		id, _ := parseIntArg(args["id"])
+		var out any
+		if err := serverAPI.do(http.MethodPost, fmt.Sprintf("/agents/%d/start", id), nil, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
+
+	case "agents_stop":
+		id, _ := parseIntArg(args["id"])
+		var out any
+		if err := serverAPI.do(http.MethodPost, fmt.Sprintf("/agents/%d/stop", id), nil, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
+
+	case "agents_delete":
+		id, _ := parseIntArg(args["id"])
+		if err := serverAPI.do(http.MethodDelete, fmt.Sprintf("/agents/%d", id), nil, nil); err != nil {
+			return nil, err
+		}
+		return map[string]any{"deleted": true, "id": id}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown tool %q", name)
+	}
+}
+
+func directiveEditsForGatewayAgent(agentID int64, args map[string]any, serverAPI gatewayAPIClient) (string, bool, error) {
+	if !hasGatewayDirectiveEditArgs(args) {
+		return "", false, nil
+	}
+
+	var current struct {
+		Directive string `json:"directive"`
+	}
+	if err := serverAPI.do(http.MethodGet, fmt.Sprintf("/agents/%d", agentID), nil, &current); err != nil {
+		return "", false, fmt.Errorf("load current directive for section edit: %w", err)
+	}
+	next, changed, err := applyServerDirectiveEdits(current.Directive, args)
+	if err != nil {
+		return "", false, err
+	}
+	return next, changed, nil
+}
+
+func gatewayAgentActivityOptions(args map[string]any, defaultProjectID string) (AgentActivityOptions, error) {
+	var opts AgentActivityOptions
+	if projectID, _ := args["project_id"].(string); strings.TrimSpace(projectID) != "" {
+		opts.ProjectID = strings.TrimSpace(projectID)
+	} else {
+		opts.ProjectID = defaultProjectID
+	}
+	if _, ok := args["agent_id"]; ok {
+		id, err := parseIntArg(args["agent_id"])
+		if err != nil {
+			return opts, fmt.Errorf("agent_id must be an integer")
+		}
+		opts.AgentID = id
+	}
+	if threadID, _ := args["thread_id"].(string); strings.TrimSpace(threadID) != "" {
+		opts.ThreadID = strings.TrimSpace(threadID)
+	}
+	if kind, _ := args["kind"].(string); strings.TrimSpace(kind) != "" {
+		opts.Kind = strings.ToLower(strings.TrimSpace(kind))
+	}
+	if opts.Kind != "" && opts.Kind != "all" && opts.Kind != "thought" && opts.Kind != "tool" && opts.Kind != "thread" && opts.Kind != "event" && opts.Kind != "error" {
+		return opts, fmt.Errorf("kind must be all, thought, tool, thread, event, or error")
+	}
+	if status, _ := args["status"].(string); strings.TrimSpace(status) != "" {
+		opts.Status = strings.ToLower(strings.TrimSpace(status))
+	}
+	if opts.Status != "" && opts.Status != "all" && opts.Status != "running" && opts.Status != "success" && opts.Status != "error" && opts.Status != "info" {
+		return opts, fmt.Errorf("status must be all, running, success, error, or info")
+	}
+	if period, _ := args["period"].(string); strings.TrimSpace(period) != "" {
+		opts.Period = strings.TrimSpace(period)
+	}
+	if since, _ := args["since"].(string); strings.TrimSpace(since) != "" {
+		t, err := time.Parse(time.RFC3339, strings.TrimSpace(since))
+		if err != nil {
+			return opts, fmt.Errorf("since must be RFC3339")
+		}
+		opts.Since = t
+	}
+	if _, ok := args["limit"]; ok {
+		limit, err := parseIntArg(args["limit"])
+		if err != nil {
+			return opts, fmt.Errorf("limit must be an integer")
+		}
+		opts.Limit = int(limit)
+	}
+	if query, _ := args["query"].(string); strings.TrimSpace(query) != "" {
+		opts.Query = strings.TrimSpace(query)
+	}
+	if v, ok, err := optionalBoolArg(args["include_payloads"]); err != nil {
+		return opts, fmt.Errorf("include_payloads must be true or false")
+	} else if ok {
+		opts.IncludePayloads = v
+	}
+	if v, ok, err := optionalBoolArg(args["include_raw"]); err != nil {
+		return opts, fmt.Errorf("include_raw must be true or false")
+	} else if ok {
+		opts.IncludeRaw = v
+	}
+	return opts, nil
+}
+
+func hasGatewayDirectiveEditArgs(args map[string]any) bool {
+	for _, key := range []string{"directive_edits", "directive_edit_mode", "directive_section", "directive_match", "directive_content"} {
+		if _, ok := args[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func updateAgentMCPServersFromGateway(agentID int64, serverIDs []int64, action, defaultProjectID string, serverAPI gatewayAPIClient, store *Store, selfPath string) (any, error) {
+	var agent map[string]any
+	if err := serverAPI.do(http.MethodGet, fmt.Sprintf("/agents/%d", agentID), nil, &agent); err != nil {
+		return nil, err
+	}
+	projectID, _ := agent["project_id"].(string)
+	if projectID == "" {
+		projectID = defaultProjectID
+	}
+
+	var current struct {
+		MCPServers []map[string]any `json:"mcp_servers"`
+	}
+	if err := serverAPI.do(http.MethodGet, fmt.Sprintf("/agents/%d/config", agentID), nil, &current); err != nil {
+		return nil, err
+	}
+
+	serverPort := os.Getenv("PORT")
+	if serverPort == "" {
+		serverPort = "8080"
+	}
+	selected := make([]map[string]any, 0, len(serverIDs))
+	for _, serverID := range serverIDs {
+		record, _, err := store.GetMCPServer(serverAPI.userID, serverID)
+		if err != nil {
+			return nil, fmt.Errorf("mcp server %d not found", serverID)
+		}
+		if record.ProjectID != "" && projectID != "" && record.ProjectID != projectID {
+			return nil, fmt.Errorf("mcp server %d belongs to project %q, agent belongs to project %q", serverID, record.ProjectID, projectID)
+		}
+		cfg, err := gatewayMCPConfigFromRecord(*record, projectID, serverPort, selfPath)
+		if err != nil {
+			return nil, fmt.Errorf("mcp server %d cannot be attached: %w", serverID, err)
+		}
+		selected = append(selected, cfg)
+	}
+
+	next := current.MCPServers
+	switch action {
+	case "set":
+		next = append(filterSystemMCPConfigs(current.MCPServers), selected...)
+	case "add":
+		next = append(removeMCPConfigsByName(current.MCPServers, selected), selected...)
+	case "remove":
+		next = removeMCPConfigsByName(current.MCPServers, selected)
+	}
+
+	body := map[string]any{"mcp_servers": next}
+	var out any
+	if err := serverAPI.do(http.MethodPut, fmt.Sprintf("/agents/%d/config", agentID), body, &out); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"id":             agentID,
+		"action":         action,
+		"mcp_server_ids": serverIDs,
+		"mcp_servers":    next,
+		"count":          len(next),
+		"result":         out,
+	}, nil
+}
+
+func gatewayMCPConfigFromRecord(record MCPServerRecord, projectID, serverPort, selfPath string) (map[string]any, error) {
+	switch {
+	case record.Source == "local" && record.ConnectionID > 0:
+		return map[string]any{
+			"name":      record.Name,
+			"transport": "http",
+			"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, record.ID),
+		}, nil
+	case record.Source == "app" && record.URL != "":
+		u := record.URL
+		if projectID != "" {
+			u = addQueryParam(u, "project_id", projectID)
+		}
+		return map[string]any{
+			"name":      record.Name,
+			"transport": "http",
+			"url":       u,
+		}, nil
+	case record.Source == "remote" && record.URL != "":
+		return map[string]any{
+			"name":      record.Name,
+			"transport": "http",
+			"url":       record.URL,
+		}, nil
+	case record.Command != "":
+		var parsedArgs []string
+		_ = json.Unmarshal([]byte(record.Args), &parsedArgs)
+		return map[string]any{
+			"name":      record.Name,
+			"transport": "stdio",
+			"command":   selfPath,
+			"args":      parsedArgs,
+		}, nil
+	default:
+		return nil, fmt.Errorf("missing URL or command")
+	}
+}
+
+func filterSystemMCPConfigs(servers []map[string]any) []map[string]any {
+	var out []map[string]any
+	for _, srv := range servers {
+		if gatewayMCPConfigIsSystem(srv) {
+			out = append(out, srv)
+		}
+	}
+	return out
+}
+
+func removeMCPConfigsByName(servers []map[string]any, targets []map[string]any) []map[string]any {
+	names := map[string]bool{}
+	for _, target := range targets {
+		name, _ := target["name"].(string)
+		if name != "" {
+			names[name] = true
+		}
+	}
+	out := make([]map[string]any, 0, len(servers))
+	for _, srv := range servers {
+		name, _ := srv["name"].(string)
+		if name != "" && names[name] {
+			continue
+		}
+		out = append(out, srv)
+	}
+	return out
+}
+
+func gatewayMCPConfigIsSystem(srv map[string]any) bool {
+	name, _ := srv["name"].(string)
+	return name == "apteva-server" || name == "channels" || name == "apteva-channels"
+}
+
+func optionalBoolArg(v any) (bool, bool, error) {
+	if v == nil {
+		return false, false, nil
+	}
+	switch val := v.(type) {
+	case bool:
+		return val, true, nil
+	case string:
+		if strings.TrimSpace(val) == "" {
+			return false, false, nil
+		}
+		parsed, err := strconv.ParseBool(strings.TrimSpace(val))
+		return parsed, true, err
+	default:
+		return false, false, fmt.Errorf("invalid boolean")
+	}
+}
+
+func optionalConfigArg(v any) (string, bool, error) {
+	if v == nil {
+		return "", false, nil
+	}
+	switch val := v.(type) {
+	case string:
+		val = strings.TrimSpace(val)
+		if val == "" {
+			return "", false, nil
+		}
+		if !json.Valid([]byte(val)) {
+			return "", false, fmt.Errorf("config must be valid JSON")
+		}
+		return val, true, nil
+	case map[string]any:
+		data, err := json.Marshal(val)
+		if err != nil {
+			return "", false, err
+		}
+		return string(data), true, nil
+	default:
+		return "", false, fmt.Errorf("config must be a JSON object or JSON string")
+	}
+}
+
+func parseIntListArg(v any) ([]int64, error) {
+	if v == nil {
+		return nil, nil
+	}
+	switch val := v.(type) {
+	case string:
+		if strings.TrimSpace(val) == "" {
+			return nil, nil
+		}
+		parts := strings.Split(val, ",")
+		out := make([]int64, 0, len(parts))
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			id, err := strconv.ParseInt(part, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, id)
+		}
+		return out, nil
+	case []any:
+		out := make([]int64, 0, len(val))
+		for _, item := range val {
+			id, err := parseIntArg(item)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, id)
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("invalid integer list")
 	}
 }
 

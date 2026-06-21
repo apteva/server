@@ -553,6 +553,34 @@ func (s *Server) sweepSkillFromProject(userID int64, projectID string, skillID i
 	}
 }
 
+// refreshSkillInAssignedInstances re-pushes a changed catalog row to
+// agents that already carry the skill:<slug> memory. It deliberately
+// does not auto-assign the skill to agents missing that tag.
+func (s *Server) refreshSkillInAssignedInstances(userID int64, projectID string, sk Skill, reason string) int {
+	insts, err := s.store.ListAgents(userID, projectID)
+	if err != nil {
+		fmt.Printf("[SKILLS-REFRESH] list instances for user=%d project=%q skill=%s: %v\n", userID, projectID, sk.Slug, err)
+		return 0
+	}
+	refreshed := 0
+	for _, inst := range insts {
+		id, err := s.findActiveSkillRecordID(inst.ID, sk.Slug)
+		if err != nil {
+			fmt.Printf("[SKILLS-REFRESH] find active agent=%d skill=%s: %v\n", inst.ID, sk.Slug, err)
+			continue
+		}
+		if id == "" {
+			continue
+		}
+		if err := s.PushSkillToInstance(inst.ID, sk); err != nil {
+			fmt.Printf("[SKILLS-REFRESH] push agent=%d skill=%s reason=%q: %v\n", inst.ID, sk.Slug, reason, err)
+			continue
+		}
+		refreshed++
+	}
+	return refreshed
+}
+
 // extractTag returns the value of the first tag with the given prefix
 // stripped, or "" if none. Convenience for status computation.
 func extractTag(tags []string, prefix string) string {

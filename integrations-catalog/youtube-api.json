@@ -624,6 +624,60 @@
       }
     },
     {
+      "name": "set_thumbnail",
+      "description": "Upload and set a custom thumbnail image for an existing YouTube video. This is the YouTube Data API thumbnails.set endpoint: it is separate from video upload/update, requires a videoId, and sends the image bytes as the request body. Supported image types: JPEG or PNG; YouTube's documented maximum thumbnail upload size is 2 MB. The channel must be allowed to use custom thumbnails.",
+      "method": "POST",
+      "path": "https://www.googleapis.com/upload/youtube/v3/thumbnails/set",
+      "body_binary_param": "image",
+      "query_params": [
+        "videoId",
+        "onBehalfOfContentOwner"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "YouTube video ID whose custom thumbnail should be set."
+          },
+          "image": {
+            "type": "string",
+            "description": "Thumbnail image bytes as a blobref:// handle or runtime binary envelope. Do not inline base64 manually. JPEG or PNG, max 2 MB."
+          },
+          "onBehalfOfContentOwner": {
+            "type": "string",
+            "description": "Optional YouTube CMS content owner. Intended only for YouTube content partners."
+          }
+        },
+        "required": [
+          "videoId",
+          "image"
+        ]
+      },
+      "mock_response": {
+        "kind": "youtube#thumbnailSetResponse",
+        "items": [
+          {
+            "default": {
+              "url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/default.jpg",
+              "width": 120,
+              "height": 90
+            },
+            "medium": {
+              "url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg",
+              "width": 320,
+              "height": 180
+            },
+            "high": {
+              "url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+              "width": 480,
+              "height": 360
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "upload_video_init",
       "description": "Step 1 of YouTube's resumable video upload protocol. POSTs the video metadata (title, description, privacy, category) to the upload host and gets back a session URL in the Location response header. The caller (typically the social app's publishYoutube flow) then PUTs the actual video bytes to that session URL — that step does NOT go through this integration because Google's session URLs are pre-authorized (no Bearer header needed). Note: the path is absolute because YouTube's upload endpoint lives at googleapis.com/upload/youtube/v3, not the read API host.",
       "method": "POST",

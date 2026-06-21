@@ -344,6 +344,7 @@ func (r *serverResolver) OwnedInstance(userID, instanceID int64) (framework.Inst
 		Name:       inst.Name,
 		UserID:     inst.UserID,
 		ProjectID:  inst.ProjectID,
+		Kind:       inst.Kind,
 		Port:       r.srv.agents.GetPort(inst.ID),
 		CoreAPIKey: r.srv.agents.GetCoreAPIKey(inst.ID),
 	}, nil
