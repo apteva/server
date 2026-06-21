@@ -28,6 +28,11 @@ func TestNormalizeCredentials_DerivesBasicAuth(t *testing.T) {
 			"alice:wonderland",
 		},
 		{
+			"login password basic",
+			map[string]string{"login": "api@example.com", "password": "secret"},
+			"api@example.com:secret",
+		},
+		{
 			"missing one half",
 			map[string]string{"account_sid": "AC123"},
 			"",
