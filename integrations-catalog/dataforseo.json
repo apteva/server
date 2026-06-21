@@ -38,6 +38,16 @@
   },
   "tools": [
     {
+      "name": "locations_and_languages",
+      "description": "List DataForSEO Labs locations and languages for Google, Bing, and Amazon. Free endpoint used to populate SEO app locales.",
+      "method": "GET",
+      "path": "/dataforseo_labs/locations_and_languages",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
       "name": "keyword_search_volume",
       "description": "Get search volume, competition, CPC data, and monthly trends for keywords via Google Ads API. Max 1000 keywords per request.",
       "method": "POST",
