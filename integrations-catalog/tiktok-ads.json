@@ -84,16 +84,22 @@
         "properties": {
           "advertiser_ids": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Array of advertiser_id strings (max 100). Pass as JSON-encoded array string in the URL."
           },
           "fields": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Optional fields to return; defaults to all"
           }
         },
-        "required": ["advertiser_ids"]
+        "required": [
+          "advertiser_ids"
+        ]
       }
     },
     {
@@ -104,20 +110,34 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "advertiser_id": { "type": "string", "description": "Advertiser ID" },
+          "advertiser_id": {
+            "type": "string",
+            "description": "Advertiser ID"
+          },
           "filtering": {
             "type": "object",
             "description": "Filter object, e.g. {\"campaign_ids\": [\"1234\"], \"primary_status\": \"STATUS_ALL\", \"objective_type\": \"TRAFFIC\"}"
           },
           "fields": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Fields to return (campaign_id, campaign_name, status, objective_type, budget, etc.)"
           },
-          "page": { "type": "integer", "default": 1 },
-          "page_size": { "type": "integer", "default": 10, "description": "Max 1000" }
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "default": 10,
+            "description": "Max 1000"
+          }
         },
-        "required": ["advertiser_id"]
+        "required": [
+          "advertiser_id"
+        ]
       }
     },
     {
@@ -128,25 +148,60 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "advertiser_id": { "type": "string" },
-          "campaign_name": { "type": "string" },
+          "advertiser_id": {
+            "type": "string"
+          },
+          "campaign_name": {
+            "type": "string"
+          },
           "objective_type": {
             "type": "string",
-            "enum": ["TRAFFIC", "CONVERSIONS", "APP_PROMOTION", "REACH", "VIDEO_VIEWS", "LEAD_GENERATION", "ENGAGEMENT", "PRODUCT_SALES", "WEB_CONVERSIONS"]
+            "enum": [
+              "TRAFFIC",
+              "CONVERSIONS",
+              "APP_PROMOTION",
+              "REACH",
+              "VIDEO_VIEWS",
+              "LEAD_GENERATION",
+              "ENGAGEMENT",
+              "PRODUCT_SALES",
+              "WEB_CONVERSIONS"
+            ]
           },
           "budget_mode": {
             "type": "string",
-            "enum": ["BUDGET_MODE_DAY", "BUDGET_MODE_TOTAL", "BUDGET_MODE_INFINITE"]
+            "enum": [
+              "BUDGET_MODE_DAY",
+              "BUDGET_MODE_TOTAL",
+              "BUDGET_MODE_INFINITE"
+            ]
           },
-          "budget": { "type": "number", "description": "Required unless budget_mode = BUDGET_MODE_INFINITE" },
-          "operation_status": { "type": "string", "enum": ["ENABLE", "DISABLE"], "default": "DISABLE" },
+          "budget": {
+            "type": "number",
+            "description": "Required unless budget_mode = BUDGET_MODE_INFINITE"
+          },
+          "operation_status": {
+            "type": "string",
+            "enum": [
+              "ENABLE",
+              "DISABLE"
+            ],
+            "default": "DISABLE"
+          },
           "special_industries": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Required for regulated verticals (e.g. HOUSING, EMPLOYMENT, CREDIT)"
           }
         },
-        "required": ["advertiser_id", "campaign_name", "objective_type", "budget_mode"]
+        "required": [
+          "advertiser_id",
+          "campaign_name",
+          "objective_type",
+          "budget_mode"
+        ]
       }
     },
     {
@@ -157,13 +212,31 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "advertiser_id": { "type": "string" },
-          "campaign_id": { "type": "string" },
-          "campaign_name": { "type": "string" },
-          "budget": { "type": "number" },
-          "operation_status": { "type": "string", "enum": ["ENABLE", "DISABLE", "DELETE"] }
+          "advertiser_id": {
+            "type": "string"
+          },
+          "campaign_id": {
+            "type": "string"
+          },
+          "campaign_name": {
+            "type": "string"
+          },
+          "budget": {
+            "type": "number"
+          },
+          "operation_status": {
+            "type": "string",
+            "enum": [
+              "ENABLE",
+              "DISABLE",
+              "DELETE"
+            ]
+          }
         },
-        "required": ["advertiser_id", "campaign_id"]
+        "required": [
+          "advertiser_id",
+          "campaign_id"
+        ]
       }
     },
     {
@@ -174,13 +247,31 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "advertiser_id": { "type": "string" },
-          "filtering": { "type": "object", "description": "e.g. {\"campaign_ids\": [\"123\"], \"primary_status\": \"STATUS_ALL\"}" },
-          "fields": { "type": "array", "items": { "type": "string" } },
-          "page": { "type": "integer", "default": 1 },
-          "page_size": { "type": "integer", "default": 10 }
+          "advertiser_id": {
+            "type": "string"
+          },
+          "filtering": {
+            "type": "object",
+            "description": "e.g. {\"campaign_ids\": [\"123\"], \"primary_status\": \"STATUS_ALL\"}"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "default": 10
+          }
         },
-        "required": ["advertiser_id"]
+        "required": [
+          "advertiser_id"
+        ]
       }
     },
     {
@@ -191,29 +282,135 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "advertiser_id": { "type": "string" },
-          "campaign_id": { "type": "string" },
-          "adgroup_name": { "type": "string" },
-          "placement_type": { "type": "string", "enum": ["PLACEMENT_TYPE_AUTOMATIC", "PLACEMENT_TYPE_NORMAL"] },
-          "placements": { "type": "array", "items": { "type": "string" }, "description": "e.g. [\"PLACEMENT_TIKTOK\"]" },
-          "promotion_type": { "type": "string", "enum": ["WEBSITE", "APP_ANDROID", "APP_IOS", "LEAD_GENERATION"] },
-          "optimization_goal": { "type": "string", "description": "e.g. CLICK, CONVERT, REACH, INSTALL, IMPRESSION" },
-          "billing_event": { "type": "string", "enum": ["CPC", "CPM", "OCPM", "CPV"] },
-          "bid_type": { "type": "string", "enum": ["BID_TYPE_NO_BID", "BID_TYPE_CUSTOM", "BID_TYPE_MAX_CONVERSION"] },
-          "bid_price": { "type": "number" },
-          "budget_mode": { "type": "string", "enum": ["BUDGET_MODE_DAY", "BUDGET_MODE_TOTAL"] },
-          "budget": { "type": "number" },
-          "schedule_type": { "type": "string", "enum": ["SCHEDULE_FROM_NOW", "SCHEDULE_START_END"] },
-          "schedule_start_time": { "type": "string", "description": "yyyy-MM-dd HH:mm:ss" },
-          "schedule_end_time": { "type": "string" },
-          "pacing": { "type": "string", "enum": ["PACING_MODE_SMOOTH", "PACING_MODE_FAST"] },
-          "targeting_expansion": { "type": "object" },
-          "location_ids": { "type": "array", "items": { "type": "string" } },
-          "languages": { "type": "array", "items": { "type": "string" } },
-          "age_groups": { "type": "array", "items": { "type": "string" } },
-          "gender": { "type": "string", "enum": ["GENDER_MALE", "GENDER_FEMALE", "GENDER_UNLIMITED"] }
+          "advertiser_id": {
+            "type": "string"
+          },
+          "campaign_id": {
+            "type": "string"
+          },
+          "adgroup_name": {
+            "type": "string"
+          },
+          "placement_type": {
+            "type": "string",
+            "enum": [
+              "PLACEMENT_TYPE_AUTOMATIC",
+              "PLACEMENT_TYPE_NORMAL"
+            ]
+          },
+          "placements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "e.g. [\"PLACEMENT_TIKTOK\"]"
+          },
+          "promotion_type": {
+            "type": "string",
+            "enum": [
+              "WEBSITE",
+              "APP_ANDROID",
+              "APP_IOS",
+              "LEAD_GENERATION"
+            ]
+          },
+          "optimization_goal": {
+            "type": "string",
+            "description": "e.g. CLICK, CONVERT, REACH, INSTALL, IMPRESSION"
+          },
+          "billing_event": {
+            "type": "string",
+            "enum": [
+              "CPC",
+              "CPM",
+              "OCPM",
+              "CPV"
+            ]
+          },
+          "bid_type": {
+            "type": "string",
+            "enum": [
+              "BID_TYPE_NO_BID",
+              "BID_TYPE_CUSTOM",
+              "BID_TYPE_MAX_CONVERSION"
+            ]
+          },
+          "bid_price": {
+            "type": "number"
+          },
+          "budget_mode": {
+            "type": "string",
+            "enum": [
+              "BUDGET_MODE_DAY",
+              "BUDGET_MODE_TOTAL"
+            ]
+          },
+          "budget": {
+            "type": "number"
+          },
+          "schedule_type": {
+            "type": "string",
+            "enum": [
+              "SCHEDULE_FROM_NOW",
+              "SCHEDULE_START_END"
+            ]
+          },
+          "schedule_start_time": {
+            "type": "string",
+            "description": "yyyy-MM-dd HH:mm:ss"
+          },
+          "schedule_end_time": {
+            "type": "string"
+          },
+          "pacing": {
+            "type": "string",
+            "enum": [
+              "PACING_MODE_SMOOTH",
+              "PACING_MODE_FAST"
+            ]
+          },
+          "targeting_expansion": {
+            "type": "object"
+          },
+          "location_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "languages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "age_groups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "gender": {
+            "type": "string",
+            "enum": [
+              "GENDER_MALE",
+              "GENDER_FEMALE",
+              "GENDER_UNLIMITED"
+            ]
+          }
         },
-        "required": ["advertiser_id", "campaign_id", "adgroup_name", "placement_type", "billing_event", "optimization_goal", "budget_mode", "budget", "schedule_type", "pacing"]
+        "required": [
+          "advertiser_id",
+          "campaign_id",
+          "adgroup_name",
+          "placement_type",
+          "billing_event",
+          "optimization_goal",
+          "budget_mode",
+          "budget",
+          "schedule_type",
+          "pacing"
+        ]
       }
     },
     {
@@ -224,13 +421,30 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "advertiser_id": { "type": "string" },
-          "filtering": { "type": "object" },
-          "fields": { "type": "array", "items": { "type": "string" } },
-          "page": { "type": "integer", "default": 1 },
-          "page_size": { "type": "integer", "default": 10 }
+          "advertiser_id": {
+            "type": "string"
+          },
+          "filtering": {
+            "type": "object"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "default": 10
+          }
         },
-        "required": ["advertiser_id"]
+        "required": [
+          "advertiser_id"
+        ]
       }
     },
     {
@@ -241,15 +455,25 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "advertiser_id": { "type": "string" },
-          "adgroup_id": { "type": "string" },
+          "advertiser_id": {
+            "type": "string"
+          },
+          "adgroup_id": {
+            "type": "string"
+          },
           "creatives": {
             "type": "array",
-            "items": { "type": "object" },
+            "items": {
+              "type": "object"
+            },
             "description": "Array of creative objects"
           }
         },
-        "required": ["advertiser_id", "adgroup_id", "creatives"]
+        "required": [
+          "advertiser_id",
+          "adgroup_id",
+          "creatives"
+        ]
       }
     },
     {
@@ -260,11 +484,29 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "advertiser_id": { "type": "string" },
-          "ad_ids": { "type": "array", "items": { "type": "string" } },
-          "operation_status": { "type": "string", "enum": ["ENABLE", "DISABLE", "DELETE"] }
+          "advertiser_id": {
+            "type": "string"
+          },
+          "ad_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "operation_status": {
+            "type": "string",
+            "enum": [
+              "ENABLE",
+              "DISABLE",
+              "DELETE"
+            ]
+          }
         },
-        "required": ["advertiser_id", "ad_ids", "operation_status"]
+        "required": [
+          "advertiser_id",
+          "ad_ids",
+          "operation_status"
+        ]
       }
     },
     {
@@ -275,20 +517,297 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "advertiser_id": { "type": "string" },
-          "report_type": { "type": "string", "enum": ["BASIC", "AUDIENCE", "PLAYABLE_MATERIAL", "RESERVATION"], "default": "BASIC" },
-          "data_level": { "type": "string", "enum": ["AUCTION_ADVERTISER", "AUCTION_CAMPAIGN", "AUCTION_ADGROUP", "AUCTION_AD"] },
-          "dimensions": { "type": "array", "items": { "type": "string" } },
-          "metrics": { "type": "array", "items": { "type": "string" } },
-          "start_date": { "type": "string", "description": "YYYY-MM-DD" },
-          "end_date": { "type": "string", "description": "YYYY-MM-DD" },
-          "filters": { "type": "array", "items": { "type": "object" } },
-          "order_field": { "type": "string" },
-          "order_type": { "type": "string", "enum": ["ASC", "DESC"] },
-          "page": { "type": "integer", "default": 1 },
-          "page_size": { "type": "integer", "default": 1000 }
+          "advertiser_id": {
+            "type": "string"
+          },
+          "report_type": {
+            "type": "string",
+            "enum": [
+              "BASIC",
+              "AUDIENCE",
+              "PLAYABLE_MATERIAL",
+              "RESERVATION"
+            ],
+            "default": "BASIC"
+          },
+          "data_level": {
+            "type": "string",
+            "enum": [
+              "AUCTION_ADVERTISER",
+              "AUCTION_CAMPAIGN",
+              "AUCTION_ADGROUP",
+              "AUCTION_AD"
+            ]
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "start_date": {
+            "type": "string",
+            "description": "YYYY-MM-DD"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "YYYY-MM-DD"
+          },
+          "filters": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "order_field": {
+            "type": "string"
+          },
+          "order_type": {
+            "type": "string",
+            "enum": [
+              "ASC",
+              "DESC"
+            ]
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "default": 1000
+          }
         },
-        "required": ["advertiser_id", "data_level", "dimensions", "start_date", "end_date"]
+        "required": [
+          "advertiser_id",
+          "data_level",
+          "dimensions",
+          "start_date",
+          "end_date"
+        ]
+      }
+    },
+    {
+      "name": "adgroup_update",
+      "description": "Update an ad group: name, budget, bid, schedule, targeting, optimization, or status fields supported by TikTok.",
+      "method": "POST",
+      "path": "/adgroup/update/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": {
+            "type": "string"
+          },
+          "adgroup_id": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "description": "Fields to update. You may pass platform-native fields directly in data."
+          }
+        },
+        "required": [
+          "advertiser_id",
+          "adgroup_id",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "adgroup_update_status",
+      "description": "Enable, disable, or delete one or more ad groups.",
+      "method": "POST",
+      "path": "/adgroup/status/update/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": {
+            "type": "string"
+          },
+          "adgroup_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "operation_status": {
+            "type": "string",
+            "enum": [
+              "ENABLE",
+              "DISABLE",
+              "DELETE"
+            ]
+          }
+        },
+        "required": [
+          "advertiser_id",
+          "adgroup_ids",
+          "operation_status"
+        ]
+      }
+    },
+    {
+      "name": "image_upload",
+      "description": "Upload an ad image asset. Use multipart/file payload support when available, or pass image_url/material_id fields supported by TikTok.",
+      "method": "POST",
+      "path": "/file/image/ad/upload/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": {
+            "type": "string"
+          },
+          "image_file": {
+            "type": "string"
+          },
+          "image_url": {
+            "type": "string"
+          },
+          "upload_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "advertiser_id"
+        ]
+      }
+    },
+    {
+      "name": "video_upload",
+      "description": "Upload an ad video asset. Use multipart/file payload support when available, or pass video_url/material_id fields supported by TikTok.",
+      "method": "POST",
+      "path": "/file/video/ad/upload/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": {
+            "type": "string"
+          },
+          "video_file": {
+            "type": "string"
+          },
+          "video_url": {
+            "type": "string"
+          },
+          "upload_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "advertiser_id"
+        ]
+      }
+    },
+    {
+      "name": "custom_audience_list",
+      "description": "List custom audiences for an advertiser.",
+      "method": "GET",
+      "path": "/dmp/custom_audience/list/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": {
+            "type": "string"
+          },
+          "filtering": {
+            "type": "object",
+            "description": "Optional filters such as custom_audience_ids, audience_type, status."
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "advertiser_id"
+        ]
+      }
+    },
+    {
+      "name": "custom_audience_create",
+      "description": "Create a custom audience. Body varies by audience type: customer file, engagement, app activity, pixel, or lookalike.",
+      "method": "POST",
+      "path": "/dmp/custom_audience/create/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "description": "Raw TikTok custom audience creation payload."
+          }
+        },
+        "required": [
+          "advertiser_id",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "custom_audience_update",
+      "description": "Update a custom audience.",
+      "method": "POST",
+      "path": "/dmp/custom_audience/update/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": {
+            "type": "string"
+          },
+          "custom_audience_id": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "description": "Raw TikTok custom audience update payload."
+          }
+        },
+        "required": [
+          "advertiser_id",
+          "custom_audience_id",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "ad_delete",
+      "description": "Generic delete alias for TikTok ads via status update operation_status=DELETE.",
+      "method": "POST",
+      "path": "/ad/status/update/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser_id": {
+            "type": "string"
+          },
+          "ad_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "operation_status": {
+            "type": "string",
+            "enum": [
+              "DELETE"
+            ]
+          }
+        },
+        "required": [
+          "advertiser_id",
+          "ad_ids",
+          "operation_status"
+        ]
       }
     }
   ]

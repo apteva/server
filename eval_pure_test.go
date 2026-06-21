@@ -446,6 +446,22 @@ func TestParseJudgeReply_GarbageReturnsError(t *testing.T) {
 
 // ─── buildJudgePrompt ─────────────────────────────────────────────
 
+func TestPlatformHelperPrompt_DefaultsToHelperPersona(t *testing.T) {
+	firstLine := strings.SplitN(judgeSystemPrompt, "\n", 2)[0]
+	if !strings.Contains(firstLine, "Apteva Helper") {
+		t.Fatalf("platform helper prompt first line = %q, want Apteva Helper", firstLine)
+	}
+	if strings.Contains(firstLine, "eval judge") {
+		t.Fatalf("platform helper prompt should not default to eval judge: %q", firstLine)
+	}
+	if !strings.Contains(judgeSystemPrompt, "TASK TYPE: eval_judge") {
+		t.Fatal("platform helper prompt missing explicit eval_judge mode")
+	}
+	if !strings.Contains(judgeSystemPrompt, "TASK TYPE: platform_assistant") {
+		t.Fatal("platform helper prompt missing explicit platform_assistant mode")
+	}
+}
+
 func TestBuildJudgePrompt_RendersAllSections(t *testing.T) {
 	ev := &Eval{
 		Description: "greet the user politely",
@@ -466,6 +482,7 @@ func TestBuildJudgePrompt_RendersAllSections(t *testing.T) {
 	out := buildJudgePrompt(ev, traj, "Standing directive: be kind.", true)
 
 	wantContains := []string{
+		"TASK TYPE: eval_judge",
 		"# Description",
 		"greet the user politely",
 		"# Agent directive",

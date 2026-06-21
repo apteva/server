@@ -1,7 +1,7 @@
 {
   "slug": "google-ads",
   "name": "Google Ads",
-  "description": "Google Ads API v23 \u2014 manage campaigns, ad groups, ads, keywords, budgets, and run performance reports via GAQL queries",
+  "description": "Google Ads API v23 — manage campaigns, ad groups, ads, keywords, budgets, and run performance reports via GAQL queries",
   "logo": "https://upload.wikimedia.org/wikipedia/commons/c/c7/Google_Ads_logo.svg",
   "categories": [
     "advertising",
@@ -108,7 +108,7 @@
     },
     {
       "name": "search_stream",
-      "description": "Run a GAQL query using streaming \u2014 returns all results at once without pagination. Better for large result sets. Same query syntax as google-ads-search.",
+      "description": "Run a GAQL query using streaming — returns all results at once without pagination. Better for large result sets. Same query syntax as google-ads-search.",
       "method": "POST",
       "path": "/customers/{customer_id}/googleAds:searchStream",
       "input_schema": {
@@ -495,7 +495,7 @@
     },
     {
       "name": "bulk_mutate",
-      "description": "Create or modify multiple resource types in a single atomic request \u2014 budgets, campaigns, ad groups, and ads together. Uses temporary resource IDs (negative numbers) to reference resources created in the same request.\n\nExample creating a full campaign:\n{\"mutateOperations\": [{\"campaignBudgetOperation\": {\"create\": {\"resourceName\": \"customers/1234/campaignBudgets/-1\", \"name\": \"Budget\", \"amountMicros\": \"50000000\"}}}, {\"campaignOperation\": {\"create\": {\"resourceName\": \"customers/1234/campaigns/-2\", \"name\": \"My Campaign\", \"campaignBudget\": \"customers/1234/campaignBudgets/-1\", \"advertisingChannelType\": \"SEARCH\", \"status\": \"PAUSED\"}}}, {\"adGroupOperation\": {\"create\": {\"campaign\": \"customers/1234/campaigns/-2\", \"name\": \"Ad Group 1\"}}}]}",
+      "description": "Create or modify multiple resource types in a single atomic request — budgets, campaigns, ad groups, and ads together. Uses temporary resource IDs (negative numbers) to reference resources created in the same request.\n\nExample creating a full campaign:\n{\"mutateOperations\": [{\"campaignBudgetOperation\": {\"create\": {\"resourceName\": \"customers/1234/campaignBudgets/-1\", \"name\": \"Budget\", \"amountMicros\": \"50000000\"}}}, {\"campaignOperation\": {\"create\": {\"resourceName\": \"customers/1234/campaigns/-2\", \"name\": \"My Campaign\", \"campaignBudget\": \"customers/1234/campaignBudgets/-1\", \"advertisingChannelType\": \"SEARCH\", \"status\": \"PAUSED\"}}}, {\"adGroupOperation\": {\"create\": {\"campaign\": \"customers/1234/campaigns/-2\", \"name\": \"Ad Group 1\"}}}]}",
       "method": "POST",
       "path": "/customers/{customer_id}/googleAds:mutate",
       "input_schema": {
@@ -520,6 +520,54 @@
         "required": [
           "customer_id",
           "mutateOperations"
+        ]
+      }
+    },
+    {
+      "name": "report_search",
+      "description": "Run a reporting GAQL query. This is an explicit reporting alias for googleAds:search; use metrics.*, segments.*, and date filters in the query.",
+      "method": "POST",
+      "path": "/customers/{customer_id}/googleAds:search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "report_search_stream",
+      "description": "Run a reporting GAQL query through searchStream for large report result sets.",
+      "method": "POST",
+      "path": "/customers/{customer_id}/googleAds:searchStream",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "query"
         ]
       }
     }

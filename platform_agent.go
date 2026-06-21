@@ -534,25 +534,29 @@ func (s *Server) handlePlatformHelper(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, helper)
 }
 
-// judgeSystemPrompt is the meta-agent's resident directive. Every
-// /event posted to it produces one JSON-verdict reply. We keep the
-// prompt strict so parseJudgeReply doesn't have to do prose
-// gymnastics. The "be specific" line catches the most common
-// failure mode of free-form judge LLMs: flat one-word "why" fields.
+// judgeSystemPrompt is the platform helper's resident directive. The
+// default persona is the user-facing Apteva Helper shown in dashboard
+// chat. Explicit internal requests switch it into eval-judge or
+// directive-synthesis mode. We keep the const name because the eval
+// path and older tests still refer to the platform helper as the
+// "judge", but the first identity the model sees must be the helper,
+// not the judge.
 //
 // The suggested_improvements section is only honoured when the
 // caller's prompt includes "[improvements: on]" — strict
-// single-shot runs send "[improvements: off]" and the judge
-// should leave suggested_improvements null. We could split this
-// into two system prompts, but a single prompt + a per-request
-// flag keeps the platform_helper resident across both modes.
-const judgeSystemPrompt = `You are the Apteva platform's eval judge.
+// single-shot runs send "[improvements: off]" and the judge should
+// leave suggested_improvements null.
+const judgeSystemPrompt = `You are Apteva Helper, the platform assistant for the Apteva dashboard.
 
-Mode exceptions:
-- If a user message starts with "TASK TYPE: platform_assistant", ignore the grading rules below for that message. Act as Apteva Helper for the dashboard operator. Help them understand the current page, design agents, and manage agents by using the apteva-server MCP tools such as agents_create, agents_list, agents_start, agents_stop, and agents_update when appropriate. Reply by calling channels_respond with channel="chat". Do not return judge JSON.
-- If a user message starts with "TASK TYPE: directive_synthesis", ignore the grading rules below for that message and follow the requested response format in that message.
+Default mode: help the operator understand the current page, design agents, create and manage agents, choose apps/integrations/MCP servers, and inspect recent agent activity. Be concise and practical. When an answer is for dashboard chat, plain assistant text and thoughts are not visible to the user; call channels_respond with channel="chat" and useful text. When the operator asks you to create or manage agents, ask briefly for missing details, then use the apteva-server MCP tools such as agents_create, agents_list, agents_start, agents_stop, agents_delete, agents_update, mcp_servers_list, and agent_list_activity when appropriate.
 
-Each user message you receive is a single eval grading request. The message contains:
+Internal task modes:
+- If a user message contains "JUDGE_REQUEST_ID:" or "TASK TYPE: eval_judge", ignore the helper/chat instructions for that message and act as the Apteva platform's eval judge. Follow the Eval judge mode rules below and return judge JSON only.
+- If a user message contains "TASK TYPE: directive_synthesis", ignore the helper/chat instructions for that message and follow the requested response format in that message.
+- If a user message contains "TASK TYPE: platform_assistant", stay in helper mode. Do not grade anything. Do not return judge JSON. Reply by calling channels_respond with channel="chat".
+
+Eval judge mode:
+Each eval grading request contains:
 - Description: what the agent was asked to do
 - Agent directive: the agent's current standing instructions (so you understand its baseline behaviour)
 - Goals: a numbered list of plain-English expectations to grade against
@@ -584,7 +588,7 @@ Rules:
 - If "[improvements: off]", set suggested_improvements to null.
 - If "[improvements: on]" AND overall=fail, ALWAYS populate suggested_improvements with at least in_run_feedback. Add directive_edits only when a missing standing instruction would prevent this failure class on future runs (not just this one). Keep edits additive and concise — never propose deleting or replacing the directive. Use stable ids ("edit-1", "edit-2", ...) so the run report can track them.
 - If "[improvements: on]" AND overall=pass, set suggested_improvements to null.
-- Do not call any tools. Reply with the JSON object only.`
+- In eval judge mode, do not call any tools. Reply with the JSON object only.`
 
 // buildJudgePrompt assembles the user-side prompt the judge sees.
 // We render the trajectory as plain text (the LLM doesn't need a
@@ -592,6 +596,7 @@ Rules:
 // array is easy to align back.
 func buildJudgePrompt(ev *Eval, trajectory Trajectory, agentDirective string, allowImprovements bool) string {
 	var b strings.Builder
+	b.WriteString("TASK TYPE: eval_judge\n\n")
 	b.WriteString("# Description\n")
 	b.WriteString(strings.TrimSpace(ev.Description))
 	b.WriteString("\n\n# Agent directive\n")
@@ -608,9 +613,9 @@ func buildJudgePrompt(ev *Eval, trajectory Trajectory, agentDirective string, al
 	for _, turn := range trajectory.Turns {
 		switch turn.Role {
 		case "user":
-			fmt.Fprintf(&b, "USER: %s\n", turn.Content)
+			fmt.Fprintf(&b, "USER: %s\n", judgePromptText(turn.Content, 5000))
 		case "agent":
-			fmt.Fprintf(&b, "AGENT: %s\n", turn.Content)
+			fmt.Fprintf(&b, "AGENT: %s\n", judgePromptText(turn.Content, 3000))
 		case "tool":
 			if turn.ToolCall == nil {
 				continue
@@ -618,17 +623,17 @@ func buildJudgePrompt(ev *Eval, trajectory Trajectory, agentDirective string, al
 			tc := turn.ToolCall
 			fmt.Fprintf(&b, "TOOL CALL: %s.%s\n", tc.App, tc.Tool)
 			if len(tc.Args) > 0 {
-				fmt.Fprintf(&b, "  args: %s\n", string(tc.Args))
+				fmt.Fprintf(&b, "  args: %s\n", judgePromptText(string(tc.Args), 2500))
 			}
 			if tc.Error != "" {
-				fmt.Fprintf(&b, "  error: %s\n", tc.Error)
+				fmt.Fprintf(&b, "  error: %s\n", judgePromptText(tc.Error, 2000))
 			} else if len(tc.Response) > 0 {
-				fmt.Fprintf(&b, "  response: %s%s\n", string(tc.Response), mockedNote(tc.Mocked, tc.Warning))
+				fmt.Fprintf(&b, "  response: %s%s\n", judgePromptText(string(tc.Response), 6000), mockedNote(tc.Mocked, tc.Warning))
 			}
 		case "judge":
-			fmt.Fprintf(&b, "JUDGE FEEDBACK (iteration %d): %s\n", turn.Iteration, turn.Content)
+			fmt.Fprintf(&b, "JUDGE FEEDBACK (iteration %d): %s\n", turn.Iteration, judgePromptText(turn.Content, 3000))
 		case "system":
-			fmt.Fprintf(&b, "SYSTEM: %s\n", turn.Content)
+			fmt.Fprintf(&b, "SYSTEM: %s\n", judgePromptText(turn.Content, 2000))
 		}
 	}
 	if allowImprovements {
@@ -638,6 +643,14 @@ func buildJudgePrompt(ev *Eval, trajectory Trajectory, agentDirective string, al
 	}
 	b.WriteString("\nGrade the trajectory against the goals. Return the JSON object only.")
 	return b.String()
+}
+
+func judgePromptText(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	return truncate(s, max)
 }
 
 func mockedNote(mocked bool, warning string) string {

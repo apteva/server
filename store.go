@@ -1440,13 +1440,13 @@ func (s *Store) GetAgent(userID, instanceID int64) (*Agent, error) {
 
 // GetOrCreatePlatformHelper returns the singleton platform-owned
 // meta-agent row for a user, creating it on first call. Used by the
-// eval judge path so apteva-server always has a real apteva-core
-// process to dispatch judging work to.
+// dashboard helper and eval paths so apteva-server always has a real
+// apteva-core process to dispatch platform work to.
 //
 // Idempotent: subsequent calls for the same user return the existing
-// row. The directive is the canonical judgeSystemPrompt — embedded
-// here so the meta-agent always boots into "judge mode" without
-// any extra wiring.
+// row. The directive is the canonical platform-helper prompt; it can
+// switch into eval-judge mode for explicit internal requests, but its
+// default identity is the user-facing Apteva Helper.
 func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agent, error) {
 	// Look up existing helper for this user.
 	var ag Agent

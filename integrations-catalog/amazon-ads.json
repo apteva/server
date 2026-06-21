@@ -70,10 +70,35 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "apiProgram": { "type": "string", "enum": ["billing", "campaign", "paymentMethods", "store", "account", "posts"] },
-          "accessLevel": { "type": "string", "enum": ["edit", "view"] },
-          "profileTypeFilter": { "type": "string", "description": "Comma-separated, e.g. seller,vendor,agency" },
-          "validPaymentMethodFilter": { "type": "string", "enum": ["true", "false"] }
+          "apiProgram": {
+            "type": "string",
+            "enum": [
+              "billing",
+              "campaign",
+              "paymentMethods",
+              "store",
+              "account",
+              "posts"
+            ]
+          },
+          "accessLevel": {
+            "type": "string",
+            "enum": [
+              "edit",
+              "view"
+            ]
+          },
+          "profileTypeFilter": {
+            "type": "string",
+            "description": "Comma-separated, e.g. seller,vendor,agency"
+          },
+          "validPaymentMethodFilter": {
+            "type": "string",
+            "enum": [
+              "true",
+              "false"
+            ]
+          }
         }
       }
     },
@@ -85,12 +110,29 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "campaignIdFilter": { "type": "object", "description": "{\"include\": [\"123\", \"456\"]}" },
-          "stateFilter": { "type": "object", "description": "{\"include\": [\"ENABLED\"]}" },
-          "nameFilter": { "type": "object", "description": "{\"queryTermMatchType\": \"BROAD_MATCH\", \"include\": [\"summer\"]}" },
-          "portfolioIdFilter": { "type": "object" },
-          "maxResults": { "type": "integer", "default": 50, "description": "Max 5000" },
-          "nextToken": { "type": "string" }
+          "campaignIdFilter": {
+            "type": "object",
+            "description": "{\"include\": [\"123\", \"456\"]}"
+          },
+          "stateFilter": {
+            "type": "object",
+            "description": "{\"include\": [\"ENABLED\"]}"
+          },
+          "nameFilter": {
+            "type": "object",
+            "description": "{\"queryTermMatchType\": \"BROAD_MATCH\", \"include\": [\"summer\"]}"
+          },
+          "portfolioIdFilter": {
+            "type": "object"
+          },
+          "maxResults": {
+            "type": "integer",
+            "default": 50,
+            "description": "Max 5000"
+          },
+          "nextToken": {
+            "type": "string"
+          }
         }
       }
     },
@@ -104,10 +146,14 @@
         "properties": {
           "campaigns": {
             "type": "array",
-            "items": { "type": "object" }
+            "items": {
+              "type": "object"
+            }
           }
         },
-        "required": ["campaigns"]
+        "required": [
+          "campaigns"
+        ]
       }
     },
     {
@@ -118,9 +164,16 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "campaigns": { "type": "array", "items": { "type": "object" } }
+          "campaigns": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         },
-        "required": ["campaigns"]
+        "required": [
+          "campaigns"
+        ]
       }
     },
     {
@@ -131,11 +184,22 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "campaignIdFilter": { "type": "object" },
-          "adGroupIdFilter": { "type": "object" },
-          "stateFilter": { "type": "object" },
-          "maxResults": { "type": "integer", "default": 50 },
-          "nextToken": { "type": "string" }
+          "campaignIdFilter": {
+            "type": "object"
+          },
+          "adGroupIdFilter": {
+            "type": "object"
+          },
+          "stateFilter": {
+            "type": "object"
+          },
+          "maxResults": {
+            "type": "integer",
+            "default": 50
+          },
+          "nextToken": {
+            "type": "string"
+          }
         }
       }
     },
@@ -147,9 +211,16 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "adGroups": { "type": "array", "items": { "type": "object" } }
+          "adGroups": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         },
-        "required": ["adGroups"]
+        "required": [
+          "adGroups"
+        ]
       }
     },
     {
@@ -160,12 +231,33 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "campaignIdFilter": { "type": "object" },
-          "adGroupIdFilter": { "type": "object" },
-          "stateFilter": { "type": "object" },
-          "matchTypeFilter": { "type": "array", "items": { "type": "string", "enum": ["EXACT", "PHRASE", "BROAD"] } },
-          "maxResults": { "type": "integer", "default": 50 },
-          "nextToken": { "type": "string" }
+          "campaignIdFilter": {
+            "type": "object"
+          },
+          "adGroupIdFilter": {
+            "type": "object"
+          },
+          "stateFilter": {
+            "type": "object"
+          },
+          "matchTypeFilter": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "EXACT",
+                "PHRASE",
+                "BROAD"
+              ]
+            }
+          },
+          "maxResults": {
+            "type": "integer",
+            "default": 50
+          },
+          "nextToken": {
+            "type": "string"
+          }
         }
       }
     },
@@ -177,9 +269,16 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "keywords": { "type": "array", "items": { "type": "object" } }
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         },
-        "required": ["keywords"]
+        "required": [
+          "keywords"
+        ]
       }
     },
     {
@@ -190,10 +289,19 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "campaignIdFilter": { "type": "object" },
-          "stateFilter": { "type": "object" },
-          "maxResults": { "type": "integer", "default": 50 },
-          "nextToken": { "type": "string" }
+          "campaignIdFilter": {
+            "type": "object"
+          },
+          "stateFilter": {
+            "type": "object"
+          },
+          "maxResults": {
+            "type": "integer",
+            "default": 50
+          },
+          "nextToken": {
+            "type": "string"
+          }
         }
       }
     },
@@ -205,11 +313,26 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "startIndex": { "type": "integer", "default": 0 },
-          "count": { "type": "integer", "default": 100 },
-          "stateFilter": { "type": "string", "description": "Comma-separated states: enabled,paused,archived" },
-          "campaignIdFilter": { "type": "string", "description": "Comma-separated campaign IDs" },
-          "name": { "type": "string", "description": "Filter by name (exact match)" }
+          "startIndex": {
+            "type": "integer",
+            "default": 0
+          },
+          "count": {
+            "type": "integer",
+            "default": 100
+          },
+          "stateFilter": {
+            "type": "string",
+            "description": "Comma-separated states: enabled,paused,archived"
+          },
+          "campaignIdFilter": {
+            "type": "string",
+            "description": "Comma-separated campaign IDs"
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by name (exact match)"
+          }
         }
       }
     },
@@ -221,15 +344,28 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "name": { "type": "string", "description": "Optional report name" },
-          "startDate": { "type": "string", "description": "YYYY-MM-DD" },
-          "endDate": { "type": "string", "description": "YYYY-MM-DD" },
+          "name": {
+            "type": "string",
+            "description": "Optional report name"
+          },
+          "startDate": {
+            "type": "string",
+            "description": "YYYY-MM-DD"
+          },
+          "endDate": {
+            "type": "string",
+            "description": "YYYY-MM-DD"
+          },
           "configuration": {
             "type": "object",
             "description": "{\"adProduct\": \"SPONSORED_PRODUCTS\", \"groupBy\": [\"campaign\"], \"columns\": [\"impressions\",\"clicks\",\"cost\",\"sales\",\"purchases\"], \"reportTypeId\": \"spCampaigns\", \"timeUnit\": \"DAILY\", \"format\": \"GZIP_JSON\"}"
           }
         },
-        "required": ["startDate", "endDate", "configuration"]
+        "required": [
+          "startDate",
+          "endDate",
+          "configuration"
+        ]
       }
     },
     {
@@ -240,9 +376,488 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "reportId": { "type": "string" }
+          "reportId": {
+            "type": "string"
+          }
         },
-        "required": ["reportId"]
+        "required": [
+          "reportId"
+        ]
+      }
+    },
+    {
+      "name": "sp_update_ad_group",
+      "description": "Sponsored Products: update existing ad groups. Each item must include adGroupId; state can be used to pause/archive.",
+      "method": "PUT",
+      "path": "/sp/adGroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adGroups": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "adGroups"
+        ]
+      }
+    },
+    {
+      "name": "sp_list_product_ads",
+      "description": "Sponsored Products: list product ads. Filter by campaign, ad group, SKU, ASIN, state, or productAdId.",
+      "method": "POST",
+      "path": "/sp/productAds/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignIdFilter": {
+            "type": "object",
+            "description": "Raw vendor payload object."
+          },
+          "adGroupIdFilter": {
+            "type": "object",
+            "description": "Raw vendor payload object."
+          },
+          "productAdIdFilter": {
+            "type": "object",
+            "description": "Raw vendor payload object."
+          },
+          "stateFilter": {
+            "type": "object",
+            "description": "Raw vendor payload object."
+          },
+          "maxResults": {
+            "type": "integer"
+          },
+          "nextToken": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "sp_create_product_ads",
+      "description": "Sponsored Products: create product ads.",
+      "method": "POST",
+      "path": "/sp/productAds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productAds": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "productAds"
+        ]
+      }
+    },
+    {
+      "name": "sp_update_product_ads",
+      "description": "Sponsored Products: update product ads; set state to PAUSED or ARCHIVED for pause/delete semantics.",
+      "method": "PUT",
+      "path": "/sp/productAds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productAds": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "productAds"
+        ]
+      }
+    },
+    {
+      "name": "sp_list_targets",
+      "description": "Sponsored Products: list product/category targets.",
+      "method": "POST",
+      "path": "/sp/targets/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignIdFilter": {
+            "type": "object",
+            "description": "Raw vendor payload object."
+          },
+          "adGroupIdFilter": {
+            "type": "object",
+            "description": "Raw vendor payload object."
+          },
+          "targetIdFilter": {
+            "type": "object",
+            "description": "Raw vendor payload object."
+          },
+          "stateFilter": {
+            "type": "object",
+            "description": "Raw vendor payload object."
+          },
+          "maxResults": {
+            "type": "integer"
+          },
+          "nextToken": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "sp_create_targets",
+      "description": "Sponsored Products: create product/category targets.",
+      "method": "POST",
+      "path": "/sp/targets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "targets"
+        ]
+      }
+    },
+    {
+      "name": "sp_update_targets",
+      "description": "Sponsored Products: update targets; set state to PAUSED or ARCHIVED for pause/delete semantics.",
+      "method": "PUT",
+      "path": "/sp/targets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "targets"
+        ]
+      }
+    },
+    {
+      "name": "sb_list_ads",
+      "description": "Sponsored Brands: list ads/creatives for Sponsored Brands campaigns.",
+      "method": "POST",
+      "path": "/sb/v4/ads/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignIdFilter": {
+            "type": "object",
+            "description": "Raw vendor payload object."
+          },
+          "adGroupIdFilter": {
+            "type": "object",
+            "description": "Raw vendor payload object."
+          },
+          "stateFilter": {
+            "type": "object",
+            "description": "Raw vendor payload object."
+          },
+          "maxResults": {
+            "type": "integer"
+          },
+          "nextToken": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "sb_create_ads",
+      "description": "Sponsored Brands: create ads/creatives for Sponsored Brands campaigns.",
+      "method": "POST",
+      "path": "/sb/v4/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "ads"
+        ]
+      }
+    },
+    {
+      "name": "sb_update_ads",
+      "description": "Sponsored Brands: update ads/creatives for Sponsored Brands campaigns.",
+      "method": "PUT",
+      "path": "/sb/v4/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "ads"
+        ]
+      }
+    },
+    {
+      "name": "sd_list_ad_groups",
+      "description": "Sponsored Display: list ad groups.",
+      "method": "GET",
+      "path": "/sd/adGroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignIdFilter": {
+            "type": "string"
+          },
+          "adGroupIdFilter": {
+            "type": "string"
+          },
+          "stateFilter": {
+            "type": "string"
+          },
+          "startIndex": {
+            "type": "integer"
+          },
+          "count": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "sd_create_ad_groups",
+      "description": "Sponsored Display: create ad groups.",
+      "method": "POST",
+      "path": "/sd/adGroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adGroups": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "adGroups"
+        ]
+      }
+    },
+    {
+      "name": "sd_update_ad_groups",
+      "description": "Sponsored Display: update ad groups.",
+      "method": "PUT",
+      "path": "/sd/adGroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adGroups": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "adGroups"
+        ]
+      }
+    },
+    {
+      "name": "sd_list_ads",
+      "description": "Sponsored Display: list ads.",
+      "method": "GET",
+      "path": "/sd/productAds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignIdFilter": {
+            "type": "string"
+          },
+          "adGroupIdFilter": {
+            "type": "string"
+          },
+          "stateFilter": {
+            "type": "string"
+          },
+          "startIndex": {
+            "type": "integer"
+          },
+          "count": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "sd_create_ads",
+      "description": "Sponsored Display: create ads.",
+      "method": "POST",
+      "path": "/sd/productAds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "ads"
+        ]
+      }
+    },
+    {
+      "name": "sd_update_ads",
+      "description": "Sponsored Display: update ads; set state to paused/archived for pause/delete semantics.",
+      "method": "PUT",
+      "path": "/sd/productAds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "ads"
+        ]
+      }
+    },
+    {
+      "name": "dsp_list_audiences",
+      "description": "Amazon DSP: list audiences when the profile has DSP access.",
+      "method": "GET",
+      "path": "/dsp/audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserId": {
+            "type": "string"
+          },
+          "maxResults": {
+            "type": "integer"
+          },
+          "nextToken": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "dsp_create_audience",
+      "description": "Amazon DSP: create an audience when the profile has DSP access. Body shape depends on first-party, third-party, or advertiser audience type.",
+      "method": "POST",
+      "path": "/dsp/audiences",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "object",
+            "description": "Raw Amazon DSP audience payload."
+          }
+        },
+        "required": [
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "list_creatives",
+      "description": "Generic alias for Sponsored Brands ads/creatives.",
+      "method": "POST",
+      "path": "/sb/v4/ads/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignIdFilter": {
+            "type": "object",
+            "description": "Raw vendor payload object."
+          },
+          "adGroupIdFilter": {
+            "type": "object",
+            "description": "Raw vendor payload object."
+          },
+          "stateFilter": {
+            "type": "object",
+            "description": "Raw vendor payload object."
+          },
+          "maxResults": {
+            "type": "integer"
+          },
+          "nextToken": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_creative",
+      "description": "Generic alias for Sponsored Brands ads/creatives.",
+      "method": "POST",
+      "path": "/sb/v4/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "ads"
+        ]
+      }
+    },
+    {
+      "name": "update_creative",
+      "description": "Generic alias for Sponsored Brands ads/creatives.",
+      "method": "PUT",
+      "path": "/sb/v4/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "ads"
+        ]
       }
     }
   ]

@@ -115,6 +115,25 @@ type RunOptions struct {
 	// agent's app bindings instead of the mock gateway: the agent runs against
 	// real in-environment apps, externals virtualised by the edge.
 	UseEnvironment bool `json:"use_environment,omitempty"`
+	// IntegrationMode controls third-party integration execution for
+	// environment runs. Empty defaults to the Environment default ("mock").
+	IntegrationMode string `json:"integration_mode,omitempty"`
+	// IntegrationBindings creates app-owned, environment-scoped mock
+	// connections before the eval starts. This lets real in-environment apps
+	// exercise their integration code paths without exposing the app-owned
+	// connections as project agents/tools.
+	IntegrationBindings []RunIntegrationBinding `json:"integration_bindings,omitempty"`
+	// IntegrationFixtures provides deterministic responses for selected
+	// third-party integration tool calls in mock integration mode.
+	IntegrationFixtures []IntegrationFixture `json:"integration_fixtures,omitempty"`
+	// EnvironmentCollectTimeoutSeconds bounds how long an environment eval
+	// collector waits for the agent trajectory before judging. Empty uses a
+	// server default suitable for normal environment evals.
+	EnvironmentCollectTimeoutSeconds int `json:"environment_collect_timeout_seconds,omitempty"`
+	// JudgeTimeoutSeconds bounds the meta-agent judge reply wait. Hard
+	// scenarios can produce long trajectories, so this is independently
+	// tunable from the agent collection window.
+	JudgeTimeoutSeconds int `json:"judge_timeout_seconds,omitempty"`
 
 	// SeedPlan sets up the Environment's starting state before the agent runs, by
 	// driving the in-environment apps' real tools (ExecuteSeedPlan). Lets an eval
@@ -152,6 +171,30 @@ type RunAppEventSubscription struct {
 	ThreadID    string `json:"thread_id,omitempty"`
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
+}
+
+type RunIntegrationBinding struct {
+	App         string            `json:"app"`
+	Role        string            `json:"role"`
+	Slug        string            `json:"slug"`
+	AppName     string            `json:"app_name,omitempty"`
+	Name        string            `json:"name,omitempty"`
+	AuthType    string            `json:"auth_type,omitempty"`
+	Credentials map[string]string `json:"credentials,omitempty"`
+}
+
+func boundedRunOptionDuration(seconds int, fallback, min, max time.Duration) time.Duration {
+	if seconds <= 0 {
+		return fallback
+	}
+	d := time.Duration(seconds) * time.Second
+	if d < min {
+		return min
+	}
+	if d > max {
+		return max
+	}
+	return d
 }
 
 // EvalMock declares how a single tool should answer in this eval's
@@ -798,10 +841,28 @@ func (s *Server) handleAgentEvals(w http.ResponseWriter, r *http.Request) {
 		// A environment run builds the agent's apps from source, spawns real
 		// sidecars + a fresh core, then drives + judges — far more than a
 		// mock-gateway single-shot. Give it room.
-		if opts.UseEnvironment && budget < 8*time.Minute {
-			budget = 8 * time.Minute
+		if opts.UseEnvironment {
+			collectBudget := boundedRunOptionDuration(opts.EnvironmentCollectTimeoutSeconds, 10*time.Minute, 2*time.Minute, 20*time.Minute)
+			judgeBudget := boundedRunOptionDuration(opts.JudgeTimeoutSeconds, 5*time.Minute, time.Minute, 10*time.Minute)
+			envBudget := collectBudget + judgeBudget + 2*time.Minute
+			if envBudget < 8*time.Minute {
+				envBudget = 8 * time.Minute
+			}
+			if envBudget > 30*time.Minute {
+				envBudget = 30 * time.Minute
+			}
+			if budget < envBudget {
+				budget = envBudget
+			}
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), budget)
+		parentCtx := r.Context()
+		if opts.UseEnvironment {
+			// Environment evals are long-running benchmark jobs. If the client
+			// request times out or disconnects, keep the bounded server-side run
+			// alive so it can write its result row and be recovered by polling.
+			parentCtx = context.Background()
+		}
+		ctx, cancel := context.WithTimeout(parentCtx, budget)
 		defer cancel()
 		run, err := s.runEval(ctx, userID, agent, existing, opts)
 		if err != nil {

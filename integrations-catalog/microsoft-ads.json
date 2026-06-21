@@ -77,7 +77,10 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "UserId": { "type": "integer", "default": 0 }
+          "UserId": {
+            "type": "integer",
+            "default": 0
+          }
         }
       }
     },
@@ -91,15 +94,24 @@
         "properties": {
           "Predicates": {
             "type": "array",
-            "items": { "type": "object" },
+            "items": {
+              "type": "object"
+            },
             "description": "Array of {Field, Operator, Value} predicates"
           },
-          "Ordering": { "type": "array", "items": { "type": "object" } },
+          "Ordering": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
           "PageInfo": {
             "type": "object",
             "description": "{\"Index\": 0, \"Size\": 100}"
           },
-          "ReturnAdditionalFields": { "type": "string" }
+          "ReturnAdditionalFields": {
+            "type": "string"
+          }
         }
       }
     },
@@ -111,15 +123,21 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "AccountId": { "type": "integer" },
+          "AccountId": {
+            "type": "integer"
+          },
           "CampaignType": {
             "type": "string",
             "default": "Search Shopping DynamicSearchAds Audience",
             "description": "Space-separated flags"
           },
-          "ReturnAdditionalFields": { "type": "string" }
+          "ReturnAdditionalFields": {
+            "type": "string"
+          }
         },
-        "required": ["AccountId"]
+        "required": [
+          "AccountId"
+        ]
       }
     },
     {
@@ -130,14 +148,21 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "AccountId": { "type": "integer" },
+          "AccountId": {
+            "type": "integer"
+          },
           "Campaigns": {
             "type": "array",
-            "items": { "type": "object" },
+            "items": {
+              "type": "object"
+            },
             "description": "Array of Campaign objects"
           }
         },
-        "required": ["AccountId", "Campaigns"]
+        "required": [
+          "AccountId",
+          "Campaigns"
+        ]
       }
     },
     {
@@ -148,10 +173,20 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "AccountId": { "type": "integer" },
-          "Campaigns": { "type": "array", "items": { "type": "object" } }
+          "AccountId": {
+            "type": "integer"
+          },
+          "Campaigns": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         },
-        "required": ["AccountId", "Campaigns"]
+        "required": [
+          "AccountId",
+          "Campaigns"
+        ]
       }
     },
     {
@@ -162,10 +197,16 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "CampaignId": { "type": "integer" },
-          "ReturnAdditionalFields": { "type": "string" }
+          "CampaignId": {
+            "type": "integer"
+          },
+          "ReturnAdditionalFields": {
+            "type": "string"
+          }
         },
-        "required": ["CampaignId"]
+        "required": [
+          "CampaignId"
+        ]
       }
     },
     {
@@ -176,10 +217,20 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "CampaignId": { "type": "integer" },
-          "AdGroups": { "type": "array", "items": { "type": "object" } }
+          "CampaignId": {
+            "type": "integer"
+          },
+          "AdGroups": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         },
-        "required": ["CampaignId", "AdGroups"]
+        "required": [
+          "CampaignId",
+          "AdGroups"
+        ]
       }
     },
     {
@@ -190,13 +241,17 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "AdGroupId": { "type": "integer" },
+          "AdGroupId": {
+            "type": "integer"
+          },
           "AdTypes": {
             "type": "string",
             "default": "ResponsiveSearch ResponsiveAd Text ExpandedText"
           }
         },
-        "required": ["AdGroupId"]
+        "required": [
+          "AdGroupId"
+        ]
       }
     },
     {
@@ -207,10 +262,20 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "AdGroupId": { "type": "integer" },
-          "Keywords": { "type": "array", "items": { "type": "object" } }
+          "AdGroupId": {
+            "type": "integer"
+          },
+          "Keywords": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         },
-        "required": ["AdGroupId", "Keywords"]
+        "required": [
+          "AdGroupId",
+          "Keywords"
+        ]
       }
     },
     {
@@ -226,7 +291,9 @@
             "description": "Typed report request with @odata.type field, e.g. \"#Microsoft.Advertising.Reporting.Api.CampaignPerformanceReportRequest\""
           }
         },
-        "required": ["ReportRequest"]
+        "required": [
+          "ReportRequest"
+        ]
       }
     },
     {
@@ -237,9 +304,396 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "ReportRequestId": { "type": "string" }
+          "ReportRequestId": {
+            "type": "string"
+          }
         },
-        "required": ["ReportRequestId"]
+        "required": [
+          "ReportRequestId"
+        ]
+      }
+    },
+    {
+      "name": "delete_campaigns",
+      "description": "Delete one or more campaigns by ID. Use update_campaigns with Status=Paused when you want a reversible pause instead.",
+      "method": "POST",
+      "path": "/Campaigns/Delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "CampaignIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "AccountId",
+          "CampaignIds"
+        ]
+      }
+    },
+    {
+      "name": "update_ad_groups",
+      "description": "Update one or more ad groups. Each ad group must include Id and only changed fields.",
+      "method": "PUT",
+      "path": "/AdGroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CampaignId": {
+            "type": "integer"
+          },
+          "AdGroups": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "CampaignId",
+          "AdGroups"
+        ]
+      }
+    },
+    {
+      "name": "delete_ad_groups",
+      "description": "Delete one or more ad groups by ID.",
+      "method": "POST",
+      "path": "/AdGroups/Delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CampaignId": {
+            "type": "integer"
+          },
+          "AdGroupIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "CampaignId",
+          "AdGroupIds"
+        ]
+      }
+    },
+    {
+      "name": "add_ads",
+      "description": "Add one or more ads to an ad group. Supports responsive search ads, expanded text ads, product ads, app ads, and audience ads depending on account/campaign type.",
+      "method": "POST",
+      "path": "/Ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AdGroupId": {
+            "type": "integer"
+          },
+          "Ads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AdGroupId",
+          "Ads"
+        ]
+      }
+    },
+    {
+      "name": "update_ads",
+      "description": "Update one or more ads. Each ad must include Id and type-specific fields to mutate.",
+      "method": "PUT",
+      "path": "/Ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AdGroupId": {
+            "type": "integer"
+          },
+          "Ads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AdGroupId",
+          "Ads"
+        ]
+      }
+    },
+    {
+      "name": "delete_ads",
+      "description": "Delete one or more ads by ID.",
+      "method": "POST",
+      "path": "/Ads/Delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AdGroupId": {
+            "type": "integer"
+          },
+          "AdIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "AdGroupId",
+          "AdIds"
+        ]
+      }
+    },
+    {
+      "name": "get_audiences_by_account",
+      "description": "List audiences under an account. AudienceType can include Custom, RemarketingList, InMarket, Product, SimilarRemarketingList, CombinedList, CustomerList, or ImpressionBasedRemarketingList depending on account access.",
+      "method": "POST",
+      "path": "/AudiencesByAccountId/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "AudienceType": {
+            "type": "string"
+          },
+          "ReturnAdditionalFields": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "AccountId"
+        ]
+      }
+    },
+    {
+      "name": "add_audiences",
+      "description": "Create one or more audiences such as remarketing lists, custom audiences, customer lists, or combined lists.",
+      "method": "POST",
+      "path": "/Audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "Audiences": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AccountId",
+          "Audiences"
+        ]
+      }
+    },
+    {
+      "name": "update_audiences",
+      "description": "Update one or more audiences. Each audience must include Id and changed fields.",
+      "method": "PUT",
+      "path": "/Audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "Audiences": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AccountId",
+          "Audiences"
+        ]
+      }
+    },
+    {
+      "name": "delete_audiences",
+      "description": "Delete one or more audiences by ID.",
+      "method": "POST",
+      "path": "/Audiences/Delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "AudienceIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "AccountId",
+          "AudienceIds"
+        ]
+      }
+    },
+    {
+      "name": "add_media",
+      "description": "Upload image/media assets for ads. Media objects carry Type, Data, MediaType, Text, or URL fields depending on media kind.",
+      "method": "POST",
+      "path": "/Media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "Media": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AccountId",
+          "Media",
+          "Media"
+        ]
+      }
+    },
+    {
+      "name": "get_media_meta_data_by_account",
+      "description": "List uploaded media metadata for an account.",
+      "method": "POST",
+      "path": "/MediaMetaDataByAccountId/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "MediaEnabledEntities": {
+            "type": "string"
+          },
+          "PageInfo": {
+            "type": "object",
+            "description": "{Index, Size}"
+          }
+        },
+        "required": [
+          "AccountId"
+        ]
+      }
+    },
+    {
+      "name": "create_ads",
+      "description": "Generic alias for add_ads: create one or more ads in an ad group.",
+      "method": "POST",
+      "path": "/Ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AdGroupId": {
+            "type": "integer"
+          },
+          "Ads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AdGroupId",
+          "Ads"
+        ]
+      }
+    },
+    {
+      "name": "list_audiences",
+      "description": "Generic alias for get_audiences_by_account: list audiences under an account.",
+      "method": "POST",
+      "path": "/AudiencesByAccountId/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "AudienceType": {
+            "type": "string"
+          },
+          "ReturnAdditionalFields": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "AccountId"
+        ]
+      }
+    },
+    {
+      "name": "create_audience",
+      "description": "Generic alias for add_audiences: create audiences under an account.",
+      "method": "POST",
+      "path": "/Audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "Audiences": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AccountId",
+          "Audiences"
+        ]
+      }
+    },
+    {
+      "name": "create_creative_asset",
+      "description": "Generic alias for add_media: upload image/media creative assets.",
+      "method": "POST",
+      "path": "/Media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "Media": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AccountId",
+          "Media"
+        ]
       }
     }
   ]

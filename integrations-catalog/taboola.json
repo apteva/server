@@ -509,6 +509,164 @@
           "body"
         ]
       }
+    },
+    {
+      "name": "campaign_history_report",
+      "description": "Run Taboola Campaign History report to audit changes made to campaigns, items, creatives, targeting, and related entities.",
+      "method": "GET",
+      "path": "/{account_id}/reports/campaign-history/dimensions/{dimension}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "dimension": {
+            "type": "string"
+          },
+          "start_date": {
+            "type": "string"
+          },
+          "end_date": {
+            "type": "string"
+          },
+          "campaign": {
+            "type": "string"
+          },
+          "item": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "dimension",
+          "start_date",
+          "end_date"
+        ]
+      }
+    },
+    {
+      "name": "top_campaign_content_report",
+      "description": "Run Taboola Top Campaign Content report for item/native-ad performance by URL or creative.",
+      "method": "GET",
+      "path": "/{account_id}/reports/top-campaign-content/dimensions/{dimension}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "dimension": {
+            "type": "string"
+          },
+          "start_date": {
+            "type": "string"
+          },
+          "end_date": {
+            "type": "string"
+          },
+          "campaign": {
+            "type": "string"
+          },
+          "item": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "dimension",
+          "start_date",
+          "end_date"
+        ]
+      }
+    },
+    {
+      "name": "realtime_top_campaign_content_report",
+      "description": "Run near-real-time Top Campaign Content report for item/native-ad performance.",
+      "method": "GET",
+      "path": "/{account_id}/reports/realtime-top-campaign-content/dimensions/{dimension}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "dimension": {
+            "type": "string"
+          },
+          "start_date": {
+            "type": "string"
+          },
+          "end_date": {
+            "type": "string"
+          },
+          "campaign": {
+            "type": "string"
+          },
+          "item": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "dimension",
+          "start_date",
+          "end_date"
+        ]
+      }
+    },
+    {
+      "name": "duplicate_campaign",
+      "description": "Duplicate an existing Taboola campaign using a raw vendor payload.",
+      "method": "POST",
+      "path": "/{account_id}/campaigns/{campaign_id}/duplicate",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "campaign_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object",
+            "description": "Raw Taboola duplicate campaign payload/options."
+          }
+        },
+        "required": [
+          "account_id",
+          "campaign_id"
+        ]
+      }
+    },
+    {
+      "name": "bulk_create_campaign_items",
+      "description": "Bulk-create campaign items/native ads when the account supports the mass items endpoint.",
+      "method": "POST",
+      "path": "/{account_id}/campaigns/{campaign_id}/items/mass",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "campaign_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object",
+            "description": "Raw Taboola bulk item payload."
+          }
+        },
+        "required": [
+          "account_id",
+          "campaign_id",
+          "body"
+        ]
+      }
     }
   ]
 }

@@ -43,13 +43,27 @@ func (s *Server) runEvalInEnvironment(ctx context.Context, userID int64, agent *
 
 	// 1. Build the Environment from the agent's bindings (real, isolated apps).
 	environmentID := fmt.Sprintf("eval-%d-%d", agent.ID, time.Now().UnixNano())
-	environment, err := s.CreateEnvironmentForAgent(agent, environmentID)
+	spec, err := s.DeriveEnvironmentSpecForAgent(agent, environmentID)
+	if err != nil {
+		return s.writeEvalRun(ev.ID, startedAt, session, nil, nil, "error",
+			"build environment spec from agent bindings: "+err.Error(), preview, 0)
+	}
+	spec.IntegrationMode = opts.IntegrationMode
+	spec.IntegrationFixtures = opts.IntegrationFixtures
+	environment, err := s.environments.Create(spec)
 	if err != nil {
 		return s.writeEvalRun(ev.ID, startedAt, session, nil, nil, "error",
 			"build environment from agent bindings: "+err.Error(), preview, 0)
 	}
 	defer environment.Stop()
 	session.recordSystem(fmt.Sprintf("environment %s ready — in-environment apps: %v", environmentID, environment.InstallNames()))
+	if len(opts.IntegrationBindings) > 0 {
+		if err := s.bindEnvironmentIntegrationMocks(userID, environment, opts.IntegrationBindings); err != nil {
+			return s.writeEvalRun(ev.ID, startedAt, session, nil, nil, "error",
+				"bind environment integration mocks: "+err.Error(), preview, 0)
+		}
+		session.recordSystem(fmt.Sprintf("bound %d environment integration mock(s)", len(opts.IntegrationBindings)))
+	}
 
 	// 1b. Seed the environment's starting state by driving the apps' real tools,
 	//     before the agent runs — so the eval can test behavior over
@@ -114,7 +128,7 @@ func (s *Server) runEvalInEnvironment(ctx context.Context, userID int64, agent *
 	// repeatedly talks without producing another completed tool call.
 	collectOpts := collectAssistantRepliesOptions{
 		CollectAllThreads:                 true,
-		OverallTimeout:                    6 * time.Minute,
+		OverallTimeout:                    boundedRunOptionDuration(opts.EnvironmentCollectTimeoutSeconds, 10*time.Minute, 2*time.Minute, 20*time.Minute),
 		IdleWindow:                        20 * time.Second,
 		PostToolIdleWindow:                45 * time.Second,
 		MaxNonToolAssistantTurnsAfterTool: 1,
@@ -143,7 +157,10 @@ func (s *Server) runEvalInEnvironment(ctx context.Context, userID int64, agent *
 	// 4. Judge against the goals (no deterministic criteria — the meta-agent
 	//    reads the plain-English goals and grades).
 	snap := session.snapshot()
-	verdict, judgeErr := s.judgeWithMetaAgent(ctx, userID, agent.ProjectID, ev, snap, agent.Directive, false)
+	judgeTimeout := boundedRunOptionDuration(opts.JudgeTimeoutSeconds, 5*time.Minute, time.Minute, 10*time.Minute)
+	judgeCtx, judgeCancel := context.WithTimeout(ctx, judgeTimeout)
+	defer judgeCancel()
+	verdict, judgeErr := s.judgeWithMetaAgent(judgeCtx, userID, agent.ProjectID, ev, snap, agent.Directive, false)
 	if judgeErr != nil {
 		return s.writeEvalRunWithDetails(ev.ID, startedAt, time.Now(), session, &snap, nil, nil, "error",
 			"judge: "+judgeErr.Error(), preview, 1)

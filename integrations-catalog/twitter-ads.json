@@ -912,6 +912,76 @@
           }
         }
       }
+    },
+    {
+      "name": "update_promoted_tweet",
+      "description": "Update a promoted tweet/ad association status where supported by the account.",
+      "method": "PUT",
+      "path": "/update-promoted-tweet",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "promoted_tweet_id": {
+            "type": "string"
+          },
+          "entity_status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ]
+          }
+        },
+        "required": [
+          "account_id",
+          "promoted_tweet_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_promoted_tweet",
+      "description": "Delete a promoted tweet/ad association.",
+      "method": "DELETE",
+      "path": "/delete-promoted-tweet",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "promoted_tweet_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "promoted_tweet_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_line_item",
+      "description": "Delete/archive a line item/ad group.",
+      "method": "DELETE",
+      "path": "/delete-line-item",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "line_item_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "line_item_id"
+        ]
+      }
     }
   ]
 }

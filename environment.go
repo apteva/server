@@ -804,6 +804,113 @@ func (s *Server) bindEnvironmentAppDependencies(w *Environment, depsByName map[s
 	return nil
 }
 
+func (s *Server) bindEnvironmentIntegrationMocks(userID int64, w *Environment, bindings []RunIntegrationBinding) error {
+	if w == nil {
+		return fmt.Errorf("environment required")
+	}
+	for i, b := range bindings {
+		appName := strings.TrimSpace(b.App)
+		role := strings.TrimSpace(b.Role)
+		slug := strings.TrimSpace(b.Slug)
+		if appName == "" || role == "" || slug == "" {
+			return fmt.Errorf("binding %d: app, role, and slug required", i)
+		}
+		parentInst, ok := w.Install(appName)
+		if !ok {
+			return fmt.Errorf("binding %d: app %q is not installed in environment", i, appName)
+		}
+		dep, err := installRoleDep(s, parentInst.InstallID, role)
+		if err != nil {
+			return fmt.Errorf("binding %d: read %s role %q: %w", i, appName, role, err)
+		}
+		if dep == nil {
+			return fmt.Errorf("binding %d: app %q does not declare integration role %q", i, appName, role)
+		}
+		if strings.EqualFold(dep.Kind, "app") {
+			return fmt.Errorf("binding %d: role %q on app %q is an app dependency, not an integration", i, role, appName)
+		}
+		if len(dep.CompatibleSlugs) > 0 && !containsString(dep.CompatibleSlugs, slug) {
+			return fmt.Errorf("binding %d: app %q role %q is not compatible with integration %q", i, appName, role, slug)
+		}
+
+		credentials := map[string]string{}
+		for k, v := range b.Credentials {
+			credentials[k] = v
+		}
+		applyEnvironmentMockCredentialDefaults(slug, credentials)
+		raw, err := json.Marshal(credentials)
+		if err != nil {
+			return fmt.Errorf("binding %d: marshal credentials: %w", i, err)
+		}
+		enc, err := Encrypt(s.secret, string(raw))
+		if err != nil {
+			return fmt.Errorf("binding %d: encrypt credentials: %w", i, err)
+		}
+		authType := strings.TrimSpace(b.AuthType)
+		if authType == "" {
+			authType = "api_key"
+		}
+		connectionName := strings.TrimSpace(b.Name)
+		if connectionName == "" {
+			connectionName = "Mock " + slug
+		}
+		connectionAppName := strings.TrimSpace(b.AppName)
+		if connectionAppName == "" {
+			connectionAppName = slug
+		}
+		conn, err := s.store.CreateConnectionExt(ConnectionInput{
+			UserID:            userID,
+			AppSlug:           slug,
+			AppName:           connectionAppName,
+			Name:              connectionName,
+			AuthType:          authType,
+			EncryptedCreds:    enc,
+			ProjectID:         w.ID,
+			Source:            "local",
+			Status:            "active",
+			CreatedVia:        "app_install",
+			OwnerAppInstallID: parentInst.InstallID,
+		})
+		if err != nil {
+			return fmt.Errorf("binding %d: create connection: %w", i, err)
+		}
+
+		existing := map[string]any{}
+		var existingRaw string
+		if err := s.store.db.QueryRow(`SELECT COALESCE(integration_bindings, '{}') FROM app_installs WHERE id = ?`, parentInst.InstallID).Scan(&existingRaw); err == nil {
+			_ = json.Unmarshal([]byte(existingRaw), &existing)
+		}
+		existing[role] = conn.ID
+		next, _ := json.Marshal(existing)
+		if _, err := s.store.db.Exec(`UPDATE app_installs SET integration_bindings = ? WHERE id = ?`, string(next), parentInst.InstallID); err != nil {
+			return fmt.Errorf("binding %d: update app binding: %w", i, err)
+		}
+	}
+	s.LoadInstalledApps()
+	return nil
+}
+
+func applyEnvironmentMockCredentialDefaults(slug string, credentials map[string]string) {
+	if credentials == nil {
+		return
+	}
+	if strings.EqualFold(slug, "aws-ses") {
+		if strings.TrimSpace(credentials["region"]) == "" {
+			credentials["region"] = "us-east-1"
+		}
+		if strings.TrimSpace(credentials["access_key_id"]) == "" {
+			credentials["access_key_id"] = "mock-access-key-id"
+		}
+		if strings.TrimSpace(credentials["secret_access_key"]) == "" {
+			credentials["secret_access_key"] = "mock-secret-access-key"
+		}
+		return
+	}
+	if len(credentials) == 0 {
+		credentials["mock"] = "true"
+	}
+}
+
 // Get returns a live Environment by id.
 func (wm *EnvironmentManager) Get(id string) (*Environment, bool) {
 	wm.mu.Lock()

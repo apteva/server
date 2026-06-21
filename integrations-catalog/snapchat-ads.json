@@ -61,7 +61,10 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "with_ad_accounts": { "type": "boolean", "default": false }
+          "with_ad_accounts": {
+            "type": "boolean",
+            "default": false
+          }
         }
       }
     },
@@ -73,11 +76,20 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "organization_id": { "type": "string" },
-          "limit": { "type": "integer", "default": 50 },
-          "cursor": { "type": "string" }
+          "organization_id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          },
+          "cursor": {
+            "type": "string"
+          }
         },
-        "required": ["organization_id"]
+        "required": [
+          "organization_id"
+        ]
       }
     },
     {
@@ -88,12 +100,24 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "ad_account_id": { "type": "string" },
-          "limit": { "type": "integer", "default": 50 },
-          "cursor": { "type": "string" },
-          "read_deleted_entities": { "type": "boolean", "default": false }
+          "ad_account_id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "read_deleted_entities": {
+            "type": "boolean",
+            "default": false
+          }
         },
-        "required": ["ad_account_id"]
+        "required": [
+          "ad_account_id"
+        ]
       }
     },
     {
@@ -104,10 +128,20 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "ad_account_id": { "type": "string" },
-          "campaigns": { "type": "array", "items": { "type": "object" } }
+          "ad_account_id": {
+            "type": "string"
+          },
+          "campaigns": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         },
-        "required": ["ad_account_id", "campaigns"]
+        "required": [
+          "ad_account_id",
+          "campaigns"
+        ]
       }
     },
     {
@@ -118,10 +152,20 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "ad_account_id": { "type": "string" },
-          "campaigns": { "type": "array", "items": { "type": "object" } }
+          "ad_account_id": {
+            "type": "string"
+          },
+          "campaigns": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         },
-        "required": ["ad_account_id", "campaigns"]
+        "required": [
+          "ad_account_id",
+          "campaigns"
+        ]
       }
     },
     {
@@ -132,11 +176,20 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "campaign_id": { "type": "string" },
-          "limit": { "type": "integer", "default": 50 },
-          "cursor": { "type": "string" }
+          "campaign_id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          },
+          "cursor": {
+            "type": "string"
+          }
         },
-        "required": ["campaign_id"]
+        "required": [
+          "campaign_id"
+        ]
       }
     },
     {
@@ -147,10 +200,20 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "campaign_id": { "type": "string" },
-          "adsquads": { "type": "array", "items": { "type": "object" } }
+          "campaign_id": {
+            "type": "string"
+          },
+          "adsquads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         },
-        "required": ["campaign_id", "adsquads"]
+        "required": [
+          "campaign_id",
+          "adsquads"
+        ]
       }
     },
     {
@@ -161,11 +224,20 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "ad_squad_id": { "type": "string" },
-          "limit": { "type": "integer", "default": 50 },
-          "cursor": { "type": "string" }
+          "ad_squad_id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          },
+          "cursor": {
+            "type": "string"
+          }
         },
-        "required": ["ad_squad_id"]
+        "required": [
+          "ad_squad_id"
+        ]
       }
     },
     {
@@ -176,10 +248,20 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "ad_squad_id": { "type": "string" },
-          "ads": { "type": "array", "items": { "type": "object" } }
+          "ad_squad_id": {
+            "type": "string"
+          },
+          "ads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
         },
-        "required": ["ad_squad_id", "ads"]
+        "required": [
+          "ad_squad_id",
+          "ads"
+        ]
       }
     },
     {
@@ -190,11 +272,20 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "ad_account_id": { "type": "string" },
-          "limit": { "type": "integer", "default": 50 },
-          "cursor": { "type": "string" }
+          "ad_account_id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          },
+          "cursor": {
+            "type": "string"
+          }
         },
-        "required": ["ad_account_id"]
+        "required": [
+          "ad_account_id"
+        ]
       }
     },
     {
@@ -205,15 +296,52 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "campaign_id": { "type": "string" },
-          "granularity": { "type": "string", "enum": ["TOTAL", "DAY", "HOUR"], "default": "DAY" },
-          "fields": { "type": "string", "description": "Comma-separated metric names" },
-          "start_time": { "type": "string" },
-          "end_time": { "type": "string" },
-          "swipe_up_attribution_window": { "type": "string", "enum": ["1_DAY", "7_DAY", "28_DAY"], "default": "28_DAY" },
-          "view_attribution_window": { "type": "string", "enum": ["1_HOUR", "3_HOUR", "6_HOUR", "1_DAY", "7_DAY"], "default": "1_DAY" }
+          "campaign_id": {
+            "type": "string"
+          },
+          "granularity": {
+            "type": "string",
+            "enum": [
+              "TOTAL",
+              "DAY",
+              "HOUR"
+            ],
+            "default": "DAY"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated metric names"
+          },
+          "start_time": {
+            "type": "string"
+          },
+          "end_time": {
+            "type": "string"
+          },
+          "swipe_up_attribution_window": {
+            "type": "string",
+            "enum": [
+              "1_DAY",
+              "7_DAY",
+              "28_DAY"
+            ],
+            "default": "28_DAY"
+          },
+          "view_attribution_window": {
+            "type": "string",
+            "enum": [
+              "1_HOUR",
+              "3_HOUR",
+              "6_HOUR",
+              "1_DAY",
+              "7_DAY"
+            ],
+            "default": "1_DAY"
+          }
         },
-        "required": ["campaign_id"]
+        "required": [
+          "campaign_id"
+        ]
       }
     },
     {
@@ -224,14 +352,253 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "ad_account_id": { "type": "string" },
-          "granularity": { "type": "string", "enum": ["TOTAL", "DAY", "HOUR"], "default": "DAY" },
-          "fields": { "type": "string" },
-          "start_time": { "type": "string" },
-          "end_time": { "type": "string" },
-          "breakdown": { "type": "string", "description": "e.g. country, region, gender, age, os, placement" }
+          "ad_account_id": {
+            "type": "string"
+          },
+          "granularity": {
+            "type": "string",
+            "enum": [
+              "TOTAL",
+              "DAY",
+              "HOUR"
+            ],
+            "default": "DAY"
+          },
+          "fields": {
+            "type": "string"
+          },
+          "start_time": {
+            "type": "string"
+          },
+          "end_time": {
+            "type": "string"
+          },
+          "breakdown": {
+            "type": "string",
+            "description": "e.g. country, region, gender, age, os, placement"
+          }
         },
-        "required": ["ad_account_id"]
+        "required": [
+          "ad_account_id"
+        ]
+      }
+    },
+    {
+      "name": "update_ad_squad",
+      "description": "Update one or more ad squads. Each item must include id and changed fields.",
+      "method": "PUT",
+      "path": "/campaigns/{campaign_id}/adsquads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": {
+            "type": "string"
+          },
+          "adsquads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "campaign_id",
+          "adsquads"
+        ]
+      }
+    },
+    {
+      "name": "delete_ad_squad",
+      "description": "Delete/archive an ad squad by id.",
+      "method": "DELETE",
+      "path": "/adsquads/{ad_squad_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_squad_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ad_squad_id"
+        ]
+      }
+    },
+    {
+      "name": "update_ad",
+      "description": "Update one or more ads. Each item must include id and changed fields.",
+      "method": "PUT",
+      "path": "/adsquads/{ad_squad_id}/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_squad_id": {
+            "type": "string"
+          },
+          "ads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "ad_squad_id",
+          "ads"
+        ]
+      }
+    },
+    {
+      "name": "delete_ad",
+      "description": "Delete/archive an ad by id.",
+      "method": "DELETE",
+      "path": "/ads/{ad_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ad_id"
+        ]
+      }
+    },
+    {
+      "name": "create_creative",
+      "description": "Create one or more creatives under an ad account. Creative payloads vary by type: Snap Ad, Story, Collection, AR Lens, Commercial, or attachment.",
+      "method": "POST",
+      "path": "/adaccounts/{ad_account_id}/creatives",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string"
+          },
+          "creatives": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "ad_account_id",
+          "creatives"
+        ]
+      }
+    },
+    {
+      "name": "update_creative",
+      "description": "Update one or more creatives. Each creative must include id.",
+      "method": "PUT",
+      "path": "/adaccounts/{ad_account_id}/creatives",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string"
+          },
+          "creatives": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "ad_account_id",
+          "creatives"
+        ]
+      }
+    },
+    {
+      "name": "delete_creative",
+      "description": "Delete/archive a creative by id.",
+      "method": "DELETE",
+      "path": "/creatives/{creative_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "creative_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "creative_id"
+        ]
+      }
+    },
+    {
+      "name": "list_audiences",
+      "description": "List Snapchat audience segments under an ad account.",
+      "method": "GET",
+      "path": "/adaccounts/{ad_account_id}/segments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ad_account_id"
+        ]
+      }
+    },
+    {
+      "name": "create_audience",
+      "description": "Create one or more audience segments/custom audiences under an ad account.",
+      "method": "POST",
+      "path": "/adaccounts/{ad_account_id}/segments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string"
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "ad_account_id",
+          "segments"
+        ]
+      }
+    },
+    {
+      "name": "update_audience",
+      "description": "Update one or more audience segments/custom audiences under an ad account.",
+      "method": "PUT",
+      "path": "/adaccounts/{ad_account_id}/segments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string"
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "ad_account_id",
+          "segments"
+        ]
       }
     }
   ]
