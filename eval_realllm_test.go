@@ -60,9 +60,7 @@ import (
 // CI without OpenCode Go credentials shouldn't fail here.
 func loadOpenCodeGoKey(t *testing.T) string {
 	t.Helper()
-	if testing.Short() {
-		t.Skip("skipping real-LLM eval test in -short mode")
-	}
+	requireRealLLMTests(t)
 	if key := os.Getenv("OPENCODE_GO_API_KEY"); key != "" {
 		return key
 	}
@@ -79,6 +77,16 @@ func loadOpenCodeGoKey(t *testing.T) string {
 	}
 	t.Skip("OPENCODE_GO_API_KEY not set in env or ../core/.env; skipping real-LLM eval test")
 	return ""
+}
+
+func requireRealLLMTests(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping real-LLM eval test in -short mode")
+	}
+	if !envTruthy(os.Getenv("APTEVA_RUN_REAL_LLM_TESTS")) {
+		t.Skip("set APTEVA_RUN_REAL_LLM_TESTS=1 to run real-LLM eval tests")
+	}
 }
 
 func readDotenvKey(path, key string) string {
@@ -201,6 +209,8 @@ func setupRealServerWithProviderState(t *testing.T, corePath, agentName, agentDi
 	apiMux.HandleFunc("/eval-mock-gateway/", s.handleEvalMockGateway)
 	apiMux.HandleFunc("/environment-app-gateway/", s.handleEnvironmentAppGateway)
 	apiMux.HandleFunc("/environment-mcp", s.handleEnvironmentMCP)
+	apiMux.HandleFunc("/telemetry/live", s.handleLiveTelemetry)
+	apiMux.HandleFunc("/telemetry", s.handleIngestTelemetry)
 	s.registerAppRuntimeRoutes(apiMux)
 	mux := http.NewServeMux()
 	mux.Handle("/api/", http.StripPrefix("/api", apiMux))

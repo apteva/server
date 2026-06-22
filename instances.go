@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -23,10 +24,58 @@ import (
 type runningAgent struct {
 	cmd        *exec.Cmd
 	port       int
+	pid        int
 	coreAPIKey string         // API key injected into core for auth
 	channels   *AgentChannels // channel infrastructure for this instance
+	reattached bool           // process was inherited from an older server process
 	diagMu     sync.Mutex
 	lastProc   string // latest /proc snapshot captured while the child was alive
+}
+
+type coreRuntimeInfo struct {
+	Version       string
+	BuildTime     string
+	UptimeSeconds int
+}
+
+func (r *runningAgent) process() *os.Process {
+	if r == nil {
+		return nil
+	}
+	if r.cmd != nil && r.cmd.Process != nil {
+		return r.cmd.Process
+	}
+	return nil
+}
+
+func (r *runningAgent) processState() *os.ProcessState {
+	if r == nil || r.cmd == nil {
+		return nil
+	}
+	return r.cmd.ProcessState
+}
+
+func (r *runningAgent) isRunning() bool {
+	if r == nil || r.port <= 0 {
+		return false
+	}
+	if r.reattached {
+		return true
+	}
+	if r.cmd != nil && r.cmd.Process == nil {
+		return r.cmd.ProcessState == nil
+	}
+	return r.process() != nil && r.processState() == nil
+}
+
+func (r *runningAgent) processID() int {
+	if r == nil {
+		return 0
+	}
+	if p := r.process(); p != nil {
+		return p.Pid
+	}
+	return r.pid
 }
 
 func (r *runningAgent) setProcSnapshot(snapshot string) {
@@ -290,8 +339,8 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	im.mu.Lock()
 	defer im.mu.Unlock()
 
-	if ri, running := im.processes[inst.ID]; running && ri.cmd.ProcessState == nil {
-		log.Printf("[SPAWN] agent=%d already running pid=%d port=%d", inst.ID, ri.cmd.Process.Pid, ri.port)
+	if ri, running := im.processes[inst.ID]; running && ri.isRunning() {
+		log.Printf("[SPAWN] agent=%d already running pid=%d port=%d", inst.ID, ri.processID(), ri.port)
 		return fmt.Errorf("instance %d already running", inst.ID)
 	}
 
@@ -504,13 +553,13 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		"no_spawn": true,
 	}
 
-	// Read the opt-out flags for the auto-injected system MCPs. These
+	// Read the opt-in flags for the auto-injected system MCPs. These
 	// live in the instance's DB record (inst.Config JSON blob) rather
 	// than disk config.json — core owns the disk config and drops
 	// unknown fields on save, so any server-only state needs to live
-	// elsewhere. Default true (= inject) so existing instances keep
-	// current behaviour.
-	includeGateway := true
+	// elsewhere. Channels default on; the platform gateway is private
+	// and must be explicitly set by server-owned helper setup.
+	includeGateway := false
 	includeChannels := true
 	{
 		var instCfg map[string]any
@@ -552,8 +601,13 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	configData, _ := json.MarshalIndent(config, "", "  ")
 	os.WriteFile(filepath.Join(dir, "config.json"), configData, 0644)
 
-	// Generate a unique API key for this core instance
-	coreAPIKey := "core_" + generateToken(16)
+	// Generate a unique API key for this core instance. Persisted on
+	// the agent row so a new server process can reattach to a
+	// detached, still-running core after an update.
+	coreAPIKey := inst.CoreAPIKey
+	if coreAPIKey == "" {
+		coreAPIKey = "core_" + generateToken(16)
+	}
 
 	cmd := exec.Command(im.coreCmd, "--headless")
 	cmd.Dir = dir
@@ -581,6 +635,7 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	cmd.Env = env
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	log.Printf("[SPAWN] exec %s --headless dir=%s port=%d providerEnvKeys=%v", im.coreCmd, dir, port, providerEnvKeys(providerEnv))
 	if err := cmd.Start(); err != nil {
@@ -605,10 +660,11 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		log.Printf("[SPAWN] core agent=%d pid=%d port=%d FAILED to listen within 5s (last check: connection refused)", id, pid, p)
 	}(inst.ID, cmd.Process.Pid, port)
 
-	ri := &runningAgent{cmd: cmd, port: port, coreAPIKey: coreAPIKey, channels: ic}
+	ri := &runningAgent{cmd: cmd, port: port, pid: cmd.Process.Pid, coreAPIKey: coreAPIKey, channels: ic}
 	im.processes[inst.ID] = ri
 	inst.Port = port
 	inst.Pid = cmd.Process.Pid
+	inst.CoreAPIKey = coreAPIKey
 	inst.Status = "running"
 	procDiagStop := make(chan struct{})
 	go monitorCoreProc(ri, cmd.Process.Pid, procDiagStop)
@@ -662,6 +718,200 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	return nil
 }
 
+func coreHealthOK(port int, coreAPIKey string, timeout time.Duration) bool {
+	if port <= 0 {
+		return false
+	}
+	client := &http.Client{Timeout: timeout}
+	req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/health", port), nil)
+	if coreAPIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+coreAPIKey)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
+}
+
+func terminateRuntimePID(pid, port int, coreAPIKey string, graceful time.Duration) {
+	if pid <= 0 {
+		return
+	}
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return
+	}
+	_ = p.Signal(syscall.SIGTERM)
+	deadline := time.Now().Add(graceful)
+	for time.Now().Before(deadline) {
+		if port <= 0 || !coreHealthOK(port, coreAPIKey, 100*time.Millisecond) {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	_ = p.Kill()
+}
+
+func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs ...ChannelConfig) error {
+	if inst == nil {
+		return fmt.Errorf("agent is nil")
+	}
+	if inst.Port <= 0 || inst.Pid <= 0 || inst.CoreAPIKey == "" {
+		return fmt.Errorf("missing persisted runtime metadata")
+	}
+	if !processAlive(inst.Pid) {
+		return fmt.Errorf("pid %d is not alive", inst.Pid)
+	}
+	if !coreHealthOK(inst.Port, inst.CoreAPIKey, 500*time.Millisecond) {
+		return fmt.Errorf("core health failed on port %d", inst.Port)
+	}
+
+	im.mu.Lock()
+	if ri, running := im.processes[inst.ID]; running && ri.isRunning() {
+		im.mu.Unlock()
+		return fmt.Errorf("instance %d already running", inst.ID)
+	}
+	im.mu.Unlock()
+
+	dir := im.instanceDir(inst.ID)
+	serverBin, _ := os.Executable()
+	config := map[string]any{}
+	if diskConfig, err := os.ReadFile(filepath.Join(dir, "config.json")); err == nil {
+		_ = json.Unmarshal(diskConfig, &config)
+	}
+
+	ic := &AgentChannels{registry: NewChannelRegistry()}
+	ic.cli = NewCLIBridge()
+	ic.registry.Register(ic.cli)
+	if im.PostChannelsInit != nil {
+		im.PostChannelsInit(inst, ic)
+	}
+
+	channelsMCP, err := newChannelMCPServer(ic.registry)
+	if err != nil {
+		return fmt.Errorf("failed to start channels MCP: %w", err)
+	}
+	ic.mcp = channelsMCP
+	if im.ComponentCatalog != nil {
+		pid := inst.ProjectID
+		attached := extractMCPNames(config)
+		channelsMCP.componentCatalog = func() []componentEntry {
+			return im.ComponentCatalog(pid, attached)
+		}
+	}
+	go channelsMCP.serve()
+	for i := 0; i < 50; i++ {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", channelsMCP.port), 50*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	gateway := map[string]any{
+		"name":     "apteva-server",
+		"command":  serverBin,
+		"args":     []string{"--mcp-gateway", fmt.Sprintf("--user-id=%d", inst.UserID)},
+		"no_spawn": true,
+	}
+	channelsEntry := map[string]any{
+		"name":      "channels",
+		"url":       channelsMCP.url(),
+		"transport": "http",
+		"no_spawn":  true,
+	}
+
+	includeGateway := false
+	includeChannels := true
+	{
+		var instCfg map[string]any
+		if inst.Config != "" {
+			_ = json.Unmarshal([]byte(inst.Config), &instCfg)
+		}
+		if v, ok := instCfg["include_apteva_server"].(bool); ok {
+			includeGateway = v
+		}
+		if v, ok := instCfg["include_channels"].(bool); ok {
+			includeChannels = v
+		}
+	}
+
+	var userServers []any
+	if existing, ok := config["mcp_servers"].([]any); ok {
+		for _, s := range existing {
+			if sm, ok := s.(map[string]any); ok {
+				name, _ := sm["name"].(string)
+				if name == "apteva-server" || name == "channels" || name == "apteva-channels" {
+					continue
+				}
+				userServers = append(userServers, sm)
+			}
+		}
+	}
+	var systemEntries []any
+	if includeGateway {
+		systemEntries = append(systemEntries, gateway)
+	}
+	if includeChannels {
+		systemEntries = append(systemEntries, channelsEntry)
+	}
+	config["mcp_servers"] = append(systemEntries, userServers...)
+	configData, _ := json.MarshalIndent(config, "", "  ")
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), configData, 0644); err != nil {
+		ic.Stop()
+		return fmt.Errorf("write refreshed config: %w", err)
+	}
+
+	req, _ := http.NewRequest(http.MethodPut, fmt.Sprintf("http://127.0.0.1:%d/config", inst.Port), bytes.NewReader(configData))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
+	resp, err := (&http.Client{Timeout: 3 * time.Second}).Do(req)
+	if err != nil {
+		ic.Stop()
+		return fmt.Errorf("refresh live core config: %w", err)
+	}
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		ic.Stop()
+		return fmt.Errorf("refresh live core config returned %d", resp.StatusCode)
+	}
+
+	proc, _ := os.FindProcess(inst.Pid)
+	ri := &runningAgent{cmd: &exec.Cmd{Process: proc}, port: inst.Port, pid: inst.Pid, coreAPIKey: inst.CoreAPIKey, channels: ic, reattached: true}
+	im.mu.Lock()
+	im.processes[inst.ID] = ri
+	im.mu.Unlock()
+
+	for _, cc := range channelConfigs {
+		if cc.Type == "telegram" && cc.Config["bot_token"] != "" {
+			corePort := inst.Port
+			ck := inst.CoreAPIKey
+			sendEvent := func(text, threadID string) {
+				body, _ := json.Marshal(map[string]any{"message": text, "thread_id": threadID})
+				req, _ := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/event", corePort), strings.NewReader(string(body)))
+				req.Header.Set("Content-Type", "application/json")
+				if ck != "" {
+					req.Header.Set("Authorization", "Bearer "+ck)
+				}
+				http.DefaultClient.Do(req)
+			}
+			gw := NewTelegramGateway(cc.Config["bot_token"], ic.registry, sendEvent)
+			if botName, err := gw.Start(); err == nil {
+				ic.telegram = gw
+				ic.registry.AddFactory(gw.ChannelFactory())
+				log.Printf("[CHANNELS] reattached telegram @%s for instance %d", botName, inst.ID)
+			}
+		}
+	}
+
+	log.Printf("[RESUME] agent=%d reattached existing core pid=%d port=%d", inst.ID, inst.Pid, inst.Port)
+	return nil
+}
+
 // Stop kills a running core process and cleans up channels. Sends
 // SIGTERM first and waits up to 2s for core to flush state before
 // escalating to SIGKILL.
@@ -678,16 +928,29 @@ func (im *AgentManager) Stop(instanceID int64) {
 	if ri.channels != nil {
 		ri.channels.Stop()
 	}
-	if ri.cmd.Process == nil {
+	proc := ri.process()
+	if proc == nil {
 		return
 	}
 	// Phase 1: polite SIGTERM.
-	log.Printf("[SPAWN] Stop requested agent=%d pid=%d port=%d lastProc={%s}", instanceID, ri.cmd.Process.Pid, ri.port, ri.procSnapshot())
-	_ = ri.cmd.Process.Signal(syscall.SIGTERM)
+	log.Printf("[SPAWN] Stop requested agent=%d pid=%d port=%d reattached=%v lastProc={%s}", instanceID, ri.processID(), ri.port, ri.reattached, ri.procSnapshot())
+	_ = proc.Signal(syscall.SIGTERM)
+	if ri.reattached {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if !coreHealthOK(ri.port, ri.coreAPIKey, 100*time.Millisecond) {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		log.Printf("[SPAWN] Stop escalating SIGKILL agent=%d pid=%d reattached=true", instanceID, ri.processID())
+		_ = proc.Kill()
+		return
+	}
 	done := make(chan struct{})
 	go func() {
 		err := ri.cmd.Wait()
-		log.Printf("[SPAWN] Stop wait agent=%d pid=%d err=%v %s", instanceID, ri.cmd.Process.Pid, err, describeProcessState(ri.cmd.ProcessState))
+		log.Printf("[SPAWN] Stop wait agent=%d pid=%d err=%v %s", instanceID, ri.processID(), err, describeProcessState(ri.processState()))
 		close(done)
 	}()
 	select {
@@ -696,8 +959,8 @@ func (im *AgentManager) Stop(instanceID int64) {
 	case <-time.After(2 * time.Second):
 		// Phase 2: escalate. Chrome may be stuck on a navigation or
 		// an agent may be ignoring SIGTERM — don't wait forever.
-		log.Printf("[SPAWN] Stop escalating SIGKILL agent=%d pid=%d lastProc={%s}", instanceID, ri.cmd.Process.Pid, ri.procSnapshot())
-		ri.cmd.Process.Kill()
+		log.Printf("[SPAWN] Stop escalating SIGKILL agent=%d pid=%d lastProc={%s}", instanceID, ri.processID(), ri.procSnapshot())
+		proc.Kill()
 		<-done
 	}
 }
@@ -787,7 +1050,7 @@ func (im *AgentManager) StopAll(graceful time.Duration) {
 	im.mu.Lock()
 	procs := make([]*runningAgent, 0, len(im.processes))
 	for _, ri := range im.processes {
-		if ri != nil && ri.cmd != nil && ri.cmd.Process != nil {
+		if ri != nil && ri.process() != nil {
 			procs = append(procs, ri)
 		}
 	}
@@ -800,7 +1063,7 @@ func (im *AgentManager) StopAll(graceful time.Duration) {
 
 	// Phase 1: polite SIGTERM.
 	for _, ri := range procs {
-		ri.cmd.Process.Signal(syscall.SIGTERM)
+		ri.process().Signal(syscall.SIGTERM)
 	}
 
 	// Phase 2: wait per-process for clean exit, then SIGKILL the
@@ -815,8 +1078,23 @@ func (im *AgentManager) StopAll(graceful time.Duration) {
 	results := make(chan waitResult, len(procs))
 	for _, ri := range procs {
 		go func(r *runningAgent) {
+			if r.reattached {
+				deadline := time.Now().Add(graceful)
+				for time.Now().Before(deadline) {
+					if !coreHealthOK(r.port, r.coreAPIKey, 100*time.Millisecond) {
+						results <- waitResult{pid: r.processID(), err: nil}
+						return
+					}
+					time.Sleep(100 * time.Millisecond)
+				}
+				if p := r.process(); p != nil {
+					_ = p.Kill()
+				}
+				results <- waitResult{pid: r.processID(), err: fmt.Errorf("killed after graceful stop timeout")}
+				return
+			}
 			err := r.cmd.Wait()
-			results <- waitResult{pid: r.cmd.Process.Pid, err: err}
+			results <- waitResult{pid: r.processID(), err: err}
 		}(ri)
 	}
 
@@ -829,8 +1107,8 @@ func (im *AgentManager) StopAll(graceful time.Duration) {
 		case <-deadline:
 			log.Printf("[SHUTDOWN] graceful deadline hit, SIGKILLing %d holdout core(s)", remaining)
 			for _, ri := range procs {
-				if ri.cmd.ProcessState == nil {
-					ri.cmd.Process.Kill()
+				if ri.reattached || ri.processState() == nil {
+					ri.process().Kill()
 				}
 			}
 			// Drain the remaining Wait results so goroutines exit.
@@ -848,7 +1126,7 @@ func (im *AgentManager) IsRunning(instanceID int64) bool {
 	im.mu.RLock()
 	ri, ok := im.processes[instanceID]
 	im.mu.RUnlock()
-	return ok && ri.cmd.ProcessState == nil
+	return ok && ri.isRunning()
 }
 
 // GetCoreAPIKey returns the API key for a running instance.
@@ -856,7 +1134,7 @@ func (im *AgentManager) GetCoreAPIKey(instanceID int64) string {
 	im.mu.RLock()
 	ri, ok := im.processes[instanceID]
 	im.mu.RUnlock()
-	if ok && ri.cmd.ProcessState == nil {
+	if ok && ri.isRunning() {
 		return ri.coreAPIKey
 	}
 	return ""
@@ -867,10 +1145,92 @@ func (im *AgentManager) GetPort(instanceID int64) int {
 	im.mu.RLock()
 	ri, ok := im.processes[instanceID]
 	im.mu.RUnlock()
-	if ok && ri.cmd.ProcessState == nil {
+	if ok && ri.isRunning() {
 		return ri.port
 	}
 	return 0
+}
+
+func (im *AgentManager) CoreRuntimeInfo(instanceID int64) (coreRuntimeInfo, bool) {
+	im.mu.RLock()
+	ri, ok := im.processes[instanceID]
+	if !ok || !ri.isRunning() {
+		im.mu.RUnlock()
+		return coreRuntimeInfo{}, false
+	}
+	port := ri.port
+	coreAPIKey := ri.coreAPIKey
+	im.mu.RUnlock()
+
+	req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/status", port), nil)
+	if coreAPIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+coreAPIKey)
+	}
+	resp, err := (&http.Client{Timeout: 800 * time.Millisecond}).Do(req)
+	if err != nil {
+		return coreRuntimeInfo{}, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return coreRuntimeInfo{}, false
+	}
+	var body struct {
+		Version       string `json:"core_version"`
+		BuildTime     string `json:"core_build_time"`
+		UptimeSeconds int    `json:"uptime_seconds"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return coreRuntimeInfo{}, false
+	}
+	return coreRuntimeInfo{
+		Version:       strings.TrimSpace(body.Version),
+		BuildTime:     strings.TrimSpace(body.BuildTime),
+		UptimeSeconds: body.UptimeSeconds,
+	}, true
+}
+
+func coreVersionOutdated(runtimeVersion, targetVersion string) bool {
+	runtimeVersion = strings.TrimSpace(runtimeVersion)
+	targetVersion = strings.TrimSpace(targetVersion)
+	if runtimeVersion == "" || targetVersion == "" || runtimeVersion == "dev" || targetVersion == "dev" {
+		return false
+	}
+	return runtimeVersion != targetVersion
+}
+
+func (s *Server) enrichAgentRuntime(inst *Agent) {
+	if inst == nil {
+		return
+	}
+	inst.TargetCoreVersion = CoreVersion
+	if !s.agents.IsRunning(inst.ID) {
+		inst.Status = "stopped"
+		return
+	}
+	inst.Status = "running"
+	info, ok := s.agents.CoreRuntimeInfo(inst.ID)
+	if !ok {
+		inst.CoreUpdateAvailable = coreVersionOutdated(inst.CoreVersion, CoreVersion)
+		return
+	}
+	versionChanged := info.Version != "" && info.Version != inst.CoreVersion
+	buildChanged := info.BuildTime != "" && info.BuildTime != inst.CoreBuildTime
+	shouldPersist := versionChanged || buildChanged || inst.CoreStartedAt == ""
+	var startedAt time.Time
+	if info.Version != "" {
+		inst.CoreVersion = info.Version
+	}
+	if info.BuildTime != "" {
+		inst.CoreBuildTime = info.BuildTime
+	}
+	if info.UptimeSeconds > 0 && shouldPersist {
+		startedAt = time.Now().Add(-time.Duration(info.UptimeSeconds) * time.Second).UTC()
+		inst.CoreStartedAt = startedAt.Format(time.RFC3339Nano)
+	}
+	if shouldPersist && (inst.CoreVersion != "" || inst.CoreBuildTime != "") {
+		_ = s.store.UpdateAgentCoreRuntime(inst.ID, inst.CoreVersion, inst.CoreBuildTime, startedAt)
+	}
+	inst.CoreUpdateAvailable = coreVersionOutdated(inst.CoreVersion, CoreVersion)
 }
 
 // --- HTTP Handlers ---
@@ -890,14 +1250,11 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		Config    string `json:"config"` // optional JSON blob for MCP servers etc
 		ProjectID string `json:"project_id"`
 		Start     *bool  `json:"start,omitempty"` // default true; set false to create without starting
-		// Auto-injected system MCPs. Both default to true so existing
-		// callers keep the current behaviour (agent gets the apteva
-		// gateway + channels out of the box). Set to false to create a
-		// lean instance that only sees whatever MCPs are in `config`.
-		// Useful for sandbox / test agents or when you want to swap in
-		// a custom gateway.
-		IncludeAptevaServer *bool `json:"include_apteva_server,omitempty"`
-		IncludeChannels     *bool `json:"include_channels,omitempty"`
+		// Auto-injected channels MCP. Defaults to true so agents can
+		// reply through dashboard/chat channels. The Apteva server
+		// gateway is no longer a public create option; only server-owned
+		// helpers may opt into it by writing internal config directly.
+		IncludeChannels *bool `json:"include_channels,omitempty"`
 		// Unconscious — when true, core spawns the background
 		// memory-consolidation thread (see core/thinker.go
 		// unconsciousDirectiveV2). Toggled per-agent so a fast,
@@ -1067,7 +1424,6 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	// Start() reads these from inst.Config, not from disk config.json
 	// (which core owns and rewrites on every run), so the DB row is the
 	// authoritative place for server-side flags.
-	includeGateway := body.IncludeAptevaServer == nil || *body.IncludeAptevaServer
 	includeChannels := body.IncludeChannels == nil || *body.IncludeChannels
 	{
 		var instCfg map[string]any
@@ -1077,7 +1433,7 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		if instCfg == nil {
 			instCfg = map[string]any{}
 		}
-		instCfg["include_apteva_server"] = includeGateway
+		delete(instCfg, "include_apteva_server")
 		instCfg["include_channels"] = includeChannels
 		if body.Unconscious != nil {
 			instCfg["unconscious"] = *body.Unconscious
@@ -1214,11 +1570,7 @@ func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
 	}
 	// Update running status
 	for i := range instances {
-		if s.agents.IsRunning(instances[i].ID) {
-			instances[i].Status = "running"
-		} else {
-			instances[i].Status = "stopped"
-		}
+		s.enrichAgentRuntime(&instances[i])
 	}
 	if instances == nil {
 		instances = []Agent{}
@@ -1270,11 +1622,7 @@ func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		if s.agents.IsRunning(inst.ID) {
-			inst.Status = "running"
-		} else {
-			inst.Status = "stopped"
-		}
+		s.enrichAgentRuntime(inst)
 		writeJSON(w, inst)
 
 	case http.MethodPut, http.MethodPatch:
@@ -1385,27 +1733,30 @@ func (s *Server) handleStopInstance(w http.ResponseWriter, r *http.Request) {
 	inst.Status = "stopped"
 	inst.Pid = 0
 	inst.Port = 0
+	inst.CoreAPIKey = ""
 	s.store.UpdateAgent(inst)
 	writeJSON(w, inst)
 }
 
 // POST /instances/:id/start
 // ResumeRunningInstances is the boot-time recovery path. When the server
-// starts, every instance in the DB marked `status='running'` is assumed to
-// have been left in that state by a previous server process — its core
-// subprocess died when the server died (child of the same process group).
-//
-// We walk every such row and re-Start each one: spawn a fresh channels MCP
-// subprocess, spawn a fresh core that connects to it, write a new
-// instance_X/config.json with the live URLs, and populate the in-memory
-// process map. Without this, a `go build && restart` silently orphans
-// every running core — the DB still says "running" but nothing responds,
-// and you only notice when you try to chat.
+// starts, every user agent in the DB marked `status='running'` was active
+// before the previous server process stopped. In detach mode we first try
+// to reattach to the old core process using its persisted pid/port/API key.
+// If that fails, or detach mode is disabled, we fall back to spawning a
+// fresh core. Without this path, a server update would leave the DB saying
+// "running" while no in-memory process entry exists for chat/proxy routes.
 //
 // Any instance that fails to resume (missing provider credentials, port
 // already taken, bad config, etc.) is flipped to `stopped` in the DB so
 // the dashboard's Start button can try again cleanly.
 func (s *Server) ResumeRunningInstances() {
+	mode := s.agentBootResumeMode()
+	if mode == "manual" {
+		log.Printf("[RESUME] boot resume disabled by policy — leaving status='running' rows untouched")
+		return
+	}
+	reattachEnabled := s.agentShutdownPolicy() == "detach"
 	rows, err := s.store.ListAgentsByStatus("running")
 	if err != nil {
 		log.Printf("[RESUME] list running instances: %v", err)
@@ -1414,16 +1765,37 @@ func (s *Server) ResumeRunningInstances() {
 	if len(rows) == 0 {
 		return
 	}
-	log.Printf("[RESUME] found %d instance(s) marked running in DB — re-spawning cores", len(rows))
+	log.Printf("[RESUME] found %d instance(s) marked running in DB — reattaching or re-spawning cores", len(rows))
 
 	for i := range rows {
 		inst := &rows[i]
 		// Platform-owned agents (the meta-agent, eval-run scratch
-		// rows) are managed by bootMetaAgents / the eval runner —
-		// skip them here so we don't race the dedicated paths.
+		// rows) are lazy-managed by helper/eval paths — skip them
+		// here so restart recovery only wakes real user agents.
+		if inst.Kind != "" && inst.Kind != "user" {
+			log.Printf("[RESUME] instance %d (%s): kind=%s is platform-managed, skipping", inst.ID, inst.Name, inst.Kind)
+			inst.Status = "stopped"
+			inst.Port = 0
+			inst.Pid = 0
+			inst.CoreAPIKey = ""
+			_ = s.store.UpdateAgent(inst)
+			continue
+		}
 		if s.agents.IsRunning(inst.ID) {
 			log.Printf("[RESUME] instance %d (%s): already managed by another boot path, skipping", inst.ID, inst.Name)
 			continue
+		}
+		if reattachEnabled && inst.CoreAPIKey != "" && inst.Port > 0 && inst.Pid > 0 {
+			if err := s.agents.Reattach(inst, s.port, s.loadChannelConfigs(inst.ID)...); err == nil {
+				s.restoreSlackForInstance(inst)
+				s.restoreEmailForInstance(inst)
+				s.notifyAgentSubscriptionStartup(inst)
+				log.Printf("[RESUME] instance %d (%s): reattached existing core on port %d pid %d", inst.ID, inst.Name, inst.Port, inst.Pid)
+				continue
+			} else {
+				log.Printf("[RESUME] instance %d (%s): reattach failed: %v — falling back to fresh spawn", inst.ID, inst.Name, err)
+				terminateRuntimePID(inst.Pid, inst.Port, inst.CoreAPIKey, 2*time.Second)
+			}
 		}
 		providerEnv, err := s.store.GetAllProviderEnvVars(inst.UserID, s.secret, inst.ProjectID)
 		if err != nil {
@@ -1459,7 +1831,64 @@ func (s *Server) ResumeRunningInstances() {
 		s.restoreEmailForInstance(inst)
 		s.notifyAgentSubscriptionStartup(inst)
 		log.Printf("[RESUME] instance %d (%s): resumed on port %d pid %d", inst.ID, inst.Name, inst.Port, inst.Pid)
+		if mode == "staggered" && i < len(rows)-1 {
+			time.Sleep(s.agentBootResumeDelay())
+		}
 	}
+}
+
+func (s *Server) agentShutdownPolicy() string {
+	raw := strings.TrimSpace(os.Getenv("APTEVA_AGENT_SHUTDOWN_POLICY"))
+	if raw == "" && s != nil && s.store != nil {
+		raw = strings.TrimSpace(s.store.GetSetting("agent_shutdown_policy"))
+	}
+	switch strings.ToLower(raw) {
+	case "detach", "survive", "reattach":
+		return "detach"
+	case "", "stop", "respawn", "restart", "false", "0", "off", "disabled":
+		return "stop"
+	default:
+		log.Printf("[SHUTDOWN] unknown APTEVA_AGENT_SHUTDOWN_POLICY=%q — using stop", raw)
+		return "stop"
+	}
+}
+
+func (s *Server) agentBootResumeMode() string {
+	raw := strings.TrimSpace(os.Getenv("APTEVA_AGENT_BOOT_RESUME"))
+	if raw == "" && s != nil && s.store != nil {
+		raw = strings.TrimSpace(s.store.GetSetting("agent_boot_resume"))
+	}
+	switch strings.ToLower(raw) {
+	case "":
+		return "staggered"
+	case "auto", "true", "1", "yes":
+		return "auto"
+	case "manual", "off", "false", "0", "no", "disabled":
+		return "manual"
+	case "stagger", "staggered":
+		return "staggered"
+	default:
+		log.Printf("[RESUME] unknown APTEVA_AGENT_BOOT_RESUME=%q — using staggered", raw)
+		return "staggered"
+	}
+}
+
+func (s *Server) agentBootResumeDelay() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("APTEVA_AGENT_BOOT_RESUME_DELAY"))
+	if raw == "" && s != nil && s.store != nil {
+		raw = strings.TrimSpace(s.store.GetSetting("agent_boot_resume_delay"))
+	}
+	if raw == "" {
+		return 5 * time.Second
+	}
+	if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+		return d
+	}
+	if seconds, err := strconv.Atoi(raw); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	log.Printf("[RESUME] invalid boot resume delay %q — using 5s", raw)
+	return 5 * time.Second
 }
 
 func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
@@ -1666,12 +2095,12 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	// System-MCP opt-out persistence: when the client sends an
-	// mcp_servers list, detect whether the system entries the server
-	// auto-injects at startup (apteva-server, channels / apteva-channels)
-	// are present. Absent means "user detached" — we remember that in
-	// the instance DB record so the next start respects the choice.
-	// Present means "user wants it", which clears any stale opt-out.
+	// Channels-MCP opt-out persistence: when the client sends an
+	// mcp_servers list, detect whether the channels entry the server
+	// auto-injects at startup (channels / apteva-channels) is present.
+	// Absent means "user detached" — we remember that in the instance DB
+	// record so the next start respects the choice. Present means "user
+	// wants it", which clears any stale opt-out.
 	if mcpList, ok := rawBody["mcp_servers"].([]any); ok {
 		var instCfg map[string]any
 		if inst.Config != "" {
@@ -1680,20 +2109,15 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		if instCfg == nil {
 			instCfg = map[string]any{}
 		}
-		hasGateway := false
 		hasChannels := false
 		for _, s := range mcpList {
 			if sm, ok := s.(map[string]any); ok {
 				n, _ := sm["name"].(string)
-				if n == "apteva-server" {
-					hasGateway = true
-				}
 				if n == "channels" || n == "apteva-channels" {
 					hasChannels = true
 				}
 			}
 		}
-		instCfg["include_apteva_server"] = hasGateway
 		instCfg["include_channels"] = hasChannels
 		if out, err := json.Marshal(instCfg); err == nil {
 			inst.Config = string(out)
@@ -2333,9 +2757,9 @@ func proxyPUT(port int, path string, body any, coreAPIKey string) {
 
 // POST /instances/:id/system-mcp
 //
-// Body: {"name": "apteva-server"|"channels", "enable": true|false}
+// Body: {"name": "channels", "enable": true|false}
 //
-// Flips the corresponding include_apteva_server / include_channels flag
+// Flips the include_channels flag
 // on inst.Config. These flags are only consulted at Start() time
 // (agents.go:288-299), so toggling them on a running instance does
 // NOT alter the live MCP list until the instance is restarted — we
@@ -2380,12 +2804,10 @@ func (s *Server) handleSystemMCPToggle(w http.ResponseWriter, r *http.Request) {
 
 	var flag string
 	switch body.Name {
-	case "apteva-server":
-		flag = "include_apteva_server"
 	case "channels", "apteva-channels":
 		flag = "include_channels"
 	default:
-		http.Error(w, fmt.Sprintf("unknown system MCP %q (expected apteva-server or channels)", body.Name), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("unknown system MCP %q (expected channels)", body.Name), http.StatusBadRequest)
 		return
 	}
 

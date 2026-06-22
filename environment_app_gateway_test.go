@@ -14,9 +14,7 @@ import (
 // it must inject the install's dev token, so storage accepts the call and the
 // file lands. Without brokering, storage's /mcp would 401 and nothing writes.
 func TestEnvironmentAppGateway_BrokersToken(t *testing.T) {
-	if testing.Short() {
-		t.Skip("real-app environment test builds the storage sidecar")
-	}
+	requireRealAppEnvironmentTests(t)
 	src := findAppSource(t, "storage")
 	s := newEnvironmentTestServer(t)
 

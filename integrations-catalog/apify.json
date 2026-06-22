@@ -1,7 +1,7 @@
 {
   "slug": "apify",
   "name": "Apify",
-  "description": "Web scraping and automation platform. Run actors, retrieve scraping results, and manage datasets.",
+  "description": "Web scraping and automation platform. Search actors, run them with JSON input, monitor runs, and retrieve dataset results.",
   "logo": "https://www.google.com/s2/favicons?domain=apify.com&sz=128",
   "categories": [
     "scraping",
@@ -28,28 +28,148 @@
   },
   "tools": [
     {
-      "name": "run_actor",
-      "description": "Run an Apify actor with the provided input configuration. The actor is identified by its ID or name (e.g. 'apify/web-scraper'). Returns a run object with the run ID, status, and default dataset ID for retrieving results.",
-      "method": "POST",
-      "path": "/run-actor",
+      "name": "get_user",
+      "description": "Verify the Apify token and return the authenticated user's private account metadata.",
+      "method": "GET",
+      "path": "/users/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "search_store_actors",
+      "description": "Search public Apify Store actors. Use this to discover real-estate, lead, social, search, scraping, or automation actors before running one. Prefer responseFormat='agent' for compact agent-readable results.",
+      "method": "GET",
+      "path": "/store",
+      "query_params": [
+        "search",
+        "limit",
+        "offset",
+        "sortBy",
+        "category",
+        "username",
+        "pricingModel",
+        "allowsAgenticUsers",
+        "responseFormat",
+        "includeUnrunnableActors"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string",
+            "description": "Search text matched against actor title, name, description, username, and README, e.g. 'real estate listings'."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum actors to return. Default and maximum are 1000."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of actors to skip for pagination."
+          },
+          "sortBy": {
+            "type": "string",
+            "description": "Sort field.",
+            "enum": [
+              "relevance",
+              "popularity",
+              "newest",
+              "lastUpdate"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "description": "Optional Apify Store category filter."
+          },
+          "username": {
+            "type": "string",
+            "description": "Only return actors from this Apify username."
+          },
+          "pricingModel": {
+            "type": "string",
+            "description": "Only return actors with this pricing model.",
+            "enum": [
+              "FREE",
+              "FLAT_PRICE_PER_MONTH",
+              "PRICE_PER_DATASET_ITEM",
+              "PAY_PER_EVENT"
+            ]
+          },
+          "allowsAgenticUsers": {
+            "type": "boolean",
+            "description": "When true, only return actors marked as allowing agentic users."
+          },
+          "responseFormat": {
+            "type": "string",
+            "description": "Use 'agent' for a reduced field set optimized for LLM consumers; default is 'full'.",
+            "enum": [
+              "full",
+              "agent"
+            ],
+            "default": "agent"
+          },
+          "includeUnrunnableActors": {
+            "type": "boolean",
+            "description": "By default unrunnable actors are excluded. Set true only when you intentionally need the full store search."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_actors",
+      "description": "List actors the authenticated user created or used. Use my=true to list only actors owned by the user.",
+      "method": "GET",
+      "path": "/actors",
+      "query_params": [
+        "my",
+        "offset",
+        "limit",
+        "desc",
+        "sortBy"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "my": {
+            "type": "boolean",
+            "description": "If true, only return actors owned by the authenticated user."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of actors to skip."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum actors to return. Default and maximum are 1000."
+          },
+          "desc": {
+            "type": "boolean",
+            "description": "Sort descending when true."
+          },
+          "sortBy": {
+            "type": "string",
+            "description": "Sort field.",
+            "enum": [
+              "createdAt",
+              "stats.lastRunStartedAt"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "get_actor",
+      "description": "Get details for a specific actor. actorId must be an Apify actor ID or a tilde-separated name like 'apify~web-scraper' or 'compass~crawler-google-places'. Do not use slash form in this API path.",
+      "method": "GET",
+      "path": "/actors/{actorId}",
       "input_schema": {
         "type": "object",
         "properties": {
           "actorId": {
             "type": "string",
-            "description": "Actor ID or name in the format 'username/actor-name' (e.g. 'apify/web-scraper')."
-          },
-          "timeout": {
-            "type": "integer",
-            "description": "Optional timeout for the actor run in seconds."
-          },
-          "memory": {
-            "type": "integer",
-            "description": "Memory limit for the actor run in megabytes (e.g. 256, 512, 1024, 2048, 4096)."
-          },
-          "build": {
-            "type": "string",
-            "description": "Tag or number of the actor build to run (e.g. 'latest' or 'beta')."
+            "description": "Actor ID or tilde-separated owner/name, e.g. 'apify~web-scraper'."
           }
         },
         "required": [
@@ -58,113 +178,389 @@
       }
     },
     {
-      "name": "get_run",
-      "description": "Get details about a specific actor run including its status, timing, resource usage, and default dataset/key-value store IDs. Optionally wait for the run to finish by specifying waitForFinish.",
+      "name": "get_actor_openapi",
+      "description": "Get an actor build's OpenAPI definition, including the actor input schema when the actor exposes one. Use buildId='default' for the actor's default build. actorId must be an Apify actor ID or tilde-separated owner/name.",
       "method": "GET",
-      "path": "/get-run",
+      "path": "/actors/{actorId}/builds/{buildId}/openapi.json",
       "input_schema": {
         "type": "object",
         "properties": {
           "actorId": {
             "type": "string",
-            "description": "Actor ID or name in the format 'username/actor-name'."
+            "description": "Actor ID or tilde-separated owner/name, e.g. 'apify~web-scraper'."
           },
-          "runId": {
+          "buildId": {
             "type": "string",
-            "description": "The ID of the actor run to retrieve."
-          },
-          "waitForFinish": {
-            "type": "integer",
-            "description": "Maximum time in seconds to wait for the run to finish. If provided, the endpoint will wait synchronously."
+            "description": "Actor build ID, or 'default' to fetch the default build OpenAPI schema.",
+            "default": "default"
           }
         },
         "required": [
           "actorId",
-          "runId"
+          "buildId"
         ]
       }
     },
     {
-      "name": "list_runs",
-      "description": "Get a paginated list of runs for a specific actor. Returns basic run information including status, timing, and resource usage. Supports pagination via offset and limit parameters, and optional descending sort order.",
-      "method": "GET",
-      "path": "/list-runs",
+      "name": "run_actor",
+      "description": "Run an Apify actor asynchronously with a JSON input object. The response contains the run ID, status, defaultDatasetId, and defaultKeyValueStoreId. Poll get_run or fetch results from get_dataset_items after the run succeeds. actorId must be an Apify actor ID or tilde-separated owner/name, e.g. 'apify~web-scraper'.",
+      "method": "POST",
+      "path": "/actors/{actorId}/runs",
+      "query_params": [
+        "timeout",
+        "memory",
+        "maxItems",
+        "maxTotalChargeUsd",
+        "restartOnError",
+        "build",
+        "waitForFinish",
+        "webhooks",
+        "forcePermissionLevel"
+      ],
+      "body_root_param": "input",
+      "timeout_ms": 65000,
       "input_schema": {
         "type": "object",
         "properties": {
           "actorId": {
             "type": "string",
-            "description": "Actor ID or name in the format 'username/actor-name'."
+            "description": "Actor ID or tilde-separated owner/name, e.g. 'apify~web-scraper'."
           },
-          "offset": {
-            "type": "integer",
-            "description": "Number of records to skip (for pagination). Default is 0."
+          "input": {
+            "type": "object",
+            "description": "JSON input passed directly to the actor. Use get_actor_openapi or the actor's Apify Input tab to discover expected fields. Pass {} for actors with no input."
           },
-          "limit": {
-            "type": "integer",
-            "description": "Maximum number of records to return. Default is 100, maximum is 1000."
+          "timeout": {
+            "type": "number",
+            "description": "Optional actor run timeout in seconds."
           },
-          "desc": {
-            "type": "integer",
-            "description": "Set to 1 to sort results in descending order by startedAt. Default is ascending.",
+          "memory": {
+            "type": "number",
+            "description": "Optional memory limit in MB, usually a power of 2 such as 256, 512, 1024, 2048, or 4096."
+          },
+          "maxItems": {
+            "type": "number",
+            "description": "Maximum charged dataset items for pay-per-result actors. This is a billing cap, not a guaranteed result limit."
+          },
+          "maxTotalChargeUsd": {
+            "type": "number",
+            "description": "Maximum total charge in USD for pay-per-event actors."
+          },
+          "restartOnError": {
+            "type": "boolean",
+            "description": "Restart the actor run automatically if it fails."
+          },
+          "build": {
+            "type": "string",
+            "description": "Actor build tag or build number, e.g. 'latest' or '0.1.234'."
+          },
+          "waitForFinish": {
+            "type": "number",
+            "description": "Wait up to this many seconds for the async run to finish before returning. Maximum is 60."
+          },
+          "webhooks": {
+            "type": "string",
+            "description": "Base64-encoded JSON array of Apify webhook definitions for this run."
+          },
+          "forcePermissionLevel": {
+            "type": "string",
+            "description": "Optional per-run permission override.",
             "enum": [
-              0,
-              1
+              "LIMITED_PERMISSIONS",
+              "FULL_PERMISSIONS"
             ]
           }
         },
         "required": [
-          "actorId"
+          "actorId",
+          "input"
         ]
       }
     },
     {
-      "name": "get_dataset_items",
-      "description": "Retrieve items from an Apify dataset. Use the defaultDatasetId from an actor run response to fetch scraped results. Supports pagination, field filtering, and multiple output formats. Limited to 250,000 items per request.",
-      "method": "GET",
-      "path": "/get-dataset-items",
+      "name": "run_actor_sync_get_dataset_items",
+      "description": "Run an Apify actor and wait for dataset items in the response. This is the most convenient one-call path for agents when the actor finishes within roughly 5 minutes. For longer jobs, use run_actor then get_run and get_dataset_items.",
+      "method": "POST",
+      "path": "/actors/{actorId}/run-sync-get-dataset-items",
+      "query_params": [
+        "timeout",
+        "memory",
+        "maxItems",
+        "maxTotalChargeUsd",
+        "restartOnError",
+        "build",
+        "webhooks",
+        "format",
+        "clean",
+        "offset",
+        "limit",
+        "fields",
+        "outputFields",
+        "omit",
+        "unwind",
+        "flatten",
+        "desc"
+      ],
+      "body_root_param": "input",
+      "timeout_ms": 305000,
       "input_schema": {
         "type": "object",
         "properties": {
-          "datasetId": {
+          "actorId": {
             "type": "string",
-            "description": "The ID of the dataset (use defaultDatasetId from an actor run response)."
+            "description": "Actor ID or tilde-separated owner/name, e.g. 'apify~web-scraper'."
+          },
+          "input": {
+            "type": "object",
+            "description": "JSON input passed directly to the actor. Use get_actor_openapi or the actor's Apify Input tab to discover expected fields. Pass {} for actors with no input."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Optional actor run timeout in seconds."
+          },
+          "memory": {
+            "type": "number",
+            "description": "Optional memory limit in MB."
+          },
+          "maxItems": {
+            "type": "number",
+            "description": "Maximum charged dataset items for pay-per-result actors."
+          },
+          "maxTotalChargeUsd": {
+            "type": "number",
+            "description": "Maximum total charge in USD for pay-per-event actors."
+          },
+          "restartOnError": {
+            "type": "boolean",
+            "description": "Restart the actor run automatically if it fails."
+          },
+          "build": {
+            "type": "string",
+            "description": "Actor build tag or build number."
+          },
+          "webhooks": {
+            "type": "string",
+            "description": "Base64-encoded JSON array of Apify webhook definitions for this run."
           },
           "format": {
             "type": "string",
-            "description": "Output format for the data.",
+            "description": "Dataset result format.",
             "enum": [
               "json",
+              "jsonl",
               "csv",
+              "html",
               "xlsx",
               "xml",
               "rss"
             ],
             "default": "json"
           },
+          "clean": {
+            "type": "boolean",
+            "description": "Return only non-empty items and omit hidden fields."
+          },
           "offset": {
             "type": "integer",
-            "description": "Number of items to skip (for pagination). Default is 0."
+            "description": "Number of result items to skip."
           },
           "limit": {
             "type": "integer",
-            "description": "Maximum number of items to return. Maximum is 250000."
+            "description": "Maximum result items to return."
           },
           "fields": {
             "type": "string",
-            "description": "Comma-separated list of fields to include in the results."
+            "description": "Comma-separated fields to include."
+          },
+          "outputFields": {
+            "type": "string",
+            "description": "Comma-separated output names that rename fields positionally."
           },
           "omit": {
             "type": "string",
-            "description": "Comma-separated list of fields to omit from the results."
+            "description": "Comma-separated fields to omit."
+          },
+          "unwind": {
+            "type": "string",
+            "description": "Comma-separated fields to unwind."
+          },
+          "flatten": {
+            "type": "string",
+            "description": "Comma-separated fields to flatten."
           },
           "desc": {
+            "type": "boolean",
+            "description": "Return dataset items newest first."
+          }
+        },
+        "required": [
+          "actorId",
+          "input"
+        ]
+      }
+    },
+    {
+      "name": "get_run",
+      "description": "Get one actor run by runId. Use waitForFinish up to 60 seconds to poll until a terminal status is reached. The response includes defaultDatasetId for get_dataset_items.",
+      "method": "GET",
+      "path": "/actor-runs/{runId}",
+      "query_params": [
+        "waitForFinish"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "description": "Actor run ID returned by run_actor."
+          },
+          "waitForFinish": {
+            "type": "number",
+            "description": "Maximum seconds to wait for completion. Maximum is 60."
+          }
+        },
+        "required": [
+          "runId"
+        ]
+      }
+    },
+    {
+      "name": "list_runs",
+      "description": "List runs for a specific actor. actorId must be an Apify actor ID or tilde-separated owner/name.",
+      "method": "GET",
+      "path": "/actors/{actorId}/runs",
+      "query_params": [
+        "offset",
+        "limit",
+        "desc",
+        "status",
+        "startedAfter",
+        "startedBefore"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "actorId": {
+            "type": "string",
+            "description": "Actor ID or tilde-separated owner/name, e.g. 'apify~web-scraper'."
+          },
+          "offset": {
             "type": "integer",
-            "description": "Set to 1 to return items in reverse order (newest first).",
-            "enum": [
-              0,
-              1
-            ]
+            "description": "Number of runs to skip."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum runs to return. Default and maximum are 1000."
+          },
+          "desc": {
+            "type": "boolean",
+            "description": "Sort newest first when true."
+          },
+          "status": {
+            "type": "string",
+            "description": "Single status or comma-separated statuses, e.g. 'SUCCEEDED' or 'RUNNING,READY'."
+          },
+          "startedAfter": {
+            "type": "string",
+            "description": "Only runs started after this ISO 8601 timestamp."
+          },
+          "startedBefore": {
+            "type": "string",
+            "description": "Only runs started before this ISO 8601 timestamp."
+          }
+        },
+        "required": [
+          "actorId"
+        ]
+      }
+    },
+    {
+      "name": "list_user_runs",
+      "description": "List all actor runs for the authenticated user, optionally filtered by status or start time.",
+      "method": "GET",
+      "path": "/actor-runs",
+      "query_params": [
+        "offset",
+        "limit",
+        "desc",
+        "status",
+        "startedAfter",
+        "startedBefore"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "description": "Number of runs to skip."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum runs to return. Default and maximum are 1000."
+          },
+          "desc": {
+            "type": "boolean",
+            "description": "Sort newest first when true."
+          },
+          "status": {
+            "type": "string",
+            "description": "Single status or comma-separated statuses, e.g. 'SUCCEEDED' or 'RUNNING,READY'."
+          },
+          "startedAfter": {
+            "type": "string",
+            "description": "Only runs started after this ISO 8601 timestamp."
+          },
+          "startedBefore": {
+            "type": "string",
+            "description": "Only runs started before this ISO 8601 timestamp."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_datasets",
+      "description": "List datasets owned by the authenticated user.",
+      "method": "GET",
+      "path": "/datasets",
+      "query_params": [
+        "unnamed",
+        "offset",
+        "limit",
+        "desc"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "unnamed": {
+            "type": "boolean",
+            "description": "When true, include unnamed datasets."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of datasets to skip."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum datasets to return."
+          },
+          "desc": {
+            "type": "boolean",
+            "description": "Sort newest first when true."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_dataset",
+      "description": "Get metadata for a dataset. This does not return items; use get_dataset_items for records.",
+      "method": "GET",
+      "path": "/datasets/{datasetId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "datasetId": {
+            "type": "string",
+            "description": "Dataset ID or tilde-separated username/dataset name."
           }
         },
         "required": [
@@ -173,31 +569,102 @@
       }
     },
     {
-      "name": "list_actors",
-      "description": "Get a paginated list of actors. Optionally filter to only your own actors using the 'my' parameter. Returns actor metadata including name, description, and version information.",
+      "name": "get_dataset_items",
+      "description": "Retrieve items from an Apify dataset. Use defaultDatasetId from run_actor/get_run, or use run_actor_sync_get_dataset_items for one-call execution and results.",
       "method": "GET",
-      "path": "/list-actors",
+      "path": "/datasets/{datasetId}/items",
+      "query_params": [
+        "format",
+        "clean",
+        "offset",
+        "limit",
+        "fields",
+        "outputFields",
+        "omit",
+        "unwind",
+        "flatten",
+        "desc",
+        "attachment",
+        "delimiter",
+        "bom"
+      ],
       "input_schema": {
         "type": "object",
         "properties": {
-          "my": {
-            "type": "integer",
-            "description": "Set to 1 to only return actors created by the authenticated user.",
+          "datasetId": {
+            "type": "string",
+            "description": "Dataset ID or tilde-separated username/dataset name."
+          },
+          "format": {
+            "type": "string",
+            "description": "Output format for the data.",
             "enum": [
-              0,
-              1
-            ]
+              "json",
+              "jsonl",
+              "csv",
+              "html",
+              "xlsx",
+              "xml",
+              "rss"
+            ],
+            "default": "json"
+          },
+          "clean": {
+            "type": "boolean",
+            "description": "Return only non-empty items and omit hidden fields."
           },
           "offset": {
             "type": "integer",
-            "description": "Number of records to skip (for pagination). Default is 0."
+            "description": "Number of items to skip."
           },
           "limit": {
             "type": "integer",
-            "description": "Maximum number of records to return. Default is 100, maximum is 1000."
+            "description": "Maximum items to return."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields to include."
+          },
+          "outputFields": {
+            "type": "string",
+            "description": "Comma-separated output names that rename fields positionally."
+          },
+          "omit": {
+            "type": "string",
+            "description": "Comma-separated fields to omit."
+          },
+          "unwind": {
+            "type": "string",
+            "description": "Comma-separated fields to unwind."
+          },
+          "flatten": {
+            "type": "string",
+            "description": "Comma-separated fields to flatten."
+          },
+          "desc": {
+            "type": "boolean",
+            "description": "Return items newest first."
+          },
+          "attachment": {
+            "type": "boolean",
+            "description": "Force file download style response for browser clients."
+          },
+          "delimiter": {
+            "type": "string",
+            "description": "Delimiter for CSV output."
+          },
+          "bom": {
+            "type": "boolean",
+            "description": "Include a byte-order mark for CSV output."
           }
-        }
+        },
+        "required": [
+          "datasetId"
+        ]
       }
     }
-  ]
+  ],
+  "health_check": {
+    "tool": "get_user"
+  }
 }

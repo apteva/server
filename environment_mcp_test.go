@@ -49,9 +49,7 @@ func TestEnvironmentMCP_ToolsList(t *testing.T) {
 // environment_call_app drives the real storage app's files_upload, landing a
 // real file in the environment's isolated DB.
 func TestEnvironmentMCP_CallApp_RealStorage(t *testing.T) {
-	if testing.Short() {
-		t.Skip("real-app environment test builds the storage sidecar")
-	}
+	requireRealAppEnvironmentTests(t)
 	src := findAppSource(t, "storage")
 	s := newEnvironmentTestServer(t)
 

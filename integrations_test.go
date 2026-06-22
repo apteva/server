@@ -1292,6 +1292,145 @@ func TestExecuteIntegrationTool_BodyRoot(t *testing.T) {
 	}
 }
 
+func TestExecuteIntegrationTool_ApifyRunActorBodyRootAndQuery(t *testing.T) {
+	var capturedPath string
+	var capturedQuery url.Values
+	var capturedBody []byte
+	var capturedAuth string
+	var capturedCT string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedQuery = r.URL.Query()
+		capturedAuth = r.Header.Get("Authorization")
+		capturedCT = r.Header.Get("Content-Type")
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(201)
+		w.Write([]byte(`{"data":{"id":"run-123","defaultDatasetId":"ds-123","status":"READY"}}`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "apify",
+		BaseURL: srv.URL,
+		Auth: AppAuthConfig{
+			Types:   []string{"bearer"},
+			Headers: map[string]string{"Authorization": "Bearer {{token}}"},
+		},
+	}
+	tool := &AppToolDef{
+		Name:        "run_actor",
+		Method:      "POST",
+		Path:        "/actors/{actorId}/runs",
+		QueryParams: []string{"waitForFinish", "maxItems"},
+		BodyRoot:    "input",
+	}
+	input := map[string]any{
+		"actorId":       "compass~crawler-google-places",
+		"input":         map[string]any{"searchStringsArray": []any{"homes for sale Lisbon"}, "maxCrawledPlacesPerSearch": 5},
+		"waitForFinish": 60,
+		"maxItems":      25,
+	}
+	res, err := executeIntegrationTool(app, tool, map[string]string{"token": "apify-secret"}, input, "")
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("success=%v status=%d", res.Success, res.Status)
+	}
+	if capturedPath != "/actors/compass~crawler-google-places/runs" {
+		t.Fatalf("path=%q, want /actors/compass~crawler-google-places/runs", capturedPath)
+	}
+	if capturedQuery.Get("waitForFinish") != "60" || capturedQuery.Get("maxItems") != "25" {
+		t.Fatalf("query=%v, want waitForFinish=60&maxItems=25", capturedQuery)
+	}
+	if capturedAuth != "Bearer apify-secret" {
+		t.Fatalf("Authorization=%q, want Bearer apify-secret", capturedAuth)
+	}
+	if capturedCT != "application/json" {
+		t.Fatalf("Content-Type=%q, want application/json", capturedCT)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(capturedBody, &body); err != nil {
+		t.Fatalf("body is not JSON object: %v (body=%s)", err, capturedBody)
+	}
+	if _, ok := body["input"]; ok {
+		t.Fatalf("body wrapped actor input under input: %s", capturedBody)
+	}
+	if _, ok := body["actorId"]; ok {
+		t.Fatalf("body leaked actorId: %s", capturedBody)
+	}
+	if _, ok := body["waitForFinish"]; ok {
+		t.Fatalf("body leaked query param waitForFinish: %s", capturedBody)
+	}
+	if body["maxCrawledPlacesPerSearch"].(float64) != 5 {
+		t.Fatalf("actor input body mismatch: %v", body)
+	}
+}
+
+func TestExecuteIntegrationTool_ApifySyncDatasetItemsBodyRoot(t *testing.T) {
+	var capturedPath string
+	var capturedQuery url.Values
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedQuery = r.URL.Query()
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`[{"url":"https://example.com/listing/1"}]`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "apify",
+		BaseURL: srv.URL,
+		Auth:    AppAuthConfig{Types: []string{"bearer"}},
+	}
+	tool := &AppToolDef{
+		Name:        "run_actor_sync_get_dataset_items",
+		Method:      "POST",
+		Path:        "/actors/{actorId}/run-sync-get-dataset-items",
+		QueryParams: []string{"format", "clean", "limit"},
+		BodyRoot:    "input",
+	}
+	input := map[string]any{
+		"actorId": "apify~web-scraper",
+		"input": map[string]any{
+			"startUrls": []any{map[string]any{"url": "https://example.com"}},
+		},
+		"format": "json",
+		"clean":  true,
+		"limit":  10,
+	}
+	res, err := executeIntegrationTool(app, tool, map[string]string{"token": "apify-secret"}, input, "")
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("success=%v status=%d", res.Success, res.Status)
+	}
+	if capturedPath != "/actors/apify~web-scraper/run-sync-get-dataset-items" {
+		t.Fatalf("path=%q, want sync endpoint", capturedPath)
+	}
+	if capturedQuery.Get("format") != "json" || capturedQuery.Get("clean") != "true" || capturedQuery.Get("limit") != "10" {
+		t.Fatalf("query=%v, want format=json&clean=true&limit=10", capturedQuery)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(capturedBody, &body); err != nil {
+		t.Fatalf("body is not JSON object: %v (body=%s)", err, capturedBody)
+	}
+	if _, ok := body["input"]; ok {
+		t.Fatalf("body wrapped actor input under input: %s", capturedBody)
+	}
+	if _, ok := body["format"]; ok {
+		t.Fatalf("body leaked dataset query params: %s", capturedBody)
+	}
+	if _, ok := body["startUrls"]; !ok {
+		t.Fatalf("body missing actor input startUrls: %v", body)
+	}
+}
+
 func TestExecuteIntegrationTool_ToolHeadersOverrideAppHeaders(t *testing.T) {
 	var capturedCT string
 	var capturedBody []byte

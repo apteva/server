@@ -58,18 +58,24 @@ type EnvironmentRecord struct {
 }
 
 type Agent struct {
-	ID        int64     `json:"id"`
-	UserID    int64     `json:"user_id"`
-	Name      string    `json:"name"`
-	Directive string    `json:"directive"`
-	Mode      string    `json:"mode"`   // "autonomous" | "cautious" | "learn"
-	Config    string    `json:"config"` // JSON blob
-	Port      int       `json:"port"`
-	Pid       int       `json:"pid"`
-	Status    string    `json:"status"` // running, stopped
-	ProjectID string    `json:"project_id,omitempty"`
-	Kind      string    `json:"kind,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID                  int64     `json:"id"`
+	UserID              int64     `json:"user_id"`
+	Name                string    `json:"name"`
+	Directive           string    `json:"directive"`
+	Mode                string    `json:"mode"`   // "autonomous" | "cautious" | "learn"
+	Config              string    `json:"config"` // JSON blob
+	Port                int       `json:"port"`
+	Pid                 int       `json:"pid"`
+	CoreAPIKey          string    `json:"-"`
+	Status              string    `json:"status"` // running, stopped
+	ProjectID           string    `json:"project_id,omitempty"`
+	Kind                string    `json:"kind,omitempty"`
+	CoreVersion         string    `json:"core_version,omitempty"`
+	CoreBuildTime       string    `json:"core_build_time,omitempty"`
+	CoreStartedAt       string    `json:"core_started_at,omitempty"`
+	TargetCoreVersion   string    `json:"target_core_version,omitempty"`
+	CoreUpdateAvailable bool      `json:"core_update_available,omitempty"`
+	CreatedAt           time.Time `json:"created_at"`
 }
 
 type Store struct {
@@ -397,6 +403,10 @@ func (s *Store) migrate() error {
 			config TEXT DEFAULT '{}',
 			port INTEGER DEFAULT 0,
 			pid INTEGER DEFAULT 0,
+			core_api_key TEXT NOT NULL DEFAULT '',
+			core_version TEXT NOT NULL DEFAULT '',
+			core_build_time TEXT NOT NULL DEFAULT '',
+			core_started_at DATETIME,
 			status TEXT DEFAULT 'stopped',
 			project_id TEXT DEFAULT '',
 			-- kind distinguishes platform-owned agents (the meta-agent,
@@ -598,6 +608,22 @@ func (s *Store) migrate() error {
 	if !columnExists(s.db, "agents", "kind") {
 		s.db.Exec("ALTER TABLE agents ADD COLUMN kind TEXT NOT NULL DEFAULT 'user'")
 	}
+	if !columnExists(s.db, "agents", "core_api_key") {
+		s.db.Exec("ALTER TABLE agents ADD COLUMN core_api_key TEXT NOT NULL DEFAULT ''")
+	}
+	if !columnExists(s.db, "agents", "core_version") {
+		s.db.Exec("ALTER TABLE agents ADD COLUMN core_version TEXT NOT NULL DEFAULT ''")
+	}
+	if !columnExists(s.db, "agents", "core_build_time") {
+		s.db.Exec("ALTER TABLE agents ADD COLUMN core_build_time TEXT NOT NULL DEFAULT ''")
+	}
+	if !columnExists(s.db, "agents", "core_started_at") {
+		s.db.Exec("ALTER TABLE agents ADD COLUMN core_started_at DATETIME")
+	}
+	s.db.Exec(`UPDATE agents
+	              SET port=0, pid=0, core_api_key=''
+	            WHERE status='stopped'
+	              AND (port != 0 OR pid != 0 OR COALESCE(core_api_key,'') != '')`)
 
 	// The canonical builtin set lives next to its Go types in
 	// agent_templates.go. Operator edits to existing rows survive
@@ -1414,9 +1440,9 @@ func (s *Store) GetAgentByID(instanceID int64) (*Agent, error) {
 	var inst Agent
 	var createdAt string
 	err := s.db.QueryRow(
-		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, status, COALESCE(project_id,''), COALESCE(kind,'user'), created_at FROM agents WHERE id = ?",
+		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, COALESCE(core_api_key,''), status, COALESCE(project_id,''), COALESCE(kind,'user'), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at FROM agents WHERE id = ?",
 		instanceID,
-	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &inst.Kind, &createdAt)
+	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.CoreAPIKey, &inst.Status, &inst.ProjectID, &inst.Kind, &inst.CoreVersion, &inst.CoreBuildTime, &inst.CoreStartedAt, &createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -1428,9 +1454,9 @@ func (s *Store) GetAgent(userID, instanceID int64) (*Agent, error) {
 	var inst Agent
 	var createdAt string
 	err := s.db.QueryRow(
-		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, status, COALESCE(project_id,''), COALESCE(kind,'user'), created_at FROM agents WHERE id = ? AND user_id = ?",
+		"SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, COALESCE(core_api_key,''), status, COALESCE(project_id,''), COALESCE(kind,'user'), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at FROM agents WHERE id = ? AND user_id = ?",
 		instanceID, userID,
-	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &inst.Kind, &createdAt)
+	).Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.CoreAPIKey, &inst.Status, &inst.ProjectID, &inst.Kind, &inst.CoreVersion, &inst.CoreBuildTime, &inst.CoreStartedAt, &createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -1452,13 +1478,15 @@ func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agen
 	var ag Agent
 	err := s.db.QueryRow(
 		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'),
-		        config, port, pid, status, COALESCE(project_id,''), created_at
+		        config, port, pid, COALESCE(core_api_key,''), status, COALESCE(project_id,''),
+		        COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at
 		   FROM agents
 		  WHERE user_id = ? AND kind = 'platform_helper'
 		  ORDER BY id ASC LIMIT 1`,
 		userID,
 	).Scan(&ag.ID, &ag.UserID, &ag.Name, &ag.Directive, &ag.Mode,
-		&ag.Config, &ag.Port, &ag.Pid, &ag.Status, &ag.ProjectID, &ag.CreatedAt)
+		&ag.Config, &ag.Port, &ag.Pid, &ag.CoreAPIKey, &ag.Status, &ag.ProjectID,
+		&ag.CoreVersion, &ag.CoreBuildTime, &ag.CoreStartedAt, &ag.CreatedAt)
 	if err == nil {
 		ag.Kind = "platform_helper"
 		if ag.Name == "__platform_helper__" || strings.TrimSpace(ag.Name) == "" {
@@ -1500,7 +1528,8 @@ func (s *Store) GetOrCreatePlatformHelper(userID int64, directive string) (*Agen
 func (s *Store) ListAgentsInProject(projectID string) ([]Agent, error) {
 	rows, err := s.db.Query(
 		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'),
-		        port, pid, status, COALESCE(project_id,''), created_at
+		        port, pid, status, COALESCE(project_id,''),
+		        COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at
 		   FROM agents
 		  WHERE project_id = ? AND COALESCE(kind,'user') = 'user'`,
 		projectID,
@@ -1514,7 +1543,8 @@ func (s *Store) ListAgentsInProject(projectID string) ([]Agent, error) {
 		var a Agent
 		var createdAt string
 		rows.Scan(&a.ID, &a.UserID, &a.Name, &a.Directive, &a.Mode,
-			&a.Port, &a.Pid, &a.Status, &a.ProjectID, &createdAt)
+			&a.Port, &a.Pid, &a.Status, &a.ProjectID,
+			&a.CoreVersion, &a.CoreBuildTime, &a.CoreStartedAt, &createdAt)
 		a.CreatedAt, _ = parseTime(createdAt)
 		out = append(out, a)
 	}
@@ -1529,10 +1559,10 @@ func (s *Store) ListAgents(userID int64, projectID string) ([]Agent, error) {
 	// Callers needing the platform helpers go through GetPlatformHelper.
 	if projectID != "" {
 		rows, err = s.db.Query(
-			"SELECT id, name, directive, COALESCE(mode,'autonomous'), port, pid, status, COALESCE(project_id,''), created_at FROM agents WHERE user_id = ? AND project_id = ? AND COALESCE(kind,'user') = 'user'", userID, projectID)
+			"SELECT id, name, directive, COALESCE(mode,'autonomous'), port, pid, status, COALESCE(project_id,''), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at FROM agents WHERE user_id = ? AND project_id = ? AND COALESCE(kind,'user') = 'user'", userID, projectID)
 	} else {
 		rows, err = s.db.Query(
-			"SELECT id, name, directive, COALESCE(mode,'autonomous'), port, pid, status, COALESCE(project_id,''), created_at FROM agents WHERE user_id = ? AND COALESCE(kind,'user') = 'user'", userID)
+			"SELECT id, name, directive, COALESCE(mode,'autonomous'), port, pid, status, COALESCE(project_id,''), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at FROM agents WHERE user_id = ? AND COALESCE(kind,'user') = 'user'", userID)
 	}
 	if err != nil {
 		return nil, err
@@ -1543,7 +1573,7 @@ func (s *Store) ListAgents(userID int64, projectID string) ([]Agent, error) {
 	for rows.Next() {
 		var inst Agent
 		var createdAt string
-		rows.Scan(&inst.ID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &createdAt)
+		rows.Scan(&inst.ID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &inst.CoreVersion, &inst.CoreBuildTime, &inst.CoreStartedAt, &createdAt)
 		inst.UserID = userID
 		inst.CreatedAt, _ = parseTime(createdAt)
 		instances = append(instances, inst)
@@ -1599,11 +1629,49 @@ func (s *Store) ListTelemetryAgentIDs(userID int64, projectID string) (map[int64
 }
 
 func (s *Store) UpdateAgent(inst *Agent) error {
+	if strings.EqualFold(inst.Status, "stopped") {
+		inst.Port = 0
+		inst.Pid = 0
+		inst.CoreAPIKey = ""
+	}
 	_, err := s.db.Exec(
-		"UPDATE agents SET name=?, directive=?, mode=?, config=?, port=?, pid=?, status=?, project_id=? WHERE id=?",
-		inst.Name, inst.Directive, inst.Mode, inst.Config, inst.Port, inst.Pid, inst.Status, inst.ProjectID, inst.ID,
+		"UPDATE agents SET name=?, directive=?, mode=?, config=?, port=?, pid=?, core_api_key=?, status=?, project_id=? WHERE id=?",
+		inst.Name, inst.Directive, inst.Mode, inst.Config, inst.Port, inst.Pid, inst.CoreAPIKey, inst.Status, inst.ProjectID, inst.ID,
 	)
 	return err
+}
+
+func (s *Store) UpdateAgentCoreRuntime(agentID int64, version, buildTime string, startedAt time.Time) error {
+	var started any
+	if !startedAt.IsZero() {
+		started = startedAt.UTC().Format(time.RFC3339Nano)
+	}
+	_, err := s.db.Exec(
+		`UPDATE agents
+		    SET core_version=?, core_build_time=?, core_started_at=?
+		  WHERE id=?`,
+		version, buildTime, started, agentID,
+	)
+	return err
+}
+
+// MarkPlatformAgentsStoppedForShutdown records a clean server shutdown for
+// platform-owned helpers before child cores are terminated. User agents keep
+// status='running' so the next boot can resume agents the operator explicitly
+// left active. Platform helpers are lazy-started by helper/eval paths when
+// actually needed, so leaving them as running would only create stale UI state.
+func (s *Store) MarkPlatformAgentsStoppedForShutdown() (int64, error) {
+	res, err := s.db.Exec(
+		`UPDATE agents
+		    SET status='stopped', port=0, pid=0, core_api_key=''
+		  WHERE status='running'
+		    AND COALESCE(kind, 'user') != 'user'`,
+	)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 // ListAgentsByStatus scans every user's instances for ones in the given
@@ -1612,7 +1680,7 @@ func (s *Store) UpdateAgent(inst *Agent) error {
 // The result is unsorted; callers that need ordering should sort themselves.
 func (s *Store) ListAgentsByStatus(status string) ([]Agent, error) {
 	rows, err := s.db.Query(
-		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, status, COALESCE(project_id,''), created_at
+		`SELECT id, user_id, name, directive, COALESCE(mode,'autonomous'), config, port, pid, COALESCE(core_api_key,''), status, COALESCE(project_id,''), COALESCE(kind,'user'), COALESCE(core_version,''), COALESCE(core_build_time,''), COALESCE(core_started_at,''), created_at
 		 FROM agents WHERE status = ?`,
 		status,
 	)
@@ -1625,7 +1693,7 @@ func (s *Store) ListAgentsByStatus(status string) ([]Agent, error) {
 	for rows.Next() {
 		var inst Agent
 		var createdAt string
-		rows.Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.Status, &inst.ProjectID, &createdAt)
+		rows.Scan(&inst.ID, &inst.UserID, &inst.Name, &inst.Directive, &inst.Mode, &inst.Config, &inst.Port, &inst.Pid, &inst.CoreAPIKey, &inst.Status, &inst.ProjectID, &inst.Kind, &inst.CoreVersion, &inst.CoreBuildTime, &inst.CoreStartedAt, &createdAt)
 		inst.CreatedAt, _ = parseTime(createdAt)
 		instances = append(instances, inst)
 	}

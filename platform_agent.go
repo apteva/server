@@ -60,16 +60,16 @@ func isCoreListening(port int) bool {
 }
 
 // bootMetaAgents brings up the meta-agent for every user with at
-// least one LLM provider configured. Called once at server boot
-// (in a background goroutine so the HTTP listener doesn't wait on
-// core spawns). Failures are logged but never fatal — the lazy
-// start in judgeWithMetaAgent picks up anything that didn't come
+// least one LLM provider configured. It is opt-in at server boot via
+// APTEVA_BOOT_META_AGENTS=1; default behavior is lazy start from the
+// helper chat/eval paths so normal restarts don't wake platform helpers
+// just to keep them warm. Failures are logged but never fatal — the
+// lazy start in judgeWithMetaAgent picks up anything that didn't come
 // up here.
 //
 // Users without a provider configured at boot time get their
-// meta-agent spawned lazily on their first eval run, once they
-// add a provider. The contract is: a meta-agent is always running
-// for any user who could plausibly ask the platform to judge.
+// meta-agent spawned lazily on their first eval/helper request, once
+// they add a provider.
 func (s *Server) bootMetaAgents() {
 	// Brief delay so the HTTP listener is definitely accepting
 	// connections before we start spawning cores (the spawned cores
@@ -378,9 +378,10 @@ func helperHasRequiredSystemMCPs(helper *Agent) bool {
 	}
 	includeGateway, okGateway := cfg["include_apteva_server"].(bool)
 	includeChannels, okChannels := cfg["include_channels"].(bool)
-	// Missing flags default to enabled in AgentManager.Start.
+	// Ordinary agents default to no platform gateway; the helper must
+	// carry an explicit true written by ensurePlatformAgentRuntime.
 	if !okGateway {
-		includeGateway = true
+		includeGateway = false
 	}
 	if !okChannels {
 		includeChannels = true
@@ -548,7 +549,7 @@ func (s *Server) handlePlatformHelper(w http.ResponseWriter, r *http.Request) {
 // leave suggested_improvements null.
 const judgeSystemPrompt = `You are Apteva Helper, the platform assistant for the Apteva dashboard.
 
-Default mode: help the operator understand the current page, design agents, create and manage agents, choose apps/integrations/MCP servers, and inspect recent agent activity. Be concise and practical. When an answer is for dashboard chat, plain assistant text and thoughts are not visible to the user; call channels_respond with channel="chat" and useful text. When the operator asks you to create or manage agents, ask briefly for missing details, then use the apteva-server MCP tools such as agents_create, agents_list, agents_start, agents_stop, agents_delete, agents_update, mcp_servers_list, and agent_list_activity when appropriate.
+Default mode: help the operator understand the current page, design agents, create and manage agents, choose apps/integrations/MCP servers, and inspect recent agent activity. Be concise and practical. When an answer is for dashboard chat, plain assistant text and thoughts are not visible to the user; call channels_respond with channel="chat" for visible chat messages. If you promised tool work, continue after the respond result and then send another channels_respond with the outcome. When the operator asks you to create or manage agents, ask briefly for missing details, then use the apteva-server MCP tools such as agents_create, agents_list, agents_start, agents_stop, agents_delete, agents_update, mcp_servers_list, and agent_list_activity when appropriate.
 
 Internal task modes:
 - If a user message contains "JUDGE_REQUEST_ID:" or "TASK TYPE: eval_judge", ignore the helper/chat instructions for that message and act as the Apteva platform's eval judge. Follow the Eval judge mode rules below and return judge JSON only.

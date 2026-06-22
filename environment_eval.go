@@ -123,15 +123,15 @@ func (s *Server) runEvalInEnvironment(ctx context.Context, userID int64, agent *
 				"release environment agent execution: "+err.Error(), preview, 1)
 		}
 	}
-	// Environment runs pay startup + real-sidecar + hosted-model latency. Give
-	// slow hosted tool-call streams room to complete, but stop once the agent
-	// repeatedly talks without producing another completed tool call.
+	// Environment runs pay startup + real-sidecar + hosted-model latency. Let
+	// the normal idle window / max_turns / overall timeout decide completion:
+	// hard multi-app scenarios often include several prose-only "I'll do X"
+	// turns before the model finally emits the next write tool call.
 	collectOpts := collectAssistantRepliesOptions{
-		CollectAllThreads:                 true,
-		OverallTimeout:                    boundedRunOptionDuration(opts.EnvironmentCollectTimeoutSeconds, 10*time.Minute, 2*time.Minute, 20*time.Minute),
-		IdleWindow:                        20 * time.Second,
-		PostToolIdleWindow:                45 * time.Second,
-		MaxNonToolAssistantTurnsAfterTool: 1,
+		CollectAllThreads:  true,
+		OverallTimeout:     boundedRunOptionDuration(opts.EnvironmentCollectTimeoutSeconds, 10*time.Minute, 2*time.Minute, 20*time.Minute),
+		IdleWindow:         20 * time.Second,
+		PostToolIdleWindow: 45 * time.Second,
 	}
 	if eventDriven {
 		collectOpts.RequireMeaningfulActivityIdle = true

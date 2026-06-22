@@ -47,10 +47,11 @@ func seedRunningInstall(t *testing.T, s *Server, name, projectID string, manifes
 	if bindings != nil {
 		bj, _ = json.Marshal(bindings)
 	}
+	pj, _ := json.Marshal(manifest.Requires.Permissions)
 	res, err := s.store.db.Exec(
-		`INSERT INTO app_installs (app_id, project_id, status, installed_by, integration_bindings)
-		 VALUES (?, ?, 'running', 1, ?)`,
-		appID, projectID, string(bj),
+		`INSERT INTO app_installs (app_id, project_id, status, installed_by, integration_bindings, permissions_json)
+		 VALUES (?, ?, 'running', 1, ?, ?)`,
+		appID, projectID, string(bj), string(pj),
 	)
 	if err != nil {
 		t.Fatalf("seed install %q: %v", name, err)

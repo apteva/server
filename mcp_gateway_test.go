@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -84,8 +85,12 @@ func TestGatewayAgentCreateToolUsesAgentsAPI(t *testing.T) {
 	if created.Status != "stopped" {
 		t.Fatalf("expected start=false to leave agent stopped, got %q", created.Status)
 	}
-	if !helperHasRequiredSystemMCPs(created) {
-		t.Fatalf("expected created agent to preserve default system MCP flags, config=%s", created.Config)
+	includeGateway, includeChannels := readSystemMCPFlags(t, created)
+	if includeGateway {
+		t.Fatalf("expected agents_create MCP default to omit apteva-server, config=%s", created.Config)
+	}
+	if !includeChannels {
+		t.Fatalf("expected agents_create MCP default to include channels, config=%s", created.Config)
 	}
 
 	listResult, err := handleGatewayAgentTool("agents_list", map[string]any{}, "", client, s.store, "/tmp/apteva-server")
@@ -107,6 +112,28 @@ func TestGatewayAgentCreateToolUsesAgentsAPI(t *testing.T) {
 	if !found {
 		t.Fatalf("agents_list did not include created agent: %#v", listResult)
 	}
+}
+
+func readSystemMCPFlags(t *testing.T, agent *Agent) (includeGateway bool, includeChannels bool) {
+	t.Helper()
+	var cfg map[string]any
+	if agent.Config != "" {
+		if err := json.Unmarshal([]byte(agent.Config), &cfg); err != nil {
+			t.Fatalf("parse agent config: %v", err)
+		}
+	}
+	if cfg == nil {
+		cfg = map[string]any{}
+	}
+	includeGateway, okGateway := cfg["include_apteva_server"].(bool)
+	includeChannels, okChannels := cfg["include_channels"].(bool)
+	if !okGateway {
+		includeGateway = false
+	}
+	if !okChannels {
+		includeChannels = true
+	}
+	return includeGateway, includeChannels
 }
 
 func TestGatewayAgentUpdateAndStopToolsUseAgentsAPI(t *testing.T) {

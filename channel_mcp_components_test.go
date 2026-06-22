@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -58,7 +59,21 @@ func TestBuildRespondDescription_EmptyCatalogOmitsBlock(t *testing.T) {
 	}
 }
 
-func TestChannelMCPRespondAdvertisesWakeOnError(t *testing.T) {
+func TestBuildRespondDescription_RespondWakesAgain(t *testing.T) {
+	desc := buildRespondDescription([]string{"chat"}, nil)
+	for _, want := range []string{
+		"successful respond wakes you again",
+		"continue after the respond result",
+		"schedule yourself with pace",
+		"send another respond with the actual outcome",
+	} {
+		if !strings.Contains(desc, want) {
+			t.Fatalf("respond description missing %q:\n%s", want, desc)
+		}
+	}
+}
+
+func TestChannelMCPRespondAdvertisesWakeAlways(t *testing.T) {
 	s := &channelMCPServer{registry: NewChannelRegistry()}
 	out := s.toolsList()
 	tools, ok := out["tools"].([]map[string]any)
@@ -73,10 +88,66 @@ func TestChannelMCPRespondAdvertisesWakeOnError(t *testing.T) {
 		if !ok {
 			t.Fatalf("respond tool missing _meta: %#v", tool)
 		}
-		if got := meta["io.apteva/wakeOnResult"]; got != "on_error" {
-			t.Fatalf("wakeOnResult=%v, want on_error", got)
+		if got := meta["io.apteva/wakeOnResult"]; got != "always" {
+			t.Fatalf("wakeOnResult=%v, want always", got)
 		}
 		return
 	}
 	t.Fatal("respond tool not found")
 }
+
+func TestChannelMCPDoesNotAdvertiseStatusTool(t *testing.T) {
+	s := &channelMCPServer{registry: NewChannelRegistry()}
+	out := s.toolsList()
+	tools, ok := out["tools"].([]map[string]any)
+	if !ok {
+		t.Fatalf("tools payload has unexpected shape: %#v", out["tools"])
+	}
+	for _, tool := range tools {
+		if tool["name"] == "status" {
+			t.Fatalf("status tool should not be advertised: %#v", tool)
+		}
+	}
+}
+
+func TestChannelMCPRespondResultDoesNotForbidFinalOutcome(t *testing.T) {
+	reg := NewChannelRegistry()
+	reg.Register(&captureChannel{id: "chat"})
+	s := &channelMCPServer{registry: reg}
+	params, _ := json.Marshal(map[string]any{
+		"name": "respond",
+		"arguments": map[string]any{
+			"channel": "chat",
+			"text":    "On it.",
+		},
+	})
+	out, rpcErr := s.handleToolCall(params)
+	if rpcErr != nil {
+		t.Fatalf("handleToolCall rpcErr: %#v", rpcErr)
+	}
+	b, _ := json.Marshal(out)
+	got := string(b)
+	if strings.Contains(got, "do NOT send another respond") {
+		t.Fatalf("respond result forbids final outcome: %s", got)
+	}
+	if !strings.Contains(got, "Continue promised work") {
+		t.Fatalf("respond result missing continuation reminder: %s", got)
+	}
+}
+
+type captureChannel struct {
+	id         string
+	sent       string
+	statusText string
+}
+
+func (c *captureChannel) ID() string { return c.id }
+func (c *captureChannel) Send(text string) error {
+	c.sent = text
+	return nil
+}
+func (c *captureChannel) Status(text, level string) error {
+	c.statusText = text
+	return nil
+}
+func (c *captureChannel) Close() {}

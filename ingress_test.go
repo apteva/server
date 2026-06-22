@@ -113,14 +113,32 @@ func TestCallbackIngress_RequiresPermissionAndScopesOwner(t *testing.T) {
 		},
 	}
 	installID := seedInstallWithBindings(t, s, "deploy", withPerm, map[string]any{})
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET permissions_json = '[]' WHERE id = ?`, installID); err != nil {
+		t.Fatalf("clear install permissions: %v", err)
+	}
 
 	req = httptest.NewRequest(http.MethodPost, "/apps/callback/ingress/expose",
 		strings.NewReader(`{"hostname":"tenant.example.com","target":"http://127.0.0.1:7101"}`))
 	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
 	rec = httptest.NewRecorder()
 	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected manifest-only permission to be rejected, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, err := s.store.db.Exec(
+		`UPDATE app_installs SET permissions_json = ? WHERE id = ?`,
+		`["platform.ingress.write"]`,
+		installID,
+	); err != nil {
+		t.Fatalf("approve install permissions: %v", err)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/apps/callback/ingress/expose",
+		strings.NewReader(`{"hostname":"tenant.example.com","target":"http://127.0.0.1:7101"}`))
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	rec = httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected approved permission to authorize ingress, got %d: %s", rec.Code, rec.Body.String())
 	}
 	var exposeOut struct {
 		Route IngressRoute `json:"route"`

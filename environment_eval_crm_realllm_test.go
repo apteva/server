@@ -100,9 +100,7 @@ func TestEval_InEnvironment_RealLLM_CRM(t *testing.T) {
 
 func loadOpenAICodexProviderState(t *testing.T) map[string]any {
 	t.Helper()
-	if testing.Short() {
-		t.Skip("skipping real-LLM eval test in -short mode")
-	}
+	requireRealLLMTests(t)
 	if token := strings.TrimSpace(os.Getenv("OPENAI_CODEX_ACCESS_TOKEN")); token != "" {
 		return map[string]any{
 			"auth": map[string]any{

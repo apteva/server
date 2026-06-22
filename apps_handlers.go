@@ -1628,19 +1628,28 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
+	var body struct {
+		ApproveNewPermissions bool `json:"approve_new_permissions"`
+	}
+	if r.Body != nil && r.Body != http.NoBody {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err != io.EOF {
+			http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	installID, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
 	var (
-		source, manifestJSON, currentVersion, projectID, configEnc string
+		source, manifestJSON, currentVersion, projectID, configEnc, permissionsJSON string
 	)
 	err = s.store.db.QueryRow(
-		`SELECT a.source, a.manifest_json, i.version, i.project_id, COALESCE(i.config_encrypted,'')
+		`SELECT a.source, a.manifest_json, i.version, i.project_id, COALESCE(i.config_encrypted,''), COALESCE(i.permissions_json,'[]')
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.id = ?`, installID,
-	).Scan(&source, &manifestJSON, &currentVersion, &projectID, &configEnc)
+	).Scan(&source, &manifestJSON, &currentVersion, &projectID, &configEnc, &permissionsJSON)
 	if err != nil {
 		http.Error(w, "install not found", http.StatusNotFound)
 		return
@@ -1650,6 +1659,7 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "manifest parse: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	approvedPermissions := parsePermissionListJSON(permissionsJSON)
 
 	// Built-in: just bump the version — the running binary already
 	// has whatever was bundled at server-build time.
@@ -1661,6 +1671,17 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		if stored.Version == currentVersion {
 			writeJSON(w, map[string]string{"status": "up-to-date", "version": currentVersion})
 			return
+		}
+		if missing := missingRequiredPermissions(approvedPermissions, stored.Requires.Permissions); len(missing) > 0 {
+			if !body.ApproveNewPermissions {
+				writeMissingPermissionUpgradeConflict(w, stored.DisplayName, stored.Version, missing)
+				return
+			}
+			approvedPermissions, err = s.approveAppInstallPermissions(installID, approvedPermissions, missing)
+			if err != nil {
+				http.Error(w, "approve permissions: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
 		if _, err := s.store.db.Exec(
 			`UPDATE app_installs SET version = ? WHERE id = ?`,
@@ -1690,6 +1711,17 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	if live.Version == "" {
 		http.Error(w, "upstream manifest has no version", http.StatusBadGateway)
 		return
+	}
+	if missing := missingRequiredPermissions(approvedPermissions, live.Requires.Permissions); len(missing) > 0 {
+		if !body.ApproveNewPermissions {
+			writeMissingPermissionUpgradeConflict(w, live.DisplayName, live.Version, missing)
+			return
+		}
+		approvedPermissions, err = s.approveAppInstallPermissions(installID, approvedPermissions, missing)
+		if err != nil {
+			http.Error(w, "approve permissions: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Decrypt the config_encrypted blob so the rebuild gets the same
@@ -1768,6 +1800,73 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	writeJSONStatus(w, http.StatusAccepted, map[string]string{
 		"status":  "pending",
 		"version": live.Version,
+	})
+}
+
+func parsePermissionListJSON(raw string) []sdk.Permission {
+	var out []sdk.Permission
+	_ = json.Unmarshal([]byte(raw), &out)
+	if out == nil {
+		return []sdk.Permission{}
+	}
+	return out
+}
+
+func missingRequiredPermissions(approved, required []sdk.Permission) []sdk.Permission {
+	allowed := make(map[sdk.Permission]bool, len(approved))
+	for _, p := range approved {
+		allowed[p] = true
+	}
+	var missing []sdk.Permission
+	for _, p := range required {
+		if !allowed[p] {
+			missing = append(missing, p)
+		}
+	}
+	return missing
+}
+
+func (s *Server) approveAppInstallPermissions(installID int64, approved, missing []sdk.Permission) ([]sdk.Permission, error) {
+	merged := make([]sdk.Permission, 0, len(approved)+len(missing))
+	seen := make(map[sdk.Permission]bool, len(approved)+len(missing))
+	for _, p := range approved {
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		merged = append(merged, p)
+	}
+	for _, p := range missing {
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		merged = append(merged, p)
+	}
+	body, err := json.Marshal(merged)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET permissions_json = ? WHERE id = ?`, string(body), installID); err != nil {
+		return nil, err
+	}
+	return merged, nil
+}
+
+func writeMissingPermissionUpgradeConflict(w http.ResponseWriter, appName, version string, missing []sdk.Permission) {
+	names := make([]string, 0, len(missing))
+	for _, p := range missing {
+		names = append(names, string(p))
+	}
+	if appName == "" {
+		appName = "This app"
+	}
+	msg := fmt.Sprintf("%s requires new platform permission(s): %s. Approve the new permissions before upgrading.", appName, strings.Join(names, ", "))
+	writeJSONStatus(w, http.StatusConflict, map[string]any{
+		"error":               "new permissions required",
+		"message":             msg,
+		"version":             version,
+		"missing_permissions": names,
 	})
 }
 

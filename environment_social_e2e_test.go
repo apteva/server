@@ -161,9 +161,7 @@ func callMCP(t *testing.T, mcpURL, token, method string, params any) json.RawMes
 }
 
 func TestEnvironment_RealSocial_DBWrite(t *testing.T) {
-	if testing.Short() {
-		t.Skip("real-app environment test builds the social sidecar")
-	}
+	requireRealAppEnvironmentTests(t)
 	srcDir := findAppSource(t, "social")
 	s := newEnvironmentTestServer(t)
 
@@ -265,9 +263,7 @@ func seedSocialAccount(t *testing.T, dbPath, projectID string, connID int64) {
 // the per-environment interceptor (NOT the real Twitter), and social records the
 // target as published from the mocked response — all inside the Environment.
 func TestEnvironment_RealSocial_InterceptorMocksTweet(t *testing.T) {
-	if testing.Short() {
-		t.Skip("real-app environment test builds the social sidecar")
-	}
+	requireRealAppEnvironmentTests(t)
 	srcDir := findAppSource(t, "social")
 	s := newEnvironmentTestServer(t)
 

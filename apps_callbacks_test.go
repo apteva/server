@@ -29,10 +29,11 @@ func seedInstallWithBindings(t *testing.T, s *Server, appName string, manifest s
 	var appID int64
 	s.store.db.QueryRow(`SELECT id FROM apps WHERE name=?`, appName).Scan(&appID)
 	bj, _ := json.Marshal(bindings)
+	permsJSON, _ := json.Marshal(manifest.Requires.Permissions)
 	res, err := s.store.db.Exec(
-		`INSERT INTO app_installs (app_id, project_id, status, installed_by, integration_bindings)
-		 VALUES (?, ?, 'running', 1, ?)`,
-		appID, "proj-1", string(bj),
+		`INSERT INTO app_installs (app_id, project_id, status, installed_by, integration_bindings, permissions_json)
+		 VALUES (?, ?, 'running', 1, ?, ?)`,
+		appID, "proj-1", string(bj), string(permsJSON),
 	)
 	if err != nil {
 		t.Fatalf("insert install: %v", err)

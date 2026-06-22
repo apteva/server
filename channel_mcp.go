@@ -181,7 +181,7 @@ func (s *channelMCPServer) toolsList() map[string]any {
 				"name":        "respond",
 				"description": buildRespondDescription(channelIDs, components),
 				"_meta": map[string]any{
-					"io.apteva/wakeOnResult": "on_error",
+					"io.apteva/wakeOnResult": "always",
 				},
 				"inputSchema": map[string]any{
 					"type":     "object",
@@ -202,19 +202,6 @@ func (s *channelMCPServer) toolsList() map[string]any {
 								},
 							},
 						},
-					},
-				},
-			},
-			{
-				"name":        "status",
-				"description": "Send a status update to a specific channel.",
-				"inputSchema": map[string]any{
-					"type":     "object",
-					"required": []string{"line", "channel"},
-					"properties": map[string]any{
-						"line":    map[string]any{"type": "string", "description": "Status text"},
-						"channel": map[string]any{"type": "string", "description": "Target channel ID"},
-						"level":   map[string]any{"type": "string", "description": "Severity: info, warn, or alert", "enum": []string{"info", "warn", "alert"}},
 					},
 				},
 			},
@@ -357,11 +344,12 @@ func buildRespondDescription(channelIDs []string, components []componentEntry) s
 
 	return fmt.Sprintf(
 		"Send a message to a user on a channel. Text in your thoughts is INVISIBLE — only this tool delivers messages.\n\n"+
-			"REPLY CONTRACT (every user message must satisfy this):\n"+
-			"- Acknowledging early (\"on it\", \"checking\") is OPTIONAL.\n"+
-			"- The FINAL respond before you go idle (pace/done/wait) MUST contain the actual outcome — what you did, what you found, the answer. \"Done\" alone is not enough; include the substance.\n"+
-			"- The early acknowledge does NOT satisfy the contract. If you sent \"on it\" and then completed the work, you owe a SECOND respond with the result. The \"don't repeat yourself\" rule applies to the SAME content — not to acknowledge vs. result, which are different content.\n"+
-			"- If the work spans multiple iterations, the final iteration must include a respond before any pace/done.\n\n"+
+			"CHAT CONTRACT:\n"+
+			"- Use respond for visible user-facing chat messages.\n"+
+			"- A successful respond wakes you again, so visible chat messages do not end the work loop.\n"+
+			"- If you promised work, continue after the respond result: call the needed tools, schedule yourself with pace, or explain why blocked.\n"+
+			"- If the request is fully answered, use the follow-up turn to pace/done/wait normally.\n"+
+			"- After action tool results arrive, send another respond with the actual outcome before pace/done/wait. \"Done\" alone is not enough; include what you did or found.\n\n"+
 			"KNOWN CHANNELS (valid values for the `channel` parameter): [%s].\n"+
 			"Routing — match the event prefix to the channel: %s.\n\n"+
 			"If the gate rejects your channel as unknown, the right move is to retry with a channel from the list above — NOT to fall silent. Do NOT default to \"cli\" from training-data prior; use exactly the names listed.\n\n"+
@@ -444,13 +432,10 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		}
 	}
 
-	switch call.Name {
-	case "respond":
-		text, _ := call.Arguments["text"].(string)
-		channel, _ := call.Arguments["channel"].(string)
+	sendVisibleMessage := func(text, channel string, components []framework.ChatComponent) any {
 		rawChannel := channel
 		if text == "" {
-			return textToolError("text required"), nil
+			return textToolError("text required")
 		}
 		// Gate by the active channels list BEFORE attempting Send.
 		// This makes the feedback loop loud when the agent picks a
@@ -487,48 +472,38 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 					rawChannel, connected,
 				)
 			}
-			return textToolError(msg), nil
+			return textToolError(msg)
 		}
+		ch := s.registry.Get(normalized)
+		if ch == nil {
+			return textToolError(fmt.Sprintf("channel %q not found", normalized))
+		}
+		if rich, ok := ch.(framework.RichSender); ok && len(components) > 0 {
+			if err := rich.SendWithComponents(text, components); err != nil {
+				return textToolError(err.Error())
+			}
+		} else {
+			if err := ch.Send(text); err != nil {
+				return textToolError(err.Error())
+			}
+		}
+		return nil
+	}
+
+	switch call.Name {
+	case "respond":
+		text, _ := call.Arguments["text"].(string)
+		channel, _ := call.Arguments["channel"].(string)
 		// Extract components if the agent attached any. When present
 		// AND the channel implements framework.RichSender (channelchat
 		// does; cli/slack/email/telegram don't), deliver them
 		// alongside the text. Otherwise fall back to plain Send so
 		// channels without rich rendering still get the text.
 		components := extractComponents(call.Arguments["components"])
-		ch := s.registry.Get(normalized)
-		if ch == nil {
-			return textToolError(fmt.Sprintf("channel %q not found", normalized)), nil
+		if errResult := sendVisibleMessage(text, channel, components); errResult != nil {
+			return errResult, nil
 		}
-		if rich, ok := ch.(framework.RichSender); ok && len(components) > 0 {
-			if err := rich.SendWithComponents(text, components); err != nil {
-				return textToolError(err.Error()), nil
-			}
-		} else {
-			if err := ch.Send(text); err != nil {
-				return textToolError(err.Error()), nil
-			}
-		}
-		return textResult("delivered — do NOT send another respond for this same user message"), nil
-
-	case "status":
-		line, _ := call.Arguments["line"].(string)
-		channel, _ := call.Arguments["channel"].(string)
-		level, _ := call.Arguments["level"].(string)
-		if channel == "" {
-			channel = "cli"
-		}
-		channel = normalizeChannelID(channel)
-		if level == "" {
-			level = "info"
-		}
-		ch := s.registry.Get(channel)
-		if ch == nil {
-			return nil, &mcpRPCError{Code: -32602, Message: fmt.Sprintf("channel %q not found", channel)}
-		}
-		if err := ch.Status(line, level); err != nil {
-			return nil, &mcpRPCError{Code: -32602, Message: err.Error()}
-		}
-		return textResult("ok"), nil
+		return textResult("delivered. Continue promised work, schedule with pace if needed, or pace/done if the request is complete."), nil
 
 	case "list_channels":
 		var ids []string

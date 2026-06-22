@@ -10,16 +10,19 @@ import (
 )
 
 // TestSubscriptionAutoRegister_OmniKit tests auto-registration against the real OmniKit API.
-// Requires OMNIKIT_API_KEY env var (or uses hardcoded test key).
+// Requires APTEVA_RUN_LIVE_OMNIKIT_TESTS=1 and OMNIKIT_API_KEY.
 //
-//	go test -v -run TestSubscriptionAutoRegister_OmniKit
+//	APTEVA_RUN_LIVE_OMNIKIT_TESTS=1 OMNIKIT_API_KEY=... go test -v -run TestSubscriptionAutoRegister_OmniKit
 func TestSubscriptionAutoRegister_OmniKit(t *testing.T) {
-	apiKey := os.Getenv("OMNIKIT_API_KEY")
-	if apiKey == "" {
-		apiKey = "okt_401860a4b3251302b6ea9ba834cc79b83e9882528363b0ee"
-	}
 	if testing.Short() {
 		t.Skip("skipping live OmniKit test in short mode")
+	}
+	if !envTruthy(os.Getenv("APTEVA_RUN_LIVE_OMNIKIT_TESTS")) {
+		t.Skip("set APTEVA_RUN_LIVE_OMNIKIT_TESTS=1 to run live OmniKit test")
+	}
+	apiKey := os.Getenv("OMNIKIT_API_KEY")
+	if apiKey == "" {
+		t.Skip("OMNIKIT_API_KEY not set")
 	}
 
 	// Load the real omnikit-messaging app JSON

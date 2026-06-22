@@ -72,9 +72,7 @@ func TestDeriveEnvironmentSpecForAgent(t *testing.T) {
 // from local source. This is the "create eval for this agent → environment built
 // from its bindings" path, end to end.
 func TestEnvironment_DerivedFromAgentBindings(t *testing.T) {
-	if testing.Short() {
-		t.Skip("real-app environment test builds the storage sidecar")
-	}
+	requireRealAppEnvironmentTests(t)
 	_ = findAppSource(t, "storage") // skip early if storage source is absent
 	s := newEnvironmentTestServer(t)
 

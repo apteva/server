@@ -522,12 +522,13 @@ func main() {
 	// first dashboard render after boot.
 	go s.platformStatus.Run()
 
-	// Boot the meta-agent for every user that already has an LLM
-	// provider configured. Done in a background goroutine so a slow
-	// core spawn (~2-3s) doesn't delay HTTP listener start. Users
-	// without a provider configured yet get lazy-start on their
-	// first eval run.
-	go s.bootMetaAgents()
+	// Platform helpers are lazy by default. Eagerly booting one helper
+	// per provider-backed user makes updates noisy and can emit a burst of
+	// telemetry before anyone asks for dashboard help or an eval. Keep an
+	// opt-in escape hatch for deployments that prefer warm helpers.
+	if envTruthy(os.Getenv("APTEVA_BOOT_META_AGENTS")) {
+		go s.bootMetaAgents()
+	}
 
 	s.initSlack()
 	s.initEmail()
@@ -1307,11 +1308,11 @@ func main() {
 	}
 	mux.Handle("/", s.staticAppHandler(dashboardSPA))
 
-	// Boot-time recovery: any instance left in `status='running'` from a
-	// previous server process had its core subprocess die with that
-	// process group, so the DB state is stale. Walk those rows and
-	// re-spawn fresh cores + channels MCPs so restarts look like a
-	// brief pause rather than "all my instances silently vanished".
+	// Boot-time recovery: any user agent still left in `status='running'`
+	// was intentionally active before the previous server process stopped.
+	// Walk those rows and re-spawn fresh cores + channels MCPs so updates
+	// and crashes recover as a brief pause. Platform-owned helpers stay
+	// lazy and are skipped by the resume path.
 	//
 	// IMPORTANT: deferred until AFTER ResumeLocalInstalls +
 	// LoadInstalledApps below. Agents bind to app MCP servers via
@@ -1499,9 +1500,28 @@ func main() {
 
 	go func() {
 		sig := <-sigCh
-		fmt.Fprintf(os.Stderr, "\napteva-server received %s — stopping children\n", sig)
+		fmt.Fprintf(os.Stderr, "\napteva-server received %s — shutting down\n", sig)
+		shutdownPolicy := s.agentShutdownPolicy()
+		if shutdownPolicy == "detach" {
+			if rows, err := s.store.ListAgentsByStatus("running"); err == nil {
+				for i := range rows {
+					if rows[i].Kind != "" && rows[i].Kind != "user" {
+						s.agents.Stop(rows[i].ID)
+					}
+				}
+			}
+		}
+		if stopped, err := s.store.MarkPlatformAgentsStoppedForShutdown(); err != nil {
+			log.Printf("[SHUTDOWN] mark platform agents stopped: %v", err)
+		} else if stopped > 0 {
+			log.Printf("[SHUTDOWN] marked %d platform agent(s) stopped for clean shutdown", stopped)
+		}
 		s.stopApps(appsReg)
-		s.agents.StopAll(5 * time.Second)
+		if shutdownPolicy == "detach" {
+			log.Printf("[SHUTDOWN] leaving user agent core process(es) alive for reattach; default is stop, APTEVA_AGENT_SHUTDOWN_POLICY=detach enabled this mode")
+		} else {
+			s.agents.StopAll(5 * time.Second)
+		}
 		if s.environments != nil {
 			s.environments.StopAll()
 		}

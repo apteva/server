@@ -150,7 +150,7 @@ func (s *Streamer) onChunk(threadID, chatID, dataJSON string, ts time.Time) {
 	tool := firstNonEmpty(d.Tool, d.Name)
 	callID := firstNonEmpty(d.ID, d.CallID, d.ToolCallID)
 	chunk := firstNonEmpty(d.Chunk, d.Delta, d.Text)
-	if tool != "channels_respond" {
+	if !isVisibleChatTool(tool) {
 		return
 	}
 	if callID == "" {
@@ -210,7 +210,7 @@ func (s *Streamer) onFinalArgs(threadID, chatID, dataJSON string, ts time.Time) 
 	}
 	name := firstNonEmpty(d.Name, d.Tool)
 	callID := firstNonEmpty(d.ID, d.CallID, d.ToolCallID)
-	if name != "channels_respond" || callID == "" {
+	if !isVisibleChatTool(name) || callID == "" {
 		return
 	}
 	argsRaw := firstRaw(d.Args, d.Arguments, d.Input, d.Params)
@@ -258,7 +258,7 @@ func (s *Streamer) onToolEnd(threadID, chatID, dataJSON string, ts time.Time) {
 	}
 	name := firstNonEmpty(d.Name, d.Tool)
 	callID := firstNonEmpty(d.ID, d.CallID, d.ToolCallID)
-	if name != "channels_respond" || callID == "" {
+	if !isVisibleChatTool(name) || callID == "" {
 		// Not our tool, or the provider didn't surface the call id —
 		// leave any stale buffer; it gets superseded on the next
 		// tool_chunk for a new call id.
@@ -286,6 +286,15 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func isVisibleChatTool(name string) bool {
+	switch name {
+	case "channels_respond":
+		return true
+	default:
+		return false
+	}
 }
 
 func firstRaw(values ...json.RawMessage) json.RawMessage {

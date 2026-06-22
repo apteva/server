@@ -692,9 +692,10 @@ func formatDashboardContext(v any) string {
 func formatAgentChatEvent(text string, context any) string {
 	var b strings.Builder
 	b.WriteString("[chat]\n")
-	b.WriteString("A user is talking to you in the dashboard chat. Plain assistant text and thoughts are NOT visible to the user. ")
-	b.WriteString("To answer, you must call channels_respond with channel=\"chat\" and useful text. ")
-	b.WriteString("If you use tools first, call channels_respond after the tool results with the final answer before going idle.\n\n")
+	b.WriteString("A user is talking to you in dashboard chat. Thoughts are not visible to the user. ")
+	b.WriteString("Use channels_respond with channel=\"chat\" for visible chat messages. ")
+	b.WriteString("A successful channels_respond wakes you again. If you promised work, continue after the tool result: call the needed tools, schedule yourself with pace, or explain why blocked. ")
+	b.WriteString("After action tool results arrive, send another channels_respond with the outcome before pacing or going idle.\n\n")
 	if ctx := formatDashboardContext(context); ctx != "" {
 		b.WriteString(ctx)
 		b.WriteString("\n\n")
@@ -710,7 +711,7 @@ func formatPlatformHelperChatEvent(text string, context any) string {
 	b.WriteString("TASK TYPE: platform_assistant (NOT eval grading)\n\n")
 	b.WriteString("You are Apteva Helper in the dashboard. Help the operator understand the current page, design agents, and turn rough goals into concrete next steps. ")
 	b.WriteString("When the operator wants to create or manage agents, ask briefly for missing details, then use the apteva-server MCP tools such as agents_create, agents_list, agents_start, agents_stop, and agents_update when appropriate. ")
-	b.WriteString("Do not grade anything. Do not return judge JSON. Reply by calling channels_respond with channel=\"chat\" and useful text.\n\n")
+	b.WriteString("Do not grade anything. Do not return judge JSON. Use channels_respond with channel=\"chat\" for visible chat messages; if you promised tool work, continue after the respond result and then send another channels_respond with the outcome.\n\n")
 	if ctx := formatDashboardContext(context); ctx != "" {
 		b.WriteString(ctx)
 		b.WriteString("\n\n")

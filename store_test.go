@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newTestStore(t *testing.T) *Store {
@@ -234,6 +235,7 @@ func TestStore_UpdateInstance(t *testing.T) {
 	inst.Status = "running"
 	inst.Port = 3211
 	inst.Pid = 12345
+	inst.CoreAPIKey = "core_test"
 	store.UpdateAgent(inst)
 
 	updated, _ := store.GetAgent(user.ID, inst.ID)
@@ -245,6 +247,99 @@ func TestStore_UpdateInstance(t *testing.T) {
 	}
 	if updated.Port != 3211 {
 		t.Errorf("expected port 3211, got %d", updated.Port)
+	}
+	if updated.CoreAPIKey != "core_test" {
+		t.Errorf("expected persisted core key, got %q", updated.CoreAPIKey)
+	}
+}
+
+func TestStore_UpdateAgentClearsRuntimeMetadataWhenStopped(t *testing.T) {
+	store := newTestStore(t)
+	user, _ := store.CreateUser("alice@test.com", "hash")
+	inst, _ := store.CreateAgent(user.ID, "agent", "old", "autonomous", "{}", "")
+
+	inst.Status = "stopped"
+	inst.Port = 3211
+	inst.Pid = 12345
+	inst.CoreAPIKey = "core_test"
+	if err := store.UpdateAgent(inst); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, _ := store.GetAgent(user.ID, inst.ID)
+	if updated.Port != 0 || updated.Pid != 0 || updated.CoreAPIKey != "" {
+		t.Fatalf("stopped agent should not keep runtime metadata: port=%d pid=%d key=%q", updated.Port, updated.Pid, updated.CoreAPIKey)
+	}
+}
+
+func TestStore_UpdateAgentCoreRuntime(t *testing.T) {
+	store := newTestStore(t)
+	user, _ := store.CreateUser("alice@test.com", "hash")
+	inst, _ := store.CreateAgent(user.ID, "agent", "old", "autonomous", "{}", "")
+	startedAt := time.Date(2026, 6, 22, 10, 0, 0, 0, time.UTC)
+
+	if err := store.UpdateAgentCoreRuntime(inst.ID, "0.12.3", "2026-06-22T09:59:00Z", startedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, _ := store.GetAgent(user.ID, inst.ID)
+	if updated.CoreVersion != "0.12.3" || updated.CoreBuildTime != "2026-06-22T09:59:00Z" {
+		t.Fatalf("runtime version not persisted: %+v", updated)
+	}
+	if updated.CoreStartedAt == "" {
+		t.Fatalf("expected core_started_at to be persisted")
+	}
+}
+
+func TestStore_MarkPlatformAgentsStoppedForShutdown(t *testing.T) {
+	store := newTestStore(t)
+	user, _ := store.CreateUser("alice@test.com", "hash")
+	runningUser, _ := store.CreateAgent(user.ID, "running", "dir", "autonomous", "{}", "")
+	runningUser.Status = "running"
+	runningUser.Port = 3210
+	runningUser.Pid = 123
+	if err := store.UpdateAgent(runningUser); err != nil {
+		t.Fatal(err)
+	}
+	stoppedUser, _ := store.CreateAgent(user.ID, "stopped", "dir", "autonomous", "{}", "")
+	platform, _ := store.CreateAgent(user.ID, "helper", "dir", "autonomous", "{}", "")
+	platform.Status = "running"
+	platform.Port = 3211
+	platform.Pid = 456
+	if err := store.UpdateAgent(platform); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`UPDATE agents SET kind='platform_helper' WHERE id=?`, platform.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := store.MarkPlatformAgentsStoppedForShutdown()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("RowsAffected=%d, want 1", n)
+	}
+
+	gotRunning, _ := store.GetAgent(user.ID, runningUser.ID)
+	if gotRunning.Status != "running" || gotRunning.Port != 3210 || gotRunning.Pid != 123 {
+		t.Fatalf("running user should remain resumable: %+v", gotRunning)
+	}
+	gotStopped, _ := store.GetAgent(user.ID, stoppedUser.ID)
+	if gotStopped.Status != "stopped" {
+		t.Fatalf("already stopped user changed unexpectedly: %+v", gotStopped)
+	}
+	gotPlatform, _ := store.GetAgentByID(platform.ID)
+	if gotPlatform.Status != "stopped" || gotPlatform.Port != 0 || gotPlatform.Pid != 0 {
+		t.Fatalf("platform helper should be marked stopped for lazy restart: %+v", gotPlatform)
+	}
+
+	runningRows, err := store.ListAgentsByStatus("running")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runningRows) != 1 || runningRows[0].ID != runningUser.ID {
+		t.Fatalf("expected only user agent to remain running, got %+v", runningRows)
 	}
 }
 

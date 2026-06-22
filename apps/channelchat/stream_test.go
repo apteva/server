@@ -188,8 +188,11 @@ func TestFormatAgentChatEventIncludesReplyContract(t *testing.T) {
 	})
 	for _, want := range []string{
 		"[chat]",
-		"Plain assistant text and thoughts are NOT visible to the user",
+		"Thoughts are not visible to the user",
 		"channels_respond with channel=\"chat\"",
+		"wakes you again",
+		"schedule yourself with pace",
+		"send another channels_respond with the outcome",
 		"User message:",
 		"What can you do?",
 		"Dashboard context:",

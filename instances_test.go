@@ -3,9 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 )
 
@@ -144,6 +147,160 @@ func TestUpdateConfig(t *testing.T) {
 	inst, _ := s.store.GetAgent(1, 1)
 	if inst.Directive != "new directive" {
 		t.Errorf("expected new directive, got %s", inst.Directive)
+	}
+}
+
+func TestAgentBootResumeMode(t *testing.T) {
+	s := newTestServer(t)
+
+	t.Setenv("APTEVA_AGENT_BOOT_RESUME", "")
+	if got := s.agentBootResumeMode(); got != "staggered" {
+		t.Fatalf("default mode=%q, want staggered", got)
+	}
+
+	if err := s.store.SetSetting("agent_boot_resume", "manual"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.agentBootResumeMode(); got != "manual" {
+		t.Fatalf("setting mode=%q, want manual", got)
+	}
+
+	t.Setenv("APTEVA_AGENT_BOOT_RESUME", "staggered")
+	if got := s.agentBootResumeMode(); got != "staggered" {
+		t.Fatalf("env mode=%q, want staggered", got)
+	}
+
+	t.Setenv("APTEVA_AGENT_BOOT_RESUME", "auto")
+	if got := s.agentBootResumeMode(); got != "auto" {
+		t.Fatalf("env mode=%q, want auto", got)
+	}
+}
+
+func TestAgentShutdownPolicy(t *testing.T) {
+	s := newTestServer(t)
+
+	t.Setenv("APTEVA_AGENT_SHUTDOWN_POLICY", "")
+	if got := s.agentShutdownPolicy(); got != "stop" {
+		t.Fatalf("default policy=%q, want stop", got)
+	}
+
+	if err := s.store.SetSetting("agent_shutdown_policy", "stop"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.agentShutdownPolicy(); got != "stop" {
+		t.Fatalf("setting policy=%q, want stop", got)
+	}
+
+	t.Setenv("APTEVA_AGENT_SHUTDOWN_POLICY", "detach")
+	if got := s.agentShutdownPolicy(); got != "detach" {
+		t.Fatalf("env policy=%q, want detach", got)
+	}
+}
+
+func TestAgentManagerReattachRefreshesChannelsConfig(t *testing.T) {
+	var sawAuth string
+	var sawConfig map[string]any
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		case "/config":
+			if r.Method != http.MethodPut {
+				http.Error(w, "PUT only", http.StatusMethodNotAllowed)
+				return
+			}
+			sawAuth = r.Header.Get("Authorization")
+			if err := json.NewDecoder(r.Body).Decode(&sawConfig); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer core.Close()
+	port := core.Listener.Addr().(*net.TCPAddr).Port
+
+	im := NewAgentManager(t.TempDir(), "missing-core")
+	inst := &Agent{
+		ID:         42,
+		UserID:     1,
+		Name:       "reattach",
+		Mode:       "autonomous",
+		Config:     "{}",
+		Port:       port,
+		Pid:        os.Getpid(),
+		CoreAPIKey: "core_test",
+		Status:     "running",
+		Kind:       "user",
+	}
+	dir := im.InstanceDir(inst.ID)
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"mcp_servers":[{"name":"custom","url":"http://example.test","transport":"http"},{"name":"channels","url":"http://127.0.0.1:1","transport":"http"}]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := im.Reattach(inst, "5280"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		im.mu.Lock()
+		ri := im.processes[inst.ID]
+		delete(im.processes, inst.ID)
+		im.mu.Unlock()
+		if ri != nil && ri.channels != nil {
+			ri.channels.Stop()
+		}
+	})
+
+	if got := im.GetPort(inst.ID); got != port {
+		t.Fatalf("reattached port=%d, want %d", got, port)
+	}
+	if got := im.GetCoreAPIKey(inst.ID); got != "core_test" {
+		t.Fatalf("core key=%q, want persisted key", got)
+	}
+	if sawAuth != "Bearer core_test" {
+		t.Fatalf("Authorization=%q, want persisted bearer key", sawAuth)
+	}
+	servers, _ := sawConfig["mcp_servers"].([]any)
+	if len(servers) != 2 {
+		t.Fatalf("mcp_servers=%v, want channels + custom", servers)
+	}
+	names := map[string]bool{}
+	for _, raw := range servers {
+		m, _ := raw.(map[string]any)
+		names[m["name"].(string)] = true
+	}
+	for _, name := range []string{"channels", "custom"} {
+		if !names[name] {
+			t.Fatalf("missing %s from refreshed config: %#v", name, sawConfig)
+		}
+	}
+}
+
+func TestResumeRunningInstancesManualModeSkipsSpawn(t *testing.T) {
+	s := newTestServer(t)
+	s.agents.coreCmd = "/definitely/missing/apteva-core"
+	if err := s.store.SetSetting("agent_boot_resume", "manual"); err != nil {
+		t.Fatal(err)
+	}
+	user, _ := s.store.CreateUser("resume@test.com", "hash")
+	inst, _ := s.store.CreateAgent(user.ID, "agent", "dir", "autonomous", "{}", "")
+	inst.Status = "running"
+	inst.Port = 3210
+	inst.Pid = 123
+	if err := s.store.UpdateAgent(inst); err != nil {
+		t.Fatal(err)
+	}
+
+	s.ResumeRunningInstances()
+
+	got, _ := s.store.GetAgent(user.ID, inst.ID)
+	if got.Status != "running" || got.Port != 3210 || got.Pid != 123 {
+		t.Fatalf("manual mode should leave row untouched, got %+v", got)
+	}
+	if s.agents.IsRunning(inst.ID) {
+		t.Fatal("manual mode should not spawn a process")
 	}
 }
 

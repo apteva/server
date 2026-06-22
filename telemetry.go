@@ -397,7 +397,7 @@ func (s *Store) QueryChatHistory(instanceID int64, limit int) ([]ChatHistoryMess
 				continue
 			}
 
-			if name == "channels_respond" {
+			if name == "channels_respond" || name == "channels_status" {
 				args, _ := e.data["args"].(map[string]any)
 				if args == nil {
 					continue

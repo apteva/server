@@ -1152,7 +1152,10 @@ func (s *Server) handleCallbackKillThread(w http.ResponseWriter, r *http.Request
 // *Server.
 func (s *Server) resolver() *serverResolver { return &serverResolver{srv: s} }
 
-// installHasPermission checks the install's effective granted permissions.
+// installHasPermission checks the install's approved permission snapshot.
+// app_installs.permissions_json is the consent boundary: a manifest update
+// may declare new platform permissions, but those permissions are not granted
+// until the install row is explicitly backfilled/approved.
 func installHasPermission(s *Server, installID int64, perm sdk.Permission) bool {
 	var rawPerms string
 	if err := s.store.db.QueryRow(
@@ -1165,16 +1168,6 @@ func installHasPermission(s *Server, installID int64, perm sdk.Permission) bool 
 					return true
 				}
 			}
-		}
-	}
-
-	m, err := installManifest(s, installID)
-	if err != nil || m == nil {
-		return false
-	}
-	for _, p := range m.Requires.Permissions {
-		if p == perm {
-			return true
 		}
 	}
 	return false

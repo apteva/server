@@ -104,9 +104,7 @@ func TestResolveSeedFixturePathRequiresBaseAndRejectsEscape(t *testing.T) {
 // in storage's isolated DB inside the environment. (The meta-agent would produce
 // this plan from a plain-English instruction; here we supply it directly.)
 func TestEnvironment_SeedPlan_RealStorage(t *testing.T) {
-	if testing.Short() {
-		t.Skip("real-app environment test builds the storage sidecar")
-	}
+	requireRealAppEnvironmentTests(t)
 	src := findAppSource(t, "storage")
 	s := newEnvironmentTestServer(t)
 
