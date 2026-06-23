@@ -506,6 +506,273 @@
       }
     },
     {
+      "name": "design_voice",
+      "description": "Generate reusable voice preview candidates from a text description using ElevenLabs Voice Design. Returns previews with generated_voice_id values; save the preferred one with create_voice_from_preview.",
+      "method": "POST",
+      "path": "/text-to-voice/design",
+      "timeout_ms": 180000,
+      "query_params": [
+        "output_format"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_description": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 1000,
+            "description": "Description of the voice to create, including age, gender, accent, tone, pacing, and audio quality."
+          },
+          "text": {
+            "type": "string",
+            "minLength": 100,
+            "maxLength": 1000,
+            "description": "Optional preview text. If omitted, set auto_generate_text=true."
+          },
+          "auto_generate_text": {
+            "type": "boolean",
+            "default": false,
+            "description": "Ask ElevenLabs to generate suitable preview text for the voice description."
+          },
+          "loudness": {
+            "type": "number",
+            "minimum": -1,
+            "maximum": 1,
+            "default": 0.5,
+            "description": "Preview loudness control. -1 is quietest, 1 is loudest."
+          },
+          "quality": {
+            "type": "number",
+            "minimum": -1,
+            "maximum": 1,
+            "default": 0.9,
+            "description": "Higher quality improves output but reduces variety."
+          },
+          "seed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647,
+            "description": "Optional deterministic seed."
+          },
+          "guidance_scale": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "default": 5,
+            "description": "How closely the model follows the prompt."
+          },
+          "should_enhance": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enhance the voice description with AI before generating previews."
+          },
+          "output_format": {
+            "type": "string",
+            "default": "mp3_44100_128",
+            "description": "Preview audio output format."
+          }
+        },
+        "required": [
+          "voice_description"
+        ]
+      }
+    },
+    {
+      "name": "create_voice_from_preview",
+      "description": "Save a generated Voice Design or remix preview as a reusable ElevenLabs voice. Use generated_voice_id from design_voice or remix_voice.",
+      "method": "POST",
+      "path": "/text-to-voice",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_name": {
+            "type": "string",
+            "description": "Name for the new saved voice."
+          },
+          "voice_description": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 1000,
+            "description": "Description for the saved voice."
+          },
+          "generated_voice_id": {
+            "type": "string",
+            "description": "Generated preview voice id returned by design_voice or remix_voice."
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Optional metadata labels, for example language, accent, gender, age, or use_case."
+          },
+          "played_not_selected_voice_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional generated voice ids the user previewed but did not select."
+          }
+        },
+        "required": [
+          "voice_name",
+          "voice_description",
+          "generated_voice_id"
+        ]
+      }
+    },
+    {
+      "name": "remix_voice",
+      "description": "Generate voice preview candidates by remixing an existing ElevenLabs voice with a text prompt. Save the preferred generated_voice_id with create_voice_from_preview.",
+      "method": "POST",
+      "path": "/text-to-voice/{voice_id}/remix",
+      "timeout_ms": 180000,
+      "query_params": [
+        "output_format"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_id": {
+            "type": "string",
+            "description": "Existing voice id to remix."
+          },
+          "voice_description": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 1000,
+            "description": "Description of the changes to make to the voice."
+          },
+          "text": {
+            "type": "string",
+            "minLength": 100,
+            "maxLength": 1000,
+            "description": "Optional preview text."
+          },
+          "auto_generate_text": {
+            "type": "boolean",
+            "default": false
+          },
+          "loudness": {
+            "type": "number",
+            "minimum": -1,
+            "maximum": 1,
+            "default": 0.5
+          },
+          "seed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "guidance_scale": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "default": 2
+          },
+          "stream_previews": {
+            "type": "boolean",
+            "default": false,
+            "description": "When true, return generated IDs without inline preview audio."
+          },
+          "remixing_session_id": {
+            "type": "string"
+          },
+          "remixing_session_iteration_id": {
+            "type": "string"
+          },
+          "prompt_strength": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Balance prompt versus reference audio when supported by the selected model."
+          },
+          "output_format": {
+            "type": "string",
+            "default": "mp3_44100_128"
+          }
+        },
+        "required": [
+          "voice_id",
+          "voice_description"
+        ]
+      }
+    },
+    {
+      "name": "stream_voice_preview",
+      "description": "Stream/download the audio preview for a generated_voice_id returned by design_voice or remix_voice. Returns binary audio.",
+      "method": "GET",
+      "path": "/text-to-voice/{generated_voice_id}/stream",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "generated_voice_id": {
+            "type": "string",
+            "description": "Generated preview voice id."
+          }
+        },
+        "required": [
+          "generated_voice_id"
+        ]
+      }
+    },
+    {
+      "name": "create_ivc_voice",
+      "description": "Create an Instant Voice Clone from one or more audio samples and add it to ElevenLabs Voices. Requires multipart/form-data executor support; until that is available, prefer design_voice/create_voice_from_preview.",
+      "method": "POST",
+      "path": "/voices/add",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "file_fields": {
+          "files": "files[]"
+        },
+        "field_names": [
+          "name",
+          "description",
+          "labels",
+          "remove_background_noise"
+        ]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name for the cloned voice."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Audio sample files as blobref:// handles, runtime binary envelopes, base64 strings, or storage-resolved files once multipart support is enabled."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description of the voice."
+          },
+          "remove_background_noise": {
+            "type": "boolean",
+            "default": false,
+            "description": "Remove background noise from samples before cloning."
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Optional labels such as language, accent, gender, or age."
+          }
+        },
+        "required": [
+          "name",
+          "files"
+        ]
+      }
+    },
+    {
       "name": "list_models",
       "description": "List ElevenLabs models, including flags such as can_do_text_to_speech and model rate metadata.",
       "method": "GET",
