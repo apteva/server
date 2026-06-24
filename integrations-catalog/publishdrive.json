@@ -1,0 +1,132 @@
+{
+  "slug": "publishdrive",
+  "name": "PublishDrive",
+  "description": "PublishDrive publisher API for book distribution, metadata updates, store availability, sales, and royalty reporting. API access is partner/sales-gated; endpoint shapes may vary by account contract.",
+  "logo": "https://www.google.com/s2/favicons?domain=publishdrive.com&sz=128",
+  "categories": ["books", "publishing", "distribution", "ebooks", "royalties"],
+  "base_url": "https://api.publishdrive.com/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API token",
+        "description": "PublishDrive API token. API access may need to be enabled by PublishDrive support."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_books",
+      "description": "List books in the PublishDrive account.",
+      "method": "GET",
+      "path": "/books",
+      "query_params": ["page", "limit", "status"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "limit": { "type": "integer", "description": "Maximum page size; PublishDrive may cap this." },
+          "status": { "type": "string", "description": "Optional provider status filter, for example draft, pending, published, rejected." }
+        }
+      }
+    },
+    {
+      "name": "get_book",
+      "description": "Fetch one PublishDrive book by provider book ID.",
+      "method": "GET",
+      "path": "/books/{book_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "book_id": { "type": "string" }
+        },
+        "required": ["book_id"]
+      }
+    },
+    {
+      "name": "create_book",
+      "description": "Create/upload a book package. The body should follow the PublishDrive contract enabled for the account.",
+      "method": "POST",
+      "path": "/books",
+      "body_root_param": "body",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "object",
+            "description": "PublishDrive book payload including metadata, contributors, prices, territories, ebook/audiobook/cover asset URLs, and distribution settings."
+          }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "update_book",
+      "description": "Update PublishDrive metadata or distribution settings for a book.",
+      "method": "PUT",
+      "path": "/books/{book_id}",
+      "body_root_param": "body",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "book_id": { "type": "string" },
+          "body": { "type": "object", "description": "PublishDrive book update payload." }
+        },
+        "required": ["book_id", "body"]
+      }
+    },
+    {
+      "name": "list_stores",
+      "description": "List distribution stores/retailers available to the PublishDrive account.",
+      "method": "GET",
+      "path": "/stores",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_sales",
+      "description": "Fetch PublishDrive sales reports for a date range.",
+      "method": "GET",
+      "path": "/reports/sales",
+      "query_params": ["from", "to", "book_id", "store_id", "page", "limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from": { "type": "string", "description": "Start date, YYYY-MM-DD." },
+          "to": { "type": "string", "description": "End date, YYYY-MM-DD." },
+          "book_id": { "type": "string" },
+          "store_id": { "type": "string" },
+          "page": { "type": "integer" },
+          "limit": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "get_royalties",
+      "description": "Fetch PublishDrive royalty reports for a date range.",
+      "method": "GET",
+      "path": "/reports/royalties",
+      "query_params": ["from", "to", "book_id", "store_id", "page", "limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from": { "type": "string", "description": "Start date, YYYY-MM-DD." },
+          "to": { "type": "string", "description": "End date, YYYY-MM-DD." },
+          "book_id": { "type": "string" },
+          "store_id": { "type": "string" },
+          "page": { "type": "integer" },
+          "limit": { "type": "integer" }
+        }
+      }
+    }
+  ]
+}

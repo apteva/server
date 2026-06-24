@@ -27,6 +27,58 @@
       }
     },
     {
+      "name": "get_droplet",
+      "description": "Get one droplet by ID",
+      "method": "GET",
+      "path": "/droplets/{droplet_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "droplet_id": { "type": "string" } },
+        "required": ["droplet_id"]
+      }
+    },
+    {
+      "name": "list_sizes",
+      "description": "List available Droplet sizes",
+      "method": "GET",
+      "path": "/sizes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "number" },
+          "per_page": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "list_regions",
+      "description": "List available DigitalOcean regions",
+      "method": "GET",
+      "path": "/regions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "number" },
+          "per_page": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "list_images",
+      "description": "List available DigitalOcean images",
+      "method": "GET",
+      "path": "/images",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string" },
+          "public": { "type": "boolean" },
+          "page": { "type": "number" },
+          "per_page": { "type": "number" }
+        }
+      }
+    },
+    {
       "name": "create_droplet",
       "description": "Create a droplet",
       "method": "POST",
@@ -39,6 +91,7 @@
           "size": { "type": "string" },
           "image": { "type": "string" },
           "ssh_keys": { "type": "array" },
+          "user_data": { "type": "string" },
           "backups": { "type": "boolean" }
         },
         "required": ["name", "region", "size", "image"]

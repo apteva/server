@@ -58,14 +58,28 @@
       "method": "POST",
       "path": "/datasets/v3/trigger",
       "query_params": ["dataset_id", "include_errors"],
+      "body_root_param": "input",
       "input_schema": {
         "type": "object",
         "properties": {
           "dataset_id": { "type": "string", "description": "Dataset/collector id, e.g. 'gd_l1viktl72bvl7bjuj0' for LinkedIn profiles" },
           "include_errors": { "type": "string", "enum": ["true", "false"], "default": "true" },
-          "input": { "type": "array", "items": { "type": "object" }, "description": "Array of input rows. Schema varies per dataset — most accept { url } or { name, location } objects." }
+          "input": { "type": "array", "items": { "type": "object" }, "description": "Array of input rows sent as the raw JSON request body. Schema varies per dataset — most accept { url } or { name, location } objects." }
         },
         "required": ["dataset_id", "input"]
+      }
+    },
+    {
+      "name": "dataset_progress",
+      "description": "Check progress/status for a Bright Data dataset snapshot or job. Use before downloading a snapshot when a trigger is still running.",
+      "method": "GET",
+      "path": "/datasets/v3/progress/{snapshot_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": { "type": "string" }
+        },
+        "required": ["snapshot_id"]
       }
     },
     {
@@ -82,6 +96,13 @@
         },
         "required": ["snapshot_id"]
       }
+    },
+    {
+      "name": "list_snapshots",
+      "description": "List recent Bright Data Web Scraper API snapshots/jobs for the account.",
+      "method": "GET",
+      "path": "/datasets/v3/snapshots",
+      "input_schema": { "type": "object", "properties": {} }
     },
     {
       "name": "list_datasets",

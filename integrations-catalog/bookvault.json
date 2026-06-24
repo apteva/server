@@ -1,0 +1,309 @@
+{
+  "slug": "bookvault",
+  "name": "BookVault",
+  "description": "BookVault API for print-on-demand titles, files, ISBNs, orders, proofs, retailers, publishing, and reporting.",
+  "logo": "https://www.google.com/s2/favicons?domain=bookvault.app&sz=128",
+  "categories": ["books", "print-on-demand", "publishing", "fulfillment", "orders"],
+  "base_url": "https://api.bookvault.app/v3",
+  "auth": {
+    "types": ["basic"],
+    "headers": {
+      "Authorization": "Basic {{basic}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "basic",
+        "label": "Basic auth value",
+        "description": "Base64-encoded BookVault API credentials from the BookVault API setup page."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_account_lite"
+  },
+  "tools": [
+    {
+      "name": "get_account_lite",
+      "description": "Load the BookVault account summary.",
+      "method": "GET",
+      "path": "/AccountLite",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_titles",
+      "description": "Load BookVault titles.",
+      "method": "GET",
+      "path": "/Titles",
+      "query_params": ["page", "limit", "search", "status"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "search": { "type": "string" },
+          "status": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_title",
+      "description": "Load one BookVault title/product.",
+      "method": "GET",
+      "path": "/Title",
+      "query_params": ["id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "create_title",
+      "description": "Create a BookVault title/product.",
+      "method": "POST",
+      "path": "/Title",
+      "body_root_param": "body",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "BookVault Create product payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "update_title",
+      "description": "Update a BookVault title/product.",
+      "method": "PUT",
+      "path": "/Title",
+      "body_root_param": "body",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "BookVault Update product payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "calculate_title",
+      "description": "Calculate title specs/pricing using BookVault's CalculateTitle endpoint.",
+      "method": "POST",
+      "path": "/CalculateTitle",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "BookVault CalculateTitle payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "list_files",
+      "description": "Load BookVault uploaded files.",
+      "method": "GET",
+      "path": "/FileDrops",
+      "query_params": ["page", "limit", "title_id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "title_id": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_file_upload_url",
+      "description": "Request a BookVault file upload URL.",
+      "method": "GET",
+      "path": "/FileDropRequest",
+      "query_params": ["filename", "content_type"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filename": { "type": "string" },
+          "content_type": { "type": "string" }
+        },
+        "required": ["filename"]
+      }
+    },
+    {
+      "name": "create_file",
+      "description": "Register/upload a file record in BookVault.",
+      "method": "POST",
+      "path": "/FileDrop",
+      "body_root_param": "body",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "BookVault FileDrop payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "generate_isbn",
+      "description": "Generate or request an ISBN through BookVault when enabled for the account.",
+      "method": "POST",
+      "path": "/ISBN",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "BookVault ISBN payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "list_retailers",
+      "description": "Load BookVault retailers.",
+      "method": "GET",
+      "path": "/Retailers",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "update_publishing",
+      "description": "Update BookVault publishing/distribution settings for a product.",
+      "method": "PUT",
+      "path": "/Publishing",
+      "body_root_param": "body",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "BookVault Publishing payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "Load BookVault orders.",
+      "method": "GET",
+      "path": "/Orders",
+      "query_params": ["page", "limit", "status", "from", "to"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "status": { "type": "string" },
+          "from": { "type": "string" },
+          "to": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Create a BookVault order.",
+      "method": "POST",
+      "path": "/Order",
+      "body_root_param": "body",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "BookVault order payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "validate_order",
+      "description": "Validate a BookVault order without placing it.",
+      "method": "POST",
+      "path": "/ValidateOrder",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "BookVault order payload to validate." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "create_proof",
+      "description": "Create a BookVault proof order.",
+      "method": "POST",
+      "path": "/Proof",
+      "body_root_param": "body",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "BookVault proof order payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "get_tracking",
+      "description": "Get BookVault tracking information.",
+      "method": "POST",
+      "path": "/Tracking",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "BookVault tracking lookup payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "list_reporting_types",
+      "description": "Load BookVault reporting types.",
+      "method": "GET",
+      "path": "/ReportingTypes",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_report",
+      "description": "Create a BookVault report.",
+      "method": "POST",
+      "path": "/Reporting",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "BookVault report payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "export_report",
+      "description": "Download/export a BookVault report.",
+      "method": "GET",
+      "path": "/ReportingExport",
+      "query_params": ["id", "format"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "format": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    }
+  ]
+}

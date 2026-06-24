@@ -448,6 +448,117 @@
       }
     },
     {
+      "name": "agent",
+      "description": "Run Firecrawl's autonomous web data gathering agent. Use when the agent should search, navigate, and extract structured data without you knowing the exact URLs upfront.",
+      "method": "POST",
+      "path": "/agent",
+      "timeout_ms": 305000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Natural-language task describing what data to gather."
+          },
+          "schema": {
+            "type": "object",
+            "description": "Optional JSON Schema for structured output."
+          },
+          "model": {
+            "type": "string",
+            "description": "Optional Firecrawl agent model tier, when supported by the account."
+          },
+          "maxPages": {
+            "type": "integer",
+            "description": "Optional page budget for the agent run."
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Optional timeout in milliseconds."
+          }
+        },
+        "required": ["prompt"]
+      }
+    },
+    {
+      "name": "interact_with_scrape",
+      "description": "Continue interacting with the browser state from a previous scrape. Provide either a natural-language prompt or Playwright code, not both. Use the scrapeId/jobId from scrape response metadata.",
+      "method": "POST",
+      "path": "/scrape/{jobId}/interact",
+      "timeout_ms": 305000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "description": "The scrape job ID / scrapeId returned by firecrawl_scrape."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Natural-language instruction, e.g. click a filter, fill a form, or extract after interaction."
+          },
+          "code": {
+            "type": "string",
+            "description": "Playwright code to execute in the existing browser session."
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Optional timeout in milliseconds."
+          }
+        },
+        "required": ["jobId"]
+      }
+    },
+    {
+      "name": "stop_scrape_interact",
+      "description": "Stop and release the interactive browser session associated with a scrape job.",
+      "method": "DELETE",
+      "path": "/scrape/{jobId}/interact",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "description": "The scrape job ID / scrapeId."
+          }
+        },
+        "required": ["jobId"]
+      }
+    },
+    {
+      "name": "create_interact_session",
+      "description": "Start a standalone Firecrawl Interact browser session that can be driven with code, without first calling scrape.",
+      "method": "POST",
+      "path": "/interact",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ttl": {
+            "type": "integer",
+            "description": "Session time-to-live in seconds."
+          },
+          "activityTtl": {
+            "type": "integer",
+            "description": "Idle timeout in seconds."
+          },
+          "streamWebView": {
+            "type": "boolean",
+            "description": "Whether to return a live web view URL."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_interact_sessions",
+      "description": "List standalone Firecrawl Interact browser sessions.",
+      "method": "GET",
+      "path": "/interact",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
       "name": "batch_scrape",
       "description": "Scrape a fixed list of URLs in one job. Returns a job id — poll firecrawl_batch_scrape_status to retrieve results. Use this when you already have the list of URLs (vs crawl, which discovers them).",
       "method": "POST",

@@ -28,6 +28,16 @@
   },
   "tools": [
     {
+      "name": "status",
+      "description": "Check Browse AI API and task queue status. Use as a zero-argument connection test.",
+      "method": "GET",
+      "path": "/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
       "name": "list_robots",
       "description": "Retrieve a list of all robots in your Browse.ai account. Returns robot IDs, names, creation dates, and input parameter configurations. Use this to discover available robots before running tasks.",
       "method": "GET",
@@ -41,7 +51,7 @@
       "name": "get_robot",
       "description": "Retrieve detailed information about a specific robot by its ID. Returns the robot's name, configuration, input parameters, and creation date.",
       "method": "GET",
-      "path": "/robots/{{param.robot_id}}",
+      "path": "/robots/{robot_id}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -59,7 +69,7 @@
       "name": "run_robot",
       "description": "Start a new task by running a robot with the specified input parameters. The robot will navigate to the target URL and extract data based on its configuration. Returns the created task object with its ID for tracking progress.",
       "method": "POST",
-      "path": "/robots/{{param.robot_id}}/tasks",
+      "path": "/robots/{robot_id}/tasks",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -88,7 +98,7 @@
       "name": "get_task",
       "description": "Retrieve the results and status of a specific task. Returns task status (successful, failed, in-progress), captured text data, screenshots, timestamps, and a debug video URL. Poll this endpoint to check if a running task has completed.",
       "method": "GET",
-      "path": "/robots/{{param.robot_id}}/tasks/{{param.task_id}}",
+      "path": "/robots/{robot_id}/tasks/{task_id}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -111,7 +121,7 @@
       "name": "list_tasks",
       "description": "Retrieve a paginated list of tasks for a specific robot. Supports filtering by status and date range. Returns task IDs, statuses, timestamps, and extracted data summaries.",
       "method": "GET",
-      "path": "/robots/{{param.robot_id}}/tasks",
+      "path": "/robots/{robot_id}/tasks",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -143,6 +153,234 @@
           "robot_id"
         ]
       }
+    },
+    {
+      "name": "bulk_run_robot",
+      "description": "Start a bulk run for a robot with many input parameter sets. Use this for large URL/listing batches instead of starting tasks one by one.",
+      "method": "POST",
+      "path": "/robots/{robot_id}/bulk-runs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "robot_id": {
+            "type": "string",
+            "description": "The unique identifier of the robot to run."
+          },
+          "inputParameters": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Array of input parameter objects, one task per item."
+          }
+        },
+        "required": [
+          "robot_id",
+          "inputParameters"
+        ]
+      }
+    },
+    {
+      "name": "get_bulk_run",
+      "description": "Retrieve a bulk run by ID, including its status and child task results.",
+      "method": "GET",
+      "path": "/robots/{robot_id}/bulk-runs/{bulk_run_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "robot_id": {
+            "type": "string",
+            "description": "The unique identifier of the robot."
+          },
+          "bulk_run_id": {
+            "type": "string",
+            "description": "The unique identifier of the bulk run."
+          }
+        },
+        "required": [
+          "robot_id",
+          "bulk_run_id"
+        ]
+      }
+    },
+    {
+      "name": "list_monitors",
+      "description": "List monitors configured for a robot.",
+      "method": "GET",
+      "path": "/robots/{robot_id}/monitors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "robot_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "robot_id"
+        ]
+      }
+    },
+    {
+      "name": "create_monitor",
+      "description": "Create a monitor for a robot. The request body follows Browse AI's monitor schema and usually includes inputParameters and schedule settings.",
+      "method": "POST",
+      "path": "/robots/{robot_id}/monitors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "robot_id": {
+            "type": "string"
+          },
+          "inputParameters": {
+            "type": "object"
+          },
+          "schedule": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "robot_id"
+        ]
+      }
+    },
+    {
+      "name": "get_monitor",
+      "description": "Retrieve one monitor for a robot.",
+      "method": "GET",
+      "path": "/robots/{robot_id}/monitors/{monitor_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "robot_id": {
+            "type": "string"
+          },
+          "monitor_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "robot_id",
+          "monitor_id"
+        ]
+      }
+    },
+    {
+      "name": "update_monitor",
+      "description": "Update one monitor for a robot.",
+      "method": "PATCH",
+      "path": "/robots/{robot_id}/monitors/{monitor_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "robot_id": {
+            "type": "string"
+          },
+          "monitor_id": {
+            "type": "string"
+          },
+          "inputParameters": {
+            "type": "object"
+          },
+          "schedule": {
+            "type": "object"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "robot_id",
+          "monitor_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_monitor",
+      "description": "Delete one monitor for a robot.",
+      "method": "DELETE",
+      "path": "/robots/{robot_id}/monitors/{monitor_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "robot_id": {
+            "type": "string"
+          },
+          "monitor_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "robot_id",
+          "monitor_id"
+        ]
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List webhooks configured for a robot.",
+      "method": "GET",
+      "path": "/robots/{robot_id}/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "robot_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "robot_id"
+        ]
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a robot webhook that Browse AI calls after robot task events.",
+      "method": "POST",
+      "path": "/robots/{robot_id}/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "robot_id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "Webhook destination URL."
+          },
+          "event": {
+            "type": "string",
+            "description": "Browse AI webhook event type."
+          }
+        },
+        "required": [
+          "robot_id",
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete a robot webhook.",
+      "method": "DELETE",
+      "path": "/robots/{robot_id}/webhooks/{webhook_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "robot_id": {
+            "type": "string"
+          },
+          "webhook_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "robot_id",
+          "webhook_id"
+        ]
+      }
     }
-  ]
+  ],
+  "health_check": {
+    "tool": "status"
+  }
 }

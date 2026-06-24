@@ -1,0 +1,266 @@
+{
+  "slug": "lulu-print",
+  "name": "Lulu Print API",
+  "description": "Lulu Print API for print-on-demand validation, pricing, shipping options, print jobs, status, cancellation, and webhooks.",
+  "logo": "https://www.google.com/s2/favicons?domain=lulu.com&sz=128",
+  "categories": ["books", "print-on-demand", "publishing", "fulfillment", "shipping"],
+  "base_url": "https://api.lulu.com",
+  "auth": {
+    "types": ["bearer", "basic"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Bearer access token",
+        "description": "OAuth access token from Lulu's client-credentials token endpoint."
+      },
+      {
+        "name": "basic",
+        "label": "Basic auth value",
+        "description": "Base64 client_key:client_secret value used only with lulu_token_create.",
+        "required": false
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "token_create",
+      "description": "Create a Lulu OAuth token using Basic client_key:client_secret credentials. Store the returned access_token as this connection's bearer token.",
+      "method": "POST",
+      "path": "https://api.lulu.com/auth/realms/glasstree/protocol/openid-connect/token",
+      "headers": {
+        "Authorization": "Basic {{basic}}",
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "grant_type": { "type": "string", "description": "Use client_credentials." }
+        },
+        "required": ["grant_type"]
+      }
+    },
+    {
+      "name": "calculate_print_job_cost",
+      "description": "Create a Print-Job cost calculation.",
+      "method": "POST",
+      "path": "/print-job-cost-calculations/",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "Lulu print-job cost calculation payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "list_print_jobs",
+      "description": "Retrieve a list of Lulu Print-Jobs.",
+      "method": "GET",
+      "path": "/print-jobs/",
+      "query_params": ["page", "page_size", "status", "created_min", "created_max"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "page_size": { "type": "integer" },
+          "status": { "type": "string" },
+          "created_min": { "type": "string" },
+          "created_max": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "create_print_job",
+      "description": "Create a new Lulu Print-Job.",
+      "method": "POST",
+      "path": "/print-jobs/",
+      "body_root_param": "body",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "Lulu Print-Job payload including line_items, shipping_address, contact_email, and external_id." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "get_print_job",
+      "description": "Retrieve a single Lulu Print-Job.",
+      "method": "GET",
+      "path": "/print-jobs/{id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "get_print_job_status",
+      "description": "Retrieve Lulu Print-Job status.",
+      "method": "GET",
+      "path": "/print-jobs/{id}/status/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "cancel_print_job",
+      "description": "Cancel a Lulu Print-Job.",
+      "method": "DELETE",
+      "path": "/print-jobs/{id}/status/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "get_print_job_costs",
+      "description": "Retrieve costs for a Lulu Print-Job.",
+      "method": "GET",
+      "path": "/print-jobs/{id}/costs/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "get_shipping_options",
+      "description": "Retrieve shipping options for a Lulu print order.",
+      "method": "POST",
+      "path": "/shipping-options/",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "Lulu shipping-options payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "validate_interior",
+      "description": "Validate an interior PDF file by URL.",
+      "method": "POST",
+      "path": "/validate-interior/",
+      "body_root_param": "body",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "Lulu validate-interior payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "get_interior_validation",
+      "description": "Retrieve a Lulu interior file validation record.",
+      "method": "GET",
+      "path": "/validate-interior/{id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "calculate_cover_dimensions",
+      "description": "Calculate cover dimensions from product package and page count.",
+      "method": "POST",
+      "path": "/cover-dimensions/",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "Lulu cover-dimensions payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "validate_cover",
+      "description": "Validate a cover PDF file by URL.",
+      "method": "POST",
+      "path": "/validate-cover/",
+      "body_root_param": "body",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "Lulu validate-cover payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "get_cover_validation",
+      "description": "Retrieve a Lulu cover validation record.",
+      "method": "GET",
+      "path": "/validate-cover/{id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "Retrieve Lulu webhook subscriptions.",
+      "method": "GET",
+      "path": "/webhooks/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Subscribe to Lulu webhooks.",
+      "method": "POST",
+      "path": "/webhooks/",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "Lulu webhook subscription payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete a Lulu webhook subscription.",
+      "method": "DELETE",
+      "path": "/webhooks/{id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    }
+  ]
+}

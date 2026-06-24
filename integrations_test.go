@@ -1431,6 +1431,125 @@ func TestExecuteIntegrationTool_ApifySyncDatasetItemsBodyRoot(t *testing.T) {
 	}
 }
 
+func TestExecuteIntegrationTool_BrightDataDatasetTriggerBodyRoot(t *testing.T) {
+	var capturedPath string
+	var capturedQuery url.Values
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedQuery = r.URL.Query()
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{"snapshot_id":"snap-123"}`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "brightdata",
+		BaseURL: srv.URL,
+		Auth: AppAuthConfig{
+			Types:   []string{"bearer"},
+			Headers: map[string]string{"Authorization": "Bearer {{api_key}}"},
+		},
+	}
+	tool := &AppToolDef{
+		Name:        "dataset_trigger",
+		Method:      "POST",
+		Path:        "/datasets/v3/trigger",
+		QueryParams: []string{"dataset_id", "include_errors"},
+		BodyRoot:    "input",
+	}
+	input := map[string]any{
+		"dataset_id":     "gd_lk5ns7kz21pck8jpis",
+		"include_errors": "true",
+		"input": []any{
+			map[string]any{"url": "https://example.com/place/1"},
+			map[string]any{"url": "https://example.com/place/2"},
+		},
+	}
+	res, err := executeIntegrationTool(app, tool, map[string]string{"api_key": "bright-secret"}, input, "")
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("success=%v status=%d", res.Success, res.Status)
+	}
+	if capturedPath != "/datasets/v3/trigger" {
+		t.Fatalf("path=%q, want /datasets/v3/trigger", capturedPath)
+	}
+	if capturedQuery.Get("dataset_id") != "gd_lk5ns7kz21pck8jpis" || capturedQuery.Get("include_errors") != "true" {
+		t.Fatalf("query=%v, want dataset_id + include_errors", capturedQuery)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(capturedBody, &rows); err != nil {
+		t.Fatalf("body is not top-level JSON array: %v (body=%s)", err, capturedBody)
+	}
+	if len(rows) != 2 || rows[0]["url"] != "https://example.com/place/1" {
+		t.Fatalf("rows mismatch: %v", rows)
+	}
+	if strings.Contains(string(capturedBody), "dataset_id") || strings.Contains(string(capturedBody), "input") {
+		t.Fatalf("body leaked wrapper/query params: %s", capturedBody)
+	}
+}
+
+func TestExecuteIntegrationTool_BrowseAIPathParams(t *testing.T) {
+	var capturedPath string
+	var capturedQuery url.Values
+	var capturedBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedQuery = r.URL.Query()
+		if err := json.NewDecoder(r.Body).Decode(&capturedBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{"statusCode":200,"messageCode":"success"}`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "browse-ai",
+		BaseURL: srv.URL,
+		Auth: AppAuthConfig{
+			Types:   []string{"bearer"},
+			Headers: map[string]string{"Authorization": "Bearer {{token}}"},
+		},
+	}
+	tool := &AppToolDef{
+		Name:   "run_robot",
+		Method: "POST",
+		Path:   "/robots/{robot_id}/tasks",
+	}
+	input := map[string]any{
+		"robot_id": "robot-123",
+		"inputParameters": map[string]any{
+			"originUrl": "https://example.com/products",
+		},
+	}
+	res, err := executeIntegrationTool(app, tool, map[string]string{"token": "browse-secret"}, input, "")
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("success=%v status=%d", res.Success, res.Status)
+	}
+	if capturedPath != "/robots/robot-123/tasks" {
+		t.Fatalf("path=%q, want /robots/robot-123/tasks", capturedPath)
+	}
+	if got := capturedQuery.Get("robot_id"); got != "" {
+		t.Fatalf("robot_id leaked into query as %q", got)
+	}
+	if _, ok := capturedBody["robot_id"]; ok {
+		t.Fatalf("robot_id leaked into body: %v", capturedBody)
+	}
+	params, ok := capturedBody["inputParameters"].(map[string]any)
+	if !ok || params["originUrl"] != "https://example.com/products" {
+		t.Fatalf("inputParameters mismatch: %v", capturedBody)
+	}
+}
+
 func TestExecuteIntegrationTool_ToolHeadersOverrideAppHeaders(t *testing.T) {
 	var capturedCT string
 	var capturedBody []byte

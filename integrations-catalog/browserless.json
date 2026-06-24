@@ -158,6 +158,107 @@
       }
     },
     {
+      "name": "smart_scrape",
+      "description": "Intelligently scrape a URL using Browserless cascading strategies: fast HTTP fetch, proxy, headless browser, and CAPTCHA solving as needed. Returns JSON with requested outputs such as HTML, markdown, links, screenshots, or PDFs.",
+      "method": "POST",
+      "path": "/smart-scrape",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "Target URL" },
+          "formats": { "type": "array", "items": { "type": "string" }, "description": "Outputs to return, e.g. html, markdown, links, screenshot, pdf" },
+          "waitFor": { "type": ["string", "integer"], "description": "Selector or milliseconds to wait" },
+          "proxy": { "type": "object", "description": "Optional proxy configuration" },
+          "timeout": { "type": "integer", "description": "Request timeout in milliseconds" }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "unblock",
+      "description": "Bypass bot detection for a URL and return content, cookies, screenshots, or a browserWSEndpoint for custom automation. Best with Browserless residential proxies.",
+      "method": "POST",
+      "path": "/unblock",
+      "timeout_ms": 305000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "Target URL" },
+          "browserWSEndpoint": { "type": "boolean", "description": "Return a WebSocket endpoint for handoff to Puppeteer/Playwright" },
+          "cookies": { "type": "boolean", "description": "Return cookies" },
+          "content": { "type": "boolean", "description": "Return page content" },
+          "screenshot": { "type": "boolean", "description": "Return a screenshot" },
+          "ttl": { "type": "integer", "description": "Browser lifetime in milliseconds" }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "search",
+      "description": "Search the web through Browserless and return structured results for discovery before scraping.",
+      "method": "POST",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "limit": { "type": "integer" },
+          "country": { "type": "string" },
+          "language": { "type": "string" }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "map",
+      "description": "Discover URLs on a website through Browserless without scraping every page.",
+      "method": "POST",
+      "path": "/map",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" },
+          "limit": { "type": "integer" },
+          "includeSubdomains": { "type": "boolean" },
+          "sitemap": { "type": "string" }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "crawl",
+      "description": "Start an asynchronous Browserless crawl that maps and scrapes a site into structured output.",
+      "method": "POST",
+      "path": "/crawl",
+      "timeout_ms": 65000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" },
+          "limit": { "type": "integer" },
+          "formats": { "type": "array", "items": { "type": "string" } },
+          "maxDepth": { "type": "integer" },
+          "includePaths": { "type": "array", "items": { "type": "string" } },
+          "excludePaths": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "bql",
+      "description": "Run a BrowserQL GraphQL query against Browserless Chromium. Use for stealth browser automation, CAPTCHA solving, navigation, interaction, and extraction workflows that are too complex for REST scrape endpoints.",
+      "method": "POST",
+      "path": "/chromium/bql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "GraphQL BrowserQL query or mutation" },
+          "variables": { "type": "object", "description": "GraphQL variables" }
+        },
+        "required": ["query"]
+      }
+    },
+    {
       "name": "stats",
       "description": "Get account / session stats — credits used, concurrency, queue depth.",
       "method": "GET",

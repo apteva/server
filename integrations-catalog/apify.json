@@ -400,6 +400,68 @@
       }
     },
     {
+      "name": "run_actor_sync",
+      "description": "Run an Apify actor synchronously and return the actor's OUTPUT record from its default key-value store. Use this when the actor writes its final result to OUTPUT instead of a dataset.",
+      "method": "POST",
+      "path": "/actors/{actorId}/run-sync",
+      "query_params": [
+        "timeout",
+        "memory",
+        "maxItems",
+        "maxTotalChargeUsd",
+        "restartOnError",
+        "build",
+        "webhooks"
+      ],
+      "body_root_param": "input",
+      "timeout_ms": 305000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "actorId": {
+            "type": "string",
+            "description": "Actor ID or tilde-separated owner/name, e.g. 'apify~web-scraper'."
+          },
+          "input": {
+            "type": "object",
+            "description": "JSON input passed directly to the actor. Pass {} for actors with no input."
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Optional actor run timeout in seconds."
+          },
+          "memory": {
+            "type": "number",
+            "description": "Optional memory limit in MB."
+          },
+          "maxItems": {
+            "type": "number",
+            "description": "Maximum charged dataset items for pay-per-result actors."
+          },
+          "maxTotalChargeUsd": {
+            "type": "number",
+            "description": "Maximum total charge in USD for pay-per-event actors."
+          },
+          "restartOnError": {
+            "type": "boolean",
+            "description": "Restart the actor run automatically if it fails."
+          },
+          "build": {
+            "type": "string",
+            "description": "Actor build tag or build number."
+          },
+          "webhooks": {
+            "type": "string",
+            "description": "Base64-encoded JSON array of Apify webhook definitions for this run."
+          }
+        },
+        "required": [
+          "actorId",
+          "input"
+        ]
+      }
+    },
+    {
       "name": "get_run",
       "description": "Get one actor run by runId. Use waitForFinish up to 60 seconds to poll until a terminal status is reached. The response includes defaultDatasetId for get_dataset_items.",
       "method": "GET",
@@ -417,6 +479,31 @@
           "waitForFinish": {
             "type": "number",
             "description": "Maximum seconds to wait for completion. Maximum is 60."
+          }
+        },
+        "required": [
+          "runId"
+        ]
+      }
+    },
+    {
+      "name": "abort_run",
+      "description": "Abort a starting or running Apify actor run. Set gracefully=true to give the actor a short window to persist state before aborting.",
+      "method": "POST",
+      "path": "/actor-runs/{runId}/abort",
+      "query_params": [
+        "gracefully"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "description": "Actor run ID."
+          },
+          "gracefully": {
+            "type": "boolean",
+            "description": "Abort gracefully instead of killing immediately."
           }
         },
         "required": [
@@ -565,6 +652,87 @@
         },
         "required": [
           "datasetId"
+        ]
+      }
+    },
+    {
+      "name": "list_key_value_stores",
+      "description": "List key-value stores owned by the authenticated user. Useful for finding actor OUTPUT records and files stored outside datasets.",
+      "method": "GET",
+      "path": "/key-value-stores",
+      "query_params": [
+        "offset",
+        "limit",
+        "desc",
+        "unnamed"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "description": "Number of stores to skip."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum stores to return. Default and maximum are 1000."
+          },
+          "desc": {
+            "type": "boolean",
+            "description": "Sort newest first when true."
+          },
+          "unnamed": {
+            "type": "boolean",
+            "description": "Include unnamed stores."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_key_value_store",
+      "description": "Get metadata for an Apify key-value store.",
+      "method": "GET",
+      "path": "/key-value-stores/{storeId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "storeId": {
+            "type": "string",
+            "description": "Key-value store ID or name."
+          }
+        },
+        "required": [
+          "storeId"
+        ]
+      }
+    },
+    {
+      "name": "get_key_value_store_record",
+      "description": "Get a record value from an Apify key-value store. Use defaultKeyValueStoreId from a run and key='OUTPUT' for actors that store final output outside datasets.",
+      "method": "GET",
+      "path": "/key-value-stores/{storeId}/records/{recordKey}",
+      "query_params": [
+        "disableRedirect"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "storeId": {
+            "type": "string",
+            "description": "Key-value store ID or name."
+          },
+          "recordKey": {
+            "type": "string",
+            "description": "Record key, e.g. OUTPUT."
+          },
+          "disableRedirect": {
+            "type": "boolean",
+            "description": "When true, return metadata instead of redirecting to large binary values where supported."
+          }
+        },
+        "required": [
+          "storeId",
+          "recordKey"
         ]
       }
     },

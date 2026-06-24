@@ -17,6 +17,38 @@
   },
   "tools": [
     {
+      "name": "fetch",
+      "description": "Fetch a page through Browserbase without starting a full browser session. Returns status, headers, content, contentType, and encoding. Use format='markdown' for agent-ready page text or format='json' with schema for structured extraction.",
+      "method": "POST",
+      "path": "/v1/fetch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "URL to fetch" },
+          "allowRedirects": { "type": "boolean", "default": false },
+          "allowInsecureSsl": { "type": "boolean", "default": false },
+          "proxies": { "type": "boolean", "default": false },
+          "format": { "type": "string", "enum": ["raw", "markdown", "json"], "default": "raw" },
+          "schema": { "type": "object", "description": "JSON Schema used when format='json'" }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "search",
+      "description": "Search the web through Browserbase and return compact structured results. Use before opening a browser session when you only need candidate URLs.",
+      "method": "POST",
+      "path": "/v1/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Search query, 1-200 characters" },
+          "numResults": { "type": "integer", "default": 10, "description": "Number of results to return, 1-25" }
+        },
+        "required": ["query"]
+      }
+    },
+    {
       "name": "create_session",
       "description": "Create a new browser session. Returns `{id, connectUrl, seleniumRemoteUrl, ...}` — use `connectUrl` to connect via Playwright/Puppeteer over CDP and drive the browser (take screenshots, click, type, etc.). Sessions idle out after ~5 min unless `keepAlive=true`.",
       "method": "POST",
@@ -65,8 +97,7 @@
           "region": { "type": "string", "enum": ["us-west-2", "us-east-1", "eu-central-1", "ap-southeast-1"], "description": "Geographic region to run the browser in" },
           "timeout": { "type": "integer", "description": "Max session duration in seconds" },
           "userMetadata": { "type": "object", "description": "Arbitrary key/values attached to the session" }
-        },
-        "required": ["projectId"]
+        }
       }
     },
     {
@@ -197,17 +228,16 @@
       "path_params": ["id"]
     },
     {
-      "name": "create_extension",
-      "description": "Upload a Chrome extension (.zip) to be loaded into future sessions via `extensionId`. Multipart body with `file` field.",
-      "method": "POST",
-      "path": "/v1/extensions",
+      "name": "delete_context",
+      "description": "Delete a persisted context.",
+      "method": "DELETE",
+      "path": "/v1/contexts/{id}",
       "input_schema": {
         "type": "object",
-        "properties": {
-          "file": { "type": "string", "description": "Zip of the unpacked extension" }
-        },
-        "required": ["file"]
-      }
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      },
+      "path_params": ["id"]
     },
     {
       "name": "get_extension",

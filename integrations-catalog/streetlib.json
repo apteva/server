@@ -1,0 +1,60 @@
+{
+  "slug": "streetlib",
+  "name": "StreetLib",
+  "description": "StreetLib partner API for book-publishing partner workflows. Public partner docs expose account onboarding and reference data; distribution/book-submission endpoints may require StreetLib partner enablement.",
+  "logo": "https://www.google.com/s2/favicons?domain=streetlib.com&sz=128",
+  "categories": ["books", "publishing", "distribution", "ebooks", "audiobooks"],
+  "base_url": "https://api.streetlib.com/partners",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "x-api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Partner API key",
+        "description": "StreetLib partner API key. Partner/distribution access may need to be enabled by StreetLib."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_countries",
+      "description": "Get StreetLib country IDs for partner user signup.",
+      "method": "GET",
+      "path": "/countries",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_timezones",
+      "description": "Get StreetLib timezone values for partner user signup.",
+      "method": "GET",
+      "path": "/timezones",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "affiliate_signup",
+      "description": "Create a new StreetLib user under a partner account.",
+      "method": "POST",
+      "path": "/affiliate/signup",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "object",
+            "description": "StreetLib UserRequest payload from the partner API documentation."
+          }
+        },
+        "required": ["body"]
+      }
+    }
+  ]
+}
