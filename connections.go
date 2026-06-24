@@ -810,6 +810,10 @@ var forwardableHeaders = []string{
 	"Etag",
 	"Last-Modified",
 	"Content-Length",
+	"Request-Id",
+	"X-Request-Id",
+	"X-ElevenLabs-Request-Id",
+	"Xi-Request-Id",
 }
 
 // pickForwardableHeaders extracts the allowlisted header values from a
