@@ -84,6 +84,22 @@
             "type": "string",
             "description": "Next text for continuity across chunks."
           },
+          "previous_request_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3,
+            "description": "Up to three previous ElevenLabs generation request IDs for request-stitching continuity. Not supported by eleven_v3."
+          },
+          "next_request_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3,
+            "description": "Up to three following ElevenLabs generation request IDs for request-stitching continuity when regenerating a middle segment. Not supported by eleven_v3."
+          },
           "apply_text_normalization": {
             "type": "string",
             "enum": [
