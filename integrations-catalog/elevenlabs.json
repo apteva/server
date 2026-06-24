@@ -539,6 +539,15 @@
             "maxLength": 1000,
             "description": "Description of the voice to create, including age, gender, accent, tone, pacing, and audio quality."
           },
+          "model_id": {
+            "type": "string",
+            "enum": [
+              "eleven_ttv_v3",
+              "eleven_multilingual_ttv_v2"
+            ],
+            "default": "eleven_ttv_v3",
+            "description": "ElevenLabs Voice Design model. Use eleven_ttv_v3 for the newer expressive voice design model, or eleven_multilingual_ttv_v2 for the previous multilingual voice design model."
+          },
           "text": {
             "type": "string",
             "minLength": 100,
