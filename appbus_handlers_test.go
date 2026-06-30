@@ -22,6 +22,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	sdk "github.com/apteva/app-sdk"
 )
 
 // --- helpers ---------------------------------------------------------
@@ -320,6 +322,101 @@ func TestEmitHandler_UnknownInstallReturns404(t *testing.T) {
 	s.handleAppEventEmit(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for unknown install, got %d", rec.Code)
+	}
+}
+
+func TestEmitHandler_DeliversToManifestEventSubscribers(t *testing.T) {
+	s := newBusServer(t)
+	billingInstall := seedInstall(t, s, "billing", "proj-A")
+	received := make(chan map[string]any, 1)
+	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/events" {
+			t.Errorf("path=%s, want /events", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer dev-200" {
+			t.Errorf("Authorization=%q, want subscriber token", got)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode event: %v", err)
+		}
+		received <- body
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer sidecar.Close()
+
+	s.installedApps = NewInstalledAppsRegistry()
+	s.installedApps.Add(&InstalledApp{
+		InstallID:  200,
+		AppName:    "hosting",
+		ProjectID:  "proj-A",
+		SidecarURL: sidecar.URL,
+		Token:      "dev-200",
+		Manifest: sdk.Manifest{Requires: sdk.Requires{Apps: []sdk.RequiredAppRef{{
+			Name:   "billing",
+			Events: []string{"invoice.paid"},
+		}}}},
+	})
+
+	req := httptest.NewRequest("POST", "/app-events/internal/emit", strings.NewReader(`{"topic":"invoice.paid","data":{"id":77}}`))
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(billingInstall))
+	rec := httptest.NewRecorder()
+	s.handleAppEventEmit(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	select {
+	case ev := <-received:
+		if ev["event"] != "invoice.paid" || ev["topic"] != "invoice.paid" {
+			t.Fatalf("event aliases not set: %+v", ev)
+		}
+		if ev["source_app"] != "billing" {
+			t.Fatalf("source_app=%v, want billing", ev["source_app"])
+		}
+		if ev["project_id"] != "proj-A" {
+			t.Fatalf("project_id=%v, want proj-A", ev["project_id"])
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("subscriber sidecar did not receive event")
+	}
+}
+
+func TestEmitHandler_DoesNotDeliverUndeclaredEvent(t *testing.T) {
+	s := newBusServer(t)
+	billingInstall := seedInstall(t, s, "billing", "proj-A")
+	received := make(chan struct{}, 1)
+	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received <- struct{}{}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer sidecar.Close()
+
+	s.installedApps = NewInstalledAppsRegistry()
+	s.installedApps.Add(&InstalledApp{
+		InstallID:  201,
+		AppName:    "hosting",
+		ProjectID:  "proj-A",
+		SidecarURL: sidecar.URL,
+		Token:      "dev-201",
+		Manifest: sdk.Manifest{Requires: sdk.Requires{Apps: []sdk.RequiredAppRef{{
+			Name:   "billing",
+			Events: []string{"invoice.paid"},
+		}}}},
+	})
+
+	req := httptest.NewRequest("POST", "/app-events/internal/emit", strings.NewReader(`{"topic":"invoice.voided","data":{"id":77}}`))
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(billingInstall))
+	rec := httptest.NewRecorder()
+	s.handleAppEventEmit(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	select {
+	case <-received:
+		t.Fatal("sidecar received undeclared event")
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 

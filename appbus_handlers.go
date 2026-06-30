@@ -101,6 +101,7 @@ func (s *Server) handleAppEventEmit(w http.ResponseWriter, r *http.Request) {
 		data = json.RawMessage(`null`)
 	}
 	ev := s.appBus.Publish(appName, resolvedProject, installID, body.Topic, data)
+	go s.dispatchAppEventToSubscribers(ev)
 	writeJSON(w, map[string]any{
 		"ok":  true,
 		"seq": ev.Seq,
