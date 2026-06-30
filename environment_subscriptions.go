@@ -145,7 +145,7 @@ func (s *Server) installEnvironmentSubscription(userID int64, environment *Envir
 	if existing != "" {
 		return nil
 	}
-	_, err = s.store.CreateAppEventSubscription(userID, wa.AgentID, spec.Name, slug, spec.Description, spec.ThreadID, environment.ID)
+	_, err = s.store.CreateAppEventSubscription(userID, wa.AgentID, spec.Name, slug, spec.Description, spec.ThreadID, environment.ID, []string{spec.Topic})
 	return err
 }
 

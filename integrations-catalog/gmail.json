@@ -462,7 +462,7 @@
     },
     {
       "name": "list_threads",
-      "description": "List email thread IDs with optional search. Returns thread IDs and snippets \u2014 use gmail-get-thread to fetch full conversation messages",
+      "description": "List email thread IDs with optional search. Returns thread IDs and snippets. Use gmail_get_thread first to inspect a compact latest-message summary, then fetch a specific message with gmail_get_message only when body text is needed.",
       "method": "GET",
       "path": "/users/me/threads",
       "input_schema": {
@@ -509,7 +509,7 @@
     },
     {
       "name": "get_thread",
-      "description": "Get an email thread efficiently. Defaults to metadata-only so long conversations do not flood the agent context. Use this first to inspect senders, dates, subjects, snippets, labels, and message IDs. If you need full body text, fetch only the specific message(s) you need with gmail_get_message; avoid format=full on large threads unless explicitly necessary.",
+      "description": "Get a compact email thread index. Output includes thread id, history id, messageCount, messageIds, and messages with compact per-message metadata/snippet only. It intentionally does not return message bodies, HTML, or attachments. Use this first to choose which message IDs matter, then call gmail_get_message for the specific body/content needed.",
       "method": "GET",
       "path": "/users/me/threads/{threadId}",
       "input_schema": {
@@ -583,9 +583,6 @@
             "sizeEstimate": 2048
           }
         ]
-      },
-      "response_transform": {
-        "type": "email_thread"
       }
     },
     {

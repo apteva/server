@@ -551,7 +551,7 @@
     },
     {
       "name": "set_mail_from",
-      "description": "Set or clear the custom MAIL FROM domain for an identity (PutEmailIdentityMailFromAttributes). Omit MailFromDomain to reset to the SES default (amazonses.com). Apteva messaging does not use custom MAIL FROM, so this is mainly used to clear leftover values carried over from other tooling.",
+      "description": "Set or clear the custom MAIL FROM domain for an identity (PutEmailIdentityMailFromAttributes). Omit MailFromDomain to reset to the SES default (amazonses.com). Messaging uses this for per-domain SES MAIL FROM alignment.",
       "method": "PUT",
       "path": "/v2/email/identities/{EmailIdentity}/mail-from",
       "input_schema": {

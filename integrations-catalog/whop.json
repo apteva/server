@@ -1,0 +1,364 @@
+{
+  "slug": "whop",
+  "name": "Whop",
+  "description": "Whop commerce API for products, plans, checkout configurations, payments, refunds, memberships, and leads. Use Whop to sell access to audio products, communities, or apps; Whop's public API does not directly upload and host audio files.",
+  "logo": "https://www.google.com/s2/favicons?domain=whop.com&sz=128",
+  "categories": ["payments", "commerce", "creator-economy", "digital-products", "memberships", "checkout"],
+  "base_url": "https://api.whop.com/api/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json",
+      "Api-Version-Date": "2026-06-20"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "description": "Whop API key for the company/app you want to manage."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_products",
+      "description": "List Whop products for a company. Use this before creating plans or checkout configurations.",
+      "method": "GET",
+      "path": "/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "company_id": { "type": "string" },
+          "visibilities": { "type": "array", "items": { "type": "string" } },
+          "access_pass_types": { "type": "array", "items": { "type": "string" } },
+          "direction": { "type": "string" },
+          "order": { "type": "string" },
+          "first": { "type": "integer" },
+          "after": { "type": "string" },
+          "last": { "type": "integer" },
+          "before": { "type": "string" }
+        },
+        "required": ["company_id"]
+      }
+    },
+    {
+      "name": "get_product",
+      "description": "Retrieve one Whop product.",
+      "method": "GET",
+      "path": "/products/{product_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": { "type": "string" }
+        },
+        "required": ["product_id"]
+      }
+    },
+    {
+      "name": "create_product",
+      "description": "Create a Whop product. Body must follow Whop's current product create schema. For audio products, this creates the sellable access product; store the audio in your app/storage and deliver it after purchase.",
+      "method": "POST",
+      "path": "/products",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "Raw Whop product create payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "update_product",
+      "description": "Update a Whop product using Whop's product update schema.",
+      "method": "PATCH",
+      "path": "/products/{product_id}",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": { "type": "string" },
+          "body": { "type": "object", "description": "Raw Whop product update payload." }
+        },
+        "required": ["product_id", "body"]
+      }
+    },
+    {
+      "name": "delete_product",
+      "description": "Delete a Whop product.",
+      "method": "DELETE",
+      "path": "/products/{product_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": { "type": "string" }
+        },
+        "required": ["product_id"]
+      }
+    },
+    {
+      "name": "list_plans",
+      "description": "List Whop plans. Filter by company or product before creating checkout configurations.",
+      "method": "GET",
+      "path": "/plans",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "company_id": { "type": "string" },
+          "product_id": { "type": "string" },
+          "direction": { "type": "string" },
+          "order": { "type": "string" },
+          "first": { "type": "integer" },
+          "after": { "type": "string" },
+          "last": { "type": "integer" },
+          "before": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_plan",
+      "description": "Retrieve one Whop plan.",
+      "method": "GET",
+      "path": "/plans/{plan_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "plan_id": { "type": "string" }
+        },
+        "required": ["plan_id"]
+      }
+    },
+    {
+      "name": "create_plan",
+      "description": "Create a Whop plan. Body must follow Whop's plan create schema, including product/company, pricing, currency, and billing fields.",
+      "method": "POST",
+      "path": "/plans",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "Raw Whop plan create payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "update_plan",
+      "description": "Update a Whop plan using Whop's plan update schema.",
+      "method": "PATCH",
+      "path": "/plans/{plan_id}",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "plan_id": { "type": "string" },
+          "body": { "type": "object", "description": "Raw Whop plan update payload." }
+        },
+        "required": ["plan_id", "body"]
+      }
+    },
+    {
+      "name": "delete_plan",
+      "description": "Delete a Whop plan.",
+      "method": "DELETE",
+      "path": "/plans/{plan_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "plan_id": { "type": "string" }
+        },
+        "required": ["plan_id"]
+      }
+    },
+    {
+      "name": "list_checkout_configurations",
+      "description": "List Whop checkout configurations, optionally filtered by company or plan.",
+      "method": "GET",
+      "path": "/checkout_configurations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "company_id": { "type": "string" },
+          "plan_id": { "type": "string" },
+          "direction": { "type": "string" },
+          "order": { "type": "string" },
+          "first": { "type": "integer" },
+          "after": { "type": "string" },
+          "last": { "type": "integer" },
+          "before": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_checkout_configuration",
+      "description": "Retrieve one Whop checkout configuration.",
+      "method": "GET",
+      "path": "/checkout_configurations/{checkout_configuration_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "checkout_configuration_id": { "type": "string" }
+        },
+        "required": ["checkout_configuration_id"]
+      }
+    },
+    {
+      "name": "create_checkout_configuration",
+      "description": "Create a Whop checkout configuration. Use the returned checkout configuration data/link in your app or agent flow to sell a plan.",
+      "method": "POST",
+      "path": "/checkout_configurations",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "Raw Whop checkout configuration create payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "delete_checkout_configuration",
+      "description": "Delete a Whop checkout configuration.",
+      "method": "DELETE",
+      "path": "/checkout_configurations/{checkout_configuration_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "checkout_configuration_id": { "type": "string" }
+        },
+        "required": ["checkout_configuration_id"]
+      }
+    },
+    {
+      "name": "list_payments",
+      "description": "List Whop payments for reconciliation, customer support, and fulfillment checks.",
+      "method": "GET",
+      "path": "/payments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "company_id": { "type": "string" },
+          "product_id": { "type": "string" },
+          "plan_id": { "type": "string" },
+          "membership_id": { "type": "string" },
+          "status": { "type": "string" },
+          "direction": { "type": "string" },
+          "order": { "type": "string" },
+          "first": { "type": "integer" },
+          "after": { "type": "string" },
+          "last": { "type": "integer" },
+          "before": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_payment",
+      "description": "Retrieve one Whop payment.",
+      "method": "GET",
+      "path": "/payments/{payment_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_id": { "type": "string" }
+        },
+        "required": ["payment_id"]
+      }
+    },
+    {
+      "name": "create_payment",
+      "description": "Create a Whop payment using Whop's payment create schema when your Whop app flow requires server-side payment creation.",
+      "method": "POST",
+      "path": "/payments",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "Raw Whop payment create payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "refund_payment",
+      "description": "Refund a Whop payment. Body may include provider-supported refund fields such as amount, reason, or metadata.",
+      "method": "POST",
+      "path": "/payments/{payment_id}/refund",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_id": { "type": "string" },
+          "body": { "type": "object", "description": "Raw Whop refund payload." }
+        },
+        "required": ["payment_id", "body"]
+      }
+    },
+    {
+      "name": "list_memberships",
+      "description": "List Whop memberships for fulfillment and access checks.",
+      "method": "GET",
+      "path": "/memberships",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "company_id": { "type": "string" },
+          "product_id": { "type": "string" },
+          "user_id": { "type": "string" },
+          "status": { "type": "string" },
+          "direction": { "type": "string" },
+          "order": { "type": "string" },
+          "first": { "type": "integer" },
+          "after": { "type": "string" },
+          "last": { "type": "integer" },
+          "before": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_membership",
+      "description": "Retrieve one Whop membership.",
+      "method": "GET",
+      "path": "/memberships/{membership_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "membership_id": { "type": "string" }
+        },
+        "required": ["membership_id"]
+      }
+    },
+    {
+      "name": "list_leads",
+      "description": "List Whop leads captured for a company or product.",
+      "method": "GET",
+      "path": "/leads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "company_id": { "type": "string" },
+          "product_id": { "type": "string" },
+          "direction": { "type": "string" },
+          "order": { "type": "string" },
+          "first": { "type": "integer" },
+          "after": { "type": "string" },
+          "last": { "type": "integer" },
+          "before": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_lead",
+      "description": "Retrieve one Whop lead.",
+      "method": "GET",
+      "path": "/leads/{lead_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lead_id": { "type": "string" }
+        },
+        "required": ["lead_id"]
+      }
+    }
+  ]
+}

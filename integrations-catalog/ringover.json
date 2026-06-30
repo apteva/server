@@ -128,6 +128,75 @@
       "path": "/presences"
     },
     {
+      "name": "list_available_snoozes",
+      "display_name": "List Available Snoozes",
+      "description": "List available Ringover snooze labels configured for the team.",
+      "method": "GET",
+      "path": "/snoozes"
+    },
+    {
+      "name": "get_user_snooze_log",
+      "display_name": "Get User Snooze Log",
+      "description": "Get the snooze activity log for a Ringover user.",
+      "method": "GET",
+      "path": "/users/{user_id}/snooze/log",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "Ringover user ID."
+          },
+          "limit_count": {
+            "type": "integer",
+            "description": "Maximum number of snooze log entries to return."
+          },
+          "limit_offset": {
+            "type": "integer",
+            "description": "Number of snooze log entries to skip."
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "set_user_snooze",
+      "display_name": "Set User Snooze",
+      "description": "Set or clear a Ringover user's snooze status. Use an empty name to clear snooze.",
+      "method": "PUT",
+      "path": "/users/{user_id}/snooze",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [
+          "name",
+          "duration"
+        ]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "Ringover user ID."
+          },
+          "name": {
+            "type": "string",
+            "description": "Snooze label name. Send an empty string to clear snooze."
+          },
+          "duration": {
+            "type": "integer",
+            "description": "Optional snooze duration in seconds."
+          }
+        },
+        "required": [
+          "user_id",
+          "name"
+        ]
+      }
+    },
+    {
       "name": "list_numbers",
       "display_name": "List Numbers",
       "description": "List phone numbers assigned to the team.",

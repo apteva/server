@@ -75,7 +75,7 @@ func buildResponseTransformData(transform *ResponseTransformDef, data any) (any,
 	case "email_message":
 		return normalizeEmailMessage(data), true, nil
 	case "email_thread":
-		return normalizeEmailThread(data), true, nil
+		return normalizeEmailThread(data, transform), true, nil
 	case "base64_field_decode":
 		value := getAnyPath(data, transform.Source)
 		decoded := ""
@@ -101,7 +101,7 @@ func buildResponseTransformData(transform *ResponseTransformDef, data any) (any,
 	}
 }
 
-func normalizeEmailThread(data any) any {
+func normalizeEmailThread(data any, transform *ResponseTransformDef) any {
 	m, ok := data.(map[string]any)
 	if !ok {
 		return data
@@ -115,11 +115,51 @@ func normalizeEmailThread(data any) any {
 		for _, item := range arr {
 			messages = append(messages, normalizeEmailMessage(item))
 		}
-		out["messages"] = messages
+		out["messageCount"] = len(messages)
+		messageIDs := make([]any, 0, len(messages))
+		for _, item := range messages {
+			if msg, ok := item.(map[string]any); ok {
+				if id, ok := msg["id"]; ok && id != nil {
+					messageIDs = append(messageIDs, id)
+				}
+			}
+		}
+		out["messageIds"] = messageIDs
+		compactMessages := make([]any, 0, len(messages))
+		for _, item := range messages {
+			if msg, ok := item.(map[string]any); ok {
+				compactMessages = append(compactMessages, compactEmailMessage(msg))
+			}
+		}
+		out["messages"] = compactMessages
 	} else {
+		out["messageCount"] = 0
+		out["messageIds"] = []any{}
 		out["messages"] = []any{}
 	}
 	return out
+}
+
+func compactEmailMessage(m map[string]any) map[string]any {
+	return map[string]any{
+		"id":           m["id"],
+		"threadId":     m["threadId"],
+		"labelIds":     m["labelIds"],
+		"historyId":    m["historyId"],
+		"snippet":      m["snippet"],
+		"sizeEstimate": m["sizeEstimate"],
+		"internalDate": m["internalDate"],
+		"receivedAt":   m["receivedAt"],
+		"from":         m["from"],
+		"to":           m["to"],
+		"cc":           m["cc"],
+		"bcc":          m["bcc"],
+		"subject":      m["subject"],
+		"date":         m["date"],
+		"messageId":    m["messageId"],
+		"inReplyTo":    m["inReplyTo"],
+		"references":   m["references"],
+	}
 }
 
 func normalizeEmailMessage(data any) any {

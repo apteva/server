@@ -1292,6 +1292,85 @@ func TestExecuteIntegrationTool_BodyRoot(t *testing.T) {
 	}
 }
 
+func TestExecuteIntegrationTool_MultipartForm(t *testing.T) {
+	var capturedPath string
+	var capturedCT string
+	var capturedName string
+	var capturedLogin string
+	var capturedFilename string
+	var capturedFile []byte
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedCT = r.Header.Get("Content-Type")
+		if err := r.ParseMultipartForm(1024 * 1024); err != nil {
+			t.Fatalf("ParseMultipartForm: %v", err)
+		}
+		capturedName = r.MultipartForm.Value["name"][0]
+		capturedLogin = r.MultipartForm.Value["login"][0]
+		file, header, err := r.FormFile("model")
+		if err != nil {
+			t.Fatalf("FormFile: %v", err)
+		}
+		defer file.Close()
+		capturedFilename = header.Filename
+		capturedFile, _ = io.ReadAll(file)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "fake-upload",
+		BaseURL: srv.URL,
+		Auth: AppAuthConfig{
+			Types:      []string{"api_key"},
+			BodyParams: map[string]string{"login": "{{login}}"},
+		},
+	}
+	tool := &AppToolDef{
+		Name:   "upload",
+		Method: "POST",
+		Path:   "/v1/files/{folderId}",
+		MultipartForm: &MultipartFormDef{
+			FileFields: map[string]string{"file": "model"},
+			FieldNames: []string{"name"},
+		},
+	}
+	input := map[string]any{
+		"folderId": "abc",
+		"name":     "gear",
+		"filename": "gear.stl",
+		"file":     base64.StdEncoding.EncodeToString([]byte("solid gear")),
+	}
+	res, err := executeIntegrationTool(app, tool, map[string]string{"login": "user@example.com"}, input, "")
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("success=%v status=%d", res.Success, res.Status)
+	}
+	if capturedPath != "/v1/files/abc" {
+		t.Fatalf("path=%q", capturedPath)
+	}
+	if !strings.HasPrefix(capturedCT, "multipart/form-data; boundary=") {
+		t.Fatalf("Content-Type=%q", capturedCT)
+	}
+	if capturedName != "gear" {
+		t.Fatalf("name=%q", capturedName)
+	}
+	if capturedLogin != "user@example.com" {
+		t.Fatalf("login=%q", capturedLogin)
+	}
+	if capturedFilename != "gear.stl" {
+		t.Fatalf("filename=%q", capturedFilename)
+	}
+	if string(capturedFile) != "solid gear" {
+		t.Fatalf("file=%q", string(capturedFile))
+	}
+}
+
 func TestExecuteIntegrationTool_ApifyRunActorBodyRootAndQuery(t *testing.T) {
 	var capturedPath string
 	var capturedQuery url.Values

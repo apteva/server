@@ -1,230 +1,322 @@
 {
   "slug": "slant3d",
   "name": "Slant 3D",
-  "description": "MCP server for Slant 3D - on-demand 3D printing API with access to massive print farms",
+  "description": "Slant 3D v2 API for on-demand 3D printing, file management, quoting, print farm orders, components, and platform setup.",
   "logo": "https://www.google.com/s2/favicons?domain=slant3d.com&sz=128",
-  "categories": [
-    "3d-printing",
-    "manufacturing",
-    "print-farm",
-    "on-demand",
-    "slant3d"
-  ],
-  "base_url": "https://www.slant3dapi.com",
+  "categories": ["3d-printing", "manufacturing", "print-farm", "on-demand", "slant3d"],
+  "base_url": "https://slant3dapi.com/v2",
   "auth": {
-    "types": [
-      "api_key"
-    ],
+    "types": ["bearer"],
     "headers": {
-      "api-key": "{{api_key}}"
+      "Authorization": "Bearer {{api_key}}"
     },
     "credential_fields": [
       {
         "name": "api_key",
-        "label": "Api_key",
-        "description": "Your Slant 3D API key (starts with sl-**)"
+        "label": "API Key",
+        "description": "Slant 3D API key. Sent as a Bearer token to the v2 API."
       }
     ]
   },
   "tools": [
     {
-      "name": "slicer",
-      "description": "Slice a 3D model and get pricing from Slant 3D print farm",
+      "name": "list_filaments",
+      "description": "List available Slant 3D filament/profile options.",
       "method": "GET",
-      "path": "/slicer",
+      "path": "/api/filaments",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "upload_file_from_url",
+      "description": "Register an accessible STL file URL with Slant 3D. Use the returned publicFileServiceId for estimates and orders.",
+      "method": "POST",
+      "path": "/api/files",
       "input_schema": {
         "type": "object",
         "properties": {
-          "fileURL": {
-            "type": "string",
-            "description": "URL to the STL file to slice"
-          }
+          "fileURL": { "type": "string", "description": "Publicly accessible URL to an STL file." },
+          "filename": { "type": "string", "description": "Optional display filename." },
+          "ownerId": { "type": "string", "description": "Optional owner/customer id." },
+          "platformId": { "type": "string", "description": "Optional Slant platform id." }
         },
-        "required": [
-          "fileURL"
-        ]
+        "required": ["fileURL"]
       }
     },
     {
-      "name": "filaments_list",
-      "description": "List available filament options from Slant 3D",
-      "method": "GET",
-      "path": "/filaments-list",
-      "input_schema": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    {
-      "name": "orders_list",
-      "description": "List all orders from Slant 3D",
-      "method": "GET",
-      "path": "/orders-list",
-      "input_schema": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    {
-      "name": "order_create",
-      "description": "Create a new 3D print order with Slant 3D",
-      "method": "GET",
-      "path": "/order-create",
+      "name": "create_direct_upload",
+      "description": "Create a presigned direct-upload slot for an STL file. Upload the bytes to the returned URL, then call confirm_direct_upload.",
+      "method": "POST",
+      "path": "/api/files/direct-upload",
       "input_schema": {
         "type": "object",
         "properties": {
-          "email": {
-            "type": "string",
-            "description": "Customer email address"
-          },
-          "phone": {
-            "type": "string",
-            "description": "Customer phone number"
-          },
-          "name": {
-            "type": "string",
-            "description": "Customer name"
-          },
-          "orderNumber": {
-            "type": "string",
-            "description": "Your internal order number"
-          },
-          "filename": {
-            "type": "string",
-            "description": "Name of the file"
-          },
-          "fileURL": {
-            "type": "string",
-            "description": "URL to the STL file"
-          },
-          "bill_to_street_1": {
-            "type": "string",
-            "description": "Billing address line 1"
-          },
-          "bill_to_city": {
-            "type": "string",
-            "description": "Billing city"
-          },
-          "bill_to_state": {
-            "type": "string",
-            "description": "Billing state"
-          },
-          "bill_to_zip": {
-            "type": "string",
-            "description": "Billing ZIP code"
-          },
-          "bill_to_country_as_iso": {
-            "type": "string",
-            "description": "Billing country ISO code (default: US)"
-          },
-          "ship_to_name": {
-            "type": "string",
-            "description": "Shipping recipient name"
-          },
-          "ship_to_street_1": {
-            "type": "string",
-            "description": "Shipping address line 1"
-          },
-          "ship_to_city": {
-            "type": "string",
-            "description": "Shipping city"
-          },
-          "ship_to_state": {
-            "type": "string",
-            "description": "Shipping state"
-          },
-          "ship_to_zip": {
-            "type": "string",
-            "description": "Shipping ZIP code"
-          },
-          "ship_to_country_as_iso": {
-            "type": "string",
-            "description": "Shipping country ISO code (default: US)"
-          },
-          "order_quantity": {
-            "type": "number",
-            "description": "Quantity to print (default: 1)"
-          },
-          "profile": {
-            "type": "string",
-            "description": "Filament profile (default: PLA BLACK)"
-          }
+          "filename": { "type": "string" },
+          "contentType": { "type": "string", "description": "Usually model/stl or application/sla." },
+          "ownerId": { "type": "string" },
+          "platformId": { "type": "string" }
         },
-        "required": [
-          "email",
-          "name",
-          "fileURL"
-        ]
+        "required": ["filename"]
       }
     },
     {
-      "name": "order_estimate",
-      "description": "Get a cost estimate for a 3D print order including shipping",
-      "method": "GET",
-      "path": "/order-estimate",
+      "name": "confirm_direct_upload",
+      "description": "Confirm a previously completed direct upload so Slant 3D can process the STL.",
+      "method": "POST",
+      "path": "/api/files/confirm-upload",
       "input_schema": {
         "type": "object",
         "properties": {
-          "fileURL": {
-            "type": "string",
-            "description": "URL to the STL file"
-          },
-          "quantity": {
-            "type": "number",
-            "description": "Quantity to print (default: 1)"
-          },
-          "profile": {
-            "type": "string",
-            "description": "Filament profile (default: PLA BLACK)"
-          },
-          "ship_to_zip": {
-            "type": "string",
-            "description": "Shipping ZIP code for estimate"
-          },
-          "ship_to_country_as_iso": {
-            "type": "string",
-            "description": "Shipping country ISO code (default: US)"
-          }
+          "uploadId": { "type": "string" },
+          "key": { "type": "string" },
+          "filename": { "type": "string" },
+          "ownerId": { "type": "string" },
+          "platformId": { "type": "string" }
         },
-        "required": [
-          "fileURL"
-        ]
+        "required": ["uploadId"]
       }
     },
     {
-      "name": "order_delete",
-      "description": "Delete/cancel an order from Slant 3D",
+      "name": "get_file",
+      "description": "Get metadata and processing status for an uploaded Slant 3D file.",
       "method": "GET",
-      "path": "/order-delete",
+      "path": "/api/files/{publicFileServiceId}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "orderId": {
-            "type": "string",
-            "description": "The order ID to delete"
-          }
+          "publicFileServiceId": { "type": "string" }
         },
-        "required": [
-          "orderId"
-        ]
+        "required": ["publicFileServiceId"]
       }
     },
     {
-      "name": "order_tracking",
-      "description": "Get tracking information for a Slant 3D order",
+      "name": "list_files",
+      "description": "List uploaded files. Supports optional owner/platform/search pagination filters.",
       "method": "GET",
-      "path": "/order-tracking",
+      "path": "/api/files",
+      "query_params": ["ownerId", "platformId", "search", "limit", "offset", "sortBy", "order"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "orderId": {
-            "type": "string",
-            "description": "The order ID to track"
+          "ownerId": { "type": "string" },
+          "platformId": { "type": "string" },
+          "search": { "type": "string" },
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" },
+          "sortBy": { "type": "string" },
+          "order": { "type": "string", "enum": ["asc", "desc"] }
+        }
+      }
+    },
+    {
+      "name": "get_files_batch",
+      "description": "Fetch metadata for several Slant 3D files in one call.",
+      "method": "POST",
+      "path": "/api/files/batch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publicFileServiceIds": {
+            "type": "array",
+            "items": { "type": "string" }
           }
         },
-        "required": [
-          "orderId"
-        ]
+        "required": ["publicFileServiceIds"]
+      }
+    },
+    {
+      "name": "estimate_file_price",
+      "description": "Estimate printing price for a processed file. Defaults to Slant's default filament/profile if no filament is provided.",
+      "method": "POST",
+      "path": "/api/files/{publicFileServiceId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publicFileServiceId": { "type": "string" },
+          "quantity": { "type": "integer", "default": 1 },
+          "filament": { "type": "string", "description": "Filament/profile name, for example PLA BLACK." },
+          "ship_to_zip": { "type": "string" },
+          "ship_to_country_as_iso": { "type": "string" },
+          "options": { "type": "object", "description": "Provider-specific slicer/order options." }
+        },
+        "required": ["publicFileServiceId"]
+      }
+    },
+    {
+      "name": "generate_stl_from_openscad",
+      "description": "Generate an STL file from OpenSCAD source and register it with Slant 3D.",
+      "method": "POST",
+      "path": "/api/files/openScad",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string", "description": "OpenSCAD source code." },
+          "filename": { "type": "string" },
+          "parameters": { "type": "object" },
+          "ownerId": { "type": "string" },
+          "platformId": { "type": "string" }
+        },
+        "required": ["code"]
+      }
+    },
+    {
+      "name": "list_components",
+      "description": "List reusable Slant 3D components.",
+      "method": "GET",
+      "path": "/api/components",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_draft_order",
+      "description": "Create a draft print order. Put customer, address, line items, and metadata in body using Slant 3D's v2 order shape.",
+      "method": "POST",
+      "path": "/api/orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer": { "type": "object" },
+          "shippingAddress": { "type": "object" },
+          "billingAddress": { "type": "object" },
+          "items": { "type": "array", "items": { "type": "object" } },
+          "metadata": { "type": "object" },
+          "platformId": { "type": "string" },
+          "ownerId": { "type": "string" }
+        },
+        "required": ["items"]
+      }
+    },
+    {
+      "name": "process_order",
+      "description": "Submit/process an existing draft order.",
+      "method": "POST",
+      "path": "/api/orders/{publicOrderId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publicOrderId": { "type": "string" },
+          "paymentMethodId": { "type": "string" },
+          "metadata": { "type": "object" }
+        },
+        "required": ["publicOrderId"]
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get a Slant 3D order by public order id.",
+      "method": "GET",
+      "path": "/api/orders/{publicOrderId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publicOrderId": { "type": "string" }
+        },
+        "required": ["publicOrderId"]
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "List Slant 3D orders with optional owner/platform/status/search pagination filters.",
+      "method": "GET",
+      "path": "/api/orders",
+      "query_params": ["ownerId", "platformId", "status", "search", "limit", "offset", "sortBy", "order"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ownerId": { "type": "string" },
+          "platformId": { "type": "string" },
+          "status": { "type": "string" },
+          "search": { "type": "string" },
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" },
+          "sortBy": { "type": "string" },
+          "order": { "type": "string", "enum": ["asc", "desc"] }
+        }
+      }
+    },
+    {
+      "name": "get_orders_batch",
+      "description": "Fetch several Slant 3D orders in one call.",
+      "method": "POST",
+      "path": "/api/orders/batch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publicOrderIds": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["publicOrderIds"]
+      }
+    },
+    {
+      "name": "cancel_order",
+      "description": "Cancel/delete a Slant 3D order when the upstream state still allows it.",
+      "method": "DELETE",
+      "path": "/api/orders/{publicOrderId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publicOrderId": { "type": "string" }
+        },
+        "required": ["publicOrderId"]
+      }
+    },
+    {
+      "name": "list_platforms",
+      "description": "List Slant 3D platforms available to the authenticated account.",
+      "method": "GET",
+      "path": "/api/platforms",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_platform",
+      "description": "Create a Slant 3D platform configuration.",
+      "method": "POST",
+      "path": "/api/platforms",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "metadata": { "type": "object" }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "get_platform",
+      "description": "Get a Slant 3D platform by id.",
+      "method": "GET",
+      "path": "/api/platforms/{platformId}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "platformId": { "type": "string" } },
+        "required": ["platformId"]
+      }
+    },
+    {
+      "name": "update_platform",
+      "description": "Patch a Slant 3D platform configuration.",
+      "method": "PATCH",
+      "path": "/api/platforms/{platformId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformId": { "type": "string" },
+          "name": { "type": "string" },
+          "metadata": { "type": "object" }
+        },
+        "required": ["platformId"]
+      }
+    },
+    {
+      "name": "delete_platform",
+      "description": "Delete a Slant 3D platform configuration.",
+      "method": "DELETE",
+      "path": "/api/platforms/{platformId}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "platformId": { "type": "string" } },
+        "required": ["platformId"]
       }
     }
   ]

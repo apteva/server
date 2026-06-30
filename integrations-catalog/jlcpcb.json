@@ -1,0 +1,43 @@
+{
+  "slug": "jlcpcb",
+  "name": "JLCPCB / JLC3DP",
+  "description": "JLCPCB API Platform and JLC3DP partner API discovery. Public pages confirm PCB, stencil, component, and 3D printing APIs, but detailed 3D printing quote/order endpoints require partner approval from JLCPCB/JLC3DP.",
+  "logo": "https://www.google.com/s2/favicons?domain=jlcpcb.com&sz=128",
+  "categories": ["manufacturing", "pcb", "3d-printing", "jlcpcb", "jlc3dp"],
+  "base_url": "https://api.jlcpcb.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {},
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Partner API Key",
+        "required": false,
+        "description": "JLCPCB/JLC3DP partner API credential. Leave blank until JLCPCB grants API access and provides endpoint-level documentation."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_api_platform_overview",
+      "description": "Fetch the public JLCPCB API Platform overview. Use this to confirm available API product families and application requirements.",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_jlc3dp_api_application_info",
+      "description": "Fetch the public JLC3DP API application article. It describes Pricing API and Ordering API scope, supported 3D file formats, partner approval, and support contact.",
+      "method": "GET",
+      "path": "https://jlc3dp.com/help/article/jlc3dp-api",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_jlcpcb_api_help_catalog",
+      "description": "Fetch the JLCPCB API help catalog. Use this to find currently published API help articles before wiring any partner-specific endpoint.",
+      "method": "GET",
+      "path": "https://jlcpcb.com/help/catalog/213-JLCPCB-API",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

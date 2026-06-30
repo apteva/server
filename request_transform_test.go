@@ -188,11 +188,20 @@ func TestExecuteIntegrationTool_ResponseTransformEmailMessage(t *testing.T) {
 
 func TestExecuteIntegrationTool_ResponseTransformEmailThread(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		msg1 := gmailMessageFixture()
+		msg1["id"] = "msg-1"
+		msg1["snippet"] = "First"
+		msg2 := gmailMessageFixture()
+		msg2["id"] = "msg-2"
+		msg2["snippet"] = "Second"
+		msg3 := gmailMessageFixture()
+		msg3["id"] = "msg-3"
+		msg3["snippet"] = "Third"
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"id":        "thread-1",
 			"historyId": "h1",
-			"messages":  []any{gmailMessageFixture()},
+			"messages":  []any{msg1, msg2, msg3},
 		})
 	}))
 	defer ts.Close()
@@ -212,13 +221,20 @@ func TestExecuteIntegrationTool_ResponseTransformEmailThread(t *testing.T) {
 	if !ok {
 		t.Fatalf("data shape = %#v", res.Data)
 	}
+	if data["messageCount"] != 3 {
+		t.Fatalf("messageCount = %#v", data["messageCount"])
+	}
+	messageIDs, ok := data["messageIds"].([]any)
+	if !ok || len(messageIDs) != 3 || messageIDs[0] != "msg-1" || messageIDs[2] != "msg-3" {
+		t.Fatalf("messageIds = %#v", data["messageIds"])
+	}
 	messages, ok := data["messages"].([]any)
-	if !ok || len(messages) != 1 {
+	if !ok || len(messages) != 3 {
 		t.Fatalf("messages = %#v", data["messages"])
 	}
-	message, ok := messages[0].(map[string]any)
-	if !ok || message["text"] != "Plain body" {
-		t.Fatalf("message = %#v", messages[0])
+	first, ok := messages[0].(map[string]any)
+	if !ok || first["id"] != "msg-1" || first["snippet"] != "First" || first["text"] != nil || first["html"] != nil {
+		t.Fatalf("first compact message = %#v", messages[0])
 	}
 }
 

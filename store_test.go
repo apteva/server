@@ -113,6 +113,41 @@ func TestCreateAndLookupAPIKey(t *testing.T) {
 	}
 }
 
+func TestCreatePublicClientAPIKeyDoesNotLookupAsUserAPIKey(t *testing.T) {
+	store := newTestStore(t)
+	user, _ := store.CreateUser("alice@test.com", "hash")
+
+	raw := "pk_testpublic"
+	key, err := store.CreateAPIKey(user.ID, "website", HashAPIKey(raw), "pk_testpub", APIKeyCreateOptions{
+		Kind:               "public_client",
+		ProjectID:          "proj-a",
+		Scopes:             `[{"type":"app_action","app":"example","actions":["action.name"]}]`,
+		AllowedOrigins:     `["https://example.com"]`,
+		RateLimitPerMinute: 30,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key.Kind != "public_client" || key.ProjectID != "proj-a" {
+		t.Fatalf("key metadata = %#v", key)
+	}
+
+	if _, err := store.GetUserByAPIKey(HashAPIKey(raw)); err == nil {
+		t.Fatal("public_client key should not authenticate as a full user API key")
+	}
+
+	keys, err := store.ListAPIKeys(user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("keys len = %d, want 1", len(keys))
+	}
+	if keys[0].Kind != "public_client" || keys[0].ProjectID != "proj-a" || keys[0].RateLimitPerMinute != 30 {
+		t.Fatalf("listed key metadata = %#v", keys[0])
+	}
+}
+
 func TestGetUserByAPIKey_Invalid(t *testing.T) {
 	store := newTestStore(t)
 	_, err := store.GetUserByAPIKey("nonexistent-hash")

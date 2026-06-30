@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -1497,6 +1498,9 @@ func main() {
 	// Apps are healthy and the installedApps registry is populated.
 	// Now safe to spawn agents — their MCP proxies will resolve.
 	resumeInstancesAfterApps()
+	if providerAuthRefreshEnvEnabled() {
+		s.startProviderAuthRefresher(context.Background())
+	}
 
 	go func() {
 		sig := <-sigCh

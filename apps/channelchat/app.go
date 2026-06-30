@@ -28,6 +28,9 @@ var migration004 string
 //go:embed migrations/005_chat_thread.sql
 var migration005 string
 
+//go:embed migrations/006_attachments.sql
+var migration006 string
+
 // New constructs the app, ready to be loaded into a framework.Registry.
 // The InstanceResolver lets the HTTP handlers authorize per-chat and
 // forward user messages into the instance's core /event endpoint —
@@ -75,6 +78,7 @@ func (a *App) Migrations() []framework.Migration {
 		{Version: 3, Name: "clamp inflated last_seen_id", SQL: migration003},
 		{Version: 4, Name: "add components_json column", SQL: migration004},
 		{Version: 5, Name: "add per-chat thread_id column", SQL: migration005},
+		{Version: 6, Name: "add user attachments", SQL: migration006},
 	}
 }
 
@@ -135,8 +139,8 @@ func (a *App) Channels() []framework.ChannelFactory { return a.factories }
 // explicit backfill, chat_list for multi-chat) can slot in here.
 func (a *App) MCPTools() []framework.MCPTool { return nil }
 
-func (a *App) Workers() []framework.Worker              { return nil }
-func (a *App) EventHandlers() []framework.EventHandler  { return nil }
+func (a *App) Workers() []framework.Worker             { return nil }
+func (a *App) EventHandlers() []framework.EventHandler { return nil }
 
 // Per-instance attach: ensure the default chat row exists so the SSE
 // stream has something to backfill against on the dashboard's first

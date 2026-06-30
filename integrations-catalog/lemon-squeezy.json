@@ -1,0 +1,270 @@
+{
+  "slug": "lemon-squeezy",
+  "name": "Lemon Squeezy",
+  "description": "Lemon Squeezy merchant-of-record API for digital products, stores, products, variants, checkouts, orders, subscriptions, customers, license keys, discounts, and webhooks.",
+  "logo": "https://www.google.com/s2/favicons?domain=lemonsqueezy.com&sz=128",
+  "categories": ["payments", "billing", "subscriptions", "checkout", "merchant-of-record", "digital-products"],
+  "base_url": "https://api.lemonsqueezy.com/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/vnd.api+json",
+      "Content-Type": "application/vnd.api+json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "description": "Lemon Squeezy API key from Settings > API."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_stores",
+      "description": "List stores available to the API key.",
+      "method": "GET",
+      "path": "/stores",
+      "input_schema": { "type": "object", "properties": { "page_number": { "type": "integer" }, "page_size": { "type": "integer" } } },
+      "query_param_aliases": { "page_number": "page[number]", "page_size": "page[size]" }
+    },
+    {
+      "name": "get_store",
+      "description": "Retrieve one Lemon Squeezy store.",
+      "method": "GET",
+      "path": "/stores/{store_id}",
+      "input_schema": { "type": "object", "properties": { "store_id": { "type": "string" } }, "required": ["store_id"] }
+    },
+    {
+      "name": "list_products",
+      "description": "List products. Filter by store_id to find products for a specific store.",
+      "method": "GET",
+      "path": "/products",
+      "input_schema": { "type": "object", "properties": { "store_id": { "type": "string" }, "page_number": { "type": "integer" }, "page_size": { "type": "integer" } } },
+      "query_param_aliases": { "store_id": "filter[store_id]", "page_number": "page[number]", "page_size": "page[size]" }
+    },
+    {
+      "name": "get_product",
+      "description": "Retrieve one product.",
+      "method": "GET",
+      "path": "/products/{product_id}",
+      "input_schema": { "type": "object", "properties": { "product_id": { "type": "string" } }, "required": ["product_id"] }
+    },
+    {
+      "name": "list_variants",
+      "description": "List product variants. Filter by product_id when creating checkouts.",
+      "method": "GET",
+      "path": "/variants",
+      "input_schema": { "type": "object", "properties": { "product_id": { "type": "string" }, "page_number": { "type": "integer" }, "page_size": { "type": "integer" } } },
+      "query_param_aliases": { "product_id": "filter[product_id]", "page_number": "page[number]", "page_size": "page[size]" }
+    },
+    {
+      "name": "get_variant",
+      "description": "Retrieve one variant.",
+      "method": "GET",
+      "path": "/variants/{variant_id}",
+      "input_schema": { "type": "object", "properties": { "variant_id": { "type": "string" } }, "required": ["variant_id"] }
+    },
+    {
+      "name": "create_checkout",
+      "description": "Create a hosted checkout. Body must be Lemon Squeezy JSON:API format with data.type='checkouts', relationships.store, relationships.variant, and attributes such as checkout_options, product_options, checkout_data, expires_at, preview.",
+      "method": "POST",
+      "path": "/checkouts",
+      "timeout_ms": 60000,
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "Raw Lemon Squeezy JSON:API checkout create payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "get_checkout",
+      "description": "Retrieve one checkout.",
+      "method": "GET",
+      "path": "/checkouts/{checkout_id}",
+      "input_schema": { "type": "object", "properties": { "checkout_id": { "type": "string" } }, "required": ["checkout_id"] }
+    },
+    {
+      "name": "list_orders",
+      "description": "List orders. Filter by store_id, user_email, or status when reconciling sales.",
+      "method": "GET",
+      "path": "/orders",
+      "input_schema": { "type": "object", "properties": { "store_id": { "type": "string" }, "user_email": { "type": "string" }, "status": { "type": "string" }, "page_number": { "type": "integer" }, "page_size": { "type": "integer" } } },
+      "query_param_aliases": { "store_id": "filter[store_id]", "user_email": "filter[user_email]", "status": "filter[status]", "page_number": "page[number]", "page_size": "page[size]" }
+    },
+    {
+      "name": "get_order",
+      "description": "Retrieve one order.",
+      "method": "GET",
+      "path": "/orders/{order_id}",
+      "input_schema": { "type": "object", "properties": { "order_id": { "type": "string" } }, "required": ["order_id"] }
+    },
+    {
+      "name": "list_customers",
+      "description": "List customers. Filter by store_id or email.",
+      "method": "GET",
+      "path": "/customers",
+      "input_schema": { "type": "object", "properties": { "store_id": { "type": "string" }, "email": { "type": "string" }, "page_number": { "type": "integer" }, "page_size": { "type": "integer" } } },
+      "query_param_aliases": { "store_id": "filter[store_id]", "email": "filter[email]", "page_number": "page[number]", "page_size": "page[size]" }
+    },
+    {
+      "name": "list_subscriptions",
+      "description": "List subscriptions. Filter by store_id, order_id, product_id, variant_id, user_email, or status.",
+      "method": "GET",
+      "path": "/subscriptions",
+      "input_schema": { "type": "object", "properties": { "store_id": { "type": "string" }, "order_id": { "type": "string" }, "product_id": { "type": "string" }, "variant_id": { "type": "string" }, "user_email": { "type": "string" }, "status": { "type": "string" }, "page_number": { "type": "integer" }, "page_size": { "type": "integer" } } },
+      "query_param_aliases": { "store_id": "filter[store_id]", "order_id": "filter[order_id]", "product_id": "filter[product_id]", "variant_id": "filter[variant_id]", "user_email": "filter[user_email]", "status": "filter[status]", "page_number": "page[number]", "page_size": "page[size]" }
+    },
+    {
+      "name": "get_subscription",
+      "description": "Retrieve one subscription.",
+      "method": "GET",
+      "path": "/subscriptions/{subscription_id}",
+      "input_schema": { "type": "object", "properties": { "subscription_id": { "type": "string" } }, "required": ["subscription_id"] }
+    },
+    {
+      "name": "update_subscription",
+      "description": "Update a subscription using Lemon Squeezy JSON:API format. Use for pause, resume, cancel at period end, variant changes, billing anchor, invoice_soon, or metadata updates.",
+      "method": "PATCH",
+      "path": "/subscriptions/{subscription_id}",
+      "timeout_ms": 60000,
+      "body_root_param": "body",
+      "input_schema": { "type": "object", "properties": { "subscription_id": { "type": "string" }, "body": { "type": "object" } }, "required": ["subscription_id", "body"] }
+    },
+    {
+      "name": "list_license_keys",
+      "description": "List license keys. Filter by store_id, order_id, order_item_id, product_id, user_email, or status.",
+      "method": "GET",
+      "path": "/license-keys",
+      "input_schema": { "type": "object", "properties": { "store_id": { "type": "string" }, "order_id": { "type": "string" }, "product_id": { "type": "string" }, "user_email": { "type": "string" }, "status": { "type": "string" }, "page_number": { "type": "integer" }, "page_size": { "type": "integer" } } },
+      "query_param_aliases": { "store_id": "filter[store_id]", "order_id": "filter[order_id]", "product_id": "filter[product_id]", "user_email": "filter[user_email]", "status": "filter[status]", "page_number": "page[number]", "page_size": "page[size]" }
+    },
+    {
+      "name": "get_license_key",
+      "description": "Retrieve one Lemon Squeezy license key.",
+      "method": "GET",
+      "path": "/license-keys/{license_key_id}",
+      "input_schema": { "type": "object", "properties": { "license_key_id": { "type": "string" } }, "required": ["license_key_id"] }
+    },
+    {
+      "name": "list_license_instances",
+      "description": "List license key activation instances. Filter by license_key_id when auditing where a key is activated.",
+      "method": "GET",
+      "path": "/license-instances",
+      "input_schema": { "type": "object", "properties": { "license_key_id": { "type": "string" }, "page_number": { "type": "integer" }, "page_size": { "type": "integer" } } },
+      "query_param_aliases": { "license_key_id": "filter[license_key_id]", "page_number": "page[number]", "page_size": "page[size]" }
+    },
+    {
+      "name": "get_license_instance",
+      "description": "Retrieve one Lemon Squeezy license instance.",
+      "method": "GET",
+      "path": "/license-instances/{license_instance_id}",
+      "input_schema": { "type": "object", "properties": { "license_instance_id": { "type": "string" } }, "required": ["license_instance_id"] }
+    },
+    {
+      "name": "list_order_items",
+      "description": "List Lemon Squeezy order items. Useful for seeing exactly which product/variant was purchased.",
+      "method": "GET",
+      "path": "/order-items",
+      "input_schema": { "type": "object", "properties": { "order_id": { "type": "string" }, "product_id": { "type": "string" }, "variant_id": { "type": "string" }, "page_number": { "type": "integer" }, "page_size": { "type": "integer" } } },
+      "query_param_aliases": { "order_id": "filter[order_id]", "product_id": "filter[product_id]", "variant_id": "filter[variant_id]", "page_number": "page[number]", "page_size": "page[size]" }
+    },
+    {
+      "name": "get_order_item",
+      "description": "Retrieve one Lemon Squeezy order item.",
+      "method": "GET",
+      "path": "/order-items/{order_item_id}",
+      "input_schema": { "type": "object", "properties": { "order_item_id": { "type": "string" } }, "required": ["order_item_id"] }
+    },
+    {
+      "name": "list_files",
+      "description": "List Lemon Squeezy downloadable file records for digital products. Use this to inspect hosted audio/download files already attached in Lemon Squeezy. Public API docs expose file read/list, not direct file upload/create; use Gumroad or an external storage flow if an agent must upload audio bytes programmatically.",
+      "method": "GET",
+      "path": "/files",
+      "input_schema": { "type": "object", "properties": { "variant_id": { "type": "string" }, "page_number": { "type": "integer" }, "page_size": { "type": "integer" } } },
+      "query_param_aliases": { "variant_id": "filter[variant_id]", "page_number": "page[number]", "page_size": "page[size]" }
+    },
+    {
+      "name": "get_file",
+      "description": "Retrieve one Lemon Squeezy file record. This returns metadata for an existing hosted downloadable file; it does not upload a new audio file.",
+      "method": "GET",
+      "path": "/files/{file_id}",
+      "input_schema": { "type": "object", "properties": { "file_id": { "type": "string" } }, "required": ["file_id"] }
+    },
+    {
+      "name": "list_discounts",
+      "description": "List Lemon Squeezy discounts. Filter by store_id when managing promotions.",
+      "method": "GET",
+      "path": "/discounts",
+      "input_schema": { "type": "object", "properties": { "store_id": { "type": "string" }, "page_number": { "type": "integer" }, "page_size": { "type": "integer" } } },
+      "query_param_aliases": { "store_id": "filter[store_id]", "page_number": "page[number]", "page_size": "page[size]" }
+    },
+    {
+      "name": "get_discount",
+      "description": "Retrieve one Lemon Squeezy discount.",
+      "method": "GET",
+      "path": "/discounts/{discount_id}",
+      "input_schema": { "type": "object", "properties": { "discount_id": { "type": "string" } }, "required": ["discount_id"] }
+    },
+    {
+      "name": "create_discount",
+      "description": "Create a Lemon Squeezy discount. Body must be Lemon Squeezy JSON:API data.type='discounts' with relationships.store and provider-supported attributes such as name, code, amount, amount_type, duration, duration_in_months, max_redemptions, starts_at, expires_at.",
+      "method": "POST",
+      "path": "/discounts",
+      "body_root_param": "body",
+      "input_schema": { "type": "object", "properties": { "body": { "type": "object" } }, "required": ["body"] }
+    },
+    {
+      "name": "delete_discount",
+      "description": "Delete a Lemon Squeezy discount.",
+      "method": "DELETE",
+      "path": "/discounts/{discount_id}",
+      "input_schema": { "type": "object", "properties": { "discount_id": { "type": "string" } }, "required": ["discount_id"] }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List webhooks configured in Lemon Squeezy.",
+      "method": "GET",
+      "path": "/webhooks",
+      "input_schema": { "type": "object", "properties": { "store_id": { "type": "string" }, "page_number": { "type": "integer" }, "page_size": { "type": "integer" } } },
+      "query_param_aliases": { "store_id": "filter[store_id]", "page_number": "page[number]", "page_size": "page[size]" }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a Lemon Squeezy webhook. Body must be JSON:API data.type='webhooks' with relationships.store and attributes.url/events/secret/test_mode.",
+      "method": "POST",
+      "path": "/webhooks",
+      "body_root_param": "body",
+      "input_schema": { "type": "object", "properties": { "body": { "type": "object" } }, "required": ["body"] }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete a Lemon Squeezy webhook.",
+      "method": "DELETE",
+      "path": "/webhooks/{webhook_id}",
+      "input_schema": { "type": "object", "properties": { "webhook_id": { "type": "string" } }, "required": ["webhook_id"] }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-signature",
+    "registration": {
+      "method": "POST",
+      "path": "/webhooks",
+      "manual_setup": "Lemon Squeezy webhooks require a JSON:API body with relationships.store and attributes.url/events/secret/test_mode. Use lemon-squeezy_create_webhook for programmatic setup when you know the store ID and desired event list."
+    },
+    "events": [
+      { "name": "order_created", "description": "Sent when an order is created." },
+      { "name": "subscription_created", "description": "Sent when a subscription is created." },
+      { "name": "subscription_updated", "description": "Sent when a subscription is updated." },
+      { "name": "subscription_cancelled", "description": "Sent when a subscription is cancelled." },
+      { "name": "subscription_resumed", "description": "Sent when a subscription is resumed." },
+      { "name": "subscription_expired", "description": "Sent when a subscription expires." },
+      { "name": "license_key_created", "description": "Sent when a license key is created." }
+    ]
+  },
+  "health_check": { "tool": "list_stores" }
+}

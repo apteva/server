@@ -1,187 +1,165 @@
 {
   "slug": "shapeways",
   "name": "Shapeways",
-  "description": "MCP server for Shapeways 3D printing marketplace - upload models, validate designs, get pricing, and manage orders",
+  "description": "Shapeways API for 3D model management, material lookup, fulfillment orders, and shipping options.",
   "logo": "https://www.google.com/s2/favicons?domain=shapeways.com&sz=128",
-  "categories": [
-    "3d-printing",
-    "shapeways",
-    "marketplace",
-    "materials",
-    "orders"
-  ],
+  "categories": ["3d-printing", "shapeways", "marketplace", "materials", "orders"],
   "base_url": "https://api.shapeways.com",
   "auth": {
-    "types": [
-      "bearer"
-    ],
+    "types": ["bearer"],
     "headers": {
       "Authorization": "Bearer {{token}}"
     },
     "credential_fields": [
       {
-        "name": "accessToken",
+        "name": "token",
         "label": "Access Token",
-        "description": "Shapeways OAuth2 access token for API authentication"
+        "description": "Shapeways OAuth2 access token."
       }
     ]
   },
   "tools": [
     {
-      "name": "upload_and_validate",
-      "description": "Upload 3D model to Shapeways with instant printability validation across 30+ materials",
-      "method": "POST",
-      "path": "/upload-and-validate",
+      "name": "list_materials",
+      "description": "List all available Shapeways materials.",
+      "method": "GET",
+      "path": "/materials/v1",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_material",
+      "description": "Get detailed information for a Shapeways material.",
+      "method": "GET",
+      "path": "/materials/{materialId}/v1",
       "input_schema": {
         "type": "object",
         "properties": {
-          "file": {
-            "type": "string",
-            "description": "Base64 encoded 3D model file"
-          },
-          "modelName": {
-            "type": "string",
-            "description": "Name for the model"
-          },
-          "description": {
-            "type": "string",
-            "description": "Model description"
-          },
-          "isPublic": {
-            "type": "boolean",
-            "description": "Make model publicly visible",
-            "default": false
-          },
-          "validateForMaterials": {
-            "type": "array",
-            "description": "Material IDs to validate against",
-            "items": {
-              "type": "string"
-            }
-          }
+          "materialId": { "type": "integer", "description": "Shapeways material id." }
         },
-        "required": [
-          "file",
-          "modelName"
-        ]
+        "required": ["materialId"]
       }
     },
     {
-      "name": "get_material_pricing",
-      "description": "Get pricing information for a model in different materials",
-      "method": "GET",
-      "path": "/get-material-pricing",
+      "name": "upload_model",
+      "description": "Upload a model to Shapeways. The API expects model file data plus fileName and uploadScale for STL/OBJ/VOX.",
+      "method": "POST",
+      "path": "/models/v1",
+      "multipart_form": {
+        "file_fields": {
+          "file": "file"
+        },
+        "field_names": ["fileName", "uploadScale", "title", "description", "isPublic"]
+      },
       "input_schema": {
         "type": "object",
         "properties": {
-          "modelId": {
-            "type": "string",
-            "description": "ID of the uploaded model"
-          },
-          "materialIds": {
-            "type": "array",
-            "description": "Array of material IDs to get pricing for",
-            "items": {
-              "type": "string"
-            }
-          },
-          "quantity": {
-            "type": "number",
-            "description": "Quantity to price",
-            "default": 1
-          }
+          "file": { "type": "string", "description": "Model file bytes as base64, data URL, or raw string." },
+          "fileName": { "type": "string", "description": "Filename with extension." },
+          "uploadScale": { "type": "number", "description": "Scale in meters. Required by Shapeways for STL, OBJ, and VOX files." },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "isPublic": { "type": "boolean" }
         },
-        "required": [
-          "modelId"
-        ]
+        "required": ["file", "fileName"]
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List authenticated user's Shapeways models.",
+      "method": "GET",
+      "path": "/models/v1",
+      "query_params": ["page", "limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "limit": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "get_model",
+      "description": "Get Shapeways model information and printability/material checks.",
+      "method": "GET",
+      "path": "/models/{modelId}/v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modelId": { "type": "integer" }
+        },
+        "required": ["modelId"]
+      }
+    },
+    {
+      "name": "delete_model",
+      "description": "Delete a Shapeways model.",
+      "method": "DELETE",
+      "path": "/models/{modelId}/v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modelId": { "type": "integer" }
+        },
+        "required": ["modelId"]
       }
     },
     {
       "name": "place_order",
-      "description": "Place an order for 3D printed models",
-      "method": "GET",
-      "path": "/place-order",
+      "description": "Place a Shapeways fulfillment order.",
+      "method": "POST",
+      "path": "/orders/v1",
+      "body_root_param": "body",
       "input_schema": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "description": "Array of items to order",
-            "items": {
-              "type": "object",
-              "properties": {
-                "modelId": {
-                  "type": "string"
-                },
-                "materialId": {
-                  "type": "string"
-                },
-                "quantity": {
-                  "type": "number",
-                  "default": 1
-                }
-              },
-              "required": [
-                "modelId",
-                "materialId"
-              ]
-            }
-          },
-          "shippingAddress": {
+          "body": {
             "type": "object",
-            "description": "Shipping address",
-            "properties": {
-              "firstName": {
-                "type": "string"
-              },
-              "lastName": {
-                "type": "string"
-              },
-              "address1": {
-                "type": "string"
-              },
-              "city": {
-                "type": "string"
-              },
-              "postalCode": {
-                "type": "string"
-              },
-              "countryCode": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "firstName",
-              "lastName",
-              "address1",
-              "city",
-              "postalCode",
-              "countryCode"
-            ]
+            "description": "Shapeways order payload: items/models/materials, shipping address, shipping option, and checkout fields."
           }
         },
-        "required": [
-          "items",
-          "shippingAddress"
-        ]
+        "required": ["body"]
       }
     },
     {
-      "name": "get_order_status",
-      "description": "Check the status of a Shapeways order",
+      "name": "list_orders",
+      "description": "List Shapeways orders for the authenticated account.",
       "method": "GET",
-      "path": "/get-order-status",
+      "path": "/orders/v1",
+      "query_params": ["page", "limit"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "orderId": {
-            "type": "string",
-            "description": "Order ID to check"
-          }
+          "page": { "type": "integer" },
+          "limit": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get Shapeways order details and status.",
+      "method": "GET",
+      "path": "/orders/{orderId}/v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "integer" }
         },
-        "required": [
-          "orderId"
-        ]
+        "required": ["orderId"]
+      }
+    },
+    {
+      "name": "get_shipping_options",
+      "description": "Get shipping options for a destination country and optional zip/postal code.",
+      "method": "GET",
+      "path": "/cart/shipping-options/v1",
+      "query_params": ["country", "zipCode"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country": { "type": "string", "description": "2-letter ISO country code." },
+          "zipCode": { "type": "string", "description": "Optional destination postal code." }
+        },
+        "required": ["country"]
       }
     }
   ]

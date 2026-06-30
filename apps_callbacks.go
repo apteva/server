@@ -492,11 +492,15 @@ func (s *Server) handleCallbackInstances(w http.ResponseWriter, r *http.Request,
 	}
 	if len(parts) == 2 && parts[1] == "event" && r.Method == http.MethodPost {
 		var body struct {
-			Message  string `json:"message"`
-			ThreadID string `json:"thread_id,omitempty"`
+			Message  json.RawMessage `json:"message"`
+			ThreadID string          `json:"thread_id,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		if len(body.Message) == 0 || string(body.Message) == "null" {
+			http.Error(w, "message required", http.StatusBadRequest)
 			return
 		}
 		port := s.agents.GetPort(id)
@@ -504,7 +508,12 @@ func (s *Server) handleCallbackInstances(w http.ResponseWriter, r *http.Request,
 			http.Error(w, "agent is not running", http.StatusBadGateway)
 			return
 		}
-		payload := map[string]any{"message": body.Message}
+		var message any
+		if err := json.Unmarshal(body.Message, &message); err != nil {
+			http.Error(w, "invalid message", http.StatusBadRequest)
+			return
+		}
+		payload := map[string]any{"message": message}
 		if strings.TrimSpace(body.ThreadID) != "" {
 			payload["thread_id"] = strings.TrimSpace(body.ThreadID)
 		}

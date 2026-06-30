@@ -1,255 +1,264 @@
 {
   "slug": "pipedrive",
   "name": "Pipedrive",
-  "description": "MCP server for Pipedrive CRM operations - deals, persons, organizations, and pipelines",
+  "description": "Pipedrive CRM API for deals, contacts, organizations, pipelines, activities, products, notes, fields, users, and search.",
   "logo": "https://www.google.com/s2/favicons?domain=pipedrive.com&sz=128",
-  "categories": [
-    "crm",
-    "pipedrive",
-    "deals",
-    "sales",
-    "contacts"
-  ],
+  "categories": ["crm", "pipedrive", "deals", "sales", "contacts"],
   "base_url": "https://api.pipedrive.com/v1",
   "auth": {
-    "types": [
-      "bearer"
-    ],
-    "headers": {
-      "Authorization": "Bearer {{token}}"
+    "types": ["api_key"],
+    "query_params": {
+      "api_token": "{{api_token}}"
     },
     "credential_fields": [
       {
-        "name": "token",
-        "label": "API Key"
+        "name": "api_token",
+        "label": "API Token",
+        "type": "password",
+        "description": "Pipedrive personal API token from Personal preferences > API."
       }
     ]
+  },
+  "health_check": {
+    "tool": "list_users"
   },
   "tools": [
     {
       "name": "list_deals",
-      "description": "List deals from Pipedrive",
+      "description": "List deals. Supports pagination, status, user, stage, pipeline, filter, and sort parameters.",
       "method": "GET",
-      "path": "/list-deals",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "limit": {
-            "type": "number",
-            "description": "Maximum number of deals to return",
-            "default": 100
-          },
-          "start": {
-            "type": "number",
-            "description": "Pagination offset",
-            "default": 0
-          },
-          "status": {
-            "type": "string",
-            "description": "Deal status filter"
-          },
-          "stage_id": {
-            "type": "number",
-            "description": "Stage ID filter"
-          },
-          "sort": {
-            "type": "string",
-            "description": "Sort field and order"
-          }
-        }
-      }
+      "path": "/deals",
+      "query_params": ["limit", "start", "status", "user_id", "stage_id", "pipeline_id", "filter_id", "sort", "owned_by_you"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "start": {"type": "number", "default": 0}, "status": {"type": "string"}, "user_id": {"type": "number"}, "stage_id": {"type": "number"}, "pipeline_id": {"type": "number"}, "filter_id": {"type": "number"}, "sort": {"type": "string"}, "owned_by_you": {"type": "boolean"}}}
+    },
+    {
+      "name": "get_deal",
+      "description": "Get one deal by ID.",
+      "method": "GET",
+      "path": "/deals/{dealId}",
+      "path_params": ["dealId"],
+      "input_schema": {"type": "object", "properties": {"dealId": {"type": "number"}}, "required": ["dealId"]}
     },
     {
       "name": "create_deal",
-      "description": "Create a new deal in Pipedrive",
+      "description": "Create a deal. Common fields include title, value, currency, person_id, org_id, stage_id, pipeline_id, status, expected_close_date, and custom fields.",
       "method": "POST",
-      "path": "/create-deal",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "title": {
-            "type": "string",
-            "description": "Deal title"
-          },
-          "value": {
-            "type": "number",
-            "description": "Deal value"
-          },
-          "currency": {
-            "type": "string",
-            "description": "Currency code"
-          },
-          "person_id": {
-            "type": "number",
-            "description": "Person ID"
-          },
-          "org_id": {
-            "type": "number",
-            "description": "Organization ID"
-          },
-          "stage_id": {
-            "type": "number",
-            "description": "Stage ID"
-          },
-          "expected_close_date": {
-            "type": "string",
-            "description": "Expected close date"
-          }
-        },
-        "required": [
-          "title"
-        ]
-      }
+      "path": "/deals",
+      "input_schema": {"type": "object", "properties": {"title": {"type": "string"}, "value": {"type": "number"}, "currency": {"type": "string"}, "person_id": {"type": "number"}, "org_id": {"type": "number"}, "stage_id": {"type": "number"}, "pipeline_id": {"type": "number"}, "status": {"type": "string"}, "expected_close_date": {"type": "string"}}, "required": ["title"]}
     },
     {
       "name": "update_deal",
-      "description": "Update an existing deal",
+      "description": "Update a deal by ID. Include any Pipedrive deal fields or custom field keys.",
       "method": "PUT",
-      "path": "/update-deal",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "deal_id": {
-            "type": "number",
-            "description": "ID of the deal to update"
-          },
-          "title": {
-            "type": "string",
-            "description": "Deal title"
-          },
-          "value": {
-            "type": "number",
-            "description": "Deal value"
-          },
-          "status": {
-            "type": "string",
-            "description": "Deal status"
-          },
-          "stage_id": {
-            "type": "number",
-            "description": "Stage ID"
-          }
-        },
-        "required": [
-          "deal_id"
-        ]
-      }
+      "path": "/deals/{dealId}",
+      "path_params": ["dealId"],
+      "input_schema": {"type": "object", "properties": {"dealId": {"type": "number"}, "title": {"type": "string"}, "value": {"type": "number"}, "currency": {"type": "string"}, "person_id": {"type": "number"}, "org_id": {"type": "number"}, "stage_id": {"type": "number"}, "pipeline_id": {"type": "number"}, "status": {"type": "string"}, "expected_close_date": {"type": "string"}}, "required": ["dealId"]}
+    },
+    {
+      "name": "delete_deal",
+      "description": "Delete one deal by ID.",
+      "method": "DELETE",
+      "path": "/deals/{dealId}",
+      "path_params": ["dealId"],
+      "input_schema": {"type": "object", "properties": {"dealId": {"type": "number"}}, "required": ["dealId"]}
     },
     {
       "name": "list_persons",
-      "description": "List persons from Pipedrive",
+      "description": "List people/contacts.",
       "method": "GET",
-      "path": "/list-persons",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "limit": {
-            "type": "number",
-            "description": "Maximum number to return",
-            "default": 100
-          },
-          "start": {
-            "type": "number",
-            "description": "Pagination offset"
-          },
-          "sort": {
-            "type": "string",
-            "description": "Sort field and order"
-          }
-        }
-      }
+      "path": "/persons",
+      "query_params": ["limit", "start", "user_id", "filter_id", "sort"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "start": {"type": "number", "default": 0}, "user_id": {"type": "number"}, "filter_id": {"type": "number"}, "sort": {"type": "string"}}}
+    },
+    {
+      "name": "get_person",
+      "description": "Get one person/contact by ID.",
+      "method": "GET",
+      "path": "/persons/{personId}",
+      "path_params": ["personId"],
+      "input_schema": {"type": "object", "properties": {"personId": {"type": "number"}}, "required": ["personId"]}
     },
     {
       "name": "create_person",
-      "description": "Create a new person in Pipedrive",
+      "description": "Create a person/contact. Common fields include name, email, phone, org_id, owner_id, and custom fields.",
       "method": "POST",
-      "path": "/create-person",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "description": "Person name"
-          },
-          "email": {
-            "type": "string",
-            "description": "Email address"
-          },
-          "phone": {
-            "type": "string",
-            "description": "Phone number"
-          },
-          "org_id": {
-            "type": "number",
-            "description": "Organization ID"
-          }
-        },
-        "required": [
-          "name"
-        ]
-      }
+      "path": "/persons",
+      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "email": {"type": "string"}, "phone": {"type": "string"}, "org_id": {"type": "number"}, "owner_id": {"type": "number"}}, "required": ["name"]}
+    },
+    {
+      "name": "update_person",
+      "description": "Update a person/contact by ID.",
+      "method": "PUT",
+      "path": "/persons/{personId}",
+      "path_params": ["personId"],
+      "input_schema": {"type": "object", "properties": {"personId": {"type": "number"}, "name": {"type": "string"}, "email": {"type": "string"}, "phone": {"type": "string"}, "org_id": {"type": "number"}, "owner_id": {"type": "number"}}, "required": ["personId"]}
+    },
+    {
+      "name": "delete_person",
+      "description": "Delete one person/contact by ID.",
+      "method": "DELETE",
+      "path": "/persons/{personId}",
+      "path_params": ["personId"],
+      "input_schema": {"type": "object", "properties": {"personId": {"type": "number"}}, "required": ["personId"]}
     },
     {
       "name": "list_organizations",
-      "description": "List organizations from Pipedrive",
+      "description": "List organizations.",
       "method": "GET",
-      "path": "/list-organizations",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "limit": {
-            "type": "number",
-            "description": "Maximum number to return",
-            "default": 100
-          },
-          "start": {
-            "type": "number",
-            "description": "Pagination offset"
-          },
-          "sort": {
-            "type": "string",
-            "description": "Sort field and order"
-          }
-        }
-      }
+      "path": "/organizations",
+      "query_params": ["limit", "start", "user_id", "filter_id", "sort"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "start": {"type": "number", "default": 0}, "user_id": {"type": "number"}, "filter_id": {"type": "number"}, "sort": {"type": "string"}}}
+    },
+    {
+      "name": "get_organization",
+      "description": "Get one organization by ID.",
+      "method": "GET",
+      "path": "/organizations/{organizationId}",
+      "path_params": ["organizationId"],
+      "input_schema": {"type": "object", "properties": {"organizationId": {"type": "number"}}, "required": ["organizationId"]}
+    },
+    {
+      "name": "create_organization",
+      "description": "Create an organization. Include name plus any standard or custom organization fields.",
+      "method": "POST",
+      "path": "/organizations",
+      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "owner_id": {"type": "number"}, "address": {"type": "string"}, "visible_to": {"type": "string"}}, "required": ["name"]}
+    },
+    {
+      "name": "update_organization",
+      "description": "Update an organization by ID.",
+      "method": "PUT",
+      "path": "/organizations/{organizationId}",
+      "path_params": ["organizationId"],
+      "input_schema": {"type": "object", "properties": {"organizationId": {"type": "number"}, "name": {"type": "string"}, "owner_id": {"type": "number"}, "address": {"type": "string"}, "visible_to": {"type": "string"}}, "required": ["organizationId"]}
+    },
+    {
+      "name": "delete_organization",
+      "description": "Delete one organization by ID.",
+      "method": "DELETE",
+      "path": "/organizations/{organizationId}",
+      "path_params": ["organizationId"],
+      "input_schema": {"type": "object", "properties": {"organizationId": {"type": "number"}}, "required": ["organizationId"]}
     },
     {
       "name": "list_pipelines",
-      "description": "List pipelines from Pipedrive",
+      "description": "List sales pipelines.",
       "method": "GET",
-      "path": "/list-pipelines",
-      "input_schema": {
-        "type": "object",
-        "properties": {}
-      }
+      "path": "/pipelines",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "get_pipeline",
+      "description": "Get one pipeline by ID.",
+      "method": "GET",
+      "path": "/pipelines/{pipelineId}",
+      "path_params": ["pipelineId"],
+      "input_schema": {"type": "object", "properties": {"pipelineId": {"type": "number"}}, "required": ["pipelineId"]}
+    },
+    {
+      "name": "list_stages",
+      "description": "List stages, optionally filtered by pipeline.",
+      "method": "GET",
+      "path": "/stages",
+      "query_params": ["pipeline_id"],
+      "input_schema": {"type": "object", "properties": {"pipeline_id": {"type": "number"}}}
     },
     {
       "name": "list_activities",
-      "description": "List activities from Pipedrive",
+      "description": "List activities. Supports filtering by user, deal, person, organization, type, done status, and date range.",
       "method": "GET",
-      "path": "/list-activities",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "limit": {
-            "type": "number",
-            "description": "Maximum number to return",
-            "default": 100
-          },
-          "start": {
-            "type": "number",
-            "description": "Pagination offset"
-          },
-          "type": {
-            "type": "string",
-            "description": "Activity type filter"
-          },
-          "done": {
-            "type": "boolean",
-            "description": "Filter by completion status"
-          }
-        }
-      }
+      "path": "/activities",
+      "query_params": ["limit", "start", "user_id", "deal_id", "person_id", "org_id", "type", "done", "start_date", "end_date"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "start": {"type": "number", "default": 0}, "user_id": {"type": "number"}, "deal_id": {"type": "number"}, "person_id": {"type": "number"}, "org_id": {"type": "number"}, "type": {"type": "string"}, "done": {"type": "boolean"}, "start_date": {"type": "string"}, "end_date": {"type": "string"}}}
+    },
+    {
+      "name": "create_activity",
+      "description": "Create an activity. Common fields include subject, type, due_date, due_time, duration, deal_id, person_id, org_id, user_id, and note.",
+      "method": "POST",
+      "path": "/activities",
+      "input_schema": {"type": "object", "properties": {"subject": {"type": "string"}, "type": {"type": "string"}, "due_date": {"type": "string"}, "due_time": {"type": "string"}, "duration": {"type": "string"}, "deal_id": {"type": "number"}, "person_id": {"type": "number"}, "org_id": {"type": "number"}, "user_id": {"type": "number"}, "note": {"type": "string"}}, "required": ["subject"]}
+    },
+    {
+      "name": "update_activity",
+      "description": "Update an activity by ID.",
+      "method": "PUT",
+      "path": "/activities/{activityId}",
+      "path_params": ["activityId"],
+      "input_schema": {"type": "object", "properties": {"activityId": {"type": "number"}, "subject": {"type": "string"}, "type": {"type": "string"}, "done": {"type": "boolean"}, "due_date": {"type": "string"}, "due_time": {"type": "string"}, "duration": {"type": "string"}, "note": {"type": "string"}}, "required": ["activityId"]}
+    },
+    {
+      "name": "delete_activity",
+      "description": "Delete one activity by ID.",
+      "method": "DELETE",
+      "path": "/activities/{activityId}",
+      "path_params": ["activityId"],
+      "input_schema": {"type": "object", "properties": {"activityId": {"type": "number"}}, "required": ["activityId"]}
+    },
+    {
+      "name": "list_activity_types",
+      "description": "List configured activity types.",
+      "method": "GET",
+      "path": "/activityTypes",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_notes",
+      "description": "List notes, optionally filtered by deal, person, organization, lead, or user.",
+      "method": "GET",
+      "path": "/notes",
+      "query_params": ["limit", "start", "deal_id", "person_id", "org_id", "lead_id", "user_id"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "start": {"type": "number", "default": 0}, "deal_id": {"type": "number"}, "person_id": {"type": "number"}, "org_id": {"type": "number"}, "lead_id": {"type": "string"}, "user_id": {"type": "number"}}}
+    },
+    {
+      "name": "create_note",
+      "description": "Create a note linked to a deal, person, organization, or lead.",
+      "method": "POST",
+      "path": "/notes",
+      "input_schema": {"type": "object", "properties": {"content": {"type": "string"}, "deal_id": {"type": "number"}, "person_id": {"type": "number"}, "org_id": {"type": "number"}, "lead_id": {"type": "string"}}, "required": ["content"]}
+    },
+    {
+      "name": "list_products",
+      "description": "List products.",
+      "method": "GET",
+      "path": "/products",
+      "query_params": ["limit", "start", "search_by_code"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "start": {"type": "number", "default": 0}, "search_by_code": {"type": "string"}}}
+    },
+    {
+      "name": "list_users",
+      "description": "List Pipedrive users.",
+      "method": "GET",
+      "path": "/users",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_deal_fields",
+      "description": "List deal fields, including custom field keys agents can use in create/update deal calls.",
+      "method": "GET",
+      "path": "/dealFields",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_person_fields",
+      "description": "List person fields, including custom field keys agents can use in create/update person calls.",
+      "method": "GET",
+      "path": "/personFields",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_organization_fields",
+      "description": "List organization fields, including custom field keys agents can use in create/update organization calls.",
+      "method": "GET",
+      "path": "/organizationFields",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "search_items",
+      "description": "Search across deals, persons, organizations, products, leads, and files.",
+      "method": "GET",
+      "path": "/itemSearch",
+      "query_params": ["term", "item_types", "fields", "search_for_related_items", "exact_match", "limit", "start"],
+      "input_schema": {"type": "object", "properties": {"term": {"type": "string"}, "item_types": {"type": "string", "description": "Comma-separated item types, e.g. deal,person,organization,product,lead,file."}, "fields": {"type": "string"}, "search_for_related_items": {"type": "boolean"}, "exact_match": {"type": "boolean"}, "limit": {"type": "number", "default": 100}, "start": {"type": "number", "default": 0}}, "required": ["term"]}
     }
   ]
 }

@@ -33,6 +33,11 @@ func TestNormalizeCredentials_DerivesBasicAuth(t *testing.T) {
 			"api@example.com:secret",
 		},
 		{
+			"api key empty password basic",
+			map[string]string{"api_key": "close-api-key"},
+			"close-api-key:",
+		},
+		{
 			"missing one half",
 			map[string]string{"account_sid": "AC123"},
 			"",

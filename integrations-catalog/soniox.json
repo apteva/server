@@ -1,0 +1,194 @@
+{
+  "slug": "soniox",
+  "name": "Soniox",
+  "description": "Soniox speech AI API for async transcription, file upload, transcript retrieval, model discovery, usage logs, concurrency limits, temporary API keys, and text-to-speech.",
+  "logo": "https://www.google.com/s2/favicons?domain=soniox.com&sz=128",
+  "categories": ["ai", "speech", "speech-to-text", "transcription", "text-to-speech"],
+  "base_url": "https://api.soniox.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Soniox API key from console.soniox.com."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "upload_file",
+      "description": "Upload an audio/video file to Soniox. Use the returned file id with create_transcription.",
+      "method": "POST",
+      "path": "/v1/files",
+      "timeout_ms": 600000,
+      "multipart_form": {
+        "field_names": ["client_reference_id"],
+        "file_fields": { "file": "file" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": { "type": "string", "description": "Audio/video file content as blobref://, base64, data URL, or raw string." },
+          "file_filename": { "type": "string", "description": "Optional upload filename." },
+          "client_reference_id": { "type": "string" }
+        },
+        "required": ["file"]
+      }
+    },
+    {
+      "name": "list_files",
+      "description": "List Soniox uploaded files.",
+      "method": "GET",
+      "path": "/v1/files",
+      "input_schema": { "type": "object", "properties": { "limit": { "type": "integer" }, "cursor": { "type": "string" } } }
+    },
+    {
+      "name": "get_file",
+      "description": "Get Soniox file metadata.",
+      "method": "GET",
+      "path": "/v1/files/{file_id}",
+      "input_schema": { "type": "object", "properties": { "file_id": { "type": "string" } }, "required": ["file_id"] }
+    },
+    {
+      "name": "delete_file",
+      "description": "Delete a Soniox uploaded file.",
+      "method": "DELETE",
+      "path": "/v1/files/{file_id}",
+      "input_schema": { "type": "object", "properties": { "file_id": { "type": "string" } }, "required": ["file_id"] }
+    },
+    {
+      "name": "create_transcription",
+      "description": "Create an async Soniox transcription. Provide exactly one audio source: audio_url or file_id. Supports language_hints, context, translation config, webhook config, and client_reference_id.",
+      "method": "POST",
+      "path": "/v1/transcriptions",
+      "timeout_ms": 600000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string", "default": "stt-async-preview" },
+          "audio_url": { "type": "string" },
+          "file_id": { "type": "string" },
+          "language_hints": { "type": "array", "items": { "type": "string" } },
+          "context": { "type": "string" },
+          "translation_config": { "type": "object" },
+          "webhook_url": { "type": "string" },
+          "webhook_auth_header_name": { "type": "string" },
+          "webhook_auth_header_value": { "type": "string" },
+          "client_reference_id": { "type": "string" }
+        },
+        "required": ["model"]
+      }
+    },
+    {
+      "name": "list_transcriptions",
+      "description": "List Soniox async transcriptions.",
+      "method": "GET",
+      "path": "/v1/transcriptions",
+      "input_schema": { "type": "object", "properties": { "limit": { "type": "integer" }, "cursor": { "type": "string" } } }
+    },
+    {
+      "name": "get_transcription",
+      "description": "Get Soniox transcription status and metadata. Poll until status is completed, then call get_transcription_transcript.",
+      "method": "GET",
+      "path": "/v1/transcriptions/{transcription_id}",
+      "input_schema": { "type": "object", "properties": { "transcription_id": { "type": "string" } }, "required": ["transcription_id"] }
+    },
+    {
+      "name": "get_transcription_transcript",
+      "description": "Get full Soniox transcript text and token details for a completed transcription.",
+      "method": "GET",
+      "path": "/v1/transcriptions/{transcription_id}/transcript",
+      "timeout_ms": 300000,
+      "input_schema": { "type": "object", "properties": { "transcription_id": { "type": "string" } }, "required": ["transcription_id"] }
+    },
+    {
+      "name": "get_transcription_text",
+      "description": "Get only the plain transcript text for a completed Soniox transcription. Use this when token-level timestamps are not needed.",
+      "method": "GET",
+      "path": "/v1/transcriptions/{transcription_id}/transcript",
+      "response_path": "text",
+      "timeout_ms": 300000,
+      "input_schema": { "type": "object", "properties": { "transcription_id": { "type": "string" } }, "required": ["transcription_id"] }
+    },
+    {
+      "name": "delete_transcription",
+      "description": "Delete a completed or failed Soniox transcription and associated files. Processing transcriptions cannot be deleted.",
+      "method": "DELETE",
+      "path": "/v1/transcriptions/{transcription_id}",
+      "input_schema": { "type": "object", "properties": { "transcription_id": { "type": "string" } }, "required": ["transcription_id"] }
+    },
+    {
+      "name": "list_models",
+      "description": "List Soniox speech-to-text models available to the API key.",
+      "method": "GET",
+      "path": "/v1/models",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_tts_models",
+      "description": "List Soniox text-to-speech models and voices available to the API key.",
+      "method": "GET",
+      "path": "/v1/tts-models",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "generate_speech",
+      "description": "Generate speech audio with Soniox TTS. Returns binary audio. Common required fields: model, language, voice, audio_format, text.",
+      "method": "POST",
+      "base_url": "https://tts-rt.soniox.com",
+      "path": "/tts",
+      "timeout_ms": 300000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string", "default": "tts-rt-v1" },
+          "language": { "type": "string", "default": "en" },
+          "voice": { "type": "string" },
+          "audio_format": { "type": "string", "description": "wav, mp3, opus, flac, or pcm depending on model support." },
+          "text": { "type": "string" },
+          "sample_rate": { "type": "integer" },
+          "bitrate": { "type": "integer" },
+          "client_reference_id": { "type": "string" }
+        },
+        "required": ["model", "language", "voice", "audio_format", "text"]
+      }
+    },
+    {
+      "name": "create_temporary_api_key",
+      "description": "Create a temporary Soniox API key for scoped client-side sessions.",
+      "method": "POST",
+      "path": "/v1/auth/temporary-api-key",
+      "input_schema": { "type": "object", "properties": { "usage_type": { "type": "string" }, "expires_in_seconds": { "type": "integer" }, "max_session_duration_seconds": { "type": "integer" } } }
+    },
+    {
+      "name": "get_usage_logs",
+      "description": "Get Soniox per-request usage logs for a UTC time window up to 31 days, no older than 91 days.",
+      "method": "GET",
+      "path": "/v1/usage-logs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_time": { "type": "string" },
+          "end_time": { "type": "string" },
+          "limit": { "type": "integer" },
+          "sort": { "type": "string" },
+          "cursor": { "type": "string" }
+        },
+        "required": ["start_time", "end_time"]
+      }
+    },
+    {
+      "name": "get_concurrency_limits",
+      "description": "Get Soniox current concurrent request counts and configured limits for transcription and TTS.",
+      "method": "GET",
+      "path": "/v1/concurrency-limits",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ],
+  "health_check": { "tool": "list_models" }
+}

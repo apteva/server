@@ -35,6 +35,8 @@ const (
 	openAICodexBackendAPIBaseURL = "https://chatgpt.com/backend-api/codex"
 )
 
+var openAICodexTokenEndpoint = openAICodexTokenURL
+
 type providerAuthStartRequest struct {
 	ProviderTypeID int64  `json:"provider_type_id"`
 	ProjectID      string `json:"project_id"`
@@ -1058,7 +1060,7 @@ func codexIntFromJSONAny(v any) int {
 }
 
 func exchangeOpenAICodexCode(ctx context.Context, code, verifier string) (map[string]any, error) {
-	return postFormForTokens(ctx, openAICodexTokenURL, map[string]string{
+	return postFormForTokens(ctx, openAICodexTokenEndpoint, map[string]string{
 		"grant_type":    "authorization_code",
 		"code":          code,
 		"redirect_uri":  openAICodexIssuer + "/deviceauth/callback",
@@ -1068,7 +1070,7 @@ func exchangeOpenAICodexCode(ctx context.Context, code, verifier string) (map[st
 }
 
 func refreshOpenAICodexTokens(ctx context.Context, refreshToken string) (map[string]any, error) {
-	return postFormForTokens(ctx, openAICodexTokenURL, map[string]string{
+	return postFormForTokens(ctx, openAICodexTokenEndpoint, map[string]string{
 		"grant_type":    "refresh_token",
 		"refresh_token": refreshToken,
 		"client_id":     openAICodexClientID,

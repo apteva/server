@@ -1,0 +1,166 @@
+{
+  "slug": "jungle-scout",
+  "name": "Jungle Scout",
+  "description": "Jungle Scout Public API for Amazon product research: product database queries, keyword discovery by ASIN or seed keyword, historical search volume, sales estimates, and share of voice.",
+  "logo": "https://www.google.com/s2/favicons?domain=junglescout.com&sz=128",
+  "categories": ["amazon", "seo", "marketplace", "ecommerce", "keywords", "product-research"],
+  "base_url": "https://developer.junglescout.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "Authorization": "{{key_name}}:{{api_key}}",
+      "X-API-Type": "{{api_type}}",
+      "Accept": "application/vnd.junglescout.v1+json",
+      "Content-Type": "application/vnd.api+json"
+    },
+    "credential_fields": [
+      {
+        "name": "key_name",
+        "label": "Key Name",
+        "description": "Jungle Scout API key name from the Developer page."
+      },
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Jungle Scout API key. The Authorization header is KEY_NAME:API_KEY."
+      },
+      {
+        "name": "api_type",
+        "label": "API Type",
+        "description": "Use junglescout for JS accounts or cobalt for Enterprise accounts."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "query_product_database",
+      "description": "Search Jungle Scout's Amazon product database using product filters or ASIN/title keywords. Use this for product research, niche discovery, revenue/sales/review filters, seller type, category, and availability filters. Body must be JSON:API data with type product_database_query and attributes.",
+      "method": "POST",
+      "path": "/api/product_database_query",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "marketplace": { "type": "string", "enum": ["us", "uk", "de", "in", "ca", "fr", "it", "es", "mx", "jp"], "description": "Amazon marketplace country code." },
+          "sort": { "type": "string", "description": "Sort field, e.g. revenue, -revenue, sales, -sales, reviews, -reviews, name, -name." },
+          "page_size": { "type": "integer", "description": "Results per page, max 100." },
+          "page_cursor": { "type": "string", "description": "Pagination cursor from links.next." },
+          "data": {
+            "type": "object",
+            "description": "JSON:API body. Example: {\"type\":\"product_database_query\",\"attributes\":{\"include_keywords\":[\"lamp\"],\"exclude_unavailable_products\":true,\"min_sales\":100}}."
+          }
+        },
+        "required": ["marketplace", "data"]
+      },
+      "query_params": ["marketplace", "sort"],
+      "query_param_aliases": {
+        "page_size": "page[size]",
+        "page_cursor": "page[cursor]"
+      }
+    },
+    {
+      "name": "keywords_by_asin",
+      "description": "Return keywords for which the queried ASINs appear in Amazon search results. Query up to 10 ASINs at a time and filter/sort by search volume, trend, PPC bid, ranking ease, relevancy, and organic product count.",
+      "method": "POST",
+      "path": "/api/keywords/keywords_by_asin_query",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "marketplace": { "type": "string", "enum": ["us", "uk", "de", "in", "ca", "fr", "it", "es", "mx", "jp"] },
+          "sort": { "type": "string", "description": "Sort field, default -monthly_search_volume_exact." },
+          "page_size": { "type": "integer", "description": "Results per page, max 100." },
+          "page_cursor": { "type": "string" },
+          "data": {
+            "type": "object",
+            "description": "JSON:API body with type keywords_by_asin_query and attributes such as asins plus optional filters."
+          }
+        },
+        "required": ["marketplace", "data"]
+      },
+      "query_params": ["marketplace", "sort"],
+      "query_param_aliases": {
+        "page_size": "page[size]",
+        "page_cursor": "page[cursor]"
+      }
+    },
+    {
+      "name": "keywords_by_keyword",
+      "description": "Return related Amazon keywords and metrics based on a seed keyword. Use this for Amazon keyword expansion, search volume, trends, PPC bids, ranking ease, relevancy, and organic product count.",
+      "method": "POST",
+      "path": "/api/keywords/keywords_by_keyword_query",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "marketplace": { "type": "string", "enum": ["us", "uk", "de", "in", "ca", "fr", "it", "es", "mx", "jp"] },
+          "sort": { "type": "string", "description": "Sort field, default -monthly_search_volume_exact." },
+          "page_size": { "type": "integer", "description": "Results per page, max 100." },
+          "page_cursor": { "type": "string" },
+          "data": {
+            "type": "object",
+            "description": "JSON:API body with type keywords_by_keyword_query and attributes such as keyword plus optional filters."
+          }
+        },
+        "required": ["marketplace", "data"]
+      },
+      "query_params": ["marketplace", "sort"],
+      "query_param_aliases": {
+        "page_size": "page[size]",
+        "page_cursor": "page[cursor]"
+      }
+    },
+    {
+      "name": "historical_search_volume",
+      "description": "Return exact keyword search volume in 7-day increments for a date range.",
+      "method": "GET",
+      "path": "/api/keywords/historical_search_volume",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "marketplace": { "type": "string", "enum": ["us", "uk", "de", "in", "ca", "fr", "it", "es", "mx", "jp"] },
+          "keyword": { "type": "string" },
+          "start_date": { "type": "string", "description": "Start date in YYYY-MM-DD." },
+          "end_date": { "type": "string", "description": "End date in YYYY-MM-DD." }
+        },
+        "required": ["marketplace", "keyword", "start_date", "end_date"]
+      },
+      "query_params": ["marketplace", "keyword", "start_date", "end_date"]
+    },
+    {
+      "name": "sales_estimates",
+      "description": "Return daily price, rank, and sales estimate data for an ASIN over a period. Variant ASINs return parent-ASIN aggregate estimates.",
+      "method": "GET",
+      "path": "/api/sales_estimates_query",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "marketplace": { "type": "string", "enum": ["us", "uk", "de", "in", "ca", "fr", "it", "es", "mx", "jp"] },
+          "asin": { "type": "string" },
+          "start_date": { "type": "string", "description": "Start date in YYYY-MM-DD." },
+          "end_date": { "type": "string", "description": "End date in YYYY-MM-DD. Must be before current date." }
+        },
+        "required": ["marketplace", "asin", "start_date", "end_date"]
+      },
+      "query_params": ["marketplace", "asin", "start_date", "end_date"]
+    },
+    {
+      "name": "share_of_voice",
+      "description": "For a keyword search on Amazon, return brand share across the first 3 result pages, including organic, sponsored, combined share of voice, PPC bid, 30-day search volume, and top-ASIN conversion-rate data.",
+      "method": "GET",
+      "path": "/api/share_of_voice",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "marketplace": { "type": "string", "enum": ["us", "uk", "de", "in", "ca", "fr", "it", "es", "mx", "jp"] },
+          "keyword": { "type": "string" }
+        },
+        "required": ["marketplace", "keyword"]
+      },
+      "query_params": ["marketplace", "keyword"]
+    }
+  ]
+}

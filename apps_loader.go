@@ -391,6 +391,10 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var asyncReq *appMCPAsyncRequest
+	if tail == "/mcp" && r.Method == http.MethodPost {
+		asyncReq = s.inspectAppMCPAsyncRequest(entry, r)
+	}
 	target, err := url.Parse(entry.SidecarURL)
 	if err != nil {
 		http.Error(w, "invalid sidecar url", http.StatusInternalServerError)
@@ -407,6 +411,11 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 			req.Header.Set("Authorization", "Bearer "+entry.Token)
 		}
 		req.Header.Set("X-Apteva-App-Install-ID", fmt.Sprintf("%d", entry.InstallID))
+	}
+	if asyncReq != nil {
+		proxy.ModifyResponse = func(resp *http.Response) error {
+			return s.maybeAugmentAppMCPAsyncResponse(entry, asyncReq, resp)
+		}
 	}
 	proxy.ServeHTTP(w, r)
 }

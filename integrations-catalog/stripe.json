@@ -35,6 +35,7 @@
       {
         "name": "webhookSecret",
         "label": "Webhook Secret",
+        "required": false,
         "description": "Your Stripe Webhook Signing Secret"
       }
     ]

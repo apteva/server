@@ -1,233 +1,151 @@
 {
   "slug": "sculpteo",
   "name": "Sculpteo",
-  "description": "MCP server for Sculpteo 3D printing services - upload models, get quotes, configure designs, and place orders",
+  "description": "Sculpteo WebAPI for uploading designs, listing public designs/materials, pricing designs, ordering designs, and tracking orders.",
   "logo": "https://www.google.com/s2/favicons?domain=sculpteo.com&sz=128",
-  "categories": [
-    "3d-printing",
-    "sculpteo",
-    "manufacturing",
-    "prototyping",
-    "materials"
-  ],
-  "base_url": "https://api.sculpteo.com/v1",
+  "categories": ["3d-printing", "sculpteo", "manufacturing", "prototyping", "materials"],
+  "base_url": "https://www.sculpteo.com",
   "auth": {
-    "types": [
-      "bearer"
-    ],
+    "types": ["api_key"],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    "body_params": {
+      "login": "{{login}}",
+      "password": "{{password}}"
     },
     "credential_fields": [
       {
-        "name": "token",
-        "label": "Api Key",
-        "description": "Sculpteo API key from your Sculpteo account settings"
+        "name": "login",
+        "label": "Login",
+        "description": "Sculpteo account login/email used by order APIs."
+      },
+      {
+        "name": "password",
+        "label": "Password",
+        "type": "password",
+        "description": "Sculpteo account password used by order APIs."
       }
     ]
   },
   "tools": [
     {
       "name": "list_materials",
-      "description": "Get available materials and their properties from Sculpteo",
+      "description": "List Sculpteo materials in JSON. Material ids are used by price and order calls.",
       "method": "GET",
-      "path": "/list-materials",
+      "path": "/{language}/api/material/list/",
       "input_schema": {
         "type": "object",
         "properties": {
-          "category": {
-            "type": "string",
-            "description": "Filter by material category (plastic, metal, resin)"
-          },
-          "technology": {
-            "type": "string",
-            "description": "Filter by printing technology (SLS, SLA, DMLS, FDM)"
-          }
-        }
+          "language": { "type": "string", "enum": ["en", "fr"], "default": "en" }
+        },
+        "required": ["language"]
       }
     },
     {
-      "name": "upload_and_repair",
-      "description": "Upload 3D model to Sculpteo with automatic repair and optimization",
+      "name": "list_designs",
+      "description": "Search or page Sculpteo public designs.",
+      "method": "GET",
+      "path": "/{language}/gallery/x_design_list/",
+      "query_params": ["order_by", "designer", "design_list", "search", "start", "count", "paginate_by", "page"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "language": { "type": "string", "enum": ["en", "fr"], "default": "en" },
+          "order_by": { "type": "string", "enum": ["timestamp", "rate"] },
+          "designer": { "type": "string" },
+          "design_list": { "type": "string" },
+          "search": { "type": "string" },
+          "start": { "type": "integer" },
+          "count": { "type": "integer" },
+          "paginate_by": { "type": "integer" },
+          "page": { "type": "integer" }
+        },
+        "required": ["language"]
+      }
+    },
+    {
+      "name": "upload_design_base64",
+      "description": "Upload a design using Sculpteo's direct upload endpoint with urlsafe base64 file data. For multipart uploads, use Sculpteo directly because the generic runner does not yet send multipart bodies.",
       "method": "POST",
-      "path": "/upload-and-repair",
+      "path": "/{language}/upload_design/a/3D/",
       "input_schema": {
         "type": "object",
         "properties": {
-          "file": {
-            "type": "string",
-            "description": "Base64 encoded 3D model file (STL, OBJ, etc.)"
-          },
-          "fileName": {
-            "type": "string",
-            "description": "Name of the file"
-          },
-          "autoRepair": {
-            "type": "boolean",
-            "description": "Automatically repair model issues",
-            "default": true
-          },
-          "optimize": {
-            "type": "boolean",
-            "description": "Optimize model for 3D printing",
-            "default": true
-          }
+          "language": { "type": "string", "enum": ["en", "fr"], "default": "en" },
+          "file": { "type": "string", "description": "URL-safe base64 model data, using - and _ instead of + and /." },
+          "filename": { "type": "string", "description": "Filename with extension." },
+          "name": { "type": "string", "description": "Design name." },
+          "description": { "type": "string" },
+          "keywords": { "type": "string" },
+          "share": { "type": "integer", "enum": [0, 1], "default": 0 },
+          "print_authorization": { "type": "integer", "enum": [0, 1], "default": 1 },
+          "customizable": { "type": "integer", "enum": [0, 1], "default": 0 },
+          "unit": { "type": "string", "enum": ["mm", "cm", "in", "ft", "yd"], "default": "cm" },
+          "scale": { "type": "number", "default": 1 },
+          "materials": { "type": "string", "description": "Comma-separated material ids to allow." }
         },
-        "required": [
-          "file",
-          "fileName"
-        ]
+        "required": ["language", "file", "filename", "name"]
       }
     },
     {
-      "name": "configure_design",
-      "description": "Configure 3D design with material, finish, and scaling options",
+      "name": "get_price_by_uuid",
+      "description": "Get 3D print price for a Sculpteo design UUID, material, scale, quantity, unit, and currency.",
       "method": "GET",
-      "path": "/configure-design",
+      "path": "/{language}/api/design/3D/price_by_uuid/",
+      "query_params": ["uuid", "quantity", "scale", "unit", "currency", "productname"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "designId": {
-            "type": "string",
-            "description": "ID of the uploaded design"
-          },
-          "materialId": {
-            "type": "string",
-            "description": "Material ID to use for printing"
-          },
-          "finishId": {
-            "type": "string",
-            "description": "Finish/color ID"
-          },
-          "scale": {
-            "type": "number",
-            "description": "Scale factor for the model",
-            "default": 1
-          },
-          "quantity": {
-            "type": "number",
-            "description": "Number of copies to print",
-            "default": 1
-          }
+          "language": { "type": "string", "enum": ["en", "fr"], "default": "en" },
+          "uuid": { "type": "string", "description": "Sculpteo design UUID." },
+          "quantity": { "type": "integer", "default": 1 },
+          "scale": { "type": "number", "default": 1 },
+          "unit": { "type": "string", "enum": ["mm", "cm", "m", "in", "ft", "yd"], "default": "cm" },
+          "currency": { "type": "string", "enum": ["EUR", "USD", "GBP"] },
+          "productname": { "type": "string", "description": "Material id, or comma-separated material ids for multi-material pricing." }
         },
-        "required": [
-          "designId",
-          "materialId"
-        ]
-      }
-    },
-    {
-      "name": "batch_quote",
-      "description": "Get pricing quotes for multiple designs and material combinations",
-      "method": "GET",
-      "path": "/batch-quote",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "description": "Array of design configurations to quote",
-            "items": {
-              "type": "object",
-              "properties": {
-                "designId": {
-                  "type": "string"
-                },
-                "materialId": {
-                  "type": "string"
-                },
-                "quantity": {
-                  "type": "number",
-                  "default": 1
-                }
-              },
-              "required": [
-                "designId",
-                "materialId"
-              ]
-            }
-          },
-          "shippingCountry": {
-            "type": "string",
-            "description": "ISO country code for shipping"
-          }
-        },
-        "required": [
-          "items"
-        ]
+        "required": ["language", "uuid"]
       }
     },
     {
       "name": "create_order",
-      "description": "Place a 3D printing order with configured designs",
+      "description": "Order Sculpteo designs by UUID. The API uses form keys item[0], item[1], etc. Each item value is '<uuid>:<qty>:<scale>:<unit>:<material>'. Invoice ordering must be enabled by Sculpteo.",
       "method": "POST",
-      "path": "/create-order",
+      "path": "/{language}/api/store/3D/order/",
       "input_schema": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "description": "Array of configured designs to order",
-            "items": {
-              "type": "object",
-              "properties": {
-                "designId": {
-                  "type": "string"
-                },
-                "materialId": {
-                  "type": "string"
-                },
-                "finishId": {
-                  "type": "string"
-                },
-                "quantity": {
-                  "type": "number",
-                  "default": 1
-                }
-              },
-              "required": [
-                "designId",
-                "materialId"
-              ]
-            }
-          },
-          "shippingAddress": {
-            "type": "object",
-            "description": "Shipping address details",
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "address": {
-                "type": "string"
-              },
-              "city": {
-                "type": "string"
-              },
-              "postalCode": {
-                "type": "string"
-              },
-              "country": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "address",
-              "city",
-              "postalCode",
-              "country"
-            ]
-          },
-          "shippingMethod": {
-            "type": "string",
-            "description": "Shipping method (standard, express)"
-          }
+          "language": { "type": "string", "enum": ["en", "fr"], "default": "en" },
+          "item[0]": { "type": "string", "description": "First item as <uuid>:<qty>:<scale>:<unit>:<material>." },
+          "item[1]": { "type": "string", "description": "Optional second item as <uuid>:<qty>:<scale>:<unit>:<material>." },
+          "item[2]": { "type": "string", "description": "Optional third item as <uuid>:<qty>:<scale>:<unit>:<material>." },
+          "ship_addressee": { "type": "string" },
+          "ship_street1": { "type": "string" },
+          "ship_street2": { "type": "string" },
+          "ship_city": { "type": "string" },
+          "ship_state": { "type": "string" },
+          "ship_postal_code": { "type": "string" },
+          "ship_country": { "type": "string", "description": "ISO 3166-1 alpha-2 country code." },
+          "ship_method": { "type": "string", "enum": ["express", "quick"] },
+          "notification_url": { "type": "string", "description": "Optional webhook URL for order status changes." },
+          "fake": { "type": "integer", "enum": [0, 1], "description": "Use 1 for Sculpteo API test orders where supported." },
+          "comment": { "type": "string" }
         },
-        "required": [
-          "items",
-          "shippingAddress"
-        ]
+        "required": ["language", "item[0]"]
+      }
+    },
+    {
+      "name": "get_order_tracking",
+      "description": "Open tracking/status information for a Sculpteo order reference returned by create_order.",
+      "method": "GET",
+      "path": "/shop/tracking/reference/{reference}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "reference": { "type": "string" }
+        },
+        "required": ["reference"]
       }
     }
   ]

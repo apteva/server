@@ -732,19 +732,80 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
 
 	var body struct {
-		Name string `json:"name"`
+		Name               string          `json:"name"`
+		Kind               string          `json:"kind"`
+		ProjectID          string          `json:"project_id"`
+		Scopes             json.RawMessage `json:"scopes"`
+		AllowedOrigins     []string        `json:"allowed_origins"`
+		RateLimitPerMinute int             `json:"rate_limit_per_minute"`
+		ExpiresAt          string          `json:"expires_at"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 	if body.Name == "" {
 		body.Name = "default"
 	}
+	kind := strings.TrimSpace(body.Kind)
+	if kind == "" {
+		kind = "private"
+	}
+	if kind != "private" && kind != "public_client" {
+		http.Error(w, "kind must be private or public_client", http.StatusBadRequest)
+		return
+	}
+	scopesJSON := "[]"
+	if len(body.Scopes) > 0 && string(body.Scopes) != "null" {
+		if !json.Valid(body.Scopes) {
+			http.Error(w, "scopes must be valid JSON", http.StatusBadRequest)
+			return
+		}
+		scopesJSON = string(body.Scopes)
+	}
+	originsJSON := "[]"
+	if len(body.AllowedOrigins) > 0 {
+		var origins []string
+		for i := range body.AllowedOrigins {
+			origin := strings.TrimSpace(body.AllowedOrigins[i])
+			if origin != "" {
+				origins = append(origins, origin)
+			}
+		}
+		if raw, err := json.Marshal(origins); err == nil {
+			originsJSON = string(raw)
+		}
+	}
+	projectID := strings.TrimSpace(body.ProjectID)
+	if kind == "public_client" {
+		if projectID == "" {
+			http.Error(w, "project_id required for public_client keys", http.StatusBadRequest)
+			return
+		}
+		if _, _, ok := s.requireProjectAccess(w, r, projectID, ProjectEditor); !ok {
+			return
+		}
+	}
+	if strings.TrimSpace(body.ExpiresAt) != "" {
+		if _, err := time.Parse(time.RFC3339, strings.TrimSpace(body.ExpiresAt)); err != nil {
+			http.Error(w, "expires_at must be RFC3339", http.StatusBadRequest)
+			return
+		}
+	}
 
-	// Generate key: sk-<random>
-	raw := "sk-" + generateToken(24)
+	prefix := "sk-"
+	if kind == "public_client" {
+		prefix = "pk_"
+	}
+	raw := prefix + generateToken(24)
 	keyHash := HashAPIKey(raw)
-	keyPrefix := raw[:11] // "sk-" + first 8 hex chars
+	keyPrefix := raw[:11] // prefix + first 8 hex chars
 
-	key, err := s.store.CreateAPIKey(userID, body.Name, keyHash, keyPrefix)
+	key, err := s.store.CreateAPIKey(userID, body.Name, keyHash, keyPrefix, APIKeyCreateOptions{
+		Kind:               kind,
+		ProjectID:          projectID,
+		Scopes:             scopesJSON,
+		AllowedOrigins:     originsJSON,
+		RateLimitPerMinute: body.RateLimitPerMinute,
+		ExpiresAt:          strings.TrimSpace(body.ExpiresAt),
+	})
 	if err != nil {
 		http.Error(w, "failed to create key", http.StatusInternalServerError)
 		return
@@ -756,6 +817,7 @@ func (s *Server) handleCreateKey(w http.ResponseWriter, r *http.Request) {
 		"name":    key.Name,
 		"key":     raw,
 		"prefix":  keyPrefix,
+		"kind":    key.Kind,
 		"message": "Save this key — it won't be shown again",
 	})
 }

@@ -1,297 +1,346 @@
 {
   "slug": "craftcloud",
   "name": "Craftcloud",
-  "description": "MCP server for Craftcloud - 3D printing price comparison service connecting 150+ manufacturing services worldwide",
+  "description": "Craftcloud v5 API for 3D printing/CNC model configurations, price requests, grouped vendor offers, carts, orders, and order status.",
   "logo": "https://www.google.com/s2/favicons?domain=craftcloud3d.com&sz=128",
-  "categories": [
-    "3d-printing",
-    "manufacturing",
-    "price-comparison",
-    "craftcloud",
-    "all3dp"
-  ],
+  "categories": ["3d-printing", "manufacturing", "price-comparison", "craftcloud", "all3dp"],
   "base_url": "https://api.craftcloud3d.com",
   "auth": {
-    "types": [
-      "bearer"
-    ],
-    "headers": {
-      "Authorization": "Bearer {{token}}"
-    },
+    "types": ["api_key"],
+    "headers": {},
     "credential_fields": [
       {
-        "name": "api_key",
-        "label": "Api_key",
-        "description": "Your Craftcloud API key (contact Craftcloud for API access)"
+        "name": "token",
+        "label": "Optional API Token",
+        "required": false,
+        "description": "Craftcloud public Swagger does not declare auth. Leave blank unless Craftcloud gives you a partner token for a private deployment."
       }
     ]
   },
   "tools": [
     {
-      "name": "model_upload",
-      "description": "Upload a 3D model file to Craftcloud",
+      "name": "health_check",
+      "description": "Check Craftcloud API health.",
       "method": "GET",
-      "path": "/model-upload",
+      "path": "/v5/health_check",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "upload_model",
+      "description": "Upload a model file to Craftcloud. The initial response may not include parsed geometry yet; poll get_model until parsing completes.",
+      "method": "POST",
+      "path": "/v5/model",
+      "multipart_form": {
+        "file_fields": {
+          "file": "file"
+        },
+        "field_names": ["unit", "refresh"]
+      },
       "input_schema": {
         "type": "object",
         "properties": {
-          "file": {
-            "type": "string",
-            "description": "Base64 encoded 3D model file"
-          },
-          "fileName": {
-            "type": "string",
-            "description": "Name of the file"
-          },
-          "fileURL": {
-            "type": "string",
-            "description": "URL to the 3D model file (alternative to base64)"
-          }
-        }
+          "file": { "type": "string", "description": "Model file bytes as base64, data URL, or raw string." },
+          "filename": { "type": "string", "description": "Filename with extension." },
+          "unit": { "type": "string", "enum": ["mm", "cm", "in"], "default": "mm" },
+          "refresh": { "type": "boolean", "default": false }
+        },
+        "required": ["file", "filename"]
       }
     },
     {
-      "name": "model_get",
-      "description": "Get a model by ID from Craftcloud",
+      "name": "get_model",
+      "description": "Get a Craftcloud model by id. A 206 response means geometry parsing is still in progress and the request should be retried.",
       "method": "GET",
-      "path": "/model-get",
+      "path": "/v5/model/{modelId}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "modelId": {
-            "type": "string",
-            "description": "The model ID"
-          }
+          "modelId": { "type": "string", "description": "Craftcloud model id, usually the SHA-256 hash of the model file." }
         },
-        "required": [
-          "modelId"
-        ]
+        "required": ["modelId"]
       }
     },
     {
-      "name": "configuration_create",
-      "description": "Create a configuration for a 3D model with material and quantity",
-      "method": "GET",
-      "path": "/configuration-create",
+      "name": "evolve_model",
+      "description": "Create a new model variant from an existing model with different properties.",
+      "method": "POST",
+      "path": "/v5/model/{modelId}/evolve",
+      "body_root_param": "body",
       "input_schema": {
         "type": "object",
         "properties": {
-          "modelId": {
-            "type": "string",
-            "description": "The model ID to configure"
-          },
-          "quantity": {
-            "type": "number",
-            "description": "Quantity to print (default: 1)"
-          },
-          "currency": {
-            "type": "string",
-            "description": "Currency code (USD, EUR, GBP, etc.)",
-            "enum": [
-              "USD",
-              "EUR",
-              "GBP",
-              "CAD",
-              "AUD",
-              "CHF",
-              "NOK",
-              "JPY",
-              "ILS"
-            ]
-          },
-          "countryCode": {
-            "type": "string",
-            "description": "ISO 3166-1 alpha-2 country code"
-          }
+          "modelId": { "type": "string" },
+          "body": { "type": "object", "description": "Craftcloud evolve-model payload." }
         },
-        "required": [
-          "modelId"
-        ]
+        "required": ["modelId", "body"]
       }
     },
     {
-      "name": "configuration_get",
-      "description": "Get a configuration by ID from Craftcloud",
-      "method": "GET",
-      "path": "/configuration-get",
+      "name": "create_configuration",
+      "description": "Create a product configuration from one or more existing model ids and quantities.",
+      "method": "POST",
+      "path": "/v5/configuration",
+      "body_root_param": "body",
       "input_schema": {
         "type": "object",
         "properties": {
-          "configurationId": {
-            "type": "string",
-            "description": "The configuration ID"
+          "body": {
+            "type": "object",
+            "description": "Configuration body: { items: [{ modelId, quantity, scale? }] }."
           }
         },
-        "required": [
-          "configurationId"
-        ]
+        "required": ["body"]
       }
     },
     {
-      "name": "price_create",
-      "description": "Create a price request to get quotes from multiple vendors",
+      "name": "get_configuration",
+      "description": "Get a Craftcloud configuration by id.",
       "method": "GET",
-      "path": "/price-create",
+      "path": "/v5/configuration/{configurationId}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "modelId": {
-            "type": "string",
-            "description": "The model ID to price"
-          },
-          "quantity": {
-            "type": "number",
-            "description": "Quantity to print (default: 1)"
-          },
-          "currency": {
-            "type": "string",
-            "description": "Currency code"
-          },
-          "countryCode": {
-            "type": "string",
-            "description": "ISO country code for shipping"
-          }
+          "configurationId": { "type": "string" }
         },
-        "required": [
-          "modelId"
-        ]
+        "required": ["configurationId"]
       }
     },
     {
-      "name": "price_get",
-      "description": "Get prices for a price request ID",
-      "method": "GET",
-      "path": "/price-get",
+      "name": "create_price_request",
+      "description": "Request Craftcloud quotes for one or more model ids, country, currency, and optional material/vendor filters.",
+      "method": "POST",
+      "path": "/v5/price",
+      "body_root_param": "body",
       "input_schema": {
         "type": "object",
         "properties": {
-          "priceId": {
-            "type": "string",
-            "description": "The price request ID"
+          "body": {
+            "type": "object",
+            "description": "Price body: { currency, countryCode, models: [{ modelId, quantity, scale? }], materialConfigIds?, vendorIds?, cartId?, refresh?, topMaterialConfigsOnly? }."
           }
         },
-        "required": [
-          "priceId"
-        ]
+        "required": ["body"]
       }
     },
     {
-      "name": "price_grouped",
-      "description": "Get prices grouped by vendor for easy comparison",
+      "name": "get_price",
+      "description": "Retrieve prices for a Craftcloud price request id.",
       "method": "GET",
-      "path": "/price-grouped",
+      "path": "/v5/price/{priceId}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "priceId": {
-            "type": "string",
-            "description": "The price request ID"
-          }
+          "priceId": { "type": "string" }
         },
-        "required": [
-          "priceId"
-        ]
+        "required": ["priceId"]
       }
     },
     {
-      "name": "cart_create",
-      "description": "Create a shopping cart with configured items",
+      "name": "get_grouped_prices",
+      "description": "Retrieve prices for a Craftcloud price request grouped by vendor.",
       "method": "GET",
-      "path": "/cart-create",
+      "path": "/v5/price/{priceId}/grouped",
       "input_schema": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "description": "Array of cart items with modelId, quantity, etc.",
-            "items": {
-              "type": "object"
-            }
-          },
-          "currency": {
-            "type": "string",
-            "description": "Currency code"
-          },
-          "countryCode": {
-            "type": "string",
-            "description": "ISO country code"
-          }
+          "priceId": { "type": "string" }
         },
-        "required": [
-          "items"
-        ]
+        "required": ["priceId"]
       }
     },
     {
-      "name": "order_create",
-      "description": "Create an order from a cart",
-      "method": "GET",
-      "path": "/order-create",
+      "name": "create_multi_model_offer",
+      "description": "Create a multi-model offer using the same body shape as a price request.",
+      "method": "POST",
+      "path": "/v5/multi-model-offer",
+      "body_root_param": "body",
       "input_schema": {
         "type": "object",
         "properties": {
-          "cartId": {
-            "type": "string",
-            "description": "The cart ID to order"
-          },
-          "email": {
-            "type": "string",
-            "description": "Customer email"
-          },
-          "firstName": {
-            "type": "string",
-            "description": "Customer first name"
-          },
-          "lastName": {
-            "type": "string",
-            "description": "Customer last name"
-          },
-          "company": {
-            "type": "string",
-            "description": "Company name"
-          },
-          "address": {
-            "type": "string",
-            "description": "Shipping address"
-          },
-          "city": {
-            "type": "string",
-            "description": "City"
-          },
-          "postalCode": {
-            "type": "string",
-            "description": "Postal/ZIP code"
-          },
-          "countryCode": {
-            "type": "string",
-            "description": "ISO country code"
-          },
-          "phone": {
-            "type": "string",
-            "description": "Phone number"
-          }
+          "body": { "type": "object", "description": "Multi-model offer request body." }
         },
-        "required": [
-          "cartId"
-        ]
+        "required": ["body"]
       }
     },
     {
-      "name": "order_status",
-      "description": "Get the status of an order from Craftcloud",
+      "name": "get_multi_model_offer",
+      "description": "Get a multi-model offer by price id.",
       "method": "GET",
-      "path": "/order-status",
+      "path": "/v5/multi-model-offer/{priceId}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "orderId": {
-            "type": "string",
-            "description": "The order ID"
+          "priceId": { "type": "string" }
+        },
+        "required": ["priceId"]
+      }
+    },
+    {
+      "name": "get_multi_model_offer_stats",
+      "description": "Get quote statistics for each model configuration in a multi-model offer.",
+      "method": "GET",
+      "path": "/v5/multi-model-offer/{priceId}/model-config-stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "priceId": { "type": "string" }
+        },
+        "required": ["priceId"]
+      }
+    },
+    {
+      "name": "lookup_multi_model_quote",
+      "description": "Lookup a multi-model quote.",
+      "method": "POST",
+      "path": "/v5/multi-model-quote/lookup",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "Craftcloud quote lookup payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "create_offer",
+      "description": "Create an offer.",
+      "method": "POST",
+      "path": "/v5/offer",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "Craftcloud create-offer payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "get_offer_cart",
+      "description": "Return a cart object for an offer id.",
+      "method": "GET",
+      "path": "/v5/offer/{offerId}/cart",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offerId": { "type": "string" }
+        },
+        "required": ["offerId"]
+      }
+    },
+    {
+      "name": "get_offer_configuration",
+      "description": "Return the model configuration for an offer id.",
+      "method": "GET",
+      "path": "/v5/offer/{offerId}/configuration",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offerId": { "type": "string" }
+        },
+        "required": ["offerId"]
+      }
+    },
+    {
+      "name": "create_cart",
+      "description": "Create a cart from shipping ids, currency, quote ids, and optional notes/reference/voucher.",
+      "method": "POST",
+      "path": "/v5/cart",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "object",
+            "description": "Cart body: { shippingIds, currency, quotes: [{ id, types?, note? }], note?, customerReference?, voucherCode? }."
           }
         },
-        "required": [
-          "orderId"
-        ]
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Create an order from a cart id and user shipping/billing data.",
+      "method": "POST",
+      "path": "/v5/order",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "object",
+            "description": "Order body: { cartId, user: { emailAddress, shipping, billing }, gaClientId?, customsInformation?, appId? }."
+          }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get a Craftcloud order by id.",
+      "method": "GET",
+      "path": "/v5/order/{orderId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "string" }
+        },
+        "required": ["orderId"]
+      }
+    },
+    {
+      "name": "get_order_status",
+      "description": "Get Craftcloud order status.",
+      "method": "GET",
+      "path": "/v5/order/{orderId}/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "string" }
+        },
+        "required": ["orderId"]
+      }
+    },
+    {
+      "name": "get_order_configuration",
+      "description": "Return the quote configuration for an order id.",
+      "method": "GET",
+      "path": "/v5/order/{orderId}/configuration",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "string" }
+        },
+        "required": ["orderId"]
+      }
+    },
+    {
+      "name": "validate_address",
+      "description": "Validate a shipping or billing address.",
+      "method": "POST",
+      "path": "/v5/address-validation",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "Address validation payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "validate_vat",
+      "description": "Validate VAT information.",
+      "method": "POST",
+      "path": "/v5/vat-validation",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "VAT validation payload." }
+        },
+        "required": ["body"]
       }
     }
   ]

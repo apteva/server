@@ -14,7 +14,7 @@
       {
         "name": "api_key",
         "label": "Deepgram API Key",
-        "description": "Create one at https://console.deepgram.com/project/default/keys — needs usage:write scope."
+        "description": "Create one at https://console.deepgram.com/project/default/keys. Speech calls need the normal request scopes; reporting tools need usage:read, and billing/balance/purchase tools need billing:read."
       }
     ]
   },
@@ -345,6 +345,293 @@
         },
         "required": ["project_id", "model_id"]
       }
+    },
+    {
+      "name": "get_usage",
+      "description": "Get raw Deepgram usage records for a project over a date range. Use this for detailed request-level usage auditing before summarizing cost. Dates use YYYY-MM-DD. Start with list_usage_fields to discover valid models, tags, features, and processing methods.",
+      "method": "GET",
+      "path": "/v1/projects/{project_id}/usage",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "Target project id from list_projects."
+          },
+          "start": {
+            "type": "string",
+            "description": "Start date, YYYY-MM-DD."
+          },
+          "end": {
+            "type": "string",
+            "description": "End date, YYYY-MM-DD."
+          },
+          "accessor": {
+            "type": "string",
+            "description": "Filter by accessor UUID."
+          },
+          "deployment": {
+            "type": "string",
+            "description": "Filter by deployment type such as hosted, beta, self-hosted, or dedicated."
+          },
+          "endpoint": {
+            "type": "string",
+            "description": "Filter by API endpoint."
+          },
+          "method": {
+            "type": "string",
+            "description": "Filter by processing method, for example sync, async, or streaming."
+          },
+          "model": {
+            "type": "string",
+            "description": "Filter by model id."
+          },
+          "tag": {
+            "type": "string",
+            "description": "Filter by request tag."
+          },
+          "language": {
+            "type": "string",
+            "description": "Filter by language code."
+          },
+          "punctuate": {
+            "type": "boolean",
+            "description": "Filter by whether punctuate was enabled."
+          },
+          "smart_format": {
+            "type": "boolean",
+            "description": "Filter by whether smart_format was enabled."
+          },
+          "diarize": {
+            "type": "boolean",
+            "description": "Filter by whether diarize was enabled."
+          },
+          "detect_language": {
+            "type": "boolean",
+            "description": "Filter by whether language detection was enabled."
+          },
+          "summarize": {
+            "type": "string",
+            "description": "Filter by summarization setting."
+          },
+          "topics": {
+            "type": "boolean",
+            "description": "Filter by whether topic detection was enabled."
+          },
+          "intents": {
+            "type": "boolean",
+            "description": "Filter by whether intent detection was enabled."
+          },
+          "sentiment": {
+            "type": "boolean",
+            "description": "Filter by whether sentiment analysis was enabled."
+          }
+        },
+        "required": ["project_id"]
+      },
+      "query_params": ["start", "end", "accessor", "deployment", "endpoint", "method", "model", "tag", "language", "punctuate", "smart_format", "diarize", "detect_language", "summarize", "topics", "intents", "sentiment"]
+    },
+    {
+      "name": "get_usage_breakdown",
+      "description": "Aggregate Deepgram usage for a project by fields such as accessor, endpoint, feature_set, models, method, tags, and deployment. Use this to answer questions like which models or tags drove usage this month.",
+      "method": "GET",
+      "path": "/v1/projects/{project_id}/usage/breakdown",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "Target project id from list_projects."
+          },
+          "start": {
+            "type": "string",
+            "description": "Start date, YYYY-MM-DD."
+          },
+          "end": {
+            "type": "string",
+            "description": "End date, YYYY-MM-DD."
+          },
+          "grouping": {
+            "type": "array",
+            "description": "Fields to group by. Official values: accessor, endpoint, feature_set, models, method, tags, deployment.",
+            "items": {
+              "type": "string",
+              "enum": ["accessor", "endpoint", "feature_set", "models", "method", "tags", "deployment"]
+            }
+          },
+          "accessor": {
+            "type": "string",
+            "description": "Filter by accessor UUID."
+          },
+          "deployment": {
+            "type": "string",
+            "description": "Filter by deployment type."
+          },
+          "endpoint": {
+            "type": "string",
+            "description": "Filter by API endpoint."
+          },
+          "method": {
+            "type": "string",
+            "description": "Filter by processing method."
+          },
+          "model": {
+            "type": "string",
+            "description": "Filter by model id."
+          },
+          "tag": {
+            "type": "string",
+            "description": "Filter by request tag."
+          },
+          "language": {
+            "type": "string",
+            "description": "Filter by language code."
+          }
+        },
+        "required": ["project_id"]
+      },
+      "query_params": ["start", "end", "grouping", "accessor", "deployment", "endpoint", "method", "model", "tag", "language"]
+    },
+    {
+      "name": "list_usage_fields",
+      "description": "List usage filter fields available for a project in a date range: tags, models, processing methods, and features. Call this before get_usage or get_usage_breakdown when an agent needs valid filter values.",
+      "method": "GET",
+      "path": "/v1/projects/{project_id}/usage/fields",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "Target project id from list_projects."
+          },
+          "start": {
+            "type": "string",
+            "description": "Start date, YYYY-MM-DD."
+          },
+          "end": {
+            "type": "string",
+            "description": "End date, YYYY-MM-DD."
+          }
+        },
+        "required": ["project_id"]
+      },
+      "query_params": ["start", "end"]
+    },
+    {
+      "name": "get_billing_breakdown",
+      "description": "Get Deepgram billing cost breakdown for a project. Results include USD dollar amounts, so this is the primary tool for questions like 'how much did Deepgram cost this month?' Use start/end dates in YYYY-MM-DD and optional grouping such as accessor, deployment, line_item, or tags.",
+      "method": "GET",
+      "path": "/v1/projects/{project_id}/billing/breakdown",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "Target project id from list_projects."
+          },
+          "start": {
+            "type": "string",
+            "description": "Start date, YYYY-MM-DD."
+          },
+          "end": {
+            "type": "string",
+            "description": "End date, YYYY-MM-DD."
+          },
+          "grouping": {
+            "type": "array",
+            "description": "Fields to group by. Official values include accessor, deployment, line_item, and tags.",
+            "items": {
+              "type": "string",
+              "enum": ["accessor", "deployment", "line_item", "tags"]
+            }
+          },
+          "accessor": {
+            "type": "string",
+            "description": "Filter by accessor UUID."
+          },
+          "deployment": {
+            "type": "string",
+            "description": "Filter by deployment type."
+          },
+          "tag": {
+            "type": "string",
+            "description": "Filter by billing tag."
+          },
+          "line_item": {
+            "type": "string",
+            "description": "Filter by billing line item."
+          }
+        },
+        "required": ["project_id"]
+      },
+      "query_params": ["start", "end", "grouping", "accessor", "deployment", "tag", "line_item"]
+    },
+    {
+      "name": "list_billing_fields",
+      "description": "List billing filter fields available for a project in a date range: accessors, deployments, tags, and line_items. Use this to discover valid filters before get_billing_breakdown.",
+      "method": "GET",
+      "path": "/v1/projects/{project_id}/billing/fields",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "Target project id from list_projects."
+          },
+          "start": {
+            "type": "string",
+            "description": "Start date, YYYY-MM-DD."
+          },
+          "end": {
+            "type": "string",
+            "description": "End date, YYYY-MM-DD."
+          }
+        },
+        "required": ["project_id"]
+      },
+      "query_params": ["start", "end"]
+    },
+    {
+      "name": "list_balances",
+      "description": "List outstanding Deepgram balances for a project, including amount, units, balance_id, and purchase_order_id.",
+      "method": "GET",
+      "path": "/v1/projects/{project_id}/balances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "Target project id from list_projects."
+          }
+        },
+        "required": ["project_id"]
+      }
+    },
+    {
+      "name": "list_purchases",
+      "description": "List Deepgram project purchases and order transactions, including amount, units, created date, expiration, order_id, and order_type.",
+      "method": "GET",
+      "path": "/v1/projects/{project_id}/purchases",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "description": "Target project id from list_projects."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of purchases to return. Default 10, maximum 1000.",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        },
+        "required": ["project_id"]
+      },
+      "query_params": ["limit"]
     }
   ]
 }

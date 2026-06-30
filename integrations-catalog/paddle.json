@@ -1,16 +1,19 @@
 {
   "slug": "paddle",
   "name": "Paddle",
-  "description": "MCP server for Paddle Billing - products, prices, subscriptions, customers, transactions",
+  "description": "Paddle Billing merchant-of-record API for products, prices, customers, subscriptions, transactions, refunds/adjustments, and checkout-style payment links. Paddle does not host uploaded audio files directly; use it to sell access to products delivered by your app or storage layer.",
   "logo": "https://www.google.com/s2/favicons?domain=paddle.com&sz=128",
   "categories": ["payments", "billing", "subscriptions", "merchant-of-record"],
   "base_url": "https://api.paddle.com",
   "auth": {
     "types": ["bearer"],
-    "headers": { "Authorization": "Bearer {{token}}" },
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json"
+    },
     "credential_fields": [
       { "name": "token", "label": "API Key", "description": "Paddle API key (pdl_live_... or pdl_sdbx_...)" },
-      { "name": "webhookSecret", "label": "Webhook Secret" }
+      { "name": "webhookSecret", "label": "Webhook Secret", "required": false, "description": "Optional Paddle webhook signing secret used only for verifying incoming webhooks." }
     ]
   },
   "tools": [
@@ -23,13 +26,25 @@
         "type": "object",
         "properties": {
           "status": { "type": "string" },
+          "ids": { "type": "array", "items": { "type": "string" } },
           "per_page": { "type": "number" }
         }
       }
     },
     {
+      "name": "get_product",
+      "description": "Retrieve one Paddle product.",
+      "method": "GET",
+      "path": "/products/{product_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "product_id": { "type": "string" } },
+        "required": ["product_id"]
+      }
+    },
+    {
       "name": "create_product",
-      "description": "Create a product",
+      "description": "Create a product in Paddle. For digital audio, this creates the sellable catalog product/access item; Paddle does not upload or store the audio file itself.",
       "method": "POST",
       "path": "/products",
       "input_schema": {
@@ -43,6 +58,23 @@
       }
     },
     {
+      "name": "update_product",
+      "description": "Update a Paddle product.",
+      "method": "PATCH",
+      "path": "/products/{product_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": { "type": "string" },
+          "name": { "type": "string" },
+          "tax_category": { "type": "string" },
+          "description": { "type": "string" },
+          "status": { "type": "string" }
+        },
+        "required": ["product_id"]
+      }
+    },
+    {
       "name": "list_prices",
       "description": "List prices",
       "method": "GET",
@@ -51,8 +83,21 @@
         "type": "object",
         "properties": {
           "product_id": { "type": "array" },
-          "status": { "type": "string" }
+          "status": { "type": "string" },
+          "ids": { "type": "array", "items": { "type": "string" } },
+          "per_page": { "type": "number" }
         }
+      }
+    },
+    {
+      "name": "get_price",
+      "description": "Retrieve one Paddle price.",
+      "method": "GET",
+      "path": "/prices/{price_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "price_id": { "type": "string" } },
+        "required": ["price_id"]
       }
     },
     {
@@ -72,6 +117,25 @@
       }
     },
     {
+      "name": "update_price",
+      "description": "Update a Paddle price, for example description, status, billing_cycle, trial_period, unit_price, or custom_data.",
+      "method": "PATCH",
+      "path": "/prices/{price_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "price_id": { "type": "string" },
+          "description": { "type": "string" },
+          "unit_price": { "type": "object" },
+          "billing_cycle": { "type": "object" },
+          "trial_period": { "type": "object" },
+          "status": { "type": "string" },
+          "custom_data": { "type": "object" }
+        },
+        "required": ["price_id"]
+      }
+    },
+    {
       "name": "list_customers",
       "description": "List customers",
       "method": "GET",
@@ -80,8 +144,21 @@
         "type": "object",
         "properties": {
           "email": { "type": "array" },
-          "status": { "type": "string" }
+          "status": { "type": "string" },
+          "ids": { "type": "array", "items": { "type": "string" } },
+          "per_page": { "type": "number" }
         }
+      }
+    },
+    {
+      "name": "get_customer",
+      "description": "Retrieve one Paddle customer.",
+      "method": "GET",
+      "path": "/customers/{customer_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "customer_id": { "type": "string" } },
+        "required": ["customer_id"]
       }
     },
     {
@@ -100,6 +177,24 @@
       }
     },
     {
+      "name": "update_customer",
+      "description": "Update a Paddle customer.",
+      "method": "PATCH",
+      "path": "/customers/{customer_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": { "type": "string" },
+          "email": { "type": "string" },
+          "name": { "type": "string" },
+          "locale": { "type": "string" },
+          "status": { "type": "string" },
+          "custom_data": { "type": "object" }
+        },
+        "required": ["customer_id"]
+      }
+    },
+    {
       "name": "list_subscriptions",
       "description": "List subscriptions",
       "method": "GET",
@@ -108,7 +203,10 @@
         "type": "object",
         "properties": {
           "customer_id": { "type": "array" },
-          "status": { "type": "array" }
+          "status": { "type": "array" },
+          "product_id": { "type": "array", "items": { "type": "string" } },
+          "price_id": { "type": "array", "items": { "type": "string" } },
+          "per_page": { "type": "number" }
         }
       }
     },
@@ -120,6 +218,23 @@
       "input_schema": {
         "type": "object",
         "properties": { "subscription_id": { "type": "string" } },
+        "required": ["subscription_id"]
+      }
+    },
+    {
+      "name": "update_subscription",
+      "description": "Update a Paddle subscription. Use for changing items, scheduled_change, proration_billing_mode, custom_data, collection_mode, or billing details according to Paddle's Billing API.",
+      "method": "PATCH",
+      "path": "/subscriptions/{subscription_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscription_id": { "type": "string" },
+          "items": { "type": "array" },
+          "scheduled_change": { "type": "object" },
+          "proration_billing_mode": { "type": "string" },
+          "custom_data": { "type": "object" }
+        },
         "required": ["subscription_id"]
       }
     },
@@ -146,8 +261,21 @@
         "type": "object",
         "properties": {
           "customer_id": { "type": "array" },
-          "status": { "type": "array" }
+          "status": { "type": "array" },
+          "subscription_id": { "type": "array", "items": { "type": "string" } },
+          "per_page": { "type": "number" }
         }
+      }
+    },
+    {
+      "name": "get_transaction",
+      "description": "Retrieve one Paddle transaction. A completed/ready transaction may include checkout/payment link fields depending on creation parameters and Paddle response shape.",
+      "method": "GET",
+      "path": "/transactions/{transaction_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "transaction_id": { "type": "string" } },
+        "required": ["transaction_id"]
       }
     },
     {
@@ -165,6 +293,68 @@
         },
         "required": ["items"]
       }
+    },
+    {
+      "name": "update_transaction",
+      "description": "Update a draft Paddle transaction before it is billed.",
+      "method": "PATCH",
+      "path": "/transactions/{transaction_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transaction_id": { "type": "string" },
+          "items": { "type": "array" },
+          "customer_id": { "type": "string" },
+          "currency_code": { "type": "string" },
+          "collection_mode": { "type": "string" },
+          "billing_details": { "type": "object" },
+          "custom_data": { "type": "object" }
+        },
+        "required": ["transaction_id"]
+      }
+    },
+    {
+      "name": "list_adjustments",
+      "description": "List Paddle adjustments such as refunds and credits.",
+      "method": "GET",
+      "path": "/adjustments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "array", "items": { "type": "string" } },
+          "status": { "type": "array", "items": { "type": "string" } },
+          "transaction_id": { "type": "array", "items": { "type": "string" } },
+          "per_page": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "create_adjustment",
+      "description": "Create a Paddle adjustment, commonly a refund or credit. Body fields depend on action/type and Paddle's adjustment API.",
+      "method": "POST",
+      "path": "/adjustments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string" },
+          "transaction_id": { "type": "string" },
+          "reason": { "type": "string" },
+          "items": { "type": "array" }
+        },
+        "required": ["action", "transaction_id"]
+      }
+    },
+    {
+      "name": "get_adjustment",
+      "description": "Retrieve one Paddle adjustment.",
+      "method": "GET",
+      "path": "/adjustments/{adjustment_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "adjustment_id": { "type": "string" } },
+        "required": ["adjustment_id"]
+      }
     }
-  ]
+  ],
+  "health_check": { "tool": "list_products" }
 }

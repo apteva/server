@@ -4,7 +4,22 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/apteva/server/apps/framework"
 )
+
+func TestResolveChatThread_PlatformHelperUsesMain(t *testing.T) {
+	t.Setenv("CHANNELCHAT_PER_THREAD", "1")
+
+	h := &handlers{}
+	got := h.resolveChatThread(framework.InstanceInfo{
+		ID:   3,
+		Kind: "platform_helper",
+	}, defaultChatID(3))
+	if got != "main" {
+		t.Fatalf("thread = %q, want main", got)
+	}
+}
 
 func TestStreamerIngest_MainThreadRoutesToDefaultChat(t *testing.T) {
 	h := newHub()
@@ -201,5 +216,43 @@ func TestFormatAgentChatEventIncludesReplyContract(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("chat event missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestValidateChatAttachmentsKeepsDurableDataURL(t *testing.T) {
+	dataURL := "data:image/png;base64,iVBORw0KGgo="
+	event, persisted, err := validateChatAttachments([]ChatAttachment{{
+		Type:    "image",
+		DataURL: dataURL,
+		Name:    "tiny.png",
+	}})
+	if err != nil {
+		t.Fatalf("validateChatAttachments: %v", err)
+	}
+	if len(event) != 1 || len(persisted) != 1 {
+		t.Fatalf("event=%d persisted=%d, want 1/1", len(event), len(persisted))
+	}
+	if persisted[0].DataURL != dataURL {
+		t.Fatalf("persisted data_url was stripped")
+	}
+	if persisted[0].MimeType != "image/png" || persisted[0].Size == 0 {
+		t.Fatalf("persisted metadata = %+v", persisted[0])
+	}
+}
+
+func TestBuildCoreContentPartsIncludesImageURL(t *testing.T) {
+	dataURL := "data:image/png;base64,iVBORw0KGgo="
+	parts := buildCoreContentParts("hello", []ChatAttachment{{
+		Type:    "image",
+		DataURL: dataURL,
+	}})
+	if len(parts) != 2 {
+		t.Fatalf("parts=%d, want 2", len(parts))
+	}
+	if parts[0].Type != "text" || parts[0].Text != "hello" {
+		t.Fatalf("text part = %+v", parts[0])
+	}
+	if parts[1].Type != "image_url" || parts[1].ImageURL == nil || parts[1].ImageURL.URL != dataURL {
+		t.Fatalf("image part = %+v", parts[1])
 	}
 }

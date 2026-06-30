@@ -58,6 +58,43 @@ func TestApplyServerDirectiveEditsSectionReplaceLine(t *testing.T) {
 	}
 }
 
+func TestApplyServerDirectiveEditsSectionReplaceLineSearchesNestedSubsections(t *testing.T) {
+	before := "# Current Offer Focus\nDeskora Reception.\n\n## Deskora Reception Overview\nWebsite: http://deskorareception.com/\nOutreach email: contact@deskoraception.com\n\n# Responsibilities\n- Qualify leads"
+	after, changed, err := applyServerDirectiveEdits(before, map[string]any{
+		"directive_edit_mode": "section_replace_line",
+		"directive_section":   "Current Offer Focus",
+		"directive_match":     "Outreach email:",
+		"directive_content":   "Outreach email: contact@deskorareception.com",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true")
+	}
+	if !strings.Contains(after, "Outreach email: contact@deskorareception.com") {
+		t.Fatalf("expected nested replacement line, got:\n%s", after)
+	}
+	if strings.Contains(after, "contact@deskoraception.com") {
+		t.Fatalf("expected typo removed, got:\n%s", after)
+	}
+}
+
+func TestApplyServerDirectiveEditsSectionReplaceLineStopsAtSiblingSection(t *testing.T) {
+	_, _, err := applyServerDirectiveEdits("# Current Offer Focus\nDeskora Reception.\n\n# Responsibilities\nOutreach email: contact@deskoraception.com", map[string]any{
+		"directive_edit_mode": "section_replace_line",
+		"directive_section":   "Current Offer Focus",
+		"directive_match":     "Outreach email:",
+		"directive_content":   "Outreach email: contact@deskorareception.com",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), `directive line containing "Outreach email:" not found`) {
+		t.Fatalf("error = %q", err)
+	}
+}
+
 func TestApplyServerDirectiveEditsBatch(t *testing.T) {
 	before := "# Role\nYou are a test agent."
 	after, changed, err := applyServerDirectiveEdits(before, map[string]any{

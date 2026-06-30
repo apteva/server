@@ -42,6 +42,11 @@ type Subscription struct {
 	LastError        string    `json:"last_error,omitempty"`
 	FailureCount     int       `json:"failure_count,omitempty"`
 	LastSeqDelivered uint64    `json:"last_seq_delivered,omitempty"`
+	Kind             string    `json:"kind,omitempty"`
+	MatchJSON        string    `json:"match_json,omitempty"`
+	WaitGroupID      string    `json:"wait_group_id,omitempty"`
+	ExpiresAt        string    `json:"expires_at,omitempty"`
+	DeleteOnMatch    bool      `json:"delete_on_match,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 }
 
@@ -55,9 +60,13 @@ func (s *Store) ListAllAppEventSubscriptions() ([]*Subscription, error) {
 		`SELECT id, user_id, agent_id, connection_id, name, slug, description,
 			webhook_path, enabled, COALESCE(notify_agent,0), COALESCE(thread_id,''), COALESCE(events,''),
 			COALESCE(project_id,''), COALESCE(source,'webhook'),
-			COALESCE(last_seq_delivered,0)
+			COALESCE(last_seq_delivered,0),
+			COALESCE(kind,'user'), COALESCE(match_json,''), COALESCE(wait_group_id,''),
+			COALESCE(expires_at,''), COALESCE(delete_on_match,0)
 		 FROM subscriptions
-		 WHERE source = 'app_event'`,
+		 WHERE source = 'app_event'
+		   AND enabled = 1
+		   AND (COALESCE(expires_at,'') = '' OR expires_at > datetime('now'))`,
 	)
 	if err != nil {
 		return nil, err
@@ -66,18 +75,20 @@ func (s *Store) ListAllAppEventSubscriptions() ([]*Subscription, error) {
 	var out []*Subscription
 	for rows.Next() {
 		sub := &Subscription{}
-		var enabled, notifyAgent int
+		var enabled, notifyAgent, deleteOnMatch int
 		var eventsJSON string
 		if err := rows.Scan(
 			&sub.ID, &sub.UserID, &sub.AgentID, &sub.ConnectionID,
 			&sub.Name, &sub.Slug, &sub.Description, &sub.WebhookPath,
 			&enabled, &notifyAgent, &sub.ThreadID, &eventsJSON, &sub.ProjectID,
-			&sub.Source, &sub.LastSeqDelivered,
+			&sub.Source, &sub.LastSeqDelivered, &sub.Kind, &sub.MatchJSON,
+			&sub.WaitGroupID, &sub.ExpiresAt, &deleteOnMatch,
 		); err != nil {
 			return nil, err
 		}
 		sub.Enabled = enabled != 0
 		sub.NotifyAgent = notifyAgent != 0
+		sub.DeleteOnMatch = deleteOnMatch != 0
 		if eventsJSON != "" {
 			_ = json.Unmarshal([]byte(eventsJSON), &sub.Events)
 		}
@@ -120,6 +131,23 @@ func internalSubscriptionWebhookPath(kind string) string {
 	return kind + "-" + generateToken(16)
 }
 
+func compactSubscriptionEvents(events []string) []string {
+	if len(events) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(events))
+	seen := make(map[string]bool, len(events))
+	for _, event := range events {
+		event = strings.TrimSpace(event)
+		if event == "" || seen[event] {
+			continue
+		}
+		seen[event] = true
+		out = append(out, event)
+	}
+	return out
+}
+
 func isInternalSubscriptionWebhookPath(path string) bool {
 	return strings.HasPrefix(path, "app-event-") ||
 		strings.HasPrefix(path, "composio-") ||
@@ -133,6 +161,7 @@ func (s *Store) CreateSubscription(userID, instanceID, connectionID int64, name,
 	if strings.TrimSpace(webhookPath) == "" {
 		webhookPath = internalSubscriptionWebhookPath("internal")
 	}
+	events = compactSubscriptionEvents(events)
 	eventsJSON := ""
 	if len(events) > 0 {
 		if b, merr := json.Marshal(events); merr == nil {
@@ -153,6 +182,7 @@ func (s *Store) CreatePollSubscription(userID, instanceID, connectionID int64, n
 	notifyAgent := len(notifyAgentOpt) > 0 && notifyAgentOpt[0]
 	id := generateID()
 	webhookPath := "poll-" + generateToken(16)
+	events = compactSubscriptionEvents(events)
 	eventsJSON := ""
 	if len(events) > 0 {
 		if b, merr := json.Marshal(events); merr == nil {
@@ -182,26 +212,35 @@ func (s *Store) CreatePollSubscription(userID, instanceID, connectionID int64, n
 }
 
 // CreateAppEventSubscription is the source='app_event' counterpart
-// of CreateSubscription. No webhook_path / encrypted_secret /
+// of CreateSubscription. No public webhook path / encrypted_secret /
 // connection_id — the bridge dispatcher routes events from the
-// in-process bus straight into the agent. The slug carries the
-// '<app>:<topic_pattern>' the dispatcher matches on.
-func (s *Store) CreateAppEventSubscription(userID, instanceID int64, name, slug, description, threadID, projectID string, notifyAgentOpt ...bool) (*Subscription, error) {
+// in-process bus straight into the agent. The slug carries the app
+// lane plus a legacy topic pattern. When events is non-empty, the
+// dispatcher matches against that list instead of the slug topic so a
+// single row can subscribe to multiple app topics.
+func (s *Store) CreateAppEventSubscription(userID, instanceID int64, name, slug, description, threadID, projectID string, events []string, notifyAgentOpt ...bool) (*Subscription, error) {
 	notifyAgent := len(notifyAgentOpt) > 0 && notifyAgentOpt[0]
 	id := generateID()
 	webhookPath := internalSubscriptionWebhookPath("app-event")
-	// 13 columns / 13 values. agent_id binds instanceID; connection_id
+	events = compactSubscriptionEvents(events)
+	eventsJSON := ""
+	if len(events) > 0 {
+		if b, merr := json.Marshal(events); merr == nil {
+			eventsJSON = string(b)
+		}
+	}
+	// 14 columns / 14 values. agent_id binds instanceID; connection_id
 	// is the literal 0 because app-event subscriptions don't go through
-	// a connection. Pre-fix this had only 12 values (agent_id was a
-	// literal 0 and there was no slot for connection_id) so the INSERT
+	// a connection. Pre-fix this had fewer values (agent_id was a
+	// literal 0 and there was no slot for connection_id/events) so the INSERT
 	// errored with "12 values for 13 columns" the moment the dashboard
 	// tried to subscribe to an app event.
 	_, err := s.db.Exec(
 		`INSERT INTO subscriptions
 				(id, user_id, agent_id, connection_id, name, slug, description,
 				 webhook_path, encrypted_hmac_secret, thread_id, project_id, events, source, notify_agent)
-			 VALUES (?, ?, ?, 0, ?, ?, ?, ?, '', ?, ?, '', 'app_event', ?)`,
-		id, userID, instanceID, name, slug, description, webhookPath, threadID, projectID, boolToInt(notifyAgent),
+			 VALUES (?, ?, ?, 0, ?, ?, ?, ?, '', ?, ?, ?, 'app_event', ?)`,
+		id, userID, instanceID, name, slug, description, webhookPath, threadID, projectID, eventsJSON, boolToInt(notifyAgent),
 	)
 	if err != nil {
 		return nil, err
@@ -210,8 +249,72 @@ func (s *Store) CreateAppEventSubscription(userID, instanceID int64, name, slug,
 		ID: id, UserID: userID, AgentID: instanceID,
 		Name: name, Slug: slug, Description: description, WebhookPath: webhookPath,
 		Enabled: true, NotifyAgent: notifyAgent, ThreadID: threadID, ProjectID: projectID,
-		Source: "app_event", Delivery: "app_event", CreatedAt: time.Now(),
+		Events: events, Source: "app_event", Delivery: "app_event", CreatedAt: time.Now(),
 	}, nil
+}
+
+// CreateEphemeralAppEventSubscription creates a hidden, one-shot
+// app-event subscription. It is used for async app tool results where
+// the platform should wake the calling agent/thread when a matching
+// app event arrives.
+func (s *Store) CreateEphemeralAppEventSubscription(userID, agentID int64, name, slug, description, threadID, projectID string, events []string, matchJSON, waitGroupID string, expiresAt time.Time) (*Subscription, error) {
+	id := generateID()
+	webhookPath := internalSubscriptionWebhookPath("app-event")
+	expires := ""
+	if !expiresAt.IsZero() {
+		expires = expiresAt.UTC().Format("2006-01-02 15:04:05")
+	}
+	events = compactSubscriptionEvents(events)
+	eventsJSON := ""
+	if len(events) > 0 {
+		if b, merr := json.Marshal(events); merr == nil {
+			eventsJSON = string(b)
+		}
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO subscriptions
+				(id, user_id, agent_id, connection_id, name, slug, description,
+				 webhook_path, encrypted_hmac_secret, thread_id, project_id, events,
+				 source, delivery, notify_agent, kind, match_json, wait_group_id,
+				 expires_at, delete_on_match)
+			 VALUES (?, ?, ?, 0, ?, ?, ?, ?, '', ?, ?, ?, 'app_event', 'app_event',
+				 1, 'ephemeral', ?, ?, ?, 1)`,
+		id, userID, agentID, name, slug, description, webhookPath,
+		threadID, projectID, eventsJSON, matchJSON, waitGroupID, expires,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &Subscription{
+		ID: id, UserID: userID, AgentID: agentID, Name: name, Slug: slug,
+		Description: description, WebhookPath: webhookPath, Enabled: true,
+		NotifyAgent: true, ThreadID: threadID, ProjectID: projectID,
+		Events: events, Source: "app_event", Delivery: "app_event", Kind: "ephemeral",
+		MatchJSON: matchJSON, WaitGroupID: waitGroupID, ExpiresAt: expires,
+		DeleteOnMatch: true, CreatedAt: time.Now(),
+	}, nil
+}
+
+func (s *Store) DeleteEphemeralSubscriptionWaitGroup(waitGroupID string) error {
+	waitGroupID = strings.TrimSpace(waitGroupID)
+	if waitGroupID == "" {
+		return nil
+	}
+	_, err := s.db.Exec(
+		`DELETE FROM subscriptions WHERE kind = 'ephemeral' AND wait_group_id = ?`,
+		waitGroupID,
+	)
+	return err
+}
+
+func (s *Store) CleanupExpiredEphemeralSubscriptions() error {
+	_, err := s.db.Exec(
+		`DELETE FROM subscriptions
+		 WHERE kind = 'ephemeral'
+		   AND COALESCE(expires_at,'') != ''
+		   AND expires_at <= datetime('now')`,
+	)
+	return err
 }
 
 func (s *Store) ListSubscriptions(userID int64, projectID ...string) ([]Subscription, error) {
@@ -225,10 +328,10 @@ func (s *Store) ListSubscriptions(userID int64, projectID ...string) ([]Subscrip
 		COALESCE(failure_count,0), COALESCE(last_seq_delivered,0), created_at`
 	if len(projectID) > 0 && projectID[0] != "" {
 		rows, err = s.db.Query(
-			"SELECT "+cols+" FROM subscriptions WHERE user_id = ? AND (project_id = ? OR project_id = '') ORDER BY created_at, id", userID, projectID[0])
+			"SELECT "+cols+" FROM subscriptions WHERE user_id = ? AND COALESCE(kind,'user') != 'ephemeral' AND (project_id = ? OR project_id = '') ORDER BY created_at, id", userID, projectID[0])
 	} else {
 		rows, err = s.db.Query(
-			"SELECT "+cols+" FROM subscriptions WHERE user_id = ? ORDER BY created_at, id", userID)
+			"SELECT "+cols+" FROM subscriptions WHERE user_id = ? AND COALESCE(kind,'user') != 'ephemeral' ORDER BY created_at, id", userID)
 	}
 	if err != nil {
 		return nil, err
@@ -269,7 +372,7 @@ func (s *Store) ListSubscriptionsForAgent(userID, agentID int64) ([]Subscription
 		COALESCE(last_run_at,''), COALESCE(next_run_at,''), COALESCE(last_error,''),
 		COALESCE(failure_count,0), COALESCE(last_seq_delivered,0), created_at`
 	rows, err := s.db.Query(
-		"SELECT "+cols+" FROM subscriptions WHERE user_id = ? AND agent_id = ? ORDER BY created_at, id",
+		"SELECT "+cols+" FROM subscriptions WHERE user_id = ? AND agent_id = ? AND COALESCE(kind,'user') != 'ephemeral' ORDER BY created_at, id",
 		userID, agentID,
 	)
 	if err != nil {
@@ -958,26 +1061,27 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// app_event subscriptions: no webhook path, no HMAC, no upstream
-	// registration. The slug carries '<app>:<topic_pattern>' which
-	// the bridge dispatcher matches on. Reconcile fires after insert
-	// so the new lane (or existing lane's row set) is wired without
-	// waiting for a server restart.
+	// app_event subscriptions: no public webhook path, no HMAC, no
+	// upstream registration. The slug carries '<app>:<topic_pattern>'
+	// for compatibility. When events[] is present, the dispatcher uses
+	// that list as the topic matcher so one row can represent multiple
+	// app events.
 	if body.Source == "app_event" {
 		if body.Slug == "" || !strings.Contains(body.Slug, ":") {
 			http.Error(w, "slug must be '<app>:<topic_pattern>' for app_event subscriptions", http.StatusBadRequest)
 			return
 		}
+		events := compactSubscriptionEvents(body.Events)
 		sub, err := s.store.CreateAppEventSubscription(
 			userID, body.AgentID, body.Name, body.Slug, body.Description,
-			body.ThreadID, body.ProjectID, body.NotifyAgent,
+			body.ThreadID, body.ProjectID, events, body.NotifyAgent,
 		)
 		if err != nil {
 			http.Error(w, "failed to create: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		log.Printf("[SUB-CREATE] sub=%s source=app_event slug=%q agent=%d project=%q",
-			sub.ID, body.Slug, body.AgentID, body.ProjectID)
+		log.Printf("[SUB-CREATE] sub=%s source=app_event slug=%q events=%v agent=%d project=%q",
+			sub.ID, body.Slug, events, body.AgentID, body.ProjectID)
 		if s.appEventDispatcher != nil {
 			if err := s.appEventDispatcher.Reconcile(); err != nil {
 				log.Printf("[SUB-CREATE] dispatcher reconcile after create: %v", err)

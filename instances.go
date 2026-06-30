@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1455,7 +1456,13 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	if shouldStart {
 		providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret, inst.ProjectID)
 		if err != nil {
-			providerEnv = map[string]string{}
+			writeJSON(w, map[string]any{
+				"id":      inst.ID,
+				"name":    inst.Name,
+				"status":  "stopped",
+				"warning": "agent created but not started: " + err.Error(),
+			})
+			return
 		}
 		pool := s.GetProviderPool(userID, inst.ProjectID)
 		if len(pool) == 0 {
@@ -1757,6 +1764,13 @@ func (s *Server) ResumeRunningInstances() {
 		return
 	}
 	reattachEnabled := s.agentShutdownPolicy() == "detach"
+	if providerAuthRefreshEnvEnabled() && s.store.RunningAgentsUseCodexProvider() {
+		result := s.refreshExpiringCodexProviders(context.Background(), codexProviderRefreshSkew, false)
+		if result.ProvidersRefreshed > 0 && disableCoreReattachForCodexRefresh() {
+			reattachEnabled = false
+			log.Printf("[RESUME] OpenAI Codex provider refreshed before resume; forcing fresh core spawn for updated token env")
+		}
+	}
 	rows, err := s.store.ListAgentsByStatus("running")
 	if err != nil {
 		log.Printf("[RESUME] list running instances: %v", err)
@@ -1799,7 +1813,13 @@ func (s *Server) ResumeRunningInstances() {
 		}
 		providerEnv, err := s.store.GetAllProviderEnvVars(inst.UserID, s.secret, inst.ProjectID)
 		if err != nil {
-			providerEnv = map[string]string{}
+			log.Printf("[RESUME] instance %d (%s): provider env failed: %v — leaving stopped", inst.ID, inst.Name, err)
+			inst.Status = "stopped"
+			inst.Pid = 0
+			inst.Port = 0
+			inst.CoreAPIKey = ""
+			_ = s.store.UpdateAgent(inst)
+			continue
 		}
 		pool := s.GetProviderPool(inst.UserID, inst.ProjectID)
 
@@ -1918,7 +1938,8 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 
 	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret, inst.ProjectID)
 	if err != nil {
-		providerEnv = map[string]string{}
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
 	}
 	pool := s.GetProviderPool(userID, inst.ProjectID)
 	// P1 fix — refuse to start with no LLM provider; see the same
@@ -1970,7 +1991,8 @@ func (s *Server) handleRestartInstance(w http.ResponseWriter, r *http.Request) {
 	// Start
 	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret, inst.ProjectID)
 	if err != nil {
-		providerEnv = map[string]string{}
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
 	}
 	pool := s.GetProviderPool(userID, inst.ProjectID)
 	// P1 fix — refuse to restart with no LLM provider. Same rationale

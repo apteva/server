@@ -798,7 +798,7 @@ func (s *Server) resolveStaticInstallDir(m *sdk.Manifest) (string, error) {
 	// — the cloned tree is expected to already contain static_dir.
 	if m.Runtime.Source != nil && m.Runtime.Source.Repo != "" {
 		dir := filepath.Join(s.localApps.cacheDir, m.Name, m.Version, "src")
-		if err := cloneOrUpdate(dir, m.Runtime.Source.Repo, m.Runtime.Source.Ref); err != nil {
+		if err := cloneOrUpdate(dir, m.Runtime.Source.Repo, m.Runtime.Source.Ref, d); err != nil {
 			return "", fmt.Errorf("clone %s@%s: %w", m.Runtime.Source.Repo, m.Runtime.Source.Ref, err)
 		}
 		if err := stripGitMetadata(dir); err != nil {

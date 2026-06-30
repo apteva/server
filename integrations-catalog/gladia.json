@@ -1,0 +1,158 @@
+{
+  "slug": "gladia",
+  "name": "Gladia",
+  "description": "Gladia v2 speech-to-text API for pre-recorded transcription, uploads, diarization, translation, summarization, subtitles, sentiment, NER, PII redaction, and custom metadata.",
+  "logo": "https://www.google.com/s2/favicons?domain=gladia.io&sz=128",
+  "categories": ["ai", "speech", "speech-to-text", "transcription", "audio-intelligence"],
+  "base_url": "https://api.gladia.io",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "x-gladia-key": "{{api_key}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Gladia API key from app.gladia.io/apikeys."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "upload_audio_url",
+      "description": "Ask Gladia to ingest an audio/video URL and return a Gladia audio_url usable by create_transcription.",
+      "method": "POST",
+      "path": "/v2/upload",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "audio_url": { "type": "string", "description": "Publicly reachable audio or video URL." }
+        },
+        "required": ["audio_url"]
+      }
+    },
+    {
+      "name": "upload_audio_file",
+      "description": "Upload an audio/video file to Gladia and return a Gladia audio_url usable by create_transcription.",
+      "method": "POST",
+      "path": "/v2/upload",
+      "timeout_ms": 600000,
+      "multipart_form": {
+        "file_fields": { "audio": "audio" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "audio": { "type": "string", "description": "Audio/video file content as blobref://, base64, data URL, or raw string." },
+          "audio_filename": { "type": "string", "description": "Optional filename for the multipart upload." }
+        },
+        "required": ["audio"]
+      }
+    },
+    {
+      "name": "create_transcription",
+      "description": "Initiate a Gladia v2 pre-recorded transcription. Use audio_url from upload_audio_url/upload_audio_file or an external URL. Optional add-ons include diarization, subtitles, translation, summarization, NER, sentiment, PII redaction, audio_to_llm, sentences, and custom metadata.",
+      "method": "POST",
+      "path": "/v2/pre-recorded",
+      "timeout_ms": 600000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "audio_url": { "type": "string" },
+          "model": { "type": "string", "description": "solaria-1 or solaria-3 where available." },
+          "language_config": { "type": "object", "description": "Language config, e.g. {\"languages\":[\"en\"],\"code_switching\":false}." },
+          "callback": { "type": "boolean" },
+          "callback_config": { "type": "object" },
+          "diarization": { "type": "boolean" },
+          "diarization_config": { "type": "object" },
+          "subtitles": { "type": "boolean" },
+          "subtitles_config": { "type": "object" },
+          "translation": { "type": "boolean" },
+          "translation_config": { "type": "object" },
+          "summarization": { "type": "boolean" },
+          "summarization_config": { "type": "object" },
+          "named_entity_recognition": { "type": "boolean" },
+          "sentiment_analysis": { "type": "boolean" },
+          "pii_redaction": { "type": "boolean" },
+          "pii_redaction_config": { "type": "object" },
+          "audio_to_llm": { "type": "boolean" },
+          "audio_to_llm_config": { "type": "object" },
+          "custom_vocabulary": { "type": ["boolean", "array"] },
+          "custom_vocabulary_config": { "type": "object" },
+          "custom_spelling": { "type": "boolean" },
+          "custom_spelling_config": { "type": "object" },
+          "custom_metadata": { "type": "object" },
+          "sentences": { "type": "boolean" },
+          "punctuation_enhanced": { "type": "boolean" }
+        },
+        "required": ["audio_url"]
+      }
+    },
+    {
+      "name": "create_transcription_raw",
+      "description": "Initiate a Gladia pre-recorded transcription with a raw request body. Use this when the standard tool schema does not expose a new Gladia option yet.",
+      "method": "POST",
+      "path": "/v2/pre-recorded",
+      "timeout_ms": 600000,
+      "body_root_param": "body",
+      "input_schema": { "type": "object", "properties": { "body": { "type": "object" } }, "required": ["body"] }
+    },
+    {
+      "name": "list_transcriptions",
+      "description": "List Gladia pre-recorded transcriptions with pagination, date, status, and metadata filters.",
+      "method": "GET",
+      "path": "/v2/pre-recorded",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "date": { "type": "string" },
+          "before_date": { "type": "string" },
+          "after_date": { "type": "string" },
+          "status": { "type": "string", "description": "queued, processing, done, or error." }
+        }
+      }
+    },
+    {
+      "name": "get_transcription",
+      "description": "Get a Gladia pre-recorded transcription status, parameters, and result. Result is available when status is done.",
+      "method": "GET",
+      "path": "/v2/pre-recorded/{id}",
+      "timeout_ms": 300000,
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "download_audio",
+      "description": "Download the audio file used by a Gladia pre-recorded transcription.",
+      "method": "GET",
+      "path": "/v2/pre-recorded/{id}/file",
+      "timeout_ms": 600000,
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "delete_transcription",
+      "description": "Delete a Gladia pre-recorded transcription and all related data.",
+      "method": "DELETE",
+      "path": "/v2/pre-recorded/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-gladia-key",
+    "events": [
+      { "name": "transcription.created", "description": "A Gladia pre-recorded transcription was created." },
+      { "name": "transcription.success", "description": "A Gladia pre-recorded transcription completed successfully." },
+      { "name": "transcription.error", "description": "A Gladia pre-recorded transcription failed." }
+    ],
+    "registration": {
+      "method": "POST",
+      "path": "/",
+      "url_field": "url",
+      "manual_setup": "Gladia callbacks are configured per transcription request with callback=true and callback_config.url. This integration does not auto-register a global webhook."
+    }
+  },
+  "health_check": { "tool": "list_transcriptions", "input": { "limit": 1 } }
+}

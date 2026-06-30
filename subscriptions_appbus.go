@@ -78,6 +78,9 @@ func (d *AppEventDispatcher) Start() {
 // Called at boot and after every CRUD on subscriptions. Cheap — one
 // query + a few map operations even at high subscription count.
 func (d *AppEventDispatcher) Reconcile() error {
+	if err := d.server.store.CleanupExpiredEphemeralSubscriptions(); err != nil {
+		log.Printf("[APP-SUB] cleanup expired ephemeral subscriptions: %v", err)
+	}
 	rows, err := d.server.store.ListAllAppEventSubscriptions()
 	if err != nil {
 		return err
@@ -174,7 +177,10 @@ func (d *AppEventDispatcher) dispatch(lane *appEventLane, ev AppEvent) {
 		if !ok {
 			continue
 		}
-		if !matchTopic(pattern, ev.Topic) {
+		if !appEventSubscriptionTopicMatches(sub, pattern, ev.Topic) {
+			continue
+		}
+		if !subscriptionPayloadMatches(sub, ev.Data) {
 			continue
 		}
 		if err := d.deliver(sub, ev); err != nil {
@@ -186,6 +192,15 @@ func (d *AppEventDispatcher) dispatch(lane *appEventLane, ev AppEvent) {
 		// pointer is a fresh copy each Reconcile so we mutate
 		// safely under the dispatcher's mu when we write back.
 		d.markDelivered(sub, ev.Seq)
+		if sub.DeleteOnMatch {
+			if err := d.server.store.DeleteEphemeralSubscriptionWaitGroup(sub.WaitGroupID); err != nil {
+				log.Printf("[APP-SUB] delete wait group sub=%s group=%q: %v", sub.ID, sub.WaitGroupID, err)
+				continue
+			}
+			if err := d.Reconcile(); err != nil {
+				log.Printf("[APP-SUB] reconcile after one-shot delete sub=%s: %v", sub.ID, err)
+			}
+		}
 	}
 }
 
@@ -257,6 +272,65 @@ func splitAppEventSlug(slug string) (app, pattern string, ok bool) {
 		return "", "", false
 	}
 	return slug[:idx], slug[idx+1:], true
+}
+
+func appEventSubscriptionTopicMatches(sub *Subscription, legacyPattern, topic string) bool {
+	if sub != nil && len(sub.Events) > 0 {
+		for _, event := range sub.Events {
+			if matchTopic(strings.TrimSpace(event), topic) {
+				return true
+			}
+		}
+		return false
+	}
+	return matchTopic(legacyPattern, topic)
+}
+
+func subscriptionPayloadMatches(sub *Subscription, payload json.RawMessage) bool {
+	if sub == nil || strings.TrimSpace(sub.MatchJSON) == "" {
+		return true
+	}
+	var want map[string]any
+	if err := json.Unmarshal([]byte(sub.MatchJSON), &want); err != nil {
+		return false
+	}
+	if len(want) == 0 {
+		return true
+	}
+	var got map[string]any
+	if err := json.Unmarshal(payload, &got); err != nil {
+		return false
+	}
+	for key, wantValue := range want {
+		gotValue, ok := got[key]
+		if !ok || !jsonScalarEqual(gotValue, wantValue) {
+			return false
+		}
+	}
+	return true
+}
+
+func jsonScalarEqual(a, b any) bool {
+	switch av := a.(type) {
+	case float64:
+		switch bv := b.(type) {
+		case float64:
+			return av == bv
+		case int:
+			return av == float64(bv)
+		case int64:
+			return av == float64(bv)
+		case json.Number:
+			f, _ := bv.Float64()
+			return av == f
+		}
+	case string:
+		return av == fmt.Sprint(b)
+	case bool:
+		bv, ok := b.(bool)
+		return ok && av == bv
+	}
+	return fmt.Sprint(a) == fmt.Sprint(b)
 }
 
 // matchTopic — the topic pattern grammar:

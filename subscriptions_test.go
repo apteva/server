@@ -104,11 +104,11 @@ func TestAppEventSubscriptionsUseUniqueInternalWebhookPaths(t *testing.T) {
 	s := newTestServer(t)
 	s.secret = testSecret()
 
-	first, err := s.store.CreateAppEventSubscription(1, 11, "CRM contact added", "crm:contact.added", "", "main", "project-a")
+	first, err := s.store.CreateAppEventSubscription(1, 11, "CRM contact added", "crm:contact.added", "", "main", "project-a", []string{"contact.added"})
 	if err != nil {
 		t.Fatalf("CreateAppEventSubscription first: %v", err)
 	}
-	second, err := s.store.CreateAppEventSubscription(1, 22, "CRM contact added", "crm:contact.added", "", "main", "project-b")
+	second, err := s.store.CreateAppEventSubscription(1, 22, "CRM contact added", "crm:contact.added", "", "main", "project-b", []string{"contact.added"})
 	if err != nil {
 		t.Fatalf("CreateAppEventSubscription second same app/topic in another project: %v", err)
 	}

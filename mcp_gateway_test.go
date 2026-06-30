@@ -44,6 +44,48 @@ func newGatewayAgentAPITestServer(s *Server) *httptest.Server {
 	return httptest.NewServer(root)
 }
 
+func newGatewayAppAPITestServer(s *Server) *httptest.Server {
+	if s.installedApps == nil {
+		s.installedApps = NewInstalledAppsRegistry()
+	}
+	apiMux := http.NewServeMux()
+	apiMux.HandleFunc("/apps", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			s.handleListApps(w, r)
+			return
+		}
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+	}))
+	apiMux.HandleFunc("/apps/marketplace", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			s.handleMarketplace(w, r)
+			return
+		}
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+	}))
+	apiMux.HandleFunc("/apps/install", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			s.handleInstallApp(w, r)
+			return
+		}
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+	}))
+	apiMux.HandleFunc("/apps/installs/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/apps/installs/")
+		switch {
+		case strings.HasSuffix(path, "/upgrade") && r.Method == http.MethodPost:
+			s.handleUpgradeApp(w, r)
+		case !strings.Contains(path, "/") && r.Method == http.MethodDelete:
+			s.handleUninstallApp(w, r)
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
+		}
+	}))
+	root := http.NewServeMux()
+	root.Handle("/api/", http.StripPrefix("/api", apiMux))
+	return httptest.NewServer(root)
+}
+
 func TestGatewayAgentCreateToolUsesAgentsAPI(t *testing.T) {
 	s := newTestServer(t)
 	ts := newGatewayAgentAPITestServer(s)
@@ -111,6 +153,149 @@ func TestGatewayAgentCreateToolUsesAgentsAPI(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("agents_list did not include created agent: %#v", listResult)
+	}
+}
+
+func TestGatewayAppToolsUseAppsAPI(t *testing.T) {
+	s := newTestServer(t)
+	s.store.db.Exec(`INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (1, 'a@b.c', 'x')`)
+	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-a', 1, 'Project A', '')`)
+	s.store.db.Exec(`INSERT OR IGNORE INTO project_members (project_id, user_id, role, added_by) VALUES ('proj-a', 1, 'owner', 1)`)
+	ts := newGatewayAppAPITestServer(s)
+	defer ts.Close()
+
+	client := gatewayAPIClient{
+		baseURL:        ts.URL + "/api",
+		userID:         1,
+		instanceSecret: "test-secret",
+	}
+	manifest := `schema: apteva-app/v1
+name: tiny-bills
+display_name: Tiny Bills
+version: 0.1.0
+description: Minimal app fixture for gateway tests.
+scopes: [project, global]
+requires:
+  permissions: []
+provides:
+  mcp_tools:
+    - name: bills_search
+      description: Search bills.
+`
+
+	if _, err := handleGatewayAppTool("apps_install", map[string]any{
+		"manifest_yaml": manifest,
+	}, "", client); err == nil {
+		t.Fatalf("expected apps_install without project/global to fail")
+	}
+
+	installed, err := handleGatewayAppTool("apps_install", map[string]any{
+		"manifest_yaml": manifest,
+		"project_id":    "proj-a",
+	}, "", client)
+	if err != nil {
+		t.Fatalf("apps_install returned error: %v", err)
+	}
+	installObj, ok := installed.(map[string]any)
+	if !ok {
+		t.Fatalf("expected install object, got %T", installed)
+	}
+	installID := int64(installObj["install_id"].(float64))
+	if installID <= 0 {
+		t.Fatalf("expected install_id, got %#v", installObj["install_id"])
+	}
+
+	listed, err := handleGatewayAppTool("apps_list", map[string]any{}, "proj-a", client)
+	if err != nil {
+		t.Fatalf("apps_list returned error: %v", err)
+	}
+	rows, ok := listed.([]any)
+	if !ok {
+		t.Fatalf("expected list array, got %T", listed)
+	}
+	found := false
+	for _, row := range rows {
+		obj, ok := row.(map[string]any)
+		if ok && obj["name"] == "tiny-bills" && obj["project_id"] == "proj-a" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("apps_list did not include project install: %#v", listed)
+	}
+
+	uninstalled, err := handleGatewayAppTool("apps_uninstall", map[string]any{
+		"install_id": strconv.FormatInt(installID, 10),
+	}, "", client)
+	if err != nil {
+		t.Fatalf("apps_uninstall returned error: %v", err)
+	}
+	if obj, ok := uninstalled.(map[string]any); !ok || obj["status"] != "uninstalled" {
+		t.Fatalf("unexpected uninstall result: %#v", uninstalled)
+	}
+}
+
+func TestGatewayAppsMarketplaceAndUpgrade(t *testing.T) {
+	s := newTestServer(t)
+	s.store.db.Exec(`INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (1, 'a@b.c', 'x')`)
+	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-a', 1, 'Project A', '')`)
+	s.store.db.Exec(`INSERT OR IGNORE INTO project_members (project_id, user_id, role, added_by) VALUES ('proj-a', 1, 'owner', 1)`)
+	ts := newGatewayAppAPITestServer(s)
+	defer ts.Close()
+
+	client := gatewayAPIClient{
+		baseURL:        ts.URL + "/api",
+		userID:         1,
+		instanceSecret: "test-secret",
+	}
+	manifestJSON := `{"schema":"apteva-app/v1","name":"tiny-market","display_name":"Tiny Market","version":"0.2.0","description":"fixture","scopes":["project"],"requires":{"permissions":[]},"provides":{"mcp_tools":[{"name":"search","description":"Search"}]}}`
+	res, err := s.store.db.Exec(`INSERT INTO apps (name, source, manifest_json) VALUES ('tiny-market', 'builtin', ?)`, manifestJSON)
+	if err != nil {
+		t.Fatalf("insert app: %v", err)
+	}
+	appID, _ := res.LastInsertId()
+	res, err = s.store.db.Exec(`INSERT INTO app_installs (app_id, project_id, status, version, permissions_json, installed_by) VALUES (?, 'proj-a', 'running', '0.1.0', '[]', 1)`, appID)
+	if err != nil {
+		t.Fatalf("insert install: %v", err)
+	}
+	installID, _ := res.LastInsertId()
+
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"schema":"apteva-app-registry/v1","apps":[{"name":"tiny-market","display_name":"Tiny Market","version":"0.2.0","description":"fixture","author":"Apteva","repo":"github.com/apteva/apps","manifest_url":"https://example.invalid/tiny.yaml","official":true}]}`))
+	}))
+	defer registry.Close()
+
+	marketplace, err := handleGatewayAppTool("apps_marketplace", map[string]any{
+		"project_id":   "proj-a",
+		"registry_url": registry.URL,
+	}, "", client)
+	if err != nil {
+		t.Fatalf("apps_marketplace returned error: %v", err)
+	}
+	marketplaceObj, ok := marketplace.(map[string]any)
+	if !ok {
+		t.Fatalf("expected marketplace object, got %#v", marketplace)
+	}
+	entries, ok := marketplaceObj["apps"].([]any)
+	if !ok || len(entries) != 1 {
+		t.Fatalf("expected marketplace entry array, got %#v", marketplace)
+	}
+	entry, _ := entries[0].(map[string]any)
+	if entry["name"] != "tiny-market" || entry["installed"] != true {
+		t.Fatalf("expected installed tiny-market entry, got %#v", entry)
+	}
+
+	upgraded, err := handleGatewayAppTool("apps_upgrade", map[string]any{
+		"install_id": strconv.FormatInt(installID, 10),
+	}, "", client)
+	if err != nil {
+		t.Fatalf("apps_upgrade returned error: %v", err)
+	}
+	obj, ok := upgraded.(map[string]any)
+	if !ok || obj["status"] != "upgraded" || obj["version"] != "0.2.0" {
+		t.Fatalf("unexpected upgrade result: %#v", upgraded)
 	}
 }
 

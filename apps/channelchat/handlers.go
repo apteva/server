@@ -3,6 +3,7 @@ package channelchat
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -109,11 +110,10 @@ type InstanceResolver interface {
 	// server's auth middleware header).
 	LookupUserID(r *http.Request) int64
 
-	// ForwardEvent posts a text event into the instance's core
-	// /event endpoint. The server already has the makeSendEvent
-	// helper — this wraps it so the app doesn't need to know the
-	// port/core-key layout.
-	ForwardEvent(inst framework.InstanceInfo, text, threadID string) error
+	// ForwardEvent posts an event into the instance's core /event
+	// endpoint. message is either a string or an array of content
+	// parts matching core's /event contract.
+	ForwardEvent(inst framework.InstanceInfo, message any, threadID string) error
 
 	// SpawnThread idempotently spawns a core thread by id with the
 	// given directive + tool set + MCP servers. Used by channelchat
@@ -211,7 +211,7 @@ func (h *handlers) createChat(w http.ResponseWriter, r *http.Request, _ *framewo
 // --- Messages ---------------------------------------------------------
 
 // GET  /api/apps/channel-chat/messages?chat_id=<id>&since=<id>&limit=<n>
-// POST /api/apps/channel-chat/messages { chat_id, content }
+// POST /api/apps/channel-chat/messages { chat_id, content, attachments? }
 // DELETE /api/apps/channel-chat/messages?chat_id=<id>
 func (h *handlers) messages(w http.ResponseWriter, r *http.Request, ctx *framework.AppCtx) {
 	switch r.Method {
@@ -253,30 +253,43 @@ func (h *handlers) postMessage(w http.ResponseWriter, r *http.Request, _ *framew
 		return
 	}
 	var body struct {
-		Content string `json:"content"`
-		Context any    `json:"context"`
+		Content     string           `json:"content"`
+		Attachments []ChatAttachment `json:"attachments"`
+		Context     any              `json:"context"`
 	}
 	// Accept chat_id in body too for POST ergonomics; query param wins
 	// (we already parsed it in authorizeChat).
-	raw, _ := io.ReadAll(r.Body)
+	r.Body = http.MaxBytesReader(w, r.Body, maxChatMessageBodyBytes)
+	raw, readErr := io.ReadAll(r.Body)
+	if readErr != nil {
+		http.Error(w, "message too large", http.StatusRequestEntityTooLarge)
+		return
+	}
 	_ = json.Unmarshal(raw, &body)
 	// If JSON lacked content but had chat_id, re-parse leniently so
 	// dashboards that send {chat_id, content} in the body still work.
 	if body.Content == "" {
 		var alt struct {
-			Content string `json:"content"`
+			Content     string           `json:"content"`
+			Attachments []ChatAttachment `json:"attachments"`
 		}
 		_ = json.Unmarshal(bytes.TrimSpace(raw), &alt)
 		body.Content = alt.Content
+		body.Attachments = alt.Attachments
 	}
-	if strings.TrimSpace(body.Content) == "" {
+	if strings.TrimSpace(body.Content) == "" && len(body.Attachments) == 0 {
 		http.Error(w, "content required", http.StatusBadRequest)
 		return
 	}
 
 	userID := h.instances.LookupUserID(r)
 	uid := userID
-	m, err := h.store.Append(chatID, "user", body.Content, &uid, "", "final", nil)
+	eventAttachments, persistedAttachments, err := validateChatAttachments(body.Attachments)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	m, err := h.store.AppendFull(chatID, "user", body.Content, &uid, "", "final", nil, persistedAttachments)
 	if err != nil {
 		http.Error(w, "insert failed", http.StatusInternalServerError)
 		return
@@ -298,13 +311,17 @@ func (h *handlers) postMessage(w http.ResponseWriter, r *http.Request, _ *framew
 	// log loudly AND drop a system row into the chat so the user sees
 	// "agent unreachable, will see the message when it's running again"
 	// instead of an indefinite quiet.
-	go func(inst framework.InstanceInfo, text string, chatID string) {
+	go func(inst framework.InstanceInfo, text string, chatID string, attachments []ChatAttachment) {
 		evText := formatAgentChatEvent(text, body.Context)
 		if inst.Kind == "platform_helper" {
 			evText = formatPlatformHelperChatEvent(text, body.Context)
 		}
+		var eventMessage any = evText
+		if len(attachments) > 0 {
+			eventMessage = buildCoreContentParts(evText, attachments)
+		}
 		threadID := h.resolveChatThread(inst, chatID)
-		if err := h.instances.ForwardEvent(inst, evText, threadID); err != nil {
+		if err := h.instances.ForwardEvent(inst, eventMessage, threadID); err != nil {
 			log.Printf("[CHAT] ForwardEvent FAILED chat=%s instance=%d thread=%s: %v",
 				chatID, inst.ID, threadID, err)
 			// Surface the failure to the user inline. The system row
@@ -315,7 +332,7 @@ func (h *handlers) postMessage(w http.ResponseWriter, r *http.Request, _ *framew
 				h.hub.publish(*sm)
 			}
 		}
-	}(inst, body.Content, chatID)
+	}(inst, body.Content, chatID, eventAttachments)
 
 	writeJSON(w, m)
 }
@@ -721,15 +738,119 @@ func formatPlatformHelperChatEvent(text string, context any) string {
 	return b.String()
 }
 
+type coreContentPart struct {
+	Type     string            `json:"type"`
+	Text     string            `json:"text,omitempty"`
+	ImageURL *coreImageURLPart `json:"image_url,omitempty"`
+}
+
+type coreImageURLPart struct {
+	URL    string `json:"url"`
+	Detail string `json:"detail,omitempty"`
+}
+
+const (
+	maxChatMessageBodyBytes = 20 << 20
+	maxChatAttachments      = 4
+	maxChatAttachmentBytes  = 5 << 20
+	maxChatAttachmentTotal  = 12 << 20
+)
+
+func validateChatAttachments(in []ChatAttachment) ([]ChatAttachment, []ChatAttachment, error) {
+	if len(in) == 0 {
+		return nil, nil, nil
+	}
+	if len(in) > maxChatAttachments {
+		return nil, nil, fmt.Errorf("too many attachments")
+	}
+	eventAttachments := make([]ChatAttachment, 0, len(in))
+	persistedAttachments := make([]ChatAttachment, 0, len(in))
+	var total int64
+	for i, att := range in {
+		if att.Type == "" {
+			att.Type = "image"
+		}
+		if att.Type != "image" {
+			return nil, nil, fmt.Errorf("unsupported attachment type")
+		}
+		mimeType, decodedSize, err := inspectImageDataURL(att.DataURL)
+		if err != nil {
+			return nil, nil, err
+		}
+		if decodedSize > maxChatAttachmentBytes {
+			return nil, nil, fmt.Errorf("attachment too large")
+		}
+		total += decodedSize
+		if total > maxChatAttachmentTotal {
+			return nil, nil, fmt.Errorf("attachments too large")
+		}
+		if att.ID == "" {
+			att.ID = fmt.Sprintf("ephemeral-%d", i+1)
+		}
+		att.MimeType = mimeType
+		att.Size = decodedSize
+		eventAttachments = append(eventAttachments, att)
+		persisted := att
+		persistedAttachments = append(persistedAttachments, persisted)
+	}
+	return eventAttachments, persistedAttachments, nil
+}
+
+func inspectImageDataURL(dataURL string) (string, int64, error) {
+	prefix, encoded, ok := strings.Cut(strings.TrimSpace(dataURL), ",")
+	if !ok || encoded == "" {
+		return "", 0, fmt.Errorf("invalid image data URL")
+	}
+	if !strings.HasPrefix(strings.ToLower(prefix), "data:") || !strings.Contains(strings.ToLower(prefix), ";base64") {
+		return "", 0, fmt.Errorf("invalid image data URL")
+	}
+	mimeType := strings.TrimPrefix(strings.Split(prefix, ";")[0], "data:")
+	if !isAllowedImageMime(mimeType) {
+		return "", 0, fmt.Errorf("unsupported image type")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid image data")
+	}
+	if len(decoded) == 0 {
+		return "", 0, fmt.Errorf("empty attachment")
+	}
+	return mimeType, int64(len(decoded)), nil
+}
+
+func buildCoreContentParts(text string, attachments []ChatAttachment) []coreContentPart {
+	parts := []coreContentPart{{Type: "text", Text: text}}
+	for _, att := range attachments {
+		if att.Type != "image" || att.DataURL == "" {
+			continue
+		}
+		parts = append(parts, coreContentPart{
+			Type:     "image_url",
+			ImageURL: &coreImageURLPart{URL: att.DataURL, Detail: "auto"},
+		})
+	}
+	return parts
+}
+
+func isAllowedImageMime(mimeType string) bool {
+	switch strings.ToLower(strings.TrimSpace(mimeType)) {
+	case "image/png", "image/jpeg", "image/webp", "image/gif":
+		return true
+	default:
+		return false
+	}
+}
+
 // resolveChatThread decides which core thread the chat's events
-// should target. Flag off → "main" (legacy behavior) for normal
-// agents. Platform-helper chats always get a dedicated thread because
-// the helper's internal judge/seeder paths reuse and reset main. Flag
-// on → look up (or assign) the chat's persisted thread id and spawn it
+// should target. Flag off → "main" (legacy behavior). Platform-helper
+// chat also stays on "main" so the dashboard widget and agent detail
+// page use the same request path, and so the meta-agent cannot leave
+// behind autonomous per-chat worker threads. Flag on for normal agents
+// → look up (or assign) the chat's persisted thread id and spawn it
 // idempotently on first use this process. Falls back to "main" on any
 // error so a transient DB/network glitch can't drop messages.
 func (h *handlers) resolveChatThread(inst framework.InstanceInfo, chatID string) string {
-	if !perThreadEnabled() && inst.Kind != "platform_helper" {
+	if inst.Kind == "platform_helper" || !perThreadEnabled() {
 		return "main"
 	}
 	threadID, err := h.store.EnsureChatThread(chatID)

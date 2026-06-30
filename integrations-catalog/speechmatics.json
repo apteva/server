@@ -1,0 +1,167 @@
+{
+  "slug": "speechmatics",
+  "name": "Speechmatics",
+  "description": "Speechmatics speech-to-text Batch API for submitting transcription jobs, polling status, retrieving transcripts, deleting jobs, reading logs, and checking usage.",
+  "logo": "https://www.google.com/s2/favicons?domain=speechmatics.com&sz=128",
+  "categories": ["ai", "speech", "speech-to-text", "transcription", "audio"],
+  "base_url": "https://{{credential.region}}.asr.api.speechmatics.com/v2",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Speechmatics API key from the portal."
+      },
+      {
+        "name": "region",
+        "label": "Batch Region",
+        "description": "Speechmatics Batch region prefix: eu1, us1, au1, or enterprise regions eu2/us2.",
+        "type": "text"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_job",
+      "description": "Create a Speechmatics Batch transcription job. Provide `config` as the raw Speechmatics job config object. For URL-based transcription, include fetch_data.url inside config. For direct upload, also pass `data_file` as base64, data URL, or blob-rehydrated file.",
+      "method": "POST",
+      "path": "/jobs",
+      "timeout_ms": 600000,
+      "multipart_form": {
+        "field_names": ["config"],
+        "file_fields": { "data_file": "data_file" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "type": "object",
+            "description": "Raw Speechmatics config JSON, for example {\"type\":\"transcription\",\"transcription_config\":{\"language\":\"en\",\"operating_point\":\"enhanced\",\"diarization\":\"speaker\"},\"fetch_data\":{\"url\":\"https://.../audio.mp3\"}}."
+          },
+          "data_file": {
+            "type": "string",
+            "description": "Optional audio/video file content for direct upload. Use a blobref:// handle from a file tool when available, or base64/data URL."
+          },
+          "data_file_filename": {
+            "type": "string",
+            "description": "Optional filename used for the multipart upload."
+          }
+        },
+        "required": ["config"]
+      }
+    },
+    {
+      "name": "create_transcription_from_url",
+      "description": "Create a Speechmatics transcription job from a publicly reachable audio/video URL using a simple agent-friendly schema.",
+      "method": "POST",
+      "path": "/jobs",
+      "timeout_ms": 600000,
+      "multipart_form": {
+        "field_names": ["config"]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "type": "object",
+            "description": "Speechmatics config object. Must include fetch_data.url and transcription_config. Example: {\"type\":\"transcription\",\"transcription_config\":{\"language\":\"en\",\"operating_point\":\"enhanced\"},\"fetch_data\":{\"url\":\"https://example.com/audio.mp3\"}}."
+          }
+        },
+        "required": ["config"]
+      }
+    },
+    {
+      "name": "list_jobs",
+      "description": "List Speechmatics Batch jobs in the configured region.",
+      "method": "GET",
+      "path": "/jobs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer" },
+          "created_before": { "type": "string" },
+          "created_after": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_job",
+      "description": "Get Speechmatics job details, including status, progress, and errors.",
+      "method": "GET",
+      "path": "/jobs/{jobid}",
+      "input_schema": { "type": "object", "properties": { "jobid": { "type": "string" } }, "required": ["jobid"] }
+    },
+    {
+      "name": "get_transcript",
+      "description": "Get the transcript for a completed Speechmatics transcription job. Use format=json-v2 for structured output, txt for plain text, or srt/vtt for subtitles when enabled.",
+      "method": "GET",
+      "path": "/jobs/{jobid}/transcript",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "jobid": { "type": "string" },
+          "format": { "type": "string", "description": "Transcript format such as json-v2, txt, srt, or vtt." }
+        },
+        "required": ["jobid"]
+      }
+    },
+    {
+      "name": "get_transcript_text",
+      "description": "Get a plain-text transcript for a completed Speechmatics job.",
+      "method": "GET",
+      "path": "/jobs/{jobid}/transcript?format=txt",
+      "input_schema": { "type": "object", "properties": { "jobid": { "type": "string" } }, "required": ["jobid"] }
+    },
+    {
+      "name": "get_job_log",
+      "description": "Get the Speechmatics log file for a job.",
+      "method": "GET",
+      "path": "/jobs/{jobid}/log",
+      "input_schema": { "type": "object", "properties": { "jobid": { "type": "string" } }, "required": ["jobid"] }
+    },
+    {
+      "name": "delete_job",
+      "description": "Delete a Speechmatics job and remove associated resources.",
+      "method": "DELETE",
+      "path": "/jobs/{jobid}",
+      "input_schema": { "type": "object", "properties": { "jobid": { "type": "string" } }, "required": ["jobid"] }
+    },
+    {
+      "name": "get_usage",
+      "description": "Get Speechmatics Batch usage statistics for the configured region.",
+      "method": "GET",
+      "path": "/usage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "since": { "type": "string" },
+          "until": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "create_temporary_key",
+      "description": "Create a temporary Speechmatics key for client-side Batch or Realtime use. For Batch, include client_ref when exposing the key to end users.",
+      "method": "POST",
+      "base_url": "https://mp.speechmatics.com/v1",
+      "path": "/api_keys",
+      "query_params": ["type"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "description": "Temporary key type: batch or rt.", "default": "batch" },
+          "ttl": { "type": "integer", "description": "Time to live in seconds, 60-86400." },
+          "client_ref": { "type": "string", "description": "Optional client reference. Recommended for browser-exposed Batch keys." },
+          "region": { "type": "string", "description": "Optional Batch region: eu, usa, or au." }
+        },
+        "required": ["ttl"]
+      }
+    }
+  ],
+  "health_check": { "tool": "list_jobs" }
+}

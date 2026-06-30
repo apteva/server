@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -52,6 +53,157 @@ func isBinaryContentType(ct string) bool {
 		}
 	}
 	return false
+}
+
+func buildMultipartRequestBody(tool *AppToolDef, input map[string]any, credentials map[string]string, authBodyParams map[string]string) (io.Reader, string, error) {
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	for k, v := range buildAuthBodyParams(authBodyParams, credentials) {
+		if v == "" {
+			continue
+		}
+		if err := writer.WriteField(k, multipartTextValue(v)); err != nil {
+			return nil, "", fmt.Errorf("multipart auth field %q: %w", k, err)
+		}
+	}
+
+	seenText := map[string]bool{}
+	for _, name := range tool.MultipartForm.FieldNames {
+		if seenText[name] {
+			continue
+		}
+		seenText[name] = true
+		v, ok := input[name]
+		if !ok || v == nil {
+			continue
+		}
+		if str, ok := v.(string); ok && str == "" {
+			continue
+		}
+		if err := writer.WriteField(name, multipartTextValue(v)); err != nil {
+			return nil, "", fmt.Errorf("multipart field %q: %w", name, err)
+		}
+	}
+
+	for inputName, formName := range tool.MultipartForm.FileFields {
+		if formName == "" {
+			formName = inputName
+		}
+		v, ok := input[inputName]
+		if !ok || v == nil {
+			continue
+		}
+		values := multipartFileValues(v)
+		for i, raw := range values {
+			data, err := decodeMultipartFileValue(raw)
+			if err != nil {
+				return nil, "", fmt.Errorf("multipart file %q: %w", inputName, err)
+			}
+			filename := multipartFilename(input, inputName, i, len(values))
+			part, err := writer.CreateFormFile(formName, filename)
+			if err != nil {
+				return nil, "", fmt.Errorf("multipart file field %q: %w", formName, err)
+			}
+			if _, err := part.Write(data); err != nil {
+				return nil, "", fmt.Errorf("write multipart file %q: %w", formName, err)
+			}
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		return nil, "", fmt.Errorf("close multipart writer: %w", err)
+	}
+	return &buf, writer.FormDataContentType(), nil
+}
+
+func multipartTextValue(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case float64, bool, int, int64:
+		return fmt.Sprintf("%v", x)
+	default:
+		if data, err := json.Marshal(x); err == nil {
+			return string(data)
+		}
+		return fmt.Sprintf("%v", x)
+	}
+}
+
+func multipartFileValues(v any) []any {
+	switch x := v.(type) {
+	case []any:
+		return x
+	case []string:
+		out := make([]any, 0, len(x))
+		for _, item := range x {
+			out = append(out, item)
+		}
+		return out
+	default:
+		return []any{x}
+	}
+}
+
+func decodeMultipartFileValue(v any) ([]byte, error) {
+	switch x := v.(type) {
+	case []byte:
+		return x, nil
+	case string:
+		return decodeMultipartFileString(x), nil
+	case map[string]any:
+		if b64, ok := x["base64"].(string); ok {
+			return decodeMultipartFileString(b64), nil
+		}
+		if b64, ok := x["data"].(string); ok {
+			return decodeMultipartFileString(b64), nil
+		}
+		if text, ok := x["text"].(string); ok {
+			return []byte(text), nil
+		}
+		data, err := json.Marshal(x)
+		if err != nil {
+			return nil, err
+		}
+		return data, nil
+	default:
+		return []byte(fmt.Sprintf("%v", x)), nil
+	}
+}
+
+func decodeMultipartFileString(s string) []byte {
+	if idx := strings.Index(s, ","); strings.HasPrefix(s, "data:") && idx >= 0 {
+		s = s[idx+1:]
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
+		return decoded
+	}
+	if decoded, err := base64.RawStdEncoding.DecodeString(s); err == nil {
+		return decoded
+	}
+	if decoded, err := base64.URLEncoding.DecodeString(s); err == nil {
+		return decoded
+	}
+	if decoded, err := base64.RawURLEncoding.DecodeString(s); err == nil {
+		return decoded
+	}
+	return []byte(s)
+}
+
+func multipartFilename(input map[string]any, inputName string, index, total int) string {
+	for _, name := range []string{"filename", "fileName", inputName + "Filename", inputName + "FileName"} {
+		if v, ok := input[name].(string); ok && strings.TrimSpace(v) != "" {
+			if total <= 1 {
+				return v
+			}
+			return fmt.Sprintf("%d-%s", index+1, v)
+		}
+	}
+	if total > 1 {
+		return fmt.Sprintf("%s-%d.bin", inputName, index+1)
+	}
+	return inputName + ".bin"
 }
 
 func integrationProxyEnvName(slug string) string {
@@ -1224,7 +1376,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	// DNS delete endpoint, require a JSON body on DELETE; keeping the
 	// default DELETE path query-only preserves existing integrations.
 	var bodyReader io.Reader
-	if tool.Method != "GET" && (tool.Method != "DELETE" || tool.BodyInput != "" || tool.BodyRoot != "" || hasTransformedBody) {
+	if tool.Method != "GET" && (tool.Method != "DELETE" || tool.BodyInput != "" || tool.BodyRoot != "" || tool.MultipartForm != nil || hasTransformedBody) {
 		// Raw-body path: tool declared a single input field that
 		// carries the request body verbatim (S3 PutObject, R2
 		// PutObject, etc.). Skip the JSON map assembly entirely.
@@ -1237,7 +1389,14 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		// characters), we send the raw string. App-side: pass []byte
 		// for binary, strings for text — this keeps the round-trip
 		// lossless for both.
-		if tool.BodyInput != "" {
+		if tool.MultipartForm != nil {
+			body, contentType, err := buildMultipartRequestBody(tool, input, credentials, app.Auth.BodyParams)
+			if err != nil {
+				return nil, err
+			}
+			bodyReader = body
+			headers["Content-Type"] = contentType
+		} else if tool.BodyInput != "" {
 			if v, ok := input[tool.BodyInput]; ok && v != nil {
 				var bodyBytes []byte
 				switch raw := v.(type) {

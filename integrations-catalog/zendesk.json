@@ -1,295 +1,226 @@
 {
   "slug": "zendesk",
-  "name": "Zendesk",
-  "description": "Zendesk integration for customer support with tickets, users, and search",
+  "name": "Zendesk Support",
+  "description": "Zendesk Support API for tickets, users, organizations, search, views, groups, macros, triggers, automations, ticket fields, and forms.",
   "logo": "https://www.google.com/s2/favicons?domain=zendesk.com&sz=128",
-  "categories": [
-    "customer-support",
-    "tickets",
-    "zendesk",
-    "helpdesk",
-    "crm"
-  ],
-  "base_url": "{{subdomain}}.zendesk.com/api/v2",
+  "categories": ["customer-support", "tickets", "zendesk", "helpdesk", "crm"],
+  "base_url": "https://{{subdomain}}.zendesk.com/api/v2",
   "auth": {
-    "types": [
-      "bearer"
-    ],
+    "types": ["basic"],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Authorization": "Basic {{basic_auth}}"
     },
     "credential_fields": [
       {
-        "name": "token",
-        "label": "API Key"
+        "name": "subdomain",
+        "label": "Zendesk Subdomain",
+        "description": "Only the subdomain, for example acme for https://acme.zendesk.com."
+      },
+      {
+        "name": "username",
+        "label": "Email/token",
+        "description": "Zendesk agent/admin email followed by /token, for example admin@example.com/token."
+      },
+      {
+        "name": "password",
+        "label": "API Token",
+        "type": "password",
+        "description": "Zendesk API token."
       }
     ]
+  },
+  "health_check": {
+    "tool": "list_users"
   },
   "tools": [
     {
       "name": "list_tickets",
-      "description": "List tickets from Zendesk",
+      "description": "List tickets.",
       "method": "GET",
-      "path": "/list-tickets",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "subdomain": {
-            "type": "string",
-            "description": "Zendesk subdomain"
-          },
-          "email": {
-            "type": "string",
-            "description": "Admin email"
-          },
-          "api_token": {
-            "type": "string",
-            "description": "API token"
-          },
-          "per_page": {
-            "type": "number",
-            "description": "Results per page (max 100)"
-          },
-          "page": {
-            "type": "number",
-            "description": "Page number"
-          },
-          "sort_by": {
-            "type": "string",
-            "description": "Sort field"
-          },
-          "sort_order": {
-            "type": "string",
-            "description": "Sort order: asc or desc"
-          }
-        },
-        "required": [
-          "subdomain",
-          "email",
-          "api_token"
-        ]
-      }
-    },
-    {
-      "name": "create_ticket",
-      "description": "Create a new ticket",
-      "method": "POST",
-      "path": "/create-ticket",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "subdomain": {
-            "type": "string",
-            "description": "Zendesk subdomain"
-          },
-          "email": {
-            "type": "string",
-            "description": "Admin email"
-          },
-          "api_token": {
-            "type": "string",
-            "description": "API token"
-          },
-          "subject": {
-            "type": "string",
-            "description": "Ticket subject"
-          },
-          "description": {
-            "type": "string",
-            "description": "Ticket description"
-          },
-          "requester_email": {
-            "type": "string",
-            "description": "Requester email"
-          },
-          "priority": {
-            "type": "string",
-            "description": "Priority: urgent, high, normal, low"
-          },
-          "type": {
-            "type": "string",
-            "description": "Type: problem, incident, question, task"
-          },
-          "tags": {
-            "type": "array",
-            "description": "Tags to add"
-          }
-        },
-        "required": [
-          "subdomain",
-          "email",
-          "api_token",
-          "subject",
-          "description"
-        ]
-      }
-    },
-    {
-      "name": "update_ticket",
-      "description": "Update an existing ticket",
-      "method": "PUT",
-      "path": "/update-ticket",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "subdomain": {
-            "type": "string",
-            "description": "Zendesk subdomain"
-          },
-          "email": {
-            "type": "string",
-            "description": "Admin email"
-          },
-          "api_token": {
-            "type": "string",
-            "description": "API token"
-          },
-          "ticket_id": {
-            "type": "number",
-            "description": "Ticket ID"
-          },
-          "status": {
-            "type": "string",
-            "description": "New status"
-          },
-          "priority": {
-            "type": "string",
-            "description": "New priority"
-          },
-          "assignee_id": {
-            "type": "number",
-            "description": "Assignee user ID"
-          },
-          "comment": {
-            "type": "string",
-            "description": "Comment to add"
-          },
-          "public": {
-            "type": "boolean",
-            "description": "Make comment public"
-          }
-        },
-        "required": [
-          "subdomain",
-          "email",
-          "api_token",
-          "ticket_id"
-        ]
-      }
+      "path": "/tickets.json",
+      "query_params": ["page", "per_page", "sort_by", "sort_order"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}, "sort_by": {"type": "string"}, "sort_order": {"type": "string"}}}
     },
     {
       "name": "get_ticket",
-      "description": "Get a single ticket by ID",
+      "description": "Get one ticket by ID.",
       "method": "GET",
-      "path": "/get-ticket",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "subdomain": {
-            "type": "string",
-            "description": "Zendesk subdomain"
-          },
-          "email": {
-            "type": "string",
-            "description": "Admin email"
-          },
-          "api_token": {
-            "type": "string",
-            "description": "API token"
-          },
-          "ticket_id": {
-            "type": "number",
-            "description": "Ticket ID"
-          }
-        },
-        "required": [
-          "subdomain",
-          "email",
-          "api_token",
-          "ticket_id"
-        ]
-      }
+      "path": "/tickets/{ticketId}.json",
+      "path_params": ["ticketId"],
+      "input_schema": {"type": "object", "properties": {"ticketId": {"type": "number"}}, "required": ["ticketId"]}
+    },
+    {
+      "name": "create_ticket",
+      "description": "Create a ticket. Pass body as the exact Zendesk payload, for example {\"ticket\":{\"subject\":\"...\",\"comment\":{\"body\":\"...\"}}}.",
+      "method": "POST",
+      "path": "/tickets.json",
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"body": {"type": "object"}}, "required": ["body"]}
+    },
+    {
+      "name": "update_ticket",
+      "description": "Update a ticket. Pass body as the exact Zendesk payload, for example {\"ticket\":{\"status\":\"solved\"}}.",
+      "method": "PUT",
+      "path": "/tickets/{ticketId}.json",
+      "path_params": ["ticketId"],
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"ticketId": {"type": "number"}, "body": {"type": "object"}}, "required": ["ticketId", "body"]}
+    },
+    {
+      "name": "delete_ticket",
+      "description": "Delete one ticket by ID.",
+      "method": "DELETE",
+      "path": "/tickets/{ticketId}.json",
+      "path_params": ["ticketId"],
+      "input_schema": {"type": "object", "properties": {"ticketId": {"type": "number"}}, "required": ["ticketId"]}
+    },
+    {
+      "name": "list_ticket_comments",
+      "description": "List comments for a ticket.",
+      "method": "GET",
+      "path": "/tickets/{ticketId}/comments.json",
+      "path_params": ["ticketId"],
+      "query_params": ["page", "per_page"],
+      "input_schema": {"type": "object", "properties": {"ticketId": {"type": "number"}, "page": {"type": "number"}, "per_page": {"type": "number", "default": 100}}, "required": ["ticketId"]}
     },
     {
       "name": "list_users",
-      "description": "List users from Zendesk",
+      "description": "List users.",
       "method": "GET",
-      "path": "/list-users",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "subdomain": {
-            "type": "string",
-            "description": "Zendesk subdomain"
-          },
-          "email": {
-            "type": "string",
-            "description": "Admin email"
-          },
-          "api_token": {
-            "type": "string",
-            "description": "API token"
-          },
-          "per_page": {
-            "type": "number",
-            "description": "Results per page"
-          },
-          "page": {
-            "type": "number",
-            "description": "Page number"
-          },
-          "role": {
-            "type": "string",
-            "description": "Filter by role"
-          }
-        },
-        "required": [
-          "subdomain",
-          "email",
-          "api_token"
-        ]
-      }
+      "path": "/users.json",
+      "query_params": ["page", "per_page", "role"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}, "role": {"type": "string"}}}
+    },
+    {
+      "name": "get_user",
+      "description": "Get one user by ID.",
+      "method": "GET",
+      "path": "/users/{userId}.json",
+      "path_params": ["userId"],
+      "input_schema": {"type": "object", "properties": {"userId": {"type": "number"}}, "required": ["userId"]}
+    },
+    {
+      "name": "create_user",
+      "description": "Create a user. Pass body as the exact Zendesk payload, for example {\"user\":{\"name\":\"...\",\"email\":\"...\"}}.",
+      "method": "POST",
+      "path": "/users.json",
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"body": {"type": "object"}}, "required": ["body"]}
+    },
+    {
+      "name": "update_user",
+      "description": "Update a user. Pass body as the exact Zendesk payload.",
+      "method": "PUT",
+      "path": "/users/{userId}.json",
+      "path_params": ["userId"],
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"userId": {"type": "number"}, "body": {"type": "object"}}, "required": ["userId", "body"]}
+    },
+    {
+      "name": "list_organizations",
+      "description": "List organizations.",
+      "method": "GET",
+      "path": "/organizations.json",
+      "query_params": ["page", "per_page"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}}}
+    },
+    {
+      "name": "get_organization",
+      "description": "Get one organization by ID.",
+      "method": "GET",
+      "path": "/organizations/{organizationId}.json",
+      "path_params": ["organizationId"],
+      "input_schema": {"type": "object", "properties": {"organizationId": {"type": "number"}}, "required": ["organizationId"]}
+    },
+    {
+      "name": "create_organization",
+      "description": "Create an organization. Pass body as the exact Zendesk payload.",
+      "method": "POST",
+      "path": "/organizations.json",
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"body": {"type": "object"}}, "required": ["body"]}
     },
     {
       "name": "search",
-      "description": "Search Zendesk for tickets, users, or organizations",
+      "description": "Search Zendesk. Example query: type:ticket status:open requester:alice@example.com.",
       "method": "GET",
-      "path": "/search",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "subdomain": {
-            "type": "string",
-            "description": "Zendesk subdomain"
-          },
-          "email": {
-            "type": "string",
-            "description": "Admin email"
-          },
-          "api_token": {
-            "type": "string",
-            "description": "API token"
-          },
-          "query": {
-            "type": "string",
-            "description": "Search query"
-          },
-          "per_page": {
-            "type": "number",
-            "description": "Results per page"
-          },
-          "page": {
-            "type": "number",
-            "description": "Page number"
-          }
-        },
-        "required": [
-          "subdomain",
-          "email",
-          "api_token",
-          "query"
-        ]
-      }
+      "path": "/search.json",
+      "query_params": ["query", "page", "per_page", "sort_by", "sort_order"],
+      "query_param_aliases": {"query": "query"},
+      "input_schema": {"type": "object", "properties": {"query": {"type": "string"}, "page": {"type": "number"}, "per_page": {"type": "number", "default": 100}, "sort_by": {"type": "string"}, "sort_order": {"type": "string"}}, "required": ["query"]}
+    },
+    {
+      "name": "list_ticket_fields",
+      "description": "List ticket fields.",
+      "method": "GET",
+      "path": "/ticket_fields.json",
+      "query_params": ["page", "per_page"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}}}
+    },
+    {
+      "name": "list_ticket_forms",
+      "description": "List ticket forms.",
+      "method": "GET",
+      "path": "/ticket_forms.json",
+      "query_params": ["page", "per_page"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}}}
+    },
+    {
+      "name": "list_groups",
+      "description": "List groups.",
+      "method": "GET",
+      "path": "/groups.json",
+      "query_params": ["page", "per_page"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}}}
+    },
+    {
+      "name": "list_views",
+      "description": "List views.",
+      "method": "GET",
+      "path": "/views.json",
+      "query_params": ["page", "per_page", "active"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}, "active": {"type": "boolean"}}}
+    },
+    {
+      "name": "list_view_tickets",
+      "description": "List tickets returned by a Zendesk view.",
+      "method": "GET",
+      "path": "/views/{viewId}/tickets.json",
+      "path_params": ["viewId"],
+      "query_params": ["page", "per_page", "sort_by", "sort_order"],
+      "input_schema": {"type": "object", "properties": {"viewId": {"type": "number"}, "page": {"type": "number"}, "per_page": {"type": "number", "default": 100}, "sort_by": {"type": "string"}, "sort_order": {"type": "string"}}, "required": ["viewId"]}
+    },
+    {
+      "name": "list_macros",
+      "description": "List macros.",
+      "method": "GET",
+      "path": "/macros.json",
+      "query_params": ["page", "per_page", "active"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}, "active": {"type": "boolean"}}}
+    },
+    {
+      "name": "list_triggers",
+      "description": "List triggers.",
+      "method": "GET",
+      "path": "/triggers.json",
+      "query_params": ["page", "per_page", "active"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}, "active": {"type": "boolean"}}}
+    },
+    {
+      "name": "list_automations",
+      "description": "List automations.",
+      "method": "GET",
+      "path": "/automations.json",
+      "query_params": ["page", "per_page", "active"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}, "active": {"type": "boolean"}}}
+    },
+    {
+      "name": "list_suspended_tickets",
+      "description": "List suspended tickets.",
+      "method": "GET",
+      "path": "/suspended_tickets.json",
+      "query_params": ["page", "per_page"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}}}
     }
   ]
 }

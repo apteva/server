@@ -24,13 +24,21 @@ type User struct {
 }
 
 type APIKey struct {
-	ID        int64     `json:"id"`
-	UserID    int64     `json:"user_id"`
-	Name      string    `json:"name"`
-	KeyPrefix string    `json:"key_prefix"` // first 8 chars for display
-	KeyHash   string    `json:"-"`
-	LastUsed  time.Time `json:"last_used,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID                 int64     `json:"id"`
+	UserID             int64     `json:"user_id"`
+	Name               string    `json:"name"`
+	KeyPrefix          string    `json:"key_prefix"` // first chars for display
+	KeyHash            string    `json:"-"`
+	Kind               string    `json:"kind"`
+	ProjectID          string    `json:"project_id,omitempty"`
+	Scopes             string    `json:"scopes,omitempty"`
+	AllowedOrigins     string    `json:"allowed_origins,omitempty"`
+	RateLimitPerMinute int       `json:"rate_limit_per_minute,omitempty"`
+	ExpiresAt          string    `json:"expires_at,omitempty"`
+	RevokedAt          string    `json:"revoked_at,omitempty"`
+	LastUsed           string    `json:"last_used,omitempty"`
+	LastUsedIP         string    `json:"last_used_ip,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 type Project struct {
@@ -247,6 +255,14 @@ func (s *Store) migrate() error {
 			name TEXT NOT NULL,
 			key_prefix TEXT NOT NULL,
 			key_hash TEXT UNIQUE NOT NULL,
+			kind TEXT NOT NULL DEFAULT 'private',
+			project_id TEXT NOT NULL DEFAULT '',
+			scopes TEXT NOT NULL DEFAULT '[]',
+			allowed_origins TEXT NOT NULL DEFAULT '[]',
+			rate_limit_per_minute INTEGER NOT NULL DEFAULT 60,
+			expires_at DATETIME,
+			revoked_at DATETIME,
+			last_used_ip TEXT NOT NULL DEFAULT '',
 			last_used DATETIME,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
@@ -367,6 +383,11 @@ func (s *Store) migrate() error {
 			next_run_at DATETIME,
 			last_error TEXT NOT NULL DEFAULT '',
 			failure_count INTEGER NOT NULL DEFAULT 0,
+			kind TEXT NOT NULL DEFAULT 'user',
+			match_json TEXT NOT NULL DEFAULT '',
+			wait_group_id TEXT NOT NULL DEFAULT '',
+			expires_at DATETIME,
+			delete_on_match INTEGER NOT NULL DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE INDEX IF NOT EXISTS idx_sub_webhook ON subscriptions(webhook_path);
@@ -611,6 +632,14 @@ func (s *Store) migrate() error {
 	if !columnExists(s.db, "agents", "core_api_key") {
 		s.db.Exec("ALTER TABLE agents ADD COLUMN core_api_key TEXT NOT NULL DEFAULT ''")
 	}
+	s.db.Exec("ALTER TABLE api_keys ADD COLUMN kind TEXT NOT NULL DEFAULT 'private'")
+	s.db.Exec("ALTER TABLE api_keys ADD COLUMN project_id TEXT NOT NULL DEFAULT ''")
+	s.db.Exec("ALTER TABLE api_keys ADD COLUMN scopes TEXT NOT NULL DEFAULT '[]'")
+	s.db.Exec("ALTER TABLE api_keys ADD COLUMN allowed_origins TEXT NOT NULL DEFAULT '[]'")
+	s.db.Exec("ALTER TABLE api_keys ADD COLUMN rate_limit_per_minute INTEGER NOT NULL DEFAULT 60")
+	s.db.Exec("ALTER TABLE api_keys ADD COLUMN expires_at DATETIME")
+	s.db.Exec("ALTER TABLE api_keys ADD COLUMN revoked_at DATETIME")
+	s.db.Exec("ALTER TABLE api_keys ADD COLUMN last_used_ip TEXT NOT NULL DEFAULT ''")
 	if !columnExists(s.db, "agents", "core_version") {
 		s.db.Exec("ALTER TABLE agents ADD COLUMN core_version TEXT NOT NULL DEFAULT ''")
 	}
@@ -675,7 +704,14 @@ func (s *Store) migrate() error {
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN next_run_at DATETIME")
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN last_error TEXT NOT NULL DEFAULT ''")
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0")
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN kind TEXT NOT NULL DEFAULT 'user'")
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN match_json TEXT NOT NULL DEFAULT ''")
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN wait_group_id TEXT NOT NULL DEFAULT ''")
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN expires_at DATETIME")
+	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN delete_on_match INTEGER NOT NULL DEFAULT 0")
 	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_sub_poll_due ON subscriptions(delivery, enabled, next_run_at)")
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_sub_ephemeral_wait ON subscriptions(kind, wait_group_id)")
+	s.db.Exec("CREATE INDEX IF NOT EXISTS idx_sub_ephemeral_expiry ON subscriptions(kind, expires_at)")
 	// Older app-event / provider-trigger subscriptions used an empty
 	// webhook_path because they do not expose a per-subscription public
 	// webhook. The column is globally UNIQUE, so the first such row
@@ -1357,16 +1393,53 @@ func HashAPIKey(key string) string {
 	return hex.EncodeToString(h[:])
 }
 
-func (s *Store) CreateAPIKey(userID int64, name, keyHash, keyPrefix string) (*APIKey, error) {
+type APIKeyCreateOptions struct {
+	Kind               string
+	ProjectID          string
+	Scopes             string
+	AllowedOrigins     string
+	RateLimitPerMinute int
+	ExpiresAt          string
+}
+
+func (s *Store) CreateAPIKey(userID int64, name, keyHash, keyPrefix string, options ...APIKeyCreateOptions) (*APIKey, error) {
+	opt := APIKeyCreateOptions{
+		Kind:               "private",
+		Scopes:             "[]",
+		AllowedOrigins:     "[]",
+		RateLimitPerMinute: 60,
+	}
+	if len(options) > 0 {
+		opt = options[0]
+	}
+	if opt.Kind == "" {
+		opt.Kind = "private"
+	}
+	if opt.Scopes == "" {
+		opt.Scopes = "[]"
+	}
+	if opt.AllowedOrigins == "" {
+		opt.AllowedOrigins = "[]"
+	}
+	if opt.RateLimitPerMinute <= 0 {
+		opt.RateLimitPerMinute = 60
+	}
 	result, err := s.db.Exec(
-		"INSERT INTO api_keys (user_id, name, key_hash, key_prefix) VALUES (?, ?, ?, ?)",
-		userID, name, keyHash, keyPrefix,
+		`INSERT INTO api_keys
+			(user_id, name, key_hash, key_prefix, kind, project_id, scopes, allowed_origins, rate_limit_per_minute, expires_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''))`,
+		userID, name, keyHash, keyPrefix, opt.Kind, opt.ProjectID, opt.Scopes, opt.AllowedOrigins, opt.RateLimitPerMinute, opt.ExpiresAt,
 	)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := result.LastInsertId()
-	return &APIKey{ID: id, UserID: userID, Name: name, KeyPrefix: keyPrefix, CreatedAt: time.Now()}, nil
+	return &APIKey{
+		ID: id, UserID: userID, Name: name, KeyPrefix: keyPrefix,
+		Kind: opt.Kind, ProjectID: opt.ProjectID, Scopes: opt.Scopes,
+		AllowedOrigins: opt.AllowedOrigins, RateLimitPerMinute: opt.RateLimitPerMinute,
+		ExpiresAt: opt.ExpiresAt, CreatedAt: time.Now(),
+	}, nil
 }
 
 func (s *Store) GetUserByAPIKey(keyHash string) (*User, error) {
@@ -1375,6 +1448,9 @@ func (s *Store) GetUserByAPIKey(keyHash string) (*User, error) {
 		SELECT u.id, u.email, u.password_hash, COALESCE(u.role,'user')
 		FROM users u JOIN api_keys k ON u.id = k.user_id
 		WHERE k.key_hash = ?
+		  AND COALESCE(k.kind, 'private') = 'private'
+		  AND k.revoked_at IS NULL
+		  AND (k.expires_at IS NULL OR datetime(k.expires_at) > CURRENT_TIMESTAMP)
 	`, keyHash).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role)
 	if err != nil {
 		return nil, err
@@ -1386,7 +1462,13 @@ func (s *Store) GetUserByAPIKey(keyHash string) (*User, error) {
 
 func (s *Store) ListAPIKeys(userID int64) ([]APIKey, error) {
 	rows, err := s.db.Query(
-		"SELECT id, name, key_prefix, created_at FROM api_keys WHERE user_id = ?", userID,
+		`SELECT id, name, key_prefix, COALESCE(kind,'private'), COALESCE(project_id,''),
+		        COALESCE(scopes,'[]'), COALESCE(allowed_origins,'[]'), COALESCE(rate_limit_per_minute, 60),
+		        COALESCE(expires_at,''), COALESCE(revoked_at,''), COALESCE(last_used,''), COALESCE(last_used_ip,''),
+		        created_at
+		   FROM api_keys
+		  WHERE user_id = ?
+		  ORDER BY created_at DESC, id DESC`, userID,
 	)
 	if err != nil {
 		return nil, err
@@ -1397,7 +1479,12 @@ func (s *Store) ListAPIKeys(userID int64) ([]APIKey, error) {
 	for rows.Next() {
 		var k APIKey
 		var createdAt string
-		rows.Scan(&k.ID, &k.Name, &k.KeyPrefix, &createdAt)
+		rows.Scan(
+			&k.ID, &k.Name, &k.KeyPrefix, &k.Kind, &k.ProjectID,
+			&k.Scopes, &k.AllowedOrigins, &k.RateLimitPerMinute,
+			&k.ExpiresAt, &k.RevokedAt, &k.LastUsed, &k.LastUsedIP,
+			&createdAt,
+		)
 		k.UserID = userID
 		k.CreatedAt, _ = parseTime(createdAt)
 		keys = append(keys, k)

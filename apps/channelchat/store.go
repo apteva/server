@@ -14,27 +14,40 @@ import (
 // Message mirrors one row of channel_chat_messages. All wire shapes
 // (REST, SSE) marshal from this.
 type Message struct {
-	ID         int64                    `json:"id"`
-	ChatID     string                   `json:"chat_id"`
-	Role       string                   `json:"role"` // user | agent | system
-	Content    string                   `json:"content"`
-	UserID     *int64                   `json:"user_id,omitempty"`
-	ThreadID   string                   `json:"thread_id,omitempty"`
-	Status     string                   `json:"status"` // streaming | final
-	CreatedAt  time.Time                `json:"created_at"`
+	ID        int64     `json:"id"`
+	ChatID    string    `json:"chat_id"`
+	Role      string    `json:"role"` // user | agent | system
+	Content   string    `json:"content"`
+	UserID    *int64    `json:"user_id,omitempty"`
+	ThreadID  string    `json:"thread_id,omitempty"`
+	Status    string    `json:"status"` // streaming | final
+	CreatedAt time.Time `json:"created_at"`
 	// Components — rich attachments the agent put on this message
 	// via respond(components=…). Empty array when none. Always emitted
 	// (not omitempty) so the dashboard can rely on the field existing.
 	Components []framework.ChatComponent `json:"components"`
+	// Attachments are user-supplied media attached to this message.
+	// Kept separate from Components, which are agent-rendered UI hints.
+	Attachments []ChatAttachment `json:"attachments"`
+}
+
+type ChatAttachment struct {
+	ID        string `json:"id,omitempty"`
+	Type      string `json:"type"` // image
+	DataURL   string `json:"data_url,omitempty"`
+	Name      string `json:"name,omitempty"`
+	MimeType  string `json:"mime_type,omitempty"`
+	Size      int64  `json:"size,omitempty"`
+	Ephemeral bool   `json:"ephemeral,omitempty"`
 }
 
 // Chat is one conversation — today typically one per instance.
 type Chat struct {
-	ID         string    `json:"id"`
-	AgentID    int64     `json:"instance_id"`
-	Title      string    `json:"title"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID        string    `json:"id"`
+	AgentID   int64     `json:"instance_id"`
+	Title     string    `json:"title"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 	// ThreadID is the core thread that handles this chat. Empty =
 	// route to "main" (legacy / feature flag off). Assigned lazily
 	// on first message via EnsureChatThread when the feature flag
@@ -73,10 +86,10 @@ func (s *store) renameInstanceIDToAgentID() {
 	var hasLegacy bool
 	for rows.Next() {
 		var (
-			cid          int
-			name, ctype  string
-			notnull, pk  int
-			dflt         sql.NullString
+			cid         int
+			name, ctype string
+			notnull, pk int
+			dflt        sql.NullString
 		)
 		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
 			continue
@@ -194,6 +207,10 @@ func (s *store) EnsureChatThread(chatID string) (string, error) {
 // Persisted as JSON in components_json; the dashboard reads it back
 // on stream/list and mounts each entry as a rich attachment.
 func (s *store) Append(chatID, role, content string, userID *int64, threadID, status string, components []framework.ChatComponent) (*Message, error) {
+	return s.AppendFull(chatID, role, content, userID, threadID, status, components, nil)
+}
+
+func (s *store) AppendFull(chatID, role, content string, userID *int64, threadID, status string, components []framework.ChatComponent, attachments []ChatAttachment) (*Message, error) {
 	if role != "user" && role != "agent" && role != "system" {
 		return nil, fmt.Errorf("invalid role %q", role)
 	}
@@ -207,10 +224,17 @@ func (s *store) Append(chatID, role, content string, userID *int64, threadID, st
 	if err != nil {
 		return nil, fmt.Errorf("marshal components: %w", err)
 	}
+	if attachments == nil {
+		attachments = []ChatAttachment{}
+	}
+	attachmentsJSON, err := json.Marshal(attachments)
+	if err != nil {
+		return nil, fmt.Errorf("marshal attachments: %w", err)
+	}
 	res, err := s.db.Exec(
-		`INSERT INTO channel_chat_messages (chat_id, role, content, user_id, thread_id, status, components_json)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		chatID, role, content, userID, threadID, status, string(componentsJSON),
+		`INSERT INTO channel_chat_messages (chat_id, role, content, user_id, thread_id, status, components_json, attachments_json)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		chatID, role, content, userID, threadID, status, string(componentsJSON), string(attachmentsJSON),
 	)
 	if err != nil {
 		return nil, err
@@ -228,11 +252,12 @@ func (s *store) GetMessage(id int64) (*Message, error) {
 	var userID sql.NullInt64
 	var threadID sql.NullString
 	var componentsJSON sql.NullString
+	var attachmentsJSON sql.NullString
 	err := s.db.QueryRow(
 		`SELECT id, chat_id, role, content, user_id, thread_id, status, created_at,
-		        COALESCE(components_json, '[]')
+		        COALESCE(components_json, '[]'), COALESCE(attachments_json, '[]')
 		 FROM channel_chat_messages WHERE id = ?`, id,
-	).Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &userID, &threadID, &m.Status, &m.CreatedAt, &componentsJSON)
+	).Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &userID, &threadID, &m.Status, &m.CreatedAt, &componentsJSON, &attachmentsJSON)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -247,6 +272,7 @@ func (s *store) GetMessage(id int64) (*Message, error) {
 		m.ThreadID = threadID.String
 	}
 	m.Components = decodeComponents(componentsJSON.String)
+	m.Attachments = decodeAttachments(attachmentsJSON.String)
 	return &m, nil
 }
 
@@ -264,6 +290,17 @@ func decodeComponents(raw string) []framework.ChatComponent {
 	return out
 }
 
+func decodeAttachments(raw string) []ChatAttachment {
+	if raw == "" {
+		return []ChatAttachment{}
+	}
+	var out []ChatAttachment
+	if err := json.Unmarshal([]byte(raw), &out); err != nil || out == nil {
+		return []ChatAttachment{}
+	}
+	return out
+}
+
 // ListMessages returns rows for a chat with id > since, ordered by id
 // asc. Limit caps the page size (default 500 if <= 0).
 func (s *store) ListMessages(chatID string, since int64, limit int) ([]Message, error) {
@@ -272,7 +309,7 @@ func (s *store) ListMessages(chatID string, since int64, limit int) ([]Message, 
 	}
 	rows, err := s.db.Query(
 		`SELECT id, chat_id, role, content, user_id, thread_id, status, created_at,
-		        COALESCE(components_json, '[]')
+		        COALESCE(components_json, '[]'), COALESCE(attachments_json, '[]')
 		 FROM channel_chat_messages
 		 WHERE chat_id = ? AND id > ?
 		 ORDER BY id ASC
@@ -289,7 +326,8 @@ func (s *store) ListMessages(chatID string, since int64, limit int) ([]Message, 
 		var userID sql.NullInt64
 		var threadID sql.NullString
 		var componentsJSON sql.NullString
-		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &userID, &threadID, &m.Status, &m.CreatedAt, &componentsJSON); err != nil {
+		var attachmentsJSON sql.NullString
+		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &userID, &threadID, &m.Status, &m.CreatedAt, &componentsJSON, &attachmentsJSON); err != nil {
 			return nil, err
 		}
 		if userID.Valid {
@@ -300,6 +338,7 @@ func (s *store) ListMessages(chatID string, since int64, limit int) ([]Message, 
 			m.ThreadID = threadID.String
 		}
 		m.Components = decodeComponents(componentsJSON.String)
+		m.Attachments = decodeAttachments(attachmentsJSON.String)
 		out = append(out, m)
 	}
 	return out, rows.Err()
@@ -340,8 +379,8 @@ func (s *store) LatestID(chatID string) (int64, error) {
 // max(localStorage, LastSeenID) so reads on any device propagate.
 type ChatLatest struct {
 	ChatID        string    `json:"chat_id"`
-	AgentID    int64     `json:"instance_id"`
-	AgentName  string    `json:"instance_name"`
+	AgentID       int64     `json:"instance_id"`
+	AgentName     string    `json:"instance_name"`
 	Title         string    `json:"title"`
 	LatestID      int64     `json:"latest_id"`
 	LatestRole    string    `json:"latest_role"`

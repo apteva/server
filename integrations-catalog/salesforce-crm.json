@@ -1,267 +1,226 @@
 {
   "slug": "salesforce-crm",
   "name": "Salesforce",
-  "description": "MCP server for Salesforce CRM operations including leads, accounts, opportunities, and custom objects",
+  "description": "Salesforce REST API for CRM and custom object work: SOQL/SOSL, object metadata, records, bulk-style composite calls, limits, and change windows.",
   "logo": "https://www.google.com/s2/favicons?domain=www.salesforce.com&sz=128",
-  "categories": [
-    "salesforce",
-    "crm",
-    "sales",
-    "leads",
-    "opportunities",
-    "accounts"
-  ],
-  "base_url": "{{instance_url}}/services/data/v60.0",
+  "categories": ["salesforce", "crm", "sales", "leads", "opportunities", "accounts"],
+  "base_url": "{{instanceUrl}}/services/data/v60.0",
   "auth": {
-    "types": [
-      "bearer",
-      "oauth2"
-    ],
+    "types": ["bearer", "oauth2"],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Authorization": "Bearer {{accessToken}}"
     },
     "credential_fields": [
-      {
-        "name": "accessToken",
-        "label": "accessToken"
-      },
-      {
-        "name": "instanceUrl",
-        "label": "instanceUrl"
-      },
-      {
-        "name": "refreshToken",
-        "label": "refreshToken"
-      },
-      {
-        "name": "id",
-        "label": "id"
-      },
-      {
-        "name": "tokenType",
-        "label": "tokenType"
-      },
-      {
-        "name": "issuedAt",
-        "label": "issuedAt"
-      },
-      {
-        "name": "signature",
-        "label": "signature"
-      }
+      {"name": "accessToken", "label": "Access Token", "type": "password"},
+      {"name": "instanceUrl", "label": "Instance URL"},
+      {"name": "refreshToken", "label": "Refresh Token", "type": "password"},
+      {"name": "id", "label": "Identity URL"},
+      {"name": "tokenType", "label": "Token Type"},
+      {"name": "issuedAt", "label": "Issued At"},
+      {"name": "signature", "label": "Signature", "type": "password"}
     ],
     "oauth2": {
       "authorize_url": "https://login.salesforce.com/services/oauth2/authorize",
       "token_url": "https://login.salesforce.com/services/oauth2/token",
-      "scopes": [
-        "api",
-        "refresh_token",
-        "offline_access",
-        "openid",
-        "profile",
-        "email",
-        "address",
-        "phone",
-        "full",
-        "chatter_api",
-        "custom_permissions",
-        "wave_api",
-        "cdp_query_api",
-        "cdp_profile_api",
-        "lightning",
-        "content",
-        "visualforce",
-        "web"
-      ],
+      "scopes": ["api", "refresh_token", "offline_access", "openid", "profile", "email"],
       "client_id_required": true,
       "pkce": false
     }
   },
+  "health_check": {
+    "tool": "get_limits"
+  },
   "tools": [
     {
-      "name": "create_lead",
-      "description": "Create a new lead in Salesforce",
-      "method": "POST",
-      "path": "/create-lead",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "first_name": {
-            "type": "string",
-            "description": "Lead first name"
-          },
-          "last_name": {
-            "type": "string",
-            "description": "Lead last name"
-          },
-          "email": {
-            "type": "string",
-            "description": "Lead email address"
-          },
-          "company": {
-            "type": "string",
-            "description": "Company name"
-          },
-          "phone": {
-            "type": "string",
-            "description": "Phone number"
-          },
-          "status": {
-            "type": "string",
-            "description": "Lead status"
-          },
-          "source": {
-            "type": "string",
-            "description": "Lead source"
-          }
-        },
-        "required": [
-          "last_name",
-          "company"
-        ]
-      }
+      "name": "get_resources",
+      "description": "List top-level Salesforce REST resources available for this API version.",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "get_limits",
+      "description": "Get current org API limits and remaining quota.",
+      "method": "GET",
+      "path": "/limits",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_objects",
+      "description": "List available standard and custom objects with metadata links.",
+      "method": "GET",
+      "path": "/sobjects",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "get_object_basic_info",
+      "description": "Get basic metadata URLs for one object, for example Lead, Account, Contact, Opportunity, Case, Task, or a custom object API name.",
+      "method": "GET",
+      "path": "/sobjects/{objectName}",
+      "path_params": ["objectName"],
+      "input_schema": {"type": "object", "properties": {"objectName": {"type": "string"}}, "required": ["objectName"]}
+    },
+    {
+      "name": "describe_object",
+      "description": "Describe fields, record types, picklists, child relationships, createability, updateability, and searchability for an object.",
+      "method": "GET",
+      "path": "/sobjects/{objectName}/describe",
+      "path_params": ["objectName"],
+      "input_schema": {"type": "object", "properties": {"objectName": {"type": "string"}}, "required": ["objectName"]}
     },
     {
       "name": "query_records",
-      "description": "Query Salesforce records using SOQL",
+      "description": "Run a SOQL query. Example: SELECT Id, Name FROM Account LIMIT 10.",
       "method": "GET",
-      "path": "/query-records",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "soql": {
-            "type": "string",
-            "description": "SOQL query string"
-          },
-          "object_type": {
-            "type": "string",
-            "description": "Salesforce object type (Lead, Account, Contact, etc.)"
-          },
-          "fields": {
-            "type": "array",
-            "description": "Fields to retrieve",
-            "items": {
-              "type": "string"
-            }
-          },
-          "where_clause": {
-            "type": "string",
-            "description": "WHERE clause conditions"
-          },
-          "limit": {
-            "type": "integer",
-            "description": "Maximum number of records",
-            "default": 100,
-            "maximum": 2000
-          }
-        }
-      }
+      "path": "/query",
+      "query_params": ["soql"],
+      "query_param_aliases": {"soql": "q"},
+      "input_schema": {"type": "object", "properties": {"soql": {"type": "string"}}, "required": ["soql"]}
     },
     {
-      "name": "create_account",
-      "description": "Create a new account in Salesforce",
-      "method": "POST",
-      "path": "/create-account",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "description": "Account name"
-          },
-          "type": {
-            "type": "string",
-            "description": "Account type"
-          },
-          "industry": {
-            "type": "string",
-            "description": "Industry"
-          },
-          "phone": {
-            "type": "string",
-            "description": "Phone number"
-          },
-          "website": {
-            "type": "string",
-            "description": "Website URL"
-          },
-          "billing_address": {
-            "type": "object",
-            "description": "Billing address"
-          }
-        },
-        "required": [
-          "name"
-        ]
-      }
+      "name": "query_all_records",
+      "description": "Run a SOQL query including deleted and archived records where Salesforce supports it.",
+      "method": "GET",
+      "path": "/queryAll",
+      "query_params": ["soql"],
+      "query_param_aliases": {"soql": "q"},
+      "input_schema": {"type": "object", "properties": {"soql": {"type": "string"}}, "required": ["soql"]}
     },
     {
-      "name": "create_opportunity",
-      "description": "Create a new opportunity in Salesforce",
+      "name": "search_records",
+      "description": "Run a SOSL search. Example: FIND {Acme} IN ALL FIELDS RETURNING Account(Id, Name), Contact(Id, Name).",
+      "method": "GET",
+      "path": "/search",
+      "query_params": ["sosl"],
+      "query_param_aliases": {"sosl": "q"},
+      "input_schema": {"type": "object", "properties": {"sosl": {"type": "string"}}, "required": ["sosl"]}
+    },
+    {
+      "name": "get_record",
+      "description": "Get one record by object API name and record ID.",
+      "method": "GET",
+      "path": "/sobjects/{objectName}/{recordId}",
+      "path_params": ["objectName", "recordId"],
+      "query_params": ["fields"],
+      "input_schema": {"type": "object", "properties": {"objectName": {"type": "string"}, "recordId": {"type": "string"}, "fields": {"type": "string", "description": "Optional comma-separated field API names."}}, "required": ["objectName", "recordId"]}
+    },
+    {
+      "name": "create_record",
+      "description": "Create any Salesforce record. Pass objectName and fields as an object using Salesforce field API names.",
       "method": "POST",
-      "path": "/create-opportunity",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "description": "Opportunity name"
-          },
-          "account_id": {
-            "type": "string",
-            "description": "Related account ID"
-          },
-          "stage_name": {
-            "type": "string",
-            "description": "Opportunity stage"
-          },
-          "close_date": {
-            "type": "string",
-            "description": "Expected close date"
-          },
-          "amount": {
-            "type": "number",
-            "description": "Opportunity amount"
-          },
-          "probability": {
-            "type": "number",
-            "description": "Probability percentage"
-          }
-        },
-        "required": [
-          "name",
-          "stage_name",
-          "close_date"
-        ]
-      }
+      "path": "/sobjects/{objectName}",
+      "path_params": ["objectName"],
+      "body_root_param": "fields",
+      "input_schema": {"type": "object", "properties": {"objectName": {"type": "string"}, "fields": {"type": "object"}}, "required": ["objectName", "fields"]}
     },
     {
       "name": "update_record",
-      "description": "Update a Salesforce record",
-      "method": "PUT",
-      "path": "/update-record",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "object_type": {
-            "type": "string",
-            "description": "Salesforce object type"
-          },
-          "record_id": {
-            "type": "string",
-            "description": "Record ID to update"
-          },
-          "fields": {
-            "type": "object",
-            "description": "Fields and values to update"
-          }
-        },
-        "required": [
-          "object_type",
-          "record_id",
-          "fields"
-        ]
-      }
+      "description": "Update any Salesforce record. Pass objectName, recordId, and fields using Salesforce field API names.",
+      "method": "PATCH",
+      "path": "/sobjects/{objectName}/{recordId}",
+      "path_params": ["objectName", "recordId"],
+      "body_root_param": "fields",
+      "input_schema": {"type": "object", "properties": {"objectName": {"type": "string"}, "recordId": {"type": "string"}, "fields": {"type": "object"}}, "required": ["objectName", "recordId", "fields"]}
+    },
+    {
+      "name": "delete_record",
+      "description": "Delete one Salesforce record.",
+      "method": "DELETE",
+      "path": "/sobjects/{objectName}/{recordId}",
+      "path_params": ["objectName", "recordId"],
+      "input_schema": {"type": "object", "properties": {"objectName": {"type": "string"}, "recordId": {"type": "string"}}, "required": ["objectName", "recordId"]}
+    },
+    {
+      "name": "get_deleted_records",
+      "description": "Get deleted record IDs for an object in a time window. start and end must be ISO timestamps accepted by Salesforce.",
+      "method": "GET",
+      "path": "/sobjects/{objectName}/deleted/",
+      "path_params": ["objectName"],
+      "query_params": ["start", "end"],
+      "input_schema": {"type": "object", "properties": {"objectName": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"}}, "required": ["objectName", "start", "end"]}
+    },
+    {
+      "name": "get_updated_records",
+      "description": "Get updated record IDs for an object in a time window. start and end must be ISO timestamps accepted by Salesforce.",
+      "method": "GET",
+      "path": "/sobjects/{objectName}/updated/",
+      "path_params": ["objectName"],
+      "query_params": ["start", "end"],
+      "input_schema": {"type": "object", "properties": {"objectName": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"}}, "required": ["objectName", "start", "end"]}
+    },
+    {
+      "name": "create_lead",
+      "description": "Convenience wrapper to create a Lead. Pass Salesforce Lead fields inside fields, for example LastName, Company, Email, Phone, Status, LeadSource.",
+      "method": "POST",
+      "path": "/sobjects/Lead",
+      "body_root_param": "fields",
+      "input_schema": {"type": "object", "properties": {"fields": {"type": "object"}}, "required": ["fields"]}
+    },
+    {
+      "name": "create_account",
+      "description": "Convenience wrapper to create an Account. Pass Salesforce Account fields inside fields, for example Name, Type, Industry, Phone, Website.",
+      "method": "POST",
+      "path": "/sobjects/Account",
+      "body_root_param": "fields",
+      "input_schema": {"type": "object", "properties": {"fields": {"type": "object"}}, "required": ["fields"]}
+    },
+    {
+      "name": "create_contact",
+      "description": "Convenience wrapper to create a Contact. Pass Salesforce Contact fields inside fields, for example LastName, FirstName, Email, Phone, AccountId.",
+      "method": "POST",
+      "path": "/sobjects/Contact",
+      "body_root_param": "fields",
+      "input_schema": {"type": "object", "properties": {"fields": {"type": "object"}}, "required": ["fields"]}
+    },
+    {
+      "name": "create_opportunity",
+      "description": "Convenience wrapper to create an Opportunity. Pass Salesforce Opportunity fields inside fields, for example Name, StageName, CloseDate, AccountId, Amount.",
+      "method": "POST",
+      "path": "/sobjects/Opportunity",
+      "body_root_param": "fields",
+      "input_schema": {"type": "object", "properties": {"fields": {"type": "object"}}, "required": ["fields"]}
+    },
+    {
+      "name": "composite_request",
+      "description": "Run a Salesforce Composite API request. Pass the exact body documented by Salesforce.",
+      "method": "POST",
+      "path": "/composite",
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"body": {"type": "object"}}, "required": ["body"]}
+    },
+    {
+      "name": "composite_batch",
+      "description": "Run a Salesforce Composite Batch request. Pass the exact body documented by Salesforce.",
+      "method": "POST",
+      "path": "/composite/batch",
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"body": {"type": "object"}}, "required": ["body"]}
+    },
+    {
+      "name": "composite_tree",
+      "description": "Create a tree of records for one object type. Pass objectName and the exact Salesforce tree body.",
+      "method": "POST",
+      "path": "/composite/tree/{objectName}",
+      "path_params": ["objectName"],
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"objectName": {"type": "string"}, "body": {"type": "object"}}, "required": ["objectName", "body"]}
+    },
+    {
+      "name": "composite_sobjects",
+      "description": "Create, update, upsert, or delete collections of records using the Salesforce sObject Collections endpoint. Pass the exact body documented by Salesforce.",
+      "method": "POST",
+      "path": "/composite/sobjects",
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"body": {"type": "object"}}, "required": ["body"]}
+    },
+    {
+      "name": "tooling_query",
+      "description": "Run a SOQL query against the Tooling API.",
+      "method": "GET",
+      "path": "/tooling/query",
+      "query_params": ["soql"],
+      "query_param_aliases": {"soql": "q"},
+      "input_schema": {"type": "object", "properties": {"soql": {"type": "string"}}, "required": ["soql"]}
     }
   ]
 }

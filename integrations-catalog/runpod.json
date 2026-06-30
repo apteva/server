@@ -1,0 +1,727 @@
+{
+  "slug": "runpod",
+  "name": "RunPod",
+  "description": "RunPod REST API for GPU pods, serverless endpoints, templates, network volumes, container registry credentials, billing, and queue-based endpoint jobs.",
+  "logo": "https://www.google.com/s2/favicons?domain=runpod.io&sz=128",
+  "categories": ["gpu", "compute", "ai", "serverless", "containers", "runpod"],
+  "base_url": "https://rest.runpod.io/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "type": "password",
+        "description": "RunPod API key from RunPod console Settings > API Keys."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_pods",
+    "input": {},
+    "expect_status": [200]
+  },
+  "tools": [
+    {
+      "name": "get_openapi_schema",
+      "description": "Fetch RunPod's REST OpenAPI schema. Use this when an agent needs the current full REST API reference.",
+      "method": "GET",
+      "path": "/openapi.json",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_pods",
+      "description": "List RunPod Pods. Use computeType=GPU and optional gpuTypeId/dataCenterId filters when looking for GPU instances.",
+      "method": "GET",
+      "path": "/pods",
+      "query_params": ["computeType", "cpuFlavorId", "dataCenterId", "desiredStatus", "endpointId", "gpuTypeId", "id", "imageName", "includeMachine", "includeNetworkVolume", "includeSavingsPlans", "includeTemplate", "includeWorkers", "name", "networkVolumeId", "templateId"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "computeType": { "type": "string", "enum": ["GPU", "CPU"] },
+          "cpuFlavorId": { "type": "array", "items": { "type": "string" } },
+          "dataCenterId": { "type": "array", "items": { "type": "string" } },
+          "desiredStatus": { "type": "string", "enum": ["RUNNING", "EXITED", "TERMINATED"] },
+          "endpointId": { "type": "string" },
+          "gpuTypeId": { "type": "array", "items": { "type": "string" }, "description": "GPU type names such as NVIDIA GeForce RTX 4090, NVIDIA H100 80GB HBM3, NVIDIA L40S, NVIDIA A100 80GB PCIe." },
+          "id": { "type": "string" },
+          "imageName": { "type": "string" },
+          "includeMachine": { "type": "boolean", "default": false },
+          "includeNetworkVolume": { "type": "boolean", "default": false },
+          "includeSavingsPlans": { "type": "boolean", "default": false },
+          "includeTemplate": { "type": "boolean", "default": false },
+          "includeWorkers": { "type": "boolean", "default": false },
+          "name": { "type": "string" },
+          "networkVolumeId": { "type": "string" },
+          "templateId": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "create_pod",
+      "description": "Create and optionally deploy a RunPod Pod. For GPU instances set computeType=GPU, imageName or templateId, gpuTypeIds, gpuCount, ports, containerDiskInGb, volumeInGb, and env. Use interruptible=true for spot/interruptible pricing.",
+      "method": "POST",
+      "path": "/pods",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "User-facing pod name." },
+          "computeType": { "type": "string", "enum": ["GPU", "CPU"], "default": "GPU" },
+          "cloudType": { "type": "string", "enum": ["SECURE", "COMMUNITY"], "default": "SECURE" },
+          "imageName": { "type": "string", "description": "Docker image, e.g. runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04. Use either imageName or templateId." },
+          "templateId": { "type": "string", "description": "RunPod template id. Use either templateId or imageName." },
+          "gpuTypeIds": { "type": "array", "items": { "type": "string" }, "description": "Ordered GPU type preferences, e.g. [\"NVIDIA GeForce RTX 4090\", \"NVIDIA RTX A5000\"]." },
+          "gpuTypePriority": { "type": "string", "enum": ["availability", "custom"], "default": "availability" },
+          "gpuCount": { "type": "integer", "minimum": 1, "default": 1 },
+          "allowedCudaVersions": { "type": "array", "items": { "type": "string" } },
+          "dataCenterIds": { "type": "array", "items": { "type": "string" } },
+          "dataCenterPriority": { "type": "string", "enum": ["availability", "custom"], "default": "availability" },
+          "countryCodes": { "type": "array", "items": { "type": "string" } },
+          "interruptible": { "type": "boolean", "default": false },
+          "supportPublicIp": { "type": "boolean" },
+          "globalNetworking": { "type": "boolean", "default": false },
+          "ports": { "type": "array", "items": { "type": "string" }, "description": "Ports like [\"8888/http\", \"22/tcp\"]." },
+          "env": { "type": "object", "description": "Environment variables for the container." },
+          "dockerEntrypoint": { "type": "array", "items": { "type": "string" } },
+          "dockerStartCmd": { "type": "array", "items": { "type": "string" } },
+          "containerDiskInGb": { "type": "integer", "default": 50 },
+          "volumeInGb": { "type": "integer", "default": 20 },
+          "volumeMountPath": { "type": "string", "default": "/workspace" },
+          "networkVolumeId": { "type": "string" },
+          "containerRegistryAuthId": { "type": "string" },
+          "minVCPUPerGPU": { "type": "integer", "default": 2 },
+          "minRAMPerGPU": { "type": "integer", "default": 8 },
+          "minDownloadMbps": { "type": "number" },
+          "minUploadMbps": { "type": "number" },
+          "minDiskBandwidthMBps": { "type": "number" },
+          "cpuFlavorIds": { "type": "array", "items": { "type": "string" } },
+          "cpuFlavorPriority": { "type": "string", "enum": ["availability", "custom"], "default": "availability" },
+          "vcpuCount": { "type": "integer" },
+          "locked": { "type": "boolean", "default": false }
+        }
+      }
+    },
+    {
+      "name": "get_pod",
+      "description": "Get a single RunPod Pod by ID.",
+      "method": "GET",
+      "path": "/pods/{podId}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "podId": { "type": "string" } },
+        "required": ["podId"]
+      }
+    },
+    {
+      "name": "update_pod",
+      "description": "Patch a Pod. This update can trigger a reset for fields like imageName, env, ports, volume, or disk settings.",
+      "method": "PATCH",
+      "path": "/pods/{podId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "podId": { "type": "string" },
+          "name": { "type": "string" },
+          "imageName": { "type": "string" },
+          "env": { "type": "object" },
+          "dockerEntrypoint": { "type": "array", "items": { "type": "string" } },
+          "dockerStartCmd": { "type": "array", "items": { "type": "string" } },
+          "ports": { "type": "array", "items": { "type": "string" } },
+          "containerDiskInGb": { "type": "integer" },
+          "volumeInGb": { "type": "integer" },
+          "volumeMountPath": { "type": "string" },
+          "containerRegistryAuthId": { "type": "string" },
+          "globalNetworking": { "type": "boolean" },
+          "locked": { "type": "boolean" }
+        },
+        "required": ["podId"]
+      }
+    },
+    {
+      "name": "update_pod_in_place",
+      "description": "Update lightweight Pod fields in place, currently name and locked.",
+      "method": "POST",
+      "path": "/pods/{podId}/update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "podId": { "type": "string" },
+          "name": { "type": "string" },
+          "locked": { "type": "boolean" }
+        },
+        "required": ["podId"]
+      }
+    },
+    {
+      "name": "start_pod",
+      "description": "Start or resume a stopped Pod.",
+      "method": "POST",
+      "path": "/pods/{podId}/start",
+      "input_schema": {
+        "type": "object",
+        "properties": { "podId": { "type": "string" } },
+        "required": ["podId"]
+      }
+    },
+    {
+      "name": "stop_pod",
+      "description": "Stop a running Pod.",
+      "method": "POST",
+      "path": "/pods/{podId}/stop",
+      "input_schema": {
+        "type": "object",
+        "properties": { "podId": { "type": "string" } },
+        "required": ["podId"]
+      }
+    },
+    {
+      "name": "reset_pod",
+      "description": "Reset a Pod.",
+      "method": "POST",
+      "path": "/pods/{podId}/reset",
+      "input_schema": {
+        "type": "object",
+        "properties": { "podId": { "type": "string" } },
+        "required": ["podId"]
+      }
+    },
+    {
+      "name": "restart_pod",
+      "description": "Restart a Pod.",
+      "method": "POST",
+      "path": "/pods/{podId}/restart",
+      "input_schema": {
+        "type": "object",
+        "properties": { "podId": { "type": "string" } },
+        "required": ["podId"]
+      }
+    },
+    {
+      "name": "delete_pod",
+      "description": "Delete a Pod permanently.",
+      "method": "DELETE",
+      "path": "/pods/{podId}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "podId": { "type": "string" } },
+        "required": ["podId"]
+      }
+    },
+    {
+      "name": "list_endpoints",
+      "description": "List Serverless endpoints. Set includeWorkers=true to include running workers.",
+      "method": "GET",
+      "path": "/endpoints",
+      "query_params": ["includeTemplate", "includeWorkers"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "includeTemplate": { "type": "boolean", "default": false },
+          "includeWorkers": { "type": "boolean", "default": false }
+        }
+      }
+    },
+    {
+      "name": "create_endpoint",
+      "description": "Create a RunPod Serverless endpoint from a template. Use workersMin=0 for scale-to-zero; workersMin > 0 keeps warm workers running and billable.",
+      "method": "POST",
+      "path": "/endpoints",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "templateId": { "type": "string" },
+          "computeType": { "type": "string", "enum": ["GPU", "CPU"], "default": "GPU" },
+          "gpuTypeIds": { "type": "array", "items": { "type": "string" } },
+          "gpuCount": { "type": "integer", "minimum": 1, "default": 1 },
+          "allowedCudaVersions": { "type": "array", "items": { "type": "string" } },
+          "minCudaVersion": { "type": "string" },
+          "dataCenterIds": { "type": "array", "items": { "type": "string" } },
+          "networkVolumeId": { "type": "string" },
+          "networkVolumeIds": { "type": "array", "items": { "type": "string" } },
+          "workersMin": { "type": "integer", "minimum": 0, "default": 0 },
+          "workersMax": { "type": "integer", "minimum": 0 },
+          "idleTimeout": { "type": "integer", "minimum": 1, "maximum": 3600, "default": 5 },
+          "executionTimeoutMs": { "type": "integer", "description": "Per-job execution timeout in milliseconds." },
+          "scalerType": { "type": "string", "enum": ["QUEUE_DELAY", "REQUEST_COUNT"], "default": "QUEUE_DELAY" },
+          "scalerValue": { "type": "integer", "minimum": 1, "default": 4 },
+          "flashboot": { "type": "boolean" },
+          "cpuFlavorIds": { "type": "array", "items": { "type": "string" } },
+          "vcpuCount": { "type": "integer" }
+        },
+        "required": ["templateId"]
+      }
+    },
+    {
+      "name": "get_endpoint",
+      "description": "Get a Serverless endpoint by ID.",
+      "method": "GET",
+      "path": "/endpoints/{endpointId}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "endpointId": { "type": "string" } },
+        "required": ["endpointId"]
+      }
+    },
+    {
+      "name": "update_endpoint",
+      "description": "Patch an endpoint. This can trigger a rolling release when changing template/worker resource fields.",
+      "method": "PATCH",
+      "path": "/endpoints/{endpointId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpointId": { "type": "string" },
+          "name": { "type": "string" },
+          "templateId": { "type": "string" },
+          "gpuTypeIds": { "type": "array", "items": { "type": "string" } },
+          "gpuCount": { "type": "integer" },
+          "dataCenterIds": { "type": "array", "items": { "type": "string" } },
+          "networkVolumeId": { "type": "string" },
+          "networkVolumeIds": { "type": "array", "items": { "type": "string" } },
+          "workersMin": { "type": "integer" },
+          "workersMax": { "type": "integer" },
+          "idleTimeout": { "type": "integer" },
+          "executionTimeoutMs": { "type": "integer" },
+          "scalerType": { "type": "string", "enum": ["QUEUE_DELAY", "REQUEST_COUNT"] },
+          "scalerValue": { "type": "integer" },
+          "flashboot": { "type": "boolean" },
+          "cpuFlavorIds": { "type": "array", "items": { "type": "string" } },
+          "vcpuCount": { "type": "integer" }
+        },
+        "required": ["endpointId"]
+      }
+    },
+    {
+      "name": "update_endpoint_in_place",
+      "description": "Update lightweight endpoint fields in place, such as name, scaler, idle timeout, execution timeout, and worker min/max.",
+      "method": "POST",
+      "path": "/endpoints/{endpointId}/update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpointId": { "type": "string" },
+          "name": { "type": "string" },
+          "workersMin": { "type": "integer" },
+          "workersMax": { "type": "integer" },
+          "idleTimeout": { "type": "integer" },
+          "executionTimeoutMs": { "type": "integer" },
+          "scalerType": { "type": "string", "enum": ["QUEUE_DELAY", "REQUEST_COUNT"] },
+          "scalerValue": { "type": "integer" },
+          "flashboot": { "type": "boolean" }
+        },
+        "required": ["endpointId"]
+      }
+    },
+    {
+      "name": "delete_endpoint",
+      "description": "Delete a Serverless endpoint.",
+      "method": "DELETE",
+      "path": "/endpoints/{endpointId}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "endpointId": { "type": "string" } },
+        "required": ["endpointId"]
+      }
+    },
+    {
+      "name": "run_endpoint_sync",
+      "description": "Submit a synchronous job to a queue-based Serverless endpoint and wait for completion. Body must include input. Optional wait query is milliseconds, 1000-300000.",
+      "method": "POST",
+      "path": "https://api.runpod.ai/v2/{endpointId}/runsync",
+      "query_params": ["wait"],
+      "timeout_ms": 300000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpointId": { "type": "string" },
+          "input": { "type": "object", "description": "Worker handler input payload." },
+          "webhook": { "type": "string" },
+          "policy": { "type": "object", "description": "Optional execution policy: executionTimeout, lowPriority, ttl." },
+          "s3Config": { "type": "object" },
+          "wait": { "type": "integer", "description": "Wait time in milliseconds, 1000-300000." }
+        },
+        "required": ["endpointId", "input"]
+      }
+    },
+    {
+      "name": "run_endpoint_async",
+      "description": "Submit an asynchronous job to a queue-based Serverless endpoint. Use get_job_status with the returned id.",
+      "method": "POST",
+      "path": "https://api.runpod.ai/v2/{endpointId}/run",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpointId": { "type": "string" },
+          "input": { "type": "object", "description": "Worker handler input payload." },
+          "webhook": { "type": "string" },
+          "policy": { "type": "object", "description": "Optional execution policy: executionTimeout, lowPriority, ttl." },
+          "s3Config": { "type": "object" }
+        },
+        "required": ["endpointId", "input"]
+      }
+    },
+    {
+      "name": "get_job_status",
+      "description": "Get status, execution details, and output for a Serverless endpoint job. Async job results are retained for about 30 minutes after completion.",
+      "method": "GET",
+      "path": "https://api.runpod.ai/v2/{endpointId}/status/{jobId}",
+      "query_params": ["ttl"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpointId": { "type": "string" },
+          "jobId": { "type": "string" },
+          "ttl": { "type": "integer", "description": "Optional status-result TTL in milliseconds." }
+        },
+        "required": ["endpointId", "jobId"]
+      }
+    },
+    {
+      "name": "stream_job",
+      "description": "Fetch incremental output chunks for a streaming-capable Serverless job.",
+      "method": "GET",
+      "path": "https://api.runpod.ai/v2/{endpointId}/stream/{jobId}",
+      "timeout_ms": 300000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpointId": { "type": "string" },
+          "jobId": { "type": "string" }
+        },
+        "required": ["endpointId", "jobId"]
+      }
+    },
+    {
+      "name": "cancel_job",
+      "description": "Cancel a queued or running Serverless endpoint job.",
+      "method": "POST",
+      "path": "https://api.runpod.ai/v2/{endpointId}/cancel/{jobId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpointId": { "type": "string" },
+          "jobId": { "type": "string" }
+        },
+        "required": ["endpointId", "jobId"]
+      }
+    },
+    {
+      "name": "retry_job",
+      "description": "Retry a failed or timed-out Serverless endpoint job with the same job id and original input.",
+      "method": "POST",
+      "path": "https://api.runpod.ai/v2/{endpointId}/retry/{jobId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpointId": { "type": "string" },
+          "jobId": { "type": "string" }
+        },
+        "required": ["endpointId", "jobId"]
+      }
+    },
+    {
+      "name": "purge_endpoint_queue",
+      "description": "Remove pending jobs from a queue-based Serverless endpoint queue. Jobs already in progress continue to run.",
+      "method": "POST",
+      "path": "https://api.runpod.ai/v2/{endpointId}/purge-queue",
+      "input_schema": {
+        "type": "object",
+        "properties": { "endpointId": { "type": "string" } },
+        "required": ["endpointId"]
+      }
+    },
+    {
+      "name": "get_endpoint_health",
+      "description": "Get queue and worker health for a queue-based Serverless endpoint.",
+      "method": "GET",
+      "path": "https://api.runpod.ai/v2/{endpointId}/health",
+      "input_schema": {
+        "type": "object",
+        "properties": { "endpointId": { "type": "string" } },
+        "required": ["endpointId"]
+      }
+    },
+    {
+      "name": "list_templates",
+      "description": "List RunPod templates. Include RunPod/community/endpoint-bound templates with flags.",
+      "method": "GET",
+      "path": "/templates",
+      "query_params": ["includeEndpointBoundTemplates", "includePublicTemplates", "includeRunpodTemplates"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "includeEndpointBoundTemplates": { "type": "boolean", "default": false },
+          "includePublicTemplates": { "type": "boolean", "default": false },
+          "includeRunpodTemplates": { "type": "boolean", "default": false }
+        }
+      }
+    },
+    {
+      "name": "create_template",
+      "description": "Create a Pod or Serverless template from a Docker image, env, ports, volume settings, and optional registry auth.",
+      "method": "POST",
+      "path": "/templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "imageName": { "type": "string" },
+          "category": { "type": "string", "enum": ["NVIDIA", "AMD", "CPU"], "default": "NVIDIA" },
+          "isServerless": { "type": "boolean", "default": false },
+          "isPublic": { "type": "boolean", "default": false },
+          "env": { "type": "object" },
+          "ports": { "type": "array", "items": { "type": "string" } },
+          "containerDiskInGb": { "type": "integer", "default": 50 },
+          "volumeInGb": { "type": "integer", "default": 20 },
+          "volumeMountPath": { "type": "string", "default": "/workspace" },
+          "containerRegistryAuthId": { "type": "string" },
+          "dockerEntrypoint": { "type": "array", "items": { "type": "string" } },
+          "dockerStartCmd": { "type": "array", "items": { "type": "string" } },
+          "readme": { "type": "string" }
+        },
+        "required": ["name", "imageName"]
+      }
+    },
+    {
+      "name": "get_template",
+      "description": "Get a template by ID.",
+      "method": "GET",
+      "path": "/templates/{templateId}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "templateId": { "type": "string" } },
+        "required": ["templateId"]
+      }
+    },
+    {
+      "name": "update_template",
+      "description": "Patch a template. This can trigger rolling release for associated endpoints.",
+      "method": "PATCH",
+      "path": "/templates/{templateId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "templateId": { "type": "string" },
+          "name": { "type": "string" },
+          "imageName": { "type": "string" },
+          "isPublic": { "type": "boolean" },
+          "env": { "type": "object" },
+          "ports": { "type": "array", "items": { "type": "string" } },
+          "containerDiskInGb": { "type": "integer" },
+          "volumeInGb": { "type": "integer" },
+          "volumeMountPath": { "type": "string" },
+          "containerRegistryAuthId": { "type": "string" },
+          "dockerEntrypoint": { "type": "array", "items": { "type": "string" } },
+          "dockerStartCmd": { "type": "array", "items": { "type": "string" } },
+          "readme": { "type": "string" }
+        },
+        "required": ["templateId"]
+      }
+    },
+    {
+      "name": "update_template_in_place",
+      "description": "Update lightweight template fields in place: name, isPublic, readme, volumeInGb, and volumeMountPath.",
+      "method": "POST",
+      "path": "/templates/{templateId}/update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "templateId": { "type": "string" },
+          "name": { "type": "string" },
+          "isPublic": { "type": "boolean" },
+          "readme": { "type": "string" },
+          "volumeInGb": { "type": "integer" },
+          "volumeMountPath": { "type": "string" }
+        },
+        "required": ["templateId"]
+      }
+    },
+    {
+      "name": "delete_template",
+      "description": "Delete a template.",
+      "method": "DELETE",
+      "path": "/templates/{templateId}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "templateId": { "type": "string" } },
+        "required": ["templateId"]
+      }
+    },
+    {
+      "name": "list_network_volumes",
+      "description": "List network volumes.",
+      "method": "GET",
+      "path": "/networkvolumes",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_network_volume",
+      "description": "Create persistent network storage attachable to Pods/endpoints.",
+      "method": "POST",
+      "path": "/networkvolumes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "size": { "type": "integer", "minimum": 0, "maximum": 4000 },
+          "dataCenterId": { "type": "string", "description": "RunPod data center ID, e.g. EU-RO-1." }
+        },
+        "required": ["name", "size", "dataCenterId"]
+      }
+    },
+    {
+      "name": "get_network_volume",
+      "description": "Get a network volume by ID.",
+      "method": "GET",
+      "path": "/networkvolumes/{networkVolumeId}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "networkVolumeId": { "type": "string" } },
+        "required": ["networkVolumeId"]
+      }
+    },
+    {
+      "name": "update_network_volume",
+      "description": "Patch a network volume. Size can only increase.",
+      "method": "PATCH",
+      "path": "/networkvolumes/{networkVolumeId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "networkVolumeId": { "type": "string" },
+          "name": { "type": "string" },
+          "size": { "type": "integer", "minimum": 0, "maximum": 4000 }
+        },
+        "required": ["networkVolumeId"]
+      }
+    },
+    {
+      "name": "update_network_volume_in_place",
+      "description": "Update a network volume via the in-place update endpoint. Size can only increase.",
+      "method": "POST",
+      "path": "/networkvolumes/{networkVolumeId}/update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "networkVolumeId": { "type": "string" },
+          "name": { "type": "string" },
+          "size": { "type": "integer", "minimum": 0, "maximum": 4000 }
+        },
+        "required": ["networkVolumeId"]
+      }
+    },
+    {
+      "name": "delete_network_volume",
+      "description": "Delete a network volume.",
+      "method": "DELETE",
+      "path": "/networkvolumes/{networkVolumeId}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "networkVolumeId": { "type": "string" } },
+        "required": ["networkVolumeId"]
+      }
+    },
+    {
+      "name": "list_container_registry_auths",
+      "description": "List container registry credentials.",
+      "method": "GET",
+      "path": "/containerregistryauth",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_container_registry_auth",
+      "description": "Create registry credentials for private Docker images.",
+      "method": "POST",
+      "path": "/containerregistryauth",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "username": { "type": "string" },
+          "password": { "type": "string" }
+        },
+        "required": ["name", "username", "password"]
+      }
+    },
+    {
+      "name": "get_container_registry_auth",
+      "description": "Get container registry credentials metadata by ID.",
+      "method": "GET",
+      "path": "/containerregistryauth/{containerRegistryAuthId}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "containerRegistryAuthId": { "type": "string" } },
+        "required": ["containerRegistryAuthId"]
+      }
+    },
+    {
+      "name": "delete_container_registry_auth",
+      "description": "Delete container registry credentials.",
+      "method": "DELETE",
+      "path": "/containerregistryauth/{containerRegistryAuthId}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "containerRegistryAuthId": { "type": "string" } },
+        "required": ["containerRegistryAuthId"]
+      }
+    },
+    {
+      "name": "get_pod_billing",
+      "description": "Get Pod billing history, optionally grouped by gpuTypeId or podId.",
+      "method": "GET",
+      "path": "/billing/pods",
+      "query_params": ["bucketSize", "startTime", "endTime", "gpuTypeId", "podId", "grouping"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucketSize": { "type": "string", "enum": ["hour", "day", "week", "month", "year"], "default": "day" },
+          "startTime": { "type": "string", "description": "ISO timestamp." },
+          "endTime": { "type": "string", "description": "ISO timestamp." },
+          "gpuTypeId": { "type": "string" },
+          "podId": { "type": "string" },
+          "grouping": { "type": "string", "enum": ["podId", "gpuTypeId"], "default": "gpuTypeId" }
+        }
+      }
+    },
+    {
+      "name": "get_endpoint_billing",
+      "description": "Get Serverless endpoint billing history.",
+      "method": "GET",
+      "path": "/billing/endpoints",
+      "query_params": ["bucketSize", "startTime", "endTime", "dataCenterId", "endpointId", "gpuTypeId", "grouping", "imageName", "templateId"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucketSize": { "type": "string", "enum": ["hour", "day", "week", "month", "year"], "default": "day" },
+          "startTime": { "type": "string" },
+          "endTime": { "type": "string" },
+          "dataCenterId": { "type": "array", "items": { "type": "string" } },
+          "endpointId": { "type": "string" },
+          "gpuTypeId": { "type": "array", "items": { "type": "string" } },
+          "grouping": { "type": "string", "enum": ["endpointId", "podId", "gpuTypeId"], "default": "endpointId" },
+          "imageName": { "type": "string" },
+          "templateId": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_network_volume_billing",
+      "description": "Get network volume billing history.",
+      "method": "GET",
+      "path": "/billing/networkvolumes",
+      "query_params": ["bucketSize", "startTime", "endTime"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucketSize": { "type": "string", "enum": ["hour", "day", "week", "month", "year"], "default": "day" },
+          "startTime": { "type": "string" },
+          "endTime": { "type": "string" }
+        }
+      }
+    }
+  ]
+}

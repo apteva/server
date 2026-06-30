@@ -90,8 +90,9 @@ func TestChannelChatApp_EndToEnd(t *testing.T) {
 		t.Fatal("chat id empty")
 	}
 
-	// 3. POST user message.
-	postBody := `{"content": "hello from the test"}`
+	// 3. POST user message with a tiny persisted image attachment.
+	tinyPNG := "data:image/png;base64,iVBORw0KGgo="
+	postBody := `{"content": "hello from the test", "attachments": [{"type":"image","data_url":"` + tinyPNG + `","name":"tiny.png"}]}`
 	r = authed("POST", "/apps/channel-chat/messages?chat_id="+chatID, postBody)
 	if r.StatusCode != 200 {
 		body, _ := readAll(r)
@@ -102,6 +103,13 @@ func TestChannelChatApp_EndToEnd(t *testing.T) {
 	r.Body.Close()
 	if posted["role"] != "user" || posted["content"] != "hello from the test" {
 		t.Fatalf("posted row wrong: %v", posted)
+	}
+	postedAttachments, _ := posted["attachments"].([]any)
+	if len(postedAttachments) != 1 {
+		t.Fatalf("posted attachments = %v", posted["attachments"])
+	}
+	if att, _ := postedAttachments[0].(map[string]any); att["data_url"] != tinyPNG || att["mime_type"] != "image/png" {
+		t.Fatalf("posted attachment wrong: %v", att)
 	}
 
 	// 4. GET messages back. handlers.go writes a system "agent

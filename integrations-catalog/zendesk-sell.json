@@ -1,0 +1,248 @@
+{
+  "slug": "zendesk-sell",
+  "name": "Zendesk Sell",
+  "description": "Zendesk Sell CRM API for leads, contacts, deals, tasks, notes, pipelines, stages, users, sources, loss reasons, and custom fields.",
+  "logo": "https://www.google.com/s2/favicons?domain=zendesk.com&sz=128",
+  "categories": ["crm", "zendesk", "sell", "deals", "sales"],
+  "base_url": "https://api.getbase.com/v2",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Access Token",
+        "type": "password",
+        "description": "Zendesk Sell OAuth access token or personal access token with CRM permissions."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_users"
+  },
+  "tools": [
+    {
+      "name": "list_leads",
+      "description": "List Zendesk Sell leads.",
+      "method": "GET",
+      "path": "/leads",
+      "query_params": ["page", "per_page", "sort_by", "sort_order", "ids", "email", "phone", "name", "query", "owner_id", "creator_id", "status"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}, "sort_by": {"type": "string"}, "sort_order": {"type": "string"}, "ids": {"type": "string"}, "email": {"type": "string"}, "phone": {"type": "string"}, "name": {"type": "string"}, "query": {"type": "string"}, "owner_id": {"type": "number"}, "creator_id": {"type": "number"}, "status": {"type": "string"}}}
+    },
+    {
+      "name": "get_lead",
+      "description": "Get one Zendesk Sell lead by ID.",
+      "method": "GET",
+      "path": "/leads/{leadId}",
+      "path_params": ["leadId"],
+      "input_schema": {"type": "object", "properties": {"leadId": {"type": "number"}}, "required": ["leadId"]}
+    },
+    {
+      "name": "create_lead",
+      "description": "Create a lead. Pass body as the Zendesk Sell payload, normally {\"data\":{...}}.",
+      "method": "POST",
+      "path": "/leads",
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"body": {"type": "object"}}, "required": ["body"]}
+    },
+    {
+      "name": "update_lead",
+      "description": "Update a lead. Pass body as the Zendesk Sell payload, normally {\"data\":{...}}.",
+      "method": "PUT",
+      "path": "/leads/{leadId}",
+      "path_params": ["leadId"],
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"leadId": {"type": "number"}, "body": {"type": "object"}}, "required": ["leadId", "body"]}
+    },
+    {
+      "name": "delete_lead",
+      "description": "Delete one lead by ID.",
+      "method": "DELETE",
+      "path": "/leads/{leadId}",
+      "path_params": ["leadId"],
+      "input_schema": {"type": "object", "properties": {"leadId": {"type": "number"}}, "required": ["leadId"]}
+    },
+    {
+      "name": "list_contacts",
+      "description": "List Zendesk Sell contacts, including people and companies.",
+      "method": "GET",
+      "path": "/contacts",
+      "query_params": ["page", "per_page", "sort_by", "sort_order", "ids", "email", "phone", "name", "query", "owner_id", "creator_id", "is_organization"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}, "sort_by": {"type": "string"}, "sort_order": {"type": "string"}, "ids": {"type": "string"}, "email": {"type": "string"}, "phone": {"type": "string"}, "name": {"type": "string"}, "query": {"type": "string"}, "owner_id": {"type": "number"}, "creator_id": {"type": "number"}, "is_organization": {"type": "boolean"}}}
+    },
+    {
+      "name": "get_contact",
+      "description": "Get one contact by ID.",
+      "method": "GET",
+      "path": "/contacts/{contactId}",
+      "path_params": ["contactId"],
+      "input_schema": {"type": "object", "properties": {"contactId": {"type": "number"}}, "required": ["contactId"]}
+    },
+    {
+      "name": "create_contact",
+      "description": "Create a contact. Pass body as the Zendesk Sell payload, normally {\"data\":{...}}.",
+      "method": "POST",
+      "path": "/contacts",
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"body": {"type": "object"}}, "required": ["body"]}
+    },
+    {
+      "name": "update_contact",
+      "description": "Update a contact. Pass body as the Zendesk Sell payload, normally {\"data\":{...}}.",
+      "method": "PUT",
+      "path": "/contacts/{contactId}",
+      "path_params": ["contactId"],
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"contactId": {"type": "number"}, "body": {"type": "object"}}, "required": ["contactId", "body"]}
+    },
+    {
+      "name": "delete_contact",
+      "description": "Delete one contact by ID.",
+      "method": "DELETE",
+      "path": "/contacts/{contactId}",
+      "path_params": ["contactId"],
+      "input_schema": {"type": "object", "properties": {"contactId": {"type": "number"}}, "required": ["contactId"]}
+    },
+    {
+      "name": "list_deals",
+      "description": "List Zendesk Sell deals.",
+      "method": "GET",
+      "path": "/deals",
+      "query_params": ["page", "per_page", "sort_by", "sort_order", "ids", "name", "query", "owner_id", "creator_id", "contact_id", "organization_id", "pipeline_id", "stage_id", "status"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}, "sort_by": {"type": "string"}, "sort_order": {"type": "string"}, "ids": {"type": "string"}, "name": {"type": "string"}, "query": {"type": "string"}, "owner_id": {"type": "number"}, "creator_id": {"type": "number"}, "contact_id": {"type": "number"}, "organization_id": {"type": "number"}, "pipeline_id": {"type": "number"}, "stage_id": {"type": "number"}, "status": {"type": "string"}}}
+    },
+    {
+      "name": "get_deal",
+      "description": "Get one deal by ID.",
+      "method": "GET",
+      "path": "/deals/{dealId}",
+      "path_params": ["dealId"],
+      "input_schema": {"type": "object", "properties": {"dealId": {"type": "number"}}, "required": ["dealId"]}
+    },
+    {
+      "name": "create_deal",
+      "description": "Create a deal. Pass body as the Zendesk Sell payload, normally {\"data\":{...}}.",
+      "method": "POST",
+      "path": "/deals",
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"body": {"type": "object"}}, "required": ["body"]}
+    },
+    {
+      "name": "update_deal",
+      "description": "Update a deal. Pass body as the Zendesk Sell payload, normally {\"data\":{...}}.",
+      "method": "PUT",
+      "path": "/deals/{dealId}",
+      "path_params": ["dealId"],
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"dealId": {"type": "number"}, "body": {"type": "object"}}, "required": ["dealId", "body"]}
+    },
+    {
+      "name": "delete_deal",
+      "description": "Delete one deal by ID.",
+      "method": "DELETE",
+      "path": "/deals/{dealId}",
+      "path_params": ["dealId"],
+      "input_schema": {"type": "object", "properties": {"dealId": {"type": "number"}}, "required": ["dealId"]}
+    },
+    {
+      "name": "list_tasks",
+      "description": "List Zendesk Sell tasks.",
+      "method": "GET",
+      "path": "/tasks",
+      "query_params": ["page", "per_page", "sort_by", "sort_order", "ids", "owner_id", "creator_id", "lead_id", "contact_id", "deal_id", "completed"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}, "sort_by": {"type": "string"}, "sort_order": {"type": "string"}, "ids": {"type": "string"}, "owner_id": {"type": "number"}, "creator_id": {"type": "number"}, "lead_id": {"type": "number"}, "contact_id": {"type": "number"}, "deal_id": {"type": "number"}, "completed": {"type": "boolean"}}}
+    },
+    {
+      "name": "create_task",
+      "description": "Create a task. Pass body as the Zendesk Sell payload, normally {\"data\":{...}}.",
+      "method": "POST",
+      "path": "/tasks",
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"body": {"type": "object"}}, "required": ["body"]}
+    },
+    {
+      "name": "update_task",
+      "description": "Update a task. Pass body as the Zendesk Sell payload, normally {\"data\":{...}}.",
+      "method": "PUT",
+      "path": "/tasks/{taskId}",
+      "path_params": ["taskId"],
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"taskId": {"type": "number"}, "body": {"type": "object"}}, "required": ["taskId", "body"]}
+    },
+    {
+      "name": "delete_task",
+      "description": "Delete one task by ID.",
+      "method": "DELETE",
+      "path": "/tasks/{taskId}",
+      "path_params": ["taskId"],
+      "input_schema": {"type": "object", "properties": {"taskId": {"type": "number"}}, "required": ["taskId"]}
+    },
+    {
+      "name": "list_notes",
+      "description": "List notes, optionally filtered by lead, contact, deal, or owner.",
+      "method": "GET",
+      "path": "/notes",
+      "query_params": ["page", "per_page", "sort_by", "sort_order", "owner_id", "creator_id", "lead_id", "contact_id", "deal_id"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}, "sort_by": {"type": "string"}, "sort_order": {"type": "string"}, "owner_id": {"type": "number"}, "creator_id": {"type": "number"}, "lead_id": {"type": "number"}, "contact_id": {"type": "number"}, "deal_id": {"type": "number"}}}
+    },
+    {
+      "name": "create_note",
+      "description": "Create a note. Pass body as the Zendesk Sell payload, normally {\"data\":{...}}.",
+      "method": "POST",
+      "path": "/notes",
+      "body_root_param": "body",
+      "input_schema": {"type": "object", "properties": {"body": {"type": "object"}}, "required": ["body"]}
+    },
+    {
+      "name": "list_pipelines",
+      "description": "List pipelines.",
+      "method": "GET",
+      "path": "/pipelines",
+      "query_params": ["page", "per_page"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}}}
+    },
+    {
+      "name": "list_stages",
+      "description": "List stages, optionally filtered by pipeline.",
+      "method": "GET",
+      "path": "/stages",
+      "query_params": ["page", "per_page", "pipeline_id"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}, "pipeline_id": {"type": "number"}}}
+    },
+    {
+      "name": "list_users",
+      "description": "List Zendesk Sell users.",
+      "method": "GET",
+      "path": "/users",
+      "query_params": ["page", "per_page"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}}}
+    },
+    {
+      "name": "list_sources",
+      "description": "List lead/deal sources.",
+      "method": "GET",
+      "path": "/sources",
+      "query_params": ["page", "per_page"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}}}
+    },
+    {
+      "name": "list_loss_reasons",
+      "description": "List configured deal loss reasons.",
+      "method": "GET",
+      "path": "/loss_reasons",
+      "query_params": ["page", "per_page"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}}}
+    },
+    {
+      "name": "list_custom_fields",
+      "description": "List custom fields for a resource type, for example leads, contacts, deals, tasks, or notes.",
+      "method": "GET",
+      "path": "/custom_fields/{resource}",
+      "path_params": ["resource"],
+      "query_params": ["page", "per_page"],
+      "input_schema": {"type": "object", "properties": {"resource": {"type": "string"}, "page": {"type": "number"}, "per_page": {"type": "number", "default": 100}}, "required": ["resource"]}
+    }
+  ]
+}

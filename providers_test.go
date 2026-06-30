@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testSecret() []byte {
@@ -126,6 +129,102 @@ func TestGetAllProviderEnvVars(t *testing.T) {
 	if _, ok := envVars["model"]; ok {
 		t.Error("lowercase 'model' should not be in env vars")
 	}
+}
+
+func TestGetAllProviderEnvVars_CodexRefreshFailureBlocksExpiredToken(t *testing.T) {
+	s := newTestServer(t)
+	s.secret = testSecret()
+	state := map[string]any{
+		"auth": map[string]any{
+			"provider": openAICodexAuthProvider,
+		},
+		"credentials": map[string]any{
+			"access_token":  "expired-access-token",
+			"refresh_token": "reused-refresh-token",
+			"expires_at":    time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+	raw, _ := json.Marshal(state)
+	enc, _ := Encrypt(s.secret, string(raw))
+	if _, err := s.store.CreateProvider(1, 15, "llm", "OpenAI Codex", enc); err != nil {
+		t.Fatal(err)
+	}
+
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"refresh_token_reused","message":"Please sign in again"}}`))
+	}))
+	defer tokenServer.Close()
+	oldEndpoint := openAICodexTokenEndpoint
+	openAICodexTokenEndpoint = tokenServer.URL
+	defer func() { openAICodexTokenEndpoint = oldEndpoint }()
+
+	envVars, err := s.store.GetAllProviderEnvVars(1, s.secret)
+	if err == nil {
+		t.Fatal("expected refresh failure")
+	}
+	if envVars != nil {
+		t.Fatalf("env vars = %#v, want nil on refresh failure", envVars)
+	}
+	if !strings.Contains(err.Error(), "refresh_token_reused") || !strings.Contains(err.Error(), "Please sign in again") {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestGetAllProviderEnvVars_CodexRefreshSuccessExportsFreshToken(t *testing.T) {
+	s := newTestServer(t)
+	s.secret = testSecret()
+	state := map[string]any{
+		"auth": map[string]any{
+			"provider": openAICodexAuthProvider,
+		},
+		"credentials": map[string]any{
+			"access_token":  "expired-access-token",
+			"refresh_token": "refresh-token",
+			"expires_at":    time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+	raw, _ := json.Marshal(state)
+	enc, _ := Encrypt(s.secret, string(raw))
+	provider, err := s.store.CreateProvider(1, 15, "llm", "OpenAI Codex", enc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	freshToken := testJWTWithExpiry(time.Now().Add(time.Hour))
+
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if r.Form.Get("grant_type") != "refresh_token" || r.Form.Get("refresh_token") != "refresh-token" {
+			t.Fatalf("unexpected token refresh form: %v", r.Form)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": freshToken,
+		})
+	}))
+	defer tokenServer.Close()
+	oldEndpoint := openAICodexTokenEndpoint
+	openAICodexTokenEndpoint = tokenServer.URL
+	defer func() { openAICodexTokenEndpoint = oldEndpoint }()
+
+	envVars, err := s.store.GetAllProviderEnvVars(1, s.secret)
+	if err != nil {
+		t.Fatalf("GetAllProviderEnvVars: %v", err)
+	}
+	if envVars["OPENAI_CODEX_ACCESS_TOKEN"] != freshToken {
+		t.Fatalf("OPENAI_CODEX_ACCESS_TOKEN not refreshed")
+	}
+	if envVars["OPENAI_CODEX_PROVIDER_ID"] != fmt.Sprint(provider.ID) {
+		t.Fatalf("OPENAI_CODEX_PROVIDER_ID = %q, want %d", envVars["OPENAI_CODEX_PROVIDER_ID"], provider.ID)
+	}
+}
+
+func testJWTWithExpiry(exp time.Time) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	payloadBytes, _ := json.Marshal(map[string]any{"exp": exp.Unix(), "sub": "test-user"})
+	payload := base64.RawURLEncoding.EncodeToString(payloadBytes)
+	return header + "." + payload + "."
 }
 
 func TestOllamaProviderTypeIncludesEmbeddingFields(t *testing.T) {

@@ -369,16 +369,14 @@ func (r *serverResolver) InstanceIDsForUser(userID int64) ([]int64, error) {
 	return ids, nil
 }
 
-// ForwardEvent pushes a text event into the instance's core /event
-// endpoint. Uses the same makeSendEvent helper the slack path uses so
-// there's one canonical way text events reach the agent.
-func (r *serverResolver) ForwardEvent(inst framework.InstanceInfo, text, threadID string) error {
+// ForwardEvent pushes an event into the instance's core /event
+// endpoint. message is either a string or a []content-part payload;
+// core's /event endpoint accepts both.
+func (r *serverResolver) ForwardEvent(inst framework.InstanceInfo, message any, threadID string) error {
 	if inst.Port == 0 {
 		return fmt.Errorf("instance %d has no core port — is it running?", inst.ID)
 	}
-	send := makeSendEvent(inst.Port, inst.CoreAPIKey)
-	send(text, threadID)
-	return nil
+	return postCoreEventAny(inst.Port, inst.CoreAPIKey, message, threadID)
 }
 
 // ListMCPNames returns the MCP servers THIS agent has attached —

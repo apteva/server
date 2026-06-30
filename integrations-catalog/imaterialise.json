@@ -1,348 +1,257 @@
 {
   "slug": "imaterialise",
-  "name": "i.materialise",
-  "description": "MCP server for i.materialise - professional 3D printing service with 25+ years experience, 100+ materials",
-  "logo": "https://www.google.com/s2/favicons?domain=i.materialise.com&sz=128",
-  "categories": [
-    "3d-printing",
-    "manufacturing",
-    "professional",
-    "materialise",
-    "prototyping"
-  ],
-  "base_url": "https://i.materialise.com/api",
+  "name": "Materialise OnSite",
+  "description": "Materialise OnSite 3D printing API for technology/material lookup, products, pricing, quotations, addresses, and order placement. i.materialise has moved into the Materialise OnSite service.",
+  "logo": "https://www.google.com/s2/favicons?domain=materialise.com&sz=128",
+  "categories": ["3d-printing", "manufacturing", "professional", "materialise", "onsite"],
+  "base_url": "https://api.onsite.materialise.com",
   "auth": {
-    "types": [
-      "bearer"
-    ],
+    "types": ["bearer"],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Authorization": "Bearer {{access_token}}"
     },
     "credential_fields": [
       {
-        "name": "api_key",
-        "label": "Api_key",
-        "description": "Your i.materialise API code (request from i.materialise after registration)"
-      },
-      {
-        "name": "tool_id",
-        "label": "Tool_id",
-        "description": "Your i.materialise tool ID (provided with API code)"
+        "name": "access_token",
+        "label": "Access Token",
+        "description": "Materialise OnSite OAuth access token. Get it from https://auth.onsite.materialise.com/connect/token using your client credentials."
       }
     ]
   },
   "tools": [
     {
       "name": "upload_model",
-      "description": "Upload a 3D model to i.materialise for analysis and pricing",
+      "description": "Upload a 3D model file to Materialise OnSite and receive a model id. The file is sent as multipart/form-data.",
       "method": "POST",
-      "path": "/upload-model",
+      "path": "/v1/models",
+      "multipart_form": {
+        "file_fields": {
+          "file": "file"
+        },
+        "field_names": []
+      },
       "input_schema": {
         "type": "object",
         "properties": {
-          "file": {
-            "type": "string",
-            "description": "Base64 encoded 3D model file"
-          },
-          "fileName": {
-            "type": "string",
-            "description": "Name of the file"
-          },
-          "fileURL": {
-            "type": "string",
-            "description": "URL to the 3D model file (alternative to base64)"
-          }
+          "file": { "type": "string", "description": "3D model bytes as base64, data URL, or raw string." },
+          "filename": { "type": "string", "description": "Filename with extension. Materialise supports common 3D model formats on the OnSite API." }
+        },
+        "required": ["file", "filename"]
+      }
+    },
+    {
+      "name": "list_technologies",
+      "description": "List Materialise OnSite technologies, materials, finishings, and colors. Use the returned ids to create products.",
+      "method": "GET",
+      "path": "/v1/technologies",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_model",
+      "description": "Get dimensions, volume, surface area, filename, and status for an uploaded model.",
+      "method": "GET",
+      "path": "/v1/models/{modelId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modelId": { "type": "string", "description": "Materialise model UUID." }
+        },
+        "required": ["modelId"]
+      }
+    },
+    {
+      "name": "get_model_status",
+      "description": "Check processing status for an uploaded model.",
+      "method": "GET",
+      "path": "/v1/models/{modelId}/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modelId": { "type": "string", "description": "Materialise model UUID." }
+        },
+        "required": ["modelId"]
+      }
+    },
+    {
+      "name": "create_product",
+      "description": "Create a printable product from a processed model and selected technology/material/finishing/color ids.",
+      "method": "POST",
+      "path": "/v1/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modelId": { "type": "string" },
+          "technologyId": { "type": "string" },
+          "materialId": { "type": "string" },
+          "finishingId": { "type": "string" },
+          "colorId": { "type": "string" },
+          "keepPartOrientation": { "type": "boolean" },
+          "doNotHollow": { "type": "boolean" }
+        },
+        "required": ["modelId", "technologyId", "materialId"]
+      }
+    },
+    {
+      "name": "get_product_services",
+      "description": "Get available production services for a product, such as default or FastLane.",
+      "method": "GET",
+      "path": "/v1/products/{productId}/services",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": { "type": "string" }
+        },
+        "required": ["productId"]
+      }
+    },
+    {
+      "name": "get_product_price",
+      "description": "Price a product for a quantity and currency.",
+      "method": "POST",
+      "path": "/v1/products/{productId}/price",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "currency": { "type": "string", "enum": ["EUR", "USD", "GBP", "PLN"] }
+        },
+        "required": ["productId", "quantity", "currency"]
+      }
+    },
+    {
+      "name": "create_delivery_address",
+      "description": "Create a delivery address and receive an address id usable on quotations.",
+      "method": "POST",
+      "path": "/v1/delivery-addresses",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "company": { "type": "string" },
+          "address1": { "type": "string" },
+          "address2": { "type": "string" },
+          "address3": { "type": "string" },
+          "city": { "type": "string" },
+          "zip": { "type": "string" },
+          "state": { "type": "string" },
+          "countryIsoCode": { "type": "string" },
+          "firstName": { "type": "string" },
+          "lastName": { "type": "string" },
+          "phoneNumber": { "type": "string" }
+        },
+        "required": ["address1", "city", "zip", "countryIsoCode", "firstName", "lastName", "phoneNumber"]
+      }
+    },
+    {
+      "name": "create_quotation",
+      "description": "Create an empty quotation in a currency. Add items and addresses before ordering.",
+      "method": "POST",
+      "path": "/v1/quotations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "refNumber": { "type": "string" },
+          "currency": { "type": "string", "enum": ["EUR", "USD", "GBP", "PLN"] }
+        },
+        "required": ["currency"]
+      }
+    },
+    {
+      "name": "list_quotations",
+      "description": "List active quotations.",
+      "method": "GET",
+      "path": "/v1/quotations",
+      "query_params": ["$skip", "$top"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "$skip": { "type": "integer" },
+          "$top": { "type": "integer" }
         }
       }
     },
     {
-      "name": "pricing_parameters",
-      "description": "Get pricing by providing model parameters (dimensions, volume, surface)",
+      "name": "get_quotation",
+      "description": "Get quotation details including items, totals, status, transport cost, and tracking number when available.",
       "method": "GET",
-      "path": "/pricing-parameters",
+      "path": "/v1/quotations/{quotationId}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "materialId": {
-            "type": "string",
-            "description": "Material ID to price for"
-          },
-          "finishId": {
-            "type": "string",
-            "description": "Finish ID"
-          },
-          "xDimMm": {
-            "type": "number",
-            "description": "X dimension in mm"
-          },
-          "yDimMm": {
-            "type": "number",
-            "description": "Y dimension in mm"
-          },
-          "zDimMm": {
-            "type": "number",
-            "description": "Z dimension in mm"
-          },
-          "volumeMm3": {
-            "type": "number",
-            "description": "Volume in mm³"
-          },
-          "surfaceMm2": {
-            "type": "number",
-            "description": "Surface area in mm²"
-          },
-          "quantity": {
-            "type": "number",
-            "description": "Quantity to price"
-          },
-          "currency": {
-            "type": "string",
-            "description": "Currency code (USD, EUR, GBP)"
-          }
+          "quotationId": { "type": "integer" }
         },
-        "required": [
-          "materialId"
-        ]
+        "required": ["quotationId"]
       }
     },
     {
-      "name": "pricing_model",
-      "description": "Get pricing for an uploaded model by its ID",
-      "method": "GET",
-      "path": "/pricing-model",
+      "name": "delete_quotation",
+      "description": "Delete an active quotation that has not already been ordered.",
+      "method": "DELETE",
+      "path": "/v1/quotations/{quotationId}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "modelId": {
-            "type": "string",
-            "description": "The uploaded model ID"
-          },
-          "materialId": {
-            "type": "string",
-            "description": "Material ID to price for"
-          },
-          "finishId": {
-            "type": "string",
-            "description": "Finish ID"
-          },
-          "quantity": {
-            "type": "number",
-            "description": "Quantity to price"
-          },
-          "currency": {
-            "type": "string",
-            "description": "Currency code"
-          }
+          "quotationId": { "type": "integer" }
         },
-        "required": [
-          "modelId",
-          "materialId"
-        ]
+        "required": ["quotationId"]
       }
     },
     {
-      "name": "materials_list",
-      "description": "Get the catalog of available materials and their properties (public API)",
-      "method": "GET",
-      "path": "/materials-list",
+      "name": "add_quotation_addresses",
+      "description": "Assign delivery and invoice address ids to a quotation.",
+      "method": "POST",
+      "path": "/v1/quotations/{quotationId}/addresses",
       "input_schema": {
         "type": "object",
         "properties": {
-          "currency": {
-            "type": "string",
-            "description": "Currency for prices"
-          }
-        }
-      }
-    },
-    {
-      "name": "cart_item_create",
-      "description": "Create a cart item for ordering",
-      "method": "GET",
-      "path": "/cart-item-create",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "modelId": {
-            "type": "string",
-            "description": "The model ID"
-          },
-          "materialId": {
-            "type": "string",
-            "description": "Material ID"
-          },
-          "finishId": {
-            "type": "string",
-            "description": "Finish ID"
-          },
-          "quantity": {
-            "type": "number",
-            "description": "Quantity (default: 1)"
-          },
-          "scale": {
-            "type": "number",
-            "description": "Scale factor (default: 1)"
-          },
-          "currency": {
-            "type": "string",
-            "description": "Currency code"
-          }
+          "quotationId": { "type": "integer" },
+          "deliveryAddressId": { "type": "string" },
+          "invoiceAddressId": { "type": "string" }
         },
-        "required": [
-          "modelId",
-          "materialId"
-        ]
+        "required": ["quotationId", "deliveryAddressId", "invoiceAddressId"]
       }
     },
     {
-      "name": "cart_create",
-      "description": "Create a cart with cart items",
-      "method": "GET",
-      "path": "/cart-create",
+      "name": "add_quotation_item",
+      "description": "Add a product and quantity to a quotation.",
+      "method": "POST",
+      "path": "/v1/quotations/{quotationId}/items",
       "input_schema": {
         "type": "object",
         "properties": {
-          "cartItemIds": {
-            "type": "array",
-            "description": "Array of cart item IDs",
-            "items": {
-              "type": "string"
-            }
-          },
-          "shipmentCountryCode": {
-            "type": "string",
-            "description": "ISO country code for shipping"
-          },
-          "currency": {
-            "type": "string",
-            "description": "Currency code"
-          }
+          "quotationId": { "type": "integer" },
+          "productId": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "service": { "type": "string", "enum": ["Default", "FastLane"] }
         },
-        "required": [
-          "cartItemIds"
-        ]
+        "required": ["quotationId", "productId", "quantity"]
       }
     },
     {
-      "name": "cart_checkout",
-      "description": "Checkout a cart and place the order",
-      "method": "GET",
-      "path": "/cart-checkout",
+      "name": "delete_quotation_item",
+      "description": "Remove an item from a quotation.",
+      "method": "DELETE",
+      "path": "/v1/quotations/{quotationId}/items/{quotationItemId}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "cartId": {
-            "type": "string",
-            "description": "The cart ID"
-          },
-          "email": {
-            "type": "string",
-            "description": "Customer email"
-          },
-          "firstName": {
-            "type": "string",
-            "description": "First name"
-          },
-          "lastName": {
-            "type": "string",
-            "description": "Last name"
-          },
-          "company": {
-            "type": "string",
-            "description": "Company name"
-          },
-          "phone": {
-            "type": "string",
-            "description": "Phone number"
-          },
-          "address1": {
-            "type": "string",
-            "description": "Address line 1"
-          },
-          "address2": {
-            "type": "string",
-            "description": "Address line 2"
-          },
-          "city": {
-            "type": "string",
-            "description": "City"
-          },
-          "stateCode": {
-            "type": "string",
-            "description": "State code"
-          },
-          "postalCode": {
-            "type": "string",
-            "description": "Postal/ZIP code"
-          },
-          "countryCode": {
-            "type": "string",
-            "description": "ISO country code"
-          },
-          "shippingMethodId": {
-            "type": "string",
-            "description": "Shipping method ID"
-          }
+          "quotationId": { "type": "integer" },
+          "quotationItemId": { "type": "string" }
         },
-        "required": [
-          "cartId"
-        ]
+        "required": ["quotationId", "quotationItemId"]
       }
     },
     {
-      "name": "cart_status",
-      "description": "Get the status of a cart",
-      "method": "GET",
-      "path": "/cart-status",
+      "name": "place_order",
+      "description": "Place an order for a quotation. Invoice ordering must be enabled on the Materialise account.",
+      "method": "POST",
+      "path": "/v1/quotations/{quotationId}/order",
       "input_schema": {
         "type": "object",
         "properties": {
-          "cartId": {
-            "type": "string",
-            "description": "The cart ID"
-          }
+          "quotationId": { "type": "integer" }
         },
-        "required": [
-          "cartId"
-        ]
-      }
-    },
-    {
-      "name": "order_status",
-      "description": "Get the status of an order",
-      "method": "GET",
-      "path": "/order-status",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "orderId": {
-            "type": "string",
-            "description": "The order ID"
-          },
-          "orderNumber": {
-            "type": "string",
-            "description": "The order number (alternative to orderId)"
-          }
-        }
-      }
-    },
-    {
-      "name": "order_cancel",
-      "description": "Cancel an order (if processing hasn't started)",
-      "method": "GET",
-      "path": "/order-cancel",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "orderId": {
-            "type": "string",
-            "description": "The order ID"
-          },
-          "orderNumber": {
-            "type": "string",
-            "description": "The order number (alternative to orderId)"
-          }
-        }
+        "required": ["quotationId"]
       }
     }
   ]

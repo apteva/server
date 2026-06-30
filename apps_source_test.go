@@ -209,6 +209,24 @@ func TestCloneOrUpdateRetriesFreshCloneAndPromotesOnlyOnSuccess(t *testing.T) {
 	assertNoCloneTemps(t, filepath.Dir(srcDir))
 }
 
+func TestCloneArgsUsePartialShallowCheckoutForBranchRefs(t *testing.T) {
+	args := cloneArgs("https://github.com/apteva/apps.git", "/tmp/clone", "main")
+	joined := strings.Join(args, " ")
+	for _, want := range []string{"clone", "--filter=blob:none", "--no-checkout", "--depth=1", "--single-branch", "--branch main"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("clone args %q missing %q", joined, want)
+		}
+	}
+}
+
+func TestNormalizeSparsePaths(t *testing.T) {
+	got := normalizeSparsePaths("mcp/code/", "/ui/dist", ".", "", "mcp/code")
+	want := []string{"mcp/code", "ui/dist"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("sparse paths=%v want %v", got, want)
+	}
+}
+
 func TestCloneOrUpdateCleansPartialCloneOnFailure(t *testing.T) {
 	countFile := installFakeGit(t, 99)
 	withFastGitRetries(t)
@@ -221,6 +239,27 @@ func TestCloneOrUpdateCleansPartialCloneOnFailure(t *testing.T) {
 
 	if got := strings.TrimSpace(readFile(t, countFile)); got != "3" {
 		t.Fatalf("clone attempts=%q, want 3", got)
+	}
+	if _, statErr := os.Stat(srcDir); !os.IsNotExist(statErr) {
+		t.Fatalf("partial clone should not be promoted to srcDir, stat err=%v", statErr)
+	}
+	assertNoCloneTemps(t, filepath.Dir(srcDir))
+}
+
+func TestCloneOrUpdateReportsCloneTimeoutAndCleansTemps(t *testing.T) {
+	installSlowGit(t)
+	withFastGitRetries(t)
+	prevTimeout := gitCloneTimeout
+	gitCloneTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { gitCloneTimeout = prevTimeout })
+	srcDir := filepath.Join(t.TempDir(), "code", "0.5.10", "src")
+
+	err := cloneOrUpdate(srcDir, "github.com/apteva/apps", "main")
+	if err == nil {
+		t.Fatal("expected clone timeout")
+	}
+	if !strings.Contains(err.Error(), "timed out after") {
+		t.Fatalf("error should include timeout detail, got %v", err)
 	}
 	if _, statErr := os.Stat(srcDir); !os.IsNotExist(statErr) {
 		t.Fatalf("partial clone should not be promoted to srcDir, stat err=%v", statErr)
@@ -253,6 +292,28 @@ func TestCleanupFailedSourceVersionDirRemovesOnlyWhenNoBinaryExists(t *testing.T
 	}
 }
 
+func TestCleanupFailedSourceVersionDirRemovesCloneTempsBesideHealthyBinary(t *testing.T) {
+	root := t.TempDir()
+	healthyVersion := filepath.Join(root, "code", "0.5.9")
+	binPath := filepath.Join(healthyVersion, "bin")
+	cloneTemp := filepath.Join(healthyVersion, ".clone-deadbeef", ".git", "objects")
+	if err := os.MkdirAll(cloneTemp, 0o755); err != nil {
+		t.Fatalf("mkdir clone temp: %v", err)
+	}
+	if err := os.WriteFile(binPath, []byte("binary"), 0o755); err != nil {
+		t.Fatalf("write bin: %v", err)
+	}
+
+	cleanupFailedSourceVersionDir(healthyVersion, binPath)
+
+	if _, err := os.Stat(binPath); err != nil {
+		t.Fatalf("healthy binary should be preserved: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(healthyVersion, ".clone-deadbeef")); !os.IsNotExist(err) {
+		t.Fatalf("clone temp should be removed, got err=%v", err)
+	}
+}
+
 func installFakeGit(t *testing.T, succeedOnAttempt int) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -267,7 +328,8 @@ case "$cmd" in
     if [ -f "$APTEVA_FAKE_GIT_COUNT" ]; then count=$(cat "$APTEVA_FAKE_GIT_COUNT"); fi
     count=$((count + 1))
     echo "$count" > "$APTEVA_FAKE_GIT_COUNT"
-    dest="$3"
+    for last do :; done
+    dest="$last"
     mkdir -p "$dest/partial"
     if [ "$count" -lt "$APTEVA_FAKE_GIT_SUCCEED_ON" ]; then
       echo "LibreSSL SSL_connect: SSL_ERROR_SYSCALL in connection to github.com:443" >&2
@@ -277,7 +339,7 @@ case "$cmd" in
     echo "package main" > "$dest/main.go"
     exit 0
     ;;
-  checkout|fetch)
+  checkout|fetch|sparse-checkout)
     exit 0
     ;;
 esac
@@ -291,6 +353,34 @@ exit 2
 	t.Setenv("APTEVA_FAKE_GIT_COUNT", countFile)
 	t.Setenv("APTEVA_FAKE_GIT_SUCCEED_ON", strconv.Itoa(succeedOnAttempt))
 	return countFile
+}
+
+func installSlowGit(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	script := filepath.Join(dir, "git")
+	body := `#!/bin/sh
+set -eu
+cmd="${1:-}"
+case "$cmd" in
+  clone)
+    for last do :; done
+    dest="$last"
+    mkdir -p "$dest/partial"
+    sleep 5
+    exit 0
+    ;;
+  checkout|fetch|sparse-checkout)
+    exit 0
+    ;;
+esac
+echo "unexpected git command: $*" >&2
+exit 2
+`
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatalf("write slow fake git: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func withFastGitRetries(t *testing.T) {

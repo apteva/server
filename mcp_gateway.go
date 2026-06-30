@@ -65,11 +65,17 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "agents_list", Description: "List Apteva agents visible to this user. Defaults to the current project when the gateway was launched for one.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}}}},
 		{Name: "agents_get", Description: "Get one Apteva agent by ID, including current running/stopped status.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
 		{Name: "agents_create", Description: "Create an Apteva agent using the same server path as the dashboard. Provide a clear name and directive. Prefer structured markdown headings such as # Role, # Goals, # Operating Rules, # Tools and Integrations, # Schedule, # Escalation and Safety, # Tone, and # Learning. By default the new agent starts immediately and receives only the channel MCP, so it can reply in chat but cannot manage Apteva itself.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"name": {Type: "string", Description: "Agent name"}, "directive": {Type: "string", Description: "Agent directive / system instructions. Prefer structured markdown with stable sections."}, "mode": {Type: "string", Description: "autonomous, cautious, or learn. Defaults to autonomous."}, "project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "start": {Type: "string", Description: "true/false. Defaults to true."}, "include_channels": {Type: "string", Description: "true/false. Defaults to true."}, "unconscious": {Type: "string", Description: "true/false. Optional background memory setting."}, "config": {Type: "string", Description: "Optional JSON object or JSON string for advanced agent config."}, "bound_app_install_ids": {Type: "string", Description: "Optional comma-separated installed app IDs to bind to the new agent."}, "bound_connection_ids": {Type: "string", Description: "Optional comma-separated integration connection IDs to attach as MCP servers."}, "template_id": {Type: "string", Description: "Optional template ID for seeded evals."}}, Required: []string{"name", "directive"}}},
-		{Name: "agents_update", Description: "Update an Apteva agent using the normal dashboard/server handlers. Supports rename, full directive/mode/config updates, markdown directive section edits, and MCP server attachment changes via mcp_server_ids from list_mcp_servers.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}, "name": {Type: "string", Description: "New display name"}, "directive": {Type: "string", Description: "New full directive. Prefer structured markdown with stable sections."}, "directive_edit_mode": {Type: "string", Description: "Optional section edit mode: section_append, section_replace, section_replace_line, or section_remove_line. Ignored when directive is provided."}, "directive_section": {Type: "string", Description: "Markdown section name to edit, e.g. Learning or Tools and Integrations."}, "directive_match": {Type: "string", Description: "Line substring to match for section_replace_line or section_remove_line."}, "directive_content": {Type: "string", Description: "Content to append, replace, or use as the replacement line."}, "directive_edits": {Type: "string", Description: "Optional JSON array of section edits with mode, section, match, and content fields."}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "config": {Type: "string", Description: "Optional JSON object or JSON string for advanced agent config"}, "mcp_server_ids": {Type: "string", Description: "Optional comma-separated MCP server IDs from list_mcp_servers"}, "mcp_action": {Type: "string", Description: "set, add, or remove MCP servers. Defaults to set when mcp_server_ids is provided."}}, Required: []string{"id"}}},
+		{Name: "agents_update", Description: "Update an Apteva agent using the normal dashboard/server handlers. Supports rename, full directive/mode/config updates, markdown directive section edits, and MCP server attachment changes via mcp_server_ids from list_mcp_servers. For empty directives, prefer directive_section/directive_content edits so the directive starts as structured Markdown instead of plain text.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}, "name": {Type: "string", Description: "New display name"}, "directive": {Type: "string", Description: "New full directive. Use only when intentionally replacing the whole directive; prefer section edits for structured Markdown."}, "directive_edit_mode": {Type: "string", Description: "Optional section edit mode: section_append, section_replace, section_replace_line, or section_remove_line. Defaults to section_append when directive_section is provided. Ignored when directive is provided."}, "directive_section": {Type: "string", Description: "Markdown section name to edit, e.g. Learning or Tools and Integrations. With directive_content and no directive_edit_mode, creates/appends this section."}, "directive_match": {Type: "string", Description: "Line substring to match for section_replace_line or section_remove_line."}, "directive_content": {Type: "string", Description: "Content to append, replace, or use as the replacement line."}, "directive_edits": {Type: "string", Description: "Optional JSON array of section edits with mode, section, match, and content fields. Use this to initialize or update several Markdown sections at once."}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "config": {Type: "string", Description: "Optional JSON object or JSON string for advanced agent config"}, "mcp_server_ids": {Type: "string", Description: "Optional comma-separated MCP server IDs from list_mcp_servers"}, "mcp_action": {Type: "string", Description: "set, add, or remove MCP servers. Defaults to set when mcp_server_ids is provided."}}, Required: []string{"id"}}},
 		{Name: "agents_start", Description: "Start a stopped Apteva agent using the server lifecycle handler.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
 		{Name: "agents_stop", Description: "Stop a running Apteva agent using the server lifecycle handler.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
 		{Name: "agents_delete", Description: "Delete an Apteva agent using the same server cleanup path as the dashboard.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Agent ID"}}, Required: []string{"id"}}},
 		{Name: "agent_list_activity", Description: "List recent agent activity actions from stored telemetry. Returns merged thought, tool, thread, event, and error rows; chat reply actions are omitted. Use include_payloads=true for built thought text and tool args/results, include_raw=true only for debugging.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "agent_id": {Type: "string", Description: "Optional agent ID. Omit to list activity for all agents in the project."}, "thread_id": {Type: "string", Description: "Optional thread ID filter, e.g. main."}, "kind": {Type: "string", Description: "Optional filter: all, thought, tool, thread, event, or error."}, "status": {Type: "string", Description: "Optional filter: all, running, success, error, or info."}, "period": {Type: "string", Description: "Lookback window such as 1h, 24h, 7d, 30d, or a Go duration like 15m. Defaults to 24h."}, "since": {Type: "string", Description: "Optional RFC3339 timestamp; overrides period."}, "limit": {Type: "string", Description: "Maximum action rows to return, up to 320. Defaults to 100."}, "query": {Type: "string", Description: "Optional text search across agent, thread, title, detail, and included payloads."}, "include_payloads": {Type: "string", Description: "true/false. When true, includes built thought text and tool args/results. Defaults to false."}, "include_raw": {Type: "string", Description: "true/false. Include raw telemetry events used to build each row. Defaults to false."}}}},
+		// Apps
+		{Name: "apps_list", Description: "List installed Apteva apps visible in a project. Defaults to the current project and includes global installs.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}}}},
+		{Name: "apps_marketplace", Description: "List marketplace apps, marking which are installed in the current project. Defaults to the current project and includes global installs.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "registry_url": {Type: "string", Description: "Optional registry URL override."}}}},
+		{Name: "apps_install", Description: "Install an Apteva app using the same server path as the dashboard. Defaults to the current project. To install globally, pass global=true explicitly.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"manifest_url": {Type: "string", Description: "Manifest URL to install."}, "manifest_yaml": {Type: "string", Description: "Inline manifest YAML."}, "repo": {Type: "string", Description: "Optional source repo metadata."}, "ref": {Type: "string", Description: "Optional source ref metadata."}, "project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "global": {Type: "string", Description: "true/false. Required true for a global install when no project_id/current project is available."}, "config": {Type: "string", Description: "Optional JSON object or JSON string with app config."}, "upgrade_policy": {Type: "string", Description: "manual, auto-patch, or auto-minor."}, "bindings": {Type: "string", Description: "Optional JSON object mapping required roles to connection/install IDs."}}}},
+		{Name: "apps_upgrade", Description: "Upgrade an installed Apteva app using the same server path as the dashboard.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"install_id": {Type: "string", Description: "App install ID"}, "approve_new_permissions": {Type: "string", Description: "true/false. Confirms new permissions shown to the operator."}}, Required: []string{"install_id"}}},
+		{Name: "apps_uninstall", Description: "Uninstall an Apteva app using the same server cleanup path as the dashboard.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"install_id": {Type: "string", Description: "App install ID"}, "force": {Type: "string", Description: "true/false. Override dependency blockers when intentionally removing anyway."}}, Required: []string{"install_id"}}},
 		// Integrations
 		{Name: "list_integrations", Description: "Browse available integrations. Returns name, slug, description, tool count.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"query": {Type: "string", Description: "Search query"}}}},
 		{Name: "get_integration", Description: "Get full details of an integration including credential fields and tools.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}}, Required: []string{"slug"}}},
@@ -107,6 +113,9 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 	handle := func(name string, args map[string]any) (any, error) {
 		if strings.HasPrefix(name, "agents_") || name == "agent_list_activity" {
 			return handleGatewayAgentTool(name, args, projectID, serverAPI, store, selfPath)
+		}
+		if strings.HasPrefix(name, "apps_") {
+			return handleGatewayAppTool(name, args, projectID, serverAPI)
 		}
 		switch name {
 		// --- Integrations ---
@@ -1223,6 +1232,154 @@ func (c gatewayAPIClient) do(method, path string, body any, out any) error {
 	return nil
 }
 
+func handleGatewayAppTool(name string, args map[string]any, defaultProjectID string, serverAPI gatewayAPIClient) (any, error) {
+	switch name {
+	case "apps_list":
+		pid := gatewayProjectIDArg(args, defaultProjectID)
+		path := "/apps"
+		if pid != "" {
+			path += "?project_id=" + urlQueryEscape(pid)
+		}
+		var out any
+		if err := serverAPI.do(http.MethodGet, path, nil, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
+
+	case "apps_marketplace":
+		pid := gatewayProjectIDArg(args, defaultProjectID)
+		params := []string{}
+		if pid != "" {
+			params = append(params, "project_id="+urlQueryEscape(pid))
+		}
+		if registryURL, _ := args["registry_url"].(string); strings.TrimSpace(registryURL) != "" {
+			params = append(params, "registry_url="+urlQueryEscape(strings.TrimSpace(registryURL)))
+		}
+		path := "/apps/marketplace"
+		if len(params) > 0 {
+			path += "?" + strings.Join(params, "&")
+		}
+		var out any
+		if err := serverAPI.do(http.MethodGet, path, nil, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
+
+	case "apps_install":
+		manifestURL, _ := args["manifest_url"].(string)
+		manifestYAML, _ := args["manifest_yaml"].(string)
+		manifestURL = strings.TrimSpace(manifestURL)
+		manifestYAML = strings.TrimSpace(manifestYAML)
+		if manifestURL == "" && manifestYAML == "" {
+			return nil, fmt.Errorf("manifest_url or manifest_yaml is required")
+		}
+
+		global, globalSet, err := optionalBoolArg(args["global"])
+		if err != nil {
+			return nil, fmt.Errorf("global must be true or false")
+		}
+		pid := gatewayProjectIDArg(args, defaultProjectID)
+		if pid == "" && (!globalSet || !global) {
+			return nil, fmt.Errorf("project_id is required because this gateway has no current project; pass global=true only when intentionally installing globally")
+		}
+		if global {
+			pid = ""
+		}
+
+		body := map[string]any{
+			"manifest_url":  manifestURL,
+			"manifest_yaml": manifestYAML,
+			"project_id":    pid,
+		}
+		if repo, _ := args["repo"].(string); strings.TrimSpace(repo) != "" {
+			body["repo"] = strings.TrimSpace(repo)
+		}
+		if ref, _ := args["ref"].(string); strings.TrimSpace(ref) != "" {
+			body["ref"] = strings.TrimSpace(ref)
+		}
+		if policy, _ := args["upgrade_policy"].(string); strings.TrimSpace(policy) != "" {
+			body["upgrade_policy"] = strings.TrimSpace(policy)
+		}
+		if cfg, ok, err := optionalStringMapArg(args["config"]); err != nil {
+			return nil, fmt.Errorf("config must be a JSON object")
+		} else if ok {
+			body["config"] = cfg
+		}
+		if bindings, ok, err := optionalObjectArg(args["bindings"]); err != nil {
+			return nil, fmt.Errorf("bindings must be a JSON object")
+		} else if ok {
+			body["bindings"] = bindings
+		}
+
+		var out any
+		if err := serverAPI.do(http.MethodPost, "/apps/install", body, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
+
+	case "apps_upgrade":
+		installID, err := parseInstallIDArg(args)
+		if err != nil {
+			return nil, err
+		}
+		body := map[string]any{}
+		if approved, ok, err := optionalBoolArg(args["approve_new_permissions"]); err != nil {
+			return nil, fmt.Errorf("approve_new_permissions must be true or false")
+		} else if ok {
+			body["approve_new_permissions"] = approved
+		}
+		var out any
+		if err := serverAPI.do(http.MethodPost, fmt.Sprintf("/apps/installs/%d/upgrade", installID), body, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
+
+	case "apps_uninstall":
+		installID, err := parseInstallIDArg(args)
+		if err != nil {
+			return nil, err
+		}
+		path := fmt.Sprintf("/apps/installs/%d", installID)
+		if force, ok, err := optionalBoolArg(args["force"]); err != nil {
+			return nil, fmt.Errorf("force must be true or false")
+		} else if ok && force {
+			path += "?force=1"
+		}
+		var out any
+		if err := serverAPI.do(http.MethodDelete, path, nil, &out); err != nil {
+			return nil, err
+		}
+		return out, nil
+
+	default:
+		return nil, fmt.Errorf("unknown tool %q", name)
+	}
+}
+
+func gatewayProjectIDArg(args map[string]any, defaultProjectID string) string {
+	pid, _ := args["project_id"].(string)
+	pid = strings.TrimSpace(pid)
+	if pid == "" {
+		pid = strings.TrimSpace(defaultProjectID)
+	}
+	return pid
+}
+
+func parseInstallIDArg(args map[string]any) (int64, error) {
+	if v, ok := args["install_id"]; ok {
+		id, err := parseIntArg(v)
+		if err != nil || id <= 0 {
+			return 0, fmt.Errorf("install_id must be a positive integer")
+		}
+		return id, nil
+	}
+	id, err := parseIntArg(args["id"])
+	if err != nil || id <= 0 {
+		return 0, fmt.Errorf("install_id is required")
+	}
+	return id, nil
+}
+
 func handleGatewayAgentTool(name string, args map[string]any, projectID string, serverAPI gatewayAPIClient, store *Store, selfPath string) (any, error) {
 	switch name {
 	case "agents_list":
@@ -1673,6 +1830,50 @@ func optionalConfigArg(v any) (string, bool, error) {
 	default:
 		return "", false, fmt.Errorf("config must be a JSON object or JSON string")
 	}
+}
+
+func optionalObjectArg(v any) (map[string]any, bool, error) {
+	if v == nil {
+		return nil, false, nil
+	}
+	switch val := v.(type) {
+	case string:
+		val = strings.TrimSpace(val)
+		if val == "" {
+			return nil, false, nil
+		}
+		var out map[string]any
+		if err := json.Unmarshal([]byte(val), &out); err != nil {
+			return nil, false, err
+		}
+		if out == nil {
+			out = map[string]any{}
+		}
+		return out, true, nil
+	case map[string]any:
+		return val, true, nil
+	default:
+		return nil, false, fmt.Errorf("must be a JSON object or object string")
+	}
+}
+
+func optionalStringMapArg(v any) (map[string]string, bool, error) {
+	obj, ok, err := optionalObjectArg(v)
+	if err != nil || !ok {
+		return nil, ok, err
+	}
+	out := make(map[string]string, len(obj))
+	for k, val := range obj {
+		switch typed := val.(type) {
+		case string:
+			out[k] = typed
+		case nil:
+			out[k] = ""
+		default:
+			out[k] = fmt.Sprintf("%v", typed)
+		}
+	}
+	return out, true, nil
 }
 
 func parseIntListArg(v any) ([]int64, error) {

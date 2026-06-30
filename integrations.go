@@ -472,6 +472,12 @@ type AppToolDef struct {
 	// same field in @apteva/integrations/src/types.ts AppToolTemplate.
 	BodyRoot string `json:"body_root_param,omitempty"`
 
+	// MultipartForm declares a multipart/form-data request. FileFields maps
+	// input field names to upstream form field names, and FieldNames lists
+	// scalar inputs to send as ordinary form fields. File values may be raw
+	// strings, base64 strings, or data URLs.
+	MultipartForm *MultipartFormDef `json:"multipart_form,omitempty"`
+
 	// RequestTransform rewrites friendly tool inputs into provider-specific
 	// request bodies before the default JSON/form body path runs. It keeps
 	// agent-facing schemas simple for APIs that need encoded MIME, nested
@@ -494,6 +500,11 @@ type AppToolDef struct {
 	Signing *ToolSigningConfig `json:"signing,omitempty"`
 }
 
+type MultipartFormDef struct {
+	FileFields map[string]string `json:"file_fields,omitempty"`
+	FieldNames []string          `json:"field_names,omitempty"`
+}
+
 type RequestTransformDef struct {
 	Type          string            `json:"type"`
 	Output        string            `json:"output,omitempty"`
@@ -505,11 +516,11 @@ type RequestTransformDef struct {
 }
 
 type ResponseTransformDef struct {
-	Type     string            `json:"type"`
-	Source   string            `json:"source,omitempty"`
-	Target   string            `json:"target,omitempty"`
-	Encoding string            `json:"encoding,omitempty"`
-	Fields   map[string]string `json:"fields,omitempty"`
+	Type            string            `json:"type"`
+	Source          string            `json:"source,omitempty"`
+	Target          string            `json:"target,omitempty"`
+	Encoding        string            `json:"encoding,omitempty"`
+	Fields          map[string]string `json:"fields,omitempty"`
 }
 
 // ToolSigningConfig — per-tool override of the app-level signer chain.
@@ -1033,7 +1044,7 @@ func normalizeCredentials(c map[string]string) map[string]string {
 	// "Basic {{basic_auth}}" template without runner-internal hooks.
 	if out["basic_auth"] == "" {
 		user, pass := basicAuthPair(out)
-		if user != "" && pass != "" {
+		if user != "" {
 			out["basic_auth"] = base64.StdEncoding.EncodeToString([]byte(user + ":" + pass))
 		}
 	}
@@ -1057,6 +1068,9 @@ func basicAuthPair(c map[string]string) (user, pass string) {
 		if u != "" && v != "" {
 			return u, v
 		}
+	}
+	if c["api_key"] != "" {
+		return c["api_key"], ""
 	}
 	return "", ""
 }

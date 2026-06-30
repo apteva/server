@@ -1,0 +1,53 @@
+{
+  "slug": "braintree",
+  "name": "Braintree",
+  "description": "Braintree GraphQL payments API for querying and mutating customers, payment methods, transactions, disputes, refunds, and related payment objects.",
+  "logo": "https://www.google.com/s2/favicons?domain=braintreepayments.com&sz=128",
+  "categories": ["payments", "checkout", "billing", "paypal", "graphql"],
+  "base_url": "{{api_host}}",
+  "auth": {
+    "types": ["basic"],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Braintree-Version": "{{braintree_version}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_host",
+        "label": "API Host",
+        "description": "Use https://payments.sandbox.braintree-api.com for sandbox or https://payments.braintree-api.com for production.",
+        "type": "text"
+      },
+      {
+        "name": "basic_auth",
+        "label": "Basic Auth",
+        "description": "Base64-encoded Braintree public key and private key for HTTP Basic auth. Do not include the 'Basic ' prefix."
+      },
+      {
+        "name": "braintree_version",
+        "label": "Braintree Version",
+        "description": "GraphQL API version date, for example 2024-01-01.",
+        "type": "text"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "graphql_request",
+      "description": "Execute a Braintree GraphQL query or mutation. Use this for customers, transactions, payment methods, refunds, disputes, reports, and any GraphQL operation supported by the connected merchant account.",
+      "method": "POST",
+      "path": "/graphql",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "GraphQL query or mutation document." },
+          "variables": { "type": "object", "description": "GraphQL variables object." },
+          "operationName": { "type": "string", "description": "Optional operation name." }
+        },
+        "required": ["query"]
+      }
+    }
+  ]
+}

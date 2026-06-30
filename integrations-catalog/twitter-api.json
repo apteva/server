@@ -165,7 +165,7 @@
     },
     {
       "name": "post_tweet",
-      "description": "Post a new tweet. Can include text, reply to another tweet, or quote tweet. Max 280 characters.",
+      "description": "Create or edit a post. Can include text, reply to another post, quote a post, attach media, or edit a previous post via edit_options.previous_post_id when the authenticated account/API plan permits it. Max 280 characters.",
       "method": "POST",
       "path": "/2/tweets",
       "input_schema": {
@@ -192,6 +192,19 @@
           "quote_tweet_id": {
             "type": "string",
             "description": "Tweet ID to quote"
+          },
+          "edit_options": {
+            "type": "object",
+            "description": "Edit settings. To edit a published post, pass {previous_post_id: '<post id>'}. X edit support depends on the authenticated account and API plan.",
+            "properties": {
+              "previous_post_id": {
+                "type": "string",
+                "description": "The existing post ID to edit."
+              }
+            },
+            "required": [
+              "previous_post_id"
+            ]
           },
           "media": {
             "type": "object",

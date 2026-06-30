@@ -74,3 +74,55 @@ func TestCatalogMockResponses_Parse(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogBunnyStreamUpdateVideoMetaTagsSchema(t *testing.T) {
+	cat := NewAppCatalog()
+	if err := cat.LoadFromDir("integrations-catalog"); err != nil {
+		t.Fatalf("load catalog: %v", err)
+	}
+
+	tmpl := cat.Get("bunny-stream")
+	if tmpl == nil {
+		t.Fatal("bunny-stream: not in catalog")
+	}
+
+	var tool *AppToolDef
+	for i := range tmpl.Tools {
+		if tmpl.Tools[i].Name == "update_video" {
+			tool = &tmpl.Tools[i]
+			break
+		}
+	}
+	if tool == nil {
+		t.Fatal("bunny-stream.update_video: tool missing from catalog")
+	}
+
+	properties, ok := tool.InputSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("update_video.input_schema.properties has type %T", tool.InputSchema["properties"])
+	}
+	metaTags, ok := properties["metaTags"].(map[string]any)
+	if !ok {
+		t.Fatalf("update_video.metaTags has type %T", properties["metaTags"])
+	}
+	items, ok := metaTags["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("update_video.metaTags.items has type %T", metaTags["items"])
+	}
+	if got := items["type"]; got != "object" {
+		t.Fatalf("update_video.metaTags.items.type = %v, want object", got)
+	}
+	itemProperties, ok := items["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("update_video.metaTags.items.properties has type %T", items["properties"])
+	}
+	for _, key := range []string{"property", "value"} {
+		field, ok := itemProperties[key].(map[string]any)
+		if !ok {
+			t.Fatalf("update_video.metaTags.items.properties.%s has type %T", key, itemProperties[key])
+		}
+		if got := field["type"]; got != "string" {
+			t.Fatalf("update_video.metaTags.items.properties.%s.type = %v, want string", key, got)
+		}
+	}
+}

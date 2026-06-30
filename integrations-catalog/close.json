@@ -1,359 +1,296 @@
 {
   "slug": "close",
   "name": "Close CRM",
-  "description": "MCP server for Close.com CRM operations - leads, contacts, opportunities, and activities",
+  "description": "Close CRM API for leads, contacts, opportunities, activities, tasks, sequences, statuses, pipelines, custom fields, webhooks, and events.",
   "logo": "https://www.google.com/s2/favicons?domain=close.com&sz=128",
-  "categories": [
-    "crm",
-    "close",
-    "sales",
-    "leads",
-    "opportunities"
-  ],
+  "categories": ["crm", "close", "sales", "leads", "opportunities"],
   "base_url": "https://api.close.com/api/v1",
   "auth": {
-    "types": [
-      "bearer"
-    ],
+    "types": ["basic"],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Authorization": "Basic {{basic_auth}}"
     },
     "credential_fields": [
       {
-        "name": "token",
-        "label": "API Key"
+        "name": "api_key",
+        "label": "API Key",
+        "type": "password",
+        "description": "Close API key. The runtime sends it using HTTP Basic auth as api_key followed by an empty password, per Close's API docs."
       }
     ]
+  },
+  "health_check": {
+    "tool": "list_users"
   },
   "tools": [
     {
       "name": "list_leads",
-      "description": "List leads from Close CRM",
+      "description": "List leads. Close supports Lucene-style filtering in query.",
       "method": "GET",
-      "path": "/list-leads",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "limit": {
-            "type": "number",
-            "description": "Maximum results",
-            "default": 100
-          },
-          "skip": {
-            "type": "number",
-            "description": "Results to skip"
-          },
-          "query": {
-            "type": "string",
-            "description": "Search query"
-          },
-          "fields": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Fields to return"
-          }
-        }
-      }
+      "path": "/lead/",
+      "query_params": ["limit", "skip", "query", "_fields"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "skip": {"type": "number", "default": 0}, "query": {"type": "string"}, "_fields": {"type": "string", "description": "Comma-separated fields to return."}}}
     },
     {
       "name": "get_lead",
-      "description": "Get a specific lead from Close CRM",
+      "description": "Get one lead by ID.",
       "method": "GET",
-      "path": "/get-lead",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "leadId": {
-            "type": "string",
-            "description": "ID of the lead"
-          }
-        },
-        "required": [
-          "leadId"
-        ]
-      }
+      "path": "/lead/{leadId}/",
+      "path_params": ["leadId"],
+      "input_schema": {"type": "object", "properties": {"leadId": {"type": "string"}}, "required": ["leadId"]}
     },
     {
       "name": "create_lead",
-      "description": "Create a new lead in Close CRM",
+      "description": "Create a lead. Common fields include name, description, url, status_id, contacts, custom fields, and organization fields.",
       "method": "POST",
-      "path": "/create-lead",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "description": "Lead name"
-          },
-          "description": {
-            "type": "string",
-            "description": "Lead description"
-          },
-          "url": {
-            "type": "string",
-            "description": "Website URL"
-          },
-          "status_id": {
-            "type": "string",
-            "description": "Status ID"
-          },
-          "contacts": {
-            "type": "array",
-            "description": "Array of contact objects"
-          }
-        },
-        "required": [
-          "name"
-        ]
-      }
+      "path": "/lead/",
+      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "description": {"type": "string"}, "url": {"type": "string"}, "status_id": {"type": "string"}, "contacts": {"type": "array"}}, "required": ["name"]}
     },
     {
       "name": "update_lead",
-      "description": "Update an existing lead in Close CRM",
+      "description": "Update a lead by ID.",
       "method": "PUT",
-      "path": "/update-lead",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "leadId": {
-            "type": "string",
-            "description": "ID of the lead to update"
-          },
-          "name": {
-            "type": "string",
-            "description": "Lead name"
-          },
-          "description": {
-            "type": "string",
-            "description": "Lead description"
-          },
-          "status_id": {
-            "type": "string",
-            "description": "Status ID"
-          }
-        },
-        "required": [
-          "leadId"
-        ]
-      }
+      "path": "/lead/{leadId}/",
+      "path_params": ["leadId"],
+      "input_schema": {"type": "object", "properties": {"leadId": {"type": "string"}, "name": {"type": "string"}, "description": {"type": "string"}, "url": {"type": "string"}, "status_id": {"type": "string"}}, "required": ["leadId"]}
+    },
+    {
+      "name": "delete_lead",
+      "description": "Delete one lead by ID.",
+      "method": "DELETE",
+      "path": "/lead/{leadId}/",
+      "path_params": ["leadId"],
+      "input_schema": {"type": "object", "properties": {"leadId": {"type": "string"}}, "required": ["leadId"]}
     },
     {
       "name": "list_contacts",
-      "description": "List contacts from Close CRM",
+      "description": "List contacts, optionally filtered by lead_id or query.",
       "method": "GET",
-      "path": "/list-contacts",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "limit": {
-            "type": "number",
-            "description": "Maximum results",
-            "default": 100
-          },
-          "skip": {
-            "type": "number",
-            "description": "Results to skip"
-          },
-          "leadId": {
-            "type": "string",
-            "description": "Filter by lead ID"
-          }
-        }
-      }
+      "path": "/contact/",
+      "query_params": ["limit", "skip", "query", "lead_id", "_fields"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "skip": {"type": "number", "default": 0}, "query": {"type": "string"}, "lead_id": {"type": "string"}, "_fields": {"type": "string"}}}
+    },
+    {
+      "name": "get_contact",
+      "description": "Get one contact by ID.",
+      "method": "GET",
+      "path": "/contact/{contactId}/",
+      "path_params": ["contactId"],
+      "input_schema": {"type": "object", "properties": {"contactId": {"type": "string"}}, "required": ["contactId"]}
     },
     {
       "name": "create_contact",
-      "description": "Create a new contact in Close CRM",
+      "description": "Create a contact under a lead. Common fields include lead_id, name, title, emails, phones, urls, and custom fields.",
       "method": "POST",
-      "path": "/create-contact",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "lead_id": {
-            "type": "string",
-            "description": "Lead ID to associate with"
-          },
-          "name": {
-            "type": "string",
-            "description": "Contact name"
-          },
-          "title": {
-            "type": "string",
-            "description": "Job title"
-          },
-          "emails": {
-            "type": "array",
-            "description": "Array of email objects"
-          },
-          "phones": {
-            "type": "array",
-            "description": "Array of phone objects"
-          }
-        },
-        "required": [
-          "lead_id",
-          "name"
-        ]
-      }
+      "path": "/contact/",
+      "input_schema": {"type": "object", "properties": {"lead_id": {"type": "string"}, "name": {"type": "string"}, "title": {"type": "string"}, "emails": {"type": "array"}, "phones": {"type": "array"}, "urls": {"type": "array"}}, "required": ["lead_id", "name"]}
+    },
+    {
+      "name": "update_contact",
+      "description": "Update a contact by ID.",
+      "method": "PUT",
+      "path": "/contact/{contactId}/",
+      "path_params": ["contactId"],
+      "input_schema": {"type": "object", "properties": {"contactId": {"type": "string"}, "name": {"type": "string"}, "title": {"type": "string"}, "emails": {"type": "array"}, "phones": {"type": "array"}, "urls": {"type": "array"}}, "required": ["contactId"]}
+    },
+    {
+      "name": "delete_contact",
+      "description": "Delete one contact by ID.",
+      "method": "DELETE",
+      "path": "/contact/{contactId}/",
+      "path_params": ["contactId"],
+      "input_schema": {"type": "object", "properties": {"contactId": {"type": "string"}}, "required": ["contactId"]}
     },
     {
       "name": "list_opportunities",
-      "description": "List opportunities from Close CRM",
+      "description": "List opportunities, optionally filtered by lead, status, user, or query.",
       "method": "GET",
-      "path": "/list-opportunities",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "limit": {
-            "type": "number",
-            "description": "Maximum results",
-            "default": 100
-          },
-          "skip": {
-            "type": "number",
-            "description": "Results to skip"
-          },
-          "leadId": {
-            "type": "string",
-            "description": "Filter by lead ID"
-          },
-          "statusId": {
-            "type": "string",
-            "description": "Filter by status ID"
-          }
-        }
-      }
+      "path": "/opportunity/",
+      "query_params": ["limit", "skip", "query", "lead_id", "status_id", "user_id", "_fields"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "skip": {"type": "number", "default": 0}, "query": {"type": "string"}, "lead_id": {"type": "string"}, "status_id": {"type": "string"}, "user_id": {"type": "string"}, "_fields": {"type": "string"}}}
+    },
+    {
+      "name": "get_opportunity",
+      "description": "Get one opportunity by ID.",
+      "method": "GET",
+      "path": "/opportunity/{opportunityId}/",
+      "path_params": ["opportunityId"],
+      "input_schema": {"type": "object", "properties": {"opportunityId": {"type": "string"}}, "required": ["opportunityId"]}
     },
     {
       "name": "create_opportunity",
-      "description": "Create a new opportunity in Close CRM",
+      "description": "Create an opportunity. Common fields include lead_id, status_id, value, value_period, confidence, date_won, date_lost, note, and user_id.",
       "method": "POST",
-      "path": "/create-opportunity",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "lead_id": {
-            "type": "string",
-            "description": "Lead ID to associate with"
-          },
-          "status_id": {
-            "type": "string",
-            "description": "Status ID"
-          },
-          "value": {
-            "type": "number",
-            "description": "Opportunity value"
-          },
-          "value_period": {
-            "type": "string",
-            "description": "Value period (one_time, monthly, annual)"
-          },
-          "confidence": {
-            "type": "number",
-            "description": "Win confidence (0-100)"
-          },
-          "note": {
-            "type": "string",
-            "description": "Note text"
-          }
-        },
-        "required": [
-          "lead_id",
-          "status_id"
-        ]
-      }
+      "path": "/opportunity/",
+      "input_schema": {"type": "object", "properties": {"lead_id": {"type": "string"}, "status_id": {"type": "string"}, "value": {"type": "number"}, "value_period": {"type": "string"}, "confidence": {"type": "number"}, "date_won": {"type": "string"}, "date_lost": {"type": "string"}, "note": {"type": "string"}, "user_id": {"type": "string"}}, "required": ["lead_id", "status_id"]}
+    },
+    {
+      "name": "update_opportunity",
+      "description": "Update an opportunity by ID.",
+      "method": "PUT",
+      "path": "/opportunity/{opportunityId}/",
+      "path_params": ["opportunityId"],
+      "input_schema": {"type": "object", "properties": {"opportunityId": {"type": "string"}, "status_id": {"type": "string"}, "value": {"type": "number"}, "value_period": {"type": "string"}, "confidence": {"type": "number"}, "date_won": {"type": "string"}, "date_lost": {"type": "string"}, "note": {"type": "string"}, "user_id": {"type": "string"}}, "required": ["opportunityId"]}
+    },
+    {
+      "name": "delete_opportunity",
+      "description": "Delete one opportunity by ID.",
+      "method": "DELETE",
+      "path": "/opportunity/{opportunityId}/",
+      "path_params": ["opportunityId"],
+      "input_schema": {"type": "object", "properties": {"opportunityId": {"type": "string"}}, "required": ["opportunityId"]}
+    },
+    {
+      "name": "list_tasks",
+      "description": "List tasks, optionally filtered by lead, user, status, type, or query.",
+      "method": "GET",
+      "path": "/task/",
+      "query_params": ["limit", "skip", "query", "lead_id", "assigned_to", "status", "type", "_fields"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "skip": {"type": "number", "default": 0}, "query": {"type": "string"}, "lead_id": {"type": "string"}, "assigned_to": {"type": "string"}, "status": {"type": "string"}, "type": {"type": "string"}, "_fields": {"type": "string"}}}
+    },
+    {
+      "name": "create_task",
+      "description": "Create a task. Include type, lead_id, text, date, assigned_to, and related fields accepted by Close.",
+      "method": "POST",
+      "path": "/task/",
+      "input_schema": {"type": "object", "properties": {"type": {"type": "string"}, "lead_id": {"type": "string"}, "text": {"type": "string"}, "date": {"type": "string"}, "assigned_to": {"type": "string"}}, "required": ["type"]}
+    },
+    {
+      "name": "update_task",
+      "description": "Update a task by ID.",
+      "method": "PUT",
+      "path": "/task/{taskId}/",
+      "path_params": ["taskId"],
+      "input_schema": {"type": "object", "properties": {"taskId": {"type": "string"}, "text": {"type": "string"}, "date": {"type": "string"}, "assigned_to": {"type": "string"}, "is_complete": {"type": "boolean"}}, "required": ["taskId"]}
+    },
+    {
+      "name": "delete_task",
+      "description": "Delete one task by ID.",
+      "method": "DELETE",
+      "path": "/task/{taskId}/",
+      "path_params": ["taskId"],
+      "input_schema": {"type": "object", "properties": {"taskId": {"type": "string"}}, "required": ["taskId"]}
     },
     {
       "name": "list_activities",
-      "description": "List activities from Close CRM",
+      "description": "List activities across calls, emails, notes, SMS, meetings, and custom activities.",
       "method": "GET",
-      "path": "/list-activities",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "limit": {
-            "type": "number",
-            "description": "Maximum results",
-            "default": 100
-          },
-          "skip": {
-            "type": "number",
-            "description": "Results to skip"
-          },
-          "leadId": {
-            "type": "string",
-            "description": "Filter by lead ID"
-          },
-          "type": {
-            "type": "string",
-            "description": "Activity type"
-          }
-        }
-      }
+      "path": "/activity/",
+      "query_params": ["limit", "skip", "lead_id", "user_id", "type", "date_created__gte", "date_updated__gte", "_fields"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "skip": {"type": "number", "default": 0}, "lead_id": {"type": "string"}, "user_id": {"type": "string"}, "type": {"type": "string"}, "date_created__gte": {"type": "string"}, "date_updated__gte": {"type": "string"}, "_fields": {"type": "string"}}}
     },
     {
-      "name": "create_activity",
-      "description": "Create a new activity in Close CRM",
+      "name": "list_calls",
+      "description": "List call activities.",
+      "method": "GET",
+      "path": "/activity/call/",
+      "query_params": ["limit", "skip", "lead_id", "user_id", "date_created__gte", "date_updated__gte", "_fields"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "skip": {"type": "number", "default": 0}, "lead_id": {"type": "string"}, "user_id": {"type": "string"}, "date_created__gte": {"type": "string"}, "date_updated__gte": {"type": "string"}, "_fields": {"type": "string"}}}
+    },
+    {
+      "name": "list_emails",
+      "description": "List email activities.",
+      "method": "GET",
+      "path": "/activity/email/",
+      "query_params": ["limit", "skip", "lead_id", "user_id", "date_created__gte", "date_updated__gte", "_fields"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "skip": {"type": "number", "default": 0}, "lead_id": {"type": "string"}, "user_id": {"type": "string"}, "date_created__gte": {"type": "string"}, "date_updated__gte": {"type": "string"}, "_fields": {"type": "string"}}}
+    },
+    {
+      "name": "create_note_activity",
+      "description": "Create a note activity linked to a lead or contact.",
       "method": "POST",
-      "path": "/create-activity",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "description": "Activity type (Note, Call, Email, Meeting)"
-          },
-          "lead_id": {
-            "type": "string",
-            "description": "Lead ID to associate with"
-          },
-          "note": {
-            "type": "string",
-            "description": "Note content"
-          },
-          "subject": {
-            "type": "string",
-            "description": "Subject (for emails)"
-          },
-          "body_text": {
-            "type": "string",
-            "description": "Body text (for emails)"
-          }
-        },
-        "required": [
-          "type",
-          "lead_id"
-        ]
-      }
+      "path": "/activity/note/",
+      "input_schema": {"type": "object", "properties": {"lead_id": {"type": "string"}, "contact_id": {"type": "string"}, "note": {"type": "string"}}, "required": ["lead_id", "note"]}
     },
     {
-      "name": "search",
-      "description": "Search across Close CRM",
+      "name": "list_sequences",
+      "description": "List Close sequences.",
       "method": "GET",
-      "path": "/search",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "query": {
-            "type": "string",
-            "description": "Search query string"
-          },
-          "limit": {
-            "type": "number",
-            "description": "Maximum results",
-            "default": 100
-          },
-          "skip": {
-            "type": "number",
-            "description": "Results to skip"
-          }
-        },
-        "required": [
-          "query"
-        ]
-      }
+      "path": "/sequence/",
+      "query_params": ["limit", "skip", "_fields"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "skip": {"type": "number", "default": 0}, "_fields": {"type": "string"}}}
+    },
+    {
+      "name": "list_sequence_subscriptions",
+      "description": "List sequence subscriptions.",
+      "method": "GET",
+      "path": "/sequence_subscription/",
+      "query_params": ["limit", "skip", "lead_id", "contact_id", "sequence_id", "status", "_fields"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "skip": {"type": "number", "default": 0}, "lead_id": {"type": "string"}, "contact_id": {"type": "string"}, "sequence_id": {"type": "string"}, "status": {"type": "string"}, "_fields": {"type": "string"}}}
+    },
+    {
+      "name": "create_sequence_subscription",
+      "description": "Subscribe a contact to a sequence.",
+      "method": "POST",
+      "path": "/sequence_subscription/",
+      "input_schema": {"type": "object", "properties": {"sequence_id": {"type": "string"}, "contact_id": {"type": "string"}, "sender_account_id": {"type": "string"}, "user_id": {"type": "string"}}, "required": ["sequence_id", "contact_id"]}
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List Close webhooks.",
+      "method": "GET",
+      "path": "/webhook/",
+      "query_params": ["limit", "skip"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "skip": {"type": "number", "default": 0}}}
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a Close webhook subscription. Include url and events as documented by Close.",
+      "method": "POST",
+      "path": "/webhook/",
+      "input_schema": {"type": "object", "properties": {"url": {"type": "string"}, "events": {"type": "array"}, "is_active": {"type": "boolean"}}, "required": ["url", "events"]}
+    },
+    {
+      "name": "list_events",
+      "description": "List Close event stream entries.",
+      "method": "GET",
+      "path": "/event/",
+      "query_params": ["limit", "skip", "object_type", "action", "date_created__gte", "_fields"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "skip": {"type": "number", "default": 0}, "object_type": {"type": "string"}, "action": {"type": "string"}, "date_created__gte": {"type": "string"}, "_fields": {"type": "string"}}}
+    },
+    {
+      "name": "list_custom_fields",
+      "description": "List custom fields for an object type, for example lead, contact, opportunity, activity, or user.",
+      "method": "GET",
+      "path": "/custom_field/{objectType}/",
+      "path_params": ["objectType"],
+      "input_schema": {"type": "object", "properties": {"objectType": {"type": "string"}}, "required": ["objectType"]}
+    },
+    {
+      "name": "list_pipelines",
+      "description": "List opportunity pipelines.",
+      "method": "GET",
+      "path": "/pipeline/",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_opportunity_statuses",
+      "description": "List opportunity statuses/stages.",
+      "method": "GET",
+      "path": "/status/opportunity/",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_lead_statuses",
+      "description": "List lead statuses.",
+      "method": "GET",
+      "path": "/status/lead/",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_users",
+      "description": "List Close users.",
+      "method": "GET",
+      "path": "/user/",
+      "query_params": ["limit", "skip", "_fields"],
+      "input_schema": {"type": "object", "properties": {"limit": {"type": "number", "default": 100}, "skip": {"type": "number", "default": 0}, "_fields": {"type": "string"}}}
+    },
+    {
+      "name": "get_organization",
+      "description": "Get the current Close organization.",
+      "method": "GET",
+      "path": "/organization/",
+      "input_schema": {"type": "object", "properties": {}}
     }
   ]
 }

@@ -277,9 +277,11 @@ func directiveSectionBounds(current, section string) ([]string, int, int, int) {
 	lines := strings.Split(strings.ReplaceAll(current, "\r\n", "\n"), "\n")
 	target := strings.ToLower(strings.TrimSpace(section))
 	start := -1
+	level := 0
 	for i, line := range lines {
 		if name, ok := directiveHeadingName(line); ok && strings.ToLower(name) == target {
 			start = i
+			level, _ = directiveHeadingLevel(line)
 			break
 		}
 	}
@@ -288,7 +290,7 @@ func directiveSectionBounds(current, section string) ([]string, int, int, int) {
 	}
 	end := len(lines)
 	for i := start + 1; i < len(lines); i++ {
-		if _, ok := directiveHeadingName(lines[i]); ok {
+		if nextLevel, ok := directiveHeadingLevel(lines[i]); ok && nextLevel <= level {
 			end = i
 			break
 		}
@@ -302,6 +304,24 @@ func directiveHeadingName(line string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSpace(strings.TrimRight(m[1], "#")), true
+}
+
+func directiveHeadingLevel(line string) (int, bool) {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "#") {
+		return 0, false
+	}
+	count := 0
+	for count < len(line) && line[count] == '#' {
+		count++
+	}
+	if count == 0 || count > 6 || count >= len(line) || line[count] != ' ' {
+		return 0, false
+	}
+	if _, ok := directiveHeadingName(line); !ok {
+		return 0, false
+	}
+	return count, true
 }
 
 func hasNonBlankLine(lines []string) bool {

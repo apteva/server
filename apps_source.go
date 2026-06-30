@@ -58,7 +58,11 @@ var reservedAppSiblings = map[string]bool{
 
 const appVersionRetainPrevious = 1
 
-var gitRetryDelays = []time.Duration{1 * time.Second, 3 * time.Second}
+var (
+	gitRetryDelays    = []time.Duration{1 * time.Second, 3 * time.Second}
+	gitCommandTimeout = 5 * time.Minute
+	gitCloneTimeout   = 15 * time.Minute
+)
 
 // humaniseBuildLine turns a stray go build output line into something
 // short enough for the status pill in the dashboard. We ignore noise
@@ -111,7 +115,7 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 	}
 
 	progress(fmt.Sprintf("Cloning %s@%s…", src.Repo, ref))
-	if err := cloneOrUpdate(srcDir, src.Repo, ref); err != nil {
+	if err := cloneOrUpdate(srcDir, src.Repo, ref, entry); err != nil {
 		cleanupFailedSourceVersionDir(dir, binPath)
 		return 0, "", fmt.Errorf("clone %s@%s: %w", src.Repo, ref, err)
 	}
@@ -241,7 +245,7 @@ func (sup *LocalSupervisor) BuildFromLocalSource(installID int64, m *sdk.Manifes
 // fresh clone when the on-disk state is unrecognizable. Branch refs
 // always update to tip; tags + SHAs are immutable so the fast path
 // is a no-op once cached.
-func cloneOrUpdate(srcDir, repo, ref string) error {
+func cloneOrUpdate(srcDir, repo, ref string, sparsePaths ...string) error {
 	repoURL := normalizeRepoURL(repo)
 	if _, err := os.Stat(filepath.Join(srcDir, ".git")); err == nil {
 		if err := runGitWithRetry(srcDir, "fetch", "--tags", "--force", "origin"); err != nil {
@@ -266,8 +270,10 @@ func cloneOrUpdate(srcDir, repo, ref string) error {
 		return err
 	}
 	parent := filepath.Dir(srcDir)
-	tmpDir, err := os.MkdirTemp(parent, ".clone-")
+	cleanupCloneTemps(parent)
+	tmpDir, err := cloneFreshWithRetry(parent, repoURL, ref, normalizeSparsePaths(sparsePaths...))
 	if err != nil {
+		cleanupCloneTemps(parent)
 		return err
 	}
 	cleanupTmp := true
@@ -276,9 +282,6 @@ func cloneOrUpdate(srcDir, repo, ref string) error {
 			_ = os.RemoveAll(tmpDir)
 		}
 	}()
-	if err := runGitWithRetry("", "clone", repoURL, tmpDir); err != nil {
-		return err
-	}
 	if err := runGit(tmpDir, "checkout", "--detach", refExpr(ref)); err != nil {
 		return err
 	}
@@ -293,11 +296,103 @@ func cloneOrUpdate(srcDir, repo, ref string) error {
 }
 
 func cleanupFailedSourceVersionDir(versionDir, binPath string) {
+	cleanupCloneTemps(versionDir)
 	if _, err := os.Stat(binPath); err == nil {
 		return
 	}
 	if err := os.RemoveAll(versionDir); err != nil {
 		log.Printf("[APPS-SOURCE] cleanup failed source dir %s: %v", versionDir, err)
+	}
+}
+
+func cloneFreshWithRetry(parent, repoURL, ref string, sparsePaths []string) (string, error) {
+	var lastErr error
+	attempts := len(gitRetryDelays) + 1
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if attempt > 1 {
+			time.Sleep(gitRetryDelays[attempt-2])
+		}
+		tmpDir, err := os.MkdirTemp(parent, ".clone-")
+		if err != nil {
+			return "", err
+		}
+		start := time.Now()
+		log.Printf("[APPS-SOURCE] git clone start repo=%s dest=%s attempt=%d/%d timeout=%s",
+			repoURL, tmpDir, attempt, attempts, gitCloneTimeout)
+		err = runGitWithTimeout(gitCloneTimeout, "", cloneArgs(repoURL, tmpDir, ref)...)
+		if err == nil && len(sparsePaths) > 0 {
+			if sparseErr := configureSparseCheckout(tmpDir, sparsePaths); sparseErr != nil {
+				err = sparseErr
+			}
+		}
+		if err == nil {
+			log.Printf("[APPS-SOURCE] git clone complete repo=%s dest=%s attempt=%d/%d duration=%s",
+				repoURL, tmpDir, attempt, attempts, time.Since(start).Round(time.Millisecond))
+			return tmpDir, nil
+		}
+		lastErr = err
+		_ = os.RemoveAll(tmpDir)
+		if attempt < attempts {
+			log.Printf("[APPS-SOURCE] git clone failed repo=%s dest=%s attempt=%d/%d duration=%s: %v; retrying",
+				repoURL, tmpDir, attempt, attempts, time.Since(start).Round(time.Millisecond), err)
+		}
+	}
+	return "", lastErr
+}
+
+func cloneArgs(repoURL, tmpDir, ref string) []string {
+	args := []string{"clone", "--filter=blob:none", "--no-checkout"}
+	trimmedRef := strings.TrimSpace(ref)
+	if trimmedRef == "" {
+		trimmedRef = "main"
+	}
+	if !isLikelySHA(trimmedRef) {
+		args = append(args, "--depth=1", "--single-branch", "--branch", trimmedRef)
+	}
+	args = append(args, repoURL, tmpDir)
+	return args
+}
+
+func configureSparseCheckout(repoDir string, sparsePaths []string) error {
+	if len(sparsePaths) == 0 {
+		return nil
+	}
+	if err := runGit(repoDir, "sparse-checkout", "init", "--cone"); err != nil {
+		return err
+	}
+	args := append([]string{"sparse-checkout", "set"}, sparsePaths...)
+	return runGit(repoDir, args...)
+}
+
+func normalizeSparsePaths(paths ...string) []string {
+	out := make([]string, 0, len(paths))
+	seen := map[string]bool{}
+	for _, path := range paths {
+		p := strings.TrimSpace(filepath.ToSlash(path))
+		p = strings.TrimPrefix(p, "/")
+		p = strings.TrimSuffix(p, "/")
+		if p == "" || p == "." || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
+}
+
+func cleanupCloneTemps(parent string) {
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), ".clone-") {
+			continue
+		}
+		path := filepath.Join(parent, entry.Name())
+		if err := os.RemoveAll(path); err != nil {
+			log.Printf("[APPS-SOURCE] cleanup clone temp %s: %v", path, err)
+		}
 	}
 }
 
@@ -331,6 +426,10 @@ func isLikelySHAOrTag(ref string) bool {
 	if strings.HasPrefix(ref, "v") {
 		return true
 	}
+	return isLikelySHA(ref)
+}
+
+func isLikelySHA(ref string) bool {
 	if len(ref) >= 7 && len(ref) <= 40 {
 		hex := true
 		for _, r := range ref {
@@ -356,7 +455,12 @@ func normalizeRepoURL(repo string) string {
 }
 
 func runGit(dir string, args ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	return runGitWithTimeout(gitCommandTimeout, dir, args...)
+}
+
+func runGitWithTimeout(timeout time.Duration, dir string, args ...string) error {
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
 	if dir != "" {
@@ -364,8 +468,12 @@ func runGit(dir string, args ...string) error {
 	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("git %s timed out after %s: %w: %s", strings.Join(args, " "), timeout, err, strings.TrimSpace(string(out)))
+		}
 		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
+	log.Printf("[APPS-SOURCE] git %s completed in %s", strings.Join(args, " "), time.Since(start).Round(time.Millisecond))
 	return nil
 }
 
@@ -735,6 +843,7 @@ func (s *Server) PruneInstalledAppVersions() {
 	rows.Close()
 	for appName, keep := range keepByApp {
 		for version := range keep {
+			cleanupCloneTemps(filepath.Join(s.localApps.cacheDir, appName, version))
 			srcDir := filepath.Join(s.localApps.cacheDir, appName, version, "src")
 			if err := stripGitMetadata(srcDir); err != nil {
 				log.Printf("[APPS-SOURCE] strip git metadata %s: %v", srcDir, err)

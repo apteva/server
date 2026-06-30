@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -409,6 +410,50 @@ func TestAuthMiddleware_APIKey(t *testing.T) {
 	}
 }
 
+func TestAuthMiddleware_PublicClientKeyDoesNotGrantFullAccess(t *testing.T) {
+	s := newTestServer(t)
+	postJSON(t, s.handleRegister, map[string]string{
+		"email": "alice@test.com", "password": "password123",
+	})
+	project, err := s.store.CreateProject(1, "Website", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"name":            "website",
+		"kind":            "public_client",
+		"project_id":      project.ID,
+		"scopes":          []map[string]any{{"type": "app_action", "app": "example", "actions": []string{"action.name"}}},
+		"allowed_origins": []string{"https://example.com"},
+	})
+	req := httptest.NewRequest("POST", "/auth/keys", bytes.NewReader(body))
+	req.Header.Set("X-User-ID", "1")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.handleCreateKey(w, req)
+	if w.Code != 200 {
+		t.Fatalf("create scoped key: %d %s", w.Code, w.Body.String())
+	}
+	keyBody := decodeJSON(t, w)
+	apiKey := keyBody["key"].(string)
+	if !strings.HasPrefix(apiKey, "pk_") {
+		t.Fatalf("public client key prefix = %q", apiKey)
+	}
+
+	handler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	})
+	req2 := httptest.NewRequest("GET", "/api/agents", nil)
+	req2.Header.Set("Authorization", "Bearer "+apiKey)
+	w2 := httptest.NewRecorder()
+	handler(w2, req2)
+
+	if w2.Code != 401 {
+		t.Fatalf("public client key should not grant full API access, got %d", w2.Code)
+	}
+}
+
 func TestAuthMiddleware_InvalidToken(t *testing.T) {
 	s := newTestServer(t)
 	handler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -487,6 +532,56 @@ func TestCreateKey(t *testing.T) {
 	}
 	if body["prefix"] == nil {
 		t.Error("expected prefix")
+	}
+	if body["kind"] != "private" {
+		t.Fatalf("kind = %v, want private", body["kind"])
+	}
+}
+
+func TestCreateScopedClientKey(t *testing.T) {
+	s := newTestServer(t)
+	postJSON(t, s.handleRegister, map[string]string{
+		"email": "alice@test.com", "password": "password123",
+	})
+	project, err := s.store.CreateProject(1, "Website", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bodyBytes, _ := json.Marshal(map[string]any{
+		"name":                  "website",
+		"kind":                  "public_client",
+		"project_id":            project.ID,
+		"scopes":                []map[string]any{{"type": "app_action", "app": "example", "actions": []string{"action.name"}}},
+		"allowed_origins":       []string{"https://example.com"},
+		"rate_limit_per_minute": 30,
+	})
+	req := httptest.NewRequest("POST", "/auth/keys", bytes.NewReader(bodyBytes))
+	req.Header.Set("X-User-ID", "1")
+	w := httptest.NewRecorder()
+	s.handleCreateKey(w, req)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	body := decodeJSON(t, w)
+	if key := body["key"].(string); !strings.HasPrefix(key, "pk_") {
+		t.Fatalf("key = %q, want pk_ prefix", key)
+	}
+
+	listReq := httptest.NewRequest("GET", "/auth/keys", nil)
+	listReq.Header.Set("X-User-ID", "1")
+	listW := httptest.NewRecorder()
+	s.handleListKeys(listW, listReq)
+	var keys []map[string]any
+	json.Unmarshal(listW.Body.Bytes(), &keys)
+	if len(keys) != 1 {
+		t.Fatalf("keys len = %d, want 1", len(keys))
+	}
+	if keys[0]["kind"] != "public_client" || keys[0]["project_id"] != project.ID {
+		t.Fatalf("listed key metadata = %#v", keys[0])
+	}
+	if keys[0]["rate_limit_per_minute"].(float64) != 30 {
+		t.Fatalf("rate limit = %#v", keys[0]["rate_limit_per_minute"])
 	}
 }
 

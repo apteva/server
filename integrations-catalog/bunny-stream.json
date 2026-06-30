@@ -21,12 +21,19 @@
     "credential_fields": [
       {
         "name": "streamApiKey",
-        "label": "Stream Api Key",
-        "description": "Your Bunny Stream library API key for the configured video library"
+        "label": "Stream API Key",
+        "description": "Your Bunny Stream library API key for the configured video library. Used for video, collection, upload, and fetch tools on video.bunnycdn.com."
+      },
+      {
+        "name": "accountApiKey",
+        "label": "Account API Key",
+        "required": false,
+        "description": "Optional Bunny account API key from Account Settings > API Keys. Required only for account-level library tools: list_libraries, get_library, and create_library."
       },
       {
         "name": "libraryId",
-        "label": "Library Id"
+        "label": "Library Id",
+        "description": "The numeric Bunny Stream video library ID used with the per-library Stream API key."
       }
     ]
   },
@@ -88,9 +95,15 @@
   "tools": [
     {
       "name": "list_libraries",
-      "description": "List all video libraries in your account. Returns Id, Name, VideoCount, StorageUsage, and PullZoneUrl for each library. The Id field is the libraryId needed for constructing video embed/play URLs.",
+      "description": "List all video libraries in your Bunny account. This is a Core API endpoint and requires the accountApiKey credential, not the per-library streamApiKey. Returns Id, Name, VideoCount, StorageUsage, PullZoneId, StorageZoneId, ApiKey, and ReadOnlyApiKey where available.",
       "method": "GET",
       "path": "/videolibrary",
+      "headers": {
+        "AccessKey": "{{accountApiKey}}"
+      },
+      "query_param_aliases": {
+        "itemsPerPage": "perPage"
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -102,13 +115,13 @@
           "itemsPerPage": {
             "type": "integer",
             "description": "Items per page",
-            "default": 20,
-            "maximum": 100
+            "default": 1000,
+            "minimum": 5,
+            "maximum": 1000
           },
-          "includeAccessKey": {
-            "type": "boolean",
-            "description": "Include library access keys in response",
-            "default": false
+          "search": {
+            "type": "string",
+            "description": "Search term used to filter video libraries"
           }
         }
       },
@@ -136,19 +149,15 @@
     },
     {
       "name": "get_library",
-      "description": "Get detailed information about the video library",
+      "description": "Get account-level details for the configured video library. This is a Core API endpoint and requires accountApiKey, not streamApiKey.",
       "method": "GET",
-      "base_url": "https://video.bunnycdn.com",
-      "path": "/library/{{credential.libraryId}}",
+      "path": "/videolibrary/{{credential.libraryId}}",
+      "headers": {
+        "AccessKey": "{{accountApiKey}}"
+      },
       "input_schema": {
         "type": "object",
-        "properties": {
-          "includeAccessKey": {
-            "type": "boolean",
-            "description": "Include library access key in response",
-            "default": false
-          }
-        }
+        "properties": {}
       },
       "mock_response": {
         "Id": 12345,
@@ -167,9 +176,12 @@
     },
     {
       "name": "create_library",
-      "description": "Create a new video library for organizing and hosting videos",
+      "description": "Create a new video library for organizing and hosting videos. This is a Core API endpoint and requires accountApiKey, not streamApiKey. The response includes the new library Id and ApiKey; use those as libraryId and streamApiKey for Stream tools.",
       "method": "POST",
       "path": "/videolibrary",
+      "headers": {
+        "AccessKey": "{{accountApiKey}}"
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -257,7 +269,7 @@
     },
     {
       "name": "list_videos",
-      "description": "List videos in the library with pagination and filtering. Each video includes guid, title, status, length, views, collectionId, and more. Pass collectionId to filter to one Bunny collection; the integration sends this to Bunny as the required collection query parameter.\n\nTo get play/embed URLs for a video, construct from guid and libraryId:\n- Embed: https://iframe.mediadelivery.net/embed/{libraryId}/{guid}\n- Player: https://player.mediadelivery.net/embed/{libraryId}/{guid}\n\nUse list_libraries to get your libraryId if needed.",
+      "description": "List videos in the library with pagination and filtering. Each video includes guid, videoLibraryId, title, status, length, views, collectionId, and more. Pass collectionId to filter to one Bunny collection; the integration sends this to Bunny as the required collection query parameter.\n\nURL construction for agents:\n- Use guid as the video ID.\n- Use videoLibraryId from the video response as the library ID. If videoLibraryId is missing, use the configured libraryId or the Id from list_libraries/get_library.\n- Embed/player URL: https://iframe.mediadelivery.net/embed/{videoLibraryId}/{guid}\n- Alternate player host: https://player.mediadelivery.net/embed/{videoLibraryId}/{guid}\n- Thumbnail URL: https://vz-{videoLibraryId}.b-cdn.net/{guid}/thumbnail.jpg\n- Direct MP4/download URLs are only available when MP4 fallback is enabled and require the library pull-zone hostname from Bunny; the video response alone is not enough.",
       "method": "GET",
       "base_url": "https://video.bunnycdn.com",
       "path": "/library/{{credential.libraryId}}/videos",
@@ -324,7 +336,7 @@
     },
     {
       "name": "get_video",
-      "description": "Get video details including status, encoding progress, resolution, duration, and metadata.\n\nNOTE: The API does not return play/embed URLs directly. Construct them from the response:\n- Embed iframe: https://iframe.mediadelivery.net/embed/{libraryId}/{guid}\n- New player: https://player.mediadelivery.net/embed/{libraryId}/{guid}\n- MP4 direct (if MP4 fallback enabled): https://{pullZoneUrl}.b-cdn.net/{guid}/play_720p.mp4 (or 360p, 480p, 1080p)\n- Thumbnail: https://vz-{libraryId}.b-cdn.net/{guid}/thumbnail.jpg\n\nThe guid field in the response is the video ID. The libraryId is your configured library ID — use list_libraries to find it if needed.",
+      "description": "Get video details including status, encoding progress, resolution, duration, collectionId, and metadata.\n\nURL construction for agents:\n- The guid field in the response is the Bunny video ID.\n- The videoLibraryId field in the response is the Bunny Stream library ID. If videoLibraryId is missing, use the configured libraryId or the Id from list_libraries/get_library.\n- Embed/player URL: https://iframe.mediadelivery.net/embed/{videoLibraryId}/{guid}\n- Alternate player host: https://player.mediadelivery.net/embed/{videoLibraryId}/{guid}\n- Thumbnail URL: https://vz-{videoLibraryId}.b-cdn.net/{guid}/thumbnail.jpg\n- Direct MP4/download URLs are not returned by get_video. They only work when MP4 fallback is enabled and require the library pull-zone hostname from Bunny, for example https://{pullZoneHostname}/{guid}/play_720p.mp4. Do not invent this hostname from guid or videoLibraryId alone.",
       "method": "GET",
       "base_url": "https://video.bunnycdn.com",
       "path": "/library/{{credential.libraryId}}/videos/{videoId}",
@@ -406,7 +418,7 @@
     },
     {
       "name": "update_video",
-      "description": "Update video metadata including title, description, chapters, moments, and tags",
+      "description": "Update video metadata including title, description, chapters, moments, and meta tags. metaTags must be an array of objects like [{\"property\":\"keywords\",\"value\":\"tag one, tag two\"}], not an array of strings.",
       "method": "POST",
       "base_url": "https://video.bunnycdn.com",
       "path": "/library/{{credential.libraryId}}/videos/{videoId}",
@@ -465,9 +477,19 @@
           "metaTags": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "object",
+              "properties": {
+                "property": {
+                  "type": "string",
+                  "description": "Meta tag property/name, for example keywords, title, or description"
+                },
+                "value": {
+                  "type": "string",
+                  "description": "Meta tag value"
+                }
+              }
             },
-            "description": "Meta tags for SEO"
+            "description": "Meta tags for SEO as Bunny MetaTagModel objects. Do not pass plain strings; use objects like {\"property\":\"keywords\",\"value\":\"tag one, tag two\"}."
           }
         },
         "required": [
@@ -577,7 +599,7 @@
     },
     {
       "name": "fetch_video",
-      "description": "Fetch and upload a video from an external URL to Bunny Stream for processing. If collectionId is provided, it is sent as Bunny's collectionId query parameter so the fetched video is assigned to that collection.",
+      "description": "Fetch and upload a video from an external URL to Bunny Stream for processing. If collectionId is provided, it is sent as Bunny's collectionId query parameter so the fetched video is assigned to that collection. thumbnailTime is in milliseconds.",
       "method": "POST",
       "base_url": "https://video.bunnycdn.com",
       "path": "/library/{{credential.libraryId}}/videos/fetch",
@@ -602,7 +624,7 @@
           },
           "thumbnailTime": {
             "type": "integer",
-            "description": "Time in seconds to generate thumbnail"
+            "description": "Video time in milliseconds to generate the main thumbnail"
           },
           "headers": {
             "type": "object",

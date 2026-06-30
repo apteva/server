@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -165,14 +166,30 @@ func (s *Server) restoreSlackForInstance(inst *Agent) {
 
 func makeSendEvent(port int, coreKey string) func(string, string) {
 	return func(text, threadID string) {
-		body, _ := json.Marshal(map[string]any{"message": text, "thread_id": threadID})
-		req, _ := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/event", port), strings.NewReader(string(body)))
-		req.Header.Set("Content-Type", "application/json")
-		if coreKey != "" {
-			req.Header.Set("Authorization", "Bearer "+coreKey)
-		}
-		http.DefaultClient.Do(req)
+		_ = postCoreEventAny(port, coreKey, text, threadID)
 	}
+}
+
+func postCoreEventAny(port int, coreKey string, message any, threadID string) error {
+	body, _ := json.Marshal(map[string]any{"message": message, "thread_id": threadID})
+	req, err := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/event", port), strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if coreKey != "" {
+		req.Header.Set("Authorization", "Bearer "+coreKey)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("core /event returned %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	return nil
 }
 
 // --- HTTP Handlers ---
