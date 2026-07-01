@@ -407,6 +407,9 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
 		req.URL.Path = tail
+		if originalAuth := req.Header.Get("Authorization"); originalAuth != "" {
+			req.Header.Set("X-Apteva-Original-Authorization", originalAuth)
+		}
 		if entry.Token != "" {
 			req.Header.Set("Authorization", "Bearer "+entry.Token)
 		}
