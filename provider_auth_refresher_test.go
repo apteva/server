@@ -2,6 +2,28 @@ package main
 
 import "testing"
 
+func TestProviderAuthRefreshDefaultsEnabled(t *testing.T) {
+	t.Setenv("APTEVA_PROVIDER_AUTH_REFRESH", "")
+	if !providerAuthRefreshEnvEnabled() {
+		t.Fatal("provider auth refresh should be enabled by default")
+	}
+
+	t.Setenv("APTEVA_PROVIDER_AUTH_REFRESH", "off")
+	if providerAuthRefreshEnvEnabled() {
+		t.Fatal("provider auth refresh should honor explicit off")
+	}
+
+	t.Setenv("APTEVA_CODEX_REFRESH_DISABLE_REATTACH", "")
+	if !disableCoreReattachForCodexRefresh() {
+		t.Fatal("Codex refresh should disable core reattach by default")
+	}
+
+	t.Setenv("APTEVA_CODEX_REFRESH_DISABLE_REATTACH", "0")
+	if disableCoreReattachForCodexRefresh() {
+		t.Fatal("Codex refresh reattach policy should honor explicit 0")
+	}
+}
+
 func TestRunningAgentsUseCodexProviderRequiresVisibleProvider(t *testing.T) {
 	s := newTestServer(t)
 	user, err := s.store.CreateUser("codex-refresh@test.com", "hash")

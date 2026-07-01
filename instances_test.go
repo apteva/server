@@ -9,7 +9,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // helper: register + login (creates user, session cookie set as side effect)
@@ -194,6 +196,62 @@ func TestAgentShutdownPolicy(t *testing.T) {
 	t.Setenv("APTEVA_AGENT_SHUTDOWN_POLICY", "detach")
 	if got := s.agentShutdownPolicy(); got != "detach" {
 		t.Fatalf("env policy=%q, want detach", got)
+	}
+}
+
+func TestAgentManagerStartPassesCodexRuntimeRefreshEnv(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, "core-env.txt")
+	core := filepath.Join(dir, "fake-core")
+	script := `#!/bin/sh
+trap 'exit 0' TERM INT
+env | sort > "$APTEVA_ENV_CAPTURE"
+while :; do sleep 1 & wait $!; done
+`
+	if err := os.WriteFile(core, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake core: %v", err)
+	}
+	t.Setenv("APTEVA_ENV_CAPTURE", envFile)
+
+	im := NewAgentManager(filepath.Join(dir, "agents"), core)
+	inst := &Agent{
+		ID:        77,
+		UserID:    1,
+		Name:      "codex-env",
+		Mode:      "autonomous",
+		Config:    `{"include_channels":false}`,
+		ProjectID: "project-a",
+		Kind:      "user",
+	}
+	providerEnv := map[string]string{
+		"OPENAI_CODEX_ACCESS_TOKEN": "access-token",
+		"OPENAI_CODEX_PROVIDER_ID":  "42",
+	}
+	if err := im.Start(inst, providerEnv, "5280", nil, "agent-secret"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { im.Stop(inst.ID) })
+
+	var lines []string
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(envFile)
+		if err == nil && len(data) > 0 {
+			lines = strings.Split(strings.TrimSpace(string(data)), "\n")
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(lines) == 0 {
+		t.Fatalf("fake core did not write env file")
+	}
+
+	assertEnvValue(t, lines, "SERVER_URL", "http://127.0.0.1:5280")
+	assertEnvValue(t, lines, "APTEVA_API_KEY", inst.CoreAPIKey)
+	assertEnvValue(t, lines, "OPENAI_CODEX_ACCESS_TOKEN", "access-token")
+	assertEnvValue(t, lines, "OPENAI_CODEX_PROVIDER_ID", "42")
+	if !strings.HasPrefix(inst.CoreAPIKey, "core_") {
+		t.Fatalf("CoreAPIKey=%q, want generated core_ key", inst.CoreAPIKey)
 	}
 }
 
