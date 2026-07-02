@@ -382,6 +382,53 @@ func TestEmitHandler_DeliversToManifestEventSubscribers(t *testing.T) {
 	}
 }
 
+func TestEmitHandler_DeliversToIntegrationAppRoleEventSubscribers(t *testing.T) {
+	s := newBusServer(t)
+	messagingInstall := seedInstall(t, s, "messaging", "proj-A")
+	received := make(chan map[string]any, 1)
+	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode event: %v", err)
+		}
+		received <- body
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer sidecar.Close()
+
+	s.installedApps = NewInstalledAppsRegistry()
+	s.installedApps.Add(&InstalledApp{
+		InstallID:  202,
+		AppName:    "campaigns",
+		ProjectID:  "proj-A",
+		SidecarURL: sidecar.URL,
+		Token:      "dev-202",
+		Manifest: sdk.Manifest{Requires: sdk.Requires{Integrations: []sdk.IntegrationDep{{
+			Role:               "messaging",
+			Kind:               "app",
+			CompatibleAppNames: []string{"messaging"},
+			Events:             []string{"message.event"},
+		}}}},
+	})
+
+	req := httptest.NewRequest("POST", "/app-events/internal/emit", strings.NewReader(`{"topic":"message.event","data":{"message_id":77}}`))
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(messagingInstall))
+	rec := httptest.NewRecorder()
+	s.handleAppEventEmit(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	select {
+	case ev := <-received:
+		if ev["event"] != "message.event" || ev["source_app"] != "messaging" {
+			t.Fatalf("unexpected event: %+v", ev)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("subscriber sidecar did not receive integration app-role event")
+	}
+}
+
 func TestEmitHandler_DoesNotDeliverUndeclaredEvent(t *testing.T) {
 	s := newBusServer(t)
 	billingInstall := seedInstall(t, s, "billing", "proj-A")

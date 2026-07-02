@@ -13,7 +13,7 @@ import (
 )
 
 // dispatchAppEventToSubscribers delivers a published AppBus event to apps that
-// declare requires.apps[].events for the source app. Subscriptions are derived
+// declare a manifest subscription for the source app. Subscriptions are derived
 // from installed manifests, so there is no subscription table to maintain.
 func (s *Server) dispatchAppEventToSubscribers(ev AppEvent) {
 	if s == nil || s.installedApps == nil {
@@ -51,6 +51,20 @@ func manifestSubscribesToEvent(m sdk.Manifest, sourceApp, eventName string) bool
 	}
 	for _, dep := range m.Requires.Apps {
 		if dep.Name != sourceApp {
+			continue
+		}
+		for _, declared := range dep.Events {
+			if eventPatternMatches(strings.TrimSpace(declared), eventName) {
+				return true
+			}
+		}
+	}
+	for _, dep := range m.Requires.Integrations {
+		kind := dep.Kind
+		if kind == "" {
+			kind = "integration"
+		}
+		if kind != "app" || !contains(dep.CompatibleAppNames, sourceApp) {
 			continue
 		}
 		for _, declared := range dep.Events {
