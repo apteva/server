@@ -1492,11 +1492,19 @@ func (s *Server) buildPreflightRoles(manifest *sdk.Manifest, projectID string, u
 			Capabilities: dep.Capabilities,
 		}
 		if kind == "integration" {
-			row.Compatible = dep.CompatibleSlugs
+			compatibleSlugs := dep.CompatibleSlugs
+			if len(compatibleSlugs) == 0 && len(dep.CompatibleAppNames) > 0 {
+				// Be permissive for existing manifests that accidentally used
+				// compatible_app_names on a kind=integration role. The binding
+				// picker matches connection app_slug values, so these are slugs
+				// in practice for integration roles.
+				compatibleSlugs = dep.CompatibleAppNames
+			}
+			row.Compatible = compatibleSlugs
 			row.CanCreateNew = true
 			conns, _ := s.store.ListConnections(userID, projectID)
 			for _, c := range conns {
-				if !contains(dep.CompatibleSlugs, c.AppSlug) {
+				if !contains(compatibleSlugs, c.AppSlug) {
 					continue
 				}
 				// Tag candidates so the dashboard's role-picker
