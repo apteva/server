@@ -1,0 +1,386 @@
+{
+  "slug": "runway",
+  "name": "Runway",
+  "description": "Runway API for generative video, images, audio, upscaling, tasks, uploads, organization usage, recipes, voices, and workflows.",
+  "logo": "https://www.google.com/s2/favicons?domain=runwayml.com&sz=128",
+  "categories": ["ai", "video-generation", "image-generation", "audio", "upscale", "generative-ai"],
+  "base_url": "https://api.dev.runwayml.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "X-Runway-Version": "2024-11-06",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "type": "password",
+        "description": "Runway API key from https://dev.runwayml.com."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_organization"
+  },
+  "tools": [
+    {
+      "name": "text_to_video",
+      "description": "Start a Runway text-to-video task. Returns a task id; poll get_task for status and output URLs.",
+      "method": "POST",
+      "path": "/v1/text_to_video",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string", "description": "Video model id, e.g. gen4.5, seedance2, seedance2_fast, seedance2_mini, happyhorse_1_0, gemini_omni_flash.", "default": "gen4.5" },
+          "promptText": { "type": "string", "description": "Text prompt for the video." },
+          "ratio": { "type": "string", "description": "Output width:height ratio/resolution, e.g. 1280:720, 720:1280, 1920:1080, 1080:1920, or model-specific 4K values." },
+          "duration": { "type": "integer", "description": "Duration in seconds. Supported range is model-specific.", "minimum": 2, "maximum": 15 },
+          "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+          "contentModeration": { "type": "object", "description": "Optional Runway content moderation settings." }
+        },
+        "required": ["model", "promptText"]
+      }
+    },
+    {
+      "name": "image_to_video",
+      "description": "Start a Runway image-to-video task. promptImage can be a URL/runway URI/data URI string or an array of first/last image objects.",
+      "method": "POST",
+      "path": "/v1/image_to_video",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string", "description": "Video model id, e.g. gen4.5, seedance2, veo3.1, happyhorse_1_0, gemini_omni_flash.", "default": "gen4.5" },
+          "promptImage": {
+            "description": "First/last frame input. String URL/runway URI/data URI, or [{uri, position:'first'|'last'}].",
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "uri": { "type": "string" },
+                    "position": { "type": "string", "enum": ["first", "last"] }
+                  },
+                  "required": ["uri", "position"]
+                }
+              }
+            ]
+          },
+          "promptText": { "type": "string", "description": "Optional motion/action prompt." },
+          "ratio": { "type": "string", "description": "Output ratio/resolution when supported, e.g. 1280:720 or 720:1280." },
+          "resolution": { "type": "string", "description": "Quality/resolution for models that use resolution instead of ratio.", "enum": ["720P", "1080P", "720p", "1080p"] },
+          "duration": { "type": "integer", "minimum": 2, "maximum": 15 },
+          "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+          "contentModeration": { "type": "object" }
+        },
+        "required": ["model", "promptImage"]
+      }
+    },
+    {
+      "name": "video_to_video",
+      "description": "Start a Runway video-to-video/edit task for models such as aleph2, seedance2, or gemini_omni_flash.",
+      "method": "POST",
+      "path": "/v1/video_to_video",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string", "description": "Video edit model id, e.g. aleph2, seedance2, seedance2_fast, gemini_omni_flash." },
+          "videoUri": { "type": "string", "description": "Input video URL, data URI, or runway:// upload URI." },
+          "promptText": { "type": "string", "description": "Edit prompt." },
+          "referenceImages": { "type": "array", "description": "Optional reference images.", "items": { "type": "string" } },
+          "keyframes": { "type": "array", "description": "Optional keyframe image controls for supported models.", "items": { "type": "object" } },
+          "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+          "contentModeration": { "type": "object" }
+        },
+        "required": ["model", "videoUri", "promptText"]
+      }
+    },
+    {
+      "name": "text_to_image",
+      "description": "Start a Runway text/reference-to-image task. Returns a task id.",
+      "method": "POST",
+      "path": "/v1/text_to_image",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string", "description": "Image model id, e.g. gen4_image, gen4_image_turbo, gpt_image_2, gemini_image3_pro.", "default": "gen4_image" },
+          "promptText": { "type": "string", "description": "Image prompt." },
+          "ratio": { "type": "string", "description": "Output width:height ratio/resolution, e.g. 1360:768, 1024:1024, auto, or model-specific values." },
+          "referenceImages": { "type": "array", "description": "Optional reference image URLs/data URIs/runway URIs or tagged reference objects.", "items": { "type": ["string", "object"] } },
+          "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+          "contentModeration": { "type": "object" }
+        },
+        "required": ["model", "promptText"]
+      }
+    },
+    {
+      "name": "image_upscale",
+      "description": "Start an image upscale task.",
+      "method": "POST",
+      "path": "/v1/image_upscale",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string", "description": "Image upscale model id." },
+          "imageUri": { "type": "string", "description": "Input image URL/data URI/runway URI." },
+          "scale": { "type": "integer", "description": "Upscale factor when supported.", "minimum": 2, "maximum": 4 },
+          "contentModeration": { "type": "object" }
+        },
+        "required": ["model", "imageUri"]
+      }
+    },
+    {
+      "name": "video_upscale",
+      "description": "Start a video upscale task. For Magnific use model magnific_video_upscaler_creative.",
+      "method": "POST",
+      "path": "/v1/video_upscale",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string", "default": "magnific_video_upscaler_creative" },
+          "videoUri": { "type": "string", "description": "Input video URL/data URI/runway URI." },
+          "resolution": { "type": "string", "enum": ["720p", "1k", "2k", "4k"], "default": "2k" },
+          "creativity": { "type": "number", "description": "Creative hallucination/detail strength, model-specific." },
+          "sharpen": { "type": "number" },
+          "smartGrain": { "type": "number" },
+          "flavor": { "type": "string" },
+          "fpsBoost": { "type": "boolean" },
+          "contentModeration": { "type": "object" }
+        },
+        "required": ["model", "videoUri"]
+      }
+    },
+    {
+      "name": "sound_effect",
+      "description": "Generate a sound effect from text, optionally with audio references.",
+      "method": "POST",
+      "path": "/v1/sound_effect",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string", "description": "Audio model id, e.g. seed_audio." },
+          "promptText": { "type": "string" },
+          "duration": { "type": "number", "description": "Output duration in seconds." },
+          "referenceAudio": { "type": "array", "items": { "type": "string" }, "description": "Optional reference audio URLs/data URIs/runway URIs." },
+          "outputFormat": { "type": "string", "enum": ["wav", "mp3", "ogg"] }
+        },
+        "required": ["model", "promptText"]
+      }
+    },
+    {
+      "name": "text_to_speech",
+      "description": "Generate speech from text.",
+      "method": "POST",
+      "path": "/v1/text_to_speech",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string", "description": "TTS model id, e.g. seed_audio or eleven_multilingual_v2." },
+          "text": { "type": "string", "description": "Text to synthesize." },
+          "voice": { "type": ["string", "object"], "description": "Voice id or voice configuration, depending on model." },
+          "outputFormat": { "type": "string", "enum": ["wav", "mp3", "ogg"] }
+        },
+        "required": ["model", "text", "voice"]
+      }
+    },
+    {
+      "name": "speech_to_speech",
+      "description": "Transform speech audio while preserving or changing voice characteristics.",
+      "method": "POST",
+      "path": "/v1/speech_to_speech",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string" },
+          "audioUri": { "type": "string", "description": "Input audio URL/data URI/runway URI." },
+          "promptText": { "type": "string" },
+          "voice": { "type": ["string", "object"] },
+          "outputFormat": { "type": "string", "enum": ["wav", "mp3", "ogg"] }
+        },
+        "required": ["model", "audioUri"]
+      }
+    },
+    {
+      "name": "voice_dubbing",
+      "description": "Dub voice/audio into a target language.",
+      "method": "POST",
+      "path": "/v1/voice_dubbing",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string" },
+          "audioUri": { "type": "string" },
+          "videoUri": { "type": "string" },
+          "targetLanguage": { "type": "string", "description": "Target language code or name." },
+          "sourceLanguage": { "type": "string" }
+        },
+        "required": ["model", "targetLanguage"]
+      }
+    },
+    {
+      "name": "voice_isolation",
+      "description": "Isolate speech from an audio or video recording.",
+      "method": "POST",
+      "path": "/v1/voice_isolation",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string" },
+          "audioUri": { "type": "string" },
+          "videoUri": { "type": "string" },
+          "outputFormat": { "type": "string", "enum": ["wav", "mp3"] }
+        },
+        "required": ["model"]
+      }
+    },
+    {
+      "name": "character_performance",
+      "description": "Create a character performance task from source media and driving input.",
+      "method": "POST",
+      "path": "/v1/character_performance",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string" },
+          "characterImage": { "type": "string", "description": "Character image URL/data URI/runway URI." },
+          "drivingVideo": { "type": "string", "description": "Optional driving video URL/data URI/runway URI." },
+          "drivingAudio": { "type": "string", "description": "Optional driving audio URL/data URI/runway URI." },
+          "promptText": { "type": "string" }
+        },
+        "required": ["model", "characterImage"]
+      }
+    },
+    {
+      "name": "get_task",
+      "description": "Get a Runway task by id. Use for generated image/video/audio task status and output URLs.",
+      "method": "GET",
+      "path": "/v1/tasks/{task_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": { "type": "string" }
+        },
+        "required": ["task_id"]
+      }
+    },
+    {
+      "name": "cancel_or_delete_task",
+      "description": "Cancel or delete a Runway task.",
+      "method": "DELETE",
+      "path": "/v1/tasks/{task_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": { "type": "string" }
+        },
+        "required": ["task_id"]
+      }
+    },
+    {
+      "name": "create_upload",
+      "description": "Create an ephemeral upload. Then POST the returned form fields plus the file to uploadUrl; use runwayUri in generation inputs.",
+      "method": "POST",
+      "path": "/v1/uploads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filename": { "type": "string", "description": "Filename with representative extension, e.g. input.mp4." },
+          "type": { "type": "string", "enum": ["ephemeral"], "default": "ephemeral" }
+        },
+        "required": ["filename", "type"]
+      }
+    },
+    {
+      "name": "get_organization",
+      "description": "Get the authenticated Runway organization/account.",
+      "method": "GET",
+      "path": "/v1/organization",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "query_organization_usage",
+      "description": "Query Runway organization credit usage for a date range.",
+      "method": "POST",
+      "path": "/v1/organization/usage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "startDate": { "type": "string", "description": "Start date/time." },
+          "endDate": { "type": "string", "description": "End date/time." },
+          "groupBy": { "type": "string", "description": "Optional grouping supported by Runway." }
+        },
+        "required": ["startDate", "endDate"]
+      }
+    },
+    {
+      "name": "list_voices",
+      "description": "List available Runway voices.",
+      "method": "GET",
+      "path": "/v1/voices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+        }
+      }
+    },
+    {
+      "name": "list_workflows",
+      "description": "List Runway workflows.",
+      "method": "GET",
+      "path": "/v1/workflows",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+        }
+      }
+    },
+    {
+      "name": "invoke_workflow",
+      "description": "Invoke a Runway workflow version.",
+      "method": "POST",
+      "path": "/v1/workflows/{workflow_id}/versions/{version_id}/invoke",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "workflow_id": { "type": "string" },
+          "version_id": { "type": "string" },
+          "inputs": { "type": "object", "description": "Workflow input map." }
+        },
+        "required": ["workflow_id", "version_id", "inputs"]
+      }
+    },
+    {
+      "name": "get_workflow_invocation",
+      "description": "Get Runway workflow invocation status/output.",
+      "method": "GET",
+      "path": "/v1/workflow_invocations/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    }
+  ]
+}

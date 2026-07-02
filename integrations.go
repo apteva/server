@@ -279,6 +279,22 @@ type AppWebhookEvent struct {
 	Poll        *WebhookPollConfig `json:"poll,omitempty"`
 }
 
+func (e *AppWebhookEvent) UnmarshalJSON(data []byte) error {
+	var name string
+	if err := json.Unmarshal(data, &name); err == nil {
+		e.Name = name
+		e.Description = name
+		return nil
+	}
+	type appWebhookEvent AppWebhookEvent
+	var event appWebhookEvent
+	if err := json.Unmarshal(data, &event); err != nil {
+		return err
+	}
+	*e = AppWebhookEvent(event)
+	return nil
+}
+
 type WebhookPollConfig struct {
 	Tool                   string         `json:"tool"`
 	DefaultIntervalSeconds int            `json:"default_interval_seconds,omitempty"`
@@ -359,6 +375,12 @@ type OAuthConfig struct {
 	// Set per-integration in the catalog when an upstream diverges from
 	// the spec; leave empty for the 99% case.
 	ClientIDParamName string `json:"client_id_param_name,omitempty"`
+	// TokenAuthBasicOnly means confidential clients should authenticate
+	// token/refresh requests through HTTP Basic auth only when a client
+	// secret is available, without also echoing client_id/client_secret
+	// in the form body. X/Twitter documents this behavior for OAuth 2.0
+	// confidential clients.
+	TokenAuthBasicOnly bool `json:"token_auth_basic_only,omitempty"`
 	// ScopeSeparator overrides the character used to join the scopes
 	// list in the authorize URL's `scope` query param. Defaults to a
 	// single space (the OAuth 2.0 standard, RFC 6749 §3.3). TikTok
@@ -516,11 +538,11 @@ type RequestTransformDef struct {
 }
 
 type ResponseTransformDef struct {
-	Type            string            `json:"type"`
-	Source          string            `json:"source,omitempty"`
-	Target          string            `json:"target,omitempty"`
-	Encoding        string            `json:"encoding,omitempty"`
-	Fields          map[string]string `json:"fields,omitempty"`
+	Type     string            `json:"type"`
+	Source   string            `json:"source,omitempty"`
+	Target   string            `json:"target,omitempty"`
+	Encoding string            `json:"encoding,omitempty"`
+	Fields   map[string]string `json:"fields,omitempty"`
 }
 
 // ToolSigningConfig — per-tool override of the app-level signer chain.

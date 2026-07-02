@@ -46,6 +46,7 @@ func newSPAHandler(dir, stripPrefix string) http.HandlerFunc {
 			return
 		}
 		if fileExists(full) {
+			setStaticCacheHeaders(w, rel, rel == "index.html")
 			http.ServeFile(w, r, full)
 			return
 		}
@@ -60,6 +61,7 @@ func newSPAHandler(dir, stripPrefix string) http.HandlerFunc {
 			}
 			defer f.Close()
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			setStaticCacheHeaders(w, rel, true)
 			io.Copy(w, f)
 			return
 		}

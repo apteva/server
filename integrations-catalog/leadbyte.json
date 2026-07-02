@@ -11,7 +11,7 @@
     "sales",
     "automation"
   ],
-  "base_url": "https://{{credential.account}}.leadbyte.com/restapi/v1.3",
+  "base_url": "https://{{credential.account_host}}/restapi/v1.3",
   "auth": {
     "types": [
       "api_key"
@@ -25,9 +25,9 @@
     },
     "credential_fields": [
       {
-        "name": "account",
-        "label": "Account",
-        "description": "LeadByte account subdomain from https://ACCOUNT.leadbyte.com.",
+        "name": "account_host",
+        "label": "Account Host",
+        "description": "Full LeadByte account host without https://. Default format is ACCOUNT.leadbyte.co.uk; use ACCOUNT.leadbyte.com if your workspace is on the .com host.",
         "type": "text",
         "required": true
       },
@@ -114,7 +114,7 @@
     },
     {
       "name": "update_leads",
-      "description": "Update lead data for one or more valid leads. Can also trigger delivery IDs or reprocess leads when those fields/actions are included.",
+      "description": "Update one or more LeadByte leads through PUT /leads. For normal valid leads, each item uses id plus update fields and can trigger delivery IDs or action=reprocess. For quarantined leads, each item uses quarantineId plus update fields and can include action=process or action=reject.",
       "method": "PUT",
       "path": "/leads",
       "input_schema": {
@@ -128,11 +128,15 @@
               "properties": {
                 "id": {
                   "type": "string",
-                  "description": "Lead ID to update."
+                  "description": "Valid lead ID to update. Use quarantineId instead for quarantined leads."
+                },
+                "quarantineId": {
+                  "type": "string",
+                  "description": "Quarantined lead ID to update/release/reject. Use id instead for normal valid leads."
                 },
                 "update": {
                   "type": "object",
-                  "description": "Lead fields to update."
+                  "description": "Lead fields to update. Optional when only processing/rejecting quarantine leads through this route."
                 },
                 "triggerDeliveryId": {
                   "type": "string",
@@ -147,15 +151,14 @@
                 },
                 "action": {
                   "type": "string",
-                  "description": "Optional action.",
+                  "description": "Optional action. Use reprocess with id leads; use process or reject with quarantineId leads.",
                   "enum": [
-                    "reprocess"
+                    "reprocess",
+                    "process",
+                    "reject"
                   ]
                 }
-              },
-              "required": [
-                "id"
-              ]
+              }
             }
           }
         },
@@ -190,47 +193,6 @@
           "BID": {
             "type": "string",
             "description": "Optional buyer ID for reporting accuracy."
-          }
-        },
-        "required": [
-          "leads"
-        ]
-      }
-    },
-    {
-      "name": "update_quarantine_leads",
-      "description": "Update quarantined lead data. Include action=process or action=reject to release or reject after updating.",
-      "method": "PUT",
-      "path": "/leads",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "leads": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "quarantineId": {
-                  "type": "string",
-                  "description": "Quarantined lead ID."
-                },
-                "update": {
-                  "type": "object",
-                  "description": "Lead fields to update."
-                },
-                "action": {
-                  "type": "string",
-                  "description": "Optional quarantine processing action.",
-                  "enum": [
-                    "process",
-                    "reject"
-                  ]
-                }
-              },
-              "required": [
-                "quarantineId"
-              ]
-            }
           }
         },
         "required": [

@@ -1147,8 +1147,11 @@ func refreshOAuthAccessToken(app *AppTemplate, credentials map[string]string) er
 	form := neturl.Values{}
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", rt)
-	form.Set(clientIDParam, clientID)
-	if clientSecret != "" {
+	useBasicOnly := cfg.TokenAuthBasicOnly && clientSecret != ""
+	if !useBasicOnly {
+		form.Set(clientIDParam, clientID)
+	}
+	if clientSecret != "" && !useBasicOnly {
 		form.Set("client_secret", clientSecret)
 	}
 

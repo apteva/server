@@ -729,8 +729,11 @@ func (s *Server) exchangeOAuthCode(app *AppTemplate, code, pkceVerifier string, 
 	form.Set("grant_type", "authorization_code")
 	form.Set("code", code)
 	form.Set("redirect_uri", s.localOAuthRedirectURI())
-	form.Set(clientIDParam, clientID)
-	if clientSecret != "" {
+	useBasicOnly := cfg.TokenAuthBasicOnly && clientSecret != ""
+	if !useBasicOnly {
+		form.Set(clientIDParam, clientID)
+	}
+	if clientSecret != "" && !useBasicOnly {
 		form.Set("client_secret", clientSecret)
 	}
 	if cfg.PKCE && pkceVerifier != "" {

@@ -80,11 +80,13 @@ func dashboardHandler() http.Handler {
 		f, err := sub.Open(strings.TrimPrefix(path, "/"))
 		if err == nil {
 			f.Close()
+			setStaticCacheHeaders(w, path, strings.TrimPrefix(path, "/") == "index.html")
 			fileServer.ServeHTTP(w, r)
 			return
 		}
 
 		// SPA fallback — serve index.html for all unmatched routes
+		setStaticCacheHeaders(w, path, true)
 		r.URL.Path = "/"
 		fileServer.ServeHTTP(w, r)
 	})

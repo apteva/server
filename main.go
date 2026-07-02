@@ -1276,7 +1276,7 @@ func main() {
 	// down, "*" for API-key only clients, or "off" to disable entirely.
 	corsCfg := newCORSConfig(os.Getenv("CORS_ORIGIN"))
 	crossOriginCookies = corsCfg.needsCrossOriginCookies()
-	mux.Handle("/api/", http.StripPrefix("/api", corsCfg.middleware(apiMux)))
+	mux.Handle("/api/", compressHTTP(http.StripPrefix("/api", corsCfg.middleware(apiMux))))
 
 	// Dashboard — served from disk (always up-to-date, copied by CLI on startup)
 	// Falls back to embedded dashboard if disk copy not found.
@@ -1294,20 +1294,23 @@ func main() {
 		dashboardSPA = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			relPath := r.URL.Path
 			if relPath == "/" {
+				setStaticCacheHeaders(w, relPath, true)
 				http.ServeFile(w, r, filepath.Join(appDashDir, "index.html"))
 				return
 			}
 			filePath := filepath.Join(appDashDir, relPath)
 			if _, err := os.Stat(filePath); err == nil {
+				setStaticCacheHeaders(w, relPath, false)
 				appFS.ServeHTTP(w, r)
 				return
 			}
+			setStaticCacheHeaders(w, relPath, true)
 			http.ServeFile(w, r, filepath.Join(appDashDir, "index.html"))
 		})
 	} else {
 		dashboardSPA = dashboardHandler()
 	}
-	mux.Handle("/", s.staticAppHandler(dashboardSPA))
+	mux.Handle("/", compressHTTP(s.staticAppHandler(dashboardSPA)))
 
 	// Boot-time recovery: any user agent still left in `status='running'`
 	// was intentionally active before the previous server process stopped.

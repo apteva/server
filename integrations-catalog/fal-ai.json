@@ -1,13 +1,13 @@
 {
   "slug": "fal-ai",
   "name": "fal.ai",
-  "description": "MCP server for fal.ai generative AI platform - image generation, video, audio, 3D models, and LLMs with fast inference",
+  "description": "fal.ai generative media and inference API. Supports synchronous model calls, async queue calls, model discovery, pricing estimates, usage, billing events, request payload deletion, serverless files, logs, metrics, and compute instances.",
   "logo": "https://fal.ai/favicon.png",
   "categories": [
     "ai",
     "inference",
     "image-generation",
-    "video",
+    "video-generation",
     "audio",
     "3d",
     "llm",
@@ -15,386 +15,374 @@
   ],
   "base_url": "https://fal.run",
   "auth": {
-    "types": [
-      "bearer"
-    ],
+    "types": ["bearer"],
     "headers": {
-      "Authorization": "Key {{token}}"
+      "Authorization": "Key {{token}}",
+      "Content-Type": "application/json"
     },
     "credential_fields": [
       {
         "name": "token",
-        "label": "Api Key",
-        "description": "fal.ai API Key (from https://fal.ai/dashboard/keys)"
+        "label": "API Key",
+        "type": "password",
+        "description": "fal.ai API key from https://fal.ai/dashboard/keys."
       }
     ]
+  },
+  "health_check": {
+    "tool": "list_models"
   },
   "tools": [
     {
       "name": "run",
-      "description": "Run a fal.ai model synchronously and get the result directly. Best for fast models that complete in under 60 seconds (e.g. FLUX image generation, whisper transcription)",
+      "description": "Run a fal model synchronously via POST https://fal.run/{model_id}. Use for fast models. Pass the model's common inputs directly; model-specific inputs can be included as extra top-level fields if the model schema requires them.",
       "method": "POST",
       "path": "/{model_id}",
+      "timeout_ms": 600000,
       "input_schema": {
         "type": "object",
+        "additionalProperties": true,
         "properties": {
-          "model_id": {
-            "type": "string",
-            "description": "Model endpoint ID (e.g. fal-ai/flux/dev, fal-ai/fast-sdxl, fal-ai/whisper)"
-          },
-          "prompt": {
-            "type": "string",
-            "description": "Text prompt for generation (for image/video/audio models)"
-          },
-          "image_url": {
-            "type": "string",
-            "description": "Input image URL (for image-to-image, upscaling, or vision models)"
-          },
-          "audio_url": {
-            "type": "string",
-            "description": "Input audio URL (for transcription or audio processing models)"
-          },
+          "model_id": { "type": "string", "description": "fal endpoint id, e.g. fal-ai/flux/dev, fal-ai/fast-sdxl, fal-ai/whisper." },
+          "prompt": { "type": "string", "description": "Text prompt for image, video, audio, 3D, or LLM models." },
+          "image_url": { "type": "string", "description": "Input image URL for image-to-image, video, vision, or upscaling models." },
+          "audio_url": { "type": "string", "description": "Input audio URL for speech, transcription, or audio processing models." },
+          "video_url": { "type": "string", "description": "Input video URL for video-to-video or video analysis models." },
           "image_size": {
-            "type": "object",
-            "description": "Image dimensions {width, height} or preset string like 'landscape_4_3', 'square_hd'",
-            "properties": {
-              "width": {
-                "type": "integer",
-                "description": "Image width in pixels"
-              },
-              "height": {
-                "type": "integer",
-                "description": "Image height in pixels"
-              }
-            }
-          },
-          "num_images": {
-            "type": "integer",
-            "description": "Number of images to generate",
-            "minimum": 1,
-            "maximum": 4,
-            "default": 1
-          },
-          "num_inference_steps": {
-            "type": "integer",
-            "description": "Number of inference steps (higher = better quality, slower)"
-          },
-          "guidance_scale": {
-            "type": "number",
-            "description": "Guidance scale for diffusion models (higher = more prompt adherence)"
-          },
-          "seed": {
-            "type": "integer",
-            "description": "Random seed for reproducible results"
-          },
-          "negative_prompt": {
-            "type": "string",
-            "description": "Negative prompt to avoid certain features in generation"
-          },
-          "loras": {
-            "type": "array",
-            "description": "LoRA weights to apply [{path, scale}]",
-            "items": {
-              "type": "object",
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "description": "LoRA model path or URL"
+            "description": "Image dimensions or preset. Common values include square_hd, square, portrait_4_3, portrait_16_9, landscape_4_3, landscape_16_9, or {width,height}.",
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "properties": {
+                  "width": { "type": "integer" },
+                  "height": { "type": "integer" }
                 },
-                "scale": {
-                  "type": "number",
-                  "description": "LoRA weight scale",
-                  "default": 1
-                }
+                "required": ["width", "height"]
               }
-            }
+            ]
           },
-          "enable_safety_checker": {
-            "type": "boolean",
-            "description": "Enable safety content filter",
-            "default": true
-          }
+          "num_images": { "type": "integer", "description": "Number of images to generate.", "minimum": 1, "maximum": 16 },
+          "num_inference_steps": { "type": "integer", "description": "Diffusion steps, when supported by the model." },
+          "guidance_scale": { "type": "number", "description": "Prompt guidance scale, when supported by the model." },
+          "negative_prompt": { "type": "string", "description": "Negative prompt, when supported by the model." },
+          "seed": { "type": "integer", "description": "Seed for reproducible generation." },
+          "enable_safety_checker": { "type": "boolean", "description": "Enable the model safety checker, when supported." },
+          "sync_mode": { "type": "boolean", "description": "Ask supported image models to return data directly instead of hosted URLs." }
         },
-        "required": [
-          "model_id"
-        ]
+        "required": ["model_id"]
       }
     },
     {
       "name": "queue_submit",
-      "description": "Submit a model request to the fal.ai queue for async processing. Returns a request_id to poll for results. Best for longer-running models (video generation, training, etc.)",
+      "description": "Submit a fal model request to the async queue via POST https://queue.fal.run/{model_id}. Use for video generation, long audio, training, and other slow jobs.",
+      "base_url": "https://queue.fal.run",
       "method": "POST",
       "path": "/{model_id}",
+      "timeout_ms": 120000,
       "input_schema": {
         "type": "object",
+        "additionalProperties": true,
         "properties": {
-          "model_id": {
-            "type": "string",
-            "description": "Model endpoint ID (e.g. fal-ai/flux/dev, fal-ai/minimax-video, fal-ai/kling-video)"
-          },
-          "prompt": {
-            "type": "string",
-            "description": "Text prompt for generation"
-          },
-          "image_url": {
-            "type": "string",
-            "description": "Input image URL"
-          },
-          "audio_url": {
-            "type": "string",
-            "description": "Input audio URL"
-          },
-          "image_size": {
-            "type": "object",
-            "description": "Image dimensions {width, height}",
-            "properties": {
-              "width": {
-                "type": "integer"
-              },
-              "height": {
-                "type": "integer"
-              }
-            }
-          },
-          "num_images": {
-            "type": "integer",
-            "description": "Number of images to generate",
-            "minimum": 1,
-            "maximum": 4,
-            "default": 1
-          },
-          "num_inference_steps": {
-            "type": "integer",
-            "description": "Number of inference steps"
-          },
-          "guidance_scale": {
-            "type": "number",
-            "description": "Guidance scale for diffusion models"
-          },
-          "seed": {
-            "type": "integer",
-            "description": "Random seed for reproducibility"
-          },
-          "negative_prompt": {
-            "type": "string",
-            "description": "Negative prompt"
-          },
-          "loras": {
-            "type": "array",
-            "description": "LoRA weights [{path, scale}]",
-            "items": {
-              "type": "object",
-              "properties": {
-                "path": {
-                  "type": "string"
-                },
-                "scale": {
-                  "type": "number",
-                  "default": 1
-                }
-              }
-            }
-          },
-          "webhook_url": {
-            "type": "string",
-            "description": "Webhook URL to receive completion notification instead of polling"
-          }
+          "model_id": { "type": "string", "description": "fal endpoint id, e.g. fal-ai/kling-video/v2.1/master/text-to-video or fal-ai/minimax/video-01." },
+          "prompt": { "type": "string", "description": "Text prompt." },
+          "image_url": { "type": "string", "description": "Input image URL." },
+          "audio_url": { "type": "string", "description": "Input audio URL." },
+          "video_url": { "type": "string", "description": "Input video URL." },
+          "image_size": { "type": ["string", "object"], "description": "Model-supported image size preset or {width,height}." },
+          "num_images": { "type": "integer", "minimum": 1, "maximum": 16 },
+          "num_inference_steps": { "type": "integer" },
+          "guidance_scale": { "type": "number" },
+          "negative_prompt": { "type": "string" },
+          "seed": { "type": "integer" },
+          "webhook_url": { "type": "string", "description": "Optional webhook URL for completion callbacks." }
         },
-        "required": [
-          "model_id"
-        ]
+        "required": ["model_id"]
       }
     },
     {
       "name": "queue_status",
-      "description": "Check the status of an async queue request. Returns status (IN_QUEUE, IN_PROGRESS, COMPLETED) and queue position",
+      "description": "Check a fal queue request status via GET /{model_id}/requests/{request_id}/status.",
+      "base_url": "https://queue.fal.run",
       "method": "GET",
       "path": "/{model_id}/requests/{request_id}/status",
       "input_schema": {
         "type": "object",
         "properties": {
-          "model_id": {
-            "type": "string",
-            "description": "Model endpoint ID used in the original request"
-          },
-          "request_id": {
-            "type": "string",
-            "description": "Request ID returned from queue submission"
-          }
+          "model_id": { "type": "string" },
+          "request_id": { "type": "string" },
+          "logs": { "type": "integer", "description": "Set to 1 to include logs in the status response.", "enum": [0, 1] }
         },
-        "required": [
-          "model_id",
-          "request_id"
-        ]
+        "required": ["model_id", "request_id"]
       }
     },
     {
       "name": "queue_result",
-      "description": "Retrieve the result of a completed async queue request. Only call after status is COMPLETED",
+      "description": "Fetch a completed fal queue response via GET /{model_id}/requests/{request_id}/response.",
+      "base_url": "https://queue.fal.run",
       "method": "GET",
-      "path": "/{model_id}/requests/{request_id}",
+      "path": "/{model_id}/requests/{request_id}/response",
       "input_schema": {
         "type": "object",
         "properties": {
-          "model_id": {
-            "type": "string",
-            "description": "Model endpoint ID used in the original request"
-          },
-          "request_id": {
-            "type": "string",
-            "description": "Request ID returned from queue submission"
-          }
+          "model_id": { "type": "string" },
+          "request_id": { "type": "string" }
         },
-        "required": [
-          "model_id",
-          "request_id"
-        ]
+        "required": ["model_id", "request_id"]
       }
     },
     {
       "name": "queue_cancel",
-      "description": "Cancel a pending or in-progress queue request",
+      "description": "Cancel a pending or running fal queue request.",
+      "base_url": "https://queue.fal.run",
       "method": "PUT",
       "path": "/{model_id}/requests/{request_id}/cancel",
       "input_schema": {
         "type": "object",
         "properties": {
-          "model_id": {
-            "type": "string",
-            "description": "Model endpoint ID"
-          },
-          "request_id": {
-            "type": "string",
-            "description": "Request ID to cancel"
-          }
+          "model_id": { "type": "string" },
+          "request_id": { "type": "string" }
         },
-        "required": [
-          "model_id",
-          "request_id"
-        ]
+        "required": ["model_id", "request_id"]
       }
     },
     {
-      "name": "upload_file",
-      "description": "Upload a file to fal.ai storage for use as model input. Returns a URL that can be passed to model endpoints",
-      "method": "POST",
-      "path": "/fal-ai/file-upload/upload",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "file_url": {
-            "type": "string",
-            "description": "URL of the file to upload to fal.ai storage"
-          },
-          "file_name": {
-            "type": "string",
-            "description": "Name for the uploaded file"
-          }
-        },
-        "required": [
-          "file_url"
-        ]
-      }
-    },
-    {
-      "name": "search_models",
-      "description": "Search and discover available fal.ai models by keyword, category, or endpoint ID",
+      "name": "list_models",
+      "description": "List or search fal model endpoints from the platform API.",
+      "base_url": "https://api.fal.ai/v1",
       "method": "GET",
-      "path": "/api/models",
+      "path": "/models",
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": {
-            "type": "string",
-            "description": "Search query (e.g. 'flux', 'video generation', 'whisper')"
-          },
-          "category": {
-            "type": "string",
-            "description": "Filter by category",
-            "enum": [
-              "text-to-image",
-              "image-to-image",
-              "text-to-video",
-              "image-to-video",
-              "text-to-speech",
-              "speech-to-text",
-              "text-to-music",
-              "text-to-3d",
-              "llm",
-              "embedding",
-              "upscaler"
-            ]
-          },
-          "limit": {
-            "type": "integer",
-            "description": "Max results to return",
-            "default": 20,
-            "maximum": 100
-          },
-          "offset": {
-            "type": "integer",
-            "description": "Offset for pagination",
-            "default": 0
-          }
+          "q": { "type": "string", "description": "Search query." },
+          "endpoint_id": { "type": "string", "description": "Filter by exact endpoint id." },
+          "category": { "type": "string", "description": "Filter by category such as text-to-image, image-to-video, speech-to-text, or llm." },
+          "status": { "type": "string", "description": "Filter by model status." },
+          "expand": { "type": "string", "description": "Use openapi-3.0 to include endpoint OpenAPI schemas when available.", "enum": ["openapi-3.0"] },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "cursor": { "type": "string" }
         }
+      }
+    },
+    {
+      "name": "get_model_pricing",
+      "description": "Get unit pricing for fal model endpoints.",
+      "base_url": "https://api.fal.ai/v1",
+      "method": "GET",
+      "path": "/models/pricing",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpoint_id": { "type": "string", "description": "Optional endpoint id to filter pricing." }
+        }
+      }
+    },
+    {
+      "name": "estimate_model_cost",
+      "description": "Estimate fal model cost before running. Pass endpoint_id plus the same common generation fields you plan to submit.",
+      "base_url": "https://api.fal.ai/v1",
+      "method": "POST",
+      "path": "/models/pricing/estimate",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "endpoint_id": { "type": "string", "description": "fal model endpoint id." },
+          "prompt": { "type": "string" },
+          "image_url": { "type": "string" },
+          "audio_url": { "type": "string" },
+          "video_url": { "type": "string" },
+          "num_images": { "type": "integer" },
+          "duration": { "type": "number", "description": "Generation or media duration in seconds, when applicable." }
+        },
+        "required": ["endpoint_id"]
       }
     },
     {
       "name": "get_usage",
-      "description": "Get API usage records for your fal.ai account with filters by endpoint and date range",
+      "description": "Get fal model usage records for the account.",
+      "base_url": "https://api.fal.ai/v1",
       "method": "GET",
-      "path": "/api/platform-apis/v1/models/usage",
+      "path": "/models/usage",
       "input_schema": {
         "type": "object",
         "properties": {
-          "endpoint_id": {
-            "type": "string",
-            "description": "Filter by model endpoint ID"
-          },
-          "start_date": {
-            "type": "string",
-            "description": "Start date filter (ISO 8601 format)"
-          },
-          "end_date": {
-            "type": "string",
-            "description": "End date filter (ISO 8601 format)"
-          },
-          "limit": {
-            "type": "integer",
-            "description": "Max records to return",
-            "default": 50
-          }
+          "endpoint_id": { "type": "string" },
+          "from_date": { "type": "string", "description": "Start date/time filter." },
+          "to_date": { "type": "string", "description": "End date/time filter." },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "cursor": { "type": "string" }
         }
       }
     },
     {
-      "name": "list_request_history",
-      "description": "Get history of requests made to fal.ai models with status and timing information",
+      "name": "get_model_analytics",
+      "description": "Get fal model analytics for endpoints and time ranges.",
+      "base_url": "https://api.fal.ai/v1",
       "method": "GET",
-      "path": "/api/platform-apis/v1/models/requests/by-endpoint",
+      "path": "/models/analytics",
       "input_schema": {
         "type": "object",
         "properties": {
-          "endpoint_id": {
-            "type": "string",
-            "description": "Filter by model endpoint ID"
-          },
-          "status": {
-            "type": "string",
-            "description": "Filter by request status",
-            "enum": [
-              "success",
-              "error",
-              "user_error"
-            ]
-          },
-          "limit": {
-            "type": "integer",
-            "description": "Max records to return",
-            "default": 20
-          }
+          "endpoint_id": { "type": "string" },
+          "from_date": { "type": "string" },
+          "to_date": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "list_billing_events",
+      "description": "List fal billing events for cost/audit analysis.",
+      "base_url": "https://api.fal.ai/v1",
+      "method": "GET",
+      "path": "/models/billing-events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpoint_id": { "type": "string" },
+          "from_date": { "type": "string" },
+          "to_date": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "cursor": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "delete_request_payloads",
+      "description": "Delete stored payloads for a fal model request.",
+      "base_url": "https://api.fal.ai/v1",
+      "method": "DELETE",
+      "path": "/models/requests/{request_id}/payloads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "request_id": { "type": "string" }
+        },
+        "required": ["request_id"]
+      }
+    },
+    {
+      "name": "list_compute_instances",
+      "description": "List fal compute instances.",
+      "base_url": "https://api.fal.ai/v1",
+      "method": "GET",
+      "path": "/compute/instances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer" },
+          "cursor": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_compute_instance",
+      "description": "Get one fal compute instance.",
+      "base_url": "https://api.fal.ai/v1",
+      "method": "GET",
+      "path": "/compute/instances/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "list_serverless_files",
+      "description": "List files in fal serverless storage.",
+      "base_url": "https://api.fal.ai/v1",
+      "method": "GET",
+      "path": "/serverless/files/list/{dir}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dir": { "type": "string", "description": "Directory path. Use / for root." }
+        },
+        "required": ["dir"]
+      }
+    },
+    {
+      "name": "get_serverless_file",
+      "description": "Get a fal serverless file by path.",
+      "base_url": "https://api.fal.ai/v1",
+      "method": "GET",
+      "path": "/serverless/files/file/{file}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": { "type": "string", "description": "File path." }
+        },
+        "required": ["file"]
+      }
+    },
+    {
+      "name": "upload_serverless_file_from_url",
+      "description": "Upload a fal serverless file from a source URL.",
+      "base_url": "https://api.fal.ai/v1",
+      "method": "POST",
+      "path": "/serverless/files/file/url/{file}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": { "type": "string", "description": "Destination file path." },
+          "url": { "type": "string", "description": "Source URL to fetch." }
+        },
+        "required": ["file", "url"]
+      }
+    },
+    {
+      "name": "delete_serverless_file",
+      "description": "Delete a fal serverless file by path.",
+      "base_url": "https://api.fal.ai/v1",
+      "method": "DELETE",
+      "path": "/serverless/files/file/{file}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": { "type": "string", "description": "File path." }
+        },
+        "required": ["file"]
+      }
+    },
+    {
+      "name": "get_serverless_metrics",
+      "description": "Get fal serverless metrics.",
+      "base_url": "https://api.fal.ai/v1",
+      "method": "GET",
+      "path": "/serverless/metrics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app": { "type": "string" },
+          "from_date": { "type": "string" },
+          "to_date": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_serverless_log_history",
+      "description": "Get fal serverless log history.",
+      "base_url": "https://api.fal.ai/v1",
+      "method": "GET",
+      "path": "/serverless/logs/history",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app": { "type": "string" },
+          "from_date": { "type": "string" },
+          "to_date": { "type": "string" },
+          "limit": { "type": "integer" }
         }
       }
     }
-  ]
+  ],
+  "webhooks": {
+    "registrar": {
+      "manual_setup": "fal queue requests can pass webhook_url in queue_submit. The callback is registered per request rather than as a durable account-level webhook."
+    },
+    "events": ["completed", "failed"]
+  }
 }

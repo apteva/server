@@ -1,206 +1,242 @@
 {
   "slug": "kling-ai",
   "name": "Kling AI",
-  "description": "AI video generation with text-to-video, image-to-video, and video extension capabilities",
-  "logo": "https://www.google.com/s2/favicons?domain=klingai.com&sz=128",
-  "categories": [
-    "ai",
-    "video",
-    "generation",
-    "text-to-video",
-    "image-to-video"
-  ],
-  "base_url": "https://api.klingai.com",
+  "description": "KlingAI Open Platform API for async text-to-video, image-to-video, video extension, image generation, lip sync, and task polling. Uses bearer-token auth and official /v1 task endpoints.",
+  "logo": "https://www.google.com/s2/favicons?domain=kling.ai&sz=128",
+  "categories": ["ai", "video-generation", "image-generation", "text-to-video", "image-to-video"],
+  "base_url": "https://api-singapore.klingai.com",
   "auth": {
-    "types": [
-      "api_key"
-    ],
+    "types": ["bearer"],
     "headers": {
-      "x-api-key": "{{api_key}}"
+      "Authorization": "Bearer {{api_key}}",
+      "Content-Type": "application/json"
     },
     "credential_fields": [
       {
         "name": "api_key",
-        "label": "API Key"
+        "label": "API Key",
+        "type": "password",
+        "description": "KlingAI Open Platform API key. The Authorization header is sent as Bearer <key>."
       }
     ]
   },
   "tools": [
     {
-      "name": "generate_video",
-      "description": "Generate video from text prompt (text-to-video). Returns a task_id to check status.",
-      "method": "GET",
-      "path": "/generate-video",
+      "name": "create_text_to_video_task",
+      "description": "Create a Kling text-to-video generation task. Returns task_id/task_status; poll get_text_to_video_task.",
+      "method": "POST",
+      "path": "/v1/videos/text2video",
+      "timeout_ms": 120000,
       "input_schema": {
         "type": "object",
         "properties": {
-          "prompt": {
-            "type": "string",
-            "description": "Video description (max 2500 chars)"
-          },
-          "negative_prompt": {
-            "type": "string",
-            "description": "Elements to exclude from video"
-          },
-          "duration": {
-            "type": "integer",
-            "description": "Video duration in seconds",
-            "enum": [
-              5,
-              10
-            ],
-            "default": 5
-          },
-          "aspect_ratio": {
-            "type": "string",
-            "description": "Video aspect ratio",
-            "enum": [
-              "16:9",
-              "9:16",
-              "1:1"
-            ],
-            "default": "16:9"
-          },
-          "mode": {
-            "type": "string",
-            "description": "Quality mode",
-            "enum": [
-              "std",
-              "pro"
-            ],
-            "default": "std"
-          },
-          "version": {
-            "type": "string",
-            "description": "Model version",
-            "enum": [
-              "1.5",
-              "1.6",
-              "2.1",
-              "2.5",
-              "2.6"
-            ],
-            "default": "2.1"
-          },
-          "enable_audio": {
-            "type": "boolean",
-            "description": "Generate audio track",
-            "default": false
-          }
+          "model_name": { "type": "string", "description": "Kling video model id, e.g. kling-v2-1, kling-v2-1-master, kling-v2-5-turbo, kling-v3.", "default": "kling-v2-1" },
+          "prompt": { "type": "string", "description": "Video prompt." },
+          "negative_prompt": { "type": "string", "description": "Things to avoid." },
+          "cfg_scale": { "type": "number", "description": "Prompt adherence. Supported on older models.", "minimum": 0, "maximum": 1 },
+          "mode": { "type": "string", "description": "Quality/speed mode when supported.", "enum": ["std", "pro"] },
+          "camera_control": { "type": "object", "description": "Camera movement control object when supported by the selected model." },
+          "aspect_ratio": { "type": "string", "enum": ["16:9", "9:16", "1:1"] },
+          "duration": { "type": "string", "description": "Duration in seconds as a string for Kling API compatibility.", "enum": ["5", "10"] },
+          "callback_url": { "type": "string", "description": "Optional HTTPS callback URL for task completion." },
+          "external_task_id": { "type": "string", "description": "Optional caller-supplied id for idempotency/tracking." }
         },
-        "required": [
-          "prompt"
-        ]
+        "required": ["prompt"]
       }
     },
     {
-      "name": "image_to_video",
-      "description": "Generate video from an image. Returns a task_id to check status.",
+      "name": "get_text_to_video_task",
+      "description": "Get one Kling text-to-video task by task_id.",
       "method": "GET",
-      "path": "/image-to-video",
+      "path": "/v1/videos/text2video/{task_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "image_url": {
-            "type": "string",
-            "description": "URL of the source image (<10MB, min 300px sides)"
-          },
-          "prompt": {
-            "type": "string",
-            "description": "Optional motion/action description"
-          },
-          "negative_prompt": {
-            "type": "string",
-            "description": "Elements to exclude from video"
-          },
-          "duration": {
-            "type": "integer",
-            "description": "Video duration in seconds",
-            "enum": [
-              5,
-              10
-            ],
-            "default": 5
-          },
-          "mode": {
-            "type": "string",
-            "description": "Quality mode",
-            "enum": [
-              "std",
-              "pro"
-            ],
-            "default": "std"
-          },
-          "version": {
-            "type": "string",
-            "description": "Model version",
-            "enum": [
-              "1.5",
-              "1.6",
-              "2.1",
-              "2.5",
-              "2.6"
-            ],
-            "default": "2.1"
-          },
-          "image_tail_url": {
-            "type": "string",
-            "description": "End frame image URL for guided generation"
-          },
-          "enable_audio": {
-            "type": "boolean",
-            "description": "Generate audio track",
-            "default": false
-          }
+          "task_id": { "type": "string" }
         },
-        "required": [
-          "image_url"
-        ]
+        "required": ["task_id"]
       }
     },
     {
-      "name": "get_task",
-      "description": "Get the status and result of a video generation task",
+      "name": "list_text_to_video_tasks",
+      "description": "List Kling text-to-video tasks.",
       "method": "GET",
-      "path": "/get-task",
+      "path": "/v1/videos/text2video",
       "input_schema": {
         "type": "object",
         "properties": {
-          "task_id": {
-            "type": "string",
-            "description": "Task ID from generate-video or image-to-video"
-          }
-        },
-        "required": [
-          "task_id"
-        ]
+          "pageNum": { "type": "integer", "minimum": 1 },
+          "pageSize": { "type": "integer", "minimum": 1, "maximum": 500 }
+        }
       }
     },
     {
-      "name": "extend_video",
-      "description": "Extend an existing video by 4.5 seconds",
-      "method": "GET",
-      "path": "/extend-video",
+      "name": "create_image_to_video_task",
+      "description": "Create a Kling image-to-video generation task. image can be a URL or base64/data URI according to Kling account support.",
+      "method": "POST",
+      "path": "/v1/videos/image2video",
+      "timeout_ms": 120000,
       "input_schema": {
         "type": "object",
         "properties": {
-          "origin_task_id": {
-            "type": "string",
-            "description": "Task ID of the original video to extend"
-          },
-          "prompt": {
-            "type": "string",
-            "description": "Optional prompt for the extension"
-          },
-          "negative_prompt": {
-            "type": "string",
-            "description": "Elements to exclude"
-          }
+          "model_name": { "type": "string", "description": "Kling video model id, e.g. kling-v2-1, kling-v2-1-master, kling-v2-5-turbo, kling-v3.", "default": "kling-v2-1" },
+          "image": { "type": "string", "description": "First-frame image URL/base64/data URI." },
+          "image_tail": { "type": "string", "description": "Optional last-frame image URL/base64/data URI." },
+          "prompt": { "type": "string", "description": "Motion/action prompt." },
+          "negative_prompt": { "type": "string" },
+          "cfg_scale": { "type": "number", "minimum": 0, "maximum": 1 },
+          "mode": { "type": "string", "enum": ["std", "pro"] },
+          "static_mask": { "type": "string", "description": "Optional static mask image when supported." },
+          "dynamic_masks": { "type": "array", "description": "Optional dynamic masks when supported.", "items": { "type": "object" } },
+          "camera_control": { "type": "object" },
+          "duration": { "type": "string", "enum": ["5", "10"] },
+          "callback_url": { "type": "string" },
+          "external_task_id": { "type": "string" }
         },
-        "required": [
-          "origin_task_id"
-        ]
+        "required": ["image"]
+      }
+    },
+    {
+      "name": "get_image_to_video_task",
+      "description": "Get one Kling image-to-video task by task_id.",
+      "method": "GET",
+      "path": "/v1/videos/image2video/{task_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": { "type": "string" }
+        },
+        "required": ["task_id"]
+      }
+    },
+    {
+      "name": "list_image_to_video_tasks",
+      "description": "List Kling image-to-video tasks.",
+      "method": "GET",
+      "path": "/v1/videos/image2video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageNum": { "type": "integer", "minimum": 1 },
+          "pageSize": { "type": "integer", "minimum": 1, "maximum": 500 }
+        }
+      }
+    },
+    {
+      "name": "create_video_extend_task",
+      "description": "Extend a completed Kling video task when the selected model/account supports video extension.",
+      "method": "POST",
+      "path": "/v1/videos/video-extend",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": { "type": "string", "description": "Kling video id or source task video id to extend." },
+          "prompt": { "type": "string", "description": "Extension prompt." },
+          "negative_prompt": { "type": "string" },
+          "callback_url": { "type": "string" },
+          "external_task_id": { "type": "string" }
+        },
+        "required": ["video_id"]
+      }
+    },
+    {
+      "name": "get_video_extend_task",
+      "description": "Get one Kling video extension task by task_id.",
+      "method": "GET",
+      "path": "/v1/videos/video-extend/{task_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": { "type": "string" }
+        },
+        "required": ["task_id"]
+      }
+    },
+    {
+      "name": "create_image_generation_task",
+      "description": "Create a Kling text-to-image/image-generation task.",
+      "method": "POST",
+      "path": "/v1/images/generations",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_name": { "type": "string", "description": "Kling image model id." },
+          "prompt": { "type": "string" },
+          "negative_prompt": { "type": "string" },
+          "image": { "type": "string", "description": "Optional reference image URL/base64/data URI when supported." },
+          "aspect_ratio": { "type": "string", "enum": ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"] },
+          "n": { "type": "integer", "description": "Number of images.", "minimum": 1, "maximum": 4 },
+          "callback_url": { "type": "string" },
+          "external_task_id": { "type": "string" }
+        },
+        "required": ["prompt"]
+      }
+    },
+    {
+      "name": "get_image_generation_task",
+      "description": "Get one Kling image generation task by task_id.",
+      "method": "GET",
+      "path": "/v1/images/generations/{task_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": { "type": "string" }
+        },
+        "required": ["task_id"]
+      }
+    },
+    {
+      "name": "list_image_generation_tasks",
+      "description": "List Kling image generation tasks.",
+      "method": "GET",
+      "path": "/v1/images/generations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageNum": { "type": "integer", "minimum": 1 },
+          "pageSize": { "type": "integer", "minimum": 1, "maximum": 500 }
+        }
+      }
+    },
+    {
+      "name": "create_lip_sync_task",
+      "description": "Create a Kling lip sync task from source video and audio/text when available for the account.",
+      "method": "POST",
+      "path": "/v1/videos/lip-sync",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": { "type": "string", "description": "Source video id." },
+          "video_url": { "type": "string", "description": "Source video URL if the endpoint is configured for URL input." },
+          "audio_url": { "type": "string", "description": "Driving audio URL." },
+          "text": { "type": "string", "description": "Text to synthesize/sync when supported." },
+          "voice_id": { "type": "string", "description": "Voice id for text-driven lip sync when supported." },
+          "callback_url": { "type": "string" },
+          "external_task_id": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_lip_sync_task",
+      "description": "Get one Kling lip sync task by task_id.",
+      "method": "GET",
+      "path": "/v1/videos/lip-sync/{task_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": { "type": "string" }
+        },
+        "required": ["task_id"]
       }
     }
-  ]
+  ],
+  "webhooks": {
+    "registrar": {
+      "manual_setup": "Kling supports per-task callbacks through callback_url on task creation. There is no durable account-level webhook registration route in this catalog."
+    },
+    "events": ["task.succeed", "task.failed"]
+  }
 }
