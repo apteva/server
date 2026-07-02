@@ -1,0 +1,2569 @@
+{
+  "slug": "zernio",
+  "name": "Zernio",
+  "description": "Unified social media API for posting, scheduling, account connection, analytics, inbox, comments, queues, and webhooks across X/Twitter, Instagram, TikTok, LinkedIn, Facebook, YouTube, Threads, Reddit, Pinterest, Bluesky, Telegram, Google Business, Snapchat, WhatsApp, and Discord.",
+  "logo": "https://www.google.com/s2/favicons?domain=zernio.com&sz=128",
+  "categories": [
+    "social-media",
+    "scheduling",
+    "posting",
+    "analytics",
+    "inbox",
+    "marketing"
+  ],
+  "base_url": "https://zernio.com/api/v1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Zernio API key from Settings > API Keys. Zernio keys usually start with sk_."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_profiles",
+      "description": "List Zernio profiles/workspaces available to this API key.",
+      "method": "GET",
+      "path": "/profiles",
+      "query_params": [
+        "limit",
+        "page",
+        "search"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum profiles to return."
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number."
+          },
+          "search": {
+            "type": "string",
+            "description": "Optional profile name search."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_profile",
+      "description": "Create a Zernio profile/workspace for grouping social accounts.",
+      "method": "POST",
+      "path": "/profiles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Profile name."
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone, for example Europe/Paris or America/New_York."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "get_profile",
+      "description": "Get one Zernio profile by ID.",
+      "method": "GET",
+      "path": "/profiles/{profileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "update_profile",
+      "description": "Update a Zernio profile.",
+      "method": "PUT",
+      "path": "/profiles/{profileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "delete_profile",
+      "description": "Delete a Zernio profile.",
+      "method": "DELETE",
+      "path": "/profiles/{profileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "list_accounts",
+      "description": "List connected social accounts. Use this before creating posts so each target platform includes its accountId.",
+      "method": "GET",
+      "path": "/accounts",
+      "query_params": [
+        "profileId",
+        "platform",
+        "status",
+        "includeOverLimit",
+        "page",
+        "limit"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "twitter",
+              "instagram",
+              "tiktok",
+              "linkedin",
+              "facebook",
+              "youtube",
+              "threads",
+              "reddit",
+              "pinterest",
+              "bluesky",
+              "telegram",
+              "googlebusiness",
+              "snapchat",
+              "whatsapp",
+              "discord"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "description": "Optional account status filter."
+          },
+          "includeOverLimit": {
+            "type": "boolean"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_connect_url",
+      "description": "Create an OAuth connection URL for a social platform. The user should open the returned URL to connect an account.",
+      "method": "GET",
+      "path": "/connect/{platform}",
+      "query_params": [
+        "profileId",
+        "redirect_url",
+        "headless"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "twitter",
+              "instagram",
+              "tiktok",
+              "linkedin",
+              "facebook",
+              "youtube",
+              "threads",
+              "reddit",
+              "pinterest",
+              "bluesky",
+              "telegram",
+              "googlebusiness",
+              "snapchat",
+              "whatsapp",
+              "discord"
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "description": "Profile to attach the account to."
+          },
+          "redirect_url": {
+            "type": "string",
+            "description": "Optional OAuth return URL."
+          },
+          "headless": {
+            "type": "boolean",
+            "description": "Return data for a custom/headless connection flow when supported."
+          }
+        },
+        "required": [
+          "platform",
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "complete_oauth_callback",
+      "description": "Complete a Zernio OAuth callback manually when using a headless/custom connect flow.",
+      "method": "POST",
+      "path": "/connect/{platform}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "profileId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "platform",
+          "code",
+          "state",
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "get_pending_oauth_data",
+      "description": "Get pending account-selection data after an OAuth flow, for providers that require choosing a page, organization, location, board, or profile.",
+      "method": "GET",
+      "path": "/connect/pending-data",
+      "query_params": [
+        "state",
+        "platform"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_facebook_pages",
+      "description": "List Facebook Pages available during a Zernio OAuth selection flow. Use profileId and tempToken returned by complete_oauth_callback or get_pending_oauth_data.",
+      "method": "GET",
+      "path": "/connect/facebook/select-page",
+      "query_params": [
+        "profileId",
+        "tempToken"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "tempToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profileId",
+          "tempToken"
+        ]
+      }
+    },
+    {
+      "name": "select_facebook_page",
+      "description": "Complete a Facebook Zernio connection by selecting the Page to manage.",
+      "method": "POST",
+      "path": "/connect/facebook/select-page",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "pageId": {
+            "type": "string"
+          },
+          "tempToken": {
+            "type": "string"
+          },
+          "userProfile": {
+            "type": "object"
+          },
+          "redirect_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profileId",
+          "pageId",
+          "tempToken",
+          "userProfile"
+        ]
+      }
+    },
+    {
+      "name": "list_linkedin_organizations",
+      "description": "List LinkedIn organizations available during a Zernio OAuth selection flow. Requires the tempToken and orgIds returned by the callback/pending OAuth data.",
+      "method": "GET",
+      "path": "/connect/linkedin/organizations",
+      "query_params": [
+        "tempToken",
+        "orgIds"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tempToken": {
+            "type": "string"
+          },
+          "orgIds": {
+            "type": "string",
+            "description": "Comma-separated LinkedIn organization IDs."
+          }
+        },
+        "required": [
+          "tempToken",
+          "orgIds"
+        ]
+      }
+    },
+    {
+      "name": "select_linkedin_organization",
+      "description": "Complete a LinkedIn Zernio connection as either the personal profile or a selected organization page.",
+      "method": "POST",
+      "path": "/connect/linkedin/select-organization",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "tempToken": {
+            "type": "string"
+          },
+          "userProfile": {
+            "type": "object"
+          },
+          "accountType": {
+            "type": "string",
+            "enum": [
+              "personal",
+              "organization"
+            ]
+          },
+          "selectedOrganization": {
+            "type": "object"
+          },
+          "redirect_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profileId",
+          "tempToken",
+          "userProfile",
+          "accountType"
+        ]
+      }
+    },
+    {
+      "name": "list_pinterest_boards",
+      "description": "List Pinterest boards available during a Zernio OAuth selection flow.",
+      "method": "GET",
+      "path": "/connect/pinterest/select-board",
+      "query_params": [
+        "profileId",
+        "tempToken",
+        "X-Connect-Token"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "tempToken": {
+            "type": "string"
+          },
+          "X-Connect-Token": {
+            "type": "string",
+            "description": "Short-lived connect token when returned by OAuth."
+          }
+        },
+        "required": [
+          "profileId",
+          "tempToken"
+        ]
+      }
+    },
+    {
+      "name": "select_pinterest_board",
+      "description": "Complete a Pinterest Zernio connection by selecting a board.",
+      "method": "POST",
+      "path": "/connect/pinterest/select-board",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "boardId": {
+            "type": "string"
+          },
+          "boardName": {
+            "type": "string"
+          },
+          "tempToken": {
+            "type": "string"
+          },
+          "userProfile": {
+            "type": "object"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "expiresIn": {
+            "type": "integer"
+          },
+          "redirect_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profileId",
+          "boardId",
+          "tempToken"
+        ]
+      }
+    },
+    {
+      "name": "list_snapchat_profiles",
+      "description": "List Snapchat public profiles available during a Zernio OAuth selection flow.",
+      "method": "GET",
+      "path": "/connect/snapchat/select-profile",
+      "query_params": [
+        "profileId",
+        "tempToken",
+        "X-Connect-Token"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "tempToken": {
+            "type": "string"
+          },
+          "X-Connect-Token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profileId",
+          "tempToken"
+        ]
+      }
+    },
+    {
+      "name": "select_snapchat_profile",
+      "description": "Complete a Snapchat Zernio connection by selecting a public profile.",
+      "method": "POST",
+      "path": "/connect/snapchat/select-profile",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "selectedPublicProfile": {
+            "type": "object"
+          },
+          "tempToken": {
+            "type": "string"
+          },
+          "userProfile": {
+            "type": "object"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "expiresIn": {
+            "type": "integer"
+          },
+          "redirect_url": {
+            "type": "string"
+          },
+          "X-Connect-Token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profileId",
+          "selectedPublicProfile",
+          "tempToken",
+          "userProfile"
+        ]
+      }
+    },
+    {
+      "name": "list_whatsapp_phone_numbers",
+      "description": "List WhatsApp phone numbers available during a Zernio OAuth selection flow.",
+      "method": "GET",
+      "path": "/connect/whatsapp/select-phone-number",
+      "query_params": [
+        "profileId",
+        "tempToken",
+        "X-Connect-Token"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "tempToken": {
+            "type": "string"
+          },
+          "X-Connect-Token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profileId",
+          "tempToken"
+        ]
+      }
+    },
+    {
+      "name": "select_whatsapp_phone_number",
+      "description": "Complete a WhatsApp Zernio connection by selecting a phone number.",
+      "method": "POST",
+      "path": "/connect/whatsapp/select-phone-number",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "phoneNumberId": {
+            "type": "string"
+          },
+          "wabaId": {
+            "type": "string"
+          },
+          "tempToken": {
+            "type": "string"
+          },
+          "userProfile": {
+            "type": "object"
+          },
+          "redirect_url": {
+            "type": "string"
+          },
+          "X-Connect-Token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profileId",
+          "phoneNumberId",
+          "wabaId",
+          "tempToken"
+        ]
+      }
+    },
+    {
+      "name": "list_googlebusiness_locations",
+      "description": "List Google Business Profile locations available during a Zernio OAuth selection flow.",
+      "method": "GET",
+      "path": "/connect/googlebusiness/locations",
+      "query_params": [
+        "profileId",
+        "pendingDataToken",
+        "tempToken",
+        "search",
+        "filter"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "pendingDataToken": {
+            "type": "string"
+          },
+          "tempToken": {
+            "type": "string"
+          },
+          "search": {
+            "type": "string"
+          },
+          "filter": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "select_googlebusiness_location",
+      "description": "Complete a Google Business Profile Zernio connection by selecting a location.",
+      "method": "POST",
+      "path": "/connect/googlebusiness/select-location",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "locationId": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "pendingDataToken": {
+            "type": "string"
+          },
+          "redirect_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profileId",
+          "locationId",
+          "pendingDataToken"
+        ]
+      }
+    },
+    {
+      "name": "disconnect_account",
+      "description": "Disconnect a social account from Zernio.",
+      "method": "DELETE",
+      "path": "/accounts/{accountId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accountId"
+        ]
+      }
+    },
+    {
+      "name": "update_account",
+      "description": "Update a connected social account's settings in Zernio.",
+      "method": "PUT",
+      "path": "/accounts/{accountId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Provider-specific account settings."
+          }
+        },
+        "required": [
+          "accountId"
+        ]
+      }
+    },
+    {
+      "name": "move_account_to_profile",
+      "description": "Move a connected account to another Zernio profile.",
+      "method": "PATCH",
+      "path": "/accounts/{accountId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "profileId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accountId",
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "check_accounts_health",
+      "description": "Check health/auth status for connected accounts, optionally filtered by profile, platform, or status.",
+      "method": "GET",
+      "path": "/accounts/health",
+      "query_params": [
+        "profileId",
+        "platform",
+        "status"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "check_account_health",
+      "description": "Check health/auth status for one connected social account.",
+      "method": "GET",
+      "path": "/accounts/{accountId}/health",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accountId"
+        ]
+      }
+    },
+    {
+      "name": "create_post",
+      "description": "Create, publish, queue, or schedule a social post. Use plain text, not Markdown. First call zernio-list-accounts and pass each target as {platform, accountId}. For YouTube, include title and platformSpecificData when needed; visibility defaults are provider-specific unless you set visibility/privacy explicitly.",
+      "method": "POST",
+      "path": "/posts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Optional title, especially useful for YouTube, Reddit, Pinterest, and long-form video posts."
+          },
+          "content": {
+            "type": "string",
+            "description": "Post caption/text. Use plain text, not Markdown."
+          },
+          "mediaItems": {
+            "type": "array",
+            "description": "Attached media items. Each item can contain url, type, altText, thumbnailUrl, and provider-specific metadata.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "platforms": {
+            "type": "array",
+            "description": "Target platform/account pairs. Required for non-draft posts.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "platform": {
+                  "type": "string",
+                  "enum": [
+                    "twitter",
+                    "instagram",
+                    "tiktok",
+                    "linkedin",
+                    "facebook",
+                    "youtube",
+                    "threads",
+                    "reddit",
+                    "pinterest",
+                    "bluesky",
+                    "telegram",
+                    "googlebusiness",
+                    "snapchat",
+                    "whatsapp",
+                    "discord"
+                  ]
+                },
+                "accountId": {
+                  "type": "string"
+                },
+                "customContent": {
+                  "type": "string",
+                  "description": "Plain-text platform-specific caption override."
+                },
+                "customMedia": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                },
+                "scheduledFor": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "Per-platform schedule override."
+                },
+                "platformSpecificData": {
+                  "type": "object",
+                  "description": "Provider-specific options such as YouTube category/privacy, Instagram post type, TikTok options, Reddit subreddit, Discord channel, etc."
+                }
+              },
+              "required": [
+                "platform",
+                "accountId"
+              ]
+            }
+          },
+          "scheduledFor": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 publish time. Omit and set publishNow=true to publish immediately."
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone for scheduling."
+          },
+          "publishNow": {
+            "type": "boolean",
+            "description": "Publish immediately."
+          },
+          "isDraft": {
+            "type": "boolean",
+            "description": "Save as draft without targets."
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private",
+              "unlisted"
+            ]
+          },
+          "profileId": {
+            "type": "string"
+          },
+          "queuedFromProfile": {
+            "type": "string",
+            "description": "Use the next available queue slot for this profile."
+          },
+          "firstComment": {
+            "type": "string",
+            "description": "Optional first comment after publishing."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hashtags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mentions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "list_posts",
+      "description": "List posts managed by Zernio, with filters for account, profile, platform, status, dates, search, and sort.",
+      "method": "GET",
+      "path": "/posts",
+      "query_params": [
+        "source",
+        "status",
+        "platform",
+        "profileId",
+        "createdBy",
+        "dateFrom",
+        "dateTo",
+        "includeHidden",
+        "search",
+        "sortBy",
+        "accountId",
+        "limit",
+        "page"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "profileId": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "dateFrom": {
+            "type": "string"
+          },
+          "dateTo": {
+            "type": "string"
+          },
+          "includeHidden": {
+            "type": "boolean"
+          },
+          "search": {
+            "type": "string"
+          },
+          "sortBy": {
+            "type": "string",
+            "description": "Sort field, for example createdAt, scheduledFor, or updatedAt."
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_post",
+      "description": "Get a post by ID.",
+      "method": "GET",
+      "path": "/posts/{postId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "postId"
+        ]
+      }
+    },
+    {
+      "name": "update_post",
+      "description": "Update a draft, queued, or scheduled Zernio post. For already published platform posts, use edit_published_post or update_post_metadata when supported.",
+      "method": "PUT",
+      "path": "/posts/{postId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string",
+            "description": "Plain-text content."
+          },
+          "mediaItems": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "platforms": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "scheduledFor": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "publishNow": {
+            "type": "boolean"
+          },
+          "isDraft": {
+            "type": "boolean"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private",
+              "unlisted"
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hashtags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "postId"
+        ]
+      }
+    },
+    {
+      "name": "delete_post",
+      "description": "Delete a Zernio post record. This does not necessarily delete already published posts from every social network.",
+      "method": "DELETE",
+      "path": "/posts/{postId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "postId"
+        ]
+      }
+    },
+    {
+      "name": "retry_post",
+      "description": "Retry a failed Zernio post.",
+      "method": "POST",
+      "path": "/posts/{postId}/retry",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "postId"
+        ]
+      }
+    },
+    {
+      "name": "unpublish_post",
+      "description": "Request unpublishing/removal of a published social post where the platform supports it.",
+      "method": "POST",
+      "path": "/posts/{postId}/unpublish",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string",
+            "description": "Optional platform to unpublish from."
+          },
+          "accountId": {
+            "type": "string",
+            "description": "Optional account to target."
+          }
+        },
+        "required": [
+          "postId"
+        ]
+      }
+    },
+    {
+      "name": "edit_published_post",
+      "description": "Edit a published post when Zernio/platform supports post-publication editing. Current OpenAPI support is limited to X/Twitter text edits.",
+      "method": "POST",
+      "path": "/posts/{postId}/edit",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "twitter"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "description": "New plain-text content."
+          }
+        },
+        "required": [
+          "postId",
+          "platform",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "update_post_metadata",
+      "description": "Update platform metadata after publishing. Supports YouTube metadata including title, description, tags, category, privacy, and thumbnailUrl.",
+      "method": "POST",
+      "path": "/posts/{postId}/update-metadata",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "youtube"
+            ]
+          },
+          "videoId": {
+            "type": "string",
+            "description": "YouTube video ID for direct mode."
+          },
+          "accountId": {
+            "type": "string",
+            "description": "Zernio account ID for direct mode."
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "description": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "categoryId": {
+            "type": "string"
+          },
+          "privacyStatus": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private",
+              "unlisted"
+            ]
+          },
+          "thumbnailUrl": {
+            "type": "string",
+            "description": "Public URL of a custom thumbnail image."
+          }
+        },
+        "required": [
+          "postId",
+          "platform"
+        ]
+      }
+    },
+    {
+      "name": "sync_external_posts",
+      "description": "Import or refresh recent posts from a connected account. Provide url or postId to sync one external post, or omit both to refresh recent posts for the account.",
+      "method": "POST",
+      "path": "/posts/sync-external",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "postId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accountId"
+        ]
+      }
+    },
+    {
+      "name": "bulk_upload_posts",
+      "description": "Bulk upload posts from CSV.",
+      "method": "POST",
+      "path": "/posts/bulk-upload",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "csvUrl": {
+            "type": "string",
+            "description": "Public URL to the CSV file."
+          },
+          "csvContent": {
+            "type": "string",
+            "description": "Raw CSV content when supported."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_media_upload_url",
+      "description": "Create a presigned media upload URL. Upload the media to the returned URL, then use the returned media URL/item when creating a post.",
+      "method": "POST",
+      "path": "/media/presign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/jpg",
+              "image/png",
+              "image/webp",
+              "image/gif",
+              "video/mp4",
+              "video/mpeg",
+              "video/quicktime",
+              "video/avi",
+              "video/x-msvideo",
+              "video/webm",
+              "video/x-m4v",
+              "application/pdf"
+            ]
+          },
+          "size": {
+            "type": "integer",
+            "description": "Optional file size in bytes. Zernio supports uploads up to 5GB where allowed by platform/provider."
+          }
+        },
+        "required": [
+          "filename",
+          "contentType"
+        ]
+      }
+    },
+    {
+      "name": "upload_media_direct",
+      "description": "Upload media directly to Zernio when the executor/source supports multipart or binary upload.",
+      "method": "POST",
+      "path": "/media/upload-direct",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "File/blob reference or multipart field, depending on executor support."
+          },
+          "filename": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ]
+      }
+    },
+    {
+      "name": "get_analytics",
+      "description": "Get post analytics from Zernio.",
+      "method": "GET",
+      "path": "/analytics",
+      "query_params": [
+        "postId",
+        "accountId",
+        "platform",
+        "fromDate",
+        "toDate"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "fromDate": {
+            "type": "string"
+          },
+          "toDate": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_daily_metrics",
+      "description": "Get daily aggregated social metrics.",
+      "method": "GET",
+      "path": "/analytics/daily-metrics",
+      "query_params": [
+        "profileId",
+        "accountId",
+        "platform",
+        "fromDate",
+        "toDate",
+        "metrics"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "fromDate": {
+            "type": "string"
+          },
+          "toDate": {
+            "type": "string"
+          },
+          "metrics": {
+            "type": "string",
+            "description": "Comma-separated metric names when supported."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_follower_stats",
+      "description": "Get follower history/statistics for one or more accounts.",
+      "method": "GET",
+      "path": "/accounts/follower-stats",
+      "query_params": [
+        "accountIds",
+        "profileId",
+        "fromDate",
+        "toDate",
+        "granularity"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountIds": {
+            "type": "string",
+            "description": "Comma-separated account IDs."
+          },
+          "profileId": {
+            "type": "string"
+          },
+          "fromDate": {
+            "type": "string"
+          },
+          "toDate": {
+            "type": "string"
+          },
+          "granularity": {
+            "type": "string",
+            "enum": [
+              "day",
+              "week",
+              "month"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "get_youtube_channel_insights",
+      "description": "Get YouTube channel insights for a connected YouTube account.",
+      "method": "GET",
+      "path": "/analytics/youtube/channel-insights",
+      "query_params": [
+        "accountId",
+        "startDate",
+        "endDate",
+        "metrics"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string"
+          },
+          "endDate": {
+            "type": "string"
+          },
+          "metrics": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accountId"
+        ]
+      }
+    },
+    {
+      "name": "get_youtube_daily_views",
+      "description": "Get YouTube daily views for a video or account.",
+      "method": "GET",
+      "path": "/analytics/youtube/daily-views",
+      "query_params": [
+        "videoId",
+        "accountId",
+        "startDate",
+        "endDate"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string"
+          },
+          "endDate": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_facebook_page_insights",
+      "description": "Get Facebook Page insights for a connected Facebook account.",
+      "method": "GET",
+      "path": "/analytics/facebook/page-insights",
+      "query_params": [
+        "accountId",
+        "metrics",
+        "since",
+        "until",
+        "metricType"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "metrics": {
+            "type": "string",
+            "description": "Comma-separated Facebook metric names."
+          },
+          "since": {
+            "type": "string"
+          },
+          "until": {
+            "type": "string"
+          },
+          "metricType": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accountId"
+        ]
+      }
+    },
+    {
+      "name": "get_instagram_account_insights",
+      "description": "Get Instagram account insights for a connected Instagram account.",
+      "method": "GET",
+      "path": "/analytics/instagram/account-insights",
+      "query_params": [
+        "accountId",
+        "metrics",
+        "since",
+        "until",
+        "metricType",
+        "breakdown"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "metrics": {
+            "type": "string",
+            "description": "Comma-separated Instagram metric names."
+          },
+          "since": {
+            "type": "string"
+          },
+          "until": {
+            "type": "string"
+          },
+          "metricType": {
+            "type": "string",
+            "description": "For example total_value or time_series."
+          },
+          "breakdown": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accountId"
+        ]
+      }
+    },
+    {
+      "name": "get_tiktok_account_insights",
+      "description": "Get TikTok account-level insights.",
+      "method": "GET",
+      "path": "/analytics/tiktok/account-insights",
+      "query_params": [
+        "accountId",
+        "startDate",
+        "endDate",
+        "metrics"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string"
+          },
+          "endDate": {
+            "type": "string"
+          },
+          "metrics": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accountId"
+        ]
+      }
+    },
+    {
+      "name": "get_best_time_to_post",
+      "description": "Get recommended best times to post based on connected-account analytics.",
+      "method": "GET",
+      "path": "/analytics/best-time",
+      "query_params": [
+        "profileId",
+        "accountId",
+        "platform",
+        "fromDate",
+        "toDate"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "fromDate": {
+            "type": "string"
+          },
+          "toDate": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_conversations",
+      "description": "List unified inbox conversations across supported platforms.",
+      "method": "GET",
+      "path": "/inbox/conversations",
+      "query_params": [
+        "profileId",
+        "platform",
+        "status",
+        "sortOrder",
+        "limit",
+        "cursor",
+        "accountId"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "sortOrder": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_conversation",
+      "description": "Get a unified inbox conversation.",
+      "method": "GET",
+      "path": "/inbox/conversations/{conversationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversationId"
+        ]
+      }
+    },
+    {
+      "name": "list_conversation_messages",
+      "description": "List messages in a unified inbox conversation.",
+      "method": "GET",
+      "path": "/inbox/conversations/{conversationId}/messages",
+      "query_params": [
+        "limit",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversationId"
+        ]
+      }
+    },
+    {
+      "name": "send_inbox_message",
+      "description": "Send a reply/message in a unified inbox conversation.",
+      "method": "POST",
+      "path": "/inbox/conversations/{conversationId}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string",
+            "description": "Plain-text message body."
+          },
+          "attachment": {
+            "type": "object",
+            "description": "Optional attachment payload supported by the target platform."
+          }
+        },
+        "required": [
+          "conversationId"
+        ]
+      }
+    },
+    {
+      "name": "create_conversation",
+      "description": "Start a new supported inbox conversation, for example X/Bluesky/Reddit/WhatsApp when allowed by platform rules.",
+      "method": "POST",
+      "path": "/inbox/conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "participantId": {
+            "type": "string"
+          },
+          "participantUsername": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "skipDmCheck": {
+            "type": "boolean"
+          },
+          "templateName": {
+            "type": "string",
+            "description": "WhatsApp template name when required."
+          },
+          "templateLanguage": {
+            "type": "string"
+          },
+          "templateParams": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "accountId"
+        ]
+      }
+    },
+    {
+      "name": "update_conversation",
+      "description": "Update a unified inbox conversation status/metadata.",
+      "method": "PUT",
+      "path": "/inbox/conversations/{conversationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Conversation status, for example open, archived, or closed."
+          },
+          "metadata": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "conversationId"
+        ]
+      }
+    },
+    {
+      "name": "mark_conversation_read",
+      "description": "Mark a unified inbox conversation as read.",
+      "method": "POST",
+      "path": "/inbox/conversations/{conversationId}/read",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversationId"
+        ]
+      }
+    },
+    {
+      "name": "list_commented_posts",
+      "description": "List posts with inbox comments.",
+      "method": "GET",
+      "path": "/inbox/comments",
+      "query_params": [
+        "profileId",
+        "accountId",
+        "platform",
+        "status",
+        "limit",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_post_comments",
+      "description": "Get comments for a social post tracked by Zernio inbox.",
+      "method": "GET",
+      "path": "/inbox/comments/{postId}",
+      "query_params": [
+        "limit",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "postId"
+        ]
+      }
+    },
+    {
+      "name": "reply_to_comment",
+      "description": "Reply publicly to a comment on a tracked inbox post.",
+      "method": "POST",
+      "path": "/inbox/comments/{postId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string"
+          },
+          "commentId": {
+            "type": "string",
+            "description": "Parent comment ID when replying to a specific comment."
+          },
+          "message": {
+            "type": "string",
+            "description": "Plain-text reply."
+          }
+        },
+        "required": [
+          "postId",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "hide_comment",
+      "description": "Hide a comment when supported by the platform.",
+      "method": "POST",
+      "path": "/inbox/comments/{postId}/{commentId}/hide",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string"
+          },
+          "commentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "postId",
+          "commentId"
+        ]
+      }
+    },
+    {
+      "name": "unhide_comment",
+      "description": "Unhide a previously hidden comment when supported by the platform.",
+      "method": "DELETE",
+      "path": "/inbox/comments/{postId}/{commentId}/hide",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string"
+          },
+          "commentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "postId",
+          "commentId"
+        ]
+      }
+    },
+    {
+      "name": "like_comment",
+      "description": "Like a comment when supported by the platform.",
+      "method": "POST",
+      "path": "/inbox/comments/{postId}/{commentId}/like",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string"
+          },
+          "commentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "postId",
+          "commentId"
+        ]
+      }
+    },
+    {
+      "name": "unlike_comment",
+      "description": "Remove a comment like when supported by the platform.",
+      "method": "DELETE",
+      "path": "/inbox/comments/{postId}/{commentId}/like",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string"
+          },
+          "commentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "postId",
+          "commentId"
+        ]
+      }
+    },
+    {
+      "name": "delete_comment",
+      "description": "Delete a comment when supported by the platform.",
+      "method": "DELETE",
+      "path": "/inbox/comments/{postId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string"
+          },
+          "commentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "postId",
+          "commentId"
+        ]
+      }
+    },
+    {
+      "name": "private_reply_to_comment",
+      "description": "Send a private reply to a comment when supported by the platform.",
+      "method": "POST",
+      "path": "/inbox/comments/{postId}/{commentId}/private-reply",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string"
+          },
+          "commentId": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "postId",
+          "commentId",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "list_mentions",
+      "description": "List inbox mentions.",
+      "method": "GET",
+      "path": "/inbox/mentions",
+      "query_params": [
+        "profileId",
+        "accountId",
+        "platform",
+        "limit",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_reviews",
+      "description": "List inbox reviews, such as Google Business reviews.",
+      "method": "GET",
+      "path": "/inbox/reviews",
+      "query_params": [
+        "profileId",
+        "accountId",
+        "platform",
+        "limit",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "reply_to_review",
+      "description": "Reply to a review where supported.",
+      "method": "POST",
+      "path": "/inbox/reviews/{reviewId}/reply",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "reviewId": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reviewId",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "list_queue_slots",
+      "description": "List posting queue schedules.",
+      "method": "GET",
+      "path": "/queue/slots",
+      "query_params": [
+        "profileId",
+        "queueId",
+        "all"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "queueId": {
+            "type": "string"
+          },
+          "all": {
+            "type": "string",
+            "description": "Provider expects a string query flag."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_queue_slot",
+      "description": "Create a posting queue schedule.",
+      "method": "POST",
+      "path": "/queue/slots",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "profileId",
+          "name",
+          "timezone",
+          "slots"
+        ]
+      }
+    },
+    {
+      "name": "update_queue_slot",
+      "description": "Update a posting queue schedule.",
+      "method": "PUT",
+      "path": "/queue/slots",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "queueId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "setAsDefault": {
+            "type": "boolean"
+          },
+          "reshuffleExisting": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "profileId",
+          "timezone",
+          "slots"
+        ]
+      }
+    },
+    {
+      "name": "delete_queue_slot",
+      "description": "Delete a posting queue schedule.",
+      "method": "DELETE",
+      "path": "/queue/slots",
+      "query_params": [
+        "profileId",
+        "queueId"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "queueId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profileId",
+          "queueId"
+        ]
+      }
+    },
+    {
+      "name": "preview_queue",
+      "description": "Preview upcoming queue slots.",
+      "method": "GET",
+      "path": "/queue/preview",
+      "query_params": [
+        "profileId",
+        "queueId",
+        "limit"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "queueId": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_next_queue_slot",
+      "description": "Get the next available queue slot.",
+      "method": "GET",
+      "path": "/queue/next-slot",
+      "query_params": [
+        "profileId",
+        "queueId",
+        "timezone"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string"
+          },
+          "queueId": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List Zernio webhook settings.",
+      "method": "GET",
+      "path": "/webhooks/settings",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a Zernio webhook subscription.",
+      "method": "POST",
+      "path": "/webhooks/settings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "headers": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "url",
+          "events"
+        ]
+      }
+    },
+    {
+      "name": "update_webhook",
+      "description": "Update a Zernio webhook subscription.",
+      "method": "PUT",
+      "path": "/webhooks/settings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "_id": {
+            "type": "string",
+            "description": "Webhook ID."
+          },
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "headers": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete a Zernio webhook subscription.",
+      "method": "DELETE",
+      "path": "/webhooks/settings",
+      "query_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_webhook_logs",
+      "description": "List Zernio webhook delivery logs.",
+      "method": "GET",
+      "path": "/webhooks/logs",
+      "query_params": [
+        "webhookId",
+        "event",
+        "status",
+        "limit",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhookId": {
+            "type": "string"
+          },
+          "event": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "test_webhook",
+      "description": "Send a test event to a Zernio webhook endpoint.",
+      "method": "POST",
+      "path": "/webhooks/test",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhookId": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "event": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-zernio-signature",
+    "events": [
+      {
+        "name": "post.published",
+        "description": "A post was published."
+      },
+      {
+        "name": "post.failed",
+        "description": "A post failed."
+      },
+      {
+        "name": "post.partial",
+        "description": "A multi-platform post partially succeeded."
+      },
+      {
+        "name": "post.platform.published",
+        "description": "A post was published to a specific platform."
+      },
+      {
+        "name": "post.platform.failed",
+        "description": "A post failed on a specific platform."
+      },
+      {
+        "name": "post.external.created",
+        "description": "An external/social-network post was synced into Zernio."
+      },
+      {
+        "name": "account.connected",
+        "description": "A social account was connected."
+      },
+      {
+        "name": "account.disconnected",
+        "description": "A social account was disconnected."
+      },
+      {
+        "name": "message.received",
+        "description": "A unified inbox message was received."
+      },
+      {
+        "name": "message.sent",
+        "description": "A unified inbox message was sent."
+      },
+      {
+        "name": "comment.received",
+        "description": "A social comment was received."
+      },
+      {
+        "name": "review.new",
+        "description": "A review was received."
+      },
+      {
+        "name": "webhook.test",
+        "description": "Test webhook event."
+      }
+    ],
+    "registration": {
+      "method": "POST",
+      "path": "/webhooks/settings",
+      "url_field": "url",
+      "events_field": "events",
+      "secret_field": "secret",
+      "id_field": "_id",
+      "delete_method": "DELETE",
+      "delete_path": "/webhooks/settings?id={id}",
+      "list_path": "/webhooks/settings",
+      "manual_setup": "Zernio also supports webhook setup from the Zernio dashboard. Signatures use HMAC-SHA256 in X-Zernio-Signature when a secret is configured."
+    }
+  },
+  "health_check": {
+    "tool": "list_profiles"
+  }
+}
