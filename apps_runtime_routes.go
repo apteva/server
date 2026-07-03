@@ -36,17 +36,22 @@ func (s *Server) registerAppRuntimeRoutes(apiMux *http.ServeMux) {
 	// Reverse-proxy: any non-management /apps/<name>/... goes to the
 	// installed app's sidecar. Specific /apps management routes should be
 	// registered separately; ServeMux picks their longer patterns.
-	apiMux.HandleFunc("/apps/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimPrefix(r.URL.Path, "/apps/")
-		first := path
-		if i := strings.Index(path, "/"); i >= 0 {
-			first = path[:i]
-		}
-		switch first {
-		case "preview", "install", "installs", "marketplace", "callback":
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	apiMux.HandleFunc("/apps/", func(w http.ResponseWriter, r *http.Request) {
+		if s.tryHandlePublicClientAppMCP(w, r) {
 			return
 		}
-		s.handleAppProxy(w, r)
-	}))
+		s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+			path := strings.TrimPrefix(r.URL.Path, "/apps/")
+			first := path
+			if i := strings.Index(path, "/"); i >= 0 {
+				first = path[:i]
+			}
+			switch first {
+			case "preview", "install", "installs", "marketplace", "callback":
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			s.handleAppProxy(w, r)
+		})(w, r)
+	})
 }

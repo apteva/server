@@ -111,6 +111,17 @@ func (r *InstalledAppsRegistry) GetByNameAndProject(name, projectID string) *Ins
 	return globalMatch
 }
 
+func (r *InstalledAppsRegistry) GetByNameAndProjectExact(name, projectID string) *InstalledApp {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, e := range r.entries {
+		if e.AppName == name && e.ProjectID == projectID {
+			return e
+		}
+	}
+	return nil
+}
+
 func (r *InstalledAppsRegistry) List() []*InstalledApp {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

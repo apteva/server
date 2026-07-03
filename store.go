@@ -1460,6 +1460,36 @@ func (s *Store) GetUserByAPIKey(keyHash string) (*User, error) {
 	return &u, nil
 }
 
+func (s *Store) GetPublicClientAPIKey(keyHash string) (*APIKey, error) {
+	var k APIKey
+	var createdAt string
+	err := s.db.QueryRow(`
+		SELECT id, user_id, name, key_prefix, key_hash, COALESCE(kind,'private'), COALESCE(project_id,''),
+		       COALESCE(scopes,'[]'), COALESCE(allowed_origins,'[]'), COALESCE(rate_limit_per_minute, 60),
+		       COALESCE(expires_at,''), COALESCE(revoked_at,''), COALESCE(last_used,''), COALESCE(last_used_ip,''),
+		       created_at
+		  FROM api_keys
+		 WHERE key_hash = ?
+		   AND kind = 'public_client'
+		   AND revoked_at IS NULL
+		   AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)
+	`, keyHash).Scan(
+		&k.ID, &k.UserID, &k.Name, &k.KeyPrefix, &k.KeyHash, &k.Kind, &k.ProjectID,
+		&k.Scopes, &k.AllowedOrigins, &k.RateLimitPerMinute,
+		&k.ExpiresAt, &k.RevokedAt, &k.LastUsed, &k.LastUsedIP,
+		&createdAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	k.CreatedAt, _ = parseTime(createdAt)
+	return &k, nil
+}
+
+func (s *Store) MarkAPIKeyUsed(keyID int64, ip string) {
+	_, _ = s.db.Exec("UPDATE api_keys SET last_used = CURRENT_TIMESTAMP, last_used_ip = ? WHERE id = ?", ip, keyID)
+}
+
 func (s *Store) ListAPIKeys(userID int64) ([]APIKey, error) {
 	rows, err := s.db.Query(
 		`SELECT id, name, key_prefix, COALESCE(kind,'private'), COALESCE(project_id,''),

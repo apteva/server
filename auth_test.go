@@ -25,6 +25,9 @@ func newTestServer(t *testing.T) *Server {
 	// Reset rate limiters for clean test state
 	loginLimiter = &rateLimiter{attempts: make(map[string][]time.Time)}
 	registerLimiter = &rateLimiter{attempts: make(map[string][]time.Time)}
+	publicClientRateMu.Lock()
+	publicClientRateBuckets = map[int64]publicClientRateBucket{}
+	publicClientRateMu.Unlock()
 
 	return &Server{
 		store:          store,
