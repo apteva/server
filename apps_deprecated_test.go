@@ -15,8 +15,8 @@ func TestInstallDeprecatedAppIsBlocked(t *testing.T) {
 		"project_id": "proj-1",
 		"manifest_yaml": `
 schema: apteva-app/v1
-name: routes
-display_name: Routes
+name: hosting
+display_name: Hosting
 version: 0.1.0
 provides:
   http_routes: []
@@ -27,7 +27,7 @@ runtime:
   source:
     repo: github.com/apteva/apps
     ref: main
-    entry: mcp/routes
+    entry: mcp/hosting
 `,
 	}
 	raw, _ := json.Marshal(body)
@@ -50,18 +50,18 @@ func TestUpgradeDeprecatedAppIsBlocked(t *testing.T) {
 	s := newTestServer(t)
 	manifestJSON := `{
 		"schema":"apteva-app/v1",
-		"name":"routes",
-		"display_name":"Routes",
+		"name":"hosting",
+		"display_name":"Hosting",
 		"version":"0.2.0"
 	}`
 	if _, err := s.store.db.Exec(
-		`INSERT INTO apps (name, source, repo, ref, manifest_json) VALUES ('routes', 'builtin', '', '', ?)`,
+		`INSERT INTO apps (name, source, repo, ref, manifest_json) VALUES ('hosting', 'builtin', '', '', ?)`,
 		manifestJSON,
 	); err != nil {
 		t.Fatalf("insert app: %v", err)
 	}
 	var appID int64
-	if err := s.store.db.QueryRow(`SELECT id FROM apps WHERE name='routes'`).Scan(&appID); err != nil {
+	if err := s.store.db.QueryRow(`SELECT id FROM apps WHERE name='hosting'`).Scan(&appID); err != nil {
 		t.Fatalf("select app: %v", err)
 	}
 	res, err := s.store.db.Exec(
