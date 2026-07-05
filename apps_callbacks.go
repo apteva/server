@@ -90,6 +90,8 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.handleCallbackPlatformInfo(w, r)
+	case "delegated-keys":
+		s.handleCallbackDelegatedKeys(w, r, parts[1:])
 	default:
 		http.Error(w, "unknown callback: "+parts[0], http.StatusNotFound)
 	}

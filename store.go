@@ -38,6 +38,13 @@ type APIKey struct {
 	RevokedAt          string    `json:"revoked_at,omitempty"`
 	LastUsed           string    `json:"last_used,omitempty"`
 	LastUsedIP         string    `json:"last_used_ip,omitempty"`
+	IssuerApp          string    `json:"issuer_app,omitempty"`
+	IssuerInstallID    int64     `json:"issuer_install_id,omitempty"`
+	SubjectType        string    `json:"subject_type,omitempty"`
+	SubjectID          string    `json:"subject_id,omitempty"`
+	SubjectEmail       string    `json:"subject_email,omitempty"`
+	OrganizationID     string    `json:"organization_id,omitempty"`
+	OrganizationSlug   string    `json:"organization_slug,omitempty"`
 	CreatedAt          time.Time `json:"created_at"`
 }
 
@@ -264,6 +271,13 @@ func (s *Store) migrate() error {
 			revoked_at DATETIME,
 			last_used_ip TEXT NOT NULL DEFAULT '',
 			last_used DATETIME,
+			issuer_app TEXT NOT NULL DEFAULT '',
+			issuer_install_id INTEGER NOT NULL DEFAULT 0,
+			subject_type TEXT NOT NULL DEFAULT '',
+			subject_id TEXT NOT NULL DEFAULT '',
+			subject_email TEXT NOT NULL DEFAULT '',
+			organization_id TEXT NOT NULL DEFAULT '',
+			organization_slug TEXT NOT NULL DEFAULT '',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE TABLE IF NOT EXISTS sessions (
@@ -640,6 +654,13 @@ func (s *Store) migrate() error {
 	s.db.Exec("ALTER TABLE api_keys ADD COLUMN expires_at DATETIME")
 	s.db.Exec("ALTER TABLE api_keys ADD COLUMN revoked_at DATETIME")
 	s.db.Exec("ALTER TABLE api_keys ADD COLUMN last_used_ip TEXT NOT NULL DEFAULT ''")
+	s.db.Exec("ALTER TABLE api_keys ADD COLUMN issuer_app TEXT NOT NULL DEFAULT ''")
+	s.db.Exec("ALTER TABLE api_keys ADD COLUMN issuer_install_id INTEGER NOT NULL DEFAULT 0")
+	s.db.Exec("ALTER TABLE api_keys ADD COLUMN subject_type TEXT NOT NULL DEFAULT ''")
+	s.db.Exec("ALTER TABLE api_keys ADD COLUMN subject_id TEXT NOT NULL DEFAULT ''")
+	s.db.Exec("ALTER TABLE api_keys ADD COLUMN subject_email TEXT NOT NULL DEFAULT ''")
+	s.db.Exec("ALTER TABLE api_keys ADD COLUMN organization_id TEXT NOT NULL DEFAULT ''")
+	s.db.Exec("ALTER TABLE api_keys ADD COLUMN organization_slug TEXT NOT NULL DEFAULT ''")
 	if !columnExists(s.db, "agents", "core_version") {
 		s.db.Exec("ALTER TABLE agents ADD COLUMN core_version TEXT NOT NULL DEFAULT ''")
 	}
@@ -1400,6 +1421,13 @@ type APIKeyCreateOptions struct {
 	AllowedOrigins     string
 	RateLimitPerMinute int
 	ExpiresAt          string
+	IssuerApp          string
+	IssuerInstallID    int64
+	SubjectType        string
+	SubjectID          string
+	SubjectEmail       string
+	OrganizationID     string
+	OrganizationSlug   string
 }
 
 func (s *Store) CreateAPIKey(userID int64, name, keyHash, keyPrefix string, options ...APIKeyCreateOptions) (*APIKey, error) {
@@ -1426,9 +1454,11 @@ func (s *Store) CreateAPIKey(userID int64, name, keyHash, keyPrefix string, opti
 	}
 	result, err := s.db.Exec(
 		`INSERT INTO api_keys
-			(user_id, name, key_hash, key_prefix, kind, project_id, scopes, allowed_origins, rate_limit_per_minute, expires_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''))`,
+			(user_id, name, key_hash, key_prefix, kind, project_id, scopes, allowed_origins, rate_limit_per_minute, expires_at,
+			 issuer_app, issuer_install_id, subject_type, subject_id, subject_email, organization_id, organization_slug)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?)`,
 		userID, name, keyHash, keyPrefix, opt.Kind, opt.ProjectID, opt.Scopes, opt.AllowedOrigins, opt.RateLimitPerMinute, opt.ExpiresAt,
+		opt.IssuerApp, opt.IssuerInstallID, opt.SubjectType, opt.SubjectID, opt.SubjectEmail, opt.OrganizationID, opt.OrganizationSlug,
 	)
 	if err != nil {
 		return nil, err
@@ -1438,7 +1468,9 @@ func (s *Store) CreateAPIKey(userID int64, name, keyHash, keyPrefix string, opti
 		ID: id, UserID: userID, Name: name, KeyPrefix: keyPrefix,
 		Kind: opt.Kind, ProjectID: opt.ProjectID, Scopes: opt.Scopes,
 		AllowedOrigins: opt.AllowedOrigins, RateLimitPerMinute: opt.RateLimitPerMinute,
-		ExpiresAt: opt.ExpiresAt, CreatedAt: time.Now(),
+		ExpiresAt: opt.ExpiresAt, IssuerApp: opt.IssuerApp, IssuerInstallID: opt.IssuerInstallID,
+		SubjectType: opt.SubjectType, SubjectID: opt.SubjectID, SubjectEmail: opt.SubjectEmail,
+		OrganizationID: opt.OrganizationID, OrganizationSlug: opt.OrganizationSlug, CreatedAt: time.Now(),
 	}, nil
 }
 
@@ -1478,6 +1510,34 @@ func (s *Store) GetPublicClientAPIKey(keyHash string) (*APIKey, error) {
 		&k.Scopes, &k.AllowedOrigins, &k.RateLimitPerMinute,
 		&k.ExpiresAt, &k.RevokedAt, &k.LastUsed, &k.LastUsedIP,
 		&createdAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	k.CreatedAt, _ = parseTime(createdAt)
+	return &k, nil
+}
+
+func (s *Store) GetDelegatedUserAPIKey(keyHash string) (*APIKey, error) {
+	var k APIKey
+	var createdAt string
+	err := s.db.QueryRow(`
+		SELECT id, user_id, name, key_prefix, key_hash, COALESCE(kind,'private'), COALESCE(project_id,''),
+		       COALESCE(scopes,'[]'), COALESCE(allowed_origins,'[]'), COALESCE(rate_limit_per_minute, 60),
+		       COALESCE(expires_at,''), COALESCE(revoked_at,''), COALESCE(last_used,''), COALESCE(last_used_ip,''),
+		       COALESCE(issuer_app,''), COALESCE(issuer_install_id,0), COALESCE(subject_type,''), COALESCE(subject_id,''),
+		       COALESCE(subject_email,''), COALESCE(organization_id,''), COALESCE(organization_slug,''), created_at
+		  FROM api_keys
+		 WHERE key_hash = ?
+		   AND kind = 'delegated_user'
+		   AND revoked_at IS NULL
+		   AND (expires_at IS NULL OR datetime(expires_at) > CURRENT_TIMESTAMP)
+	`, keyHash).Scan(
+		&k.ID, &k.UserID, &k.Name, &k.KeyPrefix, &k.KeyHash, &k.Kind, &k.ProjectID,
+		&k.Scopes, &k.AllowedOrigins, &k.RateLimitPerMinute,
+		&k.ExpiresAt, &k.RevokedAt, &k.LastUsed, &k.LastUsedIP,
+		&k.IssuerApp, &k.IssuerInstallID, &k.SubjectType, &k.SubjectID,
+		&k.SubjectEmail, &k.OrganizationID, &k.OrganizationSlug, &createdAt,
 	)
 	if err != nil {
 		return nil, err

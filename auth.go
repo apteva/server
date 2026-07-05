@@ -207,6 +207,38 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 		if token != "" {
 			keyHash := HashAPIKey(token)
+			if strings.HasPrefix(token, "uk_") {
+				appName, appPath, ok := splitAppProxyPath(r.URL.Path)
+				if !ok {
+					http.Error(w, "delegated user keys are only valid for app routes", http.StatusUnauthorized)
+					return
+				}
+				key, err := s.store.GetDelegatedUserAPIKey(keyHash)
+				if err == nil {
+					if appPath == "/mcp" && r.Method == http.MethodPost {
+						body, readErr := io.ReadAll(r.Body)
+						if readErr != nil {
+							http.Error(w, "invalid request body", http.StatusBadRequest)
+							return
+						}
+						_ = r.Body.Close()
+						restoreRequestBody(r, body)
+						action, actionErr := publicClientMCPToolName(body)
+						if actionErr != nil {
+							http.Error(w, actionErr.Error(), http.StatusBadRequest)
+							return
+						}
+						if !delegatedUserScopeAllows(key.Scopes, appName, action) {
+							http.Error(w, "delegated user key is not allowed to call this app action", http.StatusForbidden)
+							return
+						}
+					}
+					setDelegatedUserPrincipalHeaders(r, key)
+					s.store.MarkAPIKeyUsed(key.ID, requestClientIP(r))
+					next(w, r)
+					return
+				}
+			}
 			user, err := s.store.GetUserByAPIKey(keyHash)
 			if err == nil {
 				r.Header.Set("X-User-ID", itoa(user.ID))
