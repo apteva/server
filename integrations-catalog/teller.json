@@ -1,7 +1,7 @@
 {
   "slug": "teller",
   "name": "Teller",
-  "description": "MCP server for Teller - the API for US bank accounts. Fetch accounts, balances, transactions, account/routing numbers, and identity. Self-serve signup with a free dev tier (100 live connections + unlimited sandbox). NOTE: Teller's development and production environments require a mutual-TLS client certificate, which this REST integration does not send — only the sandbox environment (api.teller.io against sandbox tokens) works without a certificate.",
+  "description": "MCP server for Teller - the API for US bank accounts. Fetch accounts, balances, transactions, account/routing numbers, identity, and beta payments. Self-serve signup with a free dev tier (100 live connections + unlimited sandbox). Teller development and production require a mutual-TLS client certificate; provide the certificate and private key fields for live access.",
   "logo": "https://www.google.com/s2/favicons?domain=teller.io&sz=128",
   "categories": [
     "banking",
@@ -20,6 +20,10 @@
       "Authorization": "Basic {{basic_auth}}",
       "Accept": "application/json"
     },
+    "mtls": {
+      "cert_field": "client_certificate_pem",
+      "key_field": "client_private_key_pem"
+    },
     "credential_fields": [
       {
         "name": "username",
@@ -33,6 +37,20 @@
         "label": "Password",
         "description": "Teller uses Basic auth with the access token as the username and ignores the password. Enter the literal value 'x' — the runtime needs a non-empty password to build the Basic header.",
         "required": true,
+        "type": "password"
+      },
+      {
+        "name": "client_certificate_pem",
+        "label": "Client Certificate PEM",
+        "description": "Teller mTLS client certificate PEM. Required for development and production access; optional in sandbox.",
+        "required": false,
+        "type": "password"
+      },
+      {
+        "name": "client_private_key_pem",
+        "label": "Client Private Key PEM",
+        "description": "Private key PEM for the Teller mTLS client certificate. Required for development and production access; optional in sandbox.",
+        "required": false,
         "type": "password"
       }
     ]
@@ -143,6 +161,14 @@
           "from_id": {
             "type": "string",
             "description": "Return transactions older than this transaction id (cursor pagination)"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Filter transactions on or after this ISO date, for example 2026-01-01."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "Filter transactions on or before this ISO date, for example 2026-01-31."
           }
         },
         "required": [
@@ -181,6 +207,110 @@
       "input_schema": {
         "type": "object",
         "properties": {}
+      }
+    },
+    {
+      "name": "create_payee",
+      "description": "Create a Teller beta payment payee for an account, currently used for Zelle payments where supported. If Teller returns connect_token, the user must complete MFA in Teller Connect before the payee is saved.",
+      "method": "POST",
+      "path": "/accounts/{account_id}/payees",
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The paying account ID."
+          },
+          "scheme": {
+            "type": "string",
+            "enum": ["zelle"],
+            "description": "Payment scheme. Teller currently documents zelle."
+          },
+          "address": {
+            "type": "string",
+            "description": "Payee email address or phone number."
+          },
+          "name": {
+            "type": "string",
+            "description": "Payee name."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["person", "business"],
+            "description": "Payee type."
+          }
+        },
+        "required": ["account_id", "scheme", "address", "name", "type"]
+      }
+    },
+    {
+      "name": "create_payment",
+      "description": "Initiate a Teller beta payment from an account to a saved payee. The payments API is beta and availability depends on institution support.",
+      "method": "POST",
+      "path": "/accounts/{account_id}/payments",
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The paying account ID."
+          },
+          "payee_id": {
+            "type": "string",
+            "description": "Payee ID returned by create_payee."
+          },
+          "amount": {
+            "type": "string",
+            "description": "Payment amount as a decimal string, for example 10.48."
+          },
+          "memo": {
+            "type": "string",
+            "description": "Optional payment memo."
+          }
+        },
+        "required": ["account_id", "payee_id", "amount"]
+      }
+    },
+    {
+      "name": "list_payments",
+      "description": "List Teller beta payments initiated through the API for one account.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/payments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The account ID."
+          }
+        },
+        "required": ["account_id"]
+      }
+    },
+    {
+      "name": "get_payment",
+      "description": "Get one Teller beta payment by ID.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/payments/{payment_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The account ID."
+          },
+          "payment_id": {
+            "type": "string",
+            "description": "The Teller payment ID."
+          }
+        },
+        "required": ["account_id", "payment_id"]
       }
     }
   ]

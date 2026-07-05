@@ -113,6 +113,21 @@
       }
     },
     {
+      "name": "list_customers",
+      "description": "List Salt Edge customers with cursor pagination.",
+      "method": "GET",
+      "path": "/customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from_id": {
+            "type": "string",
+            "description": "Pagination cursor."
+          }
+        }
+      }
+    },
+    {
       "name": "get_customer",
       "description": "Get details of a customer by ID",
       "method": "GET",
@@ -424,6 +439,24 @@
       }
     },
     {
+      "name": "get_account",
+      "description": "Get one Salt Edge account by ID.",
+      "method": "GET",
+      "path": "/accounts/{account_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The Salt Edge account ID."
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
+    },
+    {
       "name": "list_transactions",
       "description": "List transactions for a connection with optional filtering by account, date range, and status (posted, pending). Returns amount, currency, description, category, merchant, and dates.",
       "method": "GET",
@@ -454,6 +487,24 @@
         },
         "required": [
           "connection_id"
+        ]
+      }
+    },
+    {
+      "name": "get_transaction",
+      "description": "Get one Salt Edge transaction by ID.",
+      "method": "GET",
+      "path": "/transactions/{transaction_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transaction_id": {
+            "type": "string",
+            "description": "The Salt Edge transaction ID."
+          }
+        },
+        "required": [
+          "transaction_id"
         ]
       }
     },

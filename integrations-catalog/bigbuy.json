@@ -1,0 +1,328 @@
+{
+  "slug": "bigbuy",
+  "name": "BigBuy",
+  "description": "BigBuy dropshipping API for catalog discovery, product data, prices, stock, shipping quotes, orders, order status, and tracking.",
+  "logo": "https://www.google.com/s2/favicons?domain=bigbuy.eu&sz=128",
+  "categories": ["dropshipping", "ecommerce", "supplier-catalog", "fulfillment", "inventory"],
+  "base_url": "https://api.bigbuy.eu",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Token",
+        "description": "BigBuy API token from your BigBuy control panel."
+      }
+    ]
+  },
+  "health_check": { "tool": "auth_status" },
+  "tools": [
+    {
+      "name": "auth_status",
+      "description": "Check whether the BigBuy token is valid and active.",
+      "method": "GET",
+      "path": "/rest/user/auth/status.json",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "purse_get",
+      "description": "Get BigBuy purse/account balance information.",
+      "method": "GET",
+      "path": "/rest/user/purse.json",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "categories_list",
+      "description": "List BigBuy catalog categories.",
+      "method": "GET",
+      "path": "/rest/catalog/categories.json",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "category_get",
+      "description": "Get one BigBuy catalog category by ID.",
+      "method": "GET",
+      "path": "/rest/catalog/category/{id}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "integer", "description": "BigBuy category ID." } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "products_list",
+      "description": "List BigBuy catalog products. Pair with product_information and prices/stock tools for sellable catalog import.",
+      "method": "GET",
+      "path": "/rest/catalog/products.json",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "product_get",
+      "description": "Get one BigBuy product by ID.",
+      "method": "GET",
+      "path": "/rest/catalog/product/{id}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "integer", "description": "BigBuy product ID." } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "product_information_list",
+      "description": "List localized BigBuy product descriptions/information. Use isoCode for the target language when needed.",
+      "method": "GET",
+      "path": "/rest/catalog/productsinformation.json",
+      "query_params": ["isoCode"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "isoCode": { "type": "string", "description": "Language ISO code, for example en, es, fr, de, it." } }
+      }
+    },
+    {
+      "name": "product_information_get",
+      "description": "Get localized BigBuy product information by product ID.",
+      "method": "GET",
+      "path": "/rest/catalog/productinformation/{id}.json",
+      "query_params": ["isoCode"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "description": "BigBuy product ID." },
+          "isoCode": { "type": "string", "description": "Language ISO code." }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "product_information_get_by_sku",
+      "description": "Get localized BigBuy product information by SKU.",
+      "method": "GET",
+      "path": "/rest/catalog/productinformationbysku/{sku}.json",
+      "query_params": ["isoCode"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sku": { "type": "string", "description": "BigBuy product SKU." },
+          "isoCode": { "type": "string", "description": "Language ISO code." }
+        },
+        "required": ["sku"]
+      }
+    },
+    {
+      "name": "product_images_list",
+      "description": "List BigBuy image records for all products.",
+      "method": "GET",
+      "path": "/rest/catalog/productsimages.json",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "product_images_get",
+      "description": "Get image records for one BigBuy product.",
+      "method": "GET",
+      "path": "/rest/catalog/productimages/{id}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "integer", "description": "BigBuy product ID." } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "product_prices_list",
+      "description": "List BigBuy product prices.",
+      "method": "GET",
+      "path": "/rest/catalog/productprices.json",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "product_stock_list",
+      "description": "List BigBuy product stock by handling days.",
+      "method": "GET",
+      "path": "/rest/catalog/productsstockbyhandlingdays.json",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "product_stock_get",
+      "description": "Get BigBuy stock by handling days for one product.",
+      "method": "GET",
+      "path": "/rest/catalog/productstockbyhandlingdays/{id}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "integer", "description": "BigBuy product ID." } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "product_variations_list",
+      "description": "List BigBuy product variations.",
+      "method": "GET",
+      "path": "/rest/catalog/productsvariations.json",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "product_variations_get",
+      "description": "Get BigBuy variations for one product.",
+      "method": "GET",
+      "path": "/rest/catalog/productvariations/{id}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "integer", "description": "BigBuy product ID." } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "variation_prices_list",
+      "description": "List BigBuy variation prices.",
+      "method": "GET",
+      "path": "/rest/catalog/productvariationprices.json",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "variation_stock_list",
+      "description": "List BigBuy product variation stock by handling days.",
+      "method": "GET",
+      "path": "/rest/catalog/productsvariationsstockbyhandlingdays.json",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "variation_stock_get",
+      "description": "Get BigBuy variation stock by handling days for one product.",
+      "method": "GET",
+      "path": "/rest/catalog/productvariationsstockbyhandlingdays/{id}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "integer", "description": "BigBuy product ID." } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "order_check",
+      "description": "Validate a BigBuy order payload before creating it. Pass BigBuy's CustomerOrderProcess object as order.",
+      "method": "POST",
+      "path": "/rest/order/check.json",
+      "body_root_param": "order",
+      "input_schema": {
+        "type": "object",
+        "properties": { "order": { "type": "object", "description": "BigBuy CustomerOrderProcess request body." } },
+        "required": ["order"]
+      }
+    },
+    {
+      "name": "order_create",
+      "description": "Create a BigBuy dropshipping order. Pass BigBuy's CustomerOrderProcess object as order.",
+      "method": "POST",
+      "path": "/rest/order/create.json",
+      "body_root_param": "order",
+      "input_schema": {
+        "type": "object",
+        "properties": { "order": { "type": "object", "description": "BigBuy CustomerOrderProcess request body." } },
+        "required": ["order"]
+      }
+    },
+    {
+      "name": "order_get",
+      "description": "Get a BigBuy order by internal BigBuy order ID.",
+      "method": "GET",
+      "path": "/rest/order/{orderId}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "orderId": { "type": "integer", "description": "BigBuy order ID." } },
+        "required": ["orderId"]
+      }
+    },
+    {
+      "name": "order_get_by_reference",
+      "description": "Get a BigBuy order by merchant reference.",
+      "method": "GET",
+      "path": "/rest/order/reference/{reference}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "reference": { "type": "string", "description": "Merchant order reference." } },
+        "required": ["reference"]
+      }
+    },
+    {
+      "name": "order_statuses_list",
+      "description": "List BigBuy order statuses.",
+      "method": "GET",
+      "path": "/rest/order/orderstatuses.json",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "shipping_carriers_list",
+      "description": "List BigBuy shipping carriers.",
+      "method": "GET",
+      "path": "/rest/shipping/carriers.json",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "shipping_quote_order",
+      "description": "Quote BigBuy shipping options for one cart/order. Pass BigBuy's CartShippingOption request as shipping_request.",
+      "method": "POST",
+      "path": "/rest/shipping/orders.json",
+      "body_root_param": "shipping_request",
+      "input_schema": {
+        "type": "object",
+        "properties": { "shipping_request": { "type": "object", "description": "BigBuy CartShippingOption request body." } },
+        "required": ["shipping_request"]
+      }
+    },
+    {
+      "name": "shipping_lowest_cost_by_country",
+      "description": "Get the lowest BigBuy shipping cost by country for a cart request.",
+      "method": "POST",
+      "path": "/rest/shipping/lowest-shipping-cost-by-country.json",
+      "body_root_param": "request",
+      "input_schema": {
+        "type": "object",
+        "properties": { "request": { "type": "object", "description": "BigBuy lowest-shipping-cost request body." } },
+        "required": ["request"]
+      }
+    },
+    {
+      "name": "shipping_lowest_costs_get_by_country",
+      "description": "Get stored lowest BigBuy shipping costs for one destination country.",
+      "method": "GET",
+      "path": "/rest/shipping/lowest-shipping-costs-by-country/{countryIsoCode}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "countryIsoCode": { "type": "string", "description": "Destination country ISO code, for example ES or FR." } },
+        "required": ["countryIsoCode"]
+      }
+    },
+    {
+      "name": "tracking_carriers_list",
+      "description": "List BigBuy tracking carriers.",
+      "method": "GET",
+      "path": "/rest/tracking/carriers.json",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "tracking_order_get",
+      "description": "Get tracking data for one BigBuy order.",
+      "method": "GET",
+      "path": "/rest/tracking/order/{idOrder}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "idOrder": { "type": "integer", "description": "BigBuy order ID." } },
+        "required": ["idOrder"]
+      }
+    },
+    {
+      "name": "tracking_orders_list",
+      "description": "Get tracking data for multiple BigBuy orders. Pass BigBuy's TrackingOrder request as request.",
+      "method": "POST",
+      "path": "/rest/tracking/orders.json",
+      "body_root_param": "request",
+      "input_schema": {
+        "type": "object",
+        "properties": { "request": { "type": "object", "description": "BigBuy TrackingOrder request body." } },
+        "required": ["request"]
+      }
+    }
+  ]
+}

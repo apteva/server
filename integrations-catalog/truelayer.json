@@ -313,6 +313,24 @@
           "account_id"
         ]
       }
+    },
+    {
+      "name": "get_card_pending_transactions",
+      "description": "Get pending (not yet settled) transactions for a connected card.",
+      "method": "GET",
+      "path": "/data/v1/cards/{account_id}/transactions/pending",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "The card account_id from list_cards"
+          }
+        },
+        "required": [
+          "account_id"
+        ]
+      }
     }
   ]
 }

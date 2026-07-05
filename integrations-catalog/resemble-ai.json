@@ -1,0 +1,979 @@
+{
+  "slug": "resemble-ai",
+  "name": "Resemble AI",
+  "description": "Resemble AI voice platform for synchronous TTS, streamed speech, voice creation/cloning, voice discovery, projects, clips, and account lookup.",
+  "logo": "https://www.google.com/s2/favicons?domain=resemble.ai&sz=128",
+  "categories": [
+    "ai",
+    "voice",
+    "text-to-speech",
+    "tts",
+    "audio",
+    "voice-cloning",
+    "speech-synthesis"
+  ],
+  "base_url": "https://app.resemble.ai/api/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Resemble API token from your Resemble account."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "synthesize_speech",
+      "description": "Generate speech synchronously with Resemble TTS. Returns JSON containing base64 audio_content, duration, timestamps, output_format, sample_rate, and issue metadata.",
+      "method": "POST",
+      "path": "https://f.cluster.resemble.ai/synthesize",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_uuid": {
+            "type": "string",
+            "description": "Resemble voice UUID to synthesize with. Use list_voices or get_voice to discover voices."
+          },
+          "data": {
+            "type": "string",
+            "description": "Text or SSML to synthesize. Resemble's synchronous endpoint accepts up to 3000 characters."
+          },
+          "project_uuid": {
+            "type": "string",
+            "description": "Optional Resemble project UUID to associate with the generated clip."
+          },
+          "title": {
+            "type": "string",
+            "description": "Optional clip title."
+          },
+          "model": {
+            "type": "string",
+            "description": "Optional Resemble model name, for example chatterbox-turbo."
+          },
+          "precision": {
+            "type": "string",
+            "enum": [
+              "MULAW",
+              "PCM_16",
+              "PCM_24",
+              "PCM_32"
+            ],
+            "default": "PCM_32",
+            "description": "Audio precision for the generated speech."
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "wav",
+              "mp3"
+            ],
+            "default": "wav",
+            "description": "Output container for the returned base64 audio."
+          },
+          "sample_rate": {
+            "type": "integer",
+            "enum": [
+              8000,
+              16000,
+              22050,
+              24000,
+              44100,
+              48000
+            ],
+            "description": "Optional sample rate in Hz."
+          },
+          "use_hd": {
+            "type": "boolean",
+            "description": "Whether to use HD synthesis when supported by the voice/model."
+          },
+          "apply_custom_pronunciations": {
+            "type": "boolean",
+            "description": "Apply custom pronunciations configured in Resemble."
+          }
+        },
+        "required": [
+          "voice_uuid",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "stream_speech",
+      "description": "Stream generated speech from Resemble. The generic executor buffers the streamed WAV audio and returns it as a binary envelope.",
+      "method": "POST",
+      "path": "https://f.cluster.resemble.ai/stream",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_uuid": {
+            "type": "string",
+            "description": "Resemble voice UUID to synthesize with."
+          },
+          "data": {
+            "type": "string",
+            "description": "Text or SSML to synthesize."
+          },
+          "project_uuid": {
+            "type": "string",
+            "description": "Optional Resemble project UUID."
+          },
+          "model": {
+            "type": "string",
+            "description": "Optional Resemble model name."
+          },
+          "precision": {
+            "type": "string",
+            "enum": [
+              "MULAW",
+              "PCM_16",
+              "PCM_24",
+              "PCM_32"
+            ],
+            "default": "PCM_32"
+          },
+          "sample_rate": {
+            "type": "integer",
+            "enum": [
+              8000,
+              16000,
+              22050,
+              24000,
+              44100,
+              48000
+            ]
+          },
+          "use_hd": {
+            "type": "boolean"
+          },
+          "apply_custom_pronunciations": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "voice_uuid",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "list_agents",
+      "description": "List Resemble realtime voice agents for the authenticated team. Use advanced=true to include detailed configuration.",
+      "method": "GET",
+      "path": "/agents",
+      "query_params": [
+        "phone_number",
+        "advanced"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "phone_number": {
+            "type": "string",
+            "description": "Optional phone number filter."
+          },
+          "advanced": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include detailed agent configuration."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_agent",
+      "description": "Create a Resemble realtime voice agent. Provide voice_uuid and optionally configure ASR, turn detection, LLM, RAG search, webhooks, and system tools.",
+      "method": "POST",
+      "path": "/agents",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Agent name."
+          },
+          "voice_uuid": {
+            "type": "string",
+            "description": "Resemble voice UUID used by the agent."
+          },
+          "phone_number_id": {
+            "type": "integer",
+            "description": "Optional Resemble phone number ID to attach."
+          },
+          "languages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Languages/locales supported by the agent."
+          },
+          "dynamic_variables": {
+            "type": "object",
+            "description": "Default dynamic variables for the agent. Values may be strings, numbers, or booleans."
+          },
+          "asr": {
+            "type": "object",
+            "description": "ASR configuration object. Common fields: provider, model, user_input_audio_format, keywords."
+          },
+          "turn": {
+            "type": "object",
+            "description": "Turn-taking configuration object. Common fields: turn_timeout, silence_end_call_timeout, mode."
+          },
+          "llm": {
+            "type": "object",
+            "description": "LLM configuration object. Common fields: prompt, provider, model, reasoning_effort, temperature, timezone, built_in_tools."
+          },
+          "search_mode": {
+            "type": "string",
+            "enum": [
+              "speed",
+              "accuracy"
+            ],
+            "description": "RAG search strategy."
+          },
+          "max_chunks_per_query": {
+            "type": "integer",
+            "default": 8,
+            "description": "Number of relevant knowledge chunks to retrieve per query."
+          },
+          "webhooks": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Agent webhook configuration objects."
+          },
+          "system_tools": {
+            "type": "object",
+            "description": "System tools configuration object."
+          }
+        },
+        "required": [
+          "name",
+          "voice_uuid"
+        ]
+      }
+    },
+    {
+      "name": "get_agent",
+      "description": "Get a Resemble realtime voice agent by UUID.",
+      "method": "GET",
+      "path": "/agents/{uuid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string",
+            "description": "Resemble agent UUID."
+          }
+        },
+        "required": [
+          "uuid"
+        ]
+      }
+    },
+    {
+      "name": "update_agent",
+      "description": "Update a Resemble realtime voice agent's name, voice, phone number, languages, dynamic variables, ASR, turn, LLM, RAG, webhooks, or system tools.",
+      "method": "PATCH",
+      "path": "/agents/{uuid}",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string",
+            "description": "Resemble agent UUID."
+          },
+          "name": {
+            "type": "string"
+          },
+          "voice_uuid": {
+            "type": "string"
+          },
+          "phone_number_id": {
+            "type": "integer"
+          },
+          "languages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dynamic_variables": {
+            "type": "object"
+          },
+          "asr": {
+            "type": "object"
+          },
+          "turn": {
+            "type": "object"
+          },
+          "llm": {
+            "type": "object"
+          },
+          "search_mode": {
+            "type": "string",
+            "enum": [
+              "speed",
+              "accuracy"
+            ]
+          },
+          "max_chunks_per_query": {
+            "type": "integer"
+          },
+          "webhooks": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "system_tools": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "uuid"
+        ]
+      }
+    },
+    {
+      "name": "delete_agent",
+      "description": "Delete a Resemble realtime voice agent.",
+      "method": "DELETE",
+      "path": "/agents/{uuid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string",
+            "description": "Resemble agent UUID to delete."
+          }
+        },
+        "required": [
+          "uuid"
+        ]
+      }
+    },
+    {
+      "name": "dispatch_agent",
+      "description": "Make an outbound phone call with a Resemble realtime voice agent.",
+      "method": "POST",
+      "path": "/agents/{uuid}/dispatch",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string",
+            "description": "Resemble agent UUID."
+          },
+          "phone_number": {
+            "type": "string",
+            "description": "Destination phone number."
+          },
+          "dynamic_variables": {
+            "type": "object",
+            "description": "Runtime dynamic variable overrides for this dispatch."
+          }
+        },
+        "required": [
+          "uuid",
+          "phone_number"
+        ]
+      }
+    },
+    {
+      "name": "get_agent_capabilities",
+      "description": "Get Resemble realtime-agent capability metadata supported by the account/API.",
+      "method": "GET",
+      "path": "/agents/capabilities",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_agent_system_tools",
+      "description": "Get Resemble system tools available for realtime voice agents.",
+      "method": "GET",
+      "path": "/agents/system-tools",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_voices",
+      "description": "List Resemble voices available to the API key, including owned voices and optionally pre-built Resemble voices. Supports catalog filters for age, gender, accent, use case, tone, and pagination.",
+      "method": "GET",
+      "path": "/voices",
+      "query_params": [
+        "page",
+        "page_size",
+        "pre_built_resemble_voice",
+        "age",
+        "gender",
+        "accents",
+        "use_case",
+        "tone_of_voice",
+        "advanced",
+        "sample_url",
+        "filters",
+        "voice_selector"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "description": "Number of voices per page."
+          },
+          "pre_built_resemble_voice": {
+            "type": "boolean",
+            "description": "Set true to list pre-built Resemble voices."
+          },
+          "age": {
+            "type": "string",
+            "description": "Optional age filter."
+          },
+          "gender": {
+            "type": "string",
+            "description": "Optional gender filter."
+          },
+          "accents": {
+            "type": "string",
+            "description": "Optional accents filter."
+          },
+          "use_case": {
+            "type": "string",
+            "description": "Optional use-case filter."
+          },
+          "tone_of_voice": {
+            "type": "string",
+            "description": "Optional tone-of-voice filter."
+          },
+          "advanced": {
+            "type": "boolean",
+            "description": "Enable advanced voice filtering when supported."
+          },
+          "sample_url": {
+            "type": "boolean",
+            "description": "Include sample URLs when supported."
+          },
+          "filters": {
+            "type": "string",
+            "description": "Optional Resemble filter expression."
+          },
+          "voice_selector": {
+            "type": "boolean",
+            "description": "Enable voice-selector behavior when supported."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_voice",
+      "description": "Get details for a single Resemble voice.",
+      "method": "GET",
+      "path": "/voices/{voice_uuid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_uuid": {
+            "type": "string",
+            "description": "Resemble voice UUID."
+          }
+        },
+        "required": [
+          "voice_uuid"
+        ]
+      }
+    },
+    {
+      "name": "create_voice",
+      "description": "Create a Resemble voice resource. Use voice_type rapid or professional, and provide dataset_url/callback_uri when creating a trained voice from prepared audio data.",
+      "method": "POST",
+      "path": "/voices",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the new voice."
+          },
+          "voice_type": {
+            "type": "string",
+            "enum": [
+              "rapid",
+              "professional"
+            ],
+            "default": "professional",
+            "description": "Resemble voice creation type."
+          },
+          "dataset_url": {
+            "type": "string",
+            "description": "URL to the voice dataset when required by the selected creation type."
+          },
+          "callback_uri": {
+            "type": "string",
+            "description": "Optional callback URL for creation/training status."
+          },
+          "language": {
+            "type": "string",
+            "default": "en-US",
+            "description": "Voice language/locale, for example en-US."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "build_voice",
+      "description": "Start training/building a Resemble voice after recordings or a dataset have been attached.",
+      "method": "POST",
+      "path": "/voices/{voice_uuid}/build",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_uuid": {
+            "type": "string",
+            "description": "Resemble voice UUID to build."
+          },
+          "fill": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to run fill during the build when supported."
+          }
+        },
+        "required": [
+          "voice_uuid"
+        ]
+      }
+    },
+    {
+      "name": "delete_voice",
+      "description": "Delete a Resemble voice.",
+      "method": "DELETE",
+      "path": "/voices/{voice_uuid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_uuid": {
+            "type": "string",
+            "description": "Resemble voice UUID to delete."
+          }
+        },
+        "required": [
+          "voice_uuid"
+        ]
+      }
+    },
+    {
+      "name": "generate_voice_candidates",
+      "description": "Generate three voice-design candidates from a natural-language prompt. Returns candidate UUIDs, sample indexes, and preview audio URLs.",
+      "method": "POST",
+      "path": "/voice-design",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": [
+          "user_prompt"
+        ]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_prompt": {
+            "type": "string",
+            "description": "Description of the desired synthetic voice, including style, age, accent, tone, or use case."
+          }
+        },
+        "required": [
+          "user_prompt"
+        ]
+      }
+    },
+    {
+      "name": "create_voice_from_candidate",
+      "description": "Create a reusable Resemble voice from one generated voice-design candidate.",
+      "method": "POST",
+      "path": "/voice-design/create",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string",
+            "description": "Voice-design generation UUID returned by generate_voice_candidates."
+          },
+          "voice_sample_index": {
+            "type": "integer",
+            "description": "Candidate sample index to convert into a voice."
+          },
+          "name": {
+            "type": "string",
+            "description": "Name for the created voice."
+          }
+        },
+        "required": [
+          "uuid",
+          "voice_sample_index",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_projects",
+      "description": "List Resemble projects for the account.",
+      "method": "GET",
+      "path": "/projects",
+      "query_params": [
+        "page",
+        "page_size"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_project",
+      "description": "Create a new Resemble project for organizing clips.",
+      "method": "POST",
+      "path": "/projects",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "is_collaborative": {
+            "type": "boolean",
+            "default": false
+          },
+          "is_archived": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "is_collaborative",
+          "is_archived"
+        ]
+      }
+    },
+    {
+      "name": "get_project",
+      "description": "Get details for a Resemble project.",
+      "method": "GET",
+      "path": "/projects/{project_uuid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_uuid": {
+            "type": "string",
+            "description": "Resemble project UUID."
+          }
+        },
+        "required": [
+          "project_uuid"
+        ]
+      }
+    },
+    {
+      "name": "update_project",
+      "description": "Update a Resemble project name, description, collaboration flag, or archive status.",
+      "method": "PUT",
+      "path": "/projects/{project_uuid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_uuid": {
+            "type": "string",
+            "description": "Resemble project UUID."
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "is_collaborative": {
+            "type": "boolean"
+          },
+          "is_archived": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_uuid"
+        ]
+      }
+    },
+    {
+      "name": "delete_project",
+      "description": "Delete a Resemble project.",
+      "method": "DELETE",
+      "path": "/projects/{project_uuid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_uuid": {
+            "type": "string",
+            "description": "Resemble project UUID to delete."
+          }
+        },
+        "required": [
+          "project_uuid"
+        ]
+      }
+    },
+    {
+      "name": "list_clips",
+      "description": "List generated clips in a Resemble project.",
+      "method": "GET",
+      "path": "/projects/{project_uuid}/clips",
+      "query_params": [
+        "page",
+        "page_size"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_uuid": {
+            "type": "string",
+            "description": "Resemble project UUID."
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_uuid"
+        ]
+      }
+    },
+    {
+      "name": "get_clip",
+      "description": "Get details for a generated clip in a Resemble project.",
+      "method": "GET",
+      "path": "/projects/{project_uuid}/clips/{clip_uuid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_uuid": {
+            "type": "string",
+            "description": "Resemble project UUID."
+          },
+          "clip_uuid": {
+            "type": "string",
+            "description": "Resemble clip UUID."
+          }
+        },
+        "required": [
+          "project_uuid",
+          "clip_uuid"
+        ]
+      }
+    },
+    {
+      "name": "update_clip",
+      "description": "Update a Resemble clip title, body, or archive status.",
+      "method": "PATCH",
+      "path": "/projects/{project_uuid}/clips/{clip_uuid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_uuid": {
+            "type": "string",
+            "description": "Resemble project UUID."
+          },
+          "clip_uuid": {
+            "type": "string",
+            "description": "Resemble clip UUID."
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "is_archived": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_uuid",
+          "clip_uuid"
+        ]
+      }
+    },
+    {
+      "name": "delete_clip",
+      "description": "Delete a generated Resemble clip.",
+      "method": "DELETE",
+      "path": "/projects/{project_uuid}/clips/{clip_uuid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_uuid": {
+            "type": "string",
+            "description": "Resemble project UUID."
+          },
+          "clip_uuid": {
+            "type": "string",
+            "description": "Resemble clip UUID to delete."
+          }
+        },
+        "required": [
+          "project_uuid",
+          "clip_uuid"
+        ]
+      }
+    },
+    {
+      "name": "apply_watermark",
+      "description": "Apply a Resemble watermark to an audio, image, or video file by HTTPS URL. Poll get_watermark_apply_result with the returned UUID for async completion.",
+      "method": "POST",
+      "path": "/watermark/apply",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "HTTPS URL to the source media file."
+          },
+          "strength": {
+            "type": "number",
+            "default": 0.2,
+            "description": "Watermark strength for image/video. Ignored for audio."
+          },
+          "custom_message": {
+            "type": "string",
+            "default": "resembleai",
+            "description": "Custom message for image/video watermarking. Ignored for audio."
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "get_watermark_apply_result",
+      "description": "Retrieve the status/result of a Resemble watermark apply job.",
+      "method": "GET",
+      "path": "/watermark/apply/{uuid}/result",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string",
+            "description": "Watermark apply job UUID."
+          }
+        },
+        "required": [
+          "uuid"
+        ]
+      }
+    },
+    {
+      "name": "detect_watermark",
+      "description": "Detect a Resemble watermark in an audio, image, or video file by HTTPS URL. Poll get_watermark_detection_result with the returned UUID for async completion.",
+      "method": "POST",
+      "path": "/watermark/detect",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "HTTPS URL to the media file to inspect."
+          },
+          "custom_message": {
+            "type": "string",
+            "default": "resembleai",
+            "description": "Custom message used during image/video watermark encoding. Ignored for audio."
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "get_watermark_detection_result",
+      "description": "Retrieve the status/result of a Resemble watermark detection job.",
+      "method": "GET",
+      "path": "/watermark/detect/{uuid}/result",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string",
+            "description": "Watermark detection job UUID."
+          }
+        },
+        "required": [
+          "uuid"
+        ]
+      }
+    },
+    {
+      "name": "get_account",
+      "description": "Get account metadata for the authenticated Resemble API key.",
+      "method": "GET",
+      "path": "/account",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_billing_usage",
+      "description": "Get Resemble account billing usage for the authenticated API key.",
+      "method": "GET",
+      "path": "/account/billing_usage",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

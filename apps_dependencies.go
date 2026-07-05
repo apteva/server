@@ -97,6 +97,9 @@ func (s *Server) installDepsRecursive(
 			visited[key] = true
 			continue
 		}
+		if info, ok := deprecatedApp(dep.Name); ok {
+			return fmt.Errorf("dependency %q is deprecated and can no longer be installed: %s", dep.Name, info.Message)
+		}
 
 		// Resolve the dep's manifest URL via the registry.
 		manifestURL := registryName2URL[key]
@@ -330,6 +333,9 @@ func writeJSONStatus(w http.ResponseWriter, status int, v any) {
 // Returns the new install_id so the cascade can record it in the
 // parent's bindings JSON.
 func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, projectID string) (int64, error) {
+	if info, ok := deprecatedApp(manifest.Name); ok {
+		return 0, fmt.Errorf("%s is deprecated and can no longer be installed: %s", manifest.Name, info.Message)
+	}
 	manifestJSON, _ := json.Marshal(manifest)
 
 	var appID int64

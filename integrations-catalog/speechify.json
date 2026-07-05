@@ -1,0 +1,295 @@
+{
+  "slug": "speechify",
+  "name": "Speechify",
+  "description": "Speechify API for text-to-speech, streaming speech, voice catalog lookup, voice cloning, cloned voice deletion, and voice sample download.",
+  "logo": "https://www.google.com/s2/favicons?domain=speechify.ai&sz=128",
+  "categories": [
+    "ai",
+    "voice",
+    "text-to-speech",
+    "tts",
+    "audio",
+    "voice-cloning",
+    "speech-synthesis"
+  ],
+  "base_url": "https://api.speechify.ai",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Speechify API key from https://platform.speechify.ai/api-keys."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_speech",
+      "description": "Generate a complete speech file with Speechify. Returns JSON containing the generated audio, billing data, and speech-mark metadata. For low-latency audio, use stream_speech.",
+      "method": "POST",
+      "path": "/v1/audio/speech",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Text or SSML input to synthesize."
+          },
+          "voice_id": {
+            "type": "string",
+            "description": "Speechify voice ID. Use list_voices to discover shared voices and cloned voices."
+          },
+          "audio_format": {
+            "type": "string",
+            "enum": [
+              "wav",
+              "mp3",
+              "ogg",
+              "aac",
+              "pcm"
+            ],
+            "default": "mp3",
+            "description": "Requested audio container format."
+          },
+          "output_format": {
+            "type": "string",
+            "description": "Optional explicit output format such as pcm_16000 or ulaw_8000 for telephony."
+          },
+          "model": {
+            "type": "string",
+            "enum": [
+              "simba-english",
+              "simba-multilingual",
+              "simba-3.0"
+            ],
+            "default": "simba-english",
+            "description": "Speechify speech model."
+          },
+          "language": {
+            "type": "string",
+            "description": "Optional language/locale hint when supported by the model."
+          },
+          "options": {
+            "type": "object",
+            "description": "Optional Speechify options object. Common fields include loudness_normalization and text_normalization."
+          }
+        },
+        "required": [
+          "input",
+          "voice_id"
+        ]
+      }
+    },
+    {
+      "name": "stream_speech",
+      "description": "Stream speech audio with Speechify. The generic executor buffers the streamed audio and returns it as a binary envelope. Use output_format to request telephony or PCM formats.",
+      "method": "POST",
+      "path": "/v1/audio/stream",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Text or SSML input to synthesize."
+          },
+          "voice_id": {
+            "type": "string",
+            "description": "Speechify voice ID."
+          },
+          "audio_format": {
+            "type": "string",
+            "enum": [
+              "wav",
+              "mp3",
+              "ogg",
+              "aac",
+              "pcm"
+            ],
+            "default": "mp3"
+          },
+          "output_format": {
+            "type": "string",
+            "description": "Optional explicit output format such as pcm_16000 or ulaw_8000."
+          },
+          "model": {
+            "type": "string",
+            "enum": [
+              "simba-english",
+              "simba-multilingual",
+              "simba-3.0"
+            ],
+            "default": "simba-english"
+          },
+          "language": {
+            "type": "string"
+          },
+          "options": {
+            "type": "object",
+            "description": "Optional Speechify options object."
+          }
+        },
+        "required": [
+          "input",
+          "voice_id"
+        ]
+      }
+    },
+    {
+      "name": "list_voices",
+      "description": "List Speechify shared voices and personal cloned voices available to the API key.",
+      "method": "GET",
+      "path": "/v1/voices",
+      "query_params": [
+        "cursor",
+        "limit"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor returned by a previous response."
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "maximum": 200,
+            "description": "Number of voices to return."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_voice",
+      "description": "Get details for one Speechify voice.",
+      "method": "GET",
+      "path": "/v1/voices/{voice_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_id": {
+            "type": "string",
+            "description": "Speechify voice ID."
+          }
+        },
+        "required": [
+          "voice_id"
+        ]
+      }
+    },
+    {
+      "name": "create_voice",
+      "description": "Create a Speechify cloned voice from a consented audio sample. Provide sample as base64, a data URL, blobref, or binary envelope. Speechify recommends a clean 10-30 second sample under 5 MB.",
+      "method": "POST",
+      "path": "/v1/voices",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": [
+          "name",
+          "locale",
+          "gender",
+          "consent"
+        ],
+        "file_fields": {
+          "sample": "sample",
+          "avatar": "avatar"
+        }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name for the cloned voice."
+          },
+          "gender": {
+            "type": "string",
+            "enum": [
+              "male",
+              "female",
+              "not_specified"
+            ],
+            "description": "Speaker gender metadata."
+          },
+          "sample": {
+            "type": "string",
+            "description": "Voice audio sample as base64, data URL, blobref, raw string, or binary envelope."
+          },
+          "sample_filename": {
+            "type": "string",
+            "description": "Optional filename for the uploaded voice sample."
+          },
+          "consent": {
+            "type": "string",
+            "description": "JSON string with consent details, for example {\"fullName\":\"Jane Doe\",\"email\":\"jane@example.com\"}."
+          },
+          "locale": {
+            "type": "string",
+            "default": "en-US",
+            "description": "Voice locale."
+          },
+          "avatar": {
+            "type": "string",
+            "description": "Optional avatar image as base64, data URL, blobref, raw string, or binary envelope."
+          },
+          "avatar_filename": {
+            "type": "string",
+            "description": "Optional filename for the avatar upload."
+          }
+        },
+        "required": [
+          "name",
+          "gender",
+          "sample",
+          "consent"
+        ]
+      }
+    },
+    {
+      "name": "delete_voice",
+      "description": "Delete a personal Speechify cloned voice.",
+      "method": "DELETE",
+      "path": "/v1/voices/{voice_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_id": {
+            "type": "string",
+            "description": "Speechify cloned voice ID to delete."
+          }
+        },
+        "required": [
+          "voice_id"
+        ]
+      }
+    },
+    {
+      "name": "download_voice_sample",
+      "description": "Download the sample audio for a Speechify voice. Returns binary audio wrapped as {_binary, base64, mimeType}.",
+      "method": "GET",
+      "path": "/v1/voices/{voice_id}/sample",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_id": {
+            "type": "string",
+            "description": "Speechify voice ID."
+          }
+        },
+        "required": [
+          "voice_id"
+        ]
+      }
+    }
+  ]
+}

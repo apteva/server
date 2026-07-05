@@ -1,0 +1,235 @@
+{
+  "slug": "autods",
+  "name": "AutoDS",
+  "description": "AutoDS API for product research/import automation, supported suppliers, external order creation, order events, transactions, and wallet data.",
+  "logo": "https://www.google.com/s2/favicons?domain=autods.com&sz=128",
+  "categories": ["dropshipping", "ecommerce", "supplier-catalog", "fulfillment", "automation"],
+  "base_url": "https://gw.autods.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Token",
+        "description": "AutoDS API bearer token."
+      }
+    ]
+  },
+  "health_check": { "tool": "current_user_get" },
+  "tools": [
+    {
+      "name": "current_user_get",
+      "description": "Get the current AutoDS user.",
+      "method": "GET",
+      "path": "/v1/users/current",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "external_user_details_get",
+      "description": "Get AutoDS external API user details.",
+      "method": "GET",
+      "path": "/auto-order-v3/users/external/user-details",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "external_user_state_get",
+      "description": "Get AutoDS external API user state.",
+      "method": "GET",
+      "path": "/auto-order-v3/users/external/user-state",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "categories_list",
+      "description": "List AutoDS product categories.",
+      "method": "GET",
+      "path": "/api/categories/",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "product_params_list",
+      "description": "List AutoDS product-search/import parameter metadata.",
+      "method": "GET",
+      "path": "/api/products/params/",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "products_search",
+      "description": "Search AutoDS products. Pass AutoDS MPProductListFilter fields as filters.",
+      "method": "POST",
+      "path": "/api/products/",
+      "body_root_param": "filters",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filters": {
+            "type": "object",
+            "description": "AutoDS MPProductListFilter request body, for example pagination, categories, supplier, price, shipping, and sorting filters."
+          }
+        },
+        "required": ["filters"]
+      }
+    },
+    {
+      "name": "guest_products_search",
+      "description": "Search AutoDS guest products. Pass AutoDS guest product filter fields as filters.",
+      "method": "POST",
+      "path": "/api/products/guest_products",
+      "body_root_param": "filters",
+      "input_schema": {
+        "type": "object",
+        "properties": { "filters": { "type": "object", "description": "AutoDS guest product search filters." } },
+        "required": ["filters"]
+      }
+    },
+    {
+      "name": "product_get",
+      "description": "Get one AutoDS product by product ID.",
+      "method": "GET",
+      "path": "/api/products/{product_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "product_id": { "type": "string", "description": "AutoDS product ID." } },
+        "required": ["product_id"]
+      }
+    },
+    {
+      "name": "similar_products_list",
+      "description": "List AutoDS products similar to a given product.",
+      "method": "GET",
+      "path": "/api/products/{product_id}/similar",
+      "input_schema": {
+        "type": "object",
+        "properties": { "product_id": { "type": "string", "description": "AutoDS product ID." } },
+        "required": ["product_id"]
+      }
+    },
+    {
+      "name": "recommended_products_list",
+      "description": "List AutoDS recommended products for a given product.",
+      "method": "GET",
+      "path": "/api/products/recommended/{product_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "product_id": { "type": "string", "description": "AutoDS product ID." } },
+        "required": ["product_id"]
+      }
+    },
+    {
+      "name": "winning_products_list",
+      "description": "List AutoDS winning products.",
+      "method": "GET",
+      "path": "/api/products/winning",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "products_bulk_import",
+      "description": "Bulk import AutoDS products into one or more stores. store_ids is the path segment expected by AutoDS, often a comma-separated list.",
+      "method": "POST",
+      "path": "/api/products/bulk-import/{store_ids}",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "store_ids": { "type": "string", "description": "AutoDS store ID path value, or comma-separated store IDs if supported by your account." },
+          "body": { "type": "object", "description": "AutoDS bulk import request body." }
+        },
+        "required": ["store_ids", "body"]
+      }
+    },
+    {
+      "name": "supported_suppliers_list",
+      "description": "List suppliers supported by AutoDS external ordering.",
+      "method": "GET",
+      "path": "/auto-order-v3/suppliers/external/supported",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "external_order_create",
+      "description": "Create an AutoDS external order. Pass AutoDS OrderCreateExternalSchema as order.",
+      "method": "POST",
+      "path": "/auto-order/order/create-external",
+      "body_root_param": "order",
+      "input_schema": {
+        "type": "object",
+        "properties": { "order": { "type": "object", "description": "AutoDS OrderCreateExternalSchema request body." } },
+        "required": ["order"]
+      }
+    },
+    {
+      "name": "orders_search",
+      "description": "Search AutoDS orders by store IDs and search text.",
+      "method": "GET",
+      "path": "/auto-order/order/search",
+      "query_params": ["store_ids", "search_word"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "store_ids": { "type": "array", "items": { "type": "string" }, "description": "AutoDS store IDs." },
+          "search_word": { "type": "string", "description": "Order search text." }
+        },
+        "required": ["store_ids", "search_word"]
+      }
+    },
+    {
+      "name": "order_events_get",
+      "description": "Get AutoDS order events for one order.",
+      "method": "GET",
+      "path": "/auto-order/order/events/{order_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "order_id": { "type": "string", "description": "AutoDS order ID." } },
+        "required": ["order_id"]
+      }
+    },
+    {
+      "name": "reorder_get",
+      "description": "Get AutoDS reorder details for an order/refund workflow.",
+      "method": "GET",
+      "path": "/auto-order/handle-reorder/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string", "description": "AutoDS reorder/order ID." } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "reorder_create",
+      "description": "Submit an AutoDS reorder request.",
+      "method": "POST",
+      "path": "/auto-order/handle-reorder/{id}",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "AutoDS reorder/order ID." },
+          "body": { "type": "object", "description": "AutoDS reorder request body." }
+        },
+        "required": ["id", "body"]
+      }
+    },
+    {
+      "name": "transactions_list",
+      "description": "List AutoDS external transactions. Pass the provider's filter object as filters.",
+      "method": "POST",
+      "path": "/auto-order-v3/transaction/external/list",
+      "body_root_param": "filters",
+      "input_schema": {
+        "type": "object",
+        "properties": { "filters": { "type": "object", "description": "AutoDS transaction list filter body." } },
+        "required": ["filters"]
+      }
+    },
+    {
+      "name": "wallets_list",
+      "description": "List AutoDS external wallet data.",
+      "method": "GET",
+      "path": "/auto-order-v3/wallet/external/list",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

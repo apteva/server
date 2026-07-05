@@ -19,19 +19,37 @@
       "bearer"
     ],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
     },
     "credential_fields": [
       {
         "name": "token",
-        "label": "API Key"
+        "label": "Access Token",
+        "description": "GoCardless Bank Account Data access token. Use create_token with secret_id and secret_key to obtain one, then store it here.",
+        "type": "password"
+      },
+      {
+        "name": "secret_id",
+        "label": "Secret ID",
+        "description": "Optional GoCardless/Nordigen secret_id. Stored for reference; create_token still expects secret_id input so agents can avoid sending secrets on normal account-data calls.",
+        "required": false,
+        "type": "password"
+      },
+      {
+        "name": "secret_key",
+        "label": "Secret Key",
+        "description": "Optional GoCardless/Nordigen secret_key. Stored for reference; create_token still expects secret_key input so agents can avoid sending secrets on normal account-data calls.",
+        "required": false,
+        "type": "password"
       }
     ]
   },
   "tools": [
     {
       "name": "create_token",
-      "description": "Obtain a new access token and refresh token using your secret_id and secret_key. Access tokens expire after 24 hours.",
+      "description": "Obtain a new access token and refresh token using your GoCardless/Nordigen secret_id and secret_key. Access tokens expire after 24 hours. This tool intentionally takes the secrets as input and does not send them on normal account-data calls.",
       "method": "POST",
       "path": "/token/new/",
       "input_schema": {
@@ -39,13 +57,17 @@
         "properties": {
           "secret_id": {
             "type": "string",
-            "description": "Your GoCardless/Nordigen secret_id (will use credential if not provided)"
+            "description": "Your GoCardless/Nordigen secret_id."
           },
           "secret_key": {
             "type": "string",
-            "description": "Your GoCardless/Nordigen secret_key (will use credential if not provided)"
+            "description": "Your GoCardless/Nordigen secret_key."
           }
-        }
+        },
+        "required": [
+          "secret_id",
+          "secret_key"
+        ]
       }
     },
     {

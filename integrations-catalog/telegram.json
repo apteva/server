@@ -1,447 +1,523 @@
 {
   "slug": "telegram",
   "name": "Telegram",
-  "description": "MCP server for Telegram Bot API - messages, media, webhooks",
+  "description": "Telegram Bot API integration for bot profile, messages, media by URL/file_id, chats, updates, webhooks, callback queries, and common moderation actions.",
   "logo": "https://www.google.com/s2/favicons?domain=telegram.org&sz=128",
-  "categories": [
-    "messaging",
-    "bots",
-    "chat",
-    "notifications"
-  ],
-  "base_url": "https://api.telegram.org/bot{apiKey}",
+  "categories": ["messaging", "bots", "chat", "notifications"],
+  "base_url": "https://api.telegram.org/bot{{credential.botToken}}",
   "auth": {
-    "types": [
-      "bearer"
-    ],
-    "headers": {
-      "Authorization": "Bearer {{token}}"
-    },
+    "types": ["api_key"],
+    "headers": {},
     "credential_fields": [
       {
         "name": "botToken",
         "label": "Bot Token",
-        "description": "Telegram Bot Token from @BotFather"
+        "type": "password",
+        "description": "Telegram Bot API token from @BotFather, e.g. 123456:ABC-DEF..."
       }
     ]
+  },
+  "health_check": {
+    "tool": "get_me"
   },
   "tools": [
     {
       "name": "get_me",
-      "description": "Get information about the bot",
+      "description": "Get information about the bot associated with the token.",
       "method": "GET",
-      "path": "/get-me",
-      "input_schema": {
-        "type": "object",
-        "properties": {}
-      }
+      "path": "/getMe",
+      "input_schema": { "type": "object", "properties": {} }
     },
     {
       "name": "send_message",
-      "description": "Send a text message",
+      "description": "Send a text message to a chat via Telegram sendMessage.",
       "method": "POST",
-      "path": "/send-message",
+      "path": "/sendMessage",
       "input_schema": {
         "type": "object",
         "properties": {
-          "chat_id": {
-            "type": "string",
-            "description": "Chat ID to send message to"
-          },
-          "text": {
-            "type": "string",
-            "description": "Message text"
-          },
-          "parse_mode": {
-            "type": "string",
-            "enum": [
-              "HTML",
-              "Markdown",
-              "MarkdownV2"
-            ],
-            "description": "Parse mode for formatting"
-          },
-          "disable_notification": {
-            "type": "boolean",
-            "description": "Send silently"
-          }
+          "chat_id": { "type": "string", "description": "Target chat ID, @channelusername, or user/group id." },
+          "text": { "type": "string", "description": "Message text." },
+          "parse_mode": { "type": "string", "enum": ["HTML", "Markdown", "MarkdownV2"] },
+          "entities": { "type": "array", "description": "Optional message entities.", "items": { "type": "object" } },
+          "link_preview_options": { "type": "object", "description": "Optional link preview settings." },
+          "disable_notification": { "type": "boolean" },
+          "protect_content": { "type": "boolean" },
+          "reply_parameters": { "type": "object", "description": "Reply target/options." },
+          "reply_markup": { "type": "object", "description": "InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, or ForceReply object." }
         },
-        "required": [
-          "chat_id",
-          "text"
-        ]
+        "required": ["chat_id", "text"]
       }
     },
     {
       "name": "send_photo",
-      "description": "Send a photo",
+      "description": "Send a photo by URL or existing Telegram file_id. For local file upload support, add multipart later.",
       "method": "POST",
-      "path": "/send-photo",
+      "path": "/sendPhoto",
       "input_schema": {
         "type": "object",
         "properties": {
-          "chat_id": {
-            "type": "string",
-            "description": "Chat ID"
-          },
-          "photo": {
-            "type": "string",
-            "description": "Photo URL or file_id"
-          },
-          "caption": {
-            "type": "string",
-            "description": "Photo caption"
-          }
+          "chat_id": { "type": "string" },
+          "photo": { "type": "string", "description": "Photo URL or Telegram file_id." },
+          "caption": { "type": "string" },
+          "parse_mode": { "type": "string", "enum": ["HTML", "Markdown", "MarkdownV2"] },
+          "caption_entities": { "type": "array", "items": { "type": "object" } },
+          "show_caption_above_media": { "type": "boolean" },
+          "has_spoiler": { "type": "boolean" },
+          "disable_notification": { "type": "boolean" },
+          "protect_content": { "type": "boolean" },
+          "reply_parameters": { "type": "object" },
+          "reply_markup": { "type": "object" }
         },
-        "required": [
-          "chat_id",
-          "photo"
-        ]
+        "required": ["chat_id", "photo"]
+      }
+    },
+    {
+      "name": "send_video",
+      "description": "Send a video by URL or existing Telegram file_id.",
+      "method": "POST",
+      "path": "/sendVideo",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": { "type": "string" },
+          "video": { "type": "string", "description": "Video URL or Telegram file_id." },
+          "duration": { "type": "integer" },
+          "width": { "type": "integer" },
+          "height": { "type": "integer" },
+          "thumbnail": { "type": "string", "description": "Thumbnail URL or file_id." },
+          "caption": { "type": "string" },
+          "parse_mode": { "type": "string", "enum": ["HTML", "Markdown", "MarkdownV2"] },
+          "show_caption_above_media": { "type": "boolean" },
+          "has_spoiler": { "type": "boolean" },
+          "supports_streaming": { "type": "boolean" },
+          "disable_notification": { "type": "boolean" },
+          "protect_content": { "type": "boolean" },
+          "reply_markup": { "type": "object" }
+        },
+        "required": ["chat_id", "video"]
+      }
+    },
+    {
+      "name": "send_animation",
+      "description": "Send an animation/GIF by URL or existing Telegram file_id.",
+      "method": "POST",
+      "path": "/sendAnimation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": { "type": "string" },
+          "animation": { "type": "string", "description": "Animation URL or Telegram file_id." },
+          "duration": { "type": "integer" },
+          "width": { "type": "integer" },
+          "height": { "type": "integer" },
+          "thumbnail": { "type": "string" },
+          "caption": { "type": "string" },
+          "parse_mode": { "type": "string", "enum": ["HTML", "Markdown", "MarkdownV2"] },
+          "has_spoiler": { "type": "boolean" },
+          "disable_notification": { "type": "boolean" },
+          "protect_content": { "type": "boolean" },
+          "reply_markup": { "type": "object" }
+        },
+        "required": ["chat_id", "animation"]
+      }
+    },
+    {
+      "name": "send_audio",
+      "description": "Send an audio file by URL or existing Telegram file_id.",
+      "method": "POST",
+      "path": "/sendAudio",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": { "type": "string" },
+          "audio": { "type": "string", "description": "Audio URL or Telegram file_id." },
+          "caption": { "type": "string" },
+          "parse_mode": { "type": "string", "enum": ["HTML", "Markdown", "MarkdownV2"] },
+          "duration": { "type": "integer" },
+          "performer": { "type": "string" },
+          "title": { "type": "string" },
+          "thumbnail": { "type": "string" },
+          "disable_notification": { "type": "boolean" },
+          "protect_content": { "type": "boolean" },
+          "reply_markup": { "type": "object" }
+        },
+        "required": ["chat_id", "audio"]
+      }
+    },
+    {
+      "name": "send_voice",
+      "description": "Send a voice message by URL or existing Telegram file_id.",
+      "method": "POST",
+      "path": "/sendVoice",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": { "type": "string" },
+          "voice": { "type": "string", "description": "Voice file URL or Telegram file_id." },
+          "caption": { "type": "string" },
+          "parse_mode": { "type": "string", "enum": ["HTML", "Markdown", "MarkdownV2"] },
+          "duration": { "type": "integer" },
+          "disable_notification": { "type": "boolean" },
+          "protect_content": { "type": "boolean" },
+          "reply_markup": { "type": "object" }
+        },
+        "required": ["chat_id", "voice"]
       }
     },
     {
       "name": "send_document",
-      "description": "Send a document/file",
+      "description": "Send a document/file by URL or existing Telegram file_id.",
       "method": "POST",
-      "path": "/send-document",
+      "path": "/sendDocument",
       "input_schema": {
         "type": "object",
         "properties": {
-          "chat_id": {
-            "type": "string",
-            "description": "Chat ID"
-          },
-          "document": {
-            "type": "string",
-            "description": "Document URL or file_id"
-          },
-          "caption": {
-            "type": "string",
-            "description": "Document caption"
-          }
+          "chat_id": { "type": "string" },
+          "document": { "type": "string", "description": "Document URL or Telegram file_id." },
+          "thumbnail": { "type": "string" },
+          "caption": { "type": "string" },
+          "parse_mode": { "type": "string", "enum": ["HTML", "Markdown", "MarkdownV2"] },
+          "disable_content_type_detection": { "type": "boolean" },
+          "disable_notification": { "type": "boolean" },
+          "protect_content": { "type": "boolean" },
+          "reply_markup": { "type": "object" }
         },
-        "required": [
-          "chat_id",
-          "document"
-        ]
-      }
-    },
-    {
-      "name": "send_location",
-      "description": "Send a location",
-      "method": "POST",
-      "path": "/send-location",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "chat_id": {
-            "type": "string",
-            "description": "Chat ID"
-          },
-          "latitude": {
-            "type": "number",
-            "description": "Latitude"
-          },
-          "longitude": {
-            "type": "number",
-            "description": "Longitude"
-          }
-        },
-        "required": [
-          "chat_id",
-          "latitude",
-          "longitude"
-        ]
-      }
-    },
-    {
-      "name": "send_poll",
-      "description": "Send a poll",
-      "method": "POST",
-      "path": "/send-poll",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "chat_id": {
-            "type": "string",
-            "description": "Chat ID"
-          },
-          "question": {
-            "type": "string",
-            "description": "Poll question"
-          },
-          "options": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Poll options"
-          },
-          "is_anonymous": {
-            "type": "boolean",
-            "description": "Whether poll is anonymous"
-          }
-        },
-        "required": [
-          "chat_id",
-          "question",
-          "options"
-        ]
+        "required": ["chat_id", "document"]
       }
     },
     {
       "name": "send_media_group",
-      "description": "Send a group of photos or videos as an album",
+      "description": "Send an album of 2-10 photos, videos, documents, or audio items.",
       "method": "POST",
-      "path": "/send-media-group",
+      "path": "/sendMediaGroup",
       "input_schema": {
         "type": "object",
         "properties": {
-          "chat_id": {
-            "type": "string",
-            "description": "Chat ID"
-          },
-          "media": {
-            "type": "array",
-            "description": "Array of media objects"
-          }
+          "chat_id": { "type": "string" },
+          "media": { "type": "array", "description": "Array of InputMedia objects. Each media field should be a URL or file_id.", "items": { "type": "object" }, "minItems": 2, "maxItems": 10 },
+          "disable_notification": { "type": "boolean" },
+          "protect_content": { "type": "boolean" },
+          "reply_parameters": { "type": "object" }
         },
-        "required": [
-          "chat_id",
-          "media"
-        ]
+        "required": ["chat_id", "media"]
       }
     },
     {
-      "name": "send_inline_keyboard",
-      "description": "Send message with inline keyboard",
+      "name": "send_location",
+      "description": "Send a location.",
       "method": "POST",
-      "path": "/send-inline-keyboard",
+      "path": "/sendLocation",
       "input_schema": {
         "type": "object",
         "properties": {
-          "chat_id": {
-            "type": "string",
-            "description": "Chat ID"
-          },
-          "text": {
-            "type": "string",
-            "description": "Message text"
-          },
-          "inline_keyboard": {
-            "type": "array",
-            "description": "Inline keyboard buttons"
-          }
+          "chat_id": { "type": "string" },
+          "latitude": { "type": "number" },
+          "longitude": { "type": "number" },
+          "horizontal_accuracy": { "type": "number" },
+          "live_period": { "type": "integer" },
+          "heading": { "type": "integer" },
+          "proximity_alert_radius": { "type": "integer" },
+          "disable_notification": { "type": "boolean" },
+          "protect_content": { "type": "boolean" },
+          "reply_markup": { "type": "object" }
         },
-        "required": [
-          "chat_id",
-          "text",
-          "inline_keyboard"
-        ]
+        "required": ["chat_id", "latitude", "longitude"]
+      }
+    },
+    {
+      "name": "send_poll",
+      "description": "Send a native poll.",
+      "method": "POST",
+      "path": "/sendPoll",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": { "type": "string" },
+          "question": { "type": "string" },
+          "options": { "type": "array", "description": "Poll options as strings or InputPollOption objects.", "items": { "type": ["string", "object"] } },
+          "is_anonymous": { "type": "boolean" },
+          "type": { "type": "string", "enum": ["regular", "quiz"] },
+          "allows_multiple_answers": { "type": "boolean" },
+          "correct_option_id": { "type": "integer" },
+          "explanation": { "type": "string" },
+          "open_period": { "type": "integer" },
+          "close_date": { "type": "integer" },
+          "is_closed": { "type": "boolean" },
+          "disable_notification": { "type": "boolean" },
+          "protect_content": { "type": "boolean" },
+          "reply_markup": { "type": "object" }
+        },
+        "required": ["chat_id", "question", "options"]
       }
     },
     {
       "name": "edit_message_text",
-      "description": "Edit a message's text",
-      "method": "PUT",
-      "path": "/edit-message-text",
+      "description": "Edit text and game messages.",
+      "method": "POST",
+      "path": "/editMessageText",
       "input_schema": {
         "type": "object",
         "properties": {
-          "chat_id": {
-            "type": "string",
-            "description": "Chat ID"
-          },
-          "message_id": {
-            "type": "number",
-            "description": "Message ID to edit"
-          },
-          "text": {
-            "type": "string",
-            "description": "New message text"
-          }
+          "chat_id": { "type": "string", "description": "Required if inline_message_id is not specified." },
+          "message_id": { "type": "integer", "description": "Required if inline_message_id is not specified." },
+          "inline_message_id": { "type": "string" },
+          "text": { "type": "string" },
+          "parse_mode": { "type": "string", "enum": ["HTML", "Markdown", "MarkdownV2"] },
+          "entities": { "type": "array", "items": { "type": "object" } },
+          "link_preview_options": { "type": "object" },
+          "reply_markup": { "type": "object" }
         },
-        "required": [
-          "chat_id",
-          "message_id",
-          "text"
-        ]
+        "required": ["text"]
+      }
+    },
+    {
+      "name": "edit_message_reply_markup",
+      "description": "Edit only the reply markup of a message.",
+      "method": "POST",
+      "path": "/editMessageReplyMarkup",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": { "type": "string" },
+          "message_id": { "type": "integer" },
+          "inline_message_id": { "type": "string" },
+          "reply_markup": { "type": "object" }
+        }
       }
     },
     {
       "name": "delete_message",
-      "description": "Delete a message",
-      "method": "DELETE",
-      "path": "/delete-message",
+      "description": "Delete a message.",
+      "method": "POST",
+      "path": "/deleteMessage",
       "input_schema": {
         "type": "object",
         "properties": {
-          "chat_id": {
-            "type": "string",
-            "description": "Chat ID"
-          },
-          "message_id": {
-            "type": "number",
-            "description": "Message ID to delete"
-          }
+          "chat_id": { "type": "string" },
+          "message_id": { "type": "integer" }
         },
-        "required": [
-          "chat_id",
-          "message_id"
-        ]
+        "required": ["chat_id", "message_id"]
       }
     },
     {
       "name": "forward_message",
-      "description": "Forward a message",
-      "method": "GET",
-      "path": "/forward-message",
+      "description": "Forward a message.",
+      "method": "POST",
+      "path": "/forwardMessage",
       "input_schema": {
         "type": "object",
         "properties": {
-          "chat_id": {
-            "type": "string",
-            "description": "Destination chat ID"
-          },
-          "from_chat_id": {
-            "type": "string",
-            "description": "Source chat ID"
-          },
-          "message_id": {
-            "type": "number",
-            "description": "Message ID to forward"
-          }
+          "chat_id": { "type": "string", "description": "Destination chat ID." },
+          "from_chat_id": { "type": "string", "description": "Source chat ID." },
+          "message_id": { "type": "integer" },
+          "disable_notification": { "type": "boolean" },
+          "protect_content": { "type": "boolean" }
         },
-        "required": [
-          "chat_id",
-          "from_chat_id",
-          "message_id"
-        ]
+        "required": ["chat_id", "from_chat_id", "message_id"]
+      }
+    },
+    {
+      "name": "copy_message",
+      "description": "Copy a message without linking to the original sender.",
+      "method": "POST",
+      "path": "/copyMessage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": { "type": "string" },
+          "from_chat_id": { "type": "string" },
+          "message_id": { "type": "integer" },
+          "caption": { "type": "string" },
+          "parse_mode": { "type": "string", "enum": ["HTML", "Markdown", "MarkdownV2"] },
+          "disable_notification": { "type": "boolean" },
+          "protect_content": { "type": "boolean" },
+          "reply_markup": { "type": "object" }
+        },
+        "required": ["chat_id", "from_chat_id", "message_id"]
       }
     },
     {
       "name": "get_chat",
-      "description": "Get chat information",
+      "description": "Get information about a chat.",
       "method": "GET",
-      "path": "/get-chat",
+      "path": "/getChat",
       "input_schema": {
         "type": "object",
         "properties": {
-          "chat_id": {
-            "type": "string",
-            "description": "Chat ID"
-          }
+          "chat_id": { "type": "string" }
         },
-        "required": [
-          "chat_id"
-        ]
+        "required": ["chat_id"]
+      }
+    },
+    {
+      "name": "get_chat_member",
+      "description": "Get information about a chat member.",
+      "method": "GET",
+      "path": "/getChatMember",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": { "type": "string" },
+          "user_id": { "type": "integer" }
+        },
+        "required": ["chat_id", "user_id"]
       }
     },
     {
       "name": "get_updates",
-      "description": "Get bot updates (messages, callbacks, etc.)",
+      "description": "Receive incoming updates using long polling. This will not work while a webhook is active.",
       "method": "GET",
-      "path": "/get-updates",
+      "path": "/getUpdates",
       "input_schema": {
         "type": "object",
         "properties": {
-          "offset": {
-            "type": "number",
-            "description": "Offset for updates"
-          },
-          "limit": {
-            "type": "number",
-            "description": "Maximum number of updates"
-          }
+          "offset": { "type": "integer" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "timeout": { "type": "integer", "description": "Long-poll timeout in seconds." },
+          "allowed_updates": { "type": "array", "items": { "type": "string" } }
         }
       }
     },
     {
       "name": "set_webhook",
-      "description": "Set webhook URL for updates",
-      "method": "GET",
-      "path": "/set-webhook",
+      "description": "Set a webhook URL for incoming updates. Telegram sends Update JSON to this HTTPS URL.",
+      "method": "POST",
+      "path": "/setWebhook",
       "input_schema": {
         "type": "object",
         "properties": {
-          "url": {
-            "type": "string",
-            "description": "Webhook URL"
-          }
+          "url": { "type": "string" },
+          "ip_address": { "type": "string" },
+          "max_connections": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "allowed_updates": { "type": "array", "items": { "type": "string" } },
+          "drop_pending_updates": { "type": "boolean" },
+          "secret_token": { "type": "string", "description": "Secret token Telegram includes in X-Telegram-Bot-Api-Secret-Token." }
         },
-        "required": [
-          "url"
-        ]
+        "required": ["url"]
       }
     },
     {
       "name": "delete_webhook",
-      "description": "Remove webhook",
-      "method": "DELETE",
-      "path": "/delete-webhook",
-      "input_schema": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    {
-      "name": "send_chat_action",
-      "description": "Send typing indicator or similar action",
+      "description": "Remove the webhook. Use this before get_updates polling if a webhook is active.",
       "method": "POST",
-      "path": "/send-chat-action",
+      "path": "/deleteWebhook",
       "input_schema": {
         "type": "object",
         "properties": {
-          "chat_id": {
-            "type": "string",
-            "description": "Chat ID"
-          },
+          "drop_pending_updates": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "get_webhook_info",
+      "description": "Get current webhook status and error information.",
+      "method": "GET",
+      "path": "/getWebhookInfo",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "send_chat_action",
+      "description": "Tell the user that the bot is doing something, such as typing or uploading a photo.",
+      "method": "POST",
+      "path": "/sendChatAction",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": { "type": "string" },
+          "message_thread_id": { "type": "integer" },
           "action": {
             "type": "string",
-            "enum": [
-              "typing",
-              "upload_photo",
-              "upload_video",
-              "upload_document",
-              "find_location"
-            ],
-            "description": "Action type"
+            "enum": ["typing", "upload_photo", "record_video", "upload_video", "record_voice", "upload_voice", "upload_document", "choose_sticker", "find_location", "record_video_note", "upload_video_note"]
           }
         },
-        "required": [
-          "chat_id",
-          "action"
-        ]
+        "required": ["chat_id", "action"]
       }
     },
     {
       "name": "answer_callback_query",
-      "description": "Answer a callback query from inline keyboard",
-      "method": "GET",
-      "path": "/answer-callback-query",
+      "description": "Answer a callback query from an inline keyboard button.",
+      "method": "POST",
+      "path": "/answerCallbackQuery",
       "input_schema": {
         "type": "object",
         "properties": {
-          "callback_query_id": {
-            "type": "string",
-            "description": "Callback query ID"
-          },
-          "text": {
-            "type": "string",
-            "description": "Notification text"
-          },
-          "show_alert": {
-            "type": "boolean",
-            "description": "Show as alert"
-          }
+          "callback_query_id": { "type": "string" },
+          "text": { "type": "string" },
+          "show_alert": { "type": "boolean" },
+          "url": { "type": "string" },
+          "cache_time": { "type": "integer" }
         },
-        "required": [
-          "callback_query_id"
-        ]
+        "required": ["callback_query_id"]
+      }
+    },
+    {
+      "name": "pin_chat_message",
+      "description": "Pin a message in a chat.",
+      "method": "POST",
+      "path": "/pinChatMessage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": { "type": "string" },
+          "message_id": { "type": "integer" },
+          "disable_notification": { "type": "boolean" }
+        },
+        "required": ["chat_id", "message_id"]
+      }
+    },
+    {
+      "name": "unpin_chat_message",
+      "description": "Unpin one message in a chat.",
+      "method": "POST",
+      "path": "/unpinChatMessage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": { "type": "string" },
+          "message_id": { "type": "integer" }
+        },
+        "required": ["chat_id"]
+      }
+    },
+    {
+      "name": "ban_chat_member",
+      "description": "Ban a user in a group, supergroup, or channel.",
+      "method": "POST",
+      "path": "/banChatMember",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": { "type": "string" },
+          "user_id": { "type": "integer" },
+          "until_date": { "type": "integer", "description": "Unix time; omit or use <=30 seconds/>366 days for forever." },
+          "revoke_messages": { "type": "boolean" }
+        },
+        "required": ["chat_id", "user_id"]
+      }
+    },
+    {
+      "name": "unban_chat_member",
+      "description": "Unban a previously banned user.",
+      "method": "POST",
+      "path": "/unbanChatMember",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": { "type": "string" },
+          "user_id": { "type": "integer" },
+          "only_if_banned": { "type": "boolean" }
+        },
+        "required": ["chat_id", "user_id"]
       }
     }
   ],
-  "health_check": {
-    "tool": "get_me"
+  "webhooks": {
+    "signature_header": "X-Telegram-Bot-Api-Secret-Token",
+    "registrar": {
+      "path": "/setWebhook",
+      "manual_setup": "Use telegram_set_webhook with url and optional secret_token. Telegram sends incoming Update objects to that URL. Use telegram_delete_webhook before switching to get_updates polling."
+    },
+    "events": ["message", "edited_message", "channel_post", "callback_query", "inline_query", "poll", "poll_answer", "chat_member"]
   }
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -248,21 +249,50 @@ func validateIntegrationProxyURL(raw string) error {
 	return nil
 }
 
-func integrationHTTPClient(app *AppTemplate, timeout time.Duration) (*http.Client, error) {
+func integrationHTTPClient(app *AppTemplate, credentials map[string]string, timeout time.Duration) (*http.Client, error) {
 	proxyRaw, proxyEnv, err := integrationProxyURL(app)
 	if err != nil {
 		return nil, err
 	}
-	if proxyRaw == "" {
-		return &http.Client{Timeout: timeout}, nil
-	}
-	proxyURL, err := neturl.Parse(proxyRaw)
-	if err != nil {
-		return nil, fmt.Errorf("invalid %s: %w", proxyEnv, err)
-	}
 	base := http.DefaultTransport.(*http.Transport).Clone()
-	base.Proxy = http.ProxyURL(proxyURL)
+	if proxyRaw != "" {
+		proxyURL, err := neturl.Parse(proxyRaw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s: %w", proxyEnv, err)
+		}
+		base.Proxy = http.ProxyURL(proxyURL)
+	}
+	if app.Auth.MTLS != nil {
+		certField := strings.TrimSpace(app.Auth.MTLS.CertField)
+		if certField == "" {
+			certField = "client_certificate_pem"
+		}
+		keyField := strings.TrimSpace(app.Auth.MTLS.KeyField)
+		if keyField == "" {
+			keyField = "client_private_key_pem"
+		}
+		certPEM := normalizeCredentialPEM(credentials[certField])
+		keyPEM := normalizeCredentialPEM(credentials[keyField])
+		if certPEM != "" && keyPEM != "" {
+			cert, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM))
+			if err != nil {
+				return nil, fmt.Errorf("mTLS certificate: %w", err)
+			}
+			cfg := base.TLSClientConfig
+			if cfg == nil {
+				cfg = &tls.Config{}
+			} else {
+				cfg = cfg.Clone()
+			}
+			cfg.Certificates = append(cfg.Certificates, cert)
+			base.TLSClientConfig = cfg
+		}
+	}
 	return &http.Client{Timeout: timeout, Transport: base}, nil
+}
+
+func normalizeCredentialPEM(v string) string {
+	return strings.TrimSpace(strings.ReplaceAll(v, `\n`, "\n"))
 }
 
 // --- DB Model ---
@@ -1581,7 +1611,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			timeout = 10 * time.Minute
 		}
 	}
-	client, err := integrationHTTPClient(app, timeout)
+	client, err := integrationHTTPClient(app, credentials, timeout)
 	if err != nil {
 		return nil, err
 	}

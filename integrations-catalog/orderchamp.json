@@ -1,0 +1,40 @@
+{
+  "slug": "orderchamp",
+  "name": "Orderchamp Dropshipping",
+  "description": "Orderchamp GraphQL API for dropshipping catalog/import-list flows, order creation, fulfillment updates, and webhooks.",
+  "logo": "https://www.google.com/s2/favicons?domain=orderchamp.com&sz=128",
+  "categories": ["dropshipping", "ecommerce", "supplier-catalog", "fulfillment", "graphql"],
+  "base_url": "https://api.orderchamp.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Access Token",
+        "description": "Orderchamp private app or OAuth access token."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "graphql",
+      "description": "Call Orderchamp's GraphQL API. Use queries such as account, products, product, publications, publication, orders, order, shipments, webhooks; use mutations such as ingestedOrderCreate, integrationOrderCreate, integrationOrderCancel, inventoryLevelAdjust, and webhook create/update mutations according to the Orderchamp schema.",
+      "method": "POST",
+      "path": "/v1/graphql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "GraphQL query or mutation document." },
+          "variables": { "type": "object", "description": "GraphQL variables object." },
+          "operationName": { "type": "string", "description": "Operation name when the document contains multiple operations." }
+        },
+        "required": ["query"]
+      }
+    }
+  ]
+}

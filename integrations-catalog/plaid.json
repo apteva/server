@@ -1,7 +1,7 @@
 {
   "slug": "plaid",
   "name": "Plaid",
-  "description": "MCP server for Plaid financial data - bank accounts, transactions, balances, identity, investments, liabilities, income, and payment initiation",
+  "description": "MCP server for Plaid financial data - Link, bank accounts, transactions, balances, identity, investments, liabilities, assets, webhooks, transfers, and payment initiation. Uses official Plaid API route paths and sends client_id/secret/access_token in JSON bodies.",
   "logo": "https://www.google.com/s2/favicons?domain=plaid.com&sz=128",
   "categories": [
     "finance",
@@ -11,22 +11,44 @@
     "plaid",
     "payments"
   ],
-  "base_url": "https://production.plaid.com",
+  "base_url": "https://{{credential.environment}}.plaid.com",
   "auth": {
     "types": [
-      "bearer"
+      "api_key"
     ],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "body_params": {
+      "client_id": "{{client_id}}",
+      "secret": "{{secret}}"
     },
     "credential_fields": [
       {
-        "name": "token",
-        "label": "API Key"
+        "name": "client_id",
+        "label": "Client ID",
+        "description": "Plaid client_id from the Plaid Dashboard.",
+        "type": "text"
+      },
+      {
+        "name": "secret",
+        "label": "Secret",
+        "description": "Plaid secret for the selected environment.",
+        "type": "password"
+      },
+      {
+        "name": "access_token",
+        "label": "Access Token",
+        "description": "Optional reference Item access_token. Plaid Item tokens are usually passed per tool call because one Plaid developer credential can manage many Items.",
+        "required": false,
+        "type": "password"
       },
       {
         "name": "environment",
-        "label": "Environment"
+        "label": "Environment",
+        "description": "Plaid environment hostname prefix: sandbox, development, or production.",
+        "type": "text"
       }
     ]
   },
@@ -35,7 +57,7 @@
       "name": "create_link_token",
       "description": "Create a Link token to initialize Plaid Link for connecting a user's bank account. Required before launching the Link flow.",
       "method": "POST",
-      "path": "/create-link-token",
+      "path": "/link/token/create",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -96,7 +118,7 @@
       "name": "exchange_public_token",
       "description": "Exchange a public_token from Plaid Link for a persistent access_token to access the user's financial data",
       "method": "POST",
-      "path": "/exchange-public-token",
+      "path": "/item/public_token/exchange",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -114,10 +136,14 @@
       "name": "get_accounts",
       "description": "Get all bank accounts linked to an access token including account names, types, balances, and masks",
       "method": "POST",
-      "path": "/get-accounts",
+      "path": "/accounts/get",
       "input_schema": {
         "type": "object",
         "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Plaid Item access_token returned by exchange_public_token."
+          },
           "account_ids": {
             "type": "array",
             "items": {
@@ -125,17 +151,24 @@
             },
             "description": "Optional list of account_ids to filter"
           }
-        }
+        },
+        "required": [
+          "access_token"
+        ]
       }
     },
     {
       "name": "get_balances",
       "description": "Get real-time account balances for all or specific accounts. Returns current, available, and limit balances.",
       "method": "POST",
-      "path": "/get-balances",
+      "path": "/accounts/balance/get",
       "input_schema": {
         "type": "object",
         "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Plaid Item access_token returned by exchange_public_token."
+          },
           "account_ids": {
             "type": "array",
             "items": {
@@ -143,17 +176,24 @@
             },
             "description": "Optional list of account_ids to filter"
           }
-        }
+        },
+        "required": [
+          "access_token"
+        ]
       }
     },
     {
       "name": "sync_transactions",
       "description": "Get incremental transaction updates using cursor-based sync. Returns added, modified, and removed transactions since last sync.",
       "method": "POST",
-      "path": "/sync-transactions",
+      "path": "/transactions/sync",
       "input_schema": {
         "type": "object",
         "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Plaid Item access_token returned by exchange_public_token."
+          },
           "cursor": {
             "type": "string",
             "description": "Cursor from previous sync response. Omit for initial sync."
@@ -169,17 +209,24 @@
             },
             "description": "Optional account IDs to filter"
           }
-        }
+        },
+        "required": [
+          "access_token"
+        ]
       }
     },
     {
       "name": "get_transactions",
       "description": "Get transactions for a date range. Returns transaction details including amount, date, merchant, category, and location.",
       "method": "POST",
-      "path": "/get-transactions",
+      "path": "/transactions/get",
       "input_schema": {
         "type": "object",
         "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Plaid Item access_token returned by exchange_public_token."
+          },
           "start_date": {
             "type": "string",
             "description": "Start date (YYYY-MM-DD)"
@@ -205,6 +252,7 @@
           }
         },
         "required": [
+          "access_token",
           "start_date",
           "end_date"
         ]
@@ -214,10 +262,14 @@
       "name": "get_recurring_transactions",
       "description": "Get recurring transactions (subscriptions, bills) detected by Plaid with frequency, amount, and merchant info",
       "method": "POST",
-      "path": "/get-recurring-transactions",
+      "path": "/transactions/recurring/get",
       "input_schema": {
         "type": "object",
         "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Plaid Item access_token returned by exchange_public_token."
+          },
           "account_ids": {
             "type": "array",
             "items": {
@@ -225,17 +277,24 @@
             },
             "description": "Optional account IDs to filter"
           }
-        }
+        },
+        "required": [
+          "access_token"
+        ]
       }
     },
     {
       "name": "get_identity",
       "description": "Get identity information (name, email, phone, address) for account holders as reported by the financial institution",
       "method": "POST",
-      "path": "/get-identity",
+      "path": "/identity/get",
       "input_schema": {
         "type": "object",
         "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Plaid Item access_token returned by exchange_public_token."
+          },
           "account_ids": {
             "type": "array",
             "items": {
@@ -243,17 +302,24 @@
             },
             "description": "Optional account IDs to filter"
           }
-        }
+        },
+        "required": [
+          "access_token"
+        ]
       }
     },
     {
       "name": "get_auth",
       "description": "Get bank account and routing numbers for ACH or EFT transfers",
       "method": "POST",
-      "path": "/get-auth",
+      "path": "/auth/get",
       "input_schema": {
         "type": "object",
         "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Plaid Item access_token returned by exchange_public_token."
+          },
           "account_ids": {
             "type": "array",
             "items": {
@@ -261,17 +327,24 @@
             },
             "description": "Optional account IDs to filter"
           }
-        }
+        },
+        "required": [
+          "access_token"
+        ]
       }
     },
     {
       "name": "get_investments_holdings",
       "description": "Get current investment holdings including securities, quantities, cost basis, and current values",
       "method": "POST",
-      "path": "/get-investments-holdings",
+      "path": "/investments/holdings/get",
       "input_schema": {
         "type": "object",
         "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Plaid Item access_token returned by exchange_public_token."
+          },
           "account_ids": {
             "type": "array",
             "items": {
@@ -279,17 +352,24 @@
             },
             "description": "Optional account IDs to filter"
           }
-        }
+        },
+        "required": [
+          "access_token"
+        ]
       }
     },
     {
       "name": "get_investments_transactions",
       "description": "Get investment transactions (buys, sells, dividends, transfers) for a date range",
       "method": "POST",
-      "path": "/get-investments-transactions",
+      "path": "/investments/transactions/get",
       "input_schema": {
         "type": "object",
         "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Plaid Item access_token returned by exchange_public_token."
+          },
           "start_date": {
             "type": "string",
             "description": "Start date (YYYY-MM-DD)"
@@ -315,6 +395,7 @@
           }
         },
         "required": [
+          "access_token",
           "start_date",
           "end_date"
         ]
@@ -324,10 +405,14 @@
       "name": "get_liabilities",
       "description": "Get liability details for credit cards, mortgages, and student loans including balances, interest rates, and payment schedules",
       "method": "POST",
-      "path": "/get-liabilities",
+      "path": "/liabilities/get",
       "input_schema": {
         "type": "object",
         "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Plaid Item access_token returned by exchange_public_token."
+          },
           "account_ids": {
             "type": "array",
             "items": {
@@ -335,43 +420,67 @@
             },
             "description": "Optional account IDs to filter"
           }
-        }
+        },
+        "required": [
+          "access_token"
+        ]
       }
     },
     {
       "name": "get_item",
       "description": "Get information about a connected Item including institution, available products, webhook, and consent expiration",
       "method": "POST",
-      "path": "/get-item",
+      "path": "/item/get",
       "input_schema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Plaid Item access_token returned by exchange_public_token."
+          }
+        },
+        "required": [
+          "access_token"
+        ]
       }
     },
     {
       "name": "remove_item",
       "description": "Remove a connected Item, revoking the access_token and disconnecting the bank",
       "method": "POST",
-      "path": "/remove-item",
+      "path": "/item/remove",
       "input_schema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Plaid Item access_token returned by exchange_public_token."
+          }
+        },
+        "required": [
+          "access_token"
+        ]
       }
     },
     {
       "name": "update_item_webhook",
       "description": "Update the webhook URL for an Item",
       "method": "POST",
-      "path": "/update-item-webhook",
+      "path": "/item/webhook/update",
       "input_schema": {
         "type": "object",
         "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Plaid Item access_token returned by exchange_public_token."
+          },
           "webhook": {
             "type": "string",
             "description": "New webhook URL"
           }
         },
         "required": [
+          "access_token",
           "webhook"
         ]
       }
@@ -380,7 +489,7 @@
       "name": "search_institutions",
       "description": "Search for financial institutions by name or ID, with optional country and product filters",
       "method": "POST",
-      "path": "/search-institutions",
+      "path": "/institutions/search",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -421,7 +530,7 @@
       "name": "get_institution",
       "description": "Get details about a specific financial institution by ID including products, URL, logo, and status",
       "method": "POST",
-      "path": "/get-institution",
+      "path": "/institutions/get_by_id",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -447,7 +556,7 @@
       "name": "get_categories",
       "description": "Get the full list of Plaid transaction categories",
       "method": "POST",
-      "path": "/get-categories",
+      "path": "/categories/get",
       "input_schema": {
         "type": "object",
         "properties": {}
@@ -457,7 +566,7 @@
       "name": "create_payment_recipient",
       "description": "Create a payment recipient for payment initiation (UK/EU). Supports IBAN and BACS.",
       "method": "POST",
-      "path": "/create-payment-recipient",
+      "path": "/payment_initiation/recipient/create",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -512,7 +621,7 @@
       "name": "create_payment",
       "description": "Initiate a payment to a recipient. Creates a payment_id to use with Link for user authorization.",
       "method": "POST",
-      "path": "/create-payment",
+      "path": "/payment_initiation/payment/create",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -554,7 +663,7 @@
       "name": "get_payment",
       "description": "Get the status and details of a payment",
       "method": "POST",
-      "path": "/get-payment",
+      "path": "/payment_initiation/payment/get",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -572,7 +681,7 @@
       "name": "list_payments",
       "description": "List all payments with their statuses",
       "method": "POST",
-      "path": "/list-payments",
+      "path": "/payment_initiation/payment/list",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -591,10 +700,14 @@
       "name": "create_transfer_authorization",
       "description": "Create an authorization for an ACH transfer. Must be authorized before creating the transfer.",
       "method": "POST",
-      "path": "/create-transfer-authorization",
+      "path": "/transfer/authorization/create",
       "input_schema": {
         "type": "object",
         "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Plaid Item access_token returned by exchange_public_token."
+          },
           "account_id": {
             "type": "string",
             "description": "The account_id to transfer from/to"
@@ -639,6 +752,7 @@
           }
         },
         "required": [
+          "access_token",
           "account_id",
           "type",
           "network",
@@ -651,10 +765,14 @@
       "name": "create_transfer",
       "description": "Create an ACH transfer after authorization. Moves money between bank accounts.",
       "method": "POST",
-      "path": "/create-transfer",
+      "path": "/transfer/create",
       "input_schema": {
         "type": "object",
         "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Plaid Item access_token returned by exchange_public_token."
+          },
           "account_id": {
             "type": "string",
             "description": "The account_id"
@@ -669,6 +787,7 @@
           }
         },
         "required": [
+          "access_token",
           "account_id",
           "authorization_id",
           "description"
@@ -679,7 +798,7 @@
       "name": "get_transfer",
       "description": "Get the status and details of a transfer",
       "method": "POST",
-      "path": "/get-transfer",
+      "path": "/transfer/get",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -690,6 +809,130 @@
         },
         "required": [
           "transfer_id"
+        ]
+      }
+    },
+    {
+      "name": "refresh_transactions",
+      "description": "Request an on-demand Plaid transaction refresh for an Item. Plaid will send transaction webhooks if fresh transactions are found; fetch them with sync_transactions or get_transactions.",
+      "method": "POST",
+      "path": "/transactions/refresh",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Plaid Item access_token. Overrides the optional credential access_token when provided."
+          }
+        },
+        "required": [
+          "access_token"
+        ]
+      }
+    },
+    {
+      "name": "invalidate_access_token",
+      "description": "Rotate a Plaid Item access_token. The old token is invalidated and a new access_token is returned.",
+      "method": "POST",
+      "path": "/item/access_token/invalidate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "description": "Current Plaid Item access_token."
+          }
+        },
+        "required": [
+          "access_token"
+        ]
+      }
+    },
+    {
+      "name": "get_webhook_verification_key",
+      "description": "Retrieve a Plaid webhook verification key by key_id from the Plaid-Verification JWT header.",
+      "method": "POST",
+      "path": "/webhook_verification_key/get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "key_id": {
+            "type": "string",
+            "description": "Plaid webhook verification key ID."
+          }
+        },
+        "required": [
+          "key_id"
+        ]
+      }
+    },
+    {
+      "name": "create_asset_report",
+      "description": "Create a Plaid Asset Report for one or more access tokens. Useful for personal finance snapshots, underwriting, and income/asset summaries.",
+      "method": "POST",
+      "path": "/asset_report/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "access_tokens": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Plaid Item access_tokens to include."
+          },
+          "days_requested": {
+            "type": "integer",
+            "description": "Number of days of transaction history to include."
+          },
+          "options": {
+            "type": "object",
+            "description": "Plaid Asset Report options, such as client_report_id, webhook, user, products, account_ids_to_exclude."
+          }
+        },
+        "required": [
+          "access_tokens",
+          "days_requested"
+        ]
+      }
+    },
+    {
+      "name": "get_asset_report",
+      "description": "Get a Plaid Asset Report by asset_report_token.",
+      "method": "POST",
+      "path": "/asset_report/get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_report_token": {
+            "type": "string",
+            "description": "Plaid asset_report_token returned by create_asset_report."
+          },
+          "include_insights": {
+            "type": "boolean",
+            "description": "Whether to include Asset Report Insights when available."
+          }
+        },
+        "required": [
+          "asset_report_token"
+        ]
+      }
+    },
+    {
+      "name": "remove_asset_report",
+      "description": "Remove a Plaid Asset Report.",
+      "method": "POST",
+      "path": "/asset_report/remove",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_report_token": {
+            "type": "string",
+            "description": "Plaid asset_report_token to remove."
+          }
+        },
+        "required": [
+          "asset_report_token"
         ]
       }
     }

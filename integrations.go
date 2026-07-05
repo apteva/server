@@ -328,6 +328,7 @@ type AppAuthConfig struct {
 	BodyParams       map[string]string `json:"body_params,omitempty"`
 	CredentialFields []CredentialField `json:"credential_fields,omitempty"`
 	OAuth2           *OAuthConfig      `json:"oauth2,omitempty"`
+	MTLS             *MutualTLSConfig  `json:"mtls,omitempty"`
 	// AwsSigV4 configures AWS Signature V4 request signing (SES, S3,
 	// anything else that lives behind aws_sigv4). Service is required
 	// when types includes "aws_sigv4" — region comes from the
@@ -347,6 +348,11 @@ type AppAuthConfig struct {
 	// Order matters: body-mutating signers (EIP-712) must run before
 	// header-only signers (HMAC/AWS) that sign over the final body.
 	Signers []SignerSpec `json:"signers,omitempty"`
+}
+
+type MutualTLSConfig struct {
+	CertField string `json:"cert_field,omitempty"`
+	KeyField  string `json:"key_field,omitempty"`
 }
 
 type AwsSigV4Config struct {

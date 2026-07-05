@@ -418,11 +418,16 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
 		req.URL.Path = tail
-		if originalAuth := req.Header.Get("Authorization"); originalAuth != "" {
+		originalAuth := req.Header.Get("Authorization")
+		if originalAuth != "" {
 			req.Header.Set("X-Apteva-Original-Authorization", originalAuth)
 		}
 		if entry.Token != "" {
-			req.Header.Set("Authorization", "Bearer "+entry.Token)
+			if originalAuth != "" && appProxyRouteIsNoAuth(entry, tail, req.Method) {
+				req.Header.Set("X-Apteva-App-Token", entry.Token)
+			} else {
+				req.Header.Set("Authorization", "Bearer "+entry.Token)
+			}
 		}
 		req.Header.Set("X-Apteva-App-Install-ID", fmt.Sprintf("%d", entry.InstallID))
 	}
@@ -432,6 +437,24 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+func appProxyRouteIsNoAuth(entry *InstalledApp, path, method string) bool {
+	if entry == nil {
+		return false
+	}
+	for _, route := range entry.Manifest.Provides.HTTPRoutes {
+		if !route.NoAuth {
+			continue
+		}
+		if route.Method != "" && !strings.EqualFold(route.Method, method) {
+			continue
+		}
+		if appRouteMatches(route.Prefix, path) {
+			return true
+		}
+	}
+	return false
 }
 
 func installIDFromDevAPIKey(apiKey string) int64 {

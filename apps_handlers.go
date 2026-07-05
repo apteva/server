@@ -40,6 +40,9 @@ type AppRow struct {
 	UpgradePolicy    string           `json:"upgrade_policy"`
 	Permissions      []sdk.Permission `json:"permissions"`
 	Surfaces         AppSurfaces      `json:"surfaces"`
+	Deprecated       bool             `json:"deprecated,omitempty"`
+	Deprecation      string           `json:"deprecation,omitempty"`
+	Replacement      string           `json:"replacement,omitempty"`
 	UIPanels         []sdk.UIPanel    `json:"ui_panels,omitempty"`
 	// UIComponents — chat-attachment + sidebar-widget components
 	// declared in the install's manifest. The dashboard reads this
@@ -125,6 +128,9 @@ type RegistryEntry struct {
 	Tags        []string `json:"tags"`
 	Official    bool     `json:"official"`
 	Category    string   `json:"category"`
+	Deprecated  bool     `json:"deprecated,omitempty"`
+	Deprecation string   `json:"deprecation,omitempty"`
+	Replacement string   `json:"replacement,omitempty"`
 }
 
 // Default registry URL used when the operator hasn't overridden it via
@@ -536,6 +542,7 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 				surfaces.UIAppMount = entry.MountPath
 			}
 		}
+		depInfo, isDeprecated := deprecatedApp(name)
 		out = append(out, AppRow{
 			InstallID: installID, AppID: appID, Name: name, DisplayName: manifest.DisplayName,
 			Bindings:          bindings,
@@ -546,6 +553,9 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			ProjectID: projID, Status: status, StatusMessage: statusMsg, ErrorMessage: errMsg,
 			Source: source, UpgradePolicy: upgradePolicy,
 			Permissions: perms, Surfaces: surfaces,
+			Deprecated:   isDeprecated,
+			Deprecation:  depInfo.Message,
+			Replacement:  depInfo.Replacement,
 			UIPanels:     manifest.Provides.UIPanels,
 			UIComponents: manifest.Provides.UIComponents,
 			Publishes:    manifest.Provides.Publishes,
@@ -800,6 +810,20 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	manifest, err := sdk.ParseManifest(yamlBytes)
 	if err != nil {
 		http.Error(w, "invalid manifest: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if info, ok := deprecatedApp(manifest.Name); ok {
+		displayName := manifest.DisplayName
+		if displayName == "" {
+			displayName = manifest.Name
+		}
+		writeJSONStatus(w, http.StatusGone, map[string]any{
+			"error":       fmt.Sprintf("%s is deprecated and can no longer be installed", displayName),
+			"app":         manifest.Name,
+			"deprecated":  true,
+			"deprecation": info.Message,
+			"replacement": info.Replacement,
+		})
 		return
 	}
 	// Scope check: project install must be allowed; global only if scopes include global.
@@ -1665,6 +1689,16 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	var stored sdk.Manifest
 	if err := json.Unmarshal([]byte(manifestJSON), &stored); err != nil {
 		http.Error(w, "manifest parse: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if info, ok := deprecatedApp(stored.Name); ok {
+		writeJSONStatus(w, http.StatusGone, map[string]any{
+			"error":       fmt.Sprintf("%s is deprecated and can no longer be upgraded", stored.Name),
+			"app":         stored.Name,
+			"deprecated":  true,
+			"deprecation": info.Message,
+			"replacement": info.Replacement,
+		})
 		return
 	}
 	approvedPermissions := parsePermissionListJSON(permissionsJSON)

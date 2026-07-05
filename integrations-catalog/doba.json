@@ -1,0 +1,185 @@
+{
+  "slug": "doba",
+  "name": "Doba",
+  "description": "Doba Retailer API for dropshipping product discovery and product-update polling. Doba uses signed retailer API headers with appKey/signType/timestamp/sign.",
+  "logo": "https://www.google.com/s2/favicons?domain=doba.com&sz=128",
+  "categories": ["dropshipping", "ecommerce", "supplier-catalog", "inventory"],
+  "base_url": "https://openapi.doba.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "signers": [
+      {
+        "name": "doba",
+        "params": {
+          "app_key_field": "app_key",
+          "private_key_field": "private_key",
+          "sign_type": "rsa2",
+          "timestamp_unit": "ms"
+        }
+      }
+    ],
+    "credential_fields": [
+      {
+        "name": "app_key",
+        "label": "App Key",
+        "description": "Doba Retailer API app key."
+      },
+      {
+        "name": "private_key",
+        "label": "RSA Private Key",
+        "description": "Doba Retailer API RSA private key used to generate RSA2 request signatures. Paste PEM format if available; raw base64 key material is also accepted."
+      },
+      {
+        "name": "public_key",
+        "label": "Public Key",
+        "description": "Doba public key, if your account shows one. Stored for reference; signed API calls use app key and private key.",
+        "required": false
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "categories_list",
+      "description": "List Doba product categories. Category IDs can be used with spu_list for product discovery.",
+      "method": "GET",
+      "path": "/api/category/doba/list",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "suppliers_list",
+      "description": "List Doba suppliers and supplier information. Supplier IDs can be used with spu_list.",
+      "method": "GET",
+      "path": "/api/supplier/doba/list",
+      "query_params": ["pageNumber", "pageSize"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageNumber": { "type": "integer", "default": 1, "description": "Page number." },
+          "pageSize": { "type": "integer", "default": 20, "description": "Items per page." }
+        }
+      }
+    },
+    {
+      "name": "spu_list",
+      "description": "Search Doba SPUs by supplier, category, keyword, shipping country, price, inventory, listing time, and marketplace restrictions.",
+      "method": "GET",
+      "path": "/api/goods/doba/spu/list",
+      "query_params": [
+        "busiId",
+        "catId",
+        "freeShipping",
+        "keyword",
+        "pageNumber",
+        "pageSize",
+        "shipFrom",
+        "shipTo",
+        "listingTimeAfter",
+        "listingTimeBefore",
+        "maxEstProcessingTime",
+        "minInventory",
+        "maxPrice",
+        "minPrice",
+        "excludeMarketRestrictions",
+        "pickupAvailable"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "busiId": { "type": "string", "description": "Doba supplier ID." },
+          "catId": { "type": "string", "description": "Doba category ID." },
+          "freeShipping": { "type": "boolean", "description": "Return only free-shipping products when true." },
+          "keyword": { "type": "string", "description": "Keyword search." },
+          "pageNumber": { "type": "integer", "default": 1, "description": "Page number." },
+          "pageSize": { "type": "integer", "default": 20, "description": "Products per page. Doba docs describe a maximum of 100." },
+          "shipFrom": { "type": "string", "description": "Origin country code." },
+          "shipTo": { "type": "string", "description": "Destination country code." },
+          "listingTimeAfter": { "type": "string", "description": "Listing time lower bound, e.g. 2020-01-01T12:00:00+08:00." },
+          "listingTimeBefore": { "type": "string", "description": "Listing time upper bound." },
+          "maxEstProcessingTime": { "type": "integer", "description": "Maximum estimated processing time in business days." },
+          "minInventory": { "type": "integer", "description": "Minimum remaining inventory quantity." },
+          "maxPrice": { "type": "number", "description": "Maximum product price in USD." },
+          "minPrice": { "type": "number", "description": "Minimum product price in USD." },
+          "excludeMarketRestrictions": { "type": "string", "description": "Comma-separated marketplaces to exclude, for example Amazon,eBay,Walmart." },
+          "pickupAvailable": { "type": "boolean", "description": "Whether pickup with a prepaid shipping label is supported." }
+        }
+      }
+    },
+    {
+      "name": "spu_detail_get",
+      "description": "Get Doba SPU/product detail. Use SPU IDs from spu_list or spu_ids_query_by_tag.",
+      "method": "GET",
+      "path": "/api/goods/doba/spu/detail",
+      "query_params": ["spuId", "ordBusiId", "shipTo"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "spuId": { "type": "string", "description": "Doba SPU ID." },
+          "ordBusiId": { "type": "string", "description": "Supplier/business ID when required by Doba." },
+          "shipTo": { "type": "string", "description": "Destination country code for availability/market restriction details." }
+        },
+        "required": ["spuId"]
+      }
+    },
+    {
+      "name": "updated_products_query",
+      "description": "Query Doba product update information. Use this for delta polling of product price, inventory, and status changes.",
+      "method": "GET",
+      "path": "/api/goods/doba/updated",
+      "query_params": ["page", "count", "startTime", "endTime", "changeType"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "default": 1, "description": "Page number." },
+          "count": { "type": "integer", "default": 20, "description": "Items per page. Doba documentation describes 20 default and 100 maximum." },
+          "startTime": { "type": "string", "description": "Optional start time for updated products, in the format accepted by Doba." },
+          "endTime": { "type": "string", "description": "Optional end time for updated products, in the format accepted by Doba." },
+          "changeType": { "type": "string", "description": "Optional Doba update/change type filter when enabled for the account." }
+        }
+      }
+    },
+    {
+      "name": "spu_ids_query_by_tag",
+      "description": "Query valid Doba SPU IDs by tag. Use this as a product-discovery entry point for a known Doba tag.",
+      "method": "GET",
+      "path": "/api/inventory/doba/querySpuIdByTag",
+      "query_params": ["tagId", "page", "count"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tagId": { "type": "string", "description": "Doba tag ID." },
+          "page": { "type": "integer", "default": 1, "description": "Page number." },
+          "count": { "type": "integer", "default": 20, "description": "Items per page." }
+        },
+        "required": ["tagId"]
+      }
+    },
+    {
+      "name": "shipping_rate_estimate",
+      "description": "Estimate Doba shipping options and fees for products. Pass Doba's Product Shipping Rate Estimate request as body.",
+      "method": "POST",
+      "path": "/api/shipping/doba/cost/goods",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "object",
+            "description": "Doba shipping estimate body: shipToCountry, optional shipToProvince/city/zip/platformId/shipId, and goods array with itemNo and quantity."
+          }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "prepay_balance_get",
+      "description": "Get Doba prepay balance from the payment-management API.",
+      "method": "GET",
+      "path": "/api/pay/payManage/doba/queryPrepayBalance",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}
