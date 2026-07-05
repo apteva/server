@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -116,5 +117,44 @@ func TestFormEncode_RepeatsArrays(t *testing.T) {
 	// Each array element becomes a repeated key=value pair.
 	if strings.Count(got, "MediaUrl=") != 2 {
 		t.Errorf("expected MediaUrl repeated twice, got %q", got)
+	}
+}
+
+func TestFormEncode_NestedStripeShape(t *testing.T) {
+	encoded := formEncode(map[string]any{
+		"mode":        "payment",
+		"success_url": "https://example.test/success",
+		"line_items": []any{
+			map[string]any{
+				"quantity": float64(1),
+				"price_data": map[string]any{
+					"currency":    "usd",
+					"unit_amount": float64(2000),
+					"product_data": map[string]any{
+						"name": "Starter",
+					},
+				},
+			},
+		},
+		"metadata": map[string]any{
+			"apteva_invoice_id": "123",
+		},
+	})
+	values, err := url.ParseQuery(encoded)
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	assertFormValue := func(key, want string) {
+		t.Helper()
+		if got := values.Get(key); got != want {
+			t.Fatalf("%s=%q, want %q; body=%s", key, got, want, encoded)
+		}
+	}
+	assertFormValue("line_items[0][price_data][currency]", "usd")
+	assertFormValue("line_items[0][price_data][product_data][name]", "Starter")
+	assertFormValue("line_items[0][quantity]", "1")
+	assertFormValue("metadata[apteva_invoice_id]", "123")
+	if values.Get("line_items") != "" {
+		t.Fatalf("line_items encoded as scalar: %s", encoded)
 	}
 }

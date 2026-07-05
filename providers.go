@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -34,6 +35,13 @@ type Provider struct {
 	ProjectID      string    `json:"project_id,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+var codexProviderRefreshLocks sync.Map
+
+func codexProviderRefreshLock(providerID int64) *sync.Mutex {
+	v, _ := codexProviderRefreshLocks.LoadOrStore(providerID, &sync.Mutex{})
+	return v.(*sync.Mutex)
 }
 
 // --- Store methods ---
@@ -315,16 +323,8 @@ func (s *Store) GetAllProviderEnvVars(userID int64, secret []byte, projectID ...
 			continue
 		}
 
-		for k, v := range data {
-			// Only inject UPPER_CASE keys as env vars
-			if isEnvVar(k) {
-				if s, ok := v.(string); ok {
-					envVars[k] = s
-				}
-			}
-		}
 		if stateMap(data, "auth")["provider"] == openAICodexAuthProvider {
-			data, err = s.refreshOpenAICodexProviderEnvState(providerID, secret, data)
+			data, _, err = s.RefreshOpenAICodexProviderState(providerID, 0, secret, 10*time.Minute, false, "provider_env")
 			if err != nil {
 				return nil, fmt.Errorf("OpenAI Codex auth refresh failed: %w. Please sign in again in Settings → Providers", err)
 			}
@@ -333,43 +333,122 @@ func (s *Store) GetAllProviderEnvVars(userID int64, secret []byte, projectID ...
 				envVars["OPENAI_CODEX_PROVIDER_ID"] = fmt.Sprint(providerID)
 			}
 		}
+		for k, v := range data {
+			// Only inject UPPER_CASE keys as env vars
+			if isEnvVar(k) {
+				if s, ok := v.(string); ok {
+					envVars[k] = s
+				}
+			}
+		}
 	}
 	return envVars, nil
 }
 
-func (s *Store) refreshOpenAICodexProviderEnvState(providerID int64, secret []byte, state map[string]any) (map[string]any, error) {
-	exp, ok := expiryFromState(state)
-	if ok && time.Until(exp) > 10*time.Minute {
-		return state, nil
+func (s *Store) RefreshOpenAICodexProviderState(providerID, userID int64, secret []byte, skew time.Duration, force bool, source string) (map[string]any, bool, error) {
+	if skew <= 0 {
+		skew = 10 * time.Minute
 	}
-	refreshToken := stringFromNested(state, "credentials", "refresh_token")
-	if strings.TrimSpace(refreshToken) == "" {
-		if ok && time.Until(exp) <= 10*time.Minute {
-			return nil, fmt.Errorf("access token expires at %s and no refresh_token is stored", exp.Format(time.RFC3339))
+	if strings.TrimSpace(source) == "" {
+		source = "refresh_token"
+	}
+	lock := codexProviderRefreshLock(providerID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	allowForce := force
+	for attempt := 0; attempt < 3; attempt++ {
+		encrypted, err := s.getProviderEncryptedDataForRefresh(providerID, userID)
+		if err != nil {
+			return nil, false, err
 		}
-		return state, nil
+		plaintext, err := Decrypt(secret, encrypted)
+		if err != nil {
+			return nil, false, err
+		}
+		var state map[string]any
+		if err := json.Unmarshal([]byte(plaintext), &state); err != nil {
+			return nil, false, err
+		}
+		if provider := stringFromNested(state, "auth", "provider"); provider != "" && provider != openAICodexAuthProvider {
+			return state, false, nil
+		}
+		if !allowForce && !codexStateNeedsRefresh(state, skew) {
+			return state, false, nil
+		}
+		refreshToken := stringFromNested(state, "credentials", "refresh_token")
+		if strings.TrimSpace(refreshToken) == "" {
+			if exp, ok := expiryFromState(state); ok && time.Until(exp) <= skew {
+				return nil, false, fmt.Errorf("access token expires at %s and no refresh_token is stored", exp.Format(time.RFC3339))
+			}
+			return state, false, nil
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		tokens, err := refreshOpenAICodexTokens(ctx, refreshToken)
+		cancel()
+		if err != nil {
+			return nil, false, err
+		}
+		if nextRefresh, _ := tokens["refresh_token"].(string); strings.TrimSpace(nextRefresh) == "" {
+			tokens["refresh_token"] = refreshToken
+		}
+		next := buildOpenAICodexProviderState(tokens, source)
+		if account := stateMap(state, "account"); len(account) > 0 {
+			next["account"] = account
+		}
+		encryptedNext, err := marshalEncryptProviderState(secret, next)
+		if err != nil {
+			return nil, false, err
+		}
+		updated, err := s.updateProviderEncryptedDataCAS(providerID, userID, encrypted, encryptedNext)
+		if err != nil {
+			return nil, false, err
+		}
+		if updated {
+			return next, true, nil
+		}
+		allowForce = false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	tokens, err := refreshOpenAICodexTokens(ctx, refreshToken)
+	return nil, false, fmt.Errorf("OpenAI Codex provider changed during refresh; retry")
+}
+
+func (s *Store) getProviderEncryptedDataForRefresh(providerID, userID int64) (string, error) {
+	var encrypted string
+	var err error
+	if userID > 0 {
+		err = s.db.QueryRow("SELECT encrypted_data FROM providers WHERE id = ? AND user_id = ?", providerID, userID).Scan(&encrypted)
+	} else {
+		err = s.db.QueryRow("SELECT encrypted_data FROM providers WHERE id = ?", providerID).Scan(&encrypted)
+	}
+	return encrypted, err
+}
+
+func (s *Store) updateProviderEncryptedDataCAS(providerID, userID int64, previousEncrypted, nextEncrypted string) (bool, error) {
+	var res sql.Result
+	var err error
+	if userID > 0 {
+		res, err = s.db.Exec(
+			`UPDATE providers
+			    SET encrypted_data = ?, updated_at = CURRENT_TIMESTAMP
+			  WHERE id = ? AND user_id = ? AND encrypted_data = ?`,
+			nextEncrypted, providerID, userID, previousEncrypted,
+		)
+	} else {
+		res, err = s.db.Exec(
+			`UPDATE providers
+			    SET encrypted_data = ?, updated_at = CURRENT_TIMESTAMP
+			  WHERE id = ? AND encrypted_data = ?`,
+			nextEncrypted, providerID, previousEncrypted,
+		)
+	}
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	if nextRefresh, _ := tokens["refresh_token"].(string); strings.TrimSpace(nextRefresh) == "" {
-		tokens["refresh_token"] = refreshToken
-	}
-	next := buildOpenAICodexProviderState(tokens, "refresh_token")
-	if account := stateMap(state, "account"); len(account) > 0 {
-		next["account"] = account
-	}
-	encrypted, err := marshalEncryptProviderState(secret, next)
+	n, err := res.RowsAffected()
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	if _, err := s.db.Exec("UPDATE providers SET encrypted_data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", encrypted, providerID); err != nil {
-		return nil, err
-	}
-	return next, nil
+	return n > 0, nil
 }
 
 // providerKeyFromName converts a display-pretty provider name into the

@@ -1683,6 +1683,85 @@ func TestExecuteIntegrationTool_ToolHeadersOverrideAppHeaders(t *testing.T) {
 	}
 }
 
+func TestExecuteIntegrationTool_StripeCheckoutSessionFormEncoding(t *testing.T) {
+	var capturedCT string
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedCT = r.Header.Get("Content-Type")
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{"id":"cs_test_123","url":"https://checkout.stripe.com/c/pay/cs_test_123"}`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "stripe",
+		BaseURL: srv.URL,
+		Auth: AppAuthConfig{Headers: map[string]string{
+			"Authorization": "Bearer {{token}}",
+			"Content-Type":  "application/x-www-form-urlencoded",
+		}},
+	}
+	tool := &AppToolDef{
+		Name:   "create_checkout_session",
+		Method: "POST",
+		Path:   "/checkout/sessions",
+	}
+	input := map[string]any{
+		"mode":        "payment",
+		"success_url": "https://example.test/success?session_id={CHECKOUT_SESSION_ID}",
+		"cancel_url":  "https://example.test/cancel",
+		"line_items": []any{
+			map[string]any{
+				"quantity": float64(1),
+				"price_data": map[string]any{
+					"currency":    "usd",
+					"unit_amount": float64(2000),
+					"product_data": map[string]any{
+						"name": "Starter",
+					},
+				},
+			},
+		},
+		"metadata": map[string]any{
+			"apteva_invoice_id": "123",
+		},
+	}
+	res, err := executeIntegrationTool(app, tool, map[string]string{"token": "sk_test_123"}, input, "")
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("success=%v status=%d data=%v", res.Success, res.Status, res.Data)
+	}
+	if capturedCT != "application/x-www-form-urlencoded" {
+		t.Fatalf("Content-Type=%q, want application/x-www-form-urlencoded", capturedCT)
+	}
+	if strings.Contains(string(capturedBody), `"line_items"`) {
+		t.Fatalf("body appears JSON/object-string encoded: %s", capturedBody)
+	}
+	values, err := url.ParseQuery(string(capturedBody))
+	if err != nil {
+		t.Fatalf("ParseQuery: %v body=%s", err, capturedBody)
+	}
+	assertFormValue := func(key, want string) {
+		t.Helper()
+		if got := values.Get(key); got != want {
+			t.Fatalf("%s=%q, want %q; body=%s", key, got, want, capturedBody)
+		}
+	}
+	assertFormValue("mode", "payment")
+	assertFormValue("success_url", "https://example.test/success?session_id={CHECKOUT_SESSION_ID}")
+	assertFormValue("line_items[0][price_data][currency]", "usd")
+	assertFormValue("line_items[0][price_data][product_data][name]", "Starter")
+	assertFormValue("line_items[0][quantity]", "1")
+	assertFormValue("metadata[apteva_invoice_id]", "123")
+	if values.Get("line_items") != "" {
+		t.Fatalf("line_items encoded as scalar: %s", capturedBody)
+	}
+}
+
 func TestExecuteIntegrationTool_NumericPathParamAvoidsScientificNotation(t *testing.T) {
 	var capturedPath string
 	var capturedBody []byte

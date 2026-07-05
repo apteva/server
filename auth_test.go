@@ -671,6 +671,42 @@ func TestFullServer_CookieAuthFlow(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestAuthPreferencesLanguagePersistsIntoMe(t *testing.T) {
+	s := newTestServer(t)
+	user, err := s.store.CreateUser("language@test.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ := json.Marshal(map[string]string{"language": "fr-FR"})
+	req := httptest.NewRequest(http.MethodPut, "/auth/preferences", bytes.NewReader(body))
+	req.Header.Set("X-User-ID", itoa(user.ID))
+	w := httptest.NewRecorder()
+	s.handleAuthPreferences(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("preferences status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	token := "language-session"
+	if err := s.store.CreateSession(token, user.ID, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+	w = httptest.NewRecorder()
+	s.handleMe(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("me status=%d body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["language"] != "fr" {
+		t.Fatalf("language=%v, want fr", resp["language"])
+	}
+}
+
 // Simple cookie jar for testing
 type testCookieJar struct {
 	cookies []*http.Cookie

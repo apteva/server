@@ -1120,19 +1120,78 @@ func resolveTemplate(template string, credentials map[string]string) string {
 // is what Twilio expects for things like Tags / MediaUrl.
 func formEncode(body map[string]any) string {
 	values := url.Values{}
-	for k, v := range body {
-		switch x := v.(type) {
-		case nil:
-			// skip
-		case []any:
-			for _, item := range x {
-				values.Add(k, fmt.Sprintf("%v", item))
-			}
-		default:
-			values.Set(k, fmt.Sprintf("%v", v))
-		}
+	keys := make([]string, 0, len(body))
+	for k := range body {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		appendFormValue(values, k, body[k])
 	}
 	return values.Encode()
+}
+
+func appendFormValue(values url.Values, key string, v any) {
+	switch x := v.(type) {
+	case nil:
+		return
+	case map[string]any:
+		keys := make([]string, 0, len(x))
+		for child := range x {
+			keys = append(keys, child)
+		}
+		sort.Strings(keys)
+		for _, child := range keys {
+			appendFormValue(values, key+"["+child+"]", x[child])
+		}
+	case map[string]string:
+		keys := make([]string, 0, len(x))
+		for child := range x {
+			keys = append(keys, child)
+		}
+		sort.Strings(keys)
+		for _, child := range keys {
+			appendFormValue(values, key+"["+child+"]", x[child])
+		}
+	case []any:
+		if formArrayNeedsIndexes(x) {
+			for i, item := range x {
+				appendFormValue(values, fmt.Sprintf("%s[%d]", key, i), item)
+			}
+			return
+		}
+		for _, item := range x {
+			appendFormValue(values, key, item)
+		}
+	case []string:
+		for _, item := range x {
+			appendFormValue(values, key, item)
+		}
+	case []int:
+		for _, item := range x {
+			appendFormValue(values, key, item)
+		}
+	case []float64:
+		for _, item := range x {
+			appendFormValue(values, key, item)
+		}
+	case []bool:
+		for _, item := range x {
+			appendFormValue(values, key, item)
+		}
+	default:
+		values.Add(key, fmt.Sprintf("%v", v))
+	}
+}
+
+func formArrayNeedsIndexes(items []any) bool {
+	for _, item := range items {
+		switch item.(type) {
+		case map[string]any, map[string]string, []any:
+			return true
+		}
+	}
+	return false
 }
 
 func buildURL(baseURL, path string, input map[string]any) string {

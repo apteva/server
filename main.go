@@ -588,6 +588,7 @@ func main() {
 	apiMux.HandleFunc("/auth/logout", s.handleLogout)
 	apiMux.HandleFunc("/auth/me", s.handleMe)
 	apiMux.HandleFunc("/auth/password", s.authMiddleware(s.handleChangePassword))
+	apiMux.HandleFunc("/auth/preferences", s.authMiddleware(s.handleAuthPreferences))
 	apiMux.HandleFunc("/auth/onboarding/complete", s.authMiddleware(s.handleCompleteOnboarding))
 
 	// User administration. GET / POST are admin-only; DELETE and

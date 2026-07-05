@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -217,6 +219,85 @@ func TestGetAllProviderEnvVars_CodexRefreshSuccessExportsFreshToken(t *testing.T
 	}
 	if envVars["OPENAI_CODEX_PROVIDER_ID"] != fmt.Sprint(provider.ID) {
 		t.Fatalf("OPENAI_CODEX_PROVIDER_ID = %q, want %d", envVars["OPENAI_CODEX_PROVIDER_ID"], provider.ID)
+	}
+}
+
+func TestGetAllProviderEnvVars_CodexRefreshSerializesConcurrentCallers(t *testing.T) {
+	s := newTestServer(t)
+	s.secret = testSecret()
+	state := map[string]any{
+		"auth": map[string]any{
+			"provider": openAICodexAuthProvider,
+		},
+		"credentials": map[string]any{
+			"access_token":  "expired-access-token",
+			"refresh_token": "refresh-token",
+			"expires_at":    time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+	raw, _ := json.Marshal(state)
+	enc, _ := Encrypt(s.secret, string(raw))
+	if _, err := s.store.CreateProvider(1, 15, "llm", "OpenAI Codex", enc); err != nil {
+		t.Fatal(err)
+	}
+	freshToken := testJWTWithExpiry(time.Now().Add(time.Hour))
+	var calls atomic.Int32
+
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		call := calls.Add(1)
+		if r.Form.Get("grant_type") != "refresh_token" || r.Form.Get("refresh_token") != "refresh-token" {
+			http.Error(w, "stale or unexpected refresh token", http.StatusUnauthorized)
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+		if call > 1 {
+			http.Error(w, `{"error":{"code":"refresh_token_reused"}}`, http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  freshToken,
+			"refresh_token": "next-refresh-token",
+		})
+	}))
+	defer tokenServer.Close()
+	oldEndpoint := openAICodexTokenEndpoint
+	openAICodexTokenEndpoint = tokenServer.URL
+	defer func() { openAICodexTokenEndpoint = oldEndpoint }()
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			envVars, err := s.store.GetAllProviderEnvVars(1, s.secret)
+			if err != nil {
+				errs <- err
+				return
+			}
+			if envVars["OPENAI_CODEX_ACCESS_TOKEN"] != freshToken {
+				errs <- fmt.Errorf("OPENAI_CODEX_ACCESS_TOKEN = %q, want fresh token", envVars["OPENAI_CODEX_ACCESS_TOKEN"])
+				return
+			}
+			errs <- nil
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("token endpoint calls = %d, want 1", got)
 	}
 }
 

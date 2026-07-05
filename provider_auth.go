@@ -263,16 +263,27 @@ func (s *Server) handleProviderAuthAction(w http.ResponseWriter, r *http.Request
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
-		defer cancel()
-		refreshed, err := driver.Refresh(ctx, state)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		if err := s.saveProviderAuthState(userID, provider, refreshed); err != nil {
-			http.Error(w, "failed to persist provider auth", http.StatusInternalServerError)
-			return
+		var refreshed map[string]any
+		if authProvider == openAICodexAuthProvider {
+			var err error
+			refreshed, _, err = s.store.RefreshOpenAICodexProviderState(providerID, userID, s.secret, 10*time.Minute, true, "manual_refresh")
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+		} else {
+			ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+			defer cancel()
+			var err error
+			refreshed, err = driver.Refresh(ctx, state)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			if err := s.saveProviderAuthState(userID, provider, refreshed); err != nil {
+				http.Error(w, "failed to persist provider auth", http.StatusInternalServerError)
+				return
+			}
 		}
 		writeJSON(w, driver.Status(refreshed))
 	case "logout":
@@ -310,15 +321,9 @@ func (s *Server) handleProviderAuthAction(w http.ResponseWriter, r *http.Request
 		}
 		force := r.URL.Query().Get("force") == "1"
 		if force || codexStateNeedsRefresh(state, 10*time.Minute) {
-			ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
-			defer cancel()
-			refreshed, err := driver.Refresh(ctx, state)
+			refreshed, _, err := s.store.RefreshOpenAICodexProviderState(providerID, userID, s.secret, 10*time.Minute, force, "runtime_token")
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadGateway)
-				return
-			}
-			if err := s.saveProviderAuthState(userID, provider, refreshed); err != nil {
-				http.Error(w, "failed to persist provider auth", http.StatusInternalServerError)
 				return
 			}
 			state = refreshed
@@ -340,6 +345,9 @@ func (s *Server) handleProviderAuthAction(w http.ResponseWriter, r *http.Request
 }
 
 func codexStateNeedsRefresh(state map[string]any, skew time.Duration) bool {
+	if strings.TrimSpace(stringFromNested(state, "credentials", "access_token")) == "" {
+		return true
+	}
 	exp, ok := expiryFromState(state)
 	if !ok {
 		return false

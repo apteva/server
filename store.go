@@ -930,6 +930,13 @@ func (s *Store) migrate() error {
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
+	s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS user_preferences (
+			user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+			language TEXT NOT NULL DEFAULT '',
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
 
 	// Migrate legacy local mcp_servers rows: the name was written as
 	// conn.AppName (display name with spaces like "OmniKit Storage") but
@@ -1281,6 +1288,25 @@ func (s *Store) MarkUserOnboarded(userID int64) error {
 	_, err := s.db.Exec(
 		"UPDATE users SET onboarded_at = CURRENT_TIMESTAMP WHERE id = ? AND onboarded_at IS NULL",
 		userID,
+	)
+	return err
+}
+
+func (s *Store) GetUserLanguage(userID int64) string {
+	var language string
+	err := s.db.QueryRow("SELECT language FROM user_preferences WHERE user_id = ?", userID).Scan(&language)
+	if err != nil {
+		return ""
+	}
+	return language
+}
+
+func (s *Store) SetUserLanguage(userID int64, language string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO user_preferences (user_id, language, updated_at)
+		 VALUES (?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(user_id) DO UPDATE SET language = excluded.language, updated_at = CURRENT_TIMESTAMP`,
+		userID, language,
 	)
 	return err
 }

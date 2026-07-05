@@ -660,11 +660,52 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"role":       role,
 		"created_at": u.CreatedAt.UTC().Format(time.RFC3339),
 		"onboarded":  u.OnboardedAt != nil,
+		"language":   normalizedDashboardLanguage(s.store.GetUserLanguage(u.ID)),
 	}
 	if u.OnboardedAt != nil {
 		resp["onboarded_at"] = u.OnboardedAt.UTC().Format(time.RFC3339)
 	}
 	writeJSON(w, resp)
+}
+
+func normalizedDashboardLanguage(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "fr", "fr-fr", "fr-ca":
+		return "fr"
+	case "es", "es-es", "es-mx", "es-419":
+		return "es"
+	default:
+		return "en"
+	}
+}
+
+// PUT /auth/preferences — update lightweight user preferences that should
+// follow the account across browsers. Currently only dashboard language.
+func (s *Server) handleAuthPreferences(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "PUT only", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getUserID(r)
+	if userID == 0 {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var body struct {
+		Language string `json:"language"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err != io.EOF {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	language := normalizedDashboardLanguage(body.Language)
+	if err := s.store.SetUserLanguage(userID, language); err != nil {
+		http.Error(w, "failed to save preferences", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"language": language,
+	})
 }
 
 // POST /auth/onboarding/complete — flips users.onboarded_at to now for

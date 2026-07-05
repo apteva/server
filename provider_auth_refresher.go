@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"os"
 	"strings"
@@ -38,7 +37,9 @@ func (s *Server) startProviderAuthRefresher(ctx context.Context) {
 	if s == nil || s.store == nil {
 		return
 	}
+	log.Printf("[PROVIDER-REFRESH] OpenAI Codex refresher enabled interval=%s skew=%s", providerAuthRefreshInterval, codexProviderRefreshSkew)
 	go func() {
+		s.refreshExpiringCodexProviders(ctx, codexProviderRefreshSkew, true)
 		ticker := time.NewTicker(providerAuthRefreshInterval)
 		defer ticker.Stop()
 		for {
@@ -46,9 +47,6 @@ func (s *Server) startProviderAuthRefresher(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if !s.store.RunningAgentsUseCodexProvider() {
-					continue
-				}
 				s.refreshExpiringCodexProviders(ctx, codexProviderRefreshSkew, true)
 			}
 		}
@@ -82,17 +80,10 @@ func (s *Server) refreshExpiringCodexProviderStates(ctx context.Context, skew ti
 		SELECT p.id, p.user_id, COALESCE(p.project_id,''), p.encrypted_data
 		  FROM providers p
 		  JOIN provider_types pt ON pt.id = p.provider_type_id
-		 WHERE (COALESCE(pt.auth_provider,'') = ?
+		 WHERE COALESCE(p.status,'active') = 'active'
+		   AND (COALESCE(pt.auth_provider,'') = ?
 		        OR (p.type = 'llm' AND lower(p.name) = 'openai codex')
 		        OR lower(p.type) = ?)
-		   AND EXISTS (
-		       SELECT 1
-		         FROM agents a
-		        WHERE a.status = 'running'
-		          AND COALESCE(a.kind,'user') = 'user'
-		          AND a.user_id = p.user_id
-		          AND (COALESCE(p.project_id,'') = '' OR COALESCE(p.project_id,'') = COALESCE(a.project_id,''))
-		   )
 	`, openAICodexAuthProvider, openAICodexAuthProvider)
 	if err != nil {
 		log.Printf("[PROVIDER-REFRESH] list OpenAI Codex providers: %v", err)
@@ -137,48 +128,11 @@ func (s *Server) refreshExpiringCodexProviderStates(ctx context.Context, skew ti
 }
 
 func (s *Server) refreshOneCodexProvider(ctx context.Context, providerID int64, encrypted string, skew time.Duration) (bool, error) {
-	plaintext, err := Decrypt(s.secret, encrypted)
-	if err != nil {
-		return false, err
+	_, changed, err := s.store.RefreshOpenAICodexProviderState(providerID, 0, s.secret, skew, false, "server_background_refresh")
+	if changed {
+		log.Printf("[PROVIDER-REFRESH] OpenAI Codex provider=%d refreshed", providerID)
 	}
-	var state map[string]any
-	if err := json.Unmarshal([]byte(plaintext), &state); err != nil {
-		return false, err
-	}
-	if provider := stringFromNested(state, "auth", "provider"); provider != "" && provider != openAICodexAuthProvider {
-		return false, nil
-	}
-	exp, ok := expiryFromState(state)
-	if ok && time.Until(exp) > skew {
-		return false, nil
-	}
-	refreshToken := stringFromNested(state, "credentials", "refresh_token")
-	if strings.TrimSpace(refreshToken) == "" {
-		return false, nil
-	}
-	refreshCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	tokens, err := refreshOpenAICodexTokens(refreshCtx, refreshToken)
-	if err != nil {
-		return false, err
-	}
-	if nextRefresh, _ := tokens["refresh_token"].(string); strings.TrimSpace(nextRefresh) == "" {
-		tokens["refresh_token"] = refreshToken
-	}
-	next := buildOpenAICodexProviderState(tokens, "server_background_refresh")
-	if account := stateMap(state, "account"); len(account) > 0 {
-		next["account"] = account
-	}
-	encryptedNext, err := marshalEncryptProviderState(s.secret, next)
-	if err != nil {
-		return false, err
-	}
-	_, err = s.store.db.Exec(`UPDATE providers SET encrypted_data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, encryptedNext, providerID)
-	if err != nil {
-		return false, err
-	}
-	log.Printf("[PROVIDER-REFRESH] OpenAI Codex provider=%d refreshed", providerID)
-	return true, nil
+	return changed, err
 }
 
 func (s *Server) restartAgentsUsingCodexProviders(refreshed []codexProviderRefresh) int {
