@@ -343,6 +343,14 @@ func main() {
 			dataDir = "data"
 		}
 	}
+	aptevaCfg, aptevaCfgPath, err := loadAptevaConfig(dataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load Apteva config: %v\n", err)
+		os.Exit(1)
+	}
+	if aptevaCfgPath != "" {
+		fmt.Fprintf(os.Stderr, "loaded Apteva config: %s\n", aptevaCfgPath)
+	}
 
 	// If a snapshot was uploaded via /api/platform/restore, the server DB
 	// it shipped sits next to dbPath as <dbPath>.restored with a marker.
@@ -360,6 +368,12 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load encryption key: %v\n", err)
 		os.Exit(1)
+	}
+	if user, err := applyAptevaBootstrap(store, aptevaCfg); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to apply Apteva bootstrap: %v\n", err)
+		os.Exit(1)
+	} else if user != nil {
+		fmt.Fprintf(os.Stderr, "bootstrapped Apteva admin: %s\n", user.Email)
 	}
 
 	// Catalog loading priority (most → least specific):
@@ -450,9 +464,15 @@ func main() {
 	}
 
 	publicURL := os.Getenv("PUBLIC_URL") // e.g. "https://agents.example.com"
+	if publicURL == "" && aptevaCfg != nil {
+		publicURL = aptevaCfg.Server.PublicURL
+	}
 
 	// Determine registration mode.
 	regMode := os.Getenv("APTEVA_REGISTRATION") // "open", "locked", "setup", or empty
+	if regMode == "" && aptevaCfg != nil {
+		regMode = aptevaCfg.Server.Registration
+	}
 	setupToken := os.Getenv("APTEVA_SETUP_TOKEN")
 	if regMode == "" {
 		// Auto-derive: empty DB → setup, otherwise locked.
