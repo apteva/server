@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/apteva/server/apps/framework"
 )
 
 // Smoke-test the channel-chat app end-to-end through HTTP:
@@ -156,6 +158,20 @@ func TestChannelChatApp_EndToEnd(t *testing.T) {
 	if err := ch.Send("agent reply here"); err != nil {
 		t.Fatalf("channel.Send: %v", err)
 	}
+	approvalCh, ok := ch.(framework.ApprovalRequester)
+	if !ok {
+		t.Fatal("channel-chat should implement ApprovalRequester")
+	}
+	approval, err := approvalCh.RequestApproval(framework.ApprovalRequest{
+		Title: "Deploy change",
+		Body:  "Approve deploying the test change.",
+	})
+	if err != nil {
+		t.Fatalf("RequestApproval: %v", err)
+	}
+	if approval.MessageID == 0 || approval.ChatID != chatID || approval.Status != "pending" {
+		t.Fatalf("approval result wrong: %#v", approval)
+	}
 
 	// 6. GET messages now shows the user + agent rows. A system
 	//    "agent unreachable" row from step 4 may also be present;
@@ -170,14 +186,47 @@ func TestChannelChatApp_EndToEnd(t *testing.T) {
 			both = append(both, m)
 		}
 	}
-	if len(both) != 2 {
-		t.Fatalf("expected 2 user/agent messages, got %d (rows=%v)", len(both), allRows)
+	if len(both) < 2 {
+		t.Fatalf("expected at least 2 user/agent messages, got %d (rows=%v)", len(both), allRows)
 	}
 	if both[0]["role"] != "user" || both[1]["role"] != "agent" {
 		t.Fatalf("order wrong: %v", both)
 	}
 	if both[1]["content"] != "agent reply here" {
 		t.Fatalf("agent content wrong: %v", both[1])
+	}
+
+	r = authed("GET", "/apps/channel-chat/approval-messages?project_id="+inst.ProjectID+"&status=pending", "")
+	if r.StatusCode != 200 {
+		body, _ := readAll(r)
+		t.Fatalf("approval list status %d body=%s", r.StatusCode, body)
+	}
+	var approvals []map[string]any
+	json.NewDecoder(r.Body).Decode(&approvals)
+	r.Body.Close()
+	if len(approvals) != 1 || approvals[0]["status"] != "pending" || approvals[0]["title"] != "Deploy change" {
+		t.Fatalf("approval list wrong: %#v", approvals)
+	}
+
+	actionBody := `{"message_id":` + itoa64(approval.MessageID) + `,"action_id":"approve"}`
+	r = authed("POST", "/apps/channel-chat/message-action", actionBody)
+	if r.StatusCode != 200 {
+		body, _ := readAll(r)
+		t.Fatalf("approval action status %d body=%s", r.StatusCode, body)
+	}
+	var actionResp map[string]any
+	json.NewDecoder(r.Body).Decode(&actionResp)
+	r.Body.Close()
+	if actionResp["status"] != "approved" {
+		t.Fatalf("approval action status wrong: %#v", actionResp)
+	}
+
+	r = authed("GET", "/apps/channel-chat/approval-messages?project_id="+inst.ProjectID+"&status=pending", "")
+	var pending []map[string]any
+	json.NewDecoder(r.Body).Decode(&pending)
+	r.Body.Close()
+	if len(pending) != 0 {
+		t.Fatalf("expected no pending approvals after action, got %#v", pending)
 	}
 }
 

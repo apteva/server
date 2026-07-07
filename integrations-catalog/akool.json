@@ -1,0 +1,311 @@
+{
+  "slug": "akool",
+  "name": "AKOOL",
+  "description": "AKOOL OpenAPI for talking avatars, talking photos, streaming avatars, voice/TTS/cloning, and video translation. Generated media URLs are temporary, so agents should save outputs they need to keep.",
+  "logo": "https://www.google.com/s2/favicons?domain=akool.com&sz=128",
+  "categories": ["ai", "video", "avatars", "generation", "translation", "voice"],
+  "base_url": "https://openapi.akool.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "x-api-key": "{{api_key}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "AKOOL API Key",
+        "type": "password",
+        "description": "AKOOL API key. AKOOL also accepts Authorization: Bearer tokens, but this integration uses x-api-key."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_talking_avatars",
+    "input": { "page": 1, "size": 1 }
+  },
+  "tools": [
+    {
+      "name": "list_talking_avatars",
+      "description": "List AKOOL talking/streaming avatars. from=2 returns official avatars, from=3 returns user-uploaded avatars; type=1 talking avatar, type=2 streaming avatar.",
+      "method": "GET",
+      "path": "/api/open/v3/avatar/list",
+      "query_params": ["from", "type", "page", "size"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from": { "type": "integer", "enum": [2, 3] },
+          "type": { "type": "integer", "enum": [1, 2] },
+          "page": { "type": "integer" },
+          "size": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "create_talking_avatar",
+      "description": "Create an AKOOL talking avatar video. Provide canvas width/height, avatar_from, and elements for image/avatar/audio. For audio elements, pass url or input_text + voice_id.",
+      "method": "POST",
+      "path": "/api/open/v3/talkingavatar/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "width": { "type": "integer" },
+          "height": { "type": "integer" },
+          "avatar_from": { "type": "integer", "enum": [2, 3] },
+          "webhookUrl": { "type": "string" },
+          "elements": {
+            "type": "array",
+            "items": { "type": "object" },
+            "description": "Elements with type avatar/image/audio and layout fields such as url, avatar_id, input_text, voice_id, width, height, scale_x, scale_y, offset_x, offset_y."
+          }
+        },
+        "required": ["width", "height", "avatar_from", "elements"]
+      }
+    },
+    {
+      "name": "get_video_info",
+      "description": "Poll AKOOL generated video status/result by video_model_id returned from talking avatar/photo/translation creation.",
+      "method": "GET",
+      "path": "/api/open/v3/content/video/infobymodelid",
+      "query_params": ["video_model_id"],
+      "input_schema": { "type": "object", "properties": { "video_model_id": { "type": "string" } }, "required": ["video_model_id"] }
+    },
+    {
+      "name": "create_talking_photo",
+      "description": "Create an animated talking-photo video from a photo/avatar URL and audio URL.",
+      "method": "POST",
+      "path": "/api/open/v3/content/video/createbytalkingphoto",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image_url": { "type": "string" },
+          "audio_url": { "type": "string" },
+          "webhookUrl": { "type": "string" },
+          "driver_mode": { "type": "string" },
+          "video_config": { "type": "object" }
+        },
+        "required": ["image_url", "audio_url"]
+      }
+    },
+    {
+      "name": "create_video_translation",
+      "description": "Translate a video into one or more languages with AI voices and lip sync.",
+      "method": "POST",
+      "path": "/api/open/v3/content/video/createbytranslate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_url": { "type": "string" },
+          "source_language": { "type": "string", "description": "Use DEFAULT for auto-detect when supported." },
+          "target_language": { "type": "string" },
+          "target_languages": { "type": "array", "items": { "type": "string" } },
+          "voice_id": { "type": "string" },
+          "voice_map": { "type": "object" },
+          "webhookUrl": { "type": "string" },
+          "lip_sync": { "type": "boolean" },
+          "remove_background_music": { "type": "boolean" },
+          "subtitle": { "type": "boolean" }
+        },
+        "required": ["video_url"]
+      }
+    },
+    {
+      "name": "list_languages",
+      "description": "List AKOOL-supported languages for video translation and streaming avatar sessions.",
+      "method": "GET",
+      "path": "/api/open/v3/language/list",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_voices",
+      "description": "List AKOOL voices. type=1/2 selects voice group per AKOOL docs; use returned voice_id for TTS and avatars.",
+      "method": "GET",
+      "path": "/api/open/v4/voice/list",
+      "query_params": ["type", "page", "size", "style", "gender", "name", "language"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string" },
+          "page": { "type": "integer" },
+          "size": { "type": "integer" },
+          "style": { "type": "string" },
+          "gender": { "type": "string" },
+          "name": { "type": "string" },
+          "language": { "type": "string" }
+        },
+        "required": ["type"]
+      }
+    },
+    {
+      "name": "get_voice",
+      "description": "Get voice detail by AKOOL voice document ID.",
+      "method": "GET",
+      "path": "/api/open/v4/voice/detail/{id}",
+      "path_params": ["id"],
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "list_voice_results",
+      "description": "List generated voice resources/results such as TTS and voice clone jobs.",
+      "method": "GET",
+      "path": "/api/open/v4/voice/resource/list",
+      "query_params": ["type", "page", "size"],
+      "input_schema": { "type": "object", "properties": { "type": { "type": "integer" }, "page": { "type": "integer" }, "size": { "type": "integer" } } }
+    },
+    {
+      "name": "get_voice_result",
+      "description": "Get a generated voice resource/result by document ID.",
+      "method": "GET",
+      "path": "/api/open/v4/voice/resource/detail/{id}",
+      "path_params": ["id"],
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "create_tts",
+      "description": "Create AKOOL text-to-speech audio. Use voice_id from list_voices; output resources are temporary.",
+      "method": "POST",
+      "path": "/api/open/v4/voice/tts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input_text": { "type": "string" },
+          "voice_id": { "type": "string" },
+          "voice_options": { "type": "object" },
+          "pitch": { "type": "number" },
+          "webhookUrl": { "type": "string" },
+          "language_code": { "type": "string" },
+          "extra_options": { "type": "object" }
+        },
+        "required": ["input_text", "voice_id"]
+      }
+    },
+    {
+      "name": "clone_voice",
+      "description": "Create an instant voice clone from a public audio URL.",
+      "method": "POST",
+      "path": "/api/open/v4/voice/clone",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source_voice_file": { "type": "string" },
+          "name": { "type": "string" },
+          "voice_options": { "type": "object" },
+          "voice_model_name": { "type": "string" },
+          "webhookUrl": { "type": "string" }
+        },
+        "required": ["source_voice_file"]
+      }
+    },
+    {
+      "name": "change_voice",
+      "description": "Apply AKOOL voice changer to a public audio file URL.",
+      "method": "POST",
+      "path": "/api/open/v4/voice/change",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_id": { "type": "string" },
+          "source_voice_file": { "type": "string" },
+          "voice_options": { "type": "object" },
+          "voice_model_name": { "type": "string" },
+          "webhookUrl": { "type": "string" }
+        },
+        "required": ["voice_id", "source_voice_file"]
+      }
+    },
+    {
+      "name": "delete_voices",
+      "description": "Delete cloned/generated voices by AKOOL voice document IDs.",
+      "method": "POST",
+      "path": "/api/open/v4/voice/del",
+      "input_schema": {
+        "type": "object",
+        "properties": { "_ids": { "type": "array", "items": { "type": "string" } } },
+        "required": ["_ids"]
+      }
+    },
+    {
+      "name": "upload_streaming_avatar",
+      "description": "Create/upload a streaming avatar from a public video URL.",
+      "method": "POST",
+      "path": "/api/open/v3/avatar/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" },
+          "name": { "type": "string" },
+          "webhookUrl": { "type": "string" }
+        },
+        "required": ["url", "name"]
+      }
+    },
+    {
+      "name": "list_streaming_avatars",
+      "description": "List AKOOL streaming avatars.",
+      "method": "GET",
+      "path": "/api/open/v4/liveAvatar/avatar/list",
+      "query_params": ["page", "size"],
+      "input_schema": { "type": "object", "properties": { "page": { "type": "integer" }, "size": { "type": "integer" } } }
+    },
+    {
+      "name": "get_streaming_avatar",
+      "description": "Get streaming avatar details.",
+      "method": "GET",
+      "path": "/api/open/v4/liveAvatar/avatar/detail",
+      "query_params": ["avatar_id"],
+      "input_schema": { "type": "object", "properties": { "avatar_id": { "type": "string" } }, "required": ["avatar_id"] }
+    },
+    {
+      "name": "create_streaming_session",
+      "description": "Create a live/streaming avatar session. Supports Agora, LiveKit, and TRTC stream_type where enabled.",
+      "method": "POST",
+      "path": "/api/open/v4/liveAvatar/session/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "avatar_id": { "type": "string" },
+          "duration": { "type": "integer", "maximum": 3600 },
+          "knowledge_id": { "type": "string" },
+          "voice_id": { "type": "string" },
+          "voice_url": { "type": "string" },
+          "language": { "type": "string" },
+          "mode_type": { "type": "integer", "enum": [1, 2] },
+          "scene_mode": { "type": "string", "enum": ["fast_dialogue"] },
+          "e2e_type": { "type": "string", "enum": ["openai"] },
+          "background_url": { "type": "string" },
+          "voice_params": { "type": "object" },
+          "stream_type": { "type": "string", "enum": ["agora", "livekit", "trtc"] }
+        },
+        "required": ["avatar_id"]
+      }
+    },
+    {
+      "name": "get_streaming_session",
+      "description": "Get streaming avatar session details.",
+      "method": "GET",
+      "path": "/api/open/v4/liveAvatar/session/detail",
+      "query_params": ["session_id"],
+      "input_schema": { "type": "object", "properties": { "session_id": { "type": "string" } }, "required": ["session_id"] }
+    },
+    {
+      "name": "list_streaming_sessions",
+      "description": "List streaming avatar sessions.",
+      "method": "GET",
+      "path": "/api/open/v4/liveAvatar/session/list",
+      "query_params": ["page", "size"],
+      "input_schema": { "type": "object", "properties": { "page": { "type": "integer" }, "size": { "type": "integer" } } }
+    },
+    {
+      "name": "close_streaming_session",
+      "description": "Close an active streaming avatar session.",
+      "method": "POST",
+      "path": "/api/open/v4/liveAvatar/session/close",
+      "input_schema": {
+        "type": "object",
+        "properties": { "session_id": { "type": "string" } },
+        "required": ["session_id"]
+      }
+    }
+  ]
+}

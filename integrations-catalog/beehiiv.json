@@ -1,252 +1,28 @@
 {
   "slug": "beehiiv",
   "name": "beehiiv",
-  "description": "beehiiv newsletter platform integration. Manage publications, subscribers, and posts. Create and send newsletters, manage subscriber lists, and publish content.",
+  "description": "beehiiv API v2 for newsletter publications, subscriptions, posts, segments, custom fields, referrals, and stats.",
   "logo": "https://www.google.com/s2/favicons?domain=beehiiv.com&sz=128",
-  "categories": [
-    "newsletter",
-    "email",
-    "publishing",
-    "subscribers",
-    "content"
-  ],
+  "categories": ["newsletter", "email", "publishing", "subscribers", "growth"],
   "base_url": "https://api.beehiiv.com/v2",
-  "auth": {
-    "types": [
-      "bearer"
-    ],
-    "headers": {
-      "Authorization": "Bearer {{token}}"
-    },
-    "credential_fields": [
-      {
-        "name": "token",
-        "label": "Api Key",
-        "description": "beehiiv API key (generate at app.beehiiv.com/settings/integrations)"
-      }
-    ]
-  },
+  "auth": { "types": ["bearer"], "headers": { "Authorization": "Bearer {{token}}", "Accept": "application/json", "Content-Type": "application/json" }, "credential_fields": [{ "name": "token", "label": "API Key", "description": "beehiiv API key." }] },
+  "health_check": { "tool": "list_publications", "input": {} },
   "tools": [
-    {
-      "name": "list_publications",
-      "description": "Retrieve all publications associated with your beehiiv API key. Returns publication details including IDs, names, and settings.",
-      "method": "GET",
-      "path": "/publications",
-      "input_schema": {
-        "type": "object",
-        "properties": {}
-      }
-    },
-    {
-      "name": "list_subscribers",
-      "description": "List all subscribers for a specific publication. Supports pagination and filtering by email, status, and tier.",
-      "method": "GET",
-      "path": "/publications/{{param.publication_id}}/subscriptions",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "publication_id": {
-            "type": "string",
-            "description": "The ID of the publication (format: pub_xxxxx)."
-          },
-          "email": {
-            "type": "string",
-            "description": "Filter subscribers by email address. Optional."
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "active",
-              "inactive",
-              "validating"
-            ],
-            "description": "Filter subscribers by status. Optional."
-          },
-          "limit": {
-            "type": "number",
-            "description": "Number of results to return per page. Max 100. Optional."
-          },
-          "cursor": {
-            "type": "string",
-            "description": "Pagination cursor from a previous response. Optional."
-          }
-        },
-        "required": [
-          "publication_id"
-        ]
-      }
-    },
-    {
-      "name": "create_subscriber",
-      "description": "Create a new subscriber (subscription) for a publication. Provide the subscriber's email and optional details like UTM parameters and custom fields.",
-      "method": "POST",
-      "path": "/publications/{{param.publication_id}}/subscriptions",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "publication_id": {
-            "type": "string",
-            "description": "The ID of the publication (format: pub_xxxxx)."
-          },
-          "email": {
-            "type": "string",
-            "description": "The email address of the new subscriber."
-          },
-          "reactivate_existing": {
-            "type": "boolean",
-            "description": "If true, reactivate an existing inactive subscription instead of failing. Defaults to false."
-          },
-          "send_welcome_email": {
-            "type": "boolean",
-            "description": "Whether to send the welcome email to the new subscriber. Defaults to false."
-          },
-          "utm_source": {
-            "type": "string",
-            "description": "UTM source for tracking where this subscriber came from."
-          },
-          "utm_medium": {
-            "type": "string",
-            "description": "UTM medium for tracking."
-          },
-          "utm_campaign": {
-            "type": "string",
-            "description": "UTM campaign for tracking."
-          },
-          "referring_site": {
-            "type": "string",
-            "description": "The URL of the site that referred this subscriber."
-          },
-          "custom_fields": {
-            "type": "array",
-            "description": "Array of custom field objects with 'name' and 'value' keys.",
-            "items": {
-              "type": "object",
-              "properties": {
-                "name": {
-                  "type": "string",
-                  "description": "Custom field name."
-                },
-                "value": {
-                  "type": "string",
-                  "description": "Custom field value."
-                }
-              }
-            }
-          }
-        },
-        "required": [
-          "publication_id",
-          "email"
-        ]
-      }
-    },
-    {
-      "name": "get_subscriber",
-      "description": "Retrieve a specific subscriber by their subscription ID. Returns detailed subscriber information including status, subscription date, and custom fields.",
-      "method": "GET",
-      "path": "/publications/{{param.publication_id}}/subscriptions/{{param.subscription_id}}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "publication_id": {
-            "type": "string",
-            "description": "The ID of the publication (format: pub_xxxxx)."
-          },
-          "subscription_id": {
-            "type": "string",
-            "description": "The ID of the subscription/subscriber to retrieve."
-          }
-        },
-        "required": [
-          "publication_id",
-          "subscription_id"
-        ]
-      }
-    },
-    {
-      "name": "list_posts",
-      "description": "List all posts for a specific publication. Returns post details including title, status, publish date, and content metadata. Supports pagination.",
-      "method": "GET",
-      "path": "/publications/{{param.publication_id}}/posts",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "publication_id": {
-            "type": "string",
-            "description": "The ID of the publication (format: pub_xxxxx)."
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "draft",
-              "confirmed",
-              "archived"
-            ],
-            "description": "Filter posts by status. Optional."
-          },
-          "limit": {
-            "type": "number",
-            "description": "Number of results to return per page. Max 100. Optional."
-          },
-          "cursor": {
-            "type": "string",
-            "description": "Pagination cursor from a previous response. Optional."
-          }
-        },
-        "required": [
-          "publication_id"
-        ]
-      }
-    },
-    {
-      "name": "create_post",
-      "description": "Create a new post (newsletter) in a publication. Provide the title and content as raw HTML or structured blocks. Posts can be published immediately, scheduled, or saved as drafts.",
-      "method": "POST",
-      "path": "/publications/{{param.publication_id}}/posts",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "publication_id": {
-            "type": "string",
-            "description": "The ID of the publication (format: pub_xxxxx)."
-          },
-          "title": {
-            "type": "string",
-            "description": "The title of the post."
-          },
-          "subtitle": {
-            "type": "string",
-            "description": "The subtitle/preview text for the post. Optional."
-          },
-          "body_content": {
-            "type": "string",
-            "description": "The content of the post as raw HTML. Either body_content or blocks must be provided."
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "draft",
-              "confirmed"
-            ],
-            "description": "Post status. 'confirmed' publishes immediately (or at scheduled_at time). 'draft' saves as draft. Defaults to 'confirmed'."
-          },
-          "scheduled_at": {
-            "type": "string",
-            "description": "ISO 8601 timestamp for when to publish the post. If not provided and status is 'confirmed', publishes immediately."
-          },
-          "authors": {
-            "type": "array",
-            "description": "Array of author IDs to attribute the post to.",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "required": [
-          "publication_id",
-          "title"
-        ]
-      }
-    }
+    { "name": "list_publications", "description": "List publications available to the API key.", "method": "GET", "path": "/publications", "query_params": ["limit", "page"], "input_schema": { "type": "object", "properties": { "limit": { "type": "integer" }, "page": { "type": "integer" } } } },
+    { "name": "get_publication", "description": "Get one publication.", "method": "GET", "path": "/publications/{publication_id}", "input_schema": { "type": "object", "properties": { "publication_id": { "type": "string" } }, "required": ["publication_id"] } },
+    { "name": "list_subscriptions", "description": "List publication subscriptions/subscribers.", "method": "GET", "path": "/publications/{publication_id}/subscriptions", "query_params": ["email", "status", "tier", "premium_tiers", "limit", "page", "expand"], "input_schema": { "type": "object", "properties": { "publication_id": { "type": "string" }, "email": { "type": "string" }, "status": { "type": "string" }, "tier": { "type": "string" }, "premium_tiers": { "type": "string" }, "limit": { "type": "integer" }, "page": { "type": "integer" }, "expand": { "type": "array", "items": { "type": "string" } } }, "required": ["publication_id"] } },
+    { "name": "create_subscription", "description": "Create a subscription. Supports double opt-in override, custom fields, UTM metadata, referring site, tier, premium tiers, and reactivate/send welcome flags.", "method": "POST", "path": "/publications/{publication_id}/subscriptions", "input_schema": { "type": "object", "properties": { "publication_id": { "type": "string" }, "email": { "type": "string" }, "reactivate_existing": { "type": "boolean" }, "send_welcome_email": { "type": "boolean" }, "utm_source": { "type": "string" }, "utm_medium": { "type": "string" }, "utm_campaign": { "type": "string" }, "referring_site": { "type": "string" }, "custom_fields": { "type": "array", "items": { "type": "object" } }, "double_opt_override": { "type": "string", "enum": ["on", "off", "not_set"] }, "tier": { "type": "string" }, "premium_tiers": { "type": "array", "items": { "type": "string" } } }, "required": ["publication_id", "email"] } },
+    { "name": "get_subscription", "description": "Get one subscription.", "method": "GET", "path": "/publications/{publication_id}/subscriptions/{subscription_id}", "query_params": ["expand"], "input_schema": { "type": "object", "properties": { "publication_id": { "type": "string" }, "subscription_id": { "type": "string" }, "expand": { "type": "array", "items": { "type": "string" } } }, "required": ["publication_id", "subscription_id"] } },
+    { "name": "update_subscription", "description": "Update a subscription.", "method": "PATCH", "path": "/publications/{publication_id}/subscriptions/{subscription_id}", "input_schema": { "type": "object", "properties": { "publication_id": { "type": "string" }, "subscription_id": { "type": "string" }, "email": { "type": "string" }, "status": { "type": "string" }, "custom_fields": { "type": "array", "items": { "type": "object" } }, "tier": { "type": "string" }, "premium_tiers": { "type": "array", "items": { "type": "string" } } }, "required": ["publication_id", "subscription_id"] } },
+    { "name": "delete_subscription", "description": "Delete/unsubscribe a subscription.", "method": "DELETE", "path": "/publications/{publication_id}/subscriptions/{subscription_id}", "input_schema": { "type": "object", "properties": { "publication_id": { "type": "string" }, "subscription_id": { "type": "string" } }, "required": ["publication_id", "subscription_id"] } },
+    { "name": "list_posts", "description": "List publication posts.", "method": "GET", "path": "/publications/{publication_id}/posts", "query_params": ["status", "audience", "platform", "limit", "page", "expand"], "input_schema": { "type": "object", "properties": { "publication_id": { "type": "string" }, "status": { "type": "string" }, "audience": { "type": "string" }, "platform": { "type": "string" }, "limit": { "type": "integer" }, "page": { "type": "integer" }, "expand": { "type": "array", "items": { "type": "string" } } }, "required": ["publication_id"] } },
+    { "name": "get_post", "description": "Get one post.", "method": "GET", "path": "/publications/{publication_id}/posts/{post_id}", "query_params": ["expand"], "input_schema": { "type": "object", "properties": { "publication_id": { "type": "string" }, "post_id": { "type": "string" }, "expand": { "type": "array", "items": { "type": "string" } } }, "required": ["publication_id", "post_id"] } },
+    { "name": "create_post", "description": "Create a beehiiv post. beehiiv marks this endpoint beta and Enterprise-gated in current docs.", "method": "POST", "path": "/publications/{publication_id}/posts", "input_schema": { "type": "object", "properties": { "publication_id": { "type": "string" }, "title": { "type": "string" }, "subtitle": { "type": "string" }, "body_content": { "type": "string" }, "status": { "type": "string" }, "scheduled_at": { "type": "string" }, "authors": { "type": "array", "items": { "type": "string" } }, "audience": { "type": "string" }, "platform": { "type": "string" } }, "required": ["publication_id", "title"] } },
+    { "name": "list_segments", "description": "List publication segments.", "method": "GET", "path": "/publications/{publication_id}/segments", "query_params": ["limit", "page"], "input_schema": { "type": "object", "properties": { "publication_id": { "type": "string" }, "limit": { "type": "integer" }, "page": { "type": "integer" } }, "required": ["publication_id"] } },
+    { "name": "get_segment", "description": "Get one segment.", "method": "GET", "path": "/publications/{publication_id}/segments/{segment_id}", "input_schema": { "type": "object", "properties": { "publication_id": { "type": "string" }, "segment_id": { "type": "string" } }, "required": ["publication_id", "segment_id"] } },
+    { "name": "list_custom_fields", "description": "List publication custom fields.", "method": "GET", "path": "/publications/{publication_id}/custom_fields", "query_params": ["limit", "page"], "input_schema": { "type": "object", "properties": { "publication_id": { "type": "string" }, "limit": { "type": "integer" }, "page": { "type": "integer" } }, "required": ["publication_id"] } },
+    { "name": "create_custom_field", "description": "Create a custom field.", "method": "POST", "path": "/publications/{publication_id}/custom_fields", "input_schema": { "type": "object", "properties": { "publication_id": { "type": "string" }, "kind": { "type": "string" }, "display": { "type": "string" } }, "required": ["publication_id", "kind", "display"] } },
+    { "name": "list_referrals", "description": "List referral data for a publication.", "method": "GET", "path": "/publications/{publication_id}/referrals", "query_params": ["limit", "page"], "input_schema": { "type": "object", "properties": { "publication_id": { "type": "string" }, "limit": { "type": "integer" }, "page": { "type": "integer" } }, "required": ["publication_id"] } },
+    { "name": "get_post_stats", "description": "Get stats for one post.", "method": "GET", "path": "/publications/{publication_id}/posts/{post_id}/stats", "input_schema": { "type": "object", "properties": { "publication_id": { "type": "string" }, "post_id": { "type": "string" } }, "required": ["publication_id", "post_id"] } }
   ]
 }

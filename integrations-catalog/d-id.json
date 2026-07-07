@@ -1,0 +1,606 @@
+{
+  "slug": "d-id",
+  "name": "D-ID",
+  "description": "D-ID API for talking-head videos, expressive avatar videos, clips/presenters, video translation, voices, uploads, credits, and real-time/avatar agent building blocks.",
+  "logo": "https://www.google.com/s2/favicons?domain=d-id.com&sz=128",
+  "categories": [
+    "ai",
+    "video",
+    "avatars",
+    "generation",
+    "translation"
+  ],
+  "base_url": "https://api.d-id.com",
+  "auth": {
+    "types": [
+      "basic"
+    ],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "D-ID API Key",
+        "type": "password",
+        "description": "D-ID API key. The runtime sends it using HTTP Basic auth as api_key with an empty password, matching D-ID API docs."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_credits"
+  },
+  "tools": [
+    {
+      "name": "create_talk",
+      "description": "Create a legacy D-ID talking-head video from source_url plus a text or audio script. Async; poll get_talk or pass webhook.",
+      "method": "POST",
+      "path": "/talks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source_url": {
+            "type": "string"
+          },
+          "script": {
+            "type": "object",
+            "description": "D-ID TextScript3 or AudioScript3 object, e.g. {type:\"text\", input:\"Hello\", provider:{type:\"microsoft\", voice_id:\"en-US-JennyNeural\"}}."
+          },
+          "config": {
+            "type": "object"
+          },
+          "user_data": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "webhook": {
+            "type": "string"
+          },
+          "result_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "script"
+        ]
+      }
+    },
+    {
+      "name": "get_talk",
+      "description": "Get a D-ID talk by ID, including status and result_url when done.",
+      "method": "GET",
+      "path": "/talks/{id}",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_talks",
+      "description": "List D-ID talks. Use limit and token for pagination.",
+      "method": "GET",
+      "path": "/talks",
+      "query_params": [
+        "limit",
+        "token"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_talk",
+      "description": "Delete a D-ID talk by ID.",
+      "method": "DELETE",
+      "path": "/talks/{id}",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "create_expressive_video",
+      "description": "Create a newer D-ID V4 expressive avatar video. Use avatar_id or sentiment_id plus script; poll get_expressive_video.",
+      "method": "POST",
+      "path": "/expressives",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "avatar_id": {
+            "type": "string"
+          },
+          "sentiment_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "script": {
+            "type": "object"
+          },
+          "config": {
+            "type": "object"
+          },
+          "background": {
+            "type": "object"
+          },
+          "user_data": {
+            "type": "string"
+          },
+          "persist": {
+            "type": "boolean"
+          },
+          "result_url": {
+            "type": "string"
+          },
+          "webhook": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "script"
+        ]
+      }
+    },
+    {
+      "name": "get_expressive_video",
+      "description": "Get a V4 expressive video by ID.",
+      "method": "GET",
+      "path": "/expressives/{id}",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_expressive_videos",
+      "description": "List V4 expressive videos.",
+      "method": "GET",
+      "path": "/expressives",
+      "query_params": [
+        "limit",
+        "token"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_expressive_video",
+      "description": "Delete a V4 expressive video by ID.",
+      "method": "DELETE",
+      "path": "/expressives/{id}",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_expressive_avatars",
+      "description": "List V4 expressive avatars available to the account.",
+      "method": "GET",
+      "path": "/expressives/avatars",
+      "query_params": [
+        "limit",
+        "token"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_expressive_avatar",
+      "description": "Get one V4 expressive avatar by ID.",
+      "method": "GET",
+      "path": "/expressives/avatars/{id}",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "create_clip",
+      "description": "Create a D-ID clip using a presenter and driver/script settings. Async; poll get_clip.",
+      "method": "POST",
+      "path": "/clips",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "presenter_id": {
+            "type": "string"
+          },
+          "driver_id": {
+            "type": "string"
+          },
+          "script": {
+            "type": "object"
+          },
+          "config": {
+            "type": "object"
+          },
+          "user_data": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "webhook": {
+            "type": "string"
+          },
+          "result_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "presenter_id",
+          "script"
+        ]
+      }
+    },
+    {
+      "name": "get_clip",
+      "description": "Get a clip by ID.",
+      "method": "GET",
+      "path": "/clips/{id}",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_clips",
+      "description": "List clips.",
+      "method": "GET",
+      "path": "/clips",
+      "query_params": [
+        "limit",
+        "token"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_clip",
+      "description": "Delete a clip by ID.",
+      "method": "DELETE",
+      "path": "/clips/{id}",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_clip_presenter",
+      "description": "Get a specific D-ID clip presenter by ID.",
+      "method": "GET",
+      "path": "/clips/presenters/{id}",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "create_video_translation",
+      "description": "Create a video translation/lip-sync job for a source video URL.",
+      "method": "POST",
+      "path": "/translations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source_url": {
+            "type": "string"
+          },
+          "target_language": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "webhook": {
+            "type": "string"
+          },
+          "result_url": {
+            "type": "string"
+          },
+          "config": {
+            "type": "object"
+          },
+          "transcription": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "source_url",
+          "target_language"
+        ]
+      }
+    },
+    {
+      "name": "get_video_translation",
+      "description": "Get a D-ID video translation by ID.",
+      "method": "GET",
+      "path": "/translations/{id}",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_video_translations",
+      "description": "List video translations. Use groupId, limit, token for filtering/pagination.",
+      "method": "GET",
+      "path": "/translations",
+      "query_params": [
+        "groupId",
+        "limit",
+        "token"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "groupId": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_video_translation",
+      "description": "Delete a video translation by ID.",
+      "method": "DELETE",
+      "path": "/translations/{id}",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_voices",
+      "description": "List D-ID TTS voices, optionally filtered by provider or voice id.",
+      "method": "GET",
+      "path": "/tts/voices",
+      "query_params": [
+        "provider",
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_credits",
+      "description": "Get remaining D-ID credits for the authenticated account.",
+      "method": "GET",
+      "path": "/credits",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_express_avatar",
+      "description": "Create an Express Avatar from a scene/avatar request.",
+      "method": "POST",
+      "path": "/scenes/avatars",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "source_url": {
+            "type": "string"
+          },
+          "image_url": {
+            "type": "string"
+          },
+          "consent": {
+            "type": "object"
+          },
+          "config": {
+            "type": "object"
+          },
+          "webhook": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_scene_avatars",
+      "description": "List scene/Express avatars.",
+      "method": "GET",
+      "path": "/scenes/avatars",
+      "query_params": [
+        "limit",
+        "token"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_scenes",
+      "description": "List D-ID scenes.",
+      "method": "GET",
+      "path": "/scenes",
+      "query_params": [
+        "limit",
+        "token"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ]
+}

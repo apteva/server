@@ -1,0 +1,42 @@
+{
+  "slug": "netelip",
+  "name": "netelip",
+  "description": "netelip API Voice v1 for launching outbound calls and returning call-control commands from API Voice callbacks. netelip's public docs expose a focused token-authenticated voice API rather than broad CRM-style REST resources.",
+  "logo": "https://www.google.com/s2/favicons?domain=netelip.com&sz=128",
+  "categories": ["telephony", "voice", "phone", "communications", "spain"],
+  "base_url": "https://api.netelip.com/v1/voice",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "Accept": "application/json",
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    "body_params": {
+      "token": "{{api_key}}"
+    },
+    "credential_fields": [
+      { "name": "api_key", "label": "API Voice Token", "description": "netelip API Voice security token from the control panel." },
+      { "name": "api_name", "label": "Default API Name", "description": "Optional default API Voice name to use when launching calls.", "required": false, "type": "text" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "launch_call",
+      "description": "Launch an outbound API Voice call. Once answered, netelip calls the configured outbound call-control URL for the selected API Voice application. Call-control commands such as dial, callerid, playback, record, and hangup are returned by your webhook handler, not by a separate REST endpoint.",
+      "method": "POST",
+      "path": "",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api": { "type": "string", "description": "API Voice application name." },
+          "src": { "type": "string", "description": "Caller ID shown to the called party." },
+          "dst": { "type": "string", "description": "Destination phone number or extension." },
+          "duration": { "type": "integer", "description": "Maximum call attempt duration in seconds, 1 to 60." },
+          "typedst": { "type": "string", "enum": ["pstn", "extension"], "description": "Destination type." },
+          "userdata": { "type": "string", "description": "Optional user-defined value returned in callbacks." }
+        },
+        "required": ["api", "src", "dst", "duration", "typedst"]
+      }
+    }
+  ]
+}

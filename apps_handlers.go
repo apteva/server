@@ -916,16 +916,9 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 			body.Bindings[name] = id
 		}
 	}
-	for _, dep := range manifest.Requires.Integrations {
-		raw, present := body.Bindings[dep.Role]
-		isNull := !present || raw == nil
-		if dep.Required && isNull {
-			http.Error(w,
-				fmt.Sprintf("required integration role %q is unbound", dep.Role),
-				http.StatusBadRequest,
-			)
-			return
-		}
+	if err := normalizeManifestIntegrationBindings(manifest, body.Bindings); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 	for _, dep := range manifest.Requires.Apps {
 		if dep.Optional {
@@ -1291,15 +1284,9 @@ func (s *Server) handleSetInstallBindings2(w http.ResponseWriter, r *http.Reques
 	for k, v := range body {
 		merged[k] = v
 	}
-	for _, dep := range manifest.Requires.Integrations {
-		if !dep.Required {
-			continue
-		}
-		raw, present := merged[dep.Role]
-		if !present || raw == nil {
-			http.Error(w, "required role unbound: "+dep.Role, http.StatusBadRequest)
-			return
-		}
+	if err := normalizeManifestIntegrationBindings(manifest, merged); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 	for _, dep := range manifest.Requires.Apps {
 		if dep.Optional {
@@ -1510,10 +1497,14 @@ func (s *Server) buildPreflightRoles(manifest *sdk.Manifest, projectID string, u
 		row := preflightRole{
 			Role:         dep.Role,
 			Kind:         kind,
+			Mode:         dep.Mode,
 			Label:        dep.Label,
 			Required:     dep.Required,
 			Hint:         dep.Hint,
 			Capabilities: dep.Capabilities,
+		}
+		if appBindingIsMultipleForManifest(manifest, dep) {
+			row.Mode = appBindingModeMultiple
 		}
 		if kind == "integration" {
 			compatibleSlugs := dep.CompatibleSlugs
@@ -1626,6 +1617,7 @@ type preflightAppCandidate struct {
 type preflightRole struct {
 	Role             string                          `json:"role"`
 	Kind             string                          `json:"kind"`
+	Mode             string                          `json:"mode,omitempty"`
 	Label            string                          `json:"label,omitempty"`
 	Required         bool                            `json:"required"`
 	Hint             string                          `json:"hint,omitempty"`

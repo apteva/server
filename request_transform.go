@@ -54,7 +54,11 @@ func buildRequestTransformBody(transform *RequestTransformDef, input map[string]
 		}
 		body := map[string]any{}
 		if transform.Target != "" {
-			setBodyPath(body, transform.Target, selected)
+			if transform.AsArray {
+				setBodyPath(body, transform.Target, []any{selected})
+			} else {
+				setBodyPath(body, transform.Target, selected)
+			}
 		} else {
 			for k, v := range selected {
 				body[k] = v

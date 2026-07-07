@@ -210,6 +210,36 @@ func (s *channelMCPServer) toolsList() map[string]any {
 				"description": "List currently connected channels. RARELY NEEDED: the `respond` tool's description already lists the connected channels on every turn (that listing IS authoritative). Call this tool ONLY if you need to introspect channel availability for some out-of-band reason — never as a precondition to calling respond.",
 				"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 			},
+			{
+				"name":        "request_approval",
+				"description": "Create a persistent dashboard approval request for the operator. Use this when you need a human decision before doing something risky, expensive, externally visible, or irreversible. This writes an approval card into chat and the Dashboard inbox even if the user is not connected. Do not block waiting; after calling it, pace or continue other safe work. When the operator chooses a button, you will receive an [approval.result] event.",
+				"_meta": map[string]any{
+					"io.apteva/wakeOnResult": "on_error",
+				},
+				"inputSchema": map[string]any{
+					"type":     "object",
+					"required": []string{"title", "body"},
+					"properties": map[string]any{
+						"channel": map[string]any{"type": "string", "description": "Approval surface. For now use \"chat\" or omit it."},
+						"title":   map[string]any{"type": "string", "description": "Short title shown in the approval card."},
+						"body":    map[string]any{"type": "string", "description": "Clear explanation of what you want approved and why."},
+						"actions": map[string]any{
+							"type":        "array",
+							"description": "Optional button list. Defaults to Approve and Deny.",
+							"items": map[string]any{
+								"type":     "object",
+								"required": []string{"id", "label"},
+								"properties": map[string]any{
+									"id":    map[string]any{"type": "string", "description": "Stable action id, e.g. approve or deny."},
+									"label": map[string]any{"type": "string", "description": "Button label."},
+									"style": map[string]any{"type": "string", "description": "Optional visual style: primary, danger, neutral."},
+								},
+							},
+						},
+						"context": map[string]any{"type": "object", "description": "Optional structured context for yourself when the decision event comes back."},
+					},
+				},
+			},
 		},
 	}
 }
@@ -505,6 +535,33 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		}
 		return textResult("delivered. Continue promised work, schedule with pace if needed, or pace/done if the request is complete."), nil
 
+	case "request_approval":
+		title, _ := call.Arguments["title"].(string)
+		body, _ := call.Arguments["body"].(string)
+		channel, _ := call.Arguments["channel"].(string)
+		if channel == "" {
+			channel = "chat"
+		}
+		ch := s.registry.Get(normalizeChannelID(channel))
+		if ch == nil {
+			return textToolError(fmt.Sprintf("channel %q not found", channel)), nil
+		}
+		requester, ok := ch.(framework.ApprovalRequester)
+		if !ok {
+			return textToolError(fmt.Sprintf("channel %q does not support approval cards", channel)), nil
+		}
+		result, err := requester.RequestApproval(framework.ApprovalRequest{
+			Title:   title,
+			Body:    body,
+			Actions: extractApprovalActions(call.Arguments["actions"]),
+			Context: extractObject(call.Arguments["context"]),
+		})
+		if err != nil {
+			return textToolError(err.Error()), nil
+		}
+		raw, _ := json.Marshal(result)
+		return textResult("approval requested: " + string(raw)), nil
+
 	case "list_channels":
 		var ids []string
 		if s.ic != nil {
@@ -519,6 +576,37 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 	default:
 		return nil, &mcpRPCError{Code: -32602, Message: fmt.Sprintf("unknown tool: %s", call.Name)}
 	}
+}
+
+func extractApprovalActions(raw any) []framework.ApprovalAction {
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]framework.ApprovalAction, 0, len(arr))
+	for _, item := range arr {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, _ := obj["id"].(string)
+		label, _ := obj["label"].(string)
+		style, _ := obj["style"].(string)
+		id = strings.TrimSpace(id)
+		label = strings.TrimSpace(label)
+		if id == "" || label == "" {
+			continue
+		}
+		out = append(out, framework.ApprovalAction{ID: id, Label: label, Style: strings.TrimSpace(style)})
+	}
+	return out
+}
+
+func extractObject(raw any) map[string]any {
+	if obj, ok := raw.(map[string]any); ok {
+		return obj
+	}
+	return nil
 }
 
 // normalizeChannelID strips extra prefix parts that agents include from

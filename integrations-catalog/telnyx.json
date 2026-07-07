@@ -1,321 +1,155 @@
 {
   "slug": "telnyx",
   "name": "Telnyx",
-  "description": "Telnyx Programmable Voice and Numbers API. Place and control calls, start bidirectional media streams over WebSockets, and manage phone numbers for AI voice-agent backends.",
+  "description": "Telnyx Programmable Voice, Conferences, Recordings, Call Control Applications, Queues, and Phone Numbers API. Use it to search and order EU numbers, build IVRs, control live calls, stream media to AI agents, record calls, and add supervisors for monitor/whisper/barge workflows.",
   "logo": "https://www.google.com/s2/favicons?domain=telnyx.com&sz=128",
-  "categories": [
-    "voice",
-    "calls",
-    "telephony",
-    "phone",
-    "communications",
-    "ai"
-  ],
+  "categories": ["voice", "calls", "telephony", "phone", "communications", "numbers", "ai"],
   "base_url": "https://api.telnyx.com/v2",
   "auth": {
-    "types": [
-      "bearer"
-    ],
+    "types": ["bearer"],
     "headers": {
       "Authorization": "Bearer {{token}}",
       "Content-Type": "application/json",
       "Accept": "application/json"
     },
     "credential_fields": [
-      {
-        "name": "token",
-        "label": "API Key",
-        "description": "Telnyx API key with Voice API and Numbers permissions.",
-        "type": "password",
-        "required": true
-      },
-      {
-        "name": "connection_id",
-        "label": "Call Control Connection ID",
-        "description": "Default Telnyx Voice API connection ID used when placing calls.",
-        "required": true
-      },
-      {
-        "name": "phone_number",
-        "label": "Default From Number",
-        "description": "Default Telnyx phone number to call from, in E.164 format."
-      }
+      { "name": "token", "label": "API Key", "description": "Telnyx API key with Voice API and Numbers permissions.", "type": "password", "required": true },
+      { "name": "connection_id", "label": "Default Call Control Application ID", "description": "Optional default Telnyx Call Control Application / connection ID to copy into call tools.", "required": false },
+      { "name": "phone_number", "label": "Default From Number", "description": "Optional default Telnyx phone number to call from, in E.164 format.", "required": false }
     ]
   },
   "health_check": {
     "tool": "list_phone_numbers",
-    "input": {
-      "page[size]": 1
-    }
+    "input": { "page[size]": 1 }
+  },
+  "webhooks": {
+    "signature_header": "telnyx-signature-ed25519",
+    "events": [
+      { "name": "call.initiated", "description": "A call leg was created." },
+      { "name": "call.answered", "description": "A call leg was answered." },
+      { "name": "call.hangup", "description": "A call leg ended." },
+      { "name": "call.bridged", "description": "Two call legs were bridged." },
+      { "name": "call.dtmf.received", "description": "DTMF digits were received on a call." },
+      { "name": "call.gather.ended", "description": "A gather command completed." },
+      { "name": "call.playback.started", "description": "Call audio playback started." },
+      { "name": "call.playback.ended", "description": "Call audio playback ended." },
+      { "name": "call.recording.saved", "description": "A call recording was saved." },
+      { "name": "call.streaming.started", "description": "Media streaming started on a call." },
+      { "name": "call.streaming.stopped", "description": "Media streaming stopped on a call." },
+      { "name": "call.transcription", "description": "A call transcription event was emitted." },
+      { "name": "conference.created", "description": "A conference was created." },
+      { "name": "conference.ended", "description": "A conference ended." },
+      { "name": "conference.participant.joined", "description": "A conference participant joined." },
+      { "name": "conference.participant.left", "description": "A conference participant left." }
+    ]
   },
   "tools": [
     {
-      "name": "make_call",
-      "description": "Place an outbound Telnyx call. For AI voice agents, pass stream_url plus stream_bidirectional_mode=rtp and stream_bidirectional_codec=L16 or PCMU.",
-      "method": "POST",
-      "path": "/calls",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "connection_id": {
-            "type": "string",
-            "description": "Voice API connection ID. Defaults to the connection credential when omitted."
-          },
-          "to": {
-            "type": "string",
-            "description": "Destination phone number in E.164 format."
-          },
-          "from": {
-            "type": "string",
-            "description": "Caller ID phone number in E.164 format."
-          },
-          "stream_url": {
-            "type": "string",
-            "description": "Optional WebSocket URL for Telnyx media streaming."
-          },
-          "stream_track": {
-            "type": "string",
-            "enum": [
-              "inbound_track",
-              "outbound_track",
-              "both_tracks"
-            ],
-            "default": "inbound_track"
-          },
-          "stream_bidirectional_mode": {
-            "type": "string",
-            "enum": [
-              "rtp",
-              "mp3"
-            ],
-            "description": "Set to rtp for low-latency AI audio injected back into the call."
-          },
-          "stream_bidirectional_codec": {
-            "type": "string",
-            "enum": [
-              "PCMU",
-              "PCMA",
-              "G722",
-              "OPUS",
-              "AMR-WB",
-              "L16"
-            ],
-            "description": "Codec for audio sent from the WebSocket back to Telnyx."
-          },
-          "stream_codec": {
-            "type": "string",
-            "enum": [
-              "PCMU",
-              "PCMA",
-              "G722",
-              "OPUS",
-              "AMR-WB",
-              "L16",
-              "default"
-            ],
-            "description": "Codec for audio streamed from Telnyx to the WebSocket."
-          },
-          "timeout_secs": {
-            "type": "integer",
-            "default": 30,
-            "minimum": 5,
-            "maximum": 600
-          },
-          "time_limit_secs": {
-            "type": "integer",
-            "minimum": 30,
-            "maximum": 14400
-          },
-          "client_state": {
-            "type": "string",
-            "description": "Base64-encoded state copied to subsequent Telnyx webhooks."
-          },
-          "command_id": {
-            "type": "string",
-            "description": "Client-provided idempotency key."
-          }
-        },
-        "required": [
-          "to",
-          "from"
-        ]
-      },
-      "mock_response": {
-        "data": {
-          "call_control_id": "v2:mock-call-control-id",
-          "call_leg_id": "mock-call-leg-id",
-          "call_session_id": "mock-call-session-id",
-          "record_type": "call"
-        }
-      }
-    },
-    {
-      "name": "answer_call",
-      "description": "Answer an inbound Telnyx call and optionally start media streaming to a WebSocket.",
-      "method": "POST",
-      "path": "/calls/{call_control_id}/actions/answer",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "call_control_id": {
-            "type": "string"
-          },
-          "stream_url": {
-            "type": "string"
-          },
-          "stream_track": {
-            "type": "string",
-            "enum": [
-              "inbound_track",
-              "outbound_track",
-              "both_tracks"
-            ]
-          },
-          "stream_bidirectional_mode": {
-            "type": "string",
-            "enum": [
-              "rtp",
-              "mp3"
-            ]
-          },
-          "stream_bidirectional_codec": {
-            "type": "string"
-          },
-          "client_state": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "call_control_id"
-        ]
-      }
-    },
-    {
-      "name": "start_streaming",
-      "description": "Start media streaming on an active Telnyx call.",
-      "method": "POST",
-      "path": "/calls/{call_control_id}/actions/streaming_start",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "call_control_id": {
-            "type": "string"
-          },
-          "stream_url": {
-            "type": "string"
-          },
-          "stream_track": {
-            "type": "string",
-            "enum": [
-              "inbound_track",
-              "outbound_track",
-              "both_tracks"
-            ],
-            "default": "inbound_track"
-          },
-          "stream_codec": {
-            "type": "string"
-          },
-          "stream_bidirectional_mode": {
-            "type": "string",
-            "enum": [
-              "rtp",
-              "mp3"
-            ]
-          },
-          "stream_bidirectional_codec": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "call_control_id",
-          "stream_url"
-        ]
-      }
-    },
-    {
-      "name": "stop_streaming",
-      "description": "Stop media streaming on an active Telnyx call.",
-      "method": "POST",
-      "path": "/calls/{call_control_id}/actions/streaming_stop",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "call_control_id": {
-            "type": "string"
-          },
-          "stream_id": {
-            "type": "string",
-            "description": "Optional stream ID to stop."
-          }
-        },
-        "required": [
-          "call_control_id"
-        ]
-      }
-    },
-    {
-      "name": "update_call",
-      "description": "End an active Telnyx call. This is the voice.update carrier action used for hangup.",
-      "method": "POST",
-      "path": "/calls/{call_control_id}/actions/hangup",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "call_control_id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "call_control_id"
-        ]
-      }
-    },
-    {
-      "name": "list_calls",
-      "description": "List Telnyx calls.",
+      "name": "search_available_phone_numbers",
+      "description": "Search Telnyx inventory for numbers that can be ordered. Use filter[country_code]=FR or ES and filter[phone_number_type]=local/national/mobile/toll_free where available.",
       "method": "GET",
-      "path": "/calls",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "filter[call_session_id]": {
-            "type": "string"
-          },
-          "filter[call_leg_id]": {
-            "type": "string"
-          },
-          "page[size]": {
-            "type": "integer"
-          },
-          "page[number]": {
-            "type": "integer"
-          }
-        }
-      }
+      "path": "/available_phone_numbers",
+      "query_params": ["filter[country_code]", "filter[phone_number_type]", "filter[features]", "filter[national_destination_code]", "filter[administrative_area]", "filter[locality]", "filter[rate_center]", "filter[starts_with]", "filter[ends_with]", "filter[contains]", "filter[limit]", "filter[best_effort]", "page[size]"],
+      "input_schema": { "type": "object", "properties": { "filter[country_code]": { "type": "string", "description": "ISO country code, e.g. FR or ES." }, "filter[phone_number_type]": { "type": "string", "enum": ["local", "toll_free", "mobile", "national", "shared_cost", "landline"] }, "filter[features]": { "type": "array", "items": { "type": "string" }, "description": "Features such as voice, sms, mms where supported." }, "filter[national_destination_code]": { "type": "string", "description": "Area/prefix code, e.g. 1 for Paris or 91 for Madrid where supported." }, "filter[administrative_area]": { "type": "string" }, "filter[locality]": { "type": "string" }, "filter[rate_center]": { "type": "string" }, "filter[starts_with]": { "type": "string" }, "filter[ends_with]": { "type": "string" }, "filter[contains]": { "type": "string" }, "filter[limit]": { "type": "integer" }, "filter[best_effort]": { "type": "boolean" }, "page[size]": { "type": "integer" } } }
     },
+    { "name": "list_number_orders", "description": "List number orders.", "method": "GET", "path": "/number_orders", "query_params": ["filter[status]", "filter[created_at][gt]", "filter[created_at][lt]", "filter[customer_reference]", "page[number]", "page[size]"], "input_schema": { "type": "object", "properties": { "filter[status]": { "type": "string" }, "filter[created_at][gt]": { "type": "string" }, "filter[created_at][lt]": { "type": "string" }, "filter[customer_reference]": { "type": "string" }, "page[number]": { "type": "integer" }, "page[size]": { "type": "integer" } } } },
+    { "name": "create_number_order", "description": "Order one or more searched Telnyx phone numbers. Numbers may require regulatory documents before activation.", "method": "POST", "path": "/number_orders", "input_schema": { "type": "object", "properties": { "phone_numbers": { "type": "array", "items": { "type": "object", "properties": { "phone_number": { "type": "string" }, "bundle_id": { "type": "string" }, "requirements_met": { "type": "boolean" } }, "required": ["phone_number"] } }, "connection_id": { "type": "string" }, "messaging_profile_id": { "type": "string" }, "billing_group_id": { "type": "string" }, "customer_reference": { "type": "string" } }, "required": ["phone_numbers"] } },
+    { "name": "get_number_order", "description": "Retrieve a number order.", "method": "GET", "path": "/number_orders/{number_order_id}", "path_params": ["number_order_id"], "input_schema": { "type": "object", "properties": { "number_order_id": { "type": "string" } }, "required": ["number_order_id"] } },
+    { "name": "update_number_order", "description": "Update customer reference or regulatory requirements on a number order.", "method": "PATCH", "path": "/number_orders/{number_order_id}", "path_params": ["number_order_id"], "input_schema": { "type": "object", "properties": { "number_order_id": { "type": "string" }, "regulatory_requirements": { "type": "array", "items": { "type": "object" } }, "customer_reference": { "type": "string" } }, "required": ["number_order_id"] } },
     {
       "name": "list_phone_numbers",
-      "description": "List Telnyx phone numbers.",
+      "description": "List owned Telnyx phone numbers.",
       "method": "GET",
       "path": "/phone_numbers",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "filter[phone_number]": {
-            "type": "string"
-          },
-          "filter[connection_id]": {
-            "type": "string"
-          },
-          "page[size]": {
-            "type": "integer"
-          },
-          "page[number]": {
-            "type": "integer"
-          }
-        }
-      }
-    }
+      "query_params": ["filter[phone_number]", "filter[country_iso_alpha2]", "filter[connection_id]", "filter[messaging_profile_id]", "filter[tag]", "filter[status]", "sort", "page[number]", "page[size]", "handle_messaging_profile_error"],
+      "input_schema": { "type": "object", "properties": { "filter[phone_number]": { "type": "string" }, "filter[country_iso_alpha2]": { "type": "string" }, "filter[connection_id]": { "type": "string" }, "filter[messaging_profile_id]": { "type": "string" }, "filter[tag]": { "type": "string" }, "filter[status]": { "type": "string" }, "sort": { "type": "string" }, "page[number]": { "type": "integer" }, "page[size]": { "type": "integer" }, "handle_messaging_profile_error": { "type": "boolean" } } }
+    },
+    { "name": "slim_list_phone_numbers", "description": "List owned phone numbers with a lighter response.", "method": "GET", "path": "/phone_numbers/slim", "query_params": ["filter[phone_number]", "filter[country_iso_alpha2]", "filter[connection_id]", "filter[tag]", "include_connection", "include_tags", "sort", "page[number]", "page[size]"], "input_schema": { "type": "object", "properties": { "filter[phone_number]": { "type": "string" }, "filter[country_iso_alpha2]": { "type": "string" }, "filter[connection_id]": { "type": "string" }, "filter[tag]": { "type": "string" }, "include_connection": { "type": "boolean" }, "include_tags": { "type": "boolean" }, "sort": { "type": "string" }, "page[number]": { "type": "integer" }, "page[size]": { "type": "integer" } } } },
+    { "name": "get_phone_number", "description": "Retrieve an owned phone number.", "method": "GET", "path": "/phone_numbers/{id}", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] } },
+    { "name": "update_phone_number", "description": "Update number tags, connection, billing group, customer reference, address, HD voice, or external PIN.", "method": "PATCH", "path": "/phone_numbers/{id}", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "tags": { "type": "array", "items": { "type": "string" } }, "external_pin": { "type": "string" }, "hd_voice_enabled": { "type": "boolean" }, "customer_reference": { "type": "string" }, "address_id": { "type": "string" }, "connection_id": { "type": "string" }, "billing_group_id": { "type": "string" } }, "required": ["id"] } },
+    { "name": "delete_phone_number", "description": "Release/delete an owned phone number. Use carefully.", "method": "DELETE", "path": "/phone_numbers/{id}", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] } },
+    { "name": "get_phone_number_voice_settings", "description": "Retrieve voice settings for a phone number.", "method": "GET", "path": "/phone_numbers/{id}/voice", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] } },
+    { "name": "update_phone_number_voice_settings", "description": "Update voice routing/recording/forwarding settings on a phone number.", "method": "PATCH", "path": "/phone_numbers/{id}/voice", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "connection_id": { "type": "string" }, "tech_prefix_enabled": { "type": "boolean" }, "translated_number": { "type": "string" }, "caller_id_name_enabled": { "type": "boolean" }, "call_forwarding": { "type": "object" }, "cnam_listing": { "type": "object" }, "usage_payment_method": { "type": "string", "enum": ["pay-per-minute", "channel"] }, "media_features": { "type": "object" }, "call_recording": { "type": "object" }, "inbound_call_screening": { "type": "string", "enum": ["disabled", "reject_calls", "flag_calls"] } }, "required": ["id"] } },
+    { "name": "get_phone_number_messaging_settings", "description": "Retrieve messaging settings for a phone number.", "method": "GET", "path": "/phone_numbers/{id}/messaging", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] } },
+    { "name": "update_phone_number_messaging_settings", "description": "Update messaging profile/product/tags for a phone number.", "method": "PATCH", "path": "/phone_numbers/{id}/messaging", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "messaging_profile_id": { "type": "string" }, "messaging_product": { "type": "string" }, "tags": { "type": "array", "items": { "type": "string" } } }, "required": ["id"] } },
+    { "name": "list_phone_number_jobs", "description": "List batch phone-number jobs.", "method": "GET", "path": "/phone_numbers/jobs", "query_params": ["filter[type]", "filter[status]", "sort", "page[number]", "page[size]"], "input_schema": { "type": "object", "properties": { "filter[type]": { "type": "string" }, "filter[status]": { "type": "string" }, "sort": { "type": "string" }, "page[number]": { "type": "integer" }, "page[size]": { "type": "integer" } } } },
+    { "name": "get_phone_number_job", "description": "Retrieve a batch phone-number job.", "method": "GET", "path": "/phone_numbers/jobs/{id}", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] } },
+    { "name": "batch_update_phone_numbers", "description": "Create a batch job to update phone numbers.", "method": "POST", "path": "/phone_numbers/jobs/update_phone_numbers", "query_params": ["filter[phone_number]", "filter[tag]", "filter[connection_id]"], "input_schema": { "type": "object", "properties": { "phone_numbers": { "type": "array", "items": { "type": "string" } }, "tags": { "type": "array", "items": { "type": "string" } }, "external_pin": { "type": "string" }, "customer_reference": { "type": "string" }, "connection_id": { "type": "string" }, "billing_group_id": { "type": "string" }, "hd_voice_enabled": { "type": "boolean" }, "deletion_lock_enabled": { "type": "boolean" }, "voice": { "type": "object" }, "filter[phone_number]": { "type": "string" }, "filter[tag]": { "type": "string" }, "filter[connection_id]": { "type": "string" } }, "required": ["phone_numbers"] } },
+    { "name": "batch_delete_phone_numbers", "description": "Create a batch job to delete/release phone numbers.", "method": "POST", "path": "/phone_numbers/jobs/delete_phone_numbers", "input_schema": { "type": "object", "properties": { "phone_numbers": { "type": "array", "items": { "type": "string" } } }, "required": ["phone_numbers"] } },
+
+    { "name": "list_call_control_applications", "description": "List Call Control Applications. These are the Voice API connections that hold webhook_event_url and call routing settings.", "method": "GET", "path": "/call_control_applications", "query_params": ["filter[application_name][contains]", "filter[outbound.outbound_voice_profile_id]", "sort", "page[number]", "page[size]"], "input_schema": { "type": "object", "properties": { "filter[application_name][contains]": { "type": "string" }, "filter[outbound.outbound_voice_profile_id]": { "type": "string" }, "sort": { "type": "string" }, "page[number]": { "type": "integer" }, "page[size]": { "type": "integer" } } } },
+    { "name": "create_call_control_application", "description": "Create a Call Control Application and set the webhook_event_url where Telnyx sends call events.", "method": "POST", "path": "/call_control_applications", "input_schema": { "type": "object", "properties": { "application_name": { "type": "string" }, "webhook_event_url": { "type": "string" }, "active": { "type": "boolean" }, "anchorsite_override": { "type": "string" }, "dtmf_type": { "type": "string", "enum": ["RFC 2833", "Inband", "SIP INFO"] }, "first_command_timeout": { "type": "boolean" }, "first_command_timeout_secs": { "type": "integer" }, "inbound": { "type": "object" }, "outbound": { "type": "object" }, "webhook_api_version": { "type": "string", "enum": ["1", "2"] }, "webhook_event_failover_url": { "type": "string" }, "webhook_timeout_secs": { "type": "integer" }, "call_cost_in_webhooks": { "type": "boolean" }, "redact_dtmf_debug_logging": { "type": "boolean" } }, "required": ["application_name", "webhook_event_url"] } },
+    { "name": "get_call_control_application", "description": "Retrieve a Call Control Application.", "method": "GET", "path": "/call_control_applications/{id}", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] } },
+    { "name": "update_call_control_application", "description": "Update a Call Control Application, including webhook_event_url and routing settings.", "method": "PATCH", "path": "/call_control_applications/{id}", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "application_name": { "type": "string" }, "webhook_event_url": { "type": "string" }, "active": { "type": "boolean" }, "anchorsite_override": { "type": "string" }, "dtmf_type": { "type": "string", "enum": ["RFC 2833", "Inband", "SIP INFO"] }, "first_command_timeout": { "type": "boolean" }, "first_command_timeout_secs": { "type": "integer" }, "tags": { "type": "array", "items": { "type": "string" } }, "inbound": { "type": "object" }, "outbound": { "type": "object" }, "webhook_api_version": { "type": "string", "enum": ["1", "2"] }, "webhook_event_failover_url": { "type": "string" }, "webhook_timeout_secs": { "type": "integer" }, "call_cost_in_webhooks": { "type": "boolean" }, "redact_dtmf_debug_logging": { "type": "boolean" } }, "required": ["id"] } },
+    { "name": "delete_call_control_application", "description": "Delete a Call Control Application.", "method": "DELETE", "path": "/call_control_applications/{id}", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] } },
+    { "name": "list_connection_active_calls", "description": "List active calls for a Call Control Application/connection.", "method": "GET", "path": "/connections/{connection_id}/active_calls", "path_params": ["connection_id"], "query_params": ["page[number]", "page[size]"], "input_schema": { "type": "object", "properties": { "connection_id": { "type": "string" }, "page[number]": { "type": "integer" }, "page[size]": { "type": "integer" } }, "required": ["connection_id"] } },
+
+    {
+      "name": "dial_call",
+      "description": "Place an outbound Telnyx call. For live listening, set supervise_call_control_id to the active call leg and supervisor_role to monitor, whisper, or barge.",
+      "method": "POST",
+      "path": "/calls",
+      "input_schema": { "type": "object", "properties": { "connection_id": { "type": "string" }, "to": { "type": ["string", "array"], "items": { "type": "string" } }, "from": { "type": "string" }, "from_display_name": { "type": "string" }, "privacy": { "type": "string", "enum": ["id", "none"] }, "audio_url": { "type": "string" }, "send_digits_on_answer": { "type": "string" }, "timeout_secs": { "type": "integer" }, "time_limit_secs": { "type": "integer" }, "client_state": { "type": "string" }, "command_id": { "type": "string" }, "link_to": { "type": "string" }, "bridge_intent": { "type": "boolean" }, "bridge_on_answer": { "type": "boolean" }, "record": { "type": "string", "enum": ["record-from-answer"] }, "record_channels": { "type": "string", "enum": ["single", "dual"] }, "record_format": { "type": "string", "enum": ["wav", "mp3"] }, "record_track": { "type": "string", "enum": ["both", "inbound", "outbound"] }, "stream_url": { "type": "string" }, "stream_track": { "type": "string", "enum": ["inbound_track", "outbound_track", "both_tracks"] }, "stream_codec": { "type": "string", "enum": ["PCMU", "PCMA", "G722", "OPUS", "AMR-WB", "L16", "default"] }, "stream_bidirectional_mode": { "type": "string", "enum": ["mp3", "rtp"] }, "stream_bidirectional_codec": { "type": "string", "enum": ["PCMU", "PCMA", "G722", "OPUS", "AMR-WB", "L16"] }, "stream_bidirectional_target_legs": { "type": "string", "enum": ["both", "self", "opposite"] }, "webhook_url": { "type": "string" }, "webhook_url_method": { "type": "string", "enum": ["POST", "GET"] }, "supervise_call_control_id": { "type": "string" }, "supervisor_role": { "type": "string", "enum": ["barge", "whisper", "monitor"] }, "transcription": { "type": "boolean" }, "transcription_config": { "type": "object" }, "answering_machine_detection": { "type": "string", "enum": ["premium", "detect", "detect_beep", "detect_words", "greeting_end", "disabled"] }, "sip_region": { "type": "string", "enum": ["US", "Europe", "Canada", "Australia", "Middle East"] } }, "required": ["connection_id", "to", "from"] }
+    },
+    { "name": "make_call", "description": "Backward-compatible alias for dial_call. Prefer dial_call in new agents.", "method": "POST", "path": "/calls", "input_schema": { "type": "object", "properties": { "connection_id": { "type": "string" }, "to": { "type": ["string", "array"], "items": { "type": "string" } }, "from": { "type": "string" }, "stream_url": { "type": "string" }, "stream_track": { "type": "string", "enum": ["inbound_track", "outbound_track", "both_tracks"] }, "stream_bidirectional_mode": { "type": "string", "enum": ["mp3", "rtp"] }, "stream_bidirectional_codec": { "type": "string", "enum": ["PCMU", "PCMA", "G722", "OPUS", "AMR-WB", "L16"] }, "timeout_secs": { "type": "integer" }, "time_limit_secs": { "type": "integer" }, "client_state": { "type": "string" }, "command_id": { "type": "string" }, "supervise_call_control_id": { "type": "string" }, "supervisor_role": { "type": "string", "enum": ["barge", "whisper", "monitor"] } }, "required": ["connection_id", "to", "from"] } },
+    { "name": "get_call_status", "description": "Retrieve current status for an active/recent call by call_control_id.", "method": "GET", "path": "/calls/{call_control_id}", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" } }, "required": ["call_control_id"] } },
+    { "name": "answer_call", "description": "Answer an inbound call. Can start recording, transcription, and WebSocket media streaming immediately.", "method": "POST", "path": "/calls/{call_control_id}/actions/answer", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" }, "stream_url": { "type": "string" }, "stream_track": { "type": "string", "enum": ["inbound_track", "outbound_track", "both_tracks"] }, "stream_codec": { "type": "string" }, "stream_bidirectional_mode": { "type": "string", "enum": ["mp3", "rtp"] }, "stream_bidirectional_codec": { "type": "string" }, "stream_bidirectional_target_legs": { "type": "string", "enum": ["both", "self", "opposite"] }, "record": { "type": "string", "enum": ["record-from-answer"] }, "record_channels": { "type": "string", "enum": ["single", "dual"] }, "record_format": { "type": "string", "enum": ["wav", "mp3"] }, "record_track": { "type": "string", "enum": ["both", "inbound", "outbound"] }, "transcription": { "type": "boolean" }, "transcription_config": { "type": "object" }, "webhook_url": { "type": "string" }, "webhook_url_method": { "type": "string", "enum": ["POST", "GET"] } }, "required": ["call_control_id"] } },
+    { "name": "bridge_call", "description": "Bridge a source call leg to a target call_control_id.", "method": "POST", "path": "/calls/{source_call_control_id}/actions/bridge", "path_params": ["source_call_control_id"], "input_schema": { "type": "object", "properties": { "source_call_control_id": { "type": "string", "description": "Call leg to control; used in the URL path." }, "call_control_id": { "type": "string", "description": "Target call leg to bridge to; sent in the JSON body as Telnyx expects." }, "client_state": { "type": "string" }, "command_id": { "type": "string" }, "mute_dtmf": { "type": "string", "enum": ["none", "both", "self", "opposite"] }, "park_after_unbridge": { "type": "string" } }, "required": ["source_call_control_id", "call_control_id"] } },
+    { "name": "update_call_client_state", "description": "Update client_state copied into later call webhooks.", "method": "PUT", "path": "/calls/{call_control_id}/actions/client_state_update", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id", "client_state"] } },
+    { "name": "enqueue_call", "description": "Put a call into a Telnyx queue.", "method": "POST", "path": "/calls/{call_control_id}/actions/enqueue", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "queue_name": { "type": "string" }, "max_size": { "type": "integer" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id", "queue_name"] } },
+    { "name": "leave_queue", "description": "Remove the call from its queue using the call action.", "method": "POST", "path": "/calls/{call_control_id}/actions/leave_queue", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id"] } },
+    { "name": "gather_call", "description": "Gather DTMF or speech input on a call using Telnyx gather.", "method": "POST", "path": "/calls/{call_control_id}/actions/gather", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "minimum_digits": { "type": "integer" }, "maximum_digits": { "type": "integer" }, "timeout_millis": { "type": "integer" }, "inter_digit_timeout_millis": { "type": "integer" }, "terminating_digit": { "type": "string" }, "valid_digits": { "type": "string" }, "gather_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id"] } },
+    { "name": "gather_using_speak", "description": "Speak text/SSML to the call and gather keypad/speech input for IVR menus.", "method": "POST", "path": "/calls/{call_control_id}/actions/gather_using_speak", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "payload": { "type": "string" }, "payload_type": { "type": "string", "enum": ["text", "ssml"] }, "voice": { "type": "string" }, "language": { "type": "string" }, "minimum_digits": { "type": "integer" }, "maximum_digits": { "type": "integer" }, "timeout_millis": { "type": "integer" }, "inter_digit_timeout_millis": { "type": "integer" }, "terminating_digit": { "type": "string" }, "valid_digits": { "type": "string" }, "gather_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id", "payload", "voice"] } },
+    { "name": "gather_using_audio", "description": "Play an audio URL and gather keypad/speech input for IVR menus.", "method": "POST", "path": "/calls/{call_control_id}/actions/gather_using_audio", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "audio_url": { "type": "string" }, "minimum_digits": { "type": "integer" }, "maximum_digits": { "type": "integer" }, "timeout_millis": { "type": "integer" }, "inter_digit_timeout_millis": { "type": "integer" }, "terminating_digit": { "type": "string" }, "valid_digits": { "type": "string" }, "gather_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id", "audio_url"] } },
+    { "name": "stop_gather", "description": "Stop an active gather.", "method": "POST", "path": "/calls/{call_control_id}/actions/gather_stop", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" }, "gather_id": { "type": "string" } }, "required": ["call_control_id"] } },
+    { "name": "play_audio", "description": "Play an MP3/WAV URL to a call leg.", "method": "POST", "path": "/calls/{call_control_id}/actions/playback_start", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "audio_url": { "type": "string" }, "media_name": { "type": "string" }, "loop": { "type": ["string", "integer"] }, "target_legs": { "type": "string", "enum": ["self", "opposite", "both"] }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id"] } },
+    { "name": "stop_audio", "description": "Stop current/all audio playback on a call.", "method": "POST", "path": "/calls/{call_control_id}/actions/playback_stop", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "stop": { "type": "string", "enum": ["current", "all"] }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id"] } },
+    { "name": "speak_text", "description": "Use Telnyx TTS to speak text or SSML on a call.", "method": "POST", "path": "/calls/{call_control_id}/actions/speak", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "payload": { "type": "string" }, "payload_type": { "type": "string", "enum": ["text", "ssml"] }, "voice": { "type": "string" }, "language": { "type": "string" }, "service_level": { "type": "string", "enum": ["basic", "premium"] }, "stop": { "type": "string" }, "loop": { "type": ["string", "integer"] }, "target_legs": { "type": "string", "enum": ["self", "opposite", "both"] }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id", "payload", "voice"] } },
+    { "name": "send_dtmf", "description": "Send DTMF digits on a call.", "method": "POST", "path": "/calls/{call_control_id}/actions/send_dtmf", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "digits": { "type": "string" }, "duration_millis": { "type": "integer" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id", "digits"] } },
+    { "name": "start_call_recording", "description": "Start recording an active call.", "method": "POST", "path": "/calls/{call_control_id}/actions/record_start", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "format": { "type": "string", "enum": ["wav", "mp3"] }, "channels": { "type": "string", "enum": ["single", "dual"] }, "recording_track": { "type": "string", "enum": ["both", "inbound", "outbound"] }, "play_beep": { "type": "boolean" }, "max_length": { "type": "integer" }, "timeout_secs": { "type": "integer" }, "trim": { "type": "string", "enum": ["trim-silence"] }, "custom_file_name": { "type": "string" }, "transcription": { "type": "boolean" }, "transcription_engine": { "type": "string" }, "transcription_language": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id", "format"] } },
+    { "name": "stop_call_recording", "description": "Stop a call recording.", "method": "POST", "path": "/calls/{call_control_id}/actions/record_stop", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "recording_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id"] } },
+    { "name": "pause_call_recording", "description": "Pause a call recording.", "method": "POST", "path": "/calls/{call_control_id}/actions/record_pause", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "recording_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id"] } },
+    { "name": "resume_call_recording", "description": "Resume a paused call recording.", "method": "POST", "path": "/calls/{call_control_id}/actions/record_resume", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "recording_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id"] } },
+    { "name": "start_streaming", "description": "Start WebSocket media streaming on an active call, including bidirectional RTP/MP3 modes for AI agents.", "method": "POST", "path": "/calls/{call_control_id}/actions/streaming_start", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "stream_url": { "type": "string" }, "stream_track": { "type": "string", "enum": ["inbound_track", "outbound_track", "both_tracks"] }, "stream_codec": { "type": "string", "enum": ["PCMU", "PCMA", "G722", "OPUS", "AMR-WB", "L16", "default"] }, "stream_bidirectional_mode": { "type": "string", "enum": ["mp3", "rtp"] }, "stream_bidirectional_codec": { "type": "string", "enum": ["PCMU", "PCMA", "G722", "OPUS", "AMR-WB", "L16"] }, "stream_bidirectional_target_legs": { "type": "string", "enum": ["both", "self", "opposite"] }, "stream_bidirectional_sampling_rate": { "type": "integer", "enum": [8000, 16000, 22050, 24000, 48000] }, "custom_parameters": { "type": "array", "items": { "type": "object" } }, "stream_auth_token": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id", "stream_url"] } },
+    { "name": "stop_streaming", "description": "Stop one or all active media streams on a call.", "method": "POST", "path": "/calls/{call_control_id}/actions/streaming_stop", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "stream_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id"] } },
+    { "name": "start_transcription", "description": "Start live call transcription.", "method": "POST", "path": "/calls/{call_control_id}/actions/transcription_start", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "transcription_engine": { "type": "string" }, "language": { "type": "string" }, "interim_results": { "type": "boolean" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id"] } },
+    { "name": "stop_transcription", "description": "Stop live call transcription.", "method": "POST", "path": "/calls/{call_control_id}/actions/transcription_stop", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id"] } },
+    { "name": "transfer_call", "description": "Transfer an active call to another phone number or SIP URI.", "method": "POST", "path": "/calls/{call_control_id}/actions/transfer", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "to": { "type": "string" }, "from": { "type": "string" }, "from_display_name": { "type": "string" }, "audio_url": { "type": "string" }, "send_digits_on_answer": { "type": "string" }, "timeout_secs": { "type": "integer" }, "time_limit_secs": { "type": "integer" }, "record": { "type": "string", "enum": ["record-from-answer"] }, "record_channels": { "type": "string", "enum": ["single", "dual"] }, "record_format": { "type": "string", "enum": ["wav", "mp3"] }, "client_state": { "type": "string" }, "target_leg_client_state": { "type": "string" }, "command_id": { "type": "string" }, "webhook_url": { "type": "string" }, "webhook_url_method": { "type": "string", "enum": ["POST", "GET"] } }, "required": ["call_control_id", "to"] } },
+    { "name": "switch_supervisor_role", "description": "Change a supervisor call between monitor, whisper, and barge roles.", "method": "POST", "path": "/calls/{call_control_id}/actions/switch_supervisor_role", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "role": { "type": "string", "enum": ["barge", "whisper", "monitor"] }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id", "role"] } },
+    { "name": "reject_call", "description": "Reject an inbound ringing call.", "method": "POST", "path": "/calls/{call_control_id}/actions/reject", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "cause": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id"] } },
+    { "name": "hangup_call", "description": "Hang up an active call.", "method": "POST", "path": "/calls/{call_control_id}/actions/hangup", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id"] } },
+    { "name": "update_call", "description": "Backward-compatible alias for hangup_call. Prefer hangup_call in new agents.", "method": "POST", "path": "/calls/{call_control_id}/actions/hangup", "path_params": ["call_control_id"], "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["call_control_id"] } },
+
+    { "name": "list_conferences", "description": "List Telnyx conferences.", "method": "GET", "path": "/conferences", "query_params": ["filter[name]", "filter[status]", "filter[created_at][gt]", "filter[created_at][lt]", "page[number]", "page[size]", "region"], "input_schema": { "type": "object", "properties": { "filter[name]": { "type": "string" }, "filter[status]": { "type": "string" }, "filter[created_at][gt]": { "type": "string" }, "filter[created_at][lt]": { "type": "string" }, "page[number]": { "type": "integer" }, "page[size]": { "type": "integer" }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } } } },
+    { "name": "create_conference", "description": "Create a conference from an existing call. Conferences enable monitor/whisper/barge supervisor flows.", "method": "POST", "path": "/conferences", "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "name": { "type": "string" }, "beep_enabled": { "type": "string", "enum": ["always", "never", "on_enter", "on_exit"] }, "client_state": { "type": "string" }, "comfort_noise": { "type": "boolean" }, "command_id": { "type": "string" }, "duration_minutes": { "type": "integer" }, "hold_audio_url": { "type": "string" }, "max_participants": { "type": "integer" }, "start_conference_on_create": { "type": "boolean" }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } }, "required": ["call_control_id", "name"] } },
+    { "name": "get_conference", "description": "Retrieve a conference.", "method": "GET", "path": "/conferences/{id}", "path_params": ["id"], "query_params": ["region"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } }, "required": ["id"] } },
+    { "name": "list_conference_participants", "description": "List participants in a conference.", "method": "GET", "path": "/conferences/{conference_id}/participants", "path_params": ["conference_id"], "query_params": ["filter[call_control_id]", "filter[muted]", "filter[on_hold]", "page[number]", "page[size]", "region"], "input_schema": { "type": "object", "properties": { "conference_id": { "type": "string" }, "filter[call_control_id]": { "type": "string" }, "filter[muted]": { "type": "boolean" }, "filter[on_hold]": { "type": "boolean" }, "page[number]": { "type": "integer" }, "page[size]": { "type": "integer" }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } }, "required": ["conference_id"] } },
+    { "name": "get_conference_participant", "description": "Retrieve a conference participant.", "method": "GET", "path": "/conferences/{id}/participants/{participant_id}", "path_params": ["id", "participant_id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "participant_id": { "type": "string" } }, "required": ["id", "participant_id"] } },
+    { "name": "update_conference_participant", "description": "Update participant behavior such as end-on-exit and beeps.", "method": "PATCH", "path": "/conferences/{id}/participants/{participant_id}", "path_params": ["id", "participant_id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "participant_id": { "type": "string" }, "end_conference_on_exit": { "type": "boolean" }, "soft_end_conference_on_exit": { "type": "boolean" }, "beep_enabled": { "type": "string", "enum": ["always", "never", "on_enter", "on_exit"] } }, "required": ["id", "participant_id"] } },
+    { "name": "join_conference", "description": "Join an existing call leg to a conference. Set supervisor_role to monitor, whisper, or barge for live listening/coaching.", "method": "POST", "path": "/conferences/{id}/actions/join", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "call_control_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" }, "end_conference_on_exit": { "type": "boolean" }, "soft_end_conference_on_exit": { "type": "boolean" }, "hold": { "type": "boolean" }, "hold_audio_url": { "type": "string" }, "mute": { "type": "boolean" }, "start_conference_on_enter": { "type": "boolean" }, "supervisor_role": { "type": "string", "enum": ["barge", "monitor", "none", "whisper"] }, "whisper_call_control_ids": { "type": "array", "items": { "type": "string" } }, "beep_enabled": { "type": "string", "enum": ["always", "never", "on_enter", "on_exit"] }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } }, "required": ["id", "call_control_id"] } },
+    { "name": "update_conference_supervisor", "description": "Update a participant's supervisor role in a conference.", "method": "POST", "path": "/conferences/{id}/actions/update", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "call_control_id": { "type": "string" }, "supervisor_role": { "type": "string", "enum": ["barge", "monitor", "none", "whisper"] }, "whisper_call_control_ids": { "type": "array", "items": { "type": "string" } }, "command_id": { "type": "string" }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } }, "required": ["id", "call_control_id", "supervisor_role"] } },
+    { "name": "end_conference", "description": "End a conference.", "method": "POST", "path": "/conferences/{id}/actions/end", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "command_id": { "type": "string" } }, "required": ["id"] } },
+    { "name": "hold_conference_participants", "description": "Put one or more conference participants on hold.", "method": "POST", "path": "/conferences/{id}/actions/hold", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "call_control_ids": { "type": "array", "items": { "type": "string" } }, "audio_url": { "type": "string" }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } }, "required": ["id", "call_control_ids"] } },
+    { "name": "unhold_conference_participants", "description": "Remove one or more conference participants from hold.", "method": "POST", "path": "/conferences/{id}/actions/unhold", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "call_control_ids": { "type": "array", "items": { "type": "string" } }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } }, "required": ["id", "call_control_ids"] } },
+    { "name": "mute_conference_participants", "description": "Mute one or more conference participants.", "method": "POST", "path": "/conferences/{id}/actions/mute", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "call_control_ids": { "type": "array", "items": { "type": "string" } }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } }, "required": ["id", "call_control_ids"] } },
+    { "name": "unmute_conference_participants", "description": "Unmute one or more conference participants.", "method": "POST", "path": "/conferences/{id}/actions/unmute", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "call_control_ids": { "type": "array", "items": { "type": "string" } }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } }, "required": ["id", "call_control_ids"] } },
+    { "name": "play_conference_audio", "description": "Play an audio URL to all or selected conference participants.", "method": "POST", "path": "/conferences/{id}/actions/play", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "audio_url": { "type": "string" }, "media_name": { "type": "string" }, "loop": { "type": ["string", "integer"] }, "call_control_ids": { "type": "array", "items": { "type": "string" } }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } }, "required": ["id"] } },
+    { "name": "stop_conference_audio", "description": "Stop audio playback on all or selected conference participants.", "method": "POST", "path": "/conferences/{id}/actions/stop", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "call_control_ids": { "type": "array", "items": { "type": "string" } }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } }, "required": ["id"] } },
+    { "name": "speak_conference_text", "description": "Use Telnyx TTS to speak text/SSML to all or selected conference participants.", "method": "POST", "path": "/conferences/{id}/actions/speak", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "call_control_ids": { "type": "array", "items": { "type": "string" } }, "payload": { "type": "string" }, "payload_type": { "type": "string", "enum": ["text", "ssml"] }, "voice": { "type": "string" }, "language": { "type": "string" }, "command_id": { "type": "string" }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } }, "required": ["id", "payload", "voice"] } },
+    { "name": "send_conference_dtmf", "description": "Send DTMF digits to selected conference participants.", "method": "POST", "path": "/conferences/{id}/actions/send_dtmf", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "call_control_ids": { "type": "array", "items": { "type": "string" } }, "digits": { "type": "string" }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } }, "required": ["id", "digits"] } },
+    { "name": "start_conference_recording", "description": "Start recording a conference.", "method": "POST", "path": "/conferences/{id}/actions/record_start", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "format": { "type": "string", "enum": ["wav", "mp3"] }, "channels": { "type": "string", "enum": ["single", "dual"] }, "play_beep": { "type": "boolean" }, "trim": { "type": "string", "enum": ["trim-silence"] }, "custom_file_name": { "type": "string" }, "command_id": { "type": "string" }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } }, "required": ["id", "format"] } },
+    { "name": "stop_conference_recording", "description": "Stop a conference recording.", "method": "POST", "path": "/conferences/{id}/actions/record_stop", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "recording_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } }, "required": ["id"] } },
+    { "name": "pause_conference_recording", "description": "Pause a conference recording.", "method": "POST", "path": "/conferences/{id}/actions/record_pause", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "recording_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } }, "required": ["id"] } },
+    { "name": "resume_conference_recording", "description": "Resume a paused conference recording.", "method": "POST", "path": "/conferences/{id}/actions/record_resume", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "recording_id": { "type": "string" }, "client_state": { "type": "string" }, "command_id": { "type": "string" }, "region": { "type": "string", "enum": ["Australia", "Europe", "Middle East", "US"] } }, "required": ["id"] } },
+
+    { "name": "list_recordings", "description": "List call recordings.", "method": "GET", "path": "/recordings", "query_params": ["filter[call_control_id]", "filter[call_session_id]", "filter[created_at][gt]", "filter[created_at][lt]", "page[number]", "page[size]"], "input_schema": { "type": "object", "properties": { "filter[call_control_id]": { "type": "string" }, "filter[call_session_id]": { "type": "string" }, "filter[created_at][gt]": { "type": "string" }, "filter[created_at][lt]": { "type": "string" }, "page[number]": { "type": "integer" }, "page[size]": { "type": "integer" } } } },
+    { "name": "get_recording", "description": "Retrieve one call recording, including recording URLs when available.", "method": "GET", "path": "/recordings/{recording_id}", "path_params": ["recording_id"], "input_schema": { "type": "object", "properties": { "recording_id": { "type": "string" } }, "required": ["recording_id"] } },
+    { "name": "delete_recording", "description": "Delete one call recording.", "method": "DELETE", "path": "/recordings/{recording_id}", "path_params": ["recording_id"], "input_schema": { "type": "object", "properties": { "recording_id": { "type": "string" } }, "required": ["recording_id"] } },
+    { "name": "bulk_delete_recordings", "description": "Delete multiple call recordings by recording IDs.", "method": "POST", "path": "/recordings/actions/delete", "input_schema": { "type": "object", "properties": { "ids": { "type": "array", "items": { "type": "string" } } }, "required": ["ids"] } },
+
+    { "name": "list_queue_calls", "description": "List calls waiting in a named queue.", "method": "GET", "path": "/queues/{queue_name}/calls", "path_params": ["queue_name"], "query_params": ["page[number]", "page[size]"], "input_schema": { "type": "object", "properties": { "queue_name": { "type": "string" }, "page[number]": { "type": "integer" }, "page[size]": { "type": "integer" } }, "required": ["queue_name"] } },
+    { "name": "get_queue_call", "description": "Retrieve a queued call.", "method": "GET", "path": "/queues/{queue_name}/calls/{call_control_id}", "path_params": ["queue_name", "call_control_id"], "input_schema": { "type": "object", "properties": { "queue_name": { "type": "string" }, "call_control_id": { "type": "string" } }, "required": ["queue_name", "call_control_id"] } },
+    { "name": "update_queue_call", "description": "Update a queued call.", "method": "PATCH", "path": "/queues/{queue_name}/calls/{call_control_id}", "path_params": ["queue_name", "call_control_id"], "input_schema": { "type": "object", "properties": { "queue_name": { "type": "string" }, "call_control_id": { "type": "string" }, "keep_after_hangup": { "type": "boolean" } }, "required": ["queue_name", "call_control_id"] } },
+    { "name": "remove_queue_call", "description": "Force-remove a call from a named queue.", "method": "DELETE", "path": "/queues/{queue_name}/calls/{call_control_id}", "path_params": ["queue_name", "call_control_id"], "input_schema": { "type": "object", "properties": { "queue_name": { "type": "string" }, "call_control_id": { "type": "string" } }, "required": ["queue_name", "call_control_id"] } }
   ]
 }

@@ -69,8 +69,7 @@ func (s *Server) recomputePendingOptions() {
 				continue // required deps are checked at install/upgrade time
 			}
 			raw, present := bindings[dep.Role]
-			isNull := !present || raw == nil
-			if !isNull {
+			if present && appBindingIsSet(raw) {
 				continue // already bound
 			}
 			// Optional + unbound: does a compatible target now exist?
@@ -179,7 +178,7 @@ func (s *Server) dependentsOfConnection(connID int64) ([]ConnectionDependent, er
 			continue
 		}
 		for role, raw := range bindings {
-			if n, ok := raw.(float64); ok && int64(n) == connID {
+			if appBindingContains(raw, connID) {
 				out = append(out, ConnectionDependent{
 					InstallID: id, AppName: name, Role: role,
 				})
@@ -217,7 +216,7 @@ func (s *Server) dependentsOfApp(targetInstallID int64) ([]ConnectionDependent, 
 			continue
 		}
 		for role, raw := range bindings {
-			if n, ok := raw.(float64); ok && int64(n) == targetInstallID {
+			if appBindingContains(raw, targetInstallID) {
 				out = append(out, ConnectionDependent{
 					InstallID: id, AppName: name, Role: role,
 				})

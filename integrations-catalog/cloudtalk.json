@@ -1,0 +1,44 @@
+{
+  "slug": "cloudtalk",
+  "name": "CloudTalk",
+  "description": "CloudTalk API for agents, contacts, phone numbers, calls, call recordings, SMS, tags, groups, and AI call insights.",
+  "logo": "https://www.google.com/s2/favicons?domain=cloudtalk.io&sz=128",
+  "categories": ["telephony", "voice", "sms", "phone", "communications", "support", "crm"],
+  "base_url": "https://my.cloudtalk.io/api",
+  "auth": {
+    "types": ["basic"],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      { "name": "api_key", "label": "API Key", "description": "CloudTalk API key. Used as the HTTP Basic username.", "type": "text" },
+      { "name": "api_secret", "label": "API Token", "description": "CloudTalk API token. Used as the HTTP Basic password." }
+    ]
+  },
+  "health_check": { "tool": "list_agents", "input": { "limit": 1 } },
+  "tools": [
+    { "name": "list_agents", "description": "List CloudTalk agents.", "method": "GET", "path": "/agents/index.json", "query_params": ["page", "limit"], "input_schema": { "type": "object", "properties": { "page": { "type": "integer" }, "limit": { "type": "integer" } } } },
+    { "name": "create_agent", "description": "Create a CloudTalk agent.", "method": "PUT", "path": "/agents/add.json", "input_schema": { "type": "object", "properties": { "name": { "type": "string" }, "email": { "type": "string" }, "role": { "type": "string" }, "password": { "type": "string" }, "status": { "type": "string" } }, "required": ["name", "email"] } },
+    { "name": "update_agent", "description": "Update a CloudTalk agent.", "method": "POST", "path": "/agents/edit/{agentId}.json", "input_schema": { "type": "object", "properties": { "agentId": { "type": "integer" }, "name": { "type": "string" }, "email": { "type": "string" }, "role": { "type": "string" }, "status": { "type": "string" } }, "required": ["agentId"] } },
+    { "name": "delete_agent", "description": "Delete a CloudTalk agent.", "method": "DELETE", "path": "/agents/delete/{agentId}.json", "input_schema": { "type": "object", "properties": { "agentId": { "type": "integer" } }, "required": ["agentId"] } },
+    { "name": "list_contacts", "description": "List contacts with keyword, tag, country, industry, and pagination filters.", "method": "GET", "path": "/contacts/index.json", "query_params": ["keyword", "country_id", "tag_id", "industry", "page", "limit"], "input_schema": { "type": "object", "properties": { "keyword": { "type": "string" }, "country_id": { "type": "integer" }, "tag_id": { "type": "integer" }, "industry": { "type": "string" }, "page": { "type": "integer" }, "limit": { "type": "integer" } } } },
+    { "name": "get_contact", "description": "Retrieve one CloudTalk contact.", "method": "GET", "path": "/contacts/show/{contactId}.json", "input_schema": { "type": "object", "properties": { "contactId": { "type": "integer" } }, "required": ["contactId"] } },
+    { "name": "create_contact", "description": "Create a contact. Supports contact numbers, emails, tags, custom attributes, and external URLs.", "method": "PUT", "path": "/contacts/add.json", "input_schema": { "type": "object", "properties": { "name": { "type": "string" }, "title": { "type": "string" }, "company": { "type": "string" }, "industry": { "type": "string" }, "website": { "type": "string" }, "address": { "type": "string" }, "city": { "type": "string" }, "zip": { "type": "string" }, "state": { "type": "string" }, "country_id": { "type": "integer" }, "favorite_agent": { "type": "integer" }, "ContactNumber": { "type": "array", "items": { "type": "object" } }, "ContactEmail": { "type": "array", "items": { "type": "object" } }, "ContactsTag": { "type": "array", "items": { "type": "object" } }, "ContactAttribute": { "type": "array", "items": { "type": "object" } } }, "required": ["name"] } },
+    { "name": "update_contact", "description": "Update a CloudTalk contact.", "method": "POST", "path": "/contacts/edit/{contactId}.json", "input_schema": { "type": "object", "properties": { "contactId": { "type": "integer" }, "name": { "type": "string" }, "title": { "type": "string" }, "company": { "type": "string" }, "industry": { "type": "string" }, "website": { "type": "string" }, "ContactNumber": { "type": "array", "items": { "type": "object" } }, "ContactEmail": { "type": "array", "items": { "type": "object" } } }, "required": ["contactId"] } },
+    { "name": "delete_contact", "description": "Delete a CloudTalk contact.", "method": "DELETE", "path": "/contacts/delete/{contactId}.json", "input_schema": { "type": "object", "properties": { "contactId": { "type": "integer" } }, "required": ["contactId"] } },
+    { "name": "list_calls", "description": "List CloudTalk calls. Use date and pagination filters for latest-call retrieval.", "method": "GET", "path": "/calls/index.json", "query_params": ["page", "limit", "date_from", "date_to", "agent_id", "number_id", "type"], "input_schema": { "type": "object", "properties": { "page": { "type": "integer" }, "limit": { "type": "integer" }, "date_from": { "type": "string" }, "date_to": { "type": "string" }, "agent_id": { "type": "integer" }, "number_id": { "type": "integer" }, "type": { "type": "string" } } } },
+    { "name": "get_call", "description": "Retrieve one CloudTalk call.", "method": "GET", "path": "/calls/{callId}", "input_schema": { "type": "object", "properties": { "callId": { "type": "integer" } }, "required": ["callId"] } },
+    { "name": "get_call_recording", "description": "Download or retrieve metadata for a call recording.", "method": "GET", "path": "/calls/recording/{callId}.json", "input_schema": { "type": "object", "properties": { "callId": { "type": "integer" } }, "required": ["callId"] } },
+    { "name": "create_call", "description": "Start an outbound call for an agent to a callee number.", "method": "POST", "path": "/calls/create.json", "input_schema": { "type": "object", "properties": { "agent_id": { "type": "integer" }, "callee_number": { "type": "string" } }, "required": ["agent_id", "callee_number"] } },
+    { "name": "send_sms", "description": "Send an SMS/MMS via CloudTalk.", "method": "POST", "path": "/sms/send.json", "input_schema": { "type": "object", "properties": { "recipient": { "type": "string" }, "message": { "type": "string" }, "sender": { "type": "string" }, "country_code": { "type": "string" }, "images_by_url": { "type": "array", "items": { "type": "string" } }, "file_by_url": { "type": "string" } }, "required": ["recipient", "message", "sender"] } },
+    { "name": "list_numbers", "description": "List CloudTalk numbers.", "method": "GET", "path": "/numbers/index.json", "query_params": ["page", "limit"], "input_schema": { "type": "object", "properties": { "page": { "type": "integer" }, "limit": { "type": "integer" } } } },
+    { "name": "list_groups", "description": "List CloudTalk groups.", "method": "GET", "path": "/groups/index.json", "query_params": ["page", "limit"], "input_schema": { "type": "object", "properties": { "page": { "type": "integer" }, "limit": { "type": "integer" } } } },
+    { "name": "list_tags", "description": "List CloudTalk contact tags.", "method": "GET", "path": "/tags/index.json", "query_params": ["page", "limit"], "input_schema": { "type": "object", "properties": { "page": { "type": "integer" }, "limit": { "type": "integer" } } } },
+    { "name": "create_tag", "description": "Create a CloudTalk tag.", "method": "PUT", "path": "/tags/add.json", "input_schema": { "type": "object", "properties": { "name": { "type": "string" }, "color": { "type": "string" } }, "required": ["name"] } },
+    { "name": "get_call_ai_summary", "description": "Get AI summary for a CloudTalk call.", "method": "GET", "path": "/ai/calls/{callId}/summary", "input_schema": { "type": "object", "properties": { "callId": { "type": "integer" } }, "required": ["callId"] } },
+    { "name": "get_call_ai_transcription", "description": "Get AI transcription for a CloudTalk call.", "method": "GET", "path": "/ai/calls/{callId}/transcription", "input_schema": { "type": "object", "properties": { "callId": { "type": "integer" } }, "required": ["callId"] } },
+    { "name": "get_call_ai_sentiment", "description": "Get AI overall sentiment for a CloudTalk call.", "method": "GET", "path": "/ai/calls/{callId}/overall-sentiment", "input_schema": { "type": "object", "properties": { "callId": { "type": "integer" } }, "required": ["callId"] } }
+  ]
+}

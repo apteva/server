@@ -3,6 +3,7 @@ package channelchat
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/apteva/server/apps/framework"
 )
@@ -55,6 +56,56 @@ func (c *chatChannel) SendWithComponents(text string, components []framework.Cha
 		c.bus.Publish("chat.message", "channel-chat", *m)
 	}
 	return nil
+}
+
+func (c *chatChannel) RequestApproval(req framework.ApprovalRequest) (framework.ApprovalResult, error) {
+	if c.store == nil {
+		return framework.ApprovalResult{}, fmt.Errorf("channel-chat: store not initialised")
+	}
+	req.Title = strings.TrimSpace(req.Title)
+	req.Body = strings.TrimSpace(req.Body)
+	if req.Title == "" {
+		return framework.ApprovalResult{}, fmt.Errorf("title required")
+	}
+	if req.Body == "" {
+		req.Body = req.Title
+	}
+	if len(req.Actions) == 0 {
+		req.Actions = []framework.ApprovalAction{
+			{ID: "approve", Label: "Approve", Style: "primary"},
+			{ID: "deny", Label: "Deny", Style: "danger"},
+		}
+	}
+	props := map[string]any{
+		"title":   req.Title,
+		"body":    req.Body,
+		"status":  "pending",
+		"actions": req.Actions,
+	}
+	if req.Context != nil {
+		props["context"] = req.Context
+	}
+	components := []framework.ChatComponent{{
+		App:   "channel-chat",
+		Name:  "approval-card",
+		Props: props,
+	}}
+	content := "Approval requested: " + req.Title
+	m, err := c.store.Append(c.chatID, "agent", content, nil, c.threadID, "final", components)
+	if err != nil {
+		return framework.ApprovalResult{}, err
+	}
+	m.Components[0].Props["message_id"] = m.ID
+	m, err = c.store.UpdateMessageComponents(m.ID, m.Components)
+	if err != nil {
+		return framework.ApprovalResult{}, err
+	}
+	c.hub.publish(*m)
+	c.hub.publishToUser(c.userID, *m)
+	if c.bus != nil {
+		c.bus.Publish("chat.message", "channel-chat", *m)
+	}
+	return framework.ApprovalResult{MessageID: m.ID, ChatID: m.ChatID, Status: "pending"}, nil
 }
 
 // Status writes a system-role message so status lines show up in the

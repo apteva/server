@@ -540,6 +540,7 @@ type RequestTransformDef struct {
 	Encoding      string            `json:"encoding,omitempty"`
 	Source        string            `json:"source,omitempty"`
 	Fields        []string          `json:"fields,omitempty"`
+	AsArray       bool              `json:"as_array,omitempty"`
 	IncludeFields map[string]string `json:"include_fields,omitempty"`
 }
 

@@ -1219,8 +1219,7 @@ func installRoleDep(s *Server, installID int64, role string) (*sdk.IntegrationDe
 func installBoundConnection(s *Server, installID, connID int64) (string, bool) {
 	bindings := bindingsForInstall(s, installID)
 	for role, raw := range bindings {
-		// Bindings JSON values arrive as float64 from JSON. Compare numerically.
-		if n, ok := raw.(float64); ok && int64(n) == connID {
+		if appBindingContains(raw, connID) {
 			return role, true
 		}
 	}
@@ -1258,12 +1257,10 @@ func installBoundAppID(s *Server, installID int64, appName string) int64 {
 		if !ok || raw == nil {
 			return 0
 		}
-		boundInstallID := int64(0)
-		switch n := raw.(type) {
-		case float64:
-			boundInstallID = int64(n)
-		case int64:
-			boundInstallID = n
+		ids, defaultID := appBindingIDs(raw)
+		boundInstallID := defaultID
+		if boundInstallID == 0 && len(ids) > 0 {
+			boundInstallID = ids[0]
 		}
 		if boundInstallID == 0 {
 			return 0

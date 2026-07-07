@@ -530,6 +530,206 @@ func (h *handlers) unreadSummary(w http.ResponseWriter, r *http.Request, _ *fram
 	writeJSON(w, rows)
 }
 
+// GET /api/apps/channel-chat/approval-messages?project_id=<id>&status=pending&limit=20
+//
+// Returns approval-card chat messages for the authenticated user's
+// agents. No separate approvals table: the component JSON remains the
+// source of truth, and this endpoint is just an indexed-enough view
+// over recent channel_chat_messages rows.
+func (h *handlers) approvalMessages(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
+	userID := h.instances.LookupUserID(r)
+	if userID == 0 {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	ids, err := h.instances.InstanceIDsForUser(userID)
+	if err != nil {
+		log.Printf("[CHAT] approval-messages: list instances for user=%d: %v", userID, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	rows, err := h.store.ListApprovalMessages(ids, r.URL.Query().Get("project_id"), r.URL.Query().Get("status"), limit)
+	if err != nil {
+		log.Printf("[CHAT] approval-messages: user=%d ids=%v: %v", userID, ids, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, rows)
+}
+
+// POST /api/apps/channel-chat/message-action
+// Body: {message_id, action_id, note?}
+//
+// Updates a built-in approval-card component in-place, publishes the
+// updated chat row over SSE, and forwards an approval.result event to
+// the agent thread that owns the chat.
+func (h *handlers) messageAction(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
+	var body struct {
+		MessageID int64  `json:"message_id"`
+		ActionID  string `json:"action_id"`
+		Note      string `json:"note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	body.ActionID = strings.TrimSpace(body.ActionID)
+	if body.MessageID == 0 || body.ActionID == "" {
+		http.Error(w, "message_id and action_id required", http.StatusBadRequest)
+		return
+	}
+	msg, err := h.store.GetMessage(body.MessageID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			http.Error(w, "message not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	chat, err := h.store.GetChat(msg.ChatID)
+	if err != nil {
+		http.Error(w, "chat not found", http.StatusNotFound)
+		return
+	}
+	userID := h.instances.LookupUserID(r)
+	inst, err := h.instances.OwnedInstance(userID, chat.AgentID)
+	if err != nil {
+		http.Error(w, "chat not found", http.StatusNotFound)
+		return
+	}
+	updatedComponents, approval, err := applyApprovalAction(msg.Components, body.ActionID, body.Note, userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	updated, err := h.store.UpdateMessageComponents(msg.ID, updatedComponents)
+	if err != nil {
+		http.Error(w, "update failed", http.StatusInternalServerError)
+		return
+	}
+	h.hub.publish(*updated)
+	h.hub.publishToUser(inst.UserID, *updated)
+	if h.bus != nil {
+		h.bus.Publish("chat.message", "channel-chat", *updated)
+	}
+
+	threadID := msg.ThreadID
+	if threadID == "" {
+		threadID = h.resolveChatThread(inst, msg.ChatID)
+	}
+	evText := formatApprovalResultEvent(updated.ID, body.ActionID, approval, body.Note)
+	forwardErr := h.instances.ForwardEvent(inst, evText, threadID)
+	if forwardErr != nil {
+		log.Printf("[CHAT] approval result forward message=%d agent=%d thread=%s action=%s: %v",
+			updated.ID, inst.ID, threadID, body.ActionID, forwardErr)
+	}
+	writeJSON(w, map[string]any{
+		"message":        updated,
+		"status":         approval["status"],
+		"forwarded":      forwardErr == nil,
+		"delivery_error": errString(forwardErr),
+	})
+}
+
+func applyApprovalAction(components []framework.ChatComponent, actionID, note string, userID int64) ([]framework.ChatComponent, map[string]any, error) {
+	out := append([]framework.ChatComponent(nil), components...)
+	for i, c := range out {
+		if c.App != "channel-chat" || c.Name != "approval-card" {
+			continue
+		}
+		props := copyProps(c.Props)
+		status, _ := props["status"].(string)
+		if status == "" {
+			status = "pending"
+		}
+		if status != "pending" {
+			return nil, nil, fmt.Errorf("approval already %s", status)
+		}
+		if !approvalActionAllowed(props["actions"], actionID) {
+			return nil, nil, fmt.Errorf("unknown approval action %q", actionID)
+		}
+		nextStatus := approvalStatusForAction(actionID)
+		decision := map[string]any{
+			"action_id":  actionID,
+			"status":     nextStatus,
+			"user_id":    userID,
+			"decided_at": time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		if strings.TrimSpace(note) != "" {
+			decision["note"] = strings.TrimSpace(note)
+		}
+		props["status"] = nextStatus
+		props["decision"] = decision
+		out[i].Props = props
+		return out, props, nil
+	}
+	return nil, nil, fmt.Errorf("approval card not found")
+}
+
+func copyProps(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in)+1)
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func approvalActionAllowed(raw any, actionID string) bool {
+	if actionID == "" {
+		return false
+	}
+	arr, ok := raw.([]any)
+	if !ok || len(arr) == 0 {
+		return actionID == "approve" || actionID == "deny"
+	}
+	for _, item := range arr {
+		if m, ok := item.(map[string]any); ok {
+			if id, _ := m["id"].(string); id == actionID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func approvalStatusForAction(actionID string) string {
+	switch strings.ToLower(actionID) {
+	case "approve", "approved", "yes", "allow":
+		return "approved"
+	case "deny", "denied", "reject", "rejected", "no":
+		return "denied"
+	default:
+		return "acted"
+	}
+}
+
+func formatApprovalResultEvent(messageID int64, actionID string, approval map[string]any, note string) string {
+	title, _ := approval["title"].(string)
+	status, _ := approval["status"].(string)
+	var b strings.Builder
+	b.WriteString("[approval.result]\n")
+	b.WriteString(fmt.Sprintf("Approval message %d was %s with action %q.", messageID, status, actionID))
+	if title != "" {
+		b.WriteString("\nTitle: ")
+		b.WriteString(title)
+	}
+	if strings.TrimSpace(note) != "" {
+		b.WriteString("\nNote: ")
+		b.WriteString(strings.TrimSpace(note))
+	}
+	b.WriteString("\nContinue from this decision. If this was requested from dashboard chat, send a visible channels_respond with the result when you have acted on it.")
+	return b.String()
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
 // POST /api/apps/channel-chat/seen { chat_id, last_seen_id }
 //
 // Advances the per-chat read watermark. Idempotent + monotonic: lower

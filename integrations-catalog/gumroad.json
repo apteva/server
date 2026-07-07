@@ -47,18 +47,18 @@
     },
     {
       "name": "create_product",
-      "description": "Create a digital product. Common fields include name, price, description, custom_permalink, custom_summary, currency, require_shipping, customizable_price, published, max_purchase_count, and custom fields accepted by Gumroad. For audio/file products, create the product first, then use presign_file_upload -> upload bytes to the returned signed upload target outside this auth call if required by Gumroad's storage response -> complete_file_upload.",
+      "description": "Create a digital product. Common fields include name, price, description, custom_permalink, custom_summary, currency, require_shipping, customizable_price, published, max_purchase_count, tags, and files. For audio/file products, use presign_file_upload, upload each part to the returned S3 URL, call complete_file_upload, then include the returned file_url in files[].url on create_product or update_product.",
       "method": "POST",
       "path": "/products",
-      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "price": {"type": "number", "description": "Price in cents."}, "description": {"type": "string"}, "custom_permalink": {"type": "string"}, "custom_summary": {"type": "string"}, "currency": {"type": "string"}, "require_shipping": {"type": "boolean"}, "customizable_price": {"type": "boolean"}, "published": {"type": "boolean"}, "max_purchase_count": {"type": "number"}}, "required": ["name", "price"]}
+      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "price": {"type": "number", "description": "Price in cents."}, "description": {"type": "string"}, "custom_permalink": {"type": "string"}, "custom_summary": {"type": "string"}, "price_currency_type": {"type": "string", "description": "Currency code accepted by Gumroad, such as usd or eur."}, "currency": {"type": "string", "description": "Legacy alias; prefer price_currency_type when possible."}, "require_shipping": {"type": "boolean"}, "customizable_price": {"type": "boolean"}, "suggested_price_cents": {"type": "number"}, "published": {"type": "boolean"}, "max_purchase_count": {"type": "number"}, "taxonomy_id": {"type": "string"}, "category": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "files": {"type": "array", "description": "Product files uploaded through presign_file_upload and complete_file_upload. Each new file must include url from complete_file_upload.", "items": {"type": "object", "properties": {"url": {"type": "string"}, "display_name": {"type": "string"}, "extension": {"type": "string"}, "position": {"type": "number"}, "stream_only": {"type": "boolean"}, "description": {"type": "string"}}}}, "rich_content": {"type": "array", "description": "Optional Gumroad rich content page objects.", "items": {"type": "object"}}}, "required": ["name", "price"]}
     },
     {
       "name": "update_product",
-      "description": "Update a product. Include any Gumroad product fields accepted by PUT /products/:id, such as name, price, description, custom_html, custom_summary, custom_permalink, published, or max_purchase_count.",
+      "description": "Update a product. Include any Gumroad product fields accepted by PUT /products/:id, such as name, price, description, custom_html, custom_summary, custom_permalink, published, tags, files, or max_purchase_count. files is a full replacement: include existing file ids to keep them, and include url from complete_file_upload for each new uploaded file.",
       "method": "PUT",
       "path": "/products/{productId}",
       "path_params": ["productId"],
-      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "name": {"type": "string"}, "price": {"type": "number"}, "description": {"type": "string"}, "custom_html": {"type": "string"}, "custom_summary": {"type": "string"}, "custom_permalink": {"type": "string"}, "published": {"type": "boolean"}, "max_purchase_count": {"type": "number"}}, "required": ["productId"]}
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "name": {"type": "string"}, "price": {"type": "number"}, "description": {"type": "string"}, "custom_html": {"type": "string"}, "custom_summary": {"type": "string"}, "custom_permalink": {"type": "string"}, "price_currency_type": {"type": "string"}, "customizable_price": {"type": "boolean"}, "suggested_price_cents": {"type": "number"}, "published": {"type": "boolean"}, "max_purchase_count": {"type": "number"}, "quantity_enabled": {"type": "boolean"}, "is_adult": {"type": "boolean"}, "display_product_reviews": {"type": "boolean"}, "should_show_sales_count": {"type": "boolean"}, "taxonomy_id": {"type": "string"}, "category": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "cover_ids": {"type": "array", "items": {"type": "string"}}, "files": {"type": "array", "description": "Full replacement list. Existing files can be kept with id. New files need url returned by complete_file_upload.", "items": {"type": "object", "properties": {"id": {"type": "string"}, "url": {"type": "string"}, "display_name": {"type": "string"}, "extension": {"type": "string"}, "position": {"type": "number"}, "stream_only": {"type": "boolean"}, "description": {"type": "string"}}}}, "rich_content": {"type": "array", "description": "Optional Gumroad rich content page objects.", "items": {"type": "object"}}, "has_same_rich_content_for_all_variants": {"type": "boolean"}}, "required": ["productId"]}
     },
     {
       "name": "delete_product",
@@ -123,24 +123,24 @@
     },
     {
       "name": "presign_file_upload",
-      "description": "Create a signed upload target for a product file such as an MP3/WAV/ZIP. Use this before uploading file bytes to Gumroad's storage flow. The response may contain provider-specific signed upload fields/URL; upload bytes to that target exactly as returned, then call complete_file_upload with the signed_blob_id. This integration tool does not invent a direct upload endpoint.",
+      "description": "Create Gumroad multipart upload targets for a product file such as an MP3/WAV/ZIP. Send filename and file_size in bytes. Upload each file part directly to the returned parts[].presigned_url with HTTP PUT, then call complete_file_upload with upload_id, key, and each returned S3 ETag. This only prepares storage; attach the completed file to a product by passing the returned file_url in files[].url on create_product or update_product.",
       "method": "POST",
       "path": "/files/presign",
-      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "size": {"type": "number"}, "type": {"type": "string"}, "product_id": {"type": "string"}}, "required": ["name"]}
+      "input_schema": {"type": "object", "properties": {"filename": {"type": "string", "description": "Original file name, e.g. audio.mp3."}, "file_size": {"type": "number", "description": "File size in bytes."}, "content_type": {"type": "string", "description": "Optional MIME type, e.g. audio/mpeg."}}, "required": ["filename", "file_size"]}
     },
     {
       "name": "complete_file_upload",
-      "description": "Complete and attach a file upload after the signed upload step. For audio products, call this after the MP3/WAV/etc. bytes have been uploaded to the signed target returned by presign_file_upload.",
+      "description": "Complete a Gumroad multipart file upload after all file parts have been uploaded to the presigned S3 URLs. The response returns file_url. To make the file purchasable on a product, pass that file_url as files[].url to create_product or update_product.",
       "method": "POST",
       "path": "/files/complete",
-      "input_schema": {"type": "object", "properties": {"signed_blob_id": {"type": "string"}, "product_id": {"type": "string"}, "name": {"type": "string"}}, "required": ["signed_blob_id"]}
+      "input_schema": {"type": "object", "properties": {"upload_id": {"type": "string"}, "key": {"type": "string"}, "parts": {"type": "array", "items": {"type": "object", "properties": {"part_number": {"type": "number"}, "etag": {"type": "string"}}, "required": ["part_number", "etag"]}}}, "required": ["upload_id", "key", "parts"]}
     },
     {
       "name": "abort_file_upload",
-      "description": "Abort a pending file upload.",
+      "description": "Abort a pending Gumroad multipart file upload.",
       "method": "POST",
       "path": "/files/abort",
-      "input_schema": {"type": "object", "properties": {"signed_blob_id": {"type": "string"}}, "required": ["signed_blob_id"]}
+      "input_schema": {"type": "object", "properties": {"upload_id": {"type": "string"}, "key": {"type": "string"}}, "required": ["upload_id", "key"]}
     },
     {
       "name": "add_cover",

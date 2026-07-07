@@ -1,0 +1,47 @@
+{
+  "slug": "zadarma",
+  "name": "Zadarma",
+  "description": "Zadarma telephony API for balance, prices, SIP lines, callback calls, SMS, direct numbers, PBX records, statistics, and PBX webhooks. Uses Zadarma's signed Authorization header.",
+  "logo": "https://www.google.com/s2/favicons?domain=zadarma.com&sz=128",
+  "categories": ["telephony", "voice", "sms", "phone", "communications", "pbx"],
+  "base_url": "https://api.zadarma.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "Accept": "application/json",
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    "query_params": { "format": "json" },
+    "signers": [
+      { "name": "zadarma", "params": { "key_field": "api_key", "secret_field": "api_secret" } }
+    ],
+    "credential_fields": [
+      { "name": "api_key", "label": "API Key", "description": "Zadarma API key.", "type": "text" },
+      { "name": "api_secret", "label": "API Secret", "description": "Zadarma API secret used to sign requests." }
+    ]
+  },
+  "health_check": { "tool": "get_balance", "input": {} },
+  "tools": [
+    { "name": "get_balance", "description": "Get Zadarma account balance.", "method": "GET", "path": "/v1/info/balance/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "get_price", "description": "Get call price for a number/direction.", "method": "GET", "path": "/v1/info/price/", "query_params": ["number", "caller_id"], "input_schema": { "type": "object", "properties": { "number": { "type": "string" }, "caller_id": { "type": "string" } }, "required": ["number"] } },
+    { "name": "list_tariffs", "description": "List Zadarma tariffs.", "method": "GET", "path": "/v1/info/lists/tariffs/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "list_sip", "description": "List SIP accounts.", "method": "GET", "path": "/v1/sip/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "get_sip_status", "description": "Get a SIP account status.", "method": "GET", "path": "/v1/sip/{sip}/status/", "input_schema": { "type": "object", "properties": { "sip": { "type": "string" } }, "required": ["sip"] } },
+    { "name": "request_callback", "description": "Start a callback call between two phone numbers/SIP endpoints.", "method": "GET", "path": "/v1/request/callback/", "query_params": ["from", "to", "sip", "predicted", "caller_id"], "input_schema": { "type": "object", "properties": { "from": { "type": "string" }, "to": { "type": "string" }, "sip": { "type": "string" }, "predicted": { "type": "boolean" }, "caller_id": { "type": "string" } }, "required": ["from", "to"] } },
+    { "name": "check_number", "description": "Validate or check number availability/format through Zadarma.", "method": "GET", "path": "/v1/request/checknumber/", "query_params": ["number"], "input_schema": { "type": "object", "properties": { "number": { "type": "string" } }, "required": ["number"] } },
+    { "name": "send_sms", "description": "Send an SMS through Zadarma.", "method": "POST", "path": "/v1/sms/send/", "input_schema": { "type": "object", "properties": { "number": { "type": "string" }, "message": { "type": "string" }, "caller_id": { "type": "string" } }, "required": ["number", "message"] } },
+    { "name": "list_sms_templates", "description": "List SMS templates.", "method": "GET", "path": "/v1/sms/templates/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "list_sender_ids", "description": "List SMS sender IDs.", "method": "GET", "path": "/v1/sms/senderid/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "list_direct_numbers", "description": "List purchased direct numbers.", "method": "GET", "path": "/v1/direct_numbers/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "get_direct_number", "description": "Get details for a direct number.", "method": "GET", "path": "/v1/direct_numbers/number/", "query_params": ["number"], "input_schema": { "type": "object", "properties": { "number": { "type": "string" } }, "required": ["number"] } },
+    { "name": "list_direct_number_countries", "description": "List countries/directions where Zadarma direct numbers can be ordered.", "method": "GET", "path": "/v1/direct_numbers/countries/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "list_available_direct_numbers", "description": "List available direct numbers for a direction ID.", "method": "GET", "path": "/v1/direct_numbers/available/{direction_id}/", "query_params": ["type", "city"], "input_schema": { "type": "object", "properties": { "direction_id": { "type": "string" }, "type": { "type": "string" }, "city": { "type": "string" } }, "required": ["direction_id"] } },
+    { "name": "order_direct_number", "description": "Order a Zadarma direct number.", "method": "POST", "path": "/v1/direct_numbers/order/", "input_schema": { "type": "object", "properties": { "number": { "type": "string" }, "period": { "type": "integer" }, "payment_method": { "type": "string" } }, "required": ["number"] } },
+    { "name": "get_statistics", "description": "Get call statistics.", "method": "GET", "path": "/v1/statistics/", "query_params": ["start", "end", "sip", "call_type", "skip", "limit"], "input_schema": { "type": "object", "properties": { "start": { "type": "string" }, "end": { "type": "string" }, "sip": { "type": "string" }, "call_type": { "type": "string" }, "skip": { "type": "integer" }, "limit": { "type": "integer" } } } },
+    { "name": "get_pbx_callinfo", "description": "Get PBX call information.", "method": "GET", "path": "/v1/pbx/callinfo/", "query_params": ["call_id", "pbx_call_id"], "input_schema": { "type": "object", "properties": { "call_id": { "type": "string" }, "pbx_call_id": { "type": "string" } } } },
+    { "name": "request_pbx_record", "description": "Request a PBX call recording link.", "method": "GET", "path": "/v1/pbx/record/request/", "query_params": ["call_id", "pbx_call_id", "lifetime"], "input_schema": { "type": "object", "properties": { "call_id": { "type": "string" }, "pbx_call_id": { "type": "string" }, "lifetime": { "type": "integer" } } } },
+    { "name": "list_pbx_webhooks", "description": "List PBX webhook settings.", "method": "GET", "path": "/v1/pbx/webhooks/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "set_pbx_webhook_url", "description": "Set PBX webhook URL.", "method": "POST", "path": "/v1/pbx/webhooks/url/", "input_schema": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"] } },
+    { "name": "set_pbx_webhook_hooks", "description": "Configure PBX webhook event hooks.", "method": "POST", "path": "/v1/pbx/webhooks/hooks/", "input_schema": { "type": "object", "properties": { "hooks": { "type": "array", "items": { "type": "string" } } }, "required": ["hooks"] } }
+  ]
+}

@@ -136,6 +136,34 @@ type RichSender interface {
 	SendWithComponents(text string, components []ChatComponent) error
 }
 
+// ApprovalAction is one operator choice rendered by the built-in
+// channel-chat approval card.
+type ApprovalAction struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Style string `json:"style,omitempty"`
+}
+
+// ApprovalRequest asks a channel to persist a user-actionable approval
+// prompt. Unlike a normal response, this must work even when nobody is
+// currently connected to chat so the dashboard can show it later.
+type ApprovalRequest struct {
+	Title   string           `json:"title"`
+	Body    string           `json:"body"`
+	Actions []ApprovalAction `json:"actions,omitempty"`
+	Context map[string]any   `json:"context,omitempty"`
+}
+
+type ApprovalResult struct {
+	MessageID int64  `json:"message_id"`
+	ChatID    string `json:"chat_id"`
+	Status    string `json:"status"`
+}
+
+type ApprovalRequester interface {
+	RequestApproval(req ApprovalRequest) (ApprovalResult, error)
+}
+
 // MCPTool is one tool exposed through the instance's channel MCP.
 // Handlers have full access to the app's DB + the calling instance.
 type MCPTool struct {

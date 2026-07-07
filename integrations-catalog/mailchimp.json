@@ -1,275 +1,45 @@
 {
   "slug": "mailchimp",
   "name": "Mailchimp",
-  "description": "MCP server for Mailchimp email marketing, campaigns, and audience management",
+  "description": "Mailchimp Marketing API for audiences, contacts, tags, segments, campaigns, campaign content, reports, templates, automations, batches, and webhooks. Uses HTTP Basic auth with any username and your API key.",
   "logo": "https://www.google.com/s2/favicons?domain=mailchimp.com&sz=128",
-  "categories": [
-    "email",
-    "marketing",
-    "campaigns",
-    "automation",
-    "audiences"
-  ],
-  "base_url": "https://us1.api.mailchimp.com/3.0",
+  "categories": ["email", "marketing", "campaigns", "automation", "audiences"],
+  "base_url": "https://{{credential.server_prefix}}.api.mailchimp.com/3.0",
   "auth": {
-    "types": [
-      "bearer",
-      "oauth2"
-    ],
-    "headers": {
-      "Authorization": "Bearer {{token}}"
-    },
+    "types": ["basic"],
+    "headers": { "Authorization": "Basic {{basic_auth}}", "Accept": "application/json", "Content-Type": "application/json" },
     "credential_fields": [
-      {
-        "name": "token",
-        "label": "access_token"
-      },
-      {
-        "name": "expires_in",
-        "label": "expires_in"
-      },
-      {
-        "name": "scope",
-        "label": "scope"
-      },
-      {
-        "name": "metadata",
-        "label": "metadata"
-      }
-    ],
-    "oauth2": {
-      "authorize_url": "https://login.mailchimp.com/oauth2/authorize",
-      "token_url": "https://login.mailchimp.com/oauth2/token",
-      "scopes": [],
-      "client_id_required": true,
-      "pkce": false
-    }
-  },
-  "tools": [
-    {
-      "name": "add_subscriber",
-      "description": "Add a new subscriber to a Mailchimp audience/list",
-      "method": "GET",
-      "path": "/add-subscriber",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "list_id": {
-            "type": "string",
-            "description": "Audience/List ID"
-          },
-          "email_address": {
-            "type": "string",
-            "description": "Email address"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "subscribed",
-              "unsubscribed",
-              "cleaned",
-              "pending"
-            ],
-            "description": "Subscription status"
-          },
-          "merge_fields": {
-            "type": "object",
-            "description": "Merge fields (FNAME, LNAME, etc.)"
-          },
-          "tags": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Tags to apply to the subscriber"
-          }
-        },
-        "required": [
-          "list_id",
-          "email_address",
-          "status"
-        ]
-      }
-    },
-    {
-      "name": "create_automation",
-      "description": "Create an automation workflow",
-      "method": "POST",
-      "path": "/create-automation",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "recipients": {
-            "type": "object",
-            "properties": {
-              "list_id": {
-                "type": "string"
-              }
-            }
-          },
-          "trigger_settings": {
-            "type": "object",
-            "description": "Automation trigger settings"
-          },
-          "settings": {
-            "type": "object",
-            "properties": {
-              "title": {
-                "type": "string"
-              },
-              "from_name": {
-                "type": "string"
-              },
-              "reply_to": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "required": [
-          "recipients",
-          "settings"
-        ]
-      }
-    },
-    {
-      "name": "create_segment",
-      "description": "Create a segment within an audience/list",
-      "method": "POST",
-      "path": "/create-segment",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "list_id": {
-            "type": "string",
-            "description": "Audience/List ID"
-          },
-          "name": {
-            "type": "string",
-            "description": "Segment name"
-          },
-          "static_segment": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Array of email addresses for static segment"
-          },
-          "options": {
-            "type": "object",
-            "properties": {
-              "match": {
-                "type": "string",
-                "enum": [
-                  "any",
-                  "all"
-                ],
-                "description": "Match type for conditions"
-              },
-              "conditions": {
-                "type": "array",
-                "description": "Array of segment conditions"
-              }
-            }
-          }
-        },
-        "required": [
-          "list_id",
-          "name"
-        ]
-      }
-    },
-    {
-      "name": "get_analytics",
-      "description": "Get overall account analytics and statistics",
-      "method": "GET",
-      "path": "/get-analytics",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "start_date": {
-            "type": "string",
-            "description": "Start date for analytics (ISO 8601)"
-          },
-          "end_date": {
-            "type": "string",
-            "description": "End date for analytics (ISO 8601)"
-          }
-        }
-      }
-    },
-    {
-      "name": "send_campaign",
-      "description": "Send an email campaign",
-      "method": "POST",
-      "path": "/send-campaign",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "campaign_id": {
-            "type": "string",
-            "description": "Campaign ID to send"
-          }
-        },
-        "required": [
-          "campaign_id"
-        ]
-      }
-    },
-    {
-      "name": "update_template",
-      "description": "Update an existing email template",
-      "method": "PUT",
-      "path": "/update-template",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "template_id": {
-            "type": "string",
-            "description": "Template ID to update"
-          },
-          "name": {
-            "type": "string",
-            "description": "Template name"
-          },
-          "html": {
-            "type": "string",
-            "description": "HTML content"
-          },
-          "folder_id": {
-            "type": "string",
-            "description": "Folder ID to store template"
-          }
-        },
-        "required": [
-          "template_id"
-        ]
-      }
-    }
-  ],
-  "webhooks": {
-    "signature_header": "x-mailchimp-signature",
-    "events": [
-      {
-        "name": "subscribe",
-        "description": "New subscriber added to audience"
-      },
-      {
-        "name": "unsubscribe",
-        "description": "Subscriber removed from audience"
-      },
-      {
-        "name": "campaign.sent",
-        "description": "Campaign sent to audience"
-      },
-      {
-        "name": "email.cleaned",
-        "description": "Email address cleaned from audience"
-      },
-      {
-        "name": "profile.updated",
-        "description": "Subscriber profile changed"
-      }
+      { "name": "server_prefix", "label": "Server Prefix", "description": "Mailchimp data center, e.g. us19. It is the suffix after '-' in an API key and appears in your admin URL.", "type": "text" },
+      { "name": "username", "label": "Username", "description": "Any non-empty string for Mailchimp Basic auth, e.g. anystring.", "type": "text" },
+      { "name": "password", "label": "API Key", "description": "Mailchimp Marketing API key." }
     ]
-  }
+  },
+  "health_check": { "tool": "ping", "input": {} },
+  "tools": [
+    { "name": "ping", "description": "Health check.", "method": "GET", "path": "/ping", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "list_audiences", "description": "List audiences/lists.", "method": "GET", "path": "/lists", "query_params": ["count", "offset", "before_date_created", "since_date_created", "before_campaign_last_sent", "since_campaign_last_sent"], "input_schema": { "type": "object", "properties": { "count": { "type": "integer" }, "offset": { "type": "integer" } } } },
+    { "name": "get_audience", "description": "Get one audience.", "method": "GET", "path": "/lists/{list_id}", "input_schema": { "type": "object", "properties": { "list_id": { "type": "string" } }, "required": ["list_id"] } },
+    { "name": "create_audience", "description": "Create an audience/list.", "method": "POST", "path": "/lists", "input_schema": { "type": "object", "properties": { "name": { "type": "string" }, "contact": { "type": "object" }, "permission_reminder": { "type": "string" }, "campaign_defaults": { "type": "object" }, "email_type_option": { "type": "boolean" }, "visibility": { "type": "string" } }, "required": ["name", "contact", "permission_reminder", "campaign_defaults", "email_type_option"] } },
+    { "name": "list_members", "description": "List audience members.", "method": "GET", "path": "/lists/{list_id}/members", "query_params": ["fields", "exclude_fields", "count", "offset", "email_type", "status", "since_timestamp_opt", "before_timestamp_opt", "since_last_changed", "before_last_changed", "unique_email_id", "vip_only", "interest_category_id", "interest_ids", "interest_match"], "input_schema": { "type": "object", "properties": { "list_id": { "type": "string" }, "status": { "type": "string" }, "count": { "type": "integer" }, "offset": { "type": "integer" } }, "required": ["list_id"] } },
+    { "name": "get_member", "description": "Get one audience member by subscriber hash.", "method": "GET", "path": "/lists/{list_id}/members/{subscriber_hash}", "input_schema": { "type": "object", "properties": { "list_id": { "type": "string" }, "subscriber_hash": { "type": "string", "description": "MD5 hash of lowercase email address." } }, "required": ["list_id", "subscriber_hash"] } },
+    { "name": "upsert_member", "description": "Add or update an audience member by subscriber hash.", "method": "PUT", "path": "/lists/{list_id}/members/{subscriber_hash}", "input_schema": { "type": "object", "properties": { "list_id": { "type": "string" }, "subscriber_hash": { "type": "string" }, "email_address": { "type": "string" }, "status_if_new": { "type": "string" }, "status": { "type": "string" }, "merge_fields": { "type": "object" }, "interests": { "type": "object" }, "language": { "type": "string" }, "vip": { "type": "boolean" }, "tags": { "type": "array", "items": { "type": "string" } } }, "required": ["list_id", "subscriber_hash", "email_address"] } },
+    { "name": "delete_member", "description": "Delete an audience member.", "method": "DELETE", "path": "/lists/{list_id}/members/{subscriber_hash}", "input_schema": { "type": "object", "properties": { "list_id": { "type": "string" }, "subscriber_hash": { "type": "string" } }, "required": ["list_id", "subscriber_hash"] } },
+    { "name": "update_member_tags", "description": "Add or remove tags from a member.", "method": "POST", "path": "/lists/{list_id}/members/{subscriber_hash}/tags", "input_schema": { "type": "object", "properties": { "list_id": { "type": "string" }, "subscriber_hash": { "type": "string" }, "tags": { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "status": { "type": "string", "enum": ["active", "inactive"] } } } } }, "required": ["list_id", "subscriber_hash", "tags"] } },
+    { "name": "list_segments", "description": "List audience segments.", "method": "GET", "path": "/lists/{list_id}/segments", "query_params": ["type", "since_created_at", "before_created_at", "count", "offset"], "input_schema": { "type": "object", "properties": { "list_id": { "type": "string" }, "type": { "type": "string" }, "count": { "type": "integer" }, "offset": { "type": "integer" } }, "required": ["list_id"] } },
+    { "name": "create_segment", "description": "Create a static or conditional segment.", "method": "POST", "path": "/lists/{list_id}/segments", "input_schema": { "type": "object", "properties": { "list_id": { "type": "string" }, "name": { "type": "string" }, "static_segment": { "type": "array", "items": { "type": "string" } }, "options": { "type": "object" } }, "required": ["list_id", "name"] } },
+    { "name": "list_campaigns", "description": "List campaigns.", "method": "GET", "path": "/campaigns", "query_params": ["type", "status", "before_send_time", "since_send_time", "before_create_time", "since_create_time", "list_id", "folder_id", "member_id", "sort_field", "sort_dir", "count", "offset"], "input_schema": { "type": "object", "properties": { "type": { "type": "string" }, "status": { "type": "string" }, "list_id": { "type": "string" }, "count": { "type": "integer" }, "offset": { "type": "integer" } } } },
+    { "name": "create_campaign", "description": "Create a campaign.", "method": "POST", "path": "/campaigns", "input_schema": { "type": "object", "properties": { "type": { "type": "string" }, "recipients": { "type": "object" }, "settings": { "type": "object" }, "tracking": { "type": "object" }, "social_card": { "type": "object" } }, "required": ["type", "recipients", "settings"] } },
+    { "name": "get_campaign", "description": "Get one campaign.", "method": "GET", "path": "/campaigns/{campaign_id}", "input_schema": { "type": "object", "properties": { "campaign_id": { "type": "string" } }, "required": ["campaign_id"] } },
+    { "name": "set_campaign_content", "description": "Set campaign content.", "method": "PUT", "path": "/campaigns/{campaign_id}/content", "input_schema": { "type": "object", "properties": { "campaign_id": { "type": "string" }, "plain_text": { "type": "string" }, "html": { "type": "string" }, "template": { "type": "object" }, "archive": { "type": "object" }, "variate_contents": { "type": "array", "items": { "type": "object" } } }, "required": ["campaign_id"] } },
+    { "name": "send_campaign", "description": "Send a campaign.", "method": "POST", "path": "/campaigns/{campaign_id}/actions/send", "input_schema": { "type": "object", "properties": { "campaign_id": { "type": "string" } }, "required": ["campaign_id"] } },
+    { "name": "schedule_campaign", "description": "Schedule a campaign.", "method": "POST", "path": "/campaigns/{campaign_id}/actions/schedule", "input_schema": { "type": "object", "properties": { "campaign_id": { "type": "string" }, "schedule_time": { "type": "string" }, "timewarp": { "type": "boolean" }, "batch_delivery": { "type": "object" } }, "required": ["campaign_id", "schedule_time"] } },
+    { "name": "get_campaign_report", "description": "Get campaign report.", "method": "GET", "path": "/reports/{campaign_id}", "input_schema": { "type": "object", "properties": { "campaign_id": { "type": "string" } }, "required": ["campaign_id"] } },
+    { "name": "list_templates", "description": "List templates.", "method": "GET", "path": "/templates", "query_params": ["type", "category", "folder_id", "sort_field", "sort_dir", "count", "offset"], "input_schema": { "type": "object", "properties": { "type": { "type": "string" }, "category": { "type": "string" }, "count": { "type": "integer" }, "offset": { "type": "integer" } } } },
+    { "name": "create_template", "description": "Create a template.", "method": "POST", "path": "/templates", "input_schema": { "type": "object", "properties": { "name": { "type": "string" }, "html": { "type": "string" }, "folder_id": { "type": "string" } }, "required": ["name", "html"] } },
+    { "name": "list_automations", "description": "List automations.", "method": "GET", "path": "/automations", "query_params": ["count", "offset"], "input_schema": { "type": "object", "properties": { "count": { "type": "integer" }, "offset": { "type": "integer" } } } },
+    { "name": "list_webhooks", "description": "List audience webhooks.", "method": "GET", "path": "/lists/{list_id}/webhooks", "input_schema": { "type": "object", "properties": { "list_id": { "type": "string" } }, "required": ["list_id"] } },
+    { "name": "create_webhook", "description": "Create an audience webhook.", "method": "POST", "path": "/lists/{list_id}/webhooks", "input_schema": { "type": "object", "properties": { "list_id": { "type": "string" }, "url": { "type": "string" }, "events": { "type": "object" }, "sources": { "type": "object" } }, "required": ["list_id", "url"] } },
+    { "name": "create_batch", "description": "Create a Mailchimp batch operation.", "method": "POST", "path": "/batches", "input_schema": { "type": "object", "properties": { "operations": { "type": "array", "items": { "type": "object" } } }, "required": ["operations"] } }
+  ],
+  "webhooks": { "signature_header": "x-mailchimp-signature", "events": [{ "name": "subscribe", "description": "Subscriber added" }, { "name": "unsubscribe", "description": "Subscriber unsubscribed" }, { "name": "profile", "description": "Profile updated" }, { "name": "cleaned", "description": "Address cleaned" }, { "name": "upemail", "description": "Email changed" }, { "name": "campaign", "description": "Campaign event" }] }
 }

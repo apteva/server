@@ -41,6 +41,16 @@ type ChatAttachment struct {
 	Ephemeral bool   `json:"ephemeral,omitempty"`
 }
 
+type ApprovalMessage struct {
+	Message   Message `json:"message"`
+	AgentID   int64   `json:"instance_id"`
+	AgentName string  `json:"instance_name"`
+	ProjectID string  `json:"project_id"`
+	Title     string  `json:"title"`
+	Body      string  `json:"body"`
+	Status    string  `json:"status"`
+}
+
 // Chat is one conversation — today typically one per instance.
 type Chat struct {
 	ID        string    `json:"id"`
@@ -276,6 +286,28 @@ func (s *store) GetMessage(id int64) (*Message, error) {
 	return &m, nil
 }
 
+func (s *store) UpdateMessageComponents(id int64, components []framework.ChatComponent) (*Message, error) {
+	if components == nil {
+		components = []framework.ChatComponent{}
+	}
+	componentsJSON, err := json.Marshal(components)
+	if err != nil {
+		return nil, fmt.Errorf("marshal components: %w", err)
+	}
+	res, err := s.db.Exec(
+		`UPDATE channel_chat_messages SET components_json = ? WHERE id = ?`,
+		string(componentsJSON), id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return nil, ErrNotFound
+	}
+	return s.GetMessage(id)
+}
+
 // decodeComponents tolerates legacy rows (NULL or empty string) and
 // always returns a non-nil slice so the JSON marshaler emits [] rather
 // than null. The dashboard relies on the field always existing.
@@ -342,6 +374,108 @@ func (s *store) ListMessages(chatID string, since int64, limit int) ([]Message, 
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+func (s *store) ListApprovalMessages(ownerIDs []int64, projectID, status string, limit int) ([]ApprovalMessage, error) {
+	if len(ownerIDs) == 0 {
+		return []ApprovalMessage{}, nil
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	queryLimit := limit
+	if status != "" && status != "all" {
+		queryLimit = limit * 5
+		if queryLimit < 100 {
+			queryLimit = 100
+		}
+		if queryLimit > 500 {
+			queryLimit = 500
+		}
+	}
+	placeholders := make([]string, len(ownerIDs))
+	args := make([]any, 0, len(ownerIDs)+3)
+	for i, id := range ownerIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	where := `c.agent_id IN (` + strings.Join(placeholders, ",") + `)
+		AND COALESCE(m.components_json, '[]') LIKE '%"approval-card"%'`
+	if strings.TrimSpace(projectID) != "" {
+		where += ` AND i.project_id = ?`
+		args = append(args, strings.TrimSpace(projectID))
+	}
+	args = append(args, queryLimit)
+	q := `
+		SELECT m.id, m.chat_id, m.role, m.content, m.user_id, m.thread_id, m.status, m.created_at,
+		       COALESCE(m.components_json, '[]'), COALESCE(m.attachments_json, '[]'),
+		       c.agent_id, COALESCE(i.name, ''), COALESCE(i.project_id, '')
+		FROM channel_chat_messages m
+		JOIN channel_chat_chats c ON c.id = m.chat_id
+		JOIN agents i ON i.id = c.agent_id
+		WHERE ` + where + `
+		ORDER BY m.id DESC
+		LIMIT ?`
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ApprovalMessage{}
+	for rows.Next() {
+		var m Message
+		var userID sql.NullInt64
+		var threadID sql.NullString
+		var componentsJSON sql.NullString
+		var attachmentsJSON sql.NullString
+		var row ApprovalMessage
+		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &userID, &threadID, &m.Status, &m.CreatedAt,
+			&componentsJSON, &attachmentsJSON, &row.AgentID, &row.AgentName, &row.ProjectID); err != nil {
+			return nil, err
+		}
+		if userID.Valid {
+			v := userID.Int64
+			m.UserID = &v
+		}
+		if threadID.Valid {
+			m.ThreadID = threadID.String
+		}
+		m.Components = decodeComponents(componentsJSON.String)
+		m.Attachments = decodeAttachments(attachmentsJSON.String)
+		title, body, cardStatus, ok := approvalSummary(m.Components)
+		if !ok {
+			continue
+		}
+		if status != "" && status != "all" && cardStatus != status {
+			continue
+		}
+		row.Message = m
+		row.Title = title
+		row.Body = body
+		row.Status = cardStatus
+		out = append(out, row)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, rows.Err()
+}
+
+func approvalSummary(components []framework.ChatComponent) (title, body, status string, ok bool) {
+	for _, c := range components {
+		if c.App != "channel-chat" || c.Name != "approval-card" {
+			continue
+		}
+		props := c.Props
+		title, _ = props["title"].(string)
+		body, _ = props["body"].(string)
+		status, _ = props["status"].(string)
+		if status == "" {
+			status = "pending"
+		}
+		return title, body, status, true
+	}
+	return "", "", "", false
 }
 
 // DeleteMessages clears every message for a chat. The chat row stays.
