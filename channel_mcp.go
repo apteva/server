@@ -165,11 +165,6 @@ func (s *channelMCPServer) toolsList() map[string]any {
 			channelIDs = append(channelIDs, ch.ID())
 		}
 	}
-	channelList := strings.Join(channelIDs, ", ")
-	if channelList == "" {
-		channelList = "none — no channels configured"
-	}
-
 	var components []componentEntry
 	if s.componentCatalog != nil {
 		components = s.componentCatalog()
@@ -178,20 +173,28 @@ func (s *channelMCPServer) toolsList() map[string]any {
 	return map[string]any{
 		"tools": []map[string]any{
 			{
-				"name":        "respond",
-				"description": buildRespondDescription(channelIDs, components),
+				"name":        "send",
+				"description": buildSendDescription(channelIDs, components),
 				"_meta": map[string]any{
 					"io.apteva/wakeOnResult": "always",
 				},
 				"inputSchema": map[string]any{
 					"type":     "object",
-					"required": []string{"text", "channel"},
+					"required": []string{"kind", "channel"},
 					"properties": map[string]any{
-						"text":    map[string]any{"type": "string", "description": "User-visible message body. This is the ONLY text the user receives; plain assistant output/thoughts are internal and invisible."},
-						"channel": map[string]any{"type": "string", "description": "Exact target channel ID from KNOWN CHANNELS in this tool description. For dashboard chat use exactly \"chat\". Do not default to cli unless cli is listed and the incoming event was [cli]."},
+						"kind":    map[string]any{"type": "string", "description": "Payload kind: message, approval, report, or alert."},
+						"channel": map[string]any{"type": "string", "description": "Target channel. Use \"current\" for the channel that triggered the event, \"apteva\" for Apteva operator messages/approvals/reports/alerts, or Telegram/Slack/etc ids from list_channels. Legacy \"chat\" is accepted as an alias for \"apteva\"."},
+						"text":    map[string]any{"type": "string", "description": "User-visible message body for kind=message. Plain assistant output/thoughts are internal and invisible."},
+						"title":   map[string]any{"type": "string", "description": "Short title for kind=approval, kind=report, or kind=alert."},
+						"body":    map[string]any{"type": "string", "description": "Body/details for kind=approval or kind=alert."},
+						"summary": map[string]any{"type": "string", "description": "Compact outcome summary for kind=report."},
+						"severity": map[string]any{
+							"type":        "string",
+							"description": "Optional alert severity: info, warning, error, or critical.",
+						},
 						"components": map[string]any{
 							"type":        "array",
-							"description": "Optional rich attachments — see the AVAILABLE COMPONENTS list in the main description above for the exact catalog. Each entry is {app, name, props}. Non-chat channels (cli, slack, email, telegram) ignore this field; only chat renders attachments.",
+							"description": "Optional rich attachments for kind=message — see AVAILABLE COMPONENTS in the description. External channels ignore this field; the Apteva channel renders attachments.",
 							"items": map[string]any{
 								"type":     "object",
 								"required": []string{"app", "name"},
@@ -202,30 +205,9 @@ func (s *channelMCPServer) toolsList() map[string]any {
 								},
 							},
 						},
-					},
-				},
-			},
-			{
-				"name":        "list_channels",
-				"description": "List currently connected channels. RARELY NEEDED: the `respond` tool's description already lists the connected channels on every turn (that listing IS authoritative). Call this tool ONLY if you need to introspect channel availability for some out-of-band reason — never as a precondition to calling respond.",
-				"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
-			},
-			{
-				"name":        "request_approval",
-				"description": "Create a persistent dashboard approval request for the operator. Use this when you need a human decision before doing something risky, expensive, externally visible, or irreversible. This writes an approval card into chat and the Dashboard inbox even if the user is not connected. Do not block waiting; after calling it, pace or continue other safe work. When the operator chooses a button, you will receive an [approval.result] event.",
-				"_meta": map[string]any{
-					"io.apteva/wakeOnResult": "on_error",
-				},
-				"inputSchema": map[string]any{
-					"type":     "object",
-					"required": []string{"title", "body"},
-					"properties": map[string]any{
-						"channel": map[string]any{"type": "string", "description": "Approval surface. For now use \"chat\" or omit it."},
-						"title":   map[string]any{"type": "string", "description": "Short title shown in the approval card."},
-						"body":    map[string]any{"type": "string", "description": "Clear explanation of what you want approved and why."},
 						"actions": map[string]any{
 							"type":        "array",
-							"description": "Optional button list. Defaults to Approve and Deny.",
+							"description": "Optional button list for kind=approval. Defaults to Approve and Deny.",
 							"items": map[string]any{
 								"type":     "object",
 								"required": []string{"id", "label"},
@@ -236,23 +218,41 @@ func (s *channelMCPServer) toolsList() map[string]any {
 								},
 							},
 						},
-						"context": map[string]any{"type": "object", "description": "Optional structured context for yourself when the decision event comes back."},
+						"period": map[string]any{"type": "string", "description": "Optional period such as today, yesterday, past_week, daily, weekly, or an ISO date range."},
+						"sections": map[string]any{
+							"type":        "array",
+							"description": "Optional expanded details for the report modal. Each item is {title, body}. Use sections for completed work, findings, risks, next steps, metrics, evidence, links, or chronology. Do not rely on sections to replace the summary.",
+							"items": map[string]any{
+								"type": "object",
+								"properties": map[string]any{
+									"title": map[string]any{"type": "string"},
+									"body":  map[string]any{"type": "string"},
+								},
+							},
+						},
+						"tags":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional tags like daily, weekly, milestone, incident, activity."},
+						"context": map[string]any{"type": "object", "description": "Optional structured context for approval/report/alert follow-up."},
 					},
 				},
+			},
+			{
+				"name":        "list_channels",
+				"description": "List communication channels and their capabilities. For normal Apteva operator replies, send kind=message to channel=\"current\" or channel=\"apteva\". Use kind=approval/report/alert on channel=\"apteva\" for structured inbox artifacts.",
+				"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 			},
 		},
 	}
 }
 
-// buildRespondDescription emits a respond-tool description whose
+// buildSendDescription emits a send-tool description whose
 // routing examples are filtered to ONLY the currently connected
 // channels. The previous static description listed every possible
-// channel (cli, chat, telegram, slack, email) even when only one
+// channel (cli, apteva, telegram, slack, email) even when only one
 // was live — LLMs treat examples as strong priors and would call
-// respond(channel="cli") even with chat as the sole connected
+// respond(channel="cli") even with Apteva as the sole connected
 // channel, because "cli" appeared right there in the tool doc.
 // Dynamic examples kill that failure mode: if the agent sees only
-// [chat] as a valid channel in the docs, it calls channel="chat".
+// [apteva] as a valid channel in the docs, it calls channel="apteva".
 // propsSchemaHint renders a component's props_schema as a compact
 // inline string the agent can read at a glance, e.g.
 // "{file_id*: integer, compact?: boolean}". Required keys get a `*`,
@@ -301,7 +301,7 @@ func propsSchemaHint(schema map[string]any) string {
 	return "{" + strings.Join(parts, ", ") + "}"
 }
 
-func buildRespondDescription(channelIDs []string, components []componentEntry) string {
+func buildSendDescription(channelIDs []string, components []componentEntry) string {
 	var examples []string
 	for _, id := range channelIDs {
 		// Strip cosmetic telegram suffixes for the example.
@@ -309,11 +309,12 @@ func buildRespondDescription(channelIDs []string, components []componentEntry) s
 		if i := strings.Index(raw, " "); i > 0 {
 			raw = raw[:i]
 		}
+		raw = normalizeChannelID(raw)
 		switch {
 		case raw == "cli":
 			examples = append(examples, `[cli] → channel="cli"`)
-		case raw == "chat":
-			examples = append(examples, `[chat] → channel="chat"`)
+		case raw == "apteva":
+			examples = append(examples, `[apteva] → channel="apteva"`)
 		case strings.HasPrefix(raw, "telegram"):
 			examples = append(examples, `[telegram:@user:12345] → channel="telegram:12345" (digits only)`)
 		case strings.HasPrefix(raw, "slack:"):
@@ -324,7 +325,7 @@ func buildRespondDescription(channelIDs []string, components []componentEntry) s
 			examples = append(examples, fmt.Sprintf(`channel="%s"`, raw))
 		}
 	}
-	connectedList := strings.Join(channelIDs, ", ")
+	connectedList := strings.Join(canonicalChannelIDs(channelIDs), ", ")
 	if connectedList == "" {
 		connectedList = "none"
 	}
@@ -362,30 +363,64 @@ func buildRespondDescription(channelIDs []string, components []componentEntry) s
 	}
 	componentsBlock := ""
 	if len(componentLines) > 0 {
-		componentsBlock = "\n\nAVAILABLE COMPONENTS for the optional `components` arg (chat only — other channels strip them):\n" +
+		componentsBlock = "\n\nAVAILABLE COMPONENTS for the optional `components` arg (Apteva channel only — external channels strip them):\n" +
 			strings.Join(componentLines, "\n") +
 			"\nWHEN TO ATTACH (default ON for these cases — do NOT wait to be asked):\n" +
 			"  - The reply is about a specific file, image, video, or media item the user can view → attach the matching card with the item's id in props.\n" +
 			"  - You looked up an entity (file, post, document) and are reporting metadata about it → attach the card alongside or instead of a text dump.\n" +
 			"  - The user said \"show\", \"display\", \"preview\", \"render\" — always attach.\n" +
 			"Plain status updates, error messages, and pure conversation do NOT need a component.\n" +
-			"Format: components=[{app:\"<app>\", name:\"<component-name>\", props:{<props>}}]. Send the text AND components in the same respond call — never a respond-only-text followed by a respond-only-component (that double-pings the user)."
+			"Format: components=[{app:\"<app>\", name:\"<component-name>\", props:{<props>}}]. Send the text AND components in the same kind=\"message\" call — never a text-only message followed by a component-only message (that double-pings the user)."
 	}
 
 	return fmt.Sprintf(
-		"Send a message to a user on a channel. Text in your thoughts is INVISIBLE — only this tool delivers messages.\n\n"+
-			"CHAT CONTRACT:\n"+
-			"- Use respond for visible user-facing chat messages.\n"+
-			"- A successful respond wakes you again, so visible chat messages do not end the work loop.\n"+
-			"- If you promised work, continue after the respond result: call the needed tools, schedule yourself with pace, or explain why blocked.\n"+
+		"Send typed communication through Apteva Channels. Text in your thoughts is INVISIBLE — only this tool delivers messages or durable channel artifacts.\n\n"+
+			"KINDS:\n"+
+			"- kind=\"message\": visible user-facing message to a channel such as current/apteva/telegram. Use this for live conversation, immediate progress, and final answers while the operator is actively chatting.\n"+
+			"- kind=\"approval\": Apteva approval request with buttons. Use channel=\"apteva\".\n"+
+			"- kind=\"report\": Apteva dashboard report. Use channel=\"apteva\". Use this for requested delayed/background checks, scheduled summaries, significant completed work, and anything the operator asked to review later, especially after a dashboard chat disconnect.\n"+
+			"- kind=\"alert\": Apteva operator alert. Use channel=\"apteva\".\n\n"+
+			"APTEVA OPERATOR CHANNEL:\n"+
+			"- channel=\"apteva\" is the internal Apteva channel for talking to operators. It is durable: messages are saved even when the user is offline.\n"+
+			"- channel=\"current\" resolves to the channel that triggered the event. For dashboard chat events, current resolves to apteva.\n"+
+			"- Legacy channel=\"chat\" is accepted as an alias for channel=\"apteva\", but prefer apteva.\n"+
+			"- Use kind=\"message\" for normal conversation, followups, and completion notes while the operator is currently chatting.\n"+
+			"- If you receive a chat disconnect before finishing delayed work, do not send the completed check as kind=\"message\". Send a kind=\"report\" artifact unless the user explicitly requested a normal message.\n"+
+			"- Use approval/report/alert for structured inbox artifacts. Reports should state what actually happened and omit routine chat/connect/disconnect/idle events.\n"+
+			"- A successful message send wakes you again, so visible messages do not end the work loop.\n"+
+			"- If you promised work, continue after the send result: call the needed tools, schedule yourself with pace, or explain why blocked.\n"+
 			"- If the request is fully answered, use the follow-up turn to pace/done/wait normally.\n"+
-			"- After action tool results arrive, send another respond with the actual outcome before pace/done/wait. \"Done\" alone is not enough; include what you did or found.\n\n"+
-			"KNOWN CHANNELS (valid values for the `channel` parameter): [%s].\n"+
+			"- After action tool results arrive, send another kind=\"message\" with the actual outcome before pace/done/wait. \"Done\" alone is not enough; include what you did or found.\n\n"+
+			"KNOWN CHANNELS (valid values for channel): [%s].\n"+
 			"Routing — match the event prefix to the channel: %s.\n\n"+
-			"If the gate rejects your channel as unknown, the right move is to retry with a channel from the list above — NOT to fall silent. Do NOT default to \"cli\" from training-data prior; use exactly the names listed.\n\n"+
-			"DIRECTIVES vs MESSAGES: events whose tag does NOT correspond to a known channel above — e.g. [admin], [system], [inject], or a bare untagged event — are DIRECTIVES from an operator, not user messages. Act on them but do NOT call respond.%s",
+			"If the gate rejects your message channel as unknown, retry with a channel from the list above — NOT to fall silent. Do NOT default to \"cli\" from training-data prior; use exactly the names listed.\n\n"+
+			"DIRECTIVES vs MESSAGES: events whose tag does NOT correspond to a known live channel above — e.g. [admin], [system], [inject], or a bare untagged event — are DIRECTIVES from an operator, not user messages. Act on them but do NOT send a live message unless the task needs a durable Apteva artifact.%s",
 		connectedList, examplesLine, componentsBlock,
 	)
+}
+
+func canonicalChannelIDs(ids []string) []string {
+	out := make([]string, 0, len(ids))
+	seen := map[string]bool{}
+	for _, id := range ids {
+		canonical := normalizeChannelID(id)
+		if canonical == "" || seen[canonical] {
+			continue
+		}
+		seen[canonical] = true
+		out = append(out, canonical)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func channelLabel(id string) string {
+	switch id {
+	case "apteva":
+		return "Apteva"
+	default:
+		return id
+	}
 }
 
 // extractComponents pulls a []ChatComponent out of the agent's
@@ -426,7 +461,9 @@ func extractComponents(raw any) []framework.ChatComponent {
 // when AvailableChannels returned ["chat"] verbatim, and channel="telegram:123"
 // when it returned "telegram (bot @mybot)".
 func channelInList(channel string, available []string) bool {
+	channel = normalizeChannelID(channel)
 	for _, a := range available {
+		a = normalizeChannelID(a)
 		if a == channel {
 			return true
 		}
@@ -464,6 +501,10 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 
 	sendVisibleMessage := func(text, channel string, components []framework.ChatComponent) any {
 		rawChannel := channel
+		if channel == "current" {
+			channel = s.resolveCurrentChannel()
+			rawChannel = "current"
+		}
 		if text == "" {
 			return textToolError("text required")
 		}
@@ -520,7 +561,114 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		return nil
 	}
 
+	resolveArtifactChannel := func(channel string) string {
+		switch strings.TrimSpace(channel) {
+		case "", "current", "apteva":
+			return "apteva"
+		default:
+			return normalizeChannelID(channel)
+		}
+	}
+
+	sendApproval := func(channel string) any {
+		title, _ := call.Arguments["title"].(string)
+		body, _ := call.Arguments["body"].(string)
+		ch := s.registry.Get(resolveArtifactChannel(channel))
+		if ch == nil {
+			return textToolError(fmt.Sprintf("channel %q not found", channel))
+		}
+		requester, ok := ch.(framework.ApprovalRequester)
+		if !ok {
+			return textToolError(fmt.Sprintf("channel %q does not support approval cards", channel))
+		}
+		result, err := requester.RequestApproval(framework.ApprovalRequest{
+			Title:   title,
+			Body:    body,
+			Actions: extractApprovalActions(call.Arguments["actions"]),
+			Context: extractObject(call.Arguments["context"]),
+		})
+		if err != nil {
+			return textToolError(err.Error())
+		}
+		raw, _ := json.Marshal(result)
+		return textResult("approval sent to Apteva channel: " + string(raw))
+	}
+
+	sendReport := func(channel string) any {
+		title, _ := call.Arguments["title"].(string)
+		summary, _ := call.Arguments["summary"].(string)
+		period, _ := call.Arguments["period"].(string)
+		ch := s.registry.Get(resolveArtifactChannel(channel))
+		if ch == nil {
+			return textToolError(fmt.Sprintf("channel %q not found", channel))
+		}
+		sender, ok := ch.(framework.ReportSender)
+		if !ok {
+			return textToolError(fmt.Sprintf("channel %q does not support reports", channel))
+		}
+		result, err := sender.SendReport(framework.ReportRequest{
+			Title:    title,
+			Summary:  summary,
+			Period:   period,
+			Sections: extractReportSections(call.Arguments["sections"]),
+			Tags:     extractStringList(call.Arguments["tags"]),
+			Context:  extractObject(call.Arguments["context"]),
+		})
+		if err != nil {
+			return textToolError(err.Error())
+		}
+		raw, _ := json.Marshal(result)
+		return textResult("report sent to Apteva channel: " + string(raw))
+	}
+
+	sendAlert := func(channel string) any {
+		title, _ := call.Arguments["title"].(string)
+		body, _ := call.Arguments["body"].(string)
+		severity, _ := call.Arguments["severity"].(string)
+		if title == "" {
+			title = "Alert"
+		}
+		if body == "" {
+			body = title
+		}
+		if severity == "" {
+			severity = "info"
+		}
+		ch := s.registry.Get(resolveArtifactChannel(channel))
+		if ch == nil {
+			return textToolError(fmt.Sprintf("channel %q not found", channel))
+		}
+		if err := ch.Status(title+": "+body, severity); err != nil {
+			return textToolError(err.Error())
+		}
+		return textResult("alert sent to Apteva channel")
+	}
+
 	switch call.Name {
+	case "send":
+		kind, _ := call.Arguments["kind"].(string)
+		kind = strings.ToLower(strings.TrimSpace(kind))
+		if kind == "" {
+			kind = "message"
+		}
+		channel, _ := call.Arguments["channel"].(string)
+		switch kind {
+		case "message":
+			text, _ := call.Arguments["text"].(string)
+			if errResult := sendVisibleMessage(text, channel, extractComponents(call.Arguments["components"])); errResult != nil {
+				return errResult, nil
+			}
+			return textResult("delivered. Continue promised work, schedule with pace if needed, or pace/done if the request is complete."), nil
+		case "approval":
+			return sendApproval(channel), nil
+		case "report":
+			return sendReport(channel), nil
+		case "alert":
+			return sendAlert(channel), nil
+		default:
+			return textToolError(fmt.Sprintf("unknown channels send kind %q", kind)), nil
+		}
+
 	case "respond":
 		text, _ := call.Arguments["text"].(string)
 		channel, _ := call.Arguments["channel"].(string)
@@ -536,46 +684,147 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		return textResult("delivered. Continue promised work, schedule with pace if needed, or pace/done if the request is complete."), nil
 
 	case "request_approval":
-		title, _ := call.Arguments["title"].(string)
-		body, _ := call.Arguments["body"].(string)
 		channel, _ := call.Arguments["channel"].(string)
-		if channel == "" {
-			channel = "chat"
-		}
-		ch := s.registry.Get(normalizeChannelID(channel))
-		if ch == nil {
-			return textToolError(fmt.Sprintf("channel %q not found", channel)), nil
-		}
-		requester, ok := ch.(framework.ApprovalRequester)
-		if !ok {
-			return textToolError(fmt.Sprintf("channel %q does not support approval cards", channel)), nil
-		}
-		result, err := requester.RequestApproval(framework.ApprovalRequest{
-			Title:   title,
-			Body:    body,
-			Actions: extractApprovalActions(call.Arguments["actions"]),
-			Context: extractObject(call.Arguments["context"]),
-		})
-		if err != nil {
-			return textToolError(err.Error()), nil
-		}
-		raw, _ := json.Marshal(result)
-		return textResult("approval requested: " + string(raw)), nil
+		return sendApproval(channel), nil
+
+	case "send_report":
+		channel, _ := call.Arguments["channel"].(string)
+		return sendReport(channel), nil
 
 	case "list_channels":
-		var ids []string
-		if s.ic != nil {
-			ids = s.ic.AvailableChannels()
-		} else {
-			for _, ch := range s.registry.List() {
-				ids = append(ids, ch.ID())
-			}
-		}
-		return textResult(fmt.Sprintf("Connected channels: %s", strings.Join(ids, ", "))), nil
+		raw, _ := json.Marshal(s.channelCapabilityList())
+		return textResult(string(raw)), nil
 
 	default:
 		return nil, &mcpRPCError{Code: -32602, Message: fmt.Sprintf("unknown tool: %s", call.Name)}
 	}
+}
+
+func (s *channelMCPServer) resolveCurrentChannel() string {
+	var available []string
+	if s.ic != nil {
+		available = s.ic.AvailableChannels()
+	} else {
+		for _, ch := range s.registry.List() {
+			available = append(available, ch.ID())
+		}
+	}
+	for _, id := range available {
+		if normalizeChannelID(id) == "apteva" {
+			return "apteva"
+		}
+	}
+	if len(available) == 1 {
+		id := available[0]
+		if i := strings.Index(id, " "); i > 0 {
+			id = id[:i]
+		}
+		return id
+	}
+	return ""
+}
+
+func (s *channelMCPServer) channelCapabilityList() []map[string]any {
+	available := map[string]bool{}
+	var availableList []string
+	if s.ic != nil {
+		availableList = s.ic.AvailableChannels()
+	} else {
+		for _, ch := range s.registry.List() {
+			availableList = append(availableList, ch.ID())
+		}
+	}
+	for _, id := range availableList {
+		id = normalizeChannelID(id)
+		available[id] = true
+		if i := strings.Index(id, " "); i > 0 {
+			available[id[:i]] = true
+		}
+	}
+	var ids []string
+	if s.ic != nil {
+		ids = s.ic.RegisteredChannels()
+	} else {
+		for _, ch := range s.registry.List() {
+			ids = append(ids, ch.ID())
+		}
+	}
+	sort.Strings(ids)
+	out := []map[string]any{}
+	seen := map[string]bool{}
+	for _, id := range ids {
+		id = normalizeChannelID(id)
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		caps := []string{"message"}
+		typ := "external"
+		durable := false
+		var online any
+		if id == "apteva" {
+			typ = "internal"
+			durable = true
+			online = available[id]
+			caps = []string{"message", "approval", "report", "alert", "buttons", "components"}
+		}
+		isAvailable := available[id]
+		if id == "apteva" {
+			isAvailable = true
+		}
+		out = append(out, map[string]any{
+			"id":           id,
+			"label":        channelLabel(id),
+			"type":         typ,
+			"available":    isAvailable,
+			"online":       online,
+			"durable":      durable,
+			"capabilities": caps,
+		})
+	}
+	return out
+}
+
+func extractReportSections(raw any) []framework.ReportSection {
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]framework.ReportSection, 0, len(arr))
+	for _, item := range arr {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		title, _ := obj["title"].(string)
+		body, _ := obj["body"].(string)
+		title = strings.TrimSpace(title)
+		body = strings.TrimSpace(body)
+		if title == "" && body == "" {
+			continue
+		}
+		out = append(out, framework.ReportSection{Title: title, Body: body})
+	}
+	return out
+}
+
+func extractStringList(raw any) []string {
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, item := range arr {
+		s, ok := item.(string)
+		if !ok {
+			continue
+		}
+		s = strings.TrimSpace(s)
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func extractApprovalActions(raw any) []framework.ApprovalAction {
@@ -612,6 +861,10 @@ func extractObject(raw any) map[string]any {
 // normalizeChannelID strips extra prefix parts that agents include from
 // event format: slack:user:C123 → slack:C123, telegram:@user:123 → telegram:123
 func normalizeChannelID(channel string) string {
+	channel = strings.TrimSpace(channel)
+	if channel == "chat" {
+		return "apteva"
+	}
 	if strings.HasPrefix(channel, "slack:") {
 		parts := strings.Split(channel, ":")
 		if len(parts) == 3 {

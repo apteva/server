@@ -454,7 +454,7 @@ func agentActivityData(ev TelemetryEvent) map[string]any {
 
 func isHiddenActivityTool(tool string) bool {
 	switch strings.ToLower(strings.TrimSpace(tool)) {
-	case "pace", "done", "channels_status", "channels_respond":
+	case "pace", "done", "channels_status", "channels_respond", "channels_send":
 		return true
 	default:
 		return false

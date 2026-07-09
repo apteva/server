@@ -218,6 +218,34 @@
       "input_schema": {
         "type": "object",
         "properties": {}
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -228,6 +256,34 @@
       "input_schema": {
         "type": "object",
         "properties": {}
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -244,6 +300,34 @@
             "default": "ZUSD"
           }
         }
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -263,6 +347,34 @@
             "description": "Filter by user reference ID"
           }
         }
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -303,6 +415,34 @@
             ]
           }
         }
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -328,6 +468,34 @@
         },
         "required": [
           "txid"
+        ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
         ]
       }
     },
@@ -367,6 +535,34 @@
             "description": "Result offset for pagination"
           }
         }
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -389,6 +585,34 @@
         "required": [
           "txid"
         ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -408,6 +632,34 @@
             "description": "Include P&L calculations (default false)"
           }
         }
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -459,6 +711,34 @@
             "description": "Result offset for pagination"
           }
         }
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -481,6 +761,34 @@
         "required": [
           "id"
         ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -496,6 +804,34 @@
             "description": "Comma-separated asset pairs to get fee info for (e.g., XBTUSD,ETHUSD)"
           }
         }
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -506,6 +842,34 @@
       "input_schema": {
         "type": "object",
         "properties": {}
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -620,6 +984,34 @@
           "ordertype",
           "volume"
         ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -671,6 +1063,34 @@
           "txid",
           "pair"
         ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -689,6 +1109,34 @@
         "required": [
           "txid"
         ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -699,6 +1147,34 @@
       "input_schema": {
         "type": "object",
         "properties": {}
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -717,6 +1193,34 @@
         "required": [
           "timeout"
         ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -734,6 +1238,34 @@
         },
         "required": [
           "asset"
+        ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
         ]
       }
     },
@@ -766,6 +1298,34 @@
           "asset",
           "method"
         ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -785,6 +1345,34 @@
             "description": "Filter by deposit method name"
           }
         }
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -817,6 +1405,34 @@
           "key",
           "amount"
         ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -845,6 +1461,34 @@
           "key",
           "amount"
         ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -864,6 +1508,34 @@
             "description": "Filter by withdrawal method name"
           }
         }
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "nonce_form_hmac",
+            "params": {
+              "key_field": "api_key",
+              "secret_field": "api_secret",
+              "secret_encoding": "base64",
+              "key_header": "API-Key",
+              "signature_header": "API-Sign",
+              "signature_encoding": "base64",
+              "nonce_field": "nonce",
+              "nonce_unit": "ns",
+              "content_type": "application/x-www-form-urlencoded",
+              "prehash_hash": "sha256",
+              "prehash_parts": [
+                "nonce",
+                "body"
+              ],
+              "hmac_hash": "sha512",
+              "message_parts": [
+                "path",
+                "prehash"
+              ]
+            }
+          }
+        ]
       }
     }
   ]

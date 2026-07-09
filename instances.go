@@ -133,6 +133,12 @@ type AgentManager struct {
 	// media MCP attached can't accidentally attach storage cards (or
 	// any other app's components) it has no tool access to.
 	ComponentCatalog func(projectID string, attachedMCPNames []string) []componentEntry
+
+	// CapabilityMemorySync keeps server-owned capability guidance in
+	// agent memory when system MCPs are enabled. Start calls it before
+	// spawning core with live=false, while Reattach calls it after the
+	// live core is recorded with live=true.
+	CapabilityMemorySync func(inst *Agent, includeChannels bool, live bool) error
 }
 
 func describeProcessState(ps *os.ProcessState) string {
@@ -599,6 +605,12 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	}
 	config["mcp_servers"] = append(systemEntries, userServers...)
 
+	if im.CapabilityMemorySync != nil {
+		if err := im.CapabilityMemorySync(inst, includeChannels, false); err != nil {
+			log.Printf("[CAPABILITY-MEMORY] startup sync agent=%d include_channels=%v: %v", inst.ID, includeChannels, err)
+		}
+	}
+
 	configData, _ := json.MarshalIndent(config, "", "  ")
 	os.WriteFile(filepath.Join(dir, "config.json"), configData, 0644)
 
@@ -886,6 +898,12 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 	im.mu.Lock()
 	im.processes[inst.ID] = ri
 	im.mu.Unlock()
+
+	if im.CapabilityMemorySync != nil {
+		if err := im.CapabilityMemorySync(inst, includeChannels, true); err != nil {
+			log.Printf("[CAPABILITY-MEMORY] reattach sync agent=%d include_channels=%v: %v", inst.ID, includeChannels, err)
+		}
+	}
 
 	for _, cc := range channelConfigs {
 		if cc.Type == "telegram" && cc.Config["bot_token"] != "" {
@@ -1442,6 +1460,9 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		if out, err := json.Marshal(instCfg); err == nil {
 			inst.Config = string(out)
 		}
+	}
+	if err := s.syncChannelsCapabilityMemoryDisk(inst.ID, includeChannels); err != nil {
+		log.Printf("[CAPABILITY-MEMORY] create sync agent=%d include_channels=%v: %v", inst.ID, includeChannels, err)
 	}
 
 	// Start unless explicitly disabled. P1 fix: refuse to start when
@@ -2840,7 +2861,10 @@ func (s *Server) handleSystemMCPToggle(w http.ResponseWriter, r *http.Request) {
 	if instCfg == nil {
 		instCfg = map[string]any{}
 	}
-	previous, _ := instCfg[flag].(bool)
+	previous, ok := instCfg[flag].(bool)
+	if !ok && flag == "include_channels" {
+		previous = true
+	}
 	instCfg[flag] = *body.Enable
 	if out, merr := json.Marshal(instCfg); merr == nil {
 		inst.Config = string(out)
@@ -2848,6 +2872,9 @@ func (s *Server) handleSystemMCPToggle(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.UpdateAgent(inst); err != nil {
 		http.Error(w, "failed to persist", http.StatusInternalServerError)
 		return
+	}
+	if err := s.syncChannelsCapabilityMemory(inst.ID, *body.Enable); err != nil {
+		log.Printf("[CAPABILITY-MEMORY] toggle sync agent=%d include_channels=%v: %v", inst.ID, *body.Enable, err)
 	}
 
 	running := s.agents.GetPort(inst.ID) > 0

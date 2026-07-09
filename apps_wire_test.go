@@ -172,8 +172,28 @@ func TestChannelChatApp_EndToEnd(t *testing.T) {
 	if approval.MessageID == 0 || approval.ChatID != chatID || approval.Status != "pending" {
 		t.Fatalf("approval result wrong: %#v", approval)
 	}
+	reportCh, ok := ch.(framework.ReportSender)
+	if !ok {
+		t.Fatal("channel-chat should implement ReportSender")
+	}
+	report, err := reportCh.SendReport(framework.ReportRequest{
+		Title:   "Daily progress",
+		Summary: "Completed the import and found no blockers.",
+		Period:  "today",
+		Sections: []framework.ReportSection{
+			{Title: "Completed", Body: "Import finished."},
+		},
+		Tags: []string{"daily", "milestone"},
+	})
+	if err != nil {
+		t.Fatalf("SendReport: %v", err)
+	}
+	if report.MessageID == 0 || report.ChatID != chatID || report.Status != "sent" {
+		t.Fatalf("report result wrong: %#v", report)
+	}
 
-	// 6. GET messages now shows the user + agent rows. A system
+	// 6. GET messages now shows the user + agent rows, but not
+	//    inbox-only report rows. A system
 	//    "agent unreachable" row from step 4 may also be present;
 	//    we filter to non-system to assert ordering.
 	r = authed("GET", "/apps/channel-chat/messages?chat_id="+chatID, "")
@@ -195,6 +215,11 @@ func TestChannelChatApp_EndToEnd(t *testing.T) {
 	if both[1]["content"] != "agent reply here" {
 		t.Fatalf("agent content wrong: %v", both[1])
 	}
+	for _, row := range allRows {
+		if row["content"] == "Report: Daily progress" {
+			t.Fatalf("report should not appear in normal chat messages: %#v", allRows)
+		}
+	}
 
 	r = authed("GET", "/apps/channel-chat/approval-messages?project_id="+inst.ProjectID+"&status=pending", "")
 	if r.StatusCode != 200 {
@@ -206,6 +231,18 @@ func TestChannelChatApp_EndToEnd(t *testing.T) {
 	r.Body.Close()
 	if len(approvals) != 1 || approvals[0]["status"] != "pending" || approvals[0]["title"] != "Deploy change" {
 		t.Fatalf("approval list wrong: %#v", approvals)
+	}
+
+	r = authed("GET", "/apps/channel-chat/report-messages?project_id="+inst.ProjectID, "")
+	if r.StatusCode != 200 {
+		body, _ := readAll(r)
+		t.Fatalf("report list status %d body=%s", r.StatusCode, body)
+	}
+	var reports []map[string]any
+	json.NewDecoder(r.Body).Decode(&reports)
+	r.Body.Close()
+	if len(reports) != 1 || reports[0]["title"] != "Daily progress" || reports[0]["summary"] != "Completed the import and found no blockers." {
+		t.Fatalf("report list wrong: %#v", reports)
 	}
 
 	actionBody := `{"message_id":` + itoa64(approval.MessageID) + `,"action_id":"approve"}`

@@ -1,0 +1,221 @@
+{
+  "slug": "marketaux",
+  "name": "Marketaux",
+  "description": "Marketaux financial news API with entity tagging, global market/news filters, entity-level sentiment scores from -1 to +1, similar-news lookup, market stats, trending entities, and metadata.",
+  "logo": "https://www.google.com/s2/favicons?domain=marketaux.com&sz=128",
+  "categories": ["finance", "news", "sentiment", "stocks", "crypto", "forex"],
+  "base_url": "https://api.marketaux.com/v1",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": { "api_token": "{{api_token}}" },
+    "credential_fields": [
+      {
+        "name": "api_token",
+        "label": "API Token",
+        "type": "password",
+        "description": "Marketaux API token from your dashboard."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "finance_news",
+    "input": { "limit": 1, "language": "en" }
+  },
+  "tools": [
+    {
+      "name": "finance_news",
+      "description": "Search finance and market news with entity filters and entity sentiment. Returns articles, entities, highlights, match scores, and sentiment scores.",
+      "method": "GET",
+      "path": "/news/all",
+      "query_params": ["symbols", "entity_types", "industries", "countries", "sentiment_gte", "sentiment_lte", "min_match_score", "filter_entities", "must_have_entities", "group_similar", "search", "domains", "exclude_domains", "source_ids", "exclude_source_ids", "language", "published_before", "published_after", "published_on", "sort", "sort_order", "limit", "page"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbols": { "type": "string", "description": "Comma-separated symbols such as TSLA,AMZN,MSFT." },
+          "entity_types": { "type": "string", "description": "Comma-separated entity types, e.g. equity,index,crypto." },
+          "industries": { "type": "string" },
+          "countries": { "type": "string", "description": "Comma-separated exchange countries, e.g. us,ca." },
+          "sentiment_gte": { "type": "number" },
+          "sentiment_lte": { "type": "number" },
+          "min_match_score": { "type": "number" },
+          "filter_entities": { "type": "boolean" },
+          "must_have_entities": { "type": "boolean" },
+          "group_similar": { "type": "boolean" },
+          "search": { "type": "string" },
+          "domains": { "type": "string" },
+          "exclude_domains": { "type": "string" },
+          "source_ids": { "type": "string" },
+          "exclude_source_ids": { "type": "string" },
+          "language": { "type": "string", "description": "Comma-separated languages such as en,es." },
+          "published_before": { "type": "string" },
+          "published_after": { "type": "string" },
+          "published_on": { "type": "string" },
+          "sort": { "type": "string", "enum": ["published_at", "published_on", "entity_match_score", "entity_sentiment_score", "relevance_score"] },
+          "sort_order": { "type": "string", "enum": ["desc", "asc"] },
+          "limit": { "type": "integer" },
+          "page": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "similar_news",
+      "description": "Find articles similar to a Marketaux article UUID, with the same entity/sentiment filters available on news/all.",
+      "method": "GET",
+      "path": "/news/similar/{uuid}",
+      "path_params": ["uuid"],
+      "query_params": ["symbols", "entity_types", "industries", "countries", "sentiment_gte", "sentiment_lte", "language", "limit", "page"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "uuid": { "type": "string" },
+          "symbols": { "type": "string" },
+          "entity_types": { "type": "string" },
+          "industries": { "type": "string" },
+          "countries": { "type": "string" },
+          "sentiment_gte": { "type": "number" },
+          "sentiment_lte": { "type": "number" },
+          "language": { "type": "string" },
+          "limit": { "type": "integer" },
+          "page": { "type": "integer" }
+        },
+        "required": ["uuid"]
+      }
+    },
+    {
+      "name": "news_by_uuid",
+      "description": "Retrieve one article by Marketaux UUID.",
+      "method": "GET",
+      "path": "/news/uuid/{uuid}",
+      "path_params": ["uuid"],
+      "input_schema": { "type": "object", "properties": { "uuid": { "type": "string" } }, "required": ["uuid"] }
+    },
+    {
+      "name": "market_performance",
+      "description": "Aggregate market performance by entity filters and date range.",
+      "method": "GET",
+      "path": "/entity/stats/aggregation",
+      "query_params": ["symbols", "entity_types", "industries", "countries", "sentiment_avg_gte", "sentiment_avg_lte", "sentiment_gte", "sentiment_lte", "search", "language", "published_before", "published_after", "published_on", "sort", "sort_order", "limit", "page"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbols": { "type": "string" },
+          "entity_types": { "type": "string" },
+          "industries": { "type": "string" },
+          "countries": { "type": "string" },
+          "sentiment_avg_gte": { "type": "number" },
+          "sentiment_avg_lte": { "type": "number" },
+          "sentiment_gte": { "type": "number" },
+          "sentiment_lte": { "type": "number" },
+          "search": { "type": "string" },
+          "language": { "type": "string" },
+          "published_before": { "type": "string" },
+          "published_after": { "type": "string" },
+          "published_on": { "type": "string" },
+          "sort": { "type": "string", "enum": ["total_documents", "sentiment_avg"] },
+          "sort_order": { "type": "string", "enum": ["desc", "asc"] },
+          "limit": { "type": "integer" },
+          "page": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "market_stats_timeseries",
+      "description": "Time-series market stats/sentiment aggregation for entities matching filters.",
+      "method": "GET",
+      "path": "/entity/stats/intraday",
+      "query_params": ["symbols", "entity_types", "industries", "countries", "interval", "sentiment_avg_gte", "sentiment_avg_lte", "sentiment_gte", "sentiment_lte", "search", "language", "published_before", "published_after", "published_on"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbols": { "type": "string" },
+          "entity_types": { "type": "string" },
+          "industries": { "type": "string" },
+          "countries": { "type": "string" },
+          "interval": { "type": "string", "description": "Provider-supported aggregation interval." },
+          "sentiment_avg_gte": { "type": "number" },
+          "sentiment_avg_lte": { "type": "number" },
+          "sentiment_gte": { "type": "number" },
+          "sentiment_lte": { "type": "number" },
+          "search": { "type": "string" },
+          "language": { "type": "string" },
+          "published_before": { "type": "string" },
+          "published_after": { "type": "string" },
+          "published_on": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "trending_entities",
+      "description": "List trending entities in the news by filters.",
+      "method": "GET",
+      "path": "/entity/stats/top",
+      "query_params": ["symbols", "entity_types", "industries", "countries", "sentiment_avg_gte", "sentiment_avg_lte", "sort", "sort_order", "limit", "page"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbols": { "type": "string" },
+          "entity_types": { "type": "string" },
+          "industries": { "type": "string" },
+          "countries": { "type": "string" },
+          "sentiment_avg_gte": { "type": "number" },
+          "sentiment_avg_lte": { "type": "number" },
+          "sort": { "type": "string", "enum": ["total_documents", "sentiment_avg"] },
+          "sort_order": { "type": "string", "enum": ["desc", "asc"] },
+          "limit": { "type": "integer" },
+          "page": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "entity_search",
+      "description": "Search supported financial entities by symbol/name/exchange/country/type.",
+      "method": "GET",
+      "path": "/entity/search",
+      "query_params": ["search", "symbols", "exchanges", "countries", "types", "industries", "limit", "page"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search": { "type": "string" },
+          "symbols": { "type": "string" },
+          "exchanges": { "type": "string" },
+          "countries": { "type": "string" },
+          "types": { "type": "string" },
+          "industries": { "type": "string" },
+          "limit": { "type": "integer" },
+          "page": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "list_entity_types",
+      "description": "List Marketaux entity types.",
+      "method": "GET",
+      "path": "/entity/types",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_entity_industries",
+      "description": "List Marketaux entity industries.",
+      "method": "GET",
+      "path": "/entity/industries",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "news_sources",
+      "description": "List Marketaux news sources/domains/source_ids.",
+      "method": "GET",
+      "path": "/news/sources",
+      "query_params": ["language", "country", "domain", "limit", "page"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "language": { "type": "string" },
+          "country": { "type": "string" },
+          "domain": { "type": "string" },
+          "limit": { "type": "integer" },
+          "page": { "type": "integer" }
+        }
+      }
+    }
+  ]
+}

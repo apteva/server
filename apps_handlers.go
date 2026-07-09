@@ -175,6 +175,26 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "parse registry: "+err.Error(), http.StatusBadGateway)
 		return
 	}
+	search := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
+	category := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("category")))
+	if category == "all" {
+		category = ""
+	}
+	page := 1
+	if v := strings.TrimSpace(r.URL.Query().Get("page")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			page = n
+		}
+	}
+	pageSize := 0
+	if v := strings.TrimSpace(r.URL.Query().Get("page_size")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			pageSize = n
+			if pageSize > 100 {
+				pageSize = 100
+			}
+		}
+	}
 	// Tag entries with installed:true if there's a row in apps for the
 	// same name — lets the dashboard render an "Installed" pill.
 	// Match keys are normalized (lowercase, hyphens/underscores stripped)
@@ -252,12 +272,46 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	// Resolve manifest URLs in parallel (with cache) so the surfaces
-	// block on each entry reflects the actual provides/requires/runtime
-	// the manifest declares. Built-ins skip the network — their
-	// surfaces come from the framework app handle. Failures are
-	// non-fatal — the entry just goes out with a zero-value Surfaces
-	// struct, and the dashboard degrades gracefully (no badges).
+	categoryCounts := map[string]int{}
+	filtered := make([]RegistryEntry, 0, len(reg.Apps))
+	for _, e := range reg.Apps {
+		entryCategory := strings.ToLower(e.Category)
+		if entryCategory == "" {
+			entryCategory = "other"
+		}
+		if search != "" {
+			hay := strings.ToLower(strings.Join(append([]string{
+				e.Name, e.DisplayName, e.Description,
+			}, e.Tags...), " "))
+			if !strings.Contains(hay, search) {
+				continue
+			}
+		}
+		categoryCounts[entryCategory]++
+		if category != "" && entryCategory != category {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+	total := len(filtered)
+	pageEntries := filtered
+	if pageSize > 0 {
+		start := (page - 1) * pageSize
+		if start >= len(filtered) {
+			pageEntries = []RegistryEntry{}
+		} else {
+			end := start + pageSize
+			if end > len(filtered) {
+				end = len(filtered)
+			}
+			pageEntries = filtered[start:end]
+		}
+	}
+
+	// Resolve manifest URLs in parallel (with cache) only for the
+	// filtered page. The old no-pagination path still enriches every
+	// row for compatibility, but paged callers avoid N network/cache
+	// lookups just to render the first marketplace screen.
 	surfacesByName := map[string]AppSurfaces{}
 	versionByName := map[string]string{}
 	for k, v := range builtinSurfaces {
@@ -271,7 +325,7 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 		}
 		ch := make(chan result, len(reg.Apps))
 		dispatched := 0
-		for _, e := range reg.Apps {
+		for _, e := range pageEntries {
 			key := normalizeAppName(e.Name)
 			if _, isBuiltin := builtinSurfaces[key]; isBuiltin {
 				continue
@@ -322,8 +376,8 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 		surfacesByName[k] = surf
 	}
 
-	out := make([]entryWithStatus, 0, len(reg.Apps))
-	for _, e := range reg.Apps {
+	out := make([]entryWithStatus, 0, len(pageEntries))
+	for _, e := range pageEntries {
 		key := normalizeAppName(e.Name)
 		// Override the registry's hardcoded version with the live
 		// manifest's version when we successfully fetched it. The
@@ -343,6 +397,10 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"registry_url": url,
 		"apps":         out,
+		"total":        total,
+		"page":         page,
+		"page_size":    pageSize,
+		"categories":   categoryCounts,
 	})
 }
 

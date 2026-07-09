@@ -484,6 +484,14 @@ type AppToolDef struct {
 	// json" content-type assumption is bypassed.
 	BodyInput string `json:"body_input,omitempty"`
 
+	// BodyBinaryParam names an input field carrying a runtime binary envelope:
+	// { "_binary": true, "base64": "...", "mimeType": "image/png" }.
+	// The decoded bytes are sent as the entire request body, and the
+	// envelope's mimeType becomes Content-Type. This mirrors
+	// @apteva/integrations/src/types.ts AppToolTemplate.body_binary_param
+	// and is used by catalog tools such as YouTube thumbnails.set.
+	BodyBinaryParam string `json:"body_binary_param,omitempty"`
+
 	// BodyRoot names a single input field whose value becomes the ENTIRE
 	// JSON request body, verbatim, instead of the default "marshal all
 	// remaining input fields into a flat JSON object". Use for endpoints

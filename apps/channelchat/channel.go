@@ -9,7 +9,7 @@ import (
 )
 
 // chatChannel is the Channel implementation the agent reaches via
-// channels_respond(channel="chat", text=...). It writes the agent's
+// channels_send(channel="apteva", kind="message", text=...). It writes the agent's
 // reply as a new `role=agent` row and pushes to the hub so every
 // connected dashboard tab sees the new message immediately.
 //
@@ -25,9 +25,10 @@ type chatChannel struct {
 	bus      *framework.AppBus
 }
 
-// ID returns the string the agent uses in channels_respond(channel=...).
-// One chat per instance → id is always "chat".
-func (c *chatChannel) ID() string { return "chat" }
+// ID returns the canonical internal Apteva operator channel. Older
+// agents may still call channel="chat"; the channels MCP aliases that
+// to "apteva" for compatibility.
+func (c *chatChannel) ID() string { return "apteva" }
 
 // Send inserts a final agent message and fans it out.
 func (c *chatChannel) Send(text string) error {
@@ -108,22 +109,99 @@ func (c *chatChannel) RequestApproval(req framework.ApprovalRequest) (framework.
 	return framework.ApprovalResult{MessageID: m.ID, ChatID: m.ChatID, Status: "pending"}, nil
 }
 
-// Status writes a system-role message so status lines show up in the
-// chat transcript but are visually distinguishable from agent replies.
-// Level (info/warn/alert) is prefixed onto the content; the dashboard
-// renders each role differently. System messages do NOT publish to the
-// wildcard hub — they're noise for the notifications tray, which only
-// surfaces user-addressable agent replies.
+func (c *chatChannel) SendReport(req framework.ReportRequest) (framework.ReportResult, error) {
+	if c.store == nil {
+		return framework.ReportResult{}, fmt.Errorf("channel-chat: store not initialised")
+	}
+	req.Title = strings.TrimSpace(req.Title)
+	req.Summary = strings.TrimSpace(req.Summary)
+	req.Period = strings.TrimSpace(req.Period)
+	if req.Title == "" {
+		return framework.ReportResult{}, fmt.Errorf("title required")
+	}
+	cleanSections := make([]framework.ReportSection, 0, len(req.Sections))
+	for _, section := range req.Sections {
+		title := strings.TrimSpace(section.Title)
+		body := strings.TrimSpace(section.Body)
+		if title == "" && body == "" {
+			continue
+		}
+		cleanSections = append(cleanSections, framework.ReportSection{Title: title, Body: body})
+	}
+	if req.Summary == "" && len(cleanSections) == 0 {
+		return framework.ReportResult{}, fmt.Errorf("summary or sections required")
+	}
+	cleanTags := make([]string, 0, len(req.Tags))
+	for _, tag := range req.Tags {
+		tag = strings.TrimSpace(tag)
+		if tag != "" {
+			cleanTags = append(cleanTags, tag)
+		}
+	}
+	props := map[string]any{
+		"title":      req.Title,
+		"summary":    req.Summary,
+		"period":     req.Period,
+		"sections":   cleanSections,
+		"tags":       cleanTags,
+		"inbox_only": true,
+		"status":     "sent",
+	}
+	if req.Context != nil {
+		props["context"] = req.Context
+	}
+	components := []framework.ChatComponent{{
+		App:   "channel-chat",
+		Name:  "report-card",
+		Props: props,
+	}}
+	content := "Report: " + req.Title
+	m, err := c.store.Append(c.chatID, "agent", content, nil, c.threadID, "final", components)
+	if err != nil {
+		return framework.ReportResult{}, err
+	}
+	m.Components[0].Props["message_id"] = m.ID
+	m, err = c.store.UpdateMessageComponents(m.ID, m.Components)
+	if err != nil {
+		return framework.ReportResult{}, err
+	}
+	c.hub.publishToUser(c.userID, *m)
+	if c.bus != nil {
+		c.bus.Publish("chat.report", "channel-chat", *m)
+	}
+	return framework.ReportResult{MessageID: m.ID, ChatID: m.ChatID, Status: "sent"}, nil
+}
+
+// Status writes an alert artifact into the Apteva channel. It is
+// filtered out of normal chat history and shown through the inbox view.
 func (c *chatChannel) Status(text, level string) error {
 	if level == "" {
 		level = "info"
 	}
-	body := "[" + level + "] " + text
-	m, err := c.store.Append(c.chatID, "system", body, nil, c.threadID, "final", nil)
+	props := map[string]any{
+		"title":    firstNonEmptyString(alertTitle(text), "Alert"),
+		"body":     strings.TrimSpace(text),
+		"severity": strings.TrimSpace(level),
+		"status":   "sent",
+	}
+	components := []framework.ChatComponent{{
+		App:   "channel-chat",
+		Name:  "alert-card",
+		Props: props,
+	}}
+	m, err := c.store.Append(c.chatID, "agent", "Alert: "+props["title"].(string), nil, c.threadID, "final", components)
 	if err != nil {
 		return err
 	}
-	c.hub.publish(*m)
+	m.Components[0].Props["message_id"] = m.ID
+	m, err = c.store.UpdateMessageComponents(m.ID, m.Components)
+	if err != nil {
+		return err
+	}
+	c.hub.publishToUser(c.userID, *m)
+	if c.bus != nil {
+		c.bus.Publish("chat.alert", "channel-chat", *m)
+	}
 	return nil
 }
 
@@ -131,22 +209,9 @@ func (c *chatChannel) Status(text, level string) error {
 // requires it; the per-instance registry calls it on detach.
 func (c *chatChannel) Close() {}
 
-// IsActive tells the channels MCP whether to advertise this channel
-// as a place the agent can respond to right now. For chat, "active"
-// means at least one SSE subscriber is connected to the stream — i.e.
-// a dashboard / CLI has the chat open. When nobody's listening, the
-// agent should see the channel as absent (same way CLIBridge reports
-// IsConnected == false) so it doesn't reflexively reply to every
-// inbound event on chat. The apteva-server's AvailableChannels
-// function reads this method via the activeChannel interface.
-func (c *chatChannel) IsActive() bool {
-	if c.hub == nil {
-		return false
-	}
-	// No log here — AvailableChannels already logs per-channel decisions
-	// with the gated/ungated reason. Logging here too would double up.
-	return c.hub.hasSubscribers(c.chatID)
-}
+// IsActive is always true for the Apteva operator channel. Presence is
+// a UI concern; agents can always leave durable messages for operators.
+func (c *chatChannel) IsActive() bool { return true }
 
 // --- Factory ----------------------------------------------------------
 
@@ -161,7 +226,7 @@ type chatChannelFactory struct {
 }
 
 func (f *chatChannelFactory) ChannelID(_ framework.InstanceInfo) string {
-	return "chat"
+	return "apteva"
 }
 
 func (f *chatChannelFactory) Build(_ *framework.AppCtx, inst framework.InstanceInfo) (framework.Channel, error) {
@@ -176,4 +241,27 @@ func (f *chatChannelFactory) Build(_ *framework.AppCtx, inst framework.InstanceI
 		hub:    f.hub,
 		bus:    f.bus,
 	}, nil
+}
+
+func alertTitle(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	if i := strings.Index(text, ":"); i > 0 && i <= 80 {
+		return strings.TrimSpace(text[:i])
+	}
+	if len(text) > 80 {
+		return strings.TrimSpace(text[:80])
+	}
+	return text
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }

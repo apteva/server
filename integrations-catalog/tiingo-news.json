@@ -1,0 +1,85 @@
+{
+  "slug": "tiingo-news",
+  "name": "Tiingo News",
+  "description": "Tiingo financial news API for tagged equity, crypto, and FX news. Supports ticker/tag/source filters, date ranges, crawl-date sorting, and institutional bulk download endpoints where enabled.",
+  "logo": "https://www.google.com/s2/favicons?domain=tiingo.com&sz=128",
+  "categories": ["finance", "news", "stocks", "sentiment", "research"],
+  "base_url": "https://api.tiingo.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Token {{token}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Token",
+        "type": "password",
+        "description": "Tiingo API token."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "latest_news",
+    "input": { "limit": 1 }
+  },
+  "tools": [
+    {
+      "name": "latest_news",
+      "description": "Retrieve latest Tiingo financial news. Filter by tickers, tags, sources, date range, and sorting.",
+      "method": "GET",
+      "path": "/tiingo/news",
+      "query_params": ["tickers", "tags", "source", "startDate", "endDate", "sortBy", "limit", "offset", "onlyWithTickers"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tickers": { "type": "string", "description": "Comma-separated tickers such as aapl,googl." },
+          "tags": { "type": "string", "description": "Comma-separated Tiingo tags/topics." },
+          "source": { "type": "string", "description": "News source filter." },
+          "startDate": { "type": "string", "description": "YYYY-MM-DD or ISO date." },
+          "endDate": { "type": "string", "description": "YYYY-MM-DD or ISO date." },
+          "sortBy": { "type": "string", "description": "publishedDate or crawlDate depending on Tiingo support." },
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" },
+          "onlyWithTickers": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "news_by_tickers",
+      "description": "Convenience route for latest news about specific tickers.",
+      "method": "GET",
+      "path": "/tiingo/news",
+      "query_params": ["tickers", "startDate", "endDate", "sortBy", "limit", "offset"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tickers": { "type": "string", "description": "Comma-separated tickers such as aapl,googl." },
+          "startDate": { "type": "string" },
+          "endDate": { "type": "string" },
+          "sortBy": { "type": "string" },
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" }
+        },
+        "required": ["tickers"]
+      }
+    },
+    {
+      "name": "bulk_download_files",
+      "description": "List available Tiingo institutional bulk-download news files. Requires plan access.",
+      "method": "GET",
+      "path": "/tiingo/news/bulk_download",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_bulk_download_file",
+      "description": "Retrieve metadata or download link for a Tiingo news bulk-download file when enabled on the account.",
+      "method": "GET",
+      "path": "/tiingo/news/bulk_download/{file_id}",
+      "path_params": ["file_id"],
+      "input_schema": { "type": "object", "properties": { "file_id": { "type": "string" } }, "required": ["file_id"] }
+    }
+  ]
+}

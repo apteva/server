@@ -1292,6 +1292,117 @@ func TestExecuteIntegrationTool_BodyRoot(t *testing.T) {
 	}
 }
 
+func TestAppToolDef_BodyBinaryParamUnmarshal(t *testing.T) {
+	var tool AppToolDef
+	if err := json.Unmarshal([]byte(`{
+		"name": "set_thumbnail",
+		"method": "POST",
+		"path": "/upload",
+		"body_binary_param": "image",
+		"query_params": ["videoId"]
+	}`), &tool); err != nil {
+		t.Fatalf("unmarshal AppToolDef: %v", err)
+	}
+	if tool.BodyBinaryParam != "image" {
+		t.Fatalf("BodyBinaryParam=%q, want image", tool.BodyBinaryParam)
+	}
+}
+
+func TestExecuteIntegrationTool_BodyBinaryParam(t *testing.T) {
+	rawPNG := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02, 0x03}
+	var capturedQuery string
+	var capturedCT string
+	var capturedBody []byte
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedQuery = r.URL.RawQuery
+		capturedCT = r.Header.Get("Content-Type")
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "fake-youtube",
+		BaseURL: srv.URL,
+		Auth:    AppAuthConfig{Types: []string{"oauth2"}},
+	}
+	tool := &AppToolDef{
+		Name:            "set_thumbnail",
+		Method:          "POST",
+		Path:            "/upload",
+		QueryParams:     []string{"videoId"},
+		BodyBinaryParam: "image",
+	}
+	input := map[string]any{
+		"videoId": "abc123",
+		"image": map[string]any{
+			"_binary":  true,
+			"base64":   base64.StdEncoding.EncodeToString(rawPNG),
+			"mimeType": "image/png",
+		},
+	}
+
+	res, err := executeIntegrationTool(app, tool, map[string]string{"access_token": "tok"}, input, "")
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if !res.Success || res.Status != http.StatusOK {
+		t.Fatalf("success=%v status=%d data=%v", res.Success, res.Status, res.Data)
+	}
+	values, err := url.ParseQuery(capturedQuery)
+	if err != nil {
+		t.Fatalf("parse query %q: %v", capturedQuery, err)
+	}
+	if got := values.Get("videoId"); got != "abc123" {
+		t.Fatalf("videoId query=%q, want abc123", got)
+	}
+	if capturedCT != "image/png" {
+		t.Fatalf("Content-Type=%q, want image/png", capturedCT)
+	}
+	if !bytes.Equal(capturedBody, rawPNG) {
+		t.Fatalf("body bytes mismatch: got %x want %x", capturedBody, rawPNG)
+	}
+	bodyText := string(capturedBody)
+	for _, forbidden := range []string{"_binary", "base64", "mimeType", "videoId", "abc123", "{"} {
+		if strings.Contains(bodyText, forbidden) {
+			t.Fatalf("body leaked JSON/query field %q: %q", forbidden, bodyText)
+		}
+	}
+}
+
+func TestExecuteIntegrationTool_BodyBinaryParamRejectsInvalidEnvelope(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "fake-youtube",
+		BaseURL: srv.URL,
+		Auth:    AppAuthConfig{Types: []string{"oauth2"}},
+	}
+	tool := &AppToolDef{
+		Name:            "set_thumbnail",
+		Method:          "POST",
+		Path:            "/upload",
+		BodyBinaryParam: "image",
+	}
+	_, err := executeIntegrationTool(app, tool, map[string]string{"access_token": "tok"}, map[string]any{
+		"image": map[string]any{"_binary": true, "base64": "not-valid-base64"},
+	}, "")
+	if err == nil {
+		t.Fatal("expected invalid base64 error")
+	}
+	if called {
+		t.Fatal("upstream server was called for invalid binary envelope")
+	}
+}
+
 func TestExecuteIntegrationTool_MultipartForm(t *testing.T) {
 	var capturedPath string
 	var capturedCT string

@@ -49,6 +49,29 @@ type ApprovalMessage struct {
 	Title     string  `json:"title"`
 	Body      string  `json:"body"`
 	Status    string  `json:"status"`
+	Dismissed bool    `json:"dismissed,omitempty"`
+}
+
+type ReportMessage struct {
+	Message   Message `json:"message"`
+	AgentID   int64   `json:"instance_id"`
+	AgentName string  `json:"instance_name"`
+	ProjectID string  `json:"project_id"`
+	Title     string  `json:"title"`
+	Summary   string  `json:"summary"`
+	Period    string  `json:"period,omitempty"`
+	Dismissed bool    `json:"dismissed,omitempty"`
+}
+
+type AlertMessage struct {
+	Message   Message `json:"message"`
+	AgentID   int64   `json:"instance_id"`
+	AgentName string  `json:"instance_name"`
+	ProjectID string  `json:"project_id"`
+	Title     string  `json:"title"`
+	Body      string  `json:"body"`
+	Severity  string  `json:"severity"`
+	Dismissed bool    `json:"dismissed,omitempty"`
 }
 
 // Chat is one conversation — today typically one per instance.
@@ -344,6 +367,9 @@ func (s *store) ListMessages(chatID string, since int64, limit int) ([]Message, 
 		        COALESCE(components_json, '[]'), COALESCE(attachments_json, '[]')
 		 FROM channel_chat_messages
 		 WHERE chat_id = ? AND id > ?
+		   AND COALESCE(components_json, '[]') NOT LIKE '%"approval-card"%'
+		   AND COALESCE(components_json, '[]') NOT LIKE '%"report-card"%'
+		   AND COALESCE(components_json, '[]') NOT LIKE '%"alert-card"%'
 		 ORDER BY id ASC
 		 LIMIT ?`,
 		chatID, since, limit,
@@ -442,8 +468,11 @@ func (s *store) ListApprovalMessages(ownerIDs []int64, projectID, status string,
 		}
 		m.Components = decodeComponents(componentsJSON.String)
 		m.Attachments = decodeAttachments(attachmentsJSON.String)
-		title, body, cardStatus, ok := approvalSummary(m.Components)
+		title, body, cardStatus, dismissed, ok := approvalSummary(m.Components)
 		if !ok {
+			continue
+		}
+		if dismissed {
 			continue
 		}
 		if status != "" && status != "all" && cardStatus != status {
@@ -453,6 +482,7 @@ func (s *store) ListApprovalMessages(ownerIDs []int64, projectID, status string,
 		row.Title = title
 		row.Body = body
 		row.Status = cardStatus
+		row.Dismissed = dismissed
 		out = append(out, row)
 		if len(out) >= limit {
 			break
@@ -461,7 +491,153 @@ func (s *store) ListApprovalMessages(ownerIDs []int64, projectID, status string,
 	return out, rows.Err()
 }
 
-func approvalSummary(components []framework.ChatComponent) (title, body, status string, ok bool) {
+func (s *store) ListReportMessages(ownerIDs []int64, projectID string, limit int) ([]ReportMessage, error) {
+	if len(ownerIDs) == 0 {
+		return []ReportMessage{}, nil
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	placeholders := make([]string, len(ownerIDs))
+	args := make([]any, 0, len(ownerIDs)+2)
+	for i, id := range ownerIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	where := `c.agent_id IN (` + strings.Join(placeholders, ",") + `)
+		AND COALESCE(m.components_json, '[]') LIKE '%"report-card"%'`
+	if strings.TrimSpace(projectID) != "" {
+		where += ` AND i.project_id = ?`
+		args = append(args, strings.TrimSpace(projectID))
+	}
+	args = append(args, limit)
+	q := `
+		SELECT m.id, m.chat_id, m.role, m.content, m.user_id, m.thread_id, m.status, m.created_at,
+		       COALESCE(m.components_json, '[]'), COALESCE(m.attachments_json, '[]'),
+		       c.agent_id, COALESCE(i.name, ''), COALESCE(i.project_id, '')
+		FROM channel_chat_messages m
+		JOIN channel_chat_chats c ON c.id = m.chat_id
+		JOIN agents i ON i.id = c.agent_id
+		WHERE ` + where + `
+		ORDER BY m.id DESC
+		LIMIT ?`
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ReportMessage{}
+	for rows.Next() {
+		var m Message
+		var userID sql.NullInt64
+		var threadID sql.NullString
+		var componentsJSON sql.NullString
+		var attachmentsJSON sql.NullString
+		var row ReportMessage
+		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &userID, &threadID, &m.Status, &m.CreatedAt,
+			&componentsJSON, &attachmentsJSON, &row.AgentID, &row.AgentName, &row.ProjectID); err != nil {
+			return nil, err
+		}
+		if userID.Valid {
+			v := userID.Int64
+			m.UserID = &v
+		}
+		if threadID.Valid {
+			m.ThreadID = threadID.String
+		}
+		m.Components = decodeComponents(componentsJSON.String)
+		m.Attachments = decodeAttachments(attachmentsJSON.String)
+		title, summary, period, dismissed, ok := reportSummary(m.Components)
+		if !ok {
+			continue
+		}
+		if dismissed {
+			continue
+		}
+		row.Message = m
+		row.Title = title
+		row.Summary = summary
+		row.Period = period
+		row.Dismissed = dismissed
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (s *store) ListAlertMessages(ownerIDs []int64, projectID string, limit int) ([]AlertMessage, error) {
+	if len(ownerIDs) == 0 {
+		return []AlertMessage{}, nil
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	placeholders := make([]string, len(ownerIDs))
+	args := make([]any, 0, len(ownerIDs)+2)
+	for i, id := range ownerIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	where := `c.agent_id IN (` + strings.Join(placeholders, ",") + `)
+		AND COALESCE(m.components_json, '[]') LIKE '%"alert-card"%'`
+	if strings.TrimSpace(projectID) != "" {
+		where += ` AND i.project_id = ?`
+		args = append(args, strings.TrimSpace(projectID))
+	}
+	args = append(args, limit)
+	q := `
+		SELECT m.id, m.chat_id, m.role, m.content, m.user_id, m.thread_id, m.status, m.created_at,
+		       COALESCE(m.components_json, '[]'), COALESCE(m.attachments_json, '[]'),
+		       c.agent_id, COALESCE(i.name, ''), COALESCE(i.project_id, '')
+		FROM channel_chat_messages m
+		JOIN channel_chat_chats c ON c.id = m.chat_id
+		JOIN agents i ON i.id = c.agent_id
+		WHERE ` + where + `
+		ORDER BY m.id DESC
+		LIMIT ?`
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []AlertMessage{}
+	for rows.Next() {
+		var m Message
+		var userID sql.NullInt64
+		var threadID sql.NullString
+		var componentsJSON sql.NullString
+		var attachmentsJSON sql.NullString
+		var row AlertMessage
+		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &userID, &threadID, &m.Status, &m.CreatedAt,
+			&componentsJSON, &attachmentsJSON, &row.AgentID, &row.AgentName, &row.ProjectID); err != nil {
+			return nil, err
+		}
+		if userID.Valid {
+			v := userID.Int64
+			m.UserID = &v
+		}
+		if threadID.Valid {
+			m.ThreadID = threadID.String
+		}
+		m.Components = decodeComponents(componentsJSON.String)
+		m.Attachments = decodeAttachments(attachmentsJSON.String)
+		title, body, severity, dismissed, ok := alertSummary(m.Components)
+		if !ok {
+			continue
+		}
+		if dismissed {
+			continue
+		}
+		row.Message = m
+		row.Title = title
+		row.Body = body
+		row.Severity = severity
+		row.Dismissed = dismissed
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func approvalSummary(components []framework.ChatComponent) (title, body, status string, dismissed bool, ok bool) {
 	for _, c := range components {
 		if c.App != "channel-chat" || c.Name != "approval-card" {
 			continue
@@ -470,18 +646,70 @@ func approvalSummary(components []framework.ChatComponent) (title, body, status 
 		title, _ = props["title"].(string)
 		body, _ = props["body"].(string)
 		status, _ = props["status"].(string)
+		dismissed = componentDismissed(props)
 		if status == "" {
 			status = "pending"
 		}
-		return title, body, status, true
+		return title, body, status, dismissed, true
 	}
-	return "", "", "", false
+	return "", "", "", false, false
+}
+
+func reportSummary(components []framework.ChatComponent) (title, summary, period string, dismissed bool, ok bool) {
+	for _, c := range components {
+		if c.App != "channel-chat" || c.Name != "report-card" {
+			continue
+		}
+		props := c.Props
+		title, _ = props["title"].(string)
+		summary, _ = props["summary"].(string)
+		period, _ = props["period"].(string)
+		dismissed = componentDismissed(props)
+		return title, summary, period, dismissed, true
+	}
+	return "", "", "", false, false
+}
+
+func alertSummary(components []framework.ChatComponent) (title, body, severity string, dismissed bool, ok bool) {
+	for _, c := range components {
+		if c.App != "channel-chat" || c.Name != "alert-card" {
+			continue
+		}
+		props := c.Props
+		title, _ = props["title"].(string)
+		body, _ = props["body"].(string)
+		severity, _ = props["severity"].(string)
+		dismissed = componentDismissed(props)
+		if severity == "" {
+			severity = "info"
+		}
+		return title, body, severity, dismissed, true
+	}
+	return "", "", "", false, false
+}
+
+func componentDismissed(props map[string]any) bool {
+	if props == nil {
+		return false
+	}
+	if v, ok := props["dismissed"].(bool); ok && v {
+		return true
+	}
+	if v, ok := props["dismissed_at"].(string); ok && strings.TrimSpace(v) != "" {
+		return true
+	}
+	return false
 }
 
 // DeleteMessages clears every message for a chat. The chat row stays.
 func (s *store) DeleteMessages(chatID string) (int64, error) {
 	res, err := s.db.Exec(
-		`DELETE FROM channel_chat_messages WHERE chat_id = ?`, chatID,
+		`DELETE FROM channel_chat_messages
+		 WHERE chat_id = ?
+		   AND COALESCE(components_json, '[]') NOT LIKE '%"approval-card"%'
+		   AND COALESCE(components_json, '[]') NOT LIKE '%"report-card"%'
+		   AND COALESCE(components_json, '[]') NOT LIKE '%"alert-card"%'`,
+		chatID,
 	)
 	if err != nil {
 		return 0, err
@@ -551,7 +779,14 @@ func (s *store) LatestForOwner(ownerIDs []int64) ([]ChatLatest, error) {
 		FROM channel_chat_chats c
 		JOIN agents i ON i.id = c.agent_id
 		LEFT JOIN channel_chat_messages m
-			ON m.id = (SELECT MAX(id) FROM channel_chat_messages WHERE chat_id = c.id)
+			ON m.id = (
+				SELECT MAX(id)
+				FROM channel_chat_messages
+				WHERE chat_id = c.id
+				  AND COALESCE(components_json, '[]') NOT LIKE '%"approval-card"%'
+				  AND COALESCE(components_json, '[]') NOT LIKE '%"report-card"%'
+				  AND COALESCE(components_json, '[]') NOT LIKE '%"alert-card"%'
+			)
 		WHERE c.agent_id IN (` + strings.Join(placeholders, ",") + `)
 		ORDER BY COALESCE(m.created_at, c.updated_at) DESC`
 	rows, err := s.db.Query(q, args...)

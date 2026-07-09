@@ -1,0 +1,67 @@
+{
+  "slug": "massive-news",
+  "name": "Massive / Polygon News",
+  "description": "Massive, formerly Polygon.io, stock news API. Retrieve ticker-linked financial news with publisher metadata, associated tickers, and per-ticker sentiment insights.",
+  "logo": "https://www.google.com/s2/favicons?domain=massive.com&sz=128",
+  "categories": ["finance", "stocks", "news", "sentiment", "market-data"],
+  "base_url": "https://api.massive.com",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": { "apiKey": "{{api_key}}" },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "type": "password",
+        "description": "Massive/Polygon API key from your account dashboard."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_stock_news",
+    "input": { "limit": 1 }
+  },
+  "tools": [
+    {
+      "name": "list_stock_news",
+      "description": "List recent stock news. Supports ticker filters, published_utc filters, sorting, pagination, and returns sentiment insights per related ticker.",
+      "method": "GET",
+      "path": "/v2/reference/news",
+      "query_params": [
+        "ticker",
+        "published_utc",
+        "ticker.gte",
+        "ticker.gt",
+        "ticker.lte",
+        "ticker.lt",
+        "published_utc.gte",
+        "published_utc.gt",
+        "published_utc.lte",
+        "published_utc.lt",
+        "order",
+        "limit",
+        "sort",
+        "cursor"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticker": { "type": "string", "description": "Case-sensitive stock ticker such as AAPL." },
+          "published_utc": { "type": "string", "description": "Exact publication date/time filter." },
+          "ticker.gte": { "type": "string" },
+          "ticker.gt": { "type": "string" },
+          "ticker.lte": { "type": "string" },
+          "ticker.lt": { "type": "string" },
+          "published_utc.gte": { "type": "string", "description": "Published at or after this date/time." },
+          "published_utc.gt": { "type": "string" },
+          "published_utc.lte": { "type": "string", "description": "Published at or before this date/time." },
+          "published_utc.lt": { "type": "string" },
+          "order": { "type": "string", "enum": ["asc", "desc"] },
+          "limit": { "type": "integer", "description": "Default 10, max 1000." },
+          "sort": { "type": "string", "description": "Sort field, commonly published_utc." },
+          "cursor": { "type": "string", "description": "Pagination cursor from next_url." }
+        }
+      }
+    }
+  ]
+}

@@ -138,7 +138,7 @@ func runSigners(ctx context.Context, req *http.Request, body []byte,
 // Returning nil means "no signing"; the caller skips runSigners
 // entirely.
 func effectiveSigners(app *AppTemplate, tool *AppToolDef) []SignerSpec {
-	if tool != nil && tool.Signing != nil && len(tool.Signing.Signers) > 0 {
+	if tool != nil && tool.Signing != nil {
 		return tool.Signing.Signers
 	}
 	if len(app.Auth.Signers) > 0 {

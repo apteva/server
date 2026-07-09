@@ -527,6 +527,7 @@ func main() {
 		primaryHost:    strings.TrimSpace(os.Getenv("APTEVA_PRIMARY_HOST")),
 		environments:   NewEnvironmentManager(environmentDataRoot(dataDir)),
 	}
+	s.installCapabilityMemoryHooks()
 	s.ingressCerts = NewIngressCertManager(s)
 	// Back-reference so Environments can drive real (install-backed) app
 	// seeding + teardown. Only ever used by environment endpoints.

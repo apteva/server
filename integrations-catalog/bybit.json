@@ -1,191 +1,332 @@
 {
   "slug": "bybit",
   "name": "Bybit",
-  "description": "Major crypto exchange \u2014 spot and derivatives market data, orderbooks, candles, tickers, and account management.",
+  "description": "Bybit V5 API integration for public spot/derivatives market data and signed order/account operations across spot, linear, inverse, and option categories.",
   "logo": "https://www.google.com/s2/favicons?domain=bybit.com&sz=128",
-  "categories": [
-    "crypto",
-    "exchange",
-    "trading",
-    "derivatives",
-    "perpetuals"
-  ],
+  "categories": ["crypto", "exchange", "trading", "derivatives", "perpetuals"],
   "base_url": "https://api.bybit.com",
   "auth": {
-    "types": [
-      "bearer"
-    ],
+    "types": ["custom"],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Content-Type": "application/json"
     },
+    "signers": [{ "name": "bybit" }],
     "credential_fields": [
-      {
-        "name": "api_key",
-        "label": "Api_key",
-        "description": "Bybit API key"
-      },
-      {
-        "name": "api_secret",
-        "label": "Api_secret",
-        "description": "Bybit API secret"
-      },
-      {
-        "name": "testnet",
-        "label": "Testnet",
-        "description": "Set to true to use testnet (api-testnet.bybit.com)"
-      }
+      { "name": "api_key", "label": "API Key", "type": "password", "description": "Bybit API key." },
+      { "name": "api_secret", "label": "API Secret", "type": "password", "description": "Bybit API secret." },
+      { "name": "recv_window", "label": "Recv Window", "type": "text", "required": false, "description": "Optional receive window in milliseconds. Defaults to 5000." }
     ]
   },
+  "health_check": { "tool": "get_server_time", "input": {} },
   "tools": [
     {
-      "name": "get_tickers",
-      "description": "Get ticker data for all or specific trading pairs. Category: spot, linear (USDT perps), inverse.",
+      "name": "get_server_time",
+      "description": "Public: get Bybit server time.",
       "method": "GET",
-      "path": "/get-tickers",
+      "path": "/v5/market/time",
+      "signing": { "signers": [] },
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_instruments",
+      "description": "Public: get trading instrument specs.",
+      "method": "GET",
+      "path": "/v5/market/instruments-info",
+      "signing": { "signers": [] },
+      "query_params": ["category", "symbol", "status", "baseCoin", "limit", "cursor"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "category": {
-            "type": "string",
-            "enum": [
-              "spot",
-              "linear",
-              "inverse"
-            ],
-            "default": "spot"
-          },
-          "symbol": {
-            "type": "string",
-            "description": "Trading pair (e.g., BTCUSDT). Omit for all tickers."
-          }
-        }
+          "category": { "type": "string", "enum": ["spot", "linear", "inverse", "option"] },
+          "symbol": { "type": "string" },
+          "status": { "type": "string" },
+          "baseCoin": { "type": "string" },
+          "limit": { "type": "integer" },
+          "cursor": { "type": "string" }
+        },
+        "required": ["category"]
+      }
+    },
+    {
+      "name": "get_tickers",
+      "description": "Public: get ticker data.",
+      "method": "GET",
+      "path": "/v5/market/tickers",
+      "signing": { "signers": [] },
+      "query_params": ["category", "symbol", "baseCoin", "expDate"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": { "type": "string", "enum": ["spot", "linear", "inverse", "option"] },
+          "symbol": { "type": "string" },
+          "baseCoin": { "type": "string" },
+          "expDate": { "type": "string" }
+        },
+        "required": ["category"]
       }
     },
     {
       "name": "get_kline",
-      "description": "Get OHLCV kline data for a trading pair.",
+      "description": "Public: get OHLCV kline/candles.",
       "method": "GET",
-      "path": "/get-kline",
+      "path": "/v5/market/kline",
+      "signing": { "signers": [] },
+      "query_params": ["category", "symbol", "interval", "start", "end", "limit"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "category": {
-            "type": "string",
-            "enum": [
-              "spot",
-              "linear",
-              "inverse"
-            ],
-            "default": "spot"
-          },
-          "symbol": {
-            "type": "string",
-            "description": "Trading pair (e.g., BTCUSDT)"
-          },
-          "interval": {
-            "type": "string",
-            "enum": [
-              "1",
-              "3",
-              "5",
-              "15",
-              "30",
-              "60",
-              "120",
-              "240",
-              "360",
-              "720",
-              "D",
-              "W",
-              "M"
-            ],
-            "default": "60"
-          },
-          "limit": {
-            "type": "integer",
-            "default": 200,
-            "description": "Max results (1-1000)"
-          }
+          "category": { "type": "string", "enum": ["spot", "linear", "inverse"] },
+          "symbol": { "type": "string" },
+          "interval": { "type": "string", "description": "1,3,5,15,30,60,120,240,360,720,D,W,M." },
+          "start": { "type": "integer" },
+          "end": { "type": "integer" },
+          "limit": { "type": "integer" }
         },
-        "required": [
-          "symbol"
-        ]
+        "required": ["category", "symbol", "interval"]
       }
     },
     {
       "name": "get_orderbook",
-      "description": "Get order book depth for a trading pair.",
+      "description": "Public: get order book depth.",
       "method": "GET",
-      "path": "/get-orderbook",
+      "path": "/v5/market/orderbook",
+      "signing": { "signers": [] },
+      "query_params": ["category", "symbol", "limit"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "category": {
-            "type": "string",
-            "enum": [
-              "spot",
-              "linear",
-              "inverse"
-            ],
-            "default": "spot"
-          },
-          "symbol": {
-            "type": "string"
-          },
-          "limit": {
-            "type": "integer",
-            "default": 25
-          }
+          "category": { "type": "string", "enum": ["spot", "linear", "inverse", "option"] },
+          "symbol": { "type": "string" },
+          "limit": { "type": "integer" }
         },
-        "required": [
-          "symbol"
-        ]
+        "required": ["category", "symbol"]
       }
     },
     {
-      "name": "get_instruments",
-      "description": "Get trading pair specifications \u2014 lot sizes, price filters, leverage, and trading status.",
+      "name": "get_recent_trades",
+      "description": "Public: get recent public trades.",
       "method": "GET",
-      "path": "/get-instruments",
+      "path": "/v5/market/recent-trade",
+      "signing": { "signers": [] },
+      "query_params": ["category", "symbol", "baseCoin", "optionType", "limit"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "category": {
-            "type": "string",
-            "enum": [
-              "spot",
-              "linear",
-              "inverse"
-            ],
-            "default": "spot"
-          },
-          "symbol": {
-            "type": "string",
-            "description": "Specific pair (optional)"
-          }
-        }
+          "category": { "type": "string", "enum": ["spot", "linear", "inverse", "option"] },
+          "symbol": { "type": "string" },
+          "baseCoin": { "type": "string" },
+          "optionType": { "type": "string" },
+          "limit": { "type": "integer" }
+        },
+        "required": ["category"]
       }
     },
     {
-      "name": "get_funding_rate",
-      "description": "Get funding rate history for perpetual contracts.",
+      "name": "get_funding_rate_history",
+      "description": "Public: get funding rate history.",
       "method": "GET",
-      "path": "/get-funding-rate",
+      "path": "/v5/market/funding/history",
+      "signing": { "signers": [] },
+      "query_params": ["category", "symbol", "startTime", "endTime", "limit"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "symbol": {
-            "type": "string",
-            "description": "Perpetual pair (e.g., BTCUSDT)"
-          },
-          "limit": {
-            "type": "integer",
-            "default": 50
-          }
+          "category": { "type": "string", "enum": ["linear", "inverse"] },
+          "symbol": { "type": "string" },
+          "startTime": { "type": "integer" },
+          "endTime": { "type": "integer" },
+          "limit": { "type": "integer" }
         },
-        "required": [
-          "symbol"
-        ]
+        "required": ["category", "symbol"]
+      }
+    },
+    {
+      "name": "get_wallet_balance",
+      "description": "Private: get wallet balance.",
+      "method": "GET",
+      "path": "/v5/account/wallet-balance",
+      "query_params": ["accountType", "coin"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountType": { "type": "string", "description": "UNIFIED, CONTRACT, SPOT, FUND." },
+          "coin": { "type": "string", "description": "Optional comma-separated coins." }
+        },
+        "required": ["accountType"]
+      }
+    },
+    {
+      "name": "get_positions",
+      "description": "Private: get positions.",
+      "method": "GET",
+      "path": "/v5/position/list",
+      "query_params": ["category", "symbol", "baseCoin", "settleCoin", "limit", "cursor"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": { "type": "string", "enum": ["linear", "inverse", "option"] },
+          "symbol": { "type": "string" },
+          "baseCoin": { "type": "string" },
+          "settleCoin": { "type": "string" },
+          "limit": { "type": "integer" },
+          "cursor": { "type": "string" }
+        },
+        "required": ["category"]
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Private: place a spot, margin, perpetual, futures, or option order.",
+      "method": "POST",
+      "path": "/v5/order/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": { "type": "string", "enum": ["spot", "linear", "inverse", "option"] },
+          "symbol": { "type": "string" },
+          "side": { "type": "string", "enum": ["Buy", "Sell"] },
+          "orderType": { "type": "string", "enum": ["Market", "Limit"] },
+          "qty": { "type": "string" },
+          "price": { "type": "string" },
+          "timeInForce": { "type": "string" },
+          "orderLinkId": { "type": "string" },
+          "isLeverage": { "type": "integer" },
+          "triggerPrice": { "type": "string" },
+          "triggerDirection": { "type": "integer" },
+          "reduceOnly": { "type": "boolean" },
+          "closeOnTrigger": { "type": "boolean" },
+          "takeProfit": { "type": "string" },
+          "stopLoss": { "type": "string" },
+          "tpTriggerBy": { "type": "string" },
+          "slTriggerBy": { "type": "string" },
+          "positionIdx": { "type": "integer" }
+        },
+        "required": ["category", "symbol", "side", "orderType", "qty"]
+      }
+    },
+    {
+      "name": "amend_order",
+      "description": "Private: amend an existing order.",
+      "method": "POST",
+      "path": "/v5/order/amend",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": { "type": "string", "enum": ["spot", "linear", "inverse", "option"] },
+          "symbol": { "type": "string" },
+          "orderId": { "type": "string" },
+          "orderLinkId": { "type": "string" },
+          "qty": { "type": "string" },
+          "price": { "type": "string" },
+          "triggerPrice": { "type": "string" },
+          "takeProfit": { "type": "string" },
+          "stopLoss": { "type": "string" }
+        },
+        "required": ["category", "symbol"]
+      }
+    },
+    {
+      "name": "cancel_order",
+      "description": "Private: cancel an order.",
+      "method": "POST",
+      "path": "/v5/order/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": { "type": "string", "enum": ["spot", "linear", "inverse", "option"] },
+          "symbol": { "type": "string" },
+          "orderId": { "type": "string" },
+          "orderLinkId": { "type": "string" }
+        },
+        "required": ["category", "symbol"]
+      }
+    },
+    {
+      "name": "cancel_all_orders",
+      "description": "Private: cancel all orders matching filters.",
+      "method": "POST",
+      "path": "/v5/order/cancel-all",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": { "type": "string", "enum": ["spot", "linear", "inverse", "option"] },
+          "symbol": { "type": "string" },
+          "baseCoin": { "type": "string" },
+          "settleCoin": { "type": "string" },
+          "orderFilter": { "type": "string" }
+        },
+        "required": ["category"]
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "Private: get open and recently closed orders.",
+      "method": "GET",
+      "path": "/v5/order/realtime",
+      "query_params": ["category", "symbol", "baseCoin", "settleCoin", "orderId", "orderLinkId", "openOnly", "orderFilter", "limit", "cursor"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": { "type": "string", "enum": ["spot", "linear", "inverse", "option"] },
+          "symbol": { "type": "string" },
+          "baseCoin": { "type": "string" },
+          "settleCoin": { "type": "string" },
+          "orderId": { "type": "string" },
+          "orderLinkId": { "type": "string" },
+          "openOnly": { "type": "integer" },
+          "orderFilter": { "type": "string" },
+          "limit": { "type": "integer" },
+          "cursor": { "type": "string" }
+        },
+        "required": ["category"]
+      }
+    },
+    {
+      "name": "list_order_history",
+      "description": "Private: get order history.",
+      "method": "GET",
+      "path": "/v5/order/history",
+      "query_params": ["category", "symbol", "baseCoin", "settleCoin", "orderId", "orderLinkId", "orderFilter", "orderStatus", "startTime", "endTime", "limit", "cursor"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": { "type": "string", "enum": ["spot", "linear", "inverse", "option"] },
+          "symbol": { "type": "string" },
+          "baseCoin": { "type": "string" },
+          "settleCoin": { "type": "string" },
+          "orderId": { "type": "string" },
+          "orderLinkId": { "type": "string" },
+          "orderFilter": { "type": "string" },
+          "orderStatus": { "type": "string" },
+          "startTime": { "type": "integer" },
+          "endTime": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "cursor": { "type": "string" }
+        },
+        "required": ["category"]
+      }
+    },
+    {
+      "name": "list_executions",
+      "description": "Private: get execution/trade history.",
+      "method": "GET",
+      "path": "/v5/execution/list",
+      "query_params": ["category", "symbol", "orderId", "orderLinkId", "baseCoin", "startTime", "endTime", "execType", "limit", "cursor"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": { "type": "string", "enum": ["spot", "linear", "inverse", "option"] },
+          "symbol": { "type": "string" },
+          "orderId": { "type": "string" },
+          "orderLinkId": { "type": "string" },
+          "baseCoin": { "type": "string" },
+          "startTime": { "type": "integer" },
+          "endTime": { "type": "integer" },
+          "execType": { "type": "string" },
+          "limit": { "type": "integer" },
+          "cursor": { "type": "string" }
+        },
+        "required": ["category"]
       }
     }
   ]

@@ -164,6 +164,33 @@ type ApprovalRequester interface {
 	RequestApproval(req ApprovalRequest) (ApprovalResult, error)
 }
 
+// ReportSection is one structured section in an agent-created report.
+type ReportSection struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+}
+
+// ReportRequest asks a local channel to persist a structured report.
+// Reports are dashboard/inbox artifacts, not normal visible chat turns.
+type ReportRequest struct {
+	Title    string          `json:"title"`
+	Summary  string          `json:"summary,omitempty"`
+	Period   string          `json:"period,omitempty"`
+	Sections []ReportSection `json:"sections,omitempty"`
+	Tags     []string        `json:"tags,omitempty"`
+	Context  map[string]any  `json:"context,omitempty"`
+}
+
+type ReportResult struct {
+	MessageID int64  `json:"message_id"`
+	ChatID    string `json:"chat_id"`
+	Status    string `json:"status"`
+}
+
+type ReportSender interface {
+	SendReport(req ReportRequest) (ReportResult, error)
+}
+
 // MCPTool is one tool exposed through the instance's channel MCP.
 // Handlers have full access to the app's DB + the calling instance.
 type MCPTool struct {

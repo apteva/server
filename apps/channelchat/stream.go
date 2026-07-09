@@ -10,11 +10,13 @@ import (
 
 // Streamer turns the LLM's incremental tool-argument deltas (emitted
 // as `llm.tool_chunk` telemetry events when the model is composing a
-// `channels_respond` call on a chat-capable thread) into ephemeral
+// `channels_send(kind="message")` or legacy `channels_respond` call
+// on a chat-capable thread) into ephemeral
 // "streaming" frames on the chat SSE stream.
 //
 // Why this exists:
-//   - The agent calls respond(channel="chat", text="long answer") to
+//   - The agent calls channels_send(channel="apteva", kind="message",
+//     text="long answer") to
 //     reply. Without streaming, the user waits for the entire LLM
 //     generation to finish, then sees the message land all at once.
 //   - The LLM's provider already streams the tool-call arguments
@@ -218,7 +220,7 @@ func (s *Streamer) onFinalArgs(threadID, chatID, dataJSON string, ts time.Time) 
 	if !ok {
 		return
 	}
-	if channel != "" && channel != "chat" {
+	if channel != "" && channel != "chat" && channel != "apteva" && channel != "current" {
 		// Tool call targeted a different channel — not our problem.
 		return
 	}
@@ -290,7 +292,7 @@ func firstNonEmpty(values ...string) string {
 
 func isVisibleChatTool(name string) bool {
 	switch name {
-	case "channels_respond":
+	case "channels_respond", "channels_send":
 		return true
 	default:
 		return false
@@ -312,14 +314,23 @@ func decodeRespondArgs(raw json.RawMessage) (channel, text string, ok bool) {
 	}
 	var args struct {
 		Channel string `json:"channel"`
+		Kind    string `json:"kind"`
 		Text    string `json:"text"`
 	}
 	if err := json.Unmarshal(raw, &args); err == nil {
+		kind := strings.ToLower(strings.TrimSpace(args.Kind))
+		if kind != "" && kind != "message" {
+			return "", "", false
+		}
 		return args.Channel, args.Text, args.Channel != "" || args.Text != ""
 	}
 	var encoded string
 	if err := json.Unmarshal(raw, &encoded); err == nil && encoded != "" {
 		if err := json.Unmarshal([]byte(encoded), &args); err == nil {
+			kind := strings.ToLower(strings.TrimSpace(args.Kind))
+			if kind != "" && kind != "message" {
+				return "", "", false
+			}
 			return args.Channel, args.Text, args.Channel != "" || args.Text != ""
 		}
 	}

@@ -115,7 +115,10 @@ func (a *App) HTTPRoutes() []framework.Route {
 		{Method: "GET", Path: "/stream", Handler: a.wrap(a.handlers.stream)},
 		{Method: "GET", Path: "/unread-summary", Handler: a.wrap(a.handlers.unreadSummary)},
 		{Method: "GET", Path: "/approval-messages", Handler: a.wrap(a.handlers.approvalMessages)},
+		{Method: "GET", Path: "/report-messages", Handler: a.wrap(a.handlers.reportMessages)},
+		{Method: "GET", Path: "/alert-messages", Handler: a.wrap(a.handlers.alertMessages)},
 		{Method: "POST", Path: "/message-action", Handler: a.wrap(a.handlers.messageAction)},
+		{Method: "POST", Path: "/message-dismiss", Handler: a.wrap(a.handlers.messageDismiss)},
 		{Method: "POST", Path: "/seen", Handler: a.wrap(a.handlers.markSeen)},
 		// Presence events ("[chat] user connected/disconnected") used
 		// to go from the dashboard straight to core /event with

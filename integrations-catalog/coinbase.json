@@ -1,268 +1,315 @@
 {
   "slug": "coinbase",
-  "name": "Coinbase",
-  "description": "MCP server for Coinbase cryptocurrency exchange - trading, accounts, market data",
+  "name": "Coinbase Advanced Trade",
+  "description": "Coinbase Advanced Trade REST API for spot/futures-ready accounts, products, order management, fills, portfolios, payment methods, fees, and public market data. Private tools use CDP JWT authentication from an Ed25519 or ECDSA API key.",
   "logo": "https://www.google.com/s2/favicons?domain=coinbase.com&sz=128",
-  "categories": [
-    "crypto",
-    "trading",
-    "exchange",
-    "finance"
-  ],
+  "categories": ["crypto", "trading", "exchange", "finance"],
   "base_url": "https://api.coinbase.com/api/v3/brokerage",
   "auth": {
-    "types": [
-      "bearer"
-    ],
+    "types": ["custom"],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Content-Type": "application/json"
     },
+    "signers": [{ "name": "coinbase_jwt" }],
     "credential_fields": [
       {
-        "name": "token",
-        "label": "Api Key",
-        "description": "Coinbase API Key"
+        "name": "key_name",
+        "label": "CDP API Key Name",
+        "type": "password",
+        "description": "Coinbase CDP key name / key ID, e.g. organizations/{org_id}/apiKeys/{key_id}."
       },
       {
-        "name": "apiSecret",
-        "label": "Api Secret",
-        "description": "Coinbase API Secret"
+        "name": "key_secret",
+        "label": "CDP Private Key",
+        "type": "password",
+        "description": "Coinbase CDP private key. Ed25519 base64 secrets and PEM Ed25519/ECDSA keys are supported."
       }
     ]
   },
+  "health_check": {
+    "tool": "get_time",
+    "input": {}
+  },
   "tools": [
     {
-      "name": "get_accounts",
-      "description": "Get all trading accounts",
+      "name": "get_time",
+      "description": "Public: get Coinbase server time.",
       "method": "GET",
-      "path": "/get-accounts",
-      "input_schema": {
-        "type": "object",
-        "properties": {}
-      }
+      "path": "/time",
+      "signing": { "signers": [] },
+      "input_schema": { "type": "object", "properties": {} }
     },
     {
-      "name": "get_portfolio",
-      "description": "Get portfolio breakdown",
+      "name": "list_public_products",
+      "description": "Public: list tradable products and product metadata.",
       "method": "GET",
-      "path": "/get-portfolio",
+      "path": "/market/products",
+      "signing": { "signers": [] },
+      "query_params": ["limit", "offset", "product_type", "product_ids", "contract_expiry_type", "expiring_contract_status", "get_tradability_status"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "portfolio_uuid": {
-            "type": "string",
-            "description": "Portfolio UUID (optional)"
-          }
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" },
+          "product_type": { "type": "string", "description": "SPOT, FUTURE, or UNKNOWN_PRODUCT_TYPE." },
+          "product_ids": { "type": "array", "items": { "type": "string" }, "description": "Product IDs such as BTC-USD." },
+          "contract_expiry_type": { "type": "string" },
+          "expiring_contract_status": { "type": "string" },
+          "get_tradability_status": { "type": "boolean" }
         }
       }
     },
     {
-      "name": "get_ticker",
-      "description": "Get current price ticker for a product",
+      "name": "get_public_product",
+      "description": "Public: get one product by product ID.",
       "method": "GET",
-      "path": "/get-ticker",
+      "path": "/market/products/{product_id}",
+      "signing": { "signers": [] },
+      "input_schema": { "type": "object", "properties": { "product_id": { "type": "string" } }, "required": ["product_id"] }
+    },
+    {
+      "name": "get_public_product_book",
+      "description": "Public: get level 2 product book.",
+      "method": "GET",
+      "path": "/market/product_book",
+      "signing": { "signers": [] },
+      "query_params": ["product_id", "limit"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "product_id": {
-            "type": "string",
-            "description": "Product ID (e.g., BTC-USD)"
-          }
+          "product_id": { "type": "string", "description": "Product ID such as BTC-USD." },
+          "limit": { "type": "integer" }
         },
-        "required": [
-          "product_id"
-        ]
+        "required": ["product_id"]
       }
     },
     {
-      "name": "get_candles",
-      "description": "Get historical candlestick data",
+      "name": "get_public_product_candles",
+      "description": "Public: get OHLC candles for a product.",
       "method": "GET",
-      "path": "/get-candles",
+      "path": "/market/products/{product_id}/candles",
+      "signing": { "signers": [] },
+      "query_params": ["start", "end", "granularity"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "product_id": {
-            "type": "string",
-            "description": "Product ID (e.g., BTC-USD)"
-          },
-          "granularity": {
-            "type": "string",
-            "enum": [
-              "ONE_MINUTE",
-              "FIVE_MINUTE",
-              "FIFTEEN_MINUTE",
-              "ONE_HOUR",
-              "SIX_HOUR",
-              "ONE_DAY"
-            ],
-            "description": "Candle granularity"
-          },
-          "start": {
-            "type": "string",
-            "description": "Start time (ISO 8601)"
-          },
-          "end": {
-            "type": "string",
-            "description": "End time (ISO 8601)"
-          }
+          "product_id": { "type": "string" },
+          "start": { "type": "string", "description": "Unix timestamp seconds." },
+          "end": { "type": "string", "description": "Unix timestamp seconds." },
+          "granularity": { "type": "string", "enum": ["UNKNOWN_GRANULARITY", "ONE_MINUTE", "FIVE_MINUTE", "FIFTEEN_MINUTE", "THIRTY_MINUTE", "ONE_HOUR", "TWO_HOUR", "SIX_HOUR", "ONE_DAY"] }
         },
-        "required": [
-          "product_id",
-          "granularity"
-        ]
+        "required": ["product_id", "start", "end", "granularity"]
       }
     },
     {
-      "name": "get_trades",
-      "description": "Get recent trades for a product",
+      "name": "get_public_market_trades",
+      "description": "Public: get recent market trades for a product.",
       "method": "GET",
-      "path": "/get-trades",
+      "path": "/market/products/{product_id}/ticker",
+      "signing": { "signers": [] },
+      "query_params": ["limit", "start", "end"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "product_id": {
-            "type": "string",
-            "description": "Product ID"
-          },
-          "limit": {
-            "type": "number",
-            "description": "Number of trades to return"
-          }
+          "product_id": { "type": "string" },
+          "limit": { "type": "integer" },
+          "start": { "type": "string" },
+          "end": { "type": "string" }
         },
-        "required": [
-          "product_id"
-        ]
+        "required": ["product_id"]
       }
+    },
+    {
+      "name": "list_accounts",
+      "description": "Private: list Coinbase trading accounts.",
+      "method": "GET",
+      "path": "/accounts",
+      "query_params": ["limit", "cursor", "retail_portfolio_id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer" },
+          "cursor": { "type": "string" },
+          "retail_portfolio_id": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_account",
+      "description": "Private: get one account by account UUID.",
+      "method": "GET",
+      "path": "/accounts/{account_id}",
+      "input_schema": { "type": "object", "properties": { "account_id": { "type": "string" } }, "required": ["account_id"] }
     },
     {
       "name": "create_order",
-      "description": "Create a new order",
+      "description": "Private: create an order. Pass Coinbase's order_configuration object directly for market, limit, stop-limit, TWAP, bracket, scaled, or attached orders.",
       "method": "POST",
-      "path": "/create-order",
+      "path": "/orders",
       "input_schema": {
         "type": "object",
         "properties": {
-          "product_id": {
-            "type": "string",
-            "description": "Product ID (e.g., BTC-USD)"
-          },
-          "side": {
-            "type": "string",
-            "enum": [
-              "BUY",
-              "SELL"
-            ],
-            "description": "Order side"
-          },
-          "order_type": {
-            "type": "string",
-            "enum": [
-              "MARKET",
-              "LIMIT"
-            ],
-            "description": "Order type"
-          },
-          "size": {
-            "type": "string",
-            "description": "Order size in base currency"
-          },
-          "price": {
-            "type": "string",
-            "description": "Limit price (for limit orders)"
-          }
+          "client_order_id": { "type": "string" },
+          "product_id": { "type": "string" },
+          "side": { "type": "string", "enum": ["BUY", "SELL"] },
+          "order_configuration": { "type": "object", "description": "Coinbase order_configuration object." },
+          "leverage": { "type": "string" },
+          "margin_type": { "type": "string" },
+          "retail_portfolio_id": { "type": "string" }
         },
-        "required": [
-          "product_id",
-          "side",
-          "order_type"
-        ]
+        "required": ["client_order_id", "product_id", "side", "order_configuration"]
+      }
+    },
+    {
+      "name": "preview_order",
+      "description": "Private: preview an order before creating it.",
+      "method": "POST",
+      "path": "/orders/preview",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": { "type": "string" },
+          "side": { "type": "string", "enum": ["BUY", "SELL"] },
+          "order_configuration": { "type": "object" },
+          "leverage": { "type": "string" },
+          "margin_type": { "type": "string" },
+          "retail_portfolio_id": { "type": "string" }
+        },
+        "required": ["product_id", "side", "order_configuration"]
+      }
+    },
+    {
+      "name": "cancel_orders",
+      "description": "Private: batch cancel open orders.",
+      "method": "POST",
+      "path": "/orders/batch_cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": { "order_ids": { "type": "array", "items": { "type": "string" } } },
+        "required": ["order_ids"]
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "Private: list historical orders.",
+      "method": "GET",
+      "path": "/orders/historical/batch",
+      "query_params": ["product_id", "order_status", "limit", "start_date", "end_date", "order_type", "order_side", "cursor", "product_type", "order_placement_source", "contract_expiry_type", "asset_filters", "retail_portfolio_id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": { "type": "string" },
+          "order_status": { "type": "array", "items": { "type": "string" } },
+          "limit": { "type": "integer" },
+          "start_date": { "type": "string" },
+          "end_date": { "type": "string" },
+          "order_type": { "type": "string" },
+          "order_side": { "type": "string" },
+          "cursor": { "type": "string" },
+          "product_type": { "type": "string" },
+          "order_placement_source": { "type": "string" },
+          "contract_expiry_type": { "type": "string" },
+          "asset_filters": { "type": "array", "items": { "type": "string" } },
+          "retail_portfolio_id": { "type": "string" }
+        }
       }
     },
     {
       "name": "get_order",
-      "description": "Get order details",
+      "description": "Private: get one historical order by ID.",
       "method": "GET",
-      "path": "/get-order",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "order_id": {
-            "type": "string",
-            "description": "Order ID"
-          }
-        },
-        "required": [
-          "order_id"
-        ]
-      }
+      "path": "/orders/historical/{order_id}",
+      "input_schema": { "type": "object", "properties": { "order_id": { "type": "string" } }, "required": ["order_id"] }
     },
     {
-      "name": "get_orders",
-      "description": "List orders",
+      "name": "list_fills",
+      "description": "Private: list order fills.",
       "method": "GET",
-      "path": "/get-orders",
+      "path": "/orders/historical/fills",
+      "query_params": ["order_id", "product_id", "start_sequence_timestamp", "end_sequence_timestamp", "limit", "cursor", "retail_portfolio_id"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "product_id": {
-            "type": "string",
-            "description": "Filter by product ID"
-          },
-          "order_status": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Filter by status"
-          },
-          "limit": {
-            "type": "number",
-            "description": "Number of orders to return"
-          }
+          "order_id": { "type": "string" },
+          "product_id": { "type": "string" },
+          "start_sequence_timestamp": { "type": "string" },
+          "end_sequence_timestamp": { "type": "string" },
+          "limit": { "type": "integer" },
+          "cursor": { "type": "string" },
+          "retail_portfolio_id": { "type": "string" }
         }
       }
     },
     {
-      "name": "cancel_order",
-      "description": "Cancel an order",
+      "name": "get_best_bid_ask",
+      "description": "Private: get best bid/ask for one or more products.",
       "method": "GET",
-      "path": "/cancel-order",
+      "path": "/best_bid_ask",
+      "query_params": ["product_ids"],
+      "input_schema": { "type": "object", "properties": { "product_ids": { "type": "array", "items": { "type": "string" } } } }
+    },
+    {
+      "name": "get_product_book",
+      "description": "Private: get authenticated product book.",
+      "method": "GET",
+      "path": "/product_book",
+      "query_params": ["product_id", "limit"],
       "input_schema": {
         "type": "object",
-        "properties": {
-          "order_id": {
-            "type": "string",
-            "description": "Order ID to cancel"
-          }
-        },
-        "required": [
-          "order_id"
-        ]
+        "properties": { "product_id": { "type": "string" }, "limit": { "type": "integer" } },
+        "required": ["product_id"]
       }
     },
     {
-      "name": "get_fills",
-      "description": "Get order fills/executions",
+      "name": "get_transaction_summary",
+      "description": "Private: get transaction summary / fee tier information.",
       "method": "GET",
-      "path": "/get-fills",
+      "path": "/transaction_summary",
+      "query_params": ["product_type", "contract_expiry_type", "retail_portfolio_id"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "order_id": {
-            "type": "string",
-            "description": "Filter by order ID"
-          },
-          "product_id": {
-            "type": "string",
-            "description": "Filter by product ID"
-          },
-          "limit": {
-            "type": "number",
-            "description": "Number of fills to return"
-          }
+          "product_type": { "type": "string" },
+          "contract_expiry_type": { "type": "string" },
+          "retail_portfolio_id": { "type": "string" }
         }
       }
+    },
+    {
+      "name": "list_portfolios",
+      "description": "Private: list Coinbase portfolios.",
+      "method": "GET",
+      "path": "/portfolios",
+      "query_params": ["portfolio_type"],
+      "input_schema": { "type": "object", "properties": { "portfolio_type": { "type": "string" } } }
+    },
+    {
+      "name": "get_portfolio_breakdown",
+      "description": "Private: get portfolio breakdown.",
+      "method": "GET",
+      "path": "/portfolios/{portfolio_uuid}",
+      "input_schema": { "type": "object", "properties": { "portfolio_uuid": { "type": "string" } }, "required": ["portfolio_uuid"] }
+    },
+    {
+      "name": "list_payment_methods",
+      "description": "Private: list payment methods.",
+      "method": "GET",
+      "path": "/payment_methods",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_payment_method",
+      "description": "Private: get one payment method.",
+      "method": "GET",
+      "path": "/payment_methods/{payment_method_id}",
+      "input_schema": { "type": "object", "properties": { "payment_method_id": { "type": "string" } }, "required": ["payment_method_id"] }
+    },
+    {
+      "name": "get_key_permissions",
+      "description": "Private: inspect API key permissions.",
+      "method": "GET",
+      "path": "/key_permissions",
+      "input_schema": { "type": "object", "properties": {} }
     }
   ]
 }

@@ -1,0 +1,198 @@
+{
+  "slug": "newscatcher",
+  "name": "NewsCatcher",
+  "description": "NewsCatcher News API v3 for broad global news search, latest headlines, breaking news, authors, sources, aggregation counts, and subscription metadata. Supports NLP filters and sentiment when enabled on the plan.",
+  "logo": "https://www.google.com/s2/favicons?domain=newscatcherapi.com&sz=128",
+  "categories": ["news", "search", "global", "nlp", "sentiment"],
+  "base_url": "https://v3-api.newscatcherapi.com/api",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "x-api-token": "{{api_key}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "type": "password",
+        "description": "NewsCatcher API key."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "latest_headlines",
+    "input": { "when": "1d", "page_size": 1 }
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "Search news articles by keyword, phrase, Boolean query, language, country, source, date range, sentiment, NLP tags, entities, and more.",
+      "method": "GET",
+      "path": "/search",
+      "query_params": ["q", "search_in", "lang", "countries", "sources", "not_sources", "from_", "to_", "published_date_precision", "sort_by", "ranked_only", "is_headline", "is_opinion", "is_paid_content", "parent_url", "all_links", "all_domain_links", "word_count_min", "word_count_max", "page", "page_size", "theme", "sentiment", "ner_name", "ner_type", "topic"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string", "description": "Keyword, phrase, or Boolean query." },
+          "search_in": { "type": "string", "description": "Comma-separated fields such as title,summary,content." },
+          "lang": { "type": "string" },
+          "countries": { "type": "string" },
+          "sources": { "type": "string" },
+          "not_sources": { "type": "string" },
+          "from_": { "type": "string", "description": "Start date/time." },
+          "to_": { "type": "string", "description": "End date/time." },
+          "published_date_precision": { "type": "string" },
+          "sort_by": { "type": "string" },
+          "ranked_only": { "type": "boolean" },
+          "is_headline": { "type": "boolean" },
+          "is_opinion": { "type": "boolean" },
+          "is_paid_content": { "type": "boolean" },
+          "parent_url": { "type": "string" },
+          "all_links": { "type": "string" },
+          "all_domain_links": { "type": "string" },
+          "word_count_min": { "type": "integer" },
+          "word_count_max": { "type": "integer" },
+          "page": { "type": "integer" },
+          "page_size": { "type": "integer" },
+          "theme": { "type": "string" },
+          "sentiment": { "type": "string", "description": "Requires NLP access." },
+          "ner_name": { "type": "string", "description": "Entity name filter when NLP is enabled." },
+          "ner_type": { "type": "string" },
+          "topic": { "type": "string" }
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "latest_headlines",
+      "description": "Most recent headlines within a time window. Filter by language, country, source, domain, and NLP attributes.",
+      "method": "GET",
+      "path": "/latest_headlines",
+      "query_params": ["when", "lang", "countries", "sources", "not_sources", "topic", "theme", "sentiment", "ner_name", "ner_type", "page", "page_size"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "when": { "type": "string", "description": "Time window such as 1h, 24h, 7d." },
+          "lang": { "type": "string" },
+          "countries": { "type": "string" },
+          "sources": { "type": "string" },
+          "not_sources": { "type": "string" },
+          "topic": { "type": "string" },
+          "theme": { "type": "string" },
+          "sentiment": { "type": "string" },
+          "ner_name": { "type": "string" },
+          "ner_type": { "type": "string" },
+          "page": { "type": "integer" },
+          "page_size": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "breaking_news",
+      "description": "Discover rapidly emerging stories with significant source traction.",
+      "method": "GET",
+      "path": "/breaking_news",
+      "query_params": ["lang", "countries", "sources", "not_sources", "page", "page_size"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lang": { "type": "string" },
+          "countries": { "type": "string" },
+          "sources": { "type": "string" },
+          "not_sources": { "type": "string" },
+          "page": { "type": "integer" },
+          "page_size": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "authors",
+      "description": "Search authors by name/source/domain.",
+      "method": "GET",
+      "path": "/authors",
+      "query_params": ["q", "sources", "not_sources", "lang", "countries", "page", "page_size"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string" },
+          "sources": { "type": "string" },
+          "not_sources": { "type": "string" },
+          "lang": { "type": "string" },
+          "countries": { "type": "string" },
+          "page": { "type": "integer" },
+          "page_size": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "search_by_link",
+      "description": "Retrieve articles by NewsCatcher article IDs or source article links. Use either ids or links, not both.",
+      "method": "GET",
+      "path": "/search_by_link",
+      "query_params": ["ids", "links", "from_", "to_", "by_parse_date", "page", "page_size"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ids": { "type": "string", "description": "Comma-separated NewsCatcher article IDs." },
+          "links": { "type": "string", "description": "Comma-separated source article URLs." },
+          "from_": { "type": "string" },
+          "to_": { "type": "string" },
+          "by_parse_date": { "type": "boolean" },
+          "page": { "type": "integer" },
+          "page_size": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "sources",
+      "description": "List indexed NewsCatcher sources/domains.",
+      "method": "GET",
+      "path": "/sources",
+      "query_params": ["lang", "countries", "predefined_sources", "page", "page_size"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lang": { "type": "string" },
+          "countries": { "type": "string" },
+          "predefined_sources": { "type": "string" },
+          "page": { "type": "integer" },
+          "page_size": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "aggregation_count",
+      "description": "Count matching articles grouped by supported aggregation dimensions for dashboards and trend analysis.",
+      "method": "GET",
+      "path": "/aggregation_count",
+      "query_params": ["q", "aggregation_by", "from_", "to_", "lang", "countries", "sources", "topic", "theme", "sentiment", "ner_name", "ner_type"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string" },
+          "aggregation_by": { "type": "string" },
+          "from_": { "type": "string" },
+          "to_": { "type": "string" },
+          "lang": { "type": "string" },
+          "countries": { "type": "string" },
+          "sources": { "type": "string" },
+          "topic": { "type": "string" },
+          "theme": { "type": "string" },
+          "sentiment": { "type": "string" },
+          "ner_name": { "type": "string" },
+          "ner_type": { "type": "string" }
+        },
+        "required": ["q", "aggregation_by"]
+      }
+    },
+    {
+      "name": "subscription",
+      "description": "Get NewsCatcher subscription metadata and enabled features.",
+      "method": "GET",
+      "path": "/subscription",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

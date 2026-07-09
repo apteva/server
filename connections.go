@@ -1409,7 +1409,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	// DNS delete endpoint, require a JSON body on DELETE; keeping the
 	// default DELETE path query-only preserves existing integrations.
 	var bodyReader io.Reader
-	if tool.Method != "GET" && (tool.Method != "DELETE" || tool.BodyInput != "" || tool.BodyRoot != "" || tool.MultipartForm != nil || hasTransformedBody) {
+	if tool.Method != "GET" && (tool.Method != "DELETE" || tool.BodyInput != "" || tool.BodyBinaryParam != "" || tool.BodyRoot != "" || tool.MultipartForm != nil || hasTransformedBody) {
 		// Raw-body path: tool declared a single input field that
 		// carries the request body verbatim (S3 PutObject, R2
 		// PutObject, etc.). Skip the JSON map assembly entirely.
@@ -1429,6 +1429,32 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			}
 			bodyReader = body
 			headers["Content-Type"] = contentType
+		} else if tool.BodyBinaryParam != "" {
+			v, ok := input[tool.BodyBinaryParam]
+			if !ok || v == nil {
+				return nil, fmt.Errorf("body_binary_param %q is required", tool.BodyBinaryParam)
+			}
+			env, ok := v.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("body_binary_param %q must be a binary envelope", tool.BodyBinaryParam)
+			}
+			if binary, _ := env["_binary"].(bool); !binary {
+				return nil, fmt.Errorf("body_binary_param %q must have _binary=true", tool.BodyBinaryParam)
+			}
+			encoded, _ := env["base64"].(string)
+			if encoded == "" {
+				return nil, fmt.Errorf("body_binary_param %q must include base64 data", tool.BodyBinaryParam)
+			}
+			bodyBytes, err := base64.StdEncoding.DecodeString(encoded)
+			if err != nil {
+				return nil, fmt.Errorf("decode body_binary_param %q: %w", tool.BodyBinaryParam, err)
+			}
+			bodyReader = bytes.NewReader(bodyBytes)
+			if mimeType, _ := env["mimeType"].(string); mimeType != "" {
+				headers["Content-Type"] = mimeType
+			} else if _, set := headers["Content-Type"]; !set {
+				headers["Content-Type"] = "application/octet-stream"
+			}
 		} else if tool.BodyInput != "" {
 			if v, ok := input[tool.BodyInput]; ok && v != nil {
 				var bodyBytes []byte
@@ -1444,7 +1470,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 				default:
 					bodyBytes = []byte(fmt.Sprintf("%v", raw))
 				}
-				bodyReader = strings.NewReader(string(bodyBytes))
+				bodyReader = bytes.NewReader(bodyBytes)
 			}
 			// If the template didn't set a Content-Type, default to
 			// octet-stream — anything calling raw-body path is
@@ -1552,7 +1578,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			if toolQuerySet[k] {
 				continue
 			}
-			if k == tool.BodyInput || k == tool.BodyRoot {
+			if k == tool.BodyInput || k == tool.BodyBinaryParam || k == tool.BodyRoot {
 				continue
 			}
 			addQueryValue(q, k, v)
@@ -1573,7 +1599,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	if bodyReader != nil {
 		buf, _ := io.ReadAll(bodyReader)
 		bodyBytes = buf
-		bodyReader = strings.NewReader(string(buf))
+		bodyReader = bytes.NewReader(buf)
 	}
 
 	req, err := http.NewRequest(tool.Method, url, bodyReader)

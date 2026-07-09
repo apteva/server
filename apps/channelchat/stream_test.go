@@ -106,6 +106,90 @@ func TestStreamerIngest_ToolChunkPayloadAliases(t *testing.T) {
 	}
 }
 
+func TestStreamerIngest_ChannelsSendMessageStreams(t *testing.T) {
+	h := newHub()
+	st := newStreamer(h)
+	chatID := defaultChatID(42)
+	ch, _, cancel := h.subscribeStream(chatID)
+	defer cancel()
+
+	st.Ingest(
+		"llm.tool_chunk",
+		42,
+		"main",
+		`{"name":"channels_send","call_id":"call-send","delta":"{\"kind\":\"message\",\"channel\":\"current\",\"text\":\"Hi"}`,
+		time.Now(),
+	)
+
+	select {
+	case frame := <-ch:
+		if frame.ChatID != chatID {
+			t.Fatalf("ChatID = %q, want %q", frame.ChatID, chatID)
+		}
+		if frame.CallID != "call-send" {
+			t.Fatalf("CallID = %q, want call-send", frame.CallID)
+		}
+		if frame.Text != "Hi" {
+			t.Fatalf("Text = %q, want Hi", frame.Text)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for stream frame")
+	}
+}
+
+func TestStreamerIngest_ChannelsSendAptevaMessageStreams(t *testing.T) {
+	h := newHub()
+	st := newStreamer(h)
+	chatID := defaultChatID(42)
+	ch, _, cancel := h.subscribeStream(chatID)
+	defer cancel()
+
+	st.Ingest(
+		"tool.call",
+		42,
+		"main",
+		`{"tool":"channels_send","tool_call_id":"call-apteva","arguments":{"kind":"message","channel":"apteva","text":"Saved for you."}}`,
+		time.Now(),
+	)
+
+	select {
+	case frame := <-ch:
+		if frame.ChatID != chatID {
+			t.Fatalf("ChatID = %q, want %q", frame.ChatID, chatID)
+		}
+		if frame.CallID != "call-apteva" {
+			t.Fatalf("CallID = %q, want call-apteva", frame.CallID)
+		}
+		if frame.Text != "Saved for you." {
+			t.Fatalf("Text = %q, want Saved for you.", frame.Text)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for stream frame")
+	}
+}
+
+func TestStreamerIngest_ChannelsSendArtifactDoesNotStreamAsChat(t *testing.T) {
+	h := newHub()
+	st := newStreamer(h)
+	chatID := defaultChatID(42)
+	ch, _, cancel := h.subscribeStream(chatID)
+	defer cancel()
+
+	st.Ingest(
+		"tool.call",
+		42,
+		"main",
+		`{"tool":"channels_send","tool_call_id":"call-approval","arguments":{"kind":"approval","channel":"apteva","title":"Approve","body":"Proceed?"}}`,
+		time.Now(),
+	)
+
+	select {
+	case frame := <-ch:
+		t.Fatalf("unexpected stream frame: %+v", frame)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 func TestStreamerIngest_FinalArgsPayloadAliases(t *testing.T) {
 	h := newHub()
 	st := newStreamer(h)
@@ -204,10 +288,10 @@ func TestFormatAgentChatEventIncludesReplyContract(t *testing.T) {
 	for _, want := range []string{
 		"[chat]",
 		"Thoughts are not visible to the user",
-		"channels_respond with channel=\"chat\"",
+		"channels_send with kind=\"message\" and channel=\"current\"",
 		"wakes you again",
 		"schedule yourself with pace",
-		"send another channels_respond with the outcome",
+		"send another channels_send kind=\"message\" with the outcome",
 		"User message:",
 		"What can you do?",
 		"Dashboard context:",

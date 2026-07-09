@@ -36,7 +36,7 @@ func perThreadEnabled() bool {
 // chasing call sites.
 const chatThreadDirectiveSuffix = "\n\n---\n" +
 	"You're handling a live chat with the user. You ARE the agent — use the tools attached " +
-	"(see your tool list) and reply via respond(channel=\"chat\", text=...). " +
+	"(see your tool list) and reply via channels_send(kind=\"message\", channel=\"current\", text=...). " +
 	"Just act — if the user asks for something you can do with your tools, do it and reply " +
 	"with the result. Don't ask for clarification on obvious requests; pick sensible " +
 	"defaults and ship.\n\n" +
@@ -300,11 +300,9 @@ func (h *handlers) postMessage(w http.ResponseWriter, r *http.Request, _ *framew
 	}
 
 	// Forward to the agent's /event endpoint using the same shape
-	// the Slack / email paths use. Prefix identifies the channel so
-	// the agent knows which channel to respond via
-	// (channels_respond(channel="chat", ...)). We use a stable
-	// "[chat]" prefix so existing channel-routing logic in core works
-	// without per-chat-id knowledge for the single-default case.
+	// the Slack / email paths use. We keep the stable "[chat]" tag as
+	// the event source label, while the channels MCP resolves the
+	// reply target to the canonical internal channel "apteva".
 	//
 	// Failure used to be silent — the DB row persisted but the agent
 	// never saw the message, and the user had no way to know. Now we
@@ -558,6 +556,59 @@ func (h *handlers) approvalMessages(w http.ResponseWriter, r *http.Request, _ *f
 	writeJSON(w, rows)
 }
 
+// GET /api/apps/channel-chat/report-messages?project_id=<id>&limit=20
+//
+// Returns report-card messages for the authenticated user's agents.
+// Reports reuse channel_chat_messages as the persistence layer, but
+// normal chat history/stream queries filter them out so they remain
+// inbox artifacts instead of chat turns.
+func (h *handlers) reportMessages(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
+	userID := h.instances.LookupUserID(r)
+	if userID == 0 {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	ids, err := h.instances.InstanceIDsForUser(userID)
+	if err != nil {
+		log.Printf("[CHAT] report-messages: list instances for user=%d: %v", userID, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	rows, err := h.store.ListReportMessages(ids, r.URL.Query().Get("project_id"), limit)
+	if err != nil {
+		log.Printf("[CHAT] report-messages: user=%d ids=%v: %v", userID, ids, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, rows)
+}
+
+// GET /api/apps/channel-chat/alert-messages?project_id=<id>&limit=20
+//
+// Returns alert-card messages for the authenticated user's agents.
+func (h *handlers) alertMessages(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
+	userID := h.instances.LookupUserID(r)
+	if userID == 0 {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	ids, err := h.instances.InstanceIDsForUser(userID)
+	if err != nil {
+		log.Printf("[CHAT] alert-messages: list instances for user=%d: %v", userID, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	rows, err := h.store.ListAlertMessages(ids, r.URL.Query().Get("project_id"), limit)
+	if err != nil {
+		log.Printf("[CHAT] alert-messages: user=%d ids=%v: %v", userID, ids, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, rows)
+}
+
 // POST /api/apps/channel-chat/message-action
 // Body: {message_id, action_id, note?}
 //
@@ -631,6 +682,93 @@ func (h *handlers) messageAction(w http.ResponseWriter, r *http.Request, _ *fram
 		"forwarded":      forwardErr == nil,
 		"delivery_error": errString(forwardErr),
 	})
+}
+
+// POST /api/apps/channel-chat/message-dismiss
+// Body: {message_id}
+//
+// Hides an inbox artifact (approval/report/alert) from inbox queries
+// by updating the component props in-place. This is intentionally not
+// an approval decision and does not notify the agent.
+func (h *handlers) messageDismiss(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
+	var body struct {
+		MessageID int64 `json:"message_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if body.MessageID == 0 {
+		http.Error(w, "message_id required", http.StatusBadRequest)
+		return
+	}
+	msg, err := h.store.GetMessage(body.MessageID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			http.Error(w, "message not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	chat, err := h.store.GetChat(msg.ChatID)
+	if err != nil {
+		http.Error(w, "chat not found", http.StatusNotFound)
+		return
+	}
+	userID := h.instances.LookupUserID(r)
+	inst, err := h.instances.OwnedInstance(userID, chat.AgentID)
+	if err != nil {
+		http.Error(w, "chat not found", http.StatusNotFound)
+		return
+	}
+	updatedComponents, err := applyInboxDismiss(msg.Components, userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	updated, err := h.store.UpdateMessageComponents(msg.ID, updatedComponents)
+	if err != nil {
+		http.Error(w, "update failed", http.StatusInternalServerError)
+		return
+	}
+	h.hub.publish(*updated)
+	h.hub.publishToUser(inst.UserID, *updated)
+	if h.bus != nil {
+		h.bus.Publish("chat.message", "channel-chat", *updated)
+	}
+	writeJSON(w, map[string]any{
+		"message":   updated,
+		"dismissed": true,
+	})
+}
+
+func applyInboxDismiss(components []framework.ChatComponent, userID int64) ([]framework.ChatComponent, error) {
+	out := append([]framework.ChatComponent(nil), components...)
+	for i, c := range out {
+		if c.App != "channel-chat" || !isInboxComponentName(c.Name) {
+			continue
+		}
+		props := copyProps(c.Props)
+		if componentDismissed(props) {
+			return out, nil
+		}
+		props["dismissed"] = true
+		props["dismissed_by"] = userID
+		props["dismissed_at"] = time.Now().UTC().Format(time.RFC3339Nano)
+		out[i].Props = props
+		return out, nil
+	}
+	return nil, fmt.Errorf("inbox component not found")
+}
+
+func isInboxComponentName(name string) bool {
+	switch name {
+	case "approval-card", "report-card", "alert-card":
+		return true
+	default:
+		return false
+	}
 }
 
 func applyApprovalAction(components []framework.ChatComponent, actionID, note string, userID int64) ([]framework.ChatComponent, map[string]any, error) {
@@ -719,7 +857,7 @@ func formatApprovalResultEvent(messageID int64, actionID string, approval map[st
 		b.WriteString("\nNote: ")
 		b.WriteString(strings.TrimSpace(note))
 	}
-	b.WriteString("\nContinue from this decision. If this was requested from dashboard chat, send a visible channels_respond with the result when you have acted on it.")
+	b.WriteString("\nContinue from this decision. If this was requested from dashboard chat, send a visible channels_send with kind=\"message\" and channel=\"current\" when you have acted on it.")
 	return b.String()
 }
 
@@ -910,9 +1048,9 @@ func formatAgentChatEvent(text string, context any) string {
 	var b strings.Builder
 	b.WriteString("[chat]\n")
 	b.WriteString("A user is talking to you in dashboard chat. Thoughts are not visible to the user. ")
-	b.WriteString("Use channels_respond with channel=\"chat\" for visible chat messages. ")
-	b.WriteString("A successful channels_respond wakes you again. If you promised work, continue after the tool result: call the needed tools, schedule yourself with pace, or explain why blocked. ")
-	b.WriteString("After action tool results arrive, send another channels_respond with the outcome before pacing or going idle.\n\n")
+	b.WriteString("Use channels_send with kind=\"message\" and channel=\"current\" or channel=\"apteva\" for visible Apteva operator messages. ")
+	b.WriteString("A successful channels_send message wakes you again. If you promised work, continue after the tool result: call the needed tools, schedule yourself with pace, or explain why blocked. ")
+	b.WriteString("After action tool results arrive, send another channels_send kind=\"message\" with the outcome before pacing or going idle.\n\n")
 	if ctx := formatDashboardContext(context); ctx != "" {
 		b.WriteString(ctx)
 		b.WriteString("\n\n")
@@ -928,7 +1066,7 @@ func formatPlatformHelperChatEvent(text string, context any) string {
 	b.WriteString("TASK TYPE: platform_assistant (NOT eval grading)\n\n")
 	b.WriteString("You are Apteva Helper in the dashboard. Help the operator understand the current page, design agents, and turn rough goals into concrete next steps. ")
 	b.WriteString("When the operator wants to create or manage agents, ask briefly for missing details, then use the apteva-server MCP tools such as agents_create, agents_list, agents_start, agents_stop, and agents_update when appropriate. ")
-	b.WriteString("Do not grade anything. Do not return judge JSON. Use channels_respond with channel=\"chat\" for visible chat messages; if you promised tool work, continue after the respond result and then send another channels_respond with the outcome.\n\n")
+	b.WriteString("Do not grade anything. Do not return judge JSON. Use channels_send with kind=\"message\" and channel=\"current\" or channel=\"apteva\" for visible Apteva operator messages; if you promised tool work, continue after the send result and then send another channels_send message with the outcome.\n\n")
 	if ctx := formatDashboardContext(context); ctx != "" {
 		b.WriteString(ctx)
 		b.WriteString("\n\n")
