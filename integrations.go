@@ -434,7 +434,11 @@ type AppToolDef struct {
 	// stay consistent but the upstream API uses an odd name, e.g. Bunny Stream
 	// list_videos accepts input collectionId but requires query key collection.
 	QueryParamAliases map[string]string `json:"query_param_aliases,omitempty"`
-	ResponsePath      *string           `json:"response_path,omitempty"`
+	// HeaderParams maps agent-facing input names to upstream HTTP header
+	// names. Values are copied from the input and excluded from the normal
+	// request body/query. Fish Audio uses this for its required model header.
+	HeaderParams map[string]string `json:"header_params,omitempty"`
+	ResponsePath *string           `json:"response_path,omitempty"`
 
 	// MockResponse is the curated, real-shaped reply returned for this tool
 	// when it runs inside a test Environment and no per-environment fixture/cassette
@@ -539,6 +543,9 @@ type AppToolDef struct {
 type MultipartFormDef struct {
 	FileFields map[string]string `json:"file_fields,omitempty"`
 	FieldNames []string          `json:"field_names,omitempty"`
+	// RepeatFields lists text fields whose array values should be emitted as
+	// repeated multipart parts instead of one JSON-encoded value.
+	RepeatFields []string `json:"repeat_fields,omitempty"`
 }
 
 type RequestTransformDef struct {

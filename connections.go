@@ -70,6 +70,10 @@ func buildMultipartRequestBody(tool *AppToolDef, input map[string]any, credentia
 	}
 
 	seenText := map[string]bool{}
+	repeatText := map[string]bool{}
+	for _, name := range tool.MultipartForm.RepeatFields {
+		repeatText[name] = true
+	}
 	for _, name := range tool.MultipartForm.FieldNames {
 		if seenText[name] {
 			continue
@@ -82,8 +86,14 @@ func buildMultipartRequestBody(tool *AppToolDef, input map[string]any, credentia
 		if str, ok := v.(string); ok && str == "" {
 			continue
 		}
-		if err := writer.WriteField(name, multipartTextValue(v)); err != nil {
-			return nil, "", fmt.Errorf("multipart field %q: %w", name, err)
+		values := []any{v}
+		if repeatText[name] {
+			values = multipartFileValues(v)
+		}
+		for _, value := range values {
+			if err := writer.WriteField(name, multipartTextValue(value)); err != nil {
+				return nil, "", fmt.Errorf("multipart field %q: %w", name, err)
+			}
 		}
 	}
 
@@ -193,7 +203,7 @@ func decodeMultipartFileString(s string) []byte {
 }
 
 func multipartFilename(input map[string]any, inputName string, index, total int) string {
-	for _, name := range []string{"filename", "fileName", inputName + "Filename", inputName + "FileName"} {
+	for _, name := range []string{"filename", "fileName", inputName + "_filename", inputName + "Filename", inputName + "FileName"} {
 		if v, ok := input[name].(string); ok && strings.TrimSpace(v) != "" {
 			if total <= 1 {
 				return v
@@ -1346,6 +1356,19 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	for key, tmpl := range tool.Headers {
 		headers[key] = resolveTemplate(tmpl, credentials)
 	}
+	for inputName, headerName := range tool.HeaderParams {
+		if headerName == "" {
+			continue
+		}
+		v, ok := input[inputName]
+		if !ok || v == nil {
+			continue
+		}
+		if str, isStr := v.(string); isStr && str == "" {
+			continue
+		}
+		headers[headerName] = fmt.Sprint(v)
+	}
 	headers["Accept"] = "application/json"
 
 	// Tool-level query_params: a set of input field names that must be
@@ -1534,6 +1557,9 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 				if toolQuerySet[k] {
 					continue
 				}
+				if _, isHeaderParam := tool.HeaderParams[k]; isHeaderParam {
+					continue
+				}
 				// Don't override credential defaults with empty values
 				if str, ok := v.(string); ok && str == "" {
 					continue
@@ -1576,6 +1602,9 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 				continue
 			}
 			if toolQuerySet[k] {
+				continue
+			}
+			if _, isHeaderParam := tool.HeaderParams[k]; isHeaderParam {
 				continue
 			}
 			if k == tool.BodyInput || k == tool.BodyBinaryParam || k == tool.BodyRoot {

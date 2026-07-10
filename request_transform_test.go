@@ -4,11 +4,87 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestExecuteIntegrationTool_HeaderAndRepeatedMultipartFields(t *testing.T) {
+	var modelHeader string
+	parts := map[string][]string{}
+	filenames := map[string][]string{}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		modelHeader = r.Header.Get("model")
+		mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil || mediaType != "multipart/form-data" {
+			t.Fatalf("content type=%q params=%v err=%v", mediaType, params, err)
+		}
+		reader := multipart.NewReader(r.Body, params["boundary"])
+		for {
+			part, err := reader.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := io.ReadAll(part)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parts[part.FormName()] = append(parts[part.FormName()], string(data))
+			filenames[part.FormName()] = append(filenames[part.FormName()], part.FileName())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"_id":"voice-1"}`))
+	}))
+	defer ts.Close()
+
+	app := &AppTemplate{Slug: "fish-audio", BaseURL: ts.URL, Auth: AppAuthConfig{Types: []string{"bearer"}}}
+	tool := &AppToolDef{
+		Name: "create_voice_model", Method: http.MethodPost, Path: "/model",
+		HeaderParams: map[string]string{"model": "model"},
+		MultipartForm: &MultipartFormDef{
+			FieldNames:   []string{"title", "texts", "tags"},
+			RepeatFields: []string{"texts", "tags"},
+			FileFields:   map[string]string{"voices": "voices"},
+		},
+	}
+	res, err := executeIntegrationTool(app, tool, nil, map[string]any{
+		"model": "s2.1-pro", "title": "Narrator",
+		"voices_filename": "sample.wav",
+		"texts":           []any{"first transcript", "second transcript"},
+		"tags":            []string{"english", "narration"},
+		"voices": []any{
+			base64.StdEncoding.EncodeToString([]byte("audio-one")),
+			base64.StdEncoding.EncodeToString([]byte("audio-two")),
+		},
+	}, "")
+	if err != nil || res == nil || !res.Success {
+		t.Fatalf("execute result=%+v err=%v", res, err)
+	}
+	if modelHeader != "s2.1-pro" {
+		t.Fatalf("model header=%q", modelHeader)
+	}
+	if _, leaked := parts["model"]; leaked {
+		t.Fatalf("header parameter leaked into multipart body: %+v", parts)
+	}
+	if got := parts["texts"]; len(got) != 2 || got[0] != "first transcript" || got[1] != "second transcript" {
+		t.Fatalf("texts=%v", got)
+	}
+	if got := parts["tags"]; len(got) != 2 || got[0] != "english" || got[1] != "narration" {
+		t.Fatalf("tags=%v", got)
+	}
+	if got := parts["voices"]; len(got) != 2 || got[0] != "audio-one" || got[1] != "audio-two" {
+		t.Fatalf("voices=%v", got)
+	}
+	if got := filenames["voices"]; len(got) != 2 || got[0] != "1-sample.wav" || got[1] != "2-sample.wav" {
+		t.Fatalf("voice filenames=%v", got)
+	}
+}
 
 func TestExecuteIntegrationTool_RequestTransformMimeEmail(t *testing.T) {
 	var capturedBody map[string]any
