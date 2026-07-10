@@ -1222,9 +1222,9 @@ func injectProjectArgAny(args map[string]any, projectID string) {
 	if projectID == "" || args == nil {
 		return
 	}
-	if _, ok := args["_project_id"]; ok {
-		return
-	}
+	// _project_id is server-owned dispatch context. Never preserve a
+	// caller-supplied value: doing so lets a request routed and authorised
+	// for one project execute a global app against another project.
 	args["_project_id"] = projectID
 }
 

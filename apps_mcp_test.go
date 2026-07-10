@@ -244,6 +244,28 @@ func TestInjectProjectIntoMCPRequestAddsProjectID(t *testing.T) {
 	}
 }
 
+func TestInjectProjectIntoMCPRequestOverridesSpoofedProjectID(t *testing.T) {
+	req := httptest.NewRequest("POST", "/api/apps/social/mcp?project_id=proj-1", strings.NewReader(`{
+		"jsonrpc":"2.0",
+		"id":"abc",
+		"method":"tools/call",
+		"params":{"name":"account_list","arguments":{"_project_id":"victim-project"}}
+	}`))
+	if err := injectProjectIntoMCPRequest(req, "proj-1"); err != nil {
+		t.Fatalf("injectProjectIntoMCPRequest: %v", err)
+	}
+	body, _ := io.ReadAll(req.Body)
+	var rpc map[string]any
+	if err := json.Unmarshal(body, &rpc); err != nil {
+		t.Fatalf("rewritten body is not JSON: %v", err)
+	}
+	params := rpc["params"].(map[string]any)
+	args := params["arguments"].(map[string]any)
+	if got := args["_project_id"]; got != "proj-1" {
+		t.Fatalf("_project_id=%v, want trusted project proj-1", got)
+	}
+}
+
 func TestInstallIDFromDevAPIKey(t *testing.T) {
 	if got := installIDFromDevAPIKey("dev-42"); got != 42 {
 		t.Fatalf("installIDFromDevAPIKey(dev-42)=%d, want 42", got)
