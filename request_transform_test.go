@@ -314,6 +314,32 @@ func TestExecuteIntegrationTool_ResponseTransformEmailThread(t *testing.T) {
 	}
 }
 
+func TestBuildRequestTransformBodyJSONAPI(t *testing.T) {
+	body, ok, err := buildRequestTransformBody(&RequestTransformDef{
+		Type:         "json_api",
+		ResourceType: "appStoreVersions",
+		Attributes:   []string{"versionString", "platform"},
+		Relationships: map[string]JSONAPIRelationship{
+			"app":    {Source: "app_id", ResourceType: "apps"},
+			"builds": {Source: "build_ids", ResourceType: "builds", Many: true},
+		},
+	}, map[string]any{
+		"app_id":        "app-1",
+		"versionString": "2.0",
+		"platform":      "IOS",
+		"build_ids":     []any{"build-1", "build-2"},
+		"ignored":       "not-on-wire",
+	})
+	if err != nil || !ok {
+		t.Fatalf("buildRequestTransformBody: ok=%v err=%v", ok, err)
+	}
+	encoded, _ := json.Marshal(body)
+	want := `{"data":{"attributes":{"platform":"IOS","versionString":"2.0"},"relationships":{"app":{"data":{"id":"app-1","type":"apps"}},"builds":{"data":[{"id":"build-1","type":"builds"},{"id":"build-2","type":"builds"}]}},"type":"appStoreVersions"}}`
+	if string(encoded) != want {
+		t.Fatalf("json_api body = %s\nwant = %s", encoded, want)
+	}
+}
+
 func decodeBase64URLForTest(t *testing.T, value string) string {
 	t.Helper()
 	decoded, err := base64.RawURLEncoding.DecodeString(value)

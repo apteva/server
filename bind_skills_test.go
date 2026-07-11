@@ -18,6 +18,7 @@ func TestInheritAppSkills(t *testing.T) {
 	}
 	defer store.Close()
 	s := &Server{store: store, agents: NewAgentManager(filepath.Join(dataDir, "agents"), "")}
+	ensureTestAdmin(t, s)
 
 	// An installed app that ships a skill.
 	res, err := store.db.Exec(`INSERT INTO apps (name, source, repo, ref, manifest_json) VALUES ('storage','local','','','{}')`)

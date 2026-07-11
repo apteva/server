@@ -200,9 +200,13 @@ func startIngressTLSListener(addr string, handler http.Handler, certs *IngressCe
 		NextProtos:     []string{"h2", "http/1.1", acme.ALPNProto},
 	}
 	srv := &http.Server{
-		Addr:      addr,
-		Handler:   handler,
-		TLSConfig: cfg,
+		Addr:              addr,
+		Handler:           handler,
+		TLSConfig:         cfg,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Minute,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 	go func() {
 		log.Printf("[ingress-tls] listening on %s", addr)
@@ -216,7 +220,14 @@ func startIngressHTTPListener(addr string, handler http.Handler) {
 	if strings.TrimSpace(addr) == "" {
 		return
 	}
-	srv := &http.Server{Addr: addr, Handler: handler}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Minute,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
 	go func() {
 		log.Printf("[ingress-http] listening on %s", addr)
 		if err := srv.ListenAndServe(); err != nil {

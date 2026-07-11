@@ -16,6 +16,7 @@ func environmentMCPRPC(t *testing.T, s *Server, method string, params any) json.
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
 	r := httptest.NewRequest("POST", "/environment-mcp", bytes.NewReader(body))
+	r.RemoteAddr = "127.0.0.1:49152"
 	w := httptest.NewRecorder()
 	s.handleEnvironmentMCP(w, r)
 	var env struct {

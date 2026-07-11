@@ -117,6 +117,7 @@ func (a *App) HTTPRoutes() []framework.Route {
 		{Method: "GET", Path: "/approval-messages", Handler: a.wrap(a.handlers.approvalMessages)},
 		{Method: "GET", Path: "/report-messages", Handler: a.wrap(a.handlers.reportMessages)},
 		{Method: "GET", Path: "/alert-messages", Handler: a.wrap(a.handlers.alertMessages)},
+		{Method: "GET", Path: "/current-statuses", Handler: a.wrap(a.handlers.currentStatuses)},
 		{Method: "POST", Path: "/message-action", Handler: a.wrap(a.handlers.messageAction)},
 		{Method: "POST", Path: "/message-dismiss", Handler: a.wrap(a.handlers.messageDismiss)},
 		{Method: "POST", Path: "/seen", Handler: a.wrap(a.handlers.markSeen)},

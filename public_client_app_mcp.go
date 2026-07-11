@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -87,6 +86,7 @@ func (s *Server) tryHandlePublicClientAppMCP(w http.ResponseWriter, r *http.Requ
 	r.URL.RawQuery = q.Encode()
 	r.Header.Del("Authorization")
 	r.Header.Del("X-API-Key")
+	r.Header.Set("X-Apteva-App-Install-ID", strconv.FormatInt(entry.InstallID, 10))
 
 	s.store.MarkAPIKeyUsed(key.ID, requestClientIP(r))
 	s.handleAppProxy(w, r)
@@ -213,13 +213,5 @@ func restoreRequestBody(r *http.Request, body []byte) {
 }
 
 func requestClientIP(r *http.Request) string {
-	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
-		first, _, _ := strings.Cut(forwarded, ",")
-		return strings.TrimSpace(first)
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil {
-		return host
-	}
-	return r.RemoteAddr
+	return clientIP(r)
 }

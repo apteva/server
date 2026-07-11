@@ -24,8 +24,12 @@ import (
 //
 // Per MCP spec 2025-03-26: single endpoint, POST for requests, optional SSE.
 func (s *Server) handleMCPEndpoint(w http.ResponseWriter, r *http.Request) {
-	// MCP endpoints are localhost-only (core connects from same machine)
-	// No auth required — connection ID provides access scoping
+	// MCP endpoints carry stored integration credentials and are only for
+	// cores on this host. IDs are identifiers, never credentials.
+	if !requestFromLoopback(r) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
 
 	// Parse the id from /mcp/123
 	idStr := strings.TrimPrefix(r.URL.Path, "/mcp/")

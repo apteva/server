@@ -337,6 +337,7 @@ func (s *Server) handleProviderAuthAction(w http.ResponseWriter, r *http.Request
 			"provider":     openAICodexAuthProvider,
 			"token_type":   "Bearer",
 			"access_token": token,
+			"account_id":   codexAccountIDFromState(state),
 			"expires_at":   stringFromNested(state, "credentials", "expires_at"),
 		})
 	default:
@@ -365,11 +366,17 @@ func truthyQuery(v string) bool {
 }
 
 func (s *Server) upsertProviderAuthState(userID int64, pt ProviderType, projectID string, state map[string]any) (*Provider, error) {
-	encrypted, err := marshalEncryptProviderState(s.secret, state)
-	if err != nil {
-		return nil, err
-	}
-	if existing, _, err := s.store.FindProviderByTypeForProject(userID, pt.ID, projectID); err == nil {
+	if existing, encryptedExisting, err := s.store.FindProviderByTypeForProject(userID, pt.ID, projectID); err == nil {
+		if plaintext, decryptErr := Decrypt(s.secret, encryptedExisting); decryptErr == nil {
+			var previous map[string]any
+			if json.Unmarshal([]byte(plaintext), &previous) == nil && pt.AuthProvider == openAICodexAuthProvider {
+				state = mergeOpenAICodexProviderState(previous, state)
+			}
+		}
+		encrypted, err := marshalEncryptProviderState(s.secret, state)
+		if err != nil {
+			return nil, err
+		}
 		if err := s.store.UpdateProvider(userID, existing.ID, pt.Type, pt.Name, encrypted); err != nil {
 			return nil, err
 		}
@@ -379,7 +386,48 @@ func (s *Server) upsertProviderAuthState(userID int64, pt ProviderType, projectI
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
+	encrypted, err := marshalEncryptProviderState(s.secret, state)
+	if err != nil {
+		return nil, err
+	}
 	return s.store.CreateProvider(userID, pt.ID, pt.Type, pt.Name, encrypted, projectID)
+}
+
+// mergeOpenAICodexProviderState updates rotating auth material while retaining
+// server-owned settings and capability snapshots. Starting from the previous
+// state also preserves future non-auth settings without needing another list.
+func mergeOpenAICodexProviderState(previous, refreshed map[string]any) map[string]any {
+	merged := make(map[string]any, len(previous)+len(refreshed))
+	for key, value := range previous {
+		merged[key] = value
+	}
+	for key, value := range refreshed {
+		switch key {
+		case "credentials", "account", "runtime":
+			previousMap := stateMap(previous, key)
+			refreshedMap := stateMap(refreshed, key)
+			next := make(map[string]any, len(previousMap)+len(refreshedMap))
+			for nestedKey, nestedValue := range previousMap {
+				next[nestedKey] = nestedValue
+			}
+			for nestedKey, nestedValue := range refreshedMap {
+				if text, ok := nestedValue.(string); ok && strings.TrimSpace(text) == "" {
+					continue
+				}
+				if nestedValue != nil {
+					next[nestedKey] = nestedValue
+				}
+			}
+			merged[key] = next
+		case "auth":
+			merged[key] = value
+		default:
+			if _, exists := merged[key]; !exists {
+				merged[key] = value
+			}
+		}
+	}
+	return merged
 }
 
 func (s *Server) saveProviderAuthState(userID int64, provider *Provider, state map[string]any) error {
@@ -494,6 +542,11 @@ func (openAICodexAuthDriver) Poll(ctx context.Context, session *providerAuthSess
 		return nil, err
 	}
 	state := buildOpenAICodexProviderState(tokens, "device_code")
+	if models, catalogErr := fetchCodexModelCatalog(ctx,
+		stringFromNested(state, "credentials", "access_token"),
+		codexAccountIDFromState(state), false); catalogErr == nil {
+		applyCodexCatalogToState(state, models)
+	}
 	account := stateMap(state, "account")
 	return &providerAuthPollResult{
 		Status:  providerAuthStatusConnected,
@@ -516,10 +569,7 @@ func (openAICodexAuthDriver) Refresh(ctx context.Context, state map[string]any) 
 		tokens["refresh_token"] = refreshToken
 	}
 	next := buildOpenAICodexProviderState(tokens, "refresh_token")
-	if account := stateMap(state, "account"); len(account) > 0 {
-		next["account"] = account
-	}
-	return next, nil
+	return mergeOpenAICodexProviderState(state, next), nil
 }
 
 func (openAICodexAuthDriver) Status(state map[string]any) map[string]any {
@@ -563,10 +613,14 @@ func (openAICodexAuthDriver) SmokeTest(ctx context.Context, state map[string]any
 	if exp, ok := expiryFromState(state); ok && time.Now().After(exp) {
 		return ProviderTestResult{OK: false, Error: "OpenAI Codex access token is expired; refresh auth first"}
 	}
+	accountID := codexAccountIDFromState(state)
 
 	model := strings.TrimSpace(opts.Model)
 	if model == "" {
-		model = "gpt-5.5"
+		model = strings.TrimSpace(stringValue(state["model_medium"]))
+		if model == "" {
+			model = "gpt-5.5"
+		}
 	}
 
 	textPayload := map[string]any{
@@ -579,7 +633,7 @@ func (openAICodexAuthDriver) SmokeTest(ctx context.Context, state map[string]any
 		"stream": true,
 	}
 	t0 := time.Now()
-	textResp, err := runOpenAICodexSmokeRequest(ctx, accessToken, textPayload)
+	textResp, err := runOpenAICodexSmokeRequest(ctx, accessToken, accountID, textPayload)
 	if err != nil {
 		return ProviderTestResult{
 			OK:         false,
@@ -624,7 +678,7 @@ func (openAICodexAuthDriver) SmokeTest(ctx context.Context, state map[string]any
 		"store":  false,
 		"stream": true,
 	}
-	toolResp, err := runOpenAICodexSmokeRequest(ctx, accessToken, toolPayload)
+	toolResp, err := runOpenAICodexSmokeRequest(ctx, accessToken, accountID, toolPayload)
 	if err != nil {
 		return ProviderTestResult{
 			OK:               false,
@@ -693,7 +747,7 @@ func (openAICodexAuthDriver) SmokeTest(ctx context.Context, state map[string]any
 	var computerResp openAICodexSmokeResponse
 	switch computerMode {
 	case "custom":
-		computerResp, err = runOpenAICodexCustomVisionSmoke(ctx, accessToken, model)
+		computerResp, err = runOpenAICodexCustomVisionSmoke(ctx, accessToken, accountID, model)
 		result.PromptTokens += computerResp.InputTokens
 		result.CompletionTokens += computerResp.OutputTokens
 		result.CachedTokens += computerResp.CachedTokens
@@ -712,7 +766,7 @@ func (openAICodexAuthDriver) SmokeTest(ctx context.Context, state map[string]any
 			return result
 		}
 	case "native":
-		computerResp, err = runOpenAICodexNativeComputerSmoke(ctx, accessToken, model)
+		computerResp, err = runOpenAICodexNativeComputerSmoke(ctx, accessToken, accountID, model)
 		result.PromptTokens += computerResp.InputTokens
 		result.CompletionTokens += computerResp.OutputTokens
 		result.CachedTokens += computerResp.CachedTokens
@@ -741,7 +795,7 @@ func (openAICodexAuthDriver) SmokeTest(ctx context.Context, state map[string]any
 	return result
 }
 
-func runOpenAICodexNativeComputerSmoke(ctx context.Context, accessToken, model string) (openAICodexSmokeResponse, error) {
+func runOpenAICodexNativeComputerSmoke(ctx context.Context, accessToken, accountID, model string) (openAICodexSmokeResponse, error) {
 	payload := map[string]any{
 		"model":        model,
 		"instructions": "You are validating native computer-use support. Use the provided computer tool exactly once to request a screenshot. Do not answer in prose.",
@@ -754,7 +808,7 @@ func runOpenAICodexNativeComputerSmoke(ctx context.Context, accessToken, model s
 		"store":  false,
 		"stream": true,
 	}
-	resp, err := runOpenAICodexSmokeRequest(ctx, accessToken, payload)
+	resp, err := runOpenAICodexSmokeRequest(ctx, accessToken, accountID, payload)
 	if err != nil {
 		return resp, err
 	}
@@ -764,7 +818,7 @@ func runOpenAICodexNativeComputerSmoke(ctx context.Context, accessToken, model s
 	return resp, nil
 }
 
-func runOpenAICodexCustomVisionSmoke(ctx context.Context, accessToken, model string) (openAICodexSmokeResponse, error) {
+func runOpenAICodexCustomVisionSmoke(ctx context.Context, accessToken, accountID, model string) (openAICodexSmokeResponse, error) {
 	imageURL, err := codexSmokeVisionImageURL()
 	if err != nil {
 		return openAICodexSmokeResponse{}, err
@@ -806,7 +860,7 @@ func runOpenAICodexCustomVisionSmoke(ctx context.Context, accessToken, model str
 		"store":  false,
 		"stream": true,
 	}
-	return runOpenAICodexSmokeRequest(ctx, accessToken, payload)
+	return runOpenAICodexSmokeRequest(ctx, accessToken, accountID, payload)
 }
 
 func codexSmokeVisionImageURL() (string, error) {
@@ -843,7 +897,7 @@ type openAICodexSmokeComputerCall struct {
 	Raw    string
 }
 
-func runOpenAICodexSmokeRequest(ctx context.Context, accessToken string, payload map[string]any) (openAICodexSmokeResponse, error) {
+func runOpenAICodexSmokeRequest(ctx context.Context, accessToken, accountID string, payload map[string]any) (openAICodexSmokeResponse, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return openAICodexSmokeResponse{}, fmt.Errorf("build request: %w", err)
@@ -853,6 +907,9 @@ func runOpenAICodexSmokeRequest(ctx context.Context, accessToken string, payload
 		return openAICodexSmokeResponse{}, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
+	if strings.TrimSpace(accountID) != "" {
+		req.Header.Set("ChatGPT-Account-ID", strings.TrimSpace(accountID))
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
@@ -1093,6 +1150,11 @@ func buildOpenAICodexProviderState(tokens map[string]any, source string) map[str
 		expiresAt = exp.Format(time.RFC3339)
 	}
 	claims := jwtClaims(accessToken)
+	if idToken, _ := tokens["id_token"].(string); strings.TrimSpace(idToken) != "" {
+		if idClaims := jwtClaims(idToken); len(idClaims) > 0 {
+			claims = idClaims
+		}
+	}
 	account := map[string]any{}
 	for _, key := range []string{"sub", "email"} {
 		if v, ok := claims[key].(string); ok && strings.TrimSpace(v) != "" {
@@ -1102,6 +1164,16 @@ func buildOpenAICodexProviderState(tokens map[string]any, source string) map[str
 				account[key] = v
 			}
 		}
+	}
+	authClaims := stateMap(claims, "https://api.openai.com/auth")
+	if accountID, _ := authClaims["chatgpt_account_id"].(string); strings.TrimSpace(accountID) != "" {
+		account["chatgpt_account_id"] = accountID
+	}
+	if plan, _ := authClaims["chatgpt_plan_type"].(string); strings.TrimSpace(plan) != "" {
+		account["plan_type"] = plan
+	}
+	if accountID, _ := tokens["account_id"].(string); strings.TrimSpace(accountID) != "" {
+		account["chatgpt_account_id"] = accountID
 	}
 	return map[string]any{
 		"auth": map[string]any{

@@ -74,27 +74,33 @@ func (s *Server) installLocalSource(srcDir, projectID string, env map[string]str
 		}
 		appID, _ = res.LastInsertId()
 	} else {
-		_, _ = s.store.db.Exec(`UPDATE apps SET manifest_json = ? WHERE id = ?`, string(manifestJSON), appID)
+		s.updateAppCatalogMetadata(appID, m, "local", "", "")
 	}
 
 	// 3. Create the install row, project-scoped, permissions from manifest.
 	permsJSON, _ := json.Marshal(m.Requires.Permissions)
 	res, err := s.store.db.Exec(
-		`INSERT INTO app_installs (app_id, project_id, config_encrypted, status, upgrade_policy, version, permissions_json, installed_by, integration_bindings)
-		 VALUES (?, ?, '', 'pending', 'manual', ?, ?, 0, '{}')`,
-		appID, projectID, m.Version, string(permsJSON))
+		`INSERT INTO app_installs
+		 (app_id, project_id, config_encrypted, status, upgrade_policy, version, manifest_json, source, repo, ref, permissions_json, installed_by, integration_bindings)
+		 VALUES (?, ?, '', 'pending', 'manual', ?, ?, 'local', '', '', ?, 0, '{}')`,
+		appID, projectID, m.Version, string(manifestJSON), string(permsJSON))
 	if err != nil {
 		return nil, fmt.Errorf("create install row: %w", err)
 	}
 	installID, _ := res.LastInsertId()
 
-	// 4. Platform identity env (matches installFromSource). The install id
-	//    + dev token are what make the sidecar's callbacks authenticate.
+	// 4. Platform identity env (matches installFromSource). The random
+	//    per-install capability authenticates sidecar callbacks.
 	if env == nil {
 		env = map[string]string{}
 	}
 	env["APTEVA_GATEWAY_URL"] = s.localGatewayURL()
-	env["APTEVA_APP_TOKEN"] = fmt.Sprintf("dev-%d", installID)
+	appToken, err := s.appInstallToken(installID)
+	if err != nil {
+		_, _ = s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, err.Error(), installID)
+		return nil, fmt.Errorf("create app credential: %w", err)
+	}
+	env["APTEVA_APP_TOKEN"] = appToken
 	env["APTEVA_INSTALL_ID"] = strconv.FormatInt(installID, 10)
 	env["APTEVA_PROJECT_ID"] = projectID
 

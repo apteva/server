@@ -29,8 +29,28 @@ type runningAgent struct {
 	coreAPIKey string         // API key injected into core for auth
 	channels   *AgentChannels // channel infrastructure for this instance
 	reattached bool           // process was inherited from an older server process
+	waitOnce   sync.Once
+	done       chan struct{}
+	waitErr    error
 	diagMu     sync.Mutex
 	lastProc   string // latest /proc snapshot captured while the child was alive
+}
+
+func (r *runningAgent) wait() error {
+	if r == nil || r.cmd == nil || r.reattached {
+		return nil
+	}
+	r.waitOnce.Do(func() {
+		if r.done == nil {
+			r.done = make(chan struct{})
+		}
+		r.waitErr = r.cmd.Wait()
+		close(r.done)
+	})
+	if r.done != nil {
+		<-r.done
+	}
+	return r.waitErr
 }
 
 type coreRuntimeInfo struct {
@@ -316,11 +336,12 @@ func (im *AgentManager) WipeInstanceHistory(instID int64) error {
 
 // ProviderInfo holds provider metadata for config.json injection.
 type ProviderInfo struct {
-	Type         string
-	ModelLarge   string
-	ModelMedium  string
-	ModelSmall   string
-	BuiltinTools []string
+	Type              string
+	ModelLarge        string
+	ModelMedium       string
+	ModelSmall        string
+	BuiltinTools      []string
+	ModelCapabilities map[string]ProviderModelCapabilities
 }
 
 // Start launches a core process for the given instance.
@@ -463,6 +484,9 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 					"small":  pi.ModelSmall,
 				},
 				"default": isDefault,
+			}
+			if len(pi.ModelCapabilities) > 0 {
+				entry["model_capabilities"] = pi.ModelCapabilities
 			}
 			if len(pi.BuiltinTools) > 0 {
 				entry["builtin_tools"] = pi.BuiltinTools
@@ -673,7 +697,7 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		log.Printf("[SPAWN] core agent=%d pid=%d port=%d FAILED to listen within 5s (last check: connection refused)", id, pid, p)
 	}(inst.ID, cmd.Process.Pid, port)
 
-	ri := &runningAgent{cmd: cmd, port: port, pid: cmd.Process.Pid, coreAPIKey: coreAPIKey, channels: ic}
+	ri := &runningAgent{cmd: cmd, port: port, pid: cmd.Process.Pid, coreAPIKey: coreAPIKey, channels: ic, done: make(chan struct{})}
 	im.processes[inst.ID] = ri
 	inst.Port = port
 	inst.Pid = cmd.Process.Pid
@@ -711,7 +735,7 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	spawnedPort := port
 	startedAt := time.Now()
 	go func() {
-		waitErr := cmd.Wait()
+		waitErr := ri.wait()
 		lived := time.Since(startedAt)
 		close(procDiagStop)
 		procSnapshot := ri.procSnapshot()
@@ -966,12 +990,15 @@ func (im *AgentManager) Stop(instanceID int64) {
 		_ = proc.Kill()
 		return
 	}
-	done := make(chan struct{})
-	go func() {
-		err := ri.cmd.Wait()
-		log.Printf("[SPAWN] Stop wait agent=%d pid=%d err=%v %s", instanceID, ri.processID(), err, describeProcessState(ri.processState()))
-		close(done)
-	}()
+	done := ri.done
+	if done == nil {
+		done = make(chan struct{})
+		ri.done = done
+		go func() {
+			err := ri.wait()
+			log.Printf("[SPAWN] Stop wait agent=%d pid=%d err=%v %s", instanceID, ri.processID(), err, describeProcessState(ri.processState()))
+		}()
+	}
 	select {
 	case <-done:
 		// clean exit
@@ -1112,7 +1139,7 @@ func (im *AgentManager) StopAll(graceful time.Duration) {
 				results <- waitResult{pid: r.processID(), err: fmt.Errorf("killed after graceful stop timeout")}
 				return
 			}
-			err := r.cmd.Wait()
+			err := r.wait()
 			results <- waitResult{pid: r.processID(), err: err}
 		}(ri)
 	}
@@ -1636,9 +1663,9 @@ func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		// DELETE requires editor+; everything else needs viewer.
+		// Mutations require editor+; reads need viewer.
 		need := ProjectViewer
-		if r.Method == http.MethodDelete {
+		if r.Method != http.MethodGet {
 			need = ProjectEditor
 		}
 		if _, _, ok := s.requireProjectAccess(w, r, inst.ProjectID, need); !ok {
@@ -1740,7 +1767,6 @@ func (s *Server) handleStopInstance(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
-	userID := getUserID(r)
 	path := strings.TrimPrefix(r.URL.Path, "/instances/")
 	idStr := strings.TrimSuffix(path, "/stop")
 	instanceID, err := atoi64(idStr)
@@ -1749,7 +1775,7 @@ func (s *Server) handleStopInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst, err := s.store.GetAgent(userID, instanceID)
+	inst, err := s.store.GetAgentByID(instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -1779,12 +1805,19 @@ func (s *Server) handleStopInstance(w http.ResponseWriter, r *http.Request) {
 // already taken, bad config, etc.) is flipped to `stopped` in the DB so
 // the dashboard's Start button can try again cleanly.
 func (s *Server) ResumeRunningInstances() {
+	if s.startupIntent.Reason != "" {
+		defer os.Remove(s.lifecycleIntentPath())
+	}
 	mode := s.agentBootResumeMode()
 	if mode == "manual" {
 		log.Printf("[RESUME] boot resume disabled by policy — leaving status='running' rows untouched")
 		return
 	}
-	reattachEnabled := s.agentShutdownPolicy() == "detach"
+	resumePolicy := s.agentUpdatePolicy()
+	if s.startupIntent.Reason != "" {
+		resumePolicy = s.resolvedShutdownPolicy(s.startupIntent)
+	}
+	reattachEnabled := resumePolicy != "restart"
 	if providerAuthRefreshEnvEnabled() && s.store.RunningAgentsUseCodexProvider() {
 		result := s.refreshExpiringCodexProviders(context.Background(), codexProviderRefreshSkew, false)
 		if result.ProvidersRefreshed > 0 && disableCoreReattachForCodexRefresh() {
@@ -1824,7 +1857,6 @@ func (s *Server) ResumeRunningInstances() {
 			if err := s.agents.Reattach(inst, s.port, s.loadChannelConfigs(inst.ID)...); err == nil {
 				s.restoreSlackForInstance(inst)
 				s.restoreEmailForInstance(inst)
-				s.notifyAgentSubscriptionStartup(inst)
 				log.Printf("[RESUME] instance %d (%s): reattached existing core on port %d pid %d", inst.ID, inst.Name, inst.Port, inst.Pid)
 				continue
 			} else {
@@ -1872,8 +1904,22 @@ func (s *Server) ResumeRunningInstances() {
 		s.restoreEmailForInstance(inst)
 		s.notifyAgentSubscriptionStartup(inst)
 		log.Printf("[RESUME] instance %d (%s): resumed on port %d pid %d", inst.ID, inst.Name, inst.Port, inst.Pid)
+		if _, err := s.waitForAgentCoreHealthy(context.Background(), inst.ID, 30*time.Second); err != nil {
+			log.Printf("[RESUME] instance %d (%s): %v", inst.ID, inst.Name, err)
+		}
 		if mode == "staggered" && i < len(rows)-1 {
 			time.Sleep(s.agentBootResumeDelay())
+		}
+	}
+
+	// The old server leaves the short-lived intent for this replacement to
+	// consume. In rolling mode every healthy core is reattached first, then
+	// outdated cores are replaced serially so the fleet never cold-starts at
+	// once. Preserve mode deliberately leaves versions untouched.
+	intent := s.startupIntent
+	if intent.Reason != "" && s.resolvedShutdownPolicy(intent) == "rolling" && s.agentRollouts != nil {
+		if _, err := s.startCoreRollout(nil, "", "all", true, s.agentRolloutDelay()); err != nil && !strings.Contains(err.Error(), "no running agents") {
+			log.Printf("[ROLLOUT] automatic post-%s rollout not started: %v", intent.Reason, err)
 		}
 	}
 }
@@ -1946,7 +1992,7 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst, err := s.store.GetAgent(userID, instanceID)
+	inst, err := s.store.GetAgentByID(instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -1990,7 +2036,6 @@ func (s *Server) handleRestartInstance(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
-	userID := getUserID(r)
 	path := strings.TrimPrefix(r.URL.Path, "/instances/")
 	idStr := strings.TrimSuffix(path, "/restart")
 	instanceID, err := atoi64(idStr)
@@ -1999,47 +2044,19 @@ func (s *Server) handleRestartInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst, err := s.store.GetAgent(userID, instanceID)
-	if err != nil {
+	if _, err := s.store.GetAgentByID(instanceID); err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
 	}
-
-	// Save config before stopping
-	// Stop — disk config.json is the source of truth, no DB save needed.
-	s.agents.Stop(inst.ID)
-
-	// Start
-	providerEnv, err := s.store.GetAllProviderEnvVars(userID, s.secret, inst.ProjectID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	pool := s.GetProviderPool(userID, inst.ProjectID)
-	// P1 fix — refuse to restart with no LLM provider. Same rationale
-	// as handleCreateInstance / handleStartInstance.
-	if len(pool) == 0 {
-		http.Error(w,
-			"no LLM provider configured — add one in Settings → Providers before restarting an agent",
-			http.StatusBadRequest)
-		return
-	}
-
-	if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.loadChannelConfigs(inst.ID)...); err != nil {
+	if err := s.updateAgentCore(r.Context(), instanceID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.restoreSlackForInstance(inst)
-	s.restoreEmailForInstance(inst)
-	s.notifyAgentSubscriptionStartup(inst)
-
-	s.store.UpdateAgent(inst)
 	writeJSON(w, map[string]string{"status": "restarted"})
 }
 
 // /instances/:id/config — GET proxies to core, PUT updates DB + proxies full body to core
 func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
-	userID := getUserID(r)
 	// Extract instance ID from /instances/:id/config
 	path := strings.TrimPrefix(r.URL.Path, "/instances/")
 	idStr := strings.TrimSuffix(path, "/config")
@@ -2049,7 +2066,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst, err := s.store.GetAgent(userID, instanceID)
+	inst, err := s.store.GetAgentByID(instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -2314,8 +2331,6 @@ func (s *Server) coreDoWithBootWait(instanceID int64, method, targetURL string, 
 }
 
 func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
-	userID := getUserID(r)
-
 	// Parse /instances/:id/<core-path>
 	path := strings.TrimPrefix(r.URL.Path, "/instances/")
 	parts := strings.SplitN(path, "/", 2)
@@ -2330,7 +2345,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst, err := s.store.GetAgent(userID, instanceID)
+	inst, err := s.store.GetAgentByID(instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -2743,11 +2758,10 @@ func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
 	}
-	userID := getUserID(r)
 	path := strings.TrimPrefix(r.URL.Path, "/instances/")
 	parts := strings.SplitN(path, "/", 2)
 	instanceID, _ := atoi64(parts[0])
-	inst, err := s.store.GetAgent(userID, instanceID)
+	inst, err := s.store.GetAgentByID(instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -2818,7 +2832,6 @@ func (s *Server) handleSystemMCPToggle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
-	userID := getUserID(r)
 	path := strings.TrimPrefix(r.URL.Path, "/instances/")
 	idStr := strings.TrimSuffix(path, "/system-mcp")
 	instanceID, err := atoi64(idStr)
@@ -2826,7 +2839,7 @@ func (s *Server) handleSystemMCPToggle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid instance ID", http.StatusBadRequest)
 		return
 	}
-	inst, err := s.store.GetAgent(userID, instanceID)
+	inst, err := s.store.GetAgentByID(instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -2884,4 +2897,181 @@ func (s *Server) handleSystemMCPToggle(w http.ResponseWriter, r *http.Request) {
 		"previous":         previous,
 		"restart_required": running && previous != *body.Enable,
 	})
+}
+
+// GET/PUT /instances/:id/background-memory
+//
+// GET returns the effective persisted setting. PUT accepts
+// {"enabled":bool,"restart":bool}. A running agent must be restarted for
+// the core to spawn or tear down its system-owned unconscious thread; callers
+// that omit restart receive 409 and no state is changed. Disabling removes the
+// persisted unconscious thread definition but deliberately preserves
+// memory.jsonl and thread history.
+func (s *Server) handleBackgroundMemory(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/instances/")
+	idStr := strings.TrimSuffix(path, "/background-memory")
+	instanceID, err := atoi64(idStr)
+	if err != nil {
+		http.Error(w, "invalid instance ID", http.StatusBadRequest)
+		return
+	}
+	inst, err := s.store.GetAgentByID(instanceID)
+	if err != nil {
+		http.Error(w, "instance not found", http.StatusNotFound)
+		return
+	}
+	previous := s.backgroundMemoryEnabled(inst)
+	running := s.agents.IsRunning(inst.ID)
+
+	if r.Method == http.MethodGet {
+		writeJSON(w, map[string]any{
+			"enabled":          previous,
+			"running":          running,
+			"restart_required": false,
+		})
+		return
+	}
+	if r.Method != http.MethodPut {
+		http.Error(w, "GET or PUT only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		Enabled *bool `json:"enabled"`
+		Restart bool  `json:"restart"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if body.Enabled == nil {
+		http.Error(w, "enabled (bool) required", http.StatusBadRequest)
+		return
+	}
+	changed := previous != *body.Enabled
+	if running && changed && !body.Restart {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"enabled":          previous,
+			"running":          true,
+			"restart_required": true,
+			"error":            "restart required to change background memory on a running agent",
+		})
+		return
+	}
+
+	restarted := false
+	if running && changed {
+		s.agents.Stop(inst.ID)
+		inst.Status = "stopped"
+		inst.Pid = 0
+		inst.Port = 0
+		inst.CoreAPIKey = ""
+		_ = s.store.UpdateAgent(inst)
+	}
+
+	if changed {
+		if err := s.writeStoppedConfigAtomic(inst.ID, func(cfg map[string]any) error {
+			setBackgroundMemoryConfig(cfg, *body.Enabled)
+			return nil
+		}); err != nil {
+			http.Error(w, "persist background memory: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		var instCfg map[string]any
+		if inst.Config != "" {
+			_ = json.Unmarshal([]byte(inst.Config), &instCfg)
+		}
+		if instCfg == nil {
+			instCfg = map[string]any{}
+		}
+		setBackgroundMemoryConfig(instCfg, *body.Enabled)
+		if out, err := json.Marshal(instCfg); err == nil {
+			inst.Config = string(out)
+		}
+		if err := s.store.UpdateAgent(inst); err != nil {
+			http.Error(w, "persist agent background memory: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if running && changed {
+		providerEnv, err := s.store.GetAllProviderEnvVars(inst.UserID, s.secret, inst.ProjectID)
+		if err != nil {
+			http.Error(w, "provider environment: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		pool := s.GetProviderPool(inst.UserID, inst.ProjectID)
+		if len(pool) == 0 {
+			http.Error(w, "no LLM provider configured", http.StatusBadRequest)
+			return
+		}
+		if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.loadChannelConfigs(inst.ID)...); err != nil {
+			inst.Status = "stopped"
+			_ = s.store.UpdateAgent(inst)
+			http.Error(w, "restart agent: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = s.store.UpdateAgent(inst)
+		s.restoreSlackForInstance(inst)
+		s.restoreEmailForInstance(inst)
+		s.notifyAgentSubscriptionStartup(inst)
+		restarted = true
+	}
+
+	writeJSON(w, map[string]any{
+		"enabled":          *body.Enabled,
+		"previous":         previous,
+		"running":          s.agents.IsRunning(inst.ID),
+		"restarted":        restarted,
+		"restart_required": false,
+		"memory_preserved": true,
+	})
+}
+
+func (s *Server) backgroundMemoryEnabled(inst *Agent) bool {
+	if inst == nil {
+		return false
+	}
+	path := filepath.Join(s.agents.instanceDir(inst.ID), "config.json")
+	if data, err := os.ReadFile(path); err == nil {
+		var cfg map[string]any
+		if json.Unmarshal(data, &cfg) == nil {
+			if enabled, ok := cfg["unconscious"].(bool); ok {
+				return enabled
+			}
+		}
+	}
+	var cfg map[string]any
+	if json.Unmarshal([]byte(inst.Config), &cfg) == nil {
+		enabled, _ := cfg["unconscious"].(bool)
+		return enabled
+	}
+	return false
+}
+
+func setBackgroundMemoryConfig(cfg map[string]any, enabled bool) {
+	cfg["unconscious"] = enabled
+	if enabled {
+		return
+	}
+	threads, ok := cfg["threads"].([]any)
+	if !ok {
+		return
+	}
+	kept := make([]any, 0, len(threads))
+	for _, raw := range threads {
+		thread, _ := raw.(map[string]any)
+		id, _ := thread["id"].(string)
+		if id == "unconscious" {
+			continue
+		}
+		kept = append(kept, raw)
+	}
+	if len(kept) == 0 {
+		delete(cfg, "threads")
+	} else {
+		cfg["threads"] = kept
+	}
 }

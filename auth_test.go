@@ -179,47 +179,33 @@ func TestAuthMiddleware_NoToken(t *testing.T) {
 	}
 }
 
-// Anonymous GET on an app route falls through — the app handler
-// decides whether the resource needs auth. Storage's visibility=
-// public depends on this carve-out. apiMux is wrapped in
-// StripPrefix("/api"), so the prefix here is /apps/<name>/... not
-// /api/apps/<name>/...; matching the wrong form was the bug that
-// kept public files returning 401.
-func TestAuthMiddleware_AnonymousAppGET_FallsThrough(t *testing.T) {
+func TestAuthMiddleware_AnonymousAppGETRequiresManifestDeclaration(t *testing.T) {
 	s := newTestServer(t)
 	called := false
-	var sawUserID string
 	handler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		called = true
-		sawUserID = r.Header.Get("X-User-ID")
 		w.WriteHeader(200)
 	})
-	// Path as the inner mux sees it: /apps/storage/files/6/content/...
 	req := httptest.NewRequest("GET", "/apps/storage/files/6/content/x.mp4", nil)
 	w := httptest.NewRecorder()
 	handler(w, req)
-	if !called {
-		t.Fatalf("anonymous GET to app route should fall through; got %d", w.Code)
-	}
-	if sawUserID != "" {
-		t.Errorf("anonymous request leaked X-User-ID = %q (must stay empty so the app can tell it's anonymous)", sawUserID)
+	if called || w.Code != http.StatusUnauthorized {
+		t.Fatalf("undeclared anonymous app route got called=%v status=%d", called, w.Code)
 	}
 }
 
-// Same fallthrough must work for the legacy /api/apps/ form too —
-// in case some routing change ever removes the StripPrefix.
-func TestAuthMiddleware_AnonymousAppGET_AcceptsBothPrefixes(t *testing.T) {
+func TestAuthMiddleware_SignedURLDoesNotBypassManifestAuth(t *testing.T) {
 	s := newTestServer(t)
 	called := false
 	handler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(200)
 	})
-	req := httptest.NewRequest("GET", "/api/apps/storage/files/6/content", nil)
+	req := httptest.NewRequest("GET", "/apps/storage/files/6/content?sig=forged&exp=9999999999", nil)
 	w := httptest.NewRecorder()
 	handler(w, req)
-	if !called {
-		t.Fatalf("anonymous GET via /api/apps prefix should fall through; got %d", w.Code)
+	if called || w.Code != http.StatusUnauthorized {
+		t.Fatalf("signed URL parameters bypassed manifest auth: called=%v status=%d", called, w.Code)
 	}
 }
 

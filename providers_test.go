@@ -135,6 +135,7 @@ func TestGetAllProviderEnvVars(t *testing.T) {
 
 func TestGetAllProviderEnvVars_CodexRefreshFailureBlocksExpiredToken(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	s.secret = testSecret()
 	state := map[string]any{
 		"auth": map[string]any{
@@ -175,10 +176,14 @@ func TestGetAllProviderEnvVars_CodexRefreshFailureBlocksExpiredToken(t *testing.
 
 func TestGetAllProviderEnvVars_CodexRefreshSuccessExportsFreshToken(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	s.secret = testSecret()
 	state := map[string]any{
 		"auth": map[string]any{
 			"provider": openAICodexAuthProvider,
+		},
+		"account": map[string]any{
+			"chatgpt_account_id": "account-a",
 		},
 		"credentials": map[string]any{
 			"access_token":  "expired-access-token",
@@ -220,10 +225,14 @@ func TestGetAllProviderEnvVars_CodexRefreshSuccessExportsFreshToken(t *testing.T
 	if envVars["OPENAI_CODEX_PROVIDER_ID"] != fmt.Sprint(provider.ID) {
 		t.Fatalf("OPENAI_CODEX_PROVIDER_ID = %q, want %d", envVars["OPENAI_CODEX_PROVIDER_ID"], provider.ID)
 	}
+	if envVars["OPENAI_CODEX_ACCOUNT_ID"] != "account-a" {
+		t.Fatalf("OPENAI_CODEX_ACCOUNT_ID = %q, want account-a", envVars["OPENAI_CODEX_ACCOUNT_ID"])
+	}
 }
 
 func TestGetAllProviderEnvVars_CodexRefreshSerializesConcurrentCallers(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	s.secret = testSecret()
 	state := map[string]any{
 		"auth": map[string]any{

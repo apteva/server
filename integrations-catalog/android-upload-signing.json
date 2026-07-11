@@ -1,0 +1,37 @@
+{
+  "slug": "android-upload-signing",
+  "name": "Android Upload Signing",
+  "description": "Encrypted Android upload keystore credentials used by Deploy to sign App Bundles before publishing them to Google Play.",
+  "logo": "https://www.google.com/s2/favicons?domain=developer.android.com&sz=128",
+  "categories": ["mobile", "android", "signing", "google-play"],
+  "base_url": "https://play.google.com",
+  "auth": {
+    "types": ["custom"],
+    "headers": {},
+    "credential_fields": [
+      {
+        "name": "upload_keystore_base64",
+        "label": "Upload keystore (base64)",
+        "type": "password",
+        "description": "Base64-encoded JKS or PKCS12 upload keystore. The decrypted file exists only while Deploy signs an App Bundle."
+      },
+      {
+        "name": "upload_keystore_password",
+        "label": "Keystore password",
+        "type": "password"
+      },
+      {
+        "name": "upload_key_alias",
+        "label": "Upload key alias"
+      },
+      {
+        "name": "upload_key_password",
+        "label": "Upload key password",
+        "type": "password",
+        "required": false,
+        "description": "Optional when the key password is the same as the keystore password."
+      }
+    ]
+  },
+  "tools": []
+}

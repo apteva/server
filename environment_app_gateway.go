@@ -3,7 +3,7 @@ package main
 // environment_app_gateway.go — the bridge that lets an in-environment agent core reach
 // the environment's token-protected app sidecars.
 //
-// In-environment apps are real installs spawned with APTEVA_APP_TOKEN=dev-<id>, so
+// In-environment apps are real installs spawned with a per-install app token, so
 // their /mcp requires that bearer. The agent core isn't app-sdk and can't add
 // a per-server auth header (and we don't change core). So the agent's
 // mcp_servers point here — a loopback reverse-proxy that looks up the
@@ -24,6 +24,10 @@ import (
 )
 
 func (s *Server) handleEnvironmentAppGateway(w http.ResponseWriter, r *http.Request) {
+	if !requestFromLoopback(r) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
 	rest := strings.TrimPrefix(r.URL.Path, "/environment-app-gateway/")
 	parts := strings.SplitN(rest, "/", 3)
 	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
@@ -50,7 +54,11 @@ func (s *Server) handleEnvironmentAppGateway(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "invalid sidecar url", http.StatusInternalServerError)
 		return
 	}
-	token := fmt.Sprintf("dev-%d", inst.InstallID)
+	token, err := s.appInstallToken(inst.InstallID)
+	if err != nil {
+		http.Error(w, "app credential unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	orig := proxy.Director
 	proxy.Director = func(req *http.Request) {

@@ -12,6 +12,9 @@ func TestOAuthReauthProviderErrorPreservesActiveConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
+	if _, err := store.CreateUser("oauth-reauth@test.local", "hash"); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
 	conn, err := store.CreateConnectionExt(ConnectionInput{
 		UserID:   1,
 		AppSlug:  "google-sheets",
@@ -46,6 +49,9 @@ func TestOAuthConnectProviderErrorMarksPendingConnectionFailed(t *testing.T) {
 	store, err := NewStore(filepath.Join(t.TempDir(), "server.db"))
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
+	}
+	if _, err := store.CreateUser("oauth-connect@test.local", "hash"); err != nil {
+		t.Fatalf("CreateUser: %v", err)
 	}
 	conn, err := store.CreateConnectionExt(ConnectionInput{
 		UserID:   1,

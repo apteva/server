@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/apteva/server/apps/framework"
 )
@@ -65,7 +66,14 @@ func (s *channelMCPServer) url() string {
 func (s *channelMCPServer) serve() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handle)
-	http.Serve(s.listener, mux)
+	server := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    256 << 10,
+	}
+	_ = server.Serve(s.listener)
 }
 
 func (s *channelMCPServer) close() {
@@ -182,16 +190,22 @@ func (s *channelMCPServer) toolsList() map[string]any {
 					"type":     "object",
 					"required": []string{"kind", "channel"},
 					"properties": map[string]any{
-						"kind":    map[string]any{"type": "string", "description": "Payload kind: message, approval, report, or alert."},
-						"channel": map[string]any{"type": "string", "description": "Target channel. Use \"current\" for the channel that triggered the event, \"apteva\" for Apteva operator messages/approvals/reports/alerts, or Telegram/Slack/etc ids from list_channels. Legacy \"chat\" is accepted as an alias for \"apteva\"."},
+						"kind":    map[string]any{"type": "string", "description": "Payload kind: message, status, approval, report, or alert."},
+						"channel": map[string]any{"type": "string", "description": "Target channel. Use \"current\" for the channel that triggered the event, \"apteva\" for Apteva operator messages/statuses/approvals/reports/alerts, or Telegram/Slack/etc ids from list_channels. Legacy \"chat\" is accepted as an alias for \"apteva\"."},
 						"text":    map[string]any{"type": "string", "description": "User-visible message body for kind=message. Plain assistant output/thoughts are internal and invisible."},
-						"title":   map[string]any{"type": "string", "description": "Short title for kind=approval, kind=report, or kind=alert."},
+						"title":   map[string]any{"type": "string", "description": "Short title for kind=status, kind=approval, kind=report, or kind=alert."},
 						"body":    map[string]any{"type": "string", "description": "Body/details for kind=approval or kind=alert."},
 						"summary": map[string]any{"type": "string", "description": "Compact outcome summary for kind=report."},
 						"severity": map[string]any{
 							"type":        "string",
 							"description": "Optional alert severity: info, warning, error, or critical.",
 						},
+						"state": map[string]any{
+							"type":        "string",
+							"description": "Current status state for kind=status: working, waiting, blocked, or completed.",
+						},
+						"detail":   map[string]any{"type": "string", "description": "Optional concise detail for kind=status."},
+						"progress": map[string]any{"type": "number", "minimum": 0, "maximum": 100, "description": "Optional completion percentage for kind=status."},
 						"components": map[string]any{
 							"type":        "array",
 							"description": "Optional rich attachments for kind=message — see AVAILABLE COMPONENTS in the description. External channels ignore this field; the Apteva channel renders attachments.",
@@ -237,7 +251,7 @@ func (s *channelMCPServer) toolsList() map[string]any {
 			},
 			{
 				"name":        "list_channels",
-				"description": "List communication channels and their capabilities. For normal Apteva operator replies, send kind=message to channel=\"current\" or channel=\"apteva\". Use kind=approval/report/alert on channel=\"apteva\" for structured inbox artifacts.",
+				"description": "List communication channels and their capabilities. For normal Apteva operator replies, send kind=message to channel=\"current\" or channel=\"apteva\". Use kind=status for current monitoring state, or kind=approval/report/alert for structured inbox artifacts, on channel=\"apteva\".",
 				"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 			},
 		},
@@ -377,6 +391,7 @@ func buildSendDescription(channelIDs []string, components []componentEntry) stri
 		"Send typed communication through Apteva Channels. Text in your thoughts is INVISIBLE — only this tool delivers messages or durable channel artifacts.\n\n"+
 			"KINDS:\n"+
 			"- kind=\"message\": visible user-facing message to a channel such as current/apteva/telegram. Use this for live conversation, immediate progress, and final answers while the operator is actively chatting.\n"+
+			"- kind=\"status\": current monitoring headline for what you are doing now. Use channel=\"apteva\". Set working before meaningful multi-step work and before any substantive external action, even a single create/update/delete/send/publish/trigger tool call. When work can start immediately, call working status and the first action tool in the same parallel tool-call batch; do not wait for the status result. Never parallelize past a required approval or prerequisite. Update status at phase changes, when waiting/blocked, and set completed after the action result or work finishes. It replaces your previous status and never appears in chat or Inbox. Skip status for read-only lookups, brief answers, internal pacing, and individual tool calls within one stated phase.\n"+
 			"- kind=\"approval\": Apteva approval request with buttons. Use channel=\"apteva\".\n"+
 			"- kind=\"report\": Apteva dashboard report. Use channel=\"apteva\". Use this for requested delayed/background checks, scheduled summaries, significant completed work, and anything the operator asked to review later, especially after a dashboard chat disconnect.\n"+
 			"- kind=\"alert\": Apteva operator alert. Use channel=\"apteva\".\n\n"+
@@ -644,6 +659,32 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		return textResult("alert sent to Apteva channel")
 	}
 
+	sendStatus := func(channel string) any {
+		title, _ := call.Arguments["title"].(string)
+		detail, _ := call.Arguments["detail"].(string)
+		state, _ := call.Arguments["state"].(string)
+		var progress *float64
+		if value, ok := call.Arguments["progress"].(float64); ok {
+			progress = &value
+		}
+		ch := s.registry.Get(resolveArtifactChannel(channel))
+		if ch == nil {
+			return textToolError(fmt.Sprintf("channel %q not found", channel))
+		}
+		sender, ok := ch.(framework.CurrentStatusSender)
+		if !ok {
+			return textToolError(fmt.Sprintf("channel %q does not support current status", channel))
+		}
+		result, err := sender.SetCurrentStatus(framework.CurrentStatusRequest{
+			Title: title, Detail: detail, State: state, Progress: progress,
+		})
+		if err != nil {
+			return textToolError(err.Error())
+		}
+		raw, _ := json.Marshal(result)
+		return textResult("current status updated: " + string(raw))
+	}
+
 	switch call.Name {
 	case "send":
 		kind, _ := call.Arguments["kind"].(string)
@@ -659,6 +700,8 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 				return errResult, nil
 			}
 			return textResult("delivered. Continue promised work, schedule with pace if needed, or pace/done if the request is complete."), nil
+		case "status":
+			return sendStatus(channel), nil
 		case "approval":
 			return sendApproval(channel), nil
 		case "report":
@@ -766,7 +809,7 @@ func (s *channelMCPServer) channelCapabilityList() []map[string]any {
 			typ = "internal"
 			durable = true
 			online = available[id]
-			caps = []string{"message", "approval", "report", "alert", "buttons", "components"}
+			caps = []string{"message", "status", "approval", "report", "alert", "buttons", "components"}
 		}
 		isAvailable := available[id]
 		if id == "apteva" {

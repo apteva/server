@@ -17,6 +17,7 @@ const delegatedProviderMarker = "_apteva_delegated_provider"
 
 type delegatedProviderCredentials struct {
 	GrantID              string
+	ControllerExecuteURL string
 	ControllerGatewayURL string
 	ControllerToken      string
 	ControllerInstallID  string
@@ -59,6 +60,7 @@ func parseDelegatedProviderCredentials(plain string) (*delegatedProviderCredenti
 	}
 	g := &delegatedProviderCredentials{
 		GrantID:              strings.TrimSpace(raw["grant_id"]),
+		ControllerExecuteURL: strings.TrimSpace(raw["controller_execute_url"]),
 		ControllerGatewayURL: strings.TrimRight(strings.TrimSpace(raw["controller_gateway_url"]), "/"),
 		ControllerToken:      strings.TrimSpace(raw["controller_token"]),
 		ControllerInstallID:  strings.TrimSpace(raw["controller_install_id"]),
@@ -75,7 +77,7 @@ func parseDelegatedProviderCredentials(plain string) (*delegatedProviderCredenti
 	if g.GrantID == "" {
 		g.GrantID = fmt.Sprintf("provider:%d", g.ParentConnectionID)
 	}
-	if g.ControllerGatewayURL == "" || g.ControllerToken == "" || g.ControllerInstallID == "" {
+	if g.ControllerToken == "" || (g.ControllerExecuteURL == "" && (g.ControllerGatewayURL == "" || g.ControllerInstallID == "")) {
 		return nil, true, errors.New("delegated provider credentials missing controller endpoint")
 	}
 	return g, true, nil
@@ -107,13 +109,15 @@ func (s *Server) executeDelegatedProviderTool(installID, connID int64, conn *Con
 	}
 
 	payload, _ := json.Marshal(map[string]any{"tool": toolName, "input": input})
-	url := fmt.Sprintf("%s/api/apps/callback/integrations/%d/execute", grant.ControllerGatewayURL, grant.ParentConnectionID)
+	url := delegatedProviderExecuteURL(grant)
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+grant.ControllerToken)
-	req.Header.Set("X-Apteva-App-Install-ID", grant.ControllerInstallID)
+	if grant.ControllerInstallID != "" {
+		req.Header.Set("X-Apteva-App-Install-ID", grant.ControllerInstallID)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Apteva-Delegated-Grant-ID", grant.GrantID)
 	req.Header.Set("X-Apteva-Delegated-Connection-ID", strconv.FormatInt(connID, 10))
@@ -170,6 +174,16 @@ func (s *Server) executeDelegatedProviderTool(installID, connID int64, conn *Con
 		Quantity: qty, Unit: unit, Status: status, Error: errText, Direction: "child",
 	})
 	return &ExecuteResult{Success: result.Success, Status: result.Status, Data: result.Data, Headers: result.Headers}, nil
+}
+
+func delegatedProviderExecuteURL(grant *delegatedProviderCredentials) string {
+	if grant != nil && grant.ControllerExecuteURL != "" {
+		return grant.ControllerExecuteURL
+	}
+	if grant == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s/api/apps/callback/integrations/%d/execute", grant.ControllerGatewayURL, grant.ParentConnectionID)
 }
 
 func (g *delegatedProviderCredentials) validate(appSlug, tool string, input map[string]any) error {

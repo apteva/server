@@ -88,6 +88,7 @@ func newGatewayAppAPITestServer(s *Server) *httptest.Server {
 
 func TestGatewayAgentCreateToolUsesAgentsAPI(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	ts := newGatewayAgentAPITestServer(s)
 	defer ts.Close()
 
@@ -158,6 +159,7 @@ func TestGatewayAgentCreateToolUsesAgentsAPI(t *testing.T) {
 
 func TestGatewayAppToolsUseAppsAPI(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	s.store.db.Exec(`INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (1, 'a@b.c', 'x')`)
 	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-a', 1, 'Project A', '')`)
 	s.store.db.Exec(`INSERT OR IGNORE INTO project_members (project_id, user_id, role, added_by) VALUES ('proj-a', 1, 'owner', 1)`)
@@ -238,6 +240,7 @@ provides:
 
 func TestGatewayAppsMarketplaceAndUpgrade(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	s.store.db.Exec(`INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (1, 'a@b.c', 'x')`)
 	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-a', 1, 'Project A', '')`)
 	s.store.db.Exec(`INSERT OR IGNORE INTO project_members (project_id, user_id, role, added_by) VALUES ('proj-a', 1, 'owner', 1)`)
@@ -323,6 +326,7 @@ func readSystemMCPFlags(t *testing.T, agent *Agent) (includeGateway bool, includ
 
 func TestGatewayAgentUpdateAndStopToolsUseAgentsAPI(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	ts := newGatewayAgentAPITestServer(s)
 	defer ts.Close()
 
@@ -392,6 +396,7 @@ func TestGatewayAgentUpdateAndStopToolsUseAgentsAPI(t *testing.T) {
 
 func TestGatewayAgentUpdateCanUpdateMCPServers(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-a', 1, 'Project A', '')`)
 	s.store.db.Exec(`INSERT OR IGNORE INTO project_members (project_id, user_id, role, added_by) VALUES ('proj-a', 1, 'owner', 1)`)
 	ts := newGatewayAgentAPITestServer(s)
@@ -467,6 +472,7 @@ func TestGatewayAgentUpdateCanUpdateMCPServers(t *testing.T) {
 
 func TestGatewayListMCPServersClassifiesAndFiltersKinds(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 
 	operatorConn, err := s.store.CreateConnection(1, "github", "GitHub", "github", "api_key", "enc", "proj-a")
 	if err != nil {

@@ -683,8 +683,8 @@ func verifyStandardWebhook(body []byte, msgID, msgTS, sigHeader, secret string) 
 // token in the URL is opaque random bytes (16 bytes / 32 hex chars),
 // not a guessable id, so URL enumeration is not a concern.
 func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[WEBHOOK-IN] %s %s remote=%s ua=%q content-type=%q content-length=%s",
-		r.Method, r.URL.Path, r.RemoteAddr, r.Header.Get("User-Agent"),
+	log.Printf("[WEBHOOK-IN] %s remote=%s ua=%q content-type=%q content-length=%s",
+		r.Method, r.RemoteAddr, r.Header.Get("User-Agent"),
 		r.Header.Get("Content-Type"), r.Header.Get("Content-Length"))
 
 	if r.Method != http.MethodPost {
@@ -699,7 +699,8 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "token required", http.StatusBadRequest)
 		return
 	}
-	log.Printf("[WEBHOOK-IN] token=%s len=%d", token, len(token))
+	tokenRef := shortSecretRef(token)
+	log.Printf("[WEBHOOK-IN] token_ref=%s len=%d", tokenRef, len(token))
 
 	// Dispatch 1: subscription-backed webhook. Try this first because
 	// it's the common case for local templates and has a cheaper
@@ -710,7 +711,7 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		s.handleSubscriptionWebhook(w, r, sub, encSecret)
 		return
 	}
-	log.Printf("[WEBHOOK-IN] no subscription row for token=%s err=%v", token, err)
+	log.Printf("[WEBHOOK-IN] no subscription row for token_ref=%s err=%v", tokenRef, err)
 
 	// Dispatch 2: provider-backed trigger webhook. The token matches
 	// providers.webhook_token; we find the provider, look up its
@@ -722,10 +723,10 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		s.handleProviderTriggerWebhook(w, r, prov, encData)
 		return
 	}
-	log.Printf("[WEBHOOK-IN] no provider row for token=%s err=%v", token, perr)
+	log.Printf("[WEBHOOK-IN] no provider row for token_ref=%s err=%v", tokenRef, perr)
 
 	// Neither matched.
-	log.Printf("[WEBHOOK-IN] 404 token=%s — no subscription or provider row matched", token)
+	log.Printf("[WEBHOOK-IN] 404 token_ref=%s — no subscription or provider row matched", tokenRef)
 	http.Error(w, "unknown webhook token", http.StatusNotFound)
 }
 
@@ -747,7 +748,7 @@ func (s *Server) handleSubscriptionWebhook(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Read body
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1024*1024)) // 1MB max
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil {
 		log.Printf("[WEBHOOK] sub %s body read error: %v", sub.ID, err)
 		http.Error(w, "read error", http.StatusBadRequest)
@@ -758,7 +759,12 @@ func (s *Server) handleSubscriptionWebhook(w http.ResponseWriter, r *http.Reques
 	// Verify HMAC if configured
 	if encSecret != "" {
 		secret, err := Decrypt(s.secret, encSecret)
-		if err == nil && secret != "" {
+		if err != nil || secret == "" {
+			log.Printf("[WEBHOOK] sub %s: HMAC credential unavailable: %v", sub.ID, err)
+			http.Error(w, "webhook verification unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		{
 			sig := r.Header.Get("x-hub-signature-256")
 			if sig == "" {
 				sig = r.Header.Get("x-signature-256")
@@ -768,13 +774,11 @@ func (s *Server) handleSubscriptionWebhook(w http.ResponseWriter, r *http.Reques
 			}
 			log.Printf("[WEBHOOK] sub %s HMAC check — sig header present=%v", sub.ID, sig != "")
 			if !verifyHMAC(body, sig, secret) {
-				log.Printf("[WEBHOOK] sub %s HMAC verification FAILED (sig=%q)", sub.ID, sig)
+				log.Printf("[WEBHOOK] sub %s HMAC verification failed", sub.ID)
 				http.Error(w, "invalid signature", http.StatusUnauthorized)
 				return
 			}
 			log.Printf("[WEBHOOK] sub %s HMAC verified ok", sub.ID)
-		} else if err != nil {
-			log.Printf("[WEBHOOK] sub %s: failed to decrypt HMAC secret: %v — skipping verification", sub.ID, err)
 		}
 	} else {
 		log.Printf("[WEBHOOK] sub %s has no HMAC secret — skipping verification", sub.ID)
@@ -1174,8 +1178,8 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 	}
 
 	webhookURL := s.webhookURL(webhookPath)
-	log.Printf("[SUB-CREATE] sub=%s name=%q slug=%q conn=%d agent=%d webhook_url=%s events=%v",
-		sub.ID, body.Name, body.Slug, body.ConnectionID, body.AgentID, webhookURL, body.Events)
+	log.Printf("[SUB-CREATE] sub=%s name=%q slug=%q conn=%d agent=%d webhook_ref=%s events=%v",
+		sub.ID, body.Name, body.Slug, body.ConnectionID, body.AgentID, shortSecretRef(webhookPath), body.Events)
 
 	// Auto-register webhook with the external service if it has registration config
 	var autoRegistered bool
@@ -1235,7 +1239,7 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 							logHeaders[k] = "***"
 						}
 					}
-					log.Printf("[SUB-CREATE] → %s %s headers=%v body=%s", reg.Method, regURL, logHeaders, string(regBody))
+					log.Printf("[SUB-CREATE] → %s %s headers=%v body_bytes=%d body_fields=%v", reg.Method, regURL, logHeaders, len(regBody), sortedAnyMapKeys(reqBody))
 
 					req, rerr := http.NewRequest(reg.Method, regURL, strings.NewReader(string(regBody)))
 					if rerr != nil {
@@ -1250,7 +1254,7 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 						} else {
 							respBody, _ := io.ReadAll(resp.Body)
 							resp.Body.Close()
-							log.Printf("[SUB-CREATE] ← %d %s", resp.StatusCode, string(respBody))
+							log.Printf("[SUB-CREATE] ← %d body_bytes=%d", resp.StatusCode, len(respBody))
 							if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 								autoRegistered = true
 								if reg.IDField != "" {

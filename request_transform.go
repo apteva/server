@@ -66,8 +66,63 @@ func buildRequestTransformBody(transform *RequestTransformDef, input map[string]
 		}
 		copyRequestTransformFields(body, input, transform.IncludeFields)
 		return body, true, nil
+	case "json_api":
+		if transform.ResourceType == "" {
+			return nil, true, fmt.Errorf("json_api request_transform requires resource_type")
+		}
+		data := map[string]any{"type": transform.ResourceType}
+		if transform.IDField != "" {
+			if id, ok := input[transform.IDField]; ok && id != nil && fmt.Sprint(id) != "" {
+				data["id"] = id
+			}
+		}
+		attributes := map[string]any{}
+		for _, field := range transform.Attributes {
+			if value, ok := input[field]; ok && value != nil {
+				attributes[field] = value
+			}
+		}
+		if len(attributes) > 0 {
+			data["attributes"] = attributes
+		}
+		relationships := map[string]any{}
+		for name, relationship := range transform.Relationships {
+			value, ok := input[relationship.Source]
+			if !ok || value == nil || fmt.Sprint(value) == "" {
+				continue
+			}
+			if relationship.Many {
+				ids := requestTransformSlice(value)
+				linkage := make([]any, 0, len(ids))
+				for _, id := range ids {
+					linkage = append(linkage, map[string]any{"type": relationship.ResourceType, "id": fmt.Sprint(id)})
+				}
+				relationships[name] = map[string]any{"data": linkage}
+			} else {
+				relationships[name] = map[string]any{"data": map[string]any{"type": relationship.ResourceType, "id": fmt.Sprint(value)}}
+			}
+		}
+		if len(relationships) > 0 {
+			data["relationships"] = relationships
+		}
+		return map[string]any{"data": data}, true, nil
 	default:
 		return nil, true, fmt.Errorf("unsupported request_transform type: %s", transform.Type)
+	}
+}
+
+func requestTransformSlice(value any) []any {
+	switch values := value.(type) {
+	case []any:
+		return values
+	case []string:
+		out := make([]any, len(values))
+		for i, item := range values {
+			out[i] = item
+		}
+		return out
+	default:
+		return []any{value}
 	}
 }
 

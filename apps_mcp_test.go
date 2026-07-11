@@ -68,6 +68,7 @@ func seedAppWithTools(t *testing.T, s *Server, appName, projectID string, toolNa
 func TestHandleListAppsClosesInstallRowsBeforeIntegrationRows(t *testing.T) {
 	store := newTestStore(t)
 	s := &Server{store: store, catalog: NewAppCatalog()}
+	ensureTestAdmin(t, s)
 
 	manifest := sdk.Manifest{
 		Schema:      sdk.SchemaCurrent,
@@ -108,6 +109,7 @@ func TestHandleListAppsClosesInstallRowsBeforeIntegrationRows(t *testing.T) {
 	})
 
 	req := httptest.NewRequest("GET", "/api/apps?project_id=proj-1", nil)
+	req.Header.Set("X-User-ID", "1")
 	rec := httptest.NewRecorder()
 	done := make(chan struct{})
 	go func() {
@@ -203,8 +205,8 @@ func TestRegisterAppMCP_InsertsRow(t *testing.T) {
 	if !strings.Contains(url, "/api/apps/storage/mcp") {
 		t.Errorf("url = %q, expected /api/apps/storage/mcp path", url)
 	}
-	if !strings.Contains(url, "api_key=dev-") {
-		t.Errorf("url = %q, expected api_key=dev-<install_id>", url)
+	if !strings.Contains(url, "api_key=app_") {
+		t.Errorf("url = %q, expected random per-install app token", url)
 	}
 	if !strings.Contains(url, "install_id=") {
 		t.Errorf("url = %q, expected install_id query param", url)

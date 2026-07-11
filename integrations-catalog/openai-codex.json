@@ -20,8 +20,7 @@
         "properties": {
           "model": {
             "type": "string",
-            "default": "gpt-5.5",
-            "description": "Codex/runtime model to use."
+            "description": "Codex/runtime model to use. Omit to use the account-aware Terra/default fallback."
           },
           "input": {
             "description": "Responses API input: a string or array of input items."
@@ -52,7 +51,7 @@
             "default": false
           }
         },
-        "required": ["model", "input"]
+        "required": ["input"]
       }
     },
     {
@@ -66,7 +65,7 @@
         "properties": {
           "model": {
             "type": "string",
-            "default": "gpt-5.5"
+            "description": "Optional Codex model. Omit to use the account-aware Terra/default fallback."
           },
           "messages": {
             "type": "array",
@@ -112,7 +111,7 @@
         "properties": {
           "model": {
             "type": "string",
-            "default": "gpt-5.5"
+            "description": "Optional Codex model. Omit to use the account-aware Terra/default fallback."
           },
           "messages": {
             "type": "array",
@@ -148,8 +147,7 @@
           },
           "model": {
             "type": "string",
-            "default": "gpt-5.5",
-            "description": "Codex/runtime model that should call the hosted image_generation tool."
+            "description": "Optional Codex/runtime model that should call the hosted image_generation tool. Omit to use the account-aware Terra/default fallback."
           },
           "size": {
             "type": "string",

@@ -19,9 +19,13 @@ func testEnvironmentWithInstalls(names ...string) *Environment {
 
 func TestEnvironmentAgentAppMCPNames_UsesSourceAgentBindings(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	agent, err := s.store.CreateAgent(1, "media-agent", "process media", "autonomous", "{}", "proj-1")
 	if err != nil {
 		t.Fatalf("create agent: %v", err)
+	}
+	if _, err := s.store.db.Exec(`INSERT INTO agents(id,user_id,name,project_id,status) VALUES(9999,1,'other','proj-1','stopped')`); err != nil {
+		t.Fatalf("create decoy agent: %v", err)
 	}
 	seedBoundApp(t, s, "media", "proj-1", agent.ID)
 	seedBoundApp(t, s, "storage", "proj-1", 9999)
@@ -35,6 +39,7 @@ func TestEnvironmentAgentAppMCPNames_UsesSourceAgentBindings(t *testing.T) {
 
 func TestEnvironmentAgentAppMCPNames_UsesExplicitSourceAppMCPs(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	agent := &Agent{
 		ID: 1,
 		Config: `{
@@ -54,6 +59,7 @@ func TestEnvironmentAgentAppMCPNames_UsesExplicitSourceAppMCPs(t *testing.T) {
 
 func TestEnvironmentAgentAppMCPNames_UnboundAgentGetsExplicitEnvironmentApps(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	agent, err := s.store.CreateAgent(1, "unbound-agent", "do work", "autonomous", "{}", "proj-1")
 	if err != nil {
 		t.Fatalf("create agent: %v", err)

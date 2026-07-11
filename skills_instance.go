@@ -37,7 +37,6 @@ type instanceSkillView struct {
 
 // handleInstanceSkills dispatches GET /skills, POST /skills/:id, DELETE /skills/:id.
 func (s *Server) handleInstanceSkills(w http.ResponseWriter, r *http.Request) {
-	userID := getUserID(r)
 	path := strings.TrimPrefix(r.URL.Path, "/instances/")
 
 	// Split into <instance-id>/skills[/<skill-id>].
@@ -51,9 +50,12 @@ func (s *Server) handleInstanceSkills(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid instance ID", http.StatusBadRequest)
 		return
 	}
-	inst, err := s.store.GetAgent(userID, instanceID)
-	if err != nil {
-		http.Error(w, "instance not found", http.StatusNotFound)
+	need := ProjectViewer
+	if r.Method != http.MethodGet {
+		need = ProjectEditor
+	}
+	inst, ok := s.requireAgentAccess(w, r, instanceID, need)
+	if !ok {
 		return
 	}
 

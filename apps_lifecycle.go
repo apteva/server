@@ -31,7 +31,8 @@ import (
 // safe to call as often as we like.
 func (s *Server) recomputePendingOptions() {
 	rows, err := s.store.db.Query(
-		`SELECT i.id, COALESCE(i.project_id, ''), a.manifest_json,
+		`SELECT i.id, COALESCE(i.project_id, ''),
+		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),
 		        COALESCE(i.integration_bindings, '{}')
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.status = 'running'`,

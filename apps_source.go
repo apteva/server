@@ -637,10 +637,14 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 	defer releaseAppLock()
 
 	cfgJSON, _ := json.Marshal(decryptedConfig)
+	appToken, err := s.appInstallToken(installID)
+	if err != nil {
+		return fmt.Errorf("create app credential: %w", err)
+	}
 	env := map[string]string{
 		"APTEVA_GATEWAY_URL": s.localGatewayURL(),
 		"APTEVA_PUBLIC_URL":  s.publicBaseURL(),
-		"APTEVA_APP_TOKEN":   "dev-" + strconv.FormatInt(installID, 10), // TODO: real per-install token
+		"APTEVA_APP_TOKEN":   appToken,
 		"APTEVA_INSTALL_ID":  strconv.FormatInt(installID, 10),
 		"APTEVA_PROJECT_ID":  projectID,
 		"APTEVA_APP_CONFIG":  string(cfgJSON),
@@ -672,17 +676,20 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 			s.markInstallRunningOnPreviousVersion(installID, err)
 		} else {
 			s.store.db.Exec(
-				`UPDATE app_installs SET status='error', status_message='', error_message=? WHERE id=?`,
+				`UPDATE app_installs SET status='error', status_message='', error_message=?, pending_manifest_json='' WHERE id=?`,
 				err.Error(), installID)
 		}
 		return err
 	}
 	pid := s.localApps.PID(installID)
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
+	manifestJSON, _ := json.Marshal(m)
 	s.store.db.Exec(
 		`UPDATE app_installs SET
 			status='running',
 			version=?,
+			manifest_json=?,
+			pending_manifest_json='',
 			local_pid=?,
 			local_bin_path=?,
 			local_port=?,
@@ -690,7 +697,7 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 			status_message='',
 			error_message=''
 		 WHERE id=?`,
-		m.Version, pid, binPath, port, url, installID)
+		m.Version, string(manifestJSON), pid, binPath, port, url, installID)
 	s.LoadInstalledApps()
 	// A new install becoming running may unblock requires.apps deps
 	// on parent installs that were waiting for it. Walk every running
@@ -713,7 +720,7 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 	// (most-recent by mtime) as a fallback if the user manually pins
 	// back, and rm -rf the rest. Best-effort: errors are logged but
 	// don't fail the install.
-	if removed := pruneOldAppVersions(s.localApps.cacheDir, m.Name, m.Version, appVersionRetainPrevious); len(removed) > 0 {
+	if removed := s.pruneUnreferencedAppVersions(m.Name, m.Version); len(removed) > 0 {
 		log.Printf("[APPS-SOURCE] reclaimed %d stale version dir(s) for %s: %v", len(removed), m.Name, removed)
 	}
 	return nil
@@ -730,6 +737,37 @@ func pruneOldAppVersions(cacheDir, appName, keepCurrent string, keepRecent int) 
 		keep[keepCurrent] = true
 	}
 	return pruneOldAppVersionsKeeping(cacheDir, appName, keep, keepRecent)
+}
+
+// pruneUnreferencedAppVersions retains every version referenced by a running
+// or pending install across all projects, plus the version that just became
+// healthy. This is the install-aware cleanup path; the lower-level helper is
+// intentionally DB-agnostic for tests and maintenance tools.
+func (s *Server) pruneUnreferencedAppVersions(appName, currentVersion string) []string {
+	if s == nil || s.localApps == nil {
+		return nil
+	}
+	keep := map[string]bool{}
+	if currentVersion != "" {
+		keep[currentVersion] = true
+	}
+	rows, err := s.store.db.Query(
+		`SELECT i.version
+		 FROM app_installs i JOIN apps a ON a.id = i.app_id
+		 WHERE a.name = ? AND i.status IN ('running', 'pending') AND i.version != ''`,
+		appName,
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var version string
+		if rows.Scan(&version) == nil && version != "" {
+			keep[version] = true
+		}
+	}
+	return pruneOldAppVersionsKeeping(s.localApps.cacheDir, appName, keep, appVersionRetainPrevious)
 }
 
 func pruneOldAppVersionsKeeping(cacheDir, appName string, keepVersions map[string]bool, keepRecent int) []string {

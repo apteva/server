@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -331,6 +332,9 @@ func (s *Store) GetAllProviderEnvVars(userID int64, secret []byte, projectID ...
 			if token := stringFromNested(data, "credentials", "access_token"); strings.TrimSpace(token) != "" {
 				envVars["OPENAI_CODEX_ACCESS_TOKEN"] = token
 				envVars["OPENAI_CODEX_PROVIDER_ID"] = fmt.Sprint(providerID)
+				if accountID := codexAccountIDFromState(data); accountID != "" {
+					envVars["OPENAI_CODEX_ACCOUNT_ID"] = accountID
+				}
 			}
 		}
 		for k, v := range data {
@@ -392,10 +396,7 @@ func (s *Store) RefreshOpenAICodexProviderState(providerID, userID int64, secret
 		if nextRefresh, _ := tokens["refresh_token"].(string); strings.TrimSpace(nextRefresh) == "" {
 			tokens["refresh_token"] = refreshToken
 		}
-		next := buildOpenAICodexProviderState(tokens, source)
-		if account := stateMap(state, "account"); len(account) > 0 {
-			next["account"] = account
-		}
+		next := mergeOpenAICodexProviderState(state, buildOpenAICodexProviderState(tokens, source))
 		encryptedNext, err := marshalEncryptProviderState(secret, next)
 		if err != nil {
 			return nil, false, err
@@ -652,11 +653,18 @@ func (s *Server) handleGetProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var data map[string]string
-	json.Unmarshal([]byte(plaintext), &data)
+	var data map[string]any
+	if err := json.Unmarshal([]byte(plaintext), &data); err != nil {
+		http.Error(w, "invalid provider data", http.StatusInternalServerError)
+		return
+	}
 
 	masked := map[string]string{}
-	for k, v := range data {
+	for k, raw := range data {
+		v, ok := raw.(string)
+		if !ok {
+			continue
+		}
 		if isEnvVar(k) && len(v) > 8 {
 			masked[k] = v[:4] + "..." + v[len(v)-4:]
 		} else {
@@ -709,12 +717,12 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Decrypt existing data and merge — skip masked values (contain "***")
-	var existing map[string]string
+	var existing map[string]any
 	if plaintext, err := Decrypt(s.secret, encData); err == nil {
 		json.Unmarshal([]byte(plaintext), &existing)
 	}
 	if existing == nil {
-		existing = map[string]string{}
+		existing = map[string]any{}
 	}
 	for k, v := range body.Data {
 		// Skip masked values — keep existing secret
@@ -817,20 +825,59 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 			pool = append(pool, ProviderInfo{Type: providerKey})
 			continue
 		}
-		var data map[string]string
-		json.Unmarshal([]byte(plaintext), &data)
+		var data map[string]any
+		if json.Unmarshal([]byte(plaintext), &data) != nil {
+			pool = append(pool, ProviderInfo{Type: providerKey})
+			continue
+		}
+		if providerKey == openAICodexAuthProvider {
+			_, hasCapabilities := data["model_capabilities"]
+			needsCatalog := !hasCapabilities || strings.TrimSpace(stringValue(data["model_large"])) == "" ||
+				strings.TrimSpace(stringValue(data["model_medium"])) == "" || strings.TrimSpace(stringValue(data["model_small"])) == "" ||
+				!codexRuntimeModelAllowed(stringValue(data["model_large"])) ||
+				!codexRuntimeModelAllowed(stringValue(data["model_medium"])) ||
+				!codexRuntimeModelAllowed(stringValue(data["model_small"])) ||
+				codexStateHasNonTerra56Selection(data)
+			if needsCatalog {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				models, fetchErr := fetchCodexModelCatalog(ctx,
+					stringFromNested(data, "credentials", "access_token"), codexAccountIDFromState(data), false)
+				cancel()
+				if fetchErr == nil {
+					applyCodexCatalogToState(data, models)
+					if err := s.persistCodexCatalogState(userID, &p, models); err != nil {
+						log.Printf("[CODEX-MODELS] provider=%d could not persist catalog defaults: %v", p.ID, err)
+					}
+				} else {
+					log.Printf("[CODEX-MODELS] provider=%d catalog unavailable; retaining saved models: %v", p.ID, fetchErr)
+				}
+			}
+		}
 
 		var builtinTools []string
-		if bt, ok := data["builtin_tools"]; ok && bt != "" {
-			json.Unmarshal([]byte(bt), &builtinTools)
+		if bt, ok := data["builtin_tools"].(string); ok && bt != "" {
+			_ = json.Unmarshal([]byte(bt), &builtinTools)
+		} else if bt, ok := data["builtin_tools"].([]any); ok {
+			for _, item := range bt {
+				if value, ok := item.(string); ok {
+					builtinTools = append(builtinTools, value)
+				}
+			}
+		}
+		modelCapabilities := map[string]ProviderModelCapabilities{}
+		if rawCaps, ok := data["model_capabilities"]; ok {
+			if encoded, marshalErr := json.Marshal(rawCaps); marshalErr == nil {
+				_ = json.Unmarshal(encoded, &modelCapabilities)
+			}
 		}
 
 		info := ProviderInfo{
-			Type:         providerKey,
-			ModelLarge:   normalizeStaleModel(providerKey, data["model_large"]),
-			ModelMedium:  normalizeStaleModel(providerKey, data["model_medium"]),
-			ModelSmall:   normalizeStaleModel(providerKey, data["model_small"]),
-			BuiltinTools: builtinTools,
+			Type:              providerKey,
+			ModelLarge:        normalizeStaleModel(providerKey, stringValue(data["model_large"])),
+			ModelMedium:       normalizeStaleModel(providerKey, stringValue(data["model_medium"])),
+			ModelSmall:        normalizeStaleModel(providerKey, stringValue(data["model_small"])),
+			BuiltinTools:      builtinTools,
+			ModelCapabilities: modelCapabilities,
 		}
 		if providerKey == "openai-codex" {
 			codexPool = append(codexPool, info)
@@ -843,8 +890,12 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 
 // GET /providers/:id/models — fetch live model list
 func (s *Server) handleProviderModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPut {
+		s.handleSaveProviderModels(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
-		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		http.Error(w, "GET or PUT", http.StatusMethodNotAllowed)
 		return
 	}
 	userID := getUserID(r)
@@ -869,12 +920,43 @@ func (s *Server) handleProviderModels(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "decryption failed", http.StatusInternalServerError)
 		return
 	}
-	var data map[string]string
-	json.Unmarshal([]byte(plaintext), &data)
+	var state map[string]any
+	if err := json.Unmarshal([]byte(plaintext), &state); err != nil {
+		http.Error(w, "invalid provider data", http.StatusInternalServerError)
+		return
+	}
+
+	providerKey := strings.ToLower(provider.Type)
+	if providerKey == "llm" {
+		providerKey = providerKeyFromName(provider.Name)
+	}
+	if providerKey == openAICodexAuthProvider {
+		if codexStateNeedsRefresh(state, 10*time.Minute) {
+			state, _, err = s.store.RefreshOpenAICodexProviderState(providerID, userID, s.secret, 10*time.Minute, false, "model_catalog")
+			if err != nil {
+				http.Error(w, fmt.Sprintf("failed to refresh Codex auth: %v", err), http.StatusBadGateway)
+				return
+			}
+		}
+		force := r.URL.Query().Get("refresh") == "1"
+		models, fetchErr := fetchCodexModelCatalog(r.Context(),
+			stringFromNested(state, "credentials", "access_token"), codexAccountIDFromState(state), force)
+		if fetchErr != nil {
+			http.Error(w, fmt.Sprintf("failed to fetch models: %v", fetchErr), http.StatusBadGateway)
+			return
+		}
+		if err := s.persistCodexCatalogState(userID, provider, models); err != nil {
+			http.Error(w, "failed to persist Codex model defaults", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, models)
+		return
+	}
 
 	// Find the API key
 	apiKey := ""
-	for k, v := range data {
+	for k, raw := range state {
+		v, _ := raw.(string)
 		if strings.HasSuffix(k, "_KEY") || strings.HasSuffix(k, "_API_KEY") {
 			apiKey = v
 			break
@@ -885,14 +967,6 @@ func (s *Server) handleProviderModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Normalize provider type: "llm" rows use the name as the key.
-	// Names may be display-pretty (e.g. "OpenCode Go") — collapse to
-	// the kebab form FetchModels / createProviderByName expect.
-	providerKey := strings.ToLower(provider.Type)
-	if providerKey == "llm" {
-		providerKey = providerKeyFromName(provider.Name)
-	}
-
 	models, err := FetchModels(providerKey, apiKey)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to fetch models: %v", err), http.StatusBadGateway)
@@ -900,4 +974,114 @@ func (s *Server) handleProviderModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, models)
+}
+
+func (s *Server) persistCodexCatalogState(userID int64, provider *Provider, models []ModelInfo) error {
+	lock := codexProviderRefreshLock(provider.ID)
+	lock.Lock()
+	defer lock.Unlock()
+	_, encrypted, err := s.store.GetProvider(userID, provider.ID)
+	if err != nil {
+		return err
+	}
+	plaintext, err := Decrypt(s.secret, encrypted)
+	if err != nil {
+		return err
+	}
+	state := map[string]any{}
+	if err := json.Unmarshal([]byte(plaintext), &state); err != nil {
+		return err
+	}
+	applyCodexCatalogToState(state, models)
+	next, err := marshalEncryptProviderState(s.secret, state)
+	if err != nil {
+		return err
+	}
+	return s.store.UpdateProvider(userID, provider.ID, provider.Type, provider.Name, next)
+}
+
+func (s *Server) handleSaveProviderModels(w http.ResponseWriter, r *http.Request) {
+	userID := getUserID(r)
+	path := strings.TrimPrefix(r.URL.Path, "/providers/")
+	idStr := strings.TrimSuffix(path, "/models")
+	providerID, err := atoi64(idStr)
+	if err != nil {
+		http.Error(w, "invalid provider ID", http.StatusBadRequest)
+		return
+	}
+	provider, _, err := s.store.GetProvider(userID, providerID)
+	if err != nil {
+		http.Error(w, "provider not found", http.StatusNotFound)
+		return
+	}
+	var body struct {
+		Large  string `json:"large"`
+		Medium string `json:"medium"`
+		Small  string `json:"small"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<10)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	lock := codexProviderRefreshLock(providerID)
+	lock.Lock()
+	defer lock.Unlock()
+	provider, encrypted, err := s.store.GetProvider(userID, providerID)
+	if err != nil {
+		http.Error(w, "provider not found", http.StatusNotFound)
+		return
+	}
+	plaintext, err := Decrypt(s.secret, encrypted)
+	if err != nil {
+		http.Error(w, "decryption failed", http.StatusInternalServerError)
+		return
+	}
+	state := map[string]any{}
+	if err := json.Unmarshal([]byte(plaintext), &state); err != nil {
+		http.Error(w, "invalid provider data", http.StatusInternalServerError)
+		return
+	}
+	state["model_large"] = strings.TrimSpace(body.Large)
+	state["model_medium"] = strings.TrimSpace(body.Medium)
+	state["model_small"] = strings.TrimSpace(body.Small)
+
+	providerKey := strings.ToLower(provider.Type)
+	if providerKey == "llm" {
+		providerKey = providerKeyFromName(provider.Name)
+	}
+	if providerKey == openAICodexAuthProvider {
+		models, fetchErr := fetchCodexModelCatalog(r.Context(),
+			stringFromNested(state, "credentials", "access_token"), codexAccountIDFromState(state), false)
+		if fetchErr != nil {
+			http.Error(w, fmt.Sprintf("failed to validate Codex models: %v", fetchErr), http.StatusBadGateway)
+			return
+		}
+		available := map[string]bool{}
+		for _, model := range models {
+			available[model.ID] = true
+		}
+		for tier, selected := range map[string]string{"large": body.Large, "medium": body.Medium, "small": body.Small} {
+			if strings.TrimSpace(selected) != "" && !available[strings.TrimSpace(selected)] {
+				http.Error(w, fmt.Sprintf("%s model %q is not available for this Codex account", tier, selected), http.StatusBadRequest)
+				return
+			}
+		}
+		applyCodexCatalogToState(state, models)
+	}
+	next, err := marshalEncryptProviderState(s.secret, state)
+	if err != nil {
+		http.Error(w, "encryption failed", http.StatusInternalServerError)
+		return
+	}
+	if err := s.store.UpdateProvider(userID, providerID, provider.Type, provider.Name, next); err != nil {
+		http.Error(w, "failed to update model settings", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"status": "updated",
+		"large":  stringValue(state["model_large"]),
+		"medium": stringValue(state["model_medium"]),
+		"small":  stringValue(state["model_small"]),
+	})
 }

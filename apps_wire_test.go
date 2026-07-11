@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"net/http"
@@ -272,4 +273,122 @@ func readAll(resp *http.Response) (string, error) {
 	_, err := buf.ReadFrom(resp.Body)
 	resp.Body.Close()
 	return buf.String(), err
+}
+
+// Covers the complete real-time chain that the dashboard consumes: the
+// Streamer publishes a named `stream` event and channel.Send publishes the
+// final default SSE message through the same long-lived HTTP response.
+func TestChannelChatSSEDeliversStreamingFrameAndFinalMessage(t *testing.T) {
+	s := newTestServer(t)
+	user := mkUser(t, s, "chat-sse@test")
+	inst, err := s.store.CreateAgent(user, "inst-chat-sse", "test directive", "autonomous", "{}", "")
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+	apiKey := "apt_sse_" + itoa64(user)
+	if _, err := s.store.CreateAPIKey(user, "sse-test-key", HashAPIKey(apiKey), apiKey[:8]); err != nil {
+		t.Fatalf("create api key: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	reg, err := s.startApps(mux)
+	if err != nil {
+		t.Fatalf("startApps: %v", err)
+	}
+	t.Cleanup(func() { reg.Stop(500 * time.Millisecond) })
+	app := reg.AppFor("channel-chat")
+	ctx := reg.AppCtxFor("channel-chat")
+	info := s.buildInstanceInfo(inst.ID)
+	if app == nil || ctx == nil || info == nil {
+		t.Fatal("channel-chat app context unavailable")
+	}
+	channel, err := app.Channels()[0].Build(ctx, *info)
+	if err != nil {
+		t.Fatalf("build channel: %v", err)
+	}
+	if s.liveTelemetryHook == nil {
+		t.Fatal("channel-chat live telemetry hook unavailable")
+	}
+	mux.HandleFunc("/telemetry/live", s.handleLiveTelemetry)
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	chatID := "default-" + itoa64(inst.ID)
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/apps/channel-chat/stream?chat_id="+chatID+"&since=0", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("open SSE: %v", err)
+	}
+	t.Cleanup(func() { resp.Body.Close() })
+	if resp.StatusCode != http.StatusOK {
+		body, _ := readAll(resp)
+		t.Fatalf("SSE status=%d body=%s", resp.StatusCode, body)
+	}
+	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
+		t.Fatalf("SSE content type=%q", got)
+	}
+
+	type record struct{ event, data string }
+	records := make(chan record, 8)
+	go func() {
+		scanner := bufio.NewScanner(resp.Body)
+		current := record{event: "message"}
+		for scanner.Scan() {
+			line := scanner.Text()
+			switch {
+			case strings.HasPrefix(line, "event: "):
+				current.event = strings.TrimPrefix(line, "event: ")
+			case strings.HasPrefix(line, "data: "):
+				current.data = strings.TrimPrefix(line, "data: ")
+			case line == "" && current.data != "":
+				records <- current
+				current = record{event: "message"}
+			}
+		}
+	}()
+
+	chunkData, _ := json.Marshal(map[string]any{
+		"tool":  "channels_send",
+		"id":    "call-sse",
+		"chunk": `{"kind":"message","channel":"current","text":"Hello in pro`,
+	})
+	liveBody, _ := json.Marshal([]TelemetryEvent{{
+		ID:       "live-sse-1",
+		AgentID:  inst.ID,
+		ThreadID: "main",
+		Type:     "llm.tool_chunk",
+		Time:     time.Now(),
+		Data:     chunkData,
+	}})
+	liveReq, _ := http.NewRequest(http.MethodPost, srv.URL+"/telemetry/live", bytes.NewReader(liveBody))
+	liveReq.Header.Set("Content-Type", "application/json")
+	liveReq.Header.Set("X-Agent-Secret", s.instanceSecret)
+	liveResp, err := http.DefaultClient.Do(liveReq)
+	if err != nil {
+		t.Fatalf("post live telemetry: %v", err)
+	}
+	liveResp.Body.Close()
+	if liveResp.StatusCode != http.StatusOK {
+		t.Fatalf("live telemetry status=%d", liveResp.StatusCode)
+	}
+	if err := channel.Send("Hello in production"); err != nil {
+		t.Fatalf("channel send: %v", err)
+	}
+
+	var gotStream, gotMessage bool
+	deadline := time.After(2 * time.Second)
+	for !gotStream || !gotMessage {
+		select {
+		case rec := <-records:
+			if rec.event == "stream" && strings.Contains(rec.data, `"text":"Hello in pro"`) {
+				gotStream = true
+			}
+			if rec.event == "message" && strings.Contains(rec.data, `"content":"Hello in production"`) {
+				gotMessage = true
+			}
+		case <-deadline:
+			t.Fatalf("timed out: stream=%v message=%v", gotStream, gotMessage)
+		}
+	}
 }

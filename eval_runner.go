@@ -1026,14 +1026,13 @@ func collectAssistantRepliesWithOptions(ctx context.Context, port int, apiKey, t
 	meaningfulActivity := false
 	nonToolAssistantTurnsAfterTool := 0
 	consecutiveFetchErrors := 0
-	// lastMsgCount is the total number of messages (any role) we've
-	// already processed per thread. Each poll, we walk the suffix from
-	// this index forward and record anything new — assistant text via
-	// recordAgent, assistant tool_calls via recordRealToolCall, and user
-	// tool_results via attachToolResult. Tracking by overall message
-	// index (instead of just assistant count, the old way) is what lets
-	// tool_calls + tool_results land in the trajectory — they live on
-	// assistant + user messages respectively.
+	// Prefer the append-only core session history. The older context endpoint is
+	// a sliding model prompt and must only be a compatibility fallback: Core
+	// trims it to fit the provider window, so a stable length does not mean no
+	// new work happened.
+	historyCursor := map[string]int64{threadID: 0}
+	historyUnsupported := map[string]bool{}
+	// lastMsgCount is used only for cores that predate /history.
 	lastMsgCount := map[string]int{threadID: 0}
 	// assistantTurns counts assistant messages (with text OR tool
 	// calls) for the max_turns gate. A tool-call-only assistant
@@ -1058,6 +1057,7 @@ func collectAssistantRepliesWithOptions(ctx context.Context, port int, apiKey, t
 					threadIDs = append(threadIDs, id)
 					if _, ok := lastMsgCount[id]; !ok {
 						lastMsgCount[id] = 0
+						historyCursor[id] = 0
 					}
 				}
 				if !seen[threadID] {
@@ -1068,7 +1068,25 @@ func collectAssistantRepliesWithOptions(ctx context.Context, port int, apiKey, t
 		hadNewMessages := false
 		mainFetchOK := false
 		for _, id := range threadIDs {
-			msgs, err := fetchThreadMessages(ctx, port, apiKey, id)
+			var msgs []threadMessage
+			var err error
+			usedHistory := !historyUnsupported[id]
+			if usedHistory {
+				var nextCursor int64
+				var supported bool
+				msgs, nextCursor, supported, err = fetchThreadHistory(ctx, port, apiKey, id, historyCursor[id])
+				if !supported {
+					historyUnsupported[id] = true
+					usedHistory = false
+					err = nil
+				}
+				if err == nil && usedHistory {
+					historyCursor[id] = nextCursor
+				}
+			}
+			if !usedHistory && err == nil {
+				msgs, err = fetchThreadMessages(ctx, port, apiKey, id)
+			}
 			if err != nil {
 				if id == threadID {
 					consecutiveFetchErrors++
@@ -1078,7 +1096,10 @@ func collectAssistantRepliesWithOptions(ctx context.Context, port int, apiKey, t
 			if id == threadID {
 				mainFetchOK = true
 			}
-			last := lastMsgCount[id]
+			last := 0
+			if !usedHistory {
+				last = lastMsgCount[id]
+			}
 			if len(msgs) > last {
 				for _, m := range msgs[last:] {
 					switch m.Role {
@@ -1103,7 +1124,7 @@ func collectAssistantRepliesWithOptions(ctx context.Context, port int, apiKey, t
 						if text != "" || hasToolCalls {
 							assistantTurns++
 						}
-					case "user":
+					case "user", "tool_result":
 						// User messages can carry tool_results back-filling
 						// prior tool calls. The Content field is usually
 						// empty in that case; the framework events ("(no
@@ -1120,7 +1141,9 @@ func collectAssistantRepliesWithOptions(ctx context.Context, port int, apiKey, t
 						}
 					}
 				}
-				lastMsgCount[id] = len(msgs)
+				if !usedHistory {
+					lastMsgCount[id] = len(msgs)
+				}
 				hadNewMessages = true
 			}
 		}
@@ -1248,6 +1271,36 @@ func fetchThreadMessages(ctx context.Context, port int, apiKey, threadID string)
 		return nil, err
 	}
 	return parsed.Messages, nil
+}
+
+// fetchThreadHistory reads Core's cursor-based, durable session history. The
+// boolean return is false only when talking to an older Core that does not yet
+// expose the endpoint; callers then use the legacy context fallback.
+func fetchThreadHistory(ctx context.Context, port int, apiKey, threadID string, after int64) ([]threadMessage, int64, bool, error) {
+	url := fmt.Sprintf("http://127.0.0.1:%d/threads/%s/history?after=%d&limit=500", port, threadID, after)
+	req, err := newHTTPRequest(ctx, "GET", url, nil, apiKey)
+	if err != nil {
+		return nil, after, true, err
+	}
+	resp, err := httpClient5s.Do(req)
+	if err != nil {
+		return nil, after, true, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, after, false, nil
+	}
+	if resp.StatusCode/100 != 2 {
+		return nil, after, true, fmt.Errorf("http %d", resp.StatusCode)
+	}
+	var parsed struct {
+		Entries    []threadMessage `json:"entries"`
+		NextCursor int64           `json:"next_cursor"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, after, true, err
+	}
+	return parsed.Entries, parsed.NextCursor, true, nil
 }
 
 func fetchThreadIDs(ctx context.Context, port int, apiKey string) ([]string, error) {

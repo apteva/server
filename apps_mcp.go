@@ -78,7 +78,8 @@ func (s *Server) registerAppMCP(installID int64) error {
 		installedBy                      int64
 	)
 	err := s.store.db.QueryRow(
-		`SELECT a.name, COALESCE(i.project_id, ''), i.installed_by, a.manifest_json
+		`SELECT a.name, COALESCE(i.project_id, ''), i.installed_by,
+		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.id = ?`, installID,
 	).Scan(&appName, &projectID, &installedBy, &manifestJSON)
@@ -108,10 +109,15 @@ func (s *Server) registerAppMCP(installID int64) error {
 	// Loopback URL through our own proxy, not the sidecar's direct
 	// URL: the proxy port is stable across sidecar restarts and the
 	// auth middleware injects APTEVA_APP_TOKEN before forwarding.
-	// api_key= as query param works because authMiddleware reads
-	// the token from there too (alongside Authorization / X-API-Key).
-	mcpURL := fmt.Sprintf("http://127.0.0.1:%s/api/apps/%s/mcp?api_key=dev-%d&install_id=%d",
-		localServerPort(), appName, installID, installID)
+	// The random per-install capability is embedded only in this loopback URL.
+	// authMiddleware accepts app-token query auth exclusively on loopback app
+	// data-plane routes, never on management endpoints.
+	appToken, err := s.appInstallToken(installID)
+	if err != nil {
+		return fmt.Errorf("create app credential: %w", err)
+	}
+	mcpURL := fmt.Sprintf("http://127.0.0.1:%s/api/apps/%s/mcp?api_key=%s&install_id=%d",
+		localServerPort(), appName, appToken, installID)
 
 	// user_id must be a real user. installed_by is 0 for built-ins
 	// + global installs the platform seeded; fall back to user 1

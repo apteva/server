@@ -636,13 +636,16 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 	if m.Runtime.Kind == "static" {
 		dir, err := s.resolveStaticInstallDir(m)
 		if err != nil {
-			s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, err.Error(), installID)
+			s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=?, pending_manifest_json='' WHERE id=?`, err.Error(), installID)
 			return err
 		}
+		manifestJSON, _ := json.Marshal(m)
 		s.store.db.Exec(
 			`UPDATE app_installs SET
 				status='running',
 				version=?,
+				manifest_json=?,
+				pending_manifest_json='',
 				local_pid=0,
 				local_bin_path='',
 				local_port=0,
@@ -650,12 +653,12 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 				status_message='',
 				error_message=''
 			 WHERE id=?`,
-			m.Version, "static://"+dir, installID)
+			m.Version, string(manifestJSON), "static://"+dir, installID)
 		s.LoadInstalledApps()
 		s.reconcileAllAppDepBindings()
 		s.RemountStaticApps()
 		if !filepath.IsAbs(strings.TrimSpace(m.Runtime.StaticDir)) {
-			if removed := pruneOldAppVersions(s.localApps.cacheDir, m.Name, m.Version, appVersionRetainPrevious); len(removed) > 0 {
+			if removed := s.pruneUnreferencedAppVersions(m.Name, m.Version); len(removed) > 0 {
 				log.Printf("[APPS-LOCAL] reclaimed %d stale static version dir(s) for %s: %v", len(removed), m.Name, removed)
 			}
 		}
@@ -663,10 +666,14 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 	}
 
 	cfgJSON, _ := json.Marshal(decryptedConfig)
+	appToken, err := s.appInstallToken(installID)
+	if err != nil {
+		return fmt.Errorf("create app credential: %w", err)
+	}
 	env := map[string]string{
 		"APTEVA_GATEWAY_URL": s.localGatewayURL(),
 		"APTEVA_PUBLIC_URL":  s.publicBaseURL(),
-		"APTEVA_APP_TOKEN":   "dev-" + strconv.FormatInt(installID, 10), // TODO: real per-install token
+		"APTEVA_APP_TOKEN":   appToken,
 		"APTEVA_INSTALL_ID":  strconv.FormatInt(installID, 10),
 		"APTEVA_PROJECT_ID":  projectID,
 		"APTEVA_APP_CONFIG":  string(cfgJSON),
@@ -690,17 +697,20 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 			s.markInstallRunningOnPreviousVersion(installID, err)
 		} else {
 			s.store.db.Exec(
-				`UPDATE app_installs SET status='error', error_message=? WHERE id=?`,
+				`UPDATE app_installs SET status='error', error_message=?, pending_manifest_json='' WHERE id=?`,
 				err.Error(), installID)
 		}
 		return err
 	}
 	pid := s.localApps.PID(installID)
 	url := localSidecarURL(int64(port))
+	manifestJSON, _ := json.Marshal(m)
 	s.store.db.Exec(
 		`UPDATE app_installs SET
 			status='running',
 			version=?,
+			manifest_json=?,
+			pending_manifest_json='',
 			local_pid=?,
 			local_bin_path=?,
 			local_port=?,
@@ -708,7 +718,7 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 			status_message='',
 			error_message=''
 		 WHERE id=?`,
-		m.Version, pid, binPath, port, url, installID)
+		m.Version, string(manifestJSON), pid, binPath, port, url, installID)
 	s.LoadInstalledApps()
 	s.reconcileAllAppDepBindings()
 	if err := s.registerAppMCP(installID); err != nil {
@@ -718,7 +728,7 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 	// point at NEW. Terminate whatever spawn parked. No-op on fresh
 	// installs.
 	s.localApps.RetireOld(installID, 5*time.Second)
-	if removed := pruneOldAppVersions(s.localApps.cacheDir, m.Name, m.Version, appVersionRetainPrevious); len(removed) > 0 {
+	if removed := s.pruneUnreferencedAppVersions(m.Name, m.Version); len(removed) > 0 {
 		log.Printf("[APPS-LOCAL] reclaimed %d stale binary version dir(s) for %s: %v", len(removed), m.Name, removed)
 	}
 	return nil
@@ -733,7 +743,8 @@ func (s *Server) markInstallRunningOnPreviousVersion(installID int64, cause erro
 		`UPDATE app_installs
 		    SET status='running',
 		        status_message='upgrade failed; previous version still running',
-		        error_message=?
+		        error_message=?,
+		        pending_manifest_json=''
 		  WHERE id=?`,
 		errMsg, installID,
 	)
@@ -832,7 +843,7 @@ func (s *Server) localGatewayURL() string {
 // boot. Failures are logged + the install flips to 'error'.
 func (s *Server) ResumeLocalInstalls() {
 	// We pull `i.version` (what was actually installed) separately from
-	// `a.manifest_json` (the upstream-refreshed snapshot) — they
+	// the install's manifest snapshot — they
 	// diverge as soon as marketplace polling sees a newer published
 	// version. The cached binary + source live under the INSTALLED
 	// version's directory, so respawn paths must derive from
@@ -841,7 +852,8 @@ func (s *Server) ResumeLocalInstalls() {
 	// for /api/apps/<name>/ui/<Panel>.mjs returns 404.
 	rows, err := s.store.db.Query(
 		`SELECT i.id, i.local_pid, i.local_bin_path, i.local_port,
-			COALESCE(i.project_id,''), i.config_encrypted, i.version, a.manifest_json
+			COALESCE(i.project_id,''), i.config_encrypted, i.version,
+			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.status='running' AND i.local_bin_path != ''`)
 	if err != nil {
@@ -912,7 +924,8 @@ func (s *Server) ResumePendingLocalInstalls() {
 	rows, err := s.store.db.Query(
 		`SELECT i.id, i.local_pid, i.local_port, i.local_bin_path,
 			COALESCE(i.project_id,''), COALESCE(i.config_encrypted,''),
-			i.version, a.name, a.manifest_json
+			i.version, a.name,
+			COALESCE(NULLIF(i.pending_manifest_json, ''), NULLIF(i.manifest_json, ''), a.manifest_json)
 		   FROM app_installs i JOIN apps a ON a.id = i.app_id
 		  WHERE i.status='pending'`)
 	if err != nil {
@@ -1009,10 +1022,15 @@ func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, projectID, 
 		}
 	}
 	cfgJSON, _ := json.Marshal(cfg)
+	appToken, err := s.appInstallToken(id)
+	if err != nil {
+		log.Printf("[APPS-LOCAL] resume install=%d credential unavailable: %v", id, err)
+		return
+	}
 	env := map[string]string{
 		"APTEVA_GATEWAY_URL": s.localGatewayURL(),
 		"APTEVA_PUBLIC_URL":  s.publicBaseURL(),
-		"APTEVA_APP_TOKEN":   "dev-" + strconv.FormatInt(id, 10),
+		"APTEVA_APP_TOKEN":   appToken,
 		"APTEVA_INSTALL_ID":  strconv.FormatInt(id, 10),
 		"APTEVA_PROJECT_ID":  projectID,
 		"APTEVA_APP_CONFIG":  string(cfgJSON),
@@ -1025,12 +1043,9 @@ func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, projectID, 
 	// reinstall — see installFromSource for the install-time
 	// counterpart that sets the same env.
 	//
-	// Use the INSTALLED version, not m.Version. The two diverge
-	// once upstream publishes a newer release: the marketplace
-	// poller refreshes a.manifest_json (so m.Version becomes
-	// upstream's latest), but the cached binary + source still
-	// live under the installed version. m.Version-driven paths
-	// would point at a not-yet-cached version dir.
+	// Use the installed version as the cache key. New rows carry a
+	// matching per-install manifest, while the fallback still protects
+	// legacy or partially migrated rows whose manifest version differs.
 	cacheVersion := installedVersion
 	if cacheVersion == "" {
 		cacheVersion = m.Version
@@ -1094,7 +1109,8 @@ func envResumeConcurrency() int {
 func (s *Server) RespawnLocalInstall(installID int64) error {
 	row := s.store.db.QueryRow(
 		`SELECT i.local_pid, i.local_bin_path, i.local_port,
-			COALESCE(i.project_id,''), i.config_encrypted, i.version, a.manifest_json
+			COALESCE(i.project_id,''), i.config_encrypted, i.version,
+			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.id = ?`, installID,
 	)
@@ -1127,10 +1143,14 @@ func (s *Server) RespawnLocalInstall(installID int64) error {
 		}
 	}
 	cfgJSON, _ := json.Marshal(cfg)
+	appToken, err := s.appInstallToken(installID)
+	if err != nil {
+		return fmt.Errorf("create app credential: %w", err)
+	}
 	env := map[string]string{
 		"APTEVA_GATEWAY_URL": s.localGatewayURL(),
 		"APTEVA_PUBLIC_URL":  s.publicBaseURL(),
-		"APTEVA_APP_TOKEN":   "dev-" + strconv.FormatInt(installID, 10),
+		"APTEVA_APP_TOKEN":   appToken,
 		"APTEVA_INSTALL_ID":  strconv.FormatInt(installID, 10),
 		"APTEVA_PROJECT_ID":  projectID,
 		"APTEVA_APP_CONFIG":  string(cfgJSON),

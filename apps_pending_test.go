@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -77,19 +78,20 @@ func TestMarkInstallRunningOnPreviousVersionClearsPending(t *testing.T) {
 		},
 	}, nil)
 	if _, err := s.store.db.Exec(
-		`UPDATE app_installs SET status='pending', status_message='Queued — waiting for a build slot' WHERE id=?`,
-		installID,
+		`UPDATE app_installs
+		 SET status='pending', status_message='Queued — waiting for a build slot', pending_manifest_json='{"version":"0.14.12"}'
+		 WHERE id=?`, installID,
 	); err != nil {
 		t.Fatalf("set pending: %v", err)
 	}
 
 	s.markInstallRunningOnPreviousVersion(installID, errors.New("build failed"))
 
-	var status, statusMessage, errorMessage string
+	var status, statusMessage, errorMessage, pendingManifest, runningManifest string
 	if err := s.store.db.QueryRow(
-		`SELECT status, status_message, error_message FROM app_installs WHERE id=?`,
+		`SELECT status, status_message, error_message, pending_manifest_json, manifest_json FROM app_installs WHERE id=?`,
 		installID,
-	).Scan(&status, &statusMessage, &errorMessage); err != nil {
+	).Scan(&status, &statusMessage, &errorMessage, &pendingManifest, &runningManifest); err != nil {
 		t.Fatalf("read install: %v", err)
 	}
 	if status != "running" {
@@ -100,6 +102,13 @@ func TestMarkInstallRunningOnPreviousVersionClearsPending(t *testing.T) {
 	}
 	if errorMessage != "build failed" {
 		t.Fatalf("error_message=%q, want build failed", errorMessage)
+	}
+	if pendingManifest != "" {
+		t.Fatalf("pending manifest not cleared after rollback: %s", pendingManifest)
+	}
+	var running sdk.Manifest
+	if err := json.Unmarshal([]byte(runningManifest), &running); err != nil || running.Version != "0.14.11" {
+		t.Fatalf("running manifest changed after rollback: version=%q err=%v", running.Version, err)
 	}
 	if got := s.installedApps.Get(installID); got == nil {
 		t.Fatalf("expected install %d to be reloaded into registry", installID)

@@ -29,6 +29,10 @@
       }
     ]
   },
+  "health_check": {
+    "tool": "get_subscription",
+    "input": {}
+  },
   "tools": [
     {
       "name": "text_to_speech",
@@ -109,6 +113,16 @@
             ],
             "default": "auto",
             "description": "Text normalization mode."
+          },
+          "apply_language_text_normalization": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable language-specific text normalization where supported. This may increase latency."
+          },
+          "use_pvc_as_ivc": {
+            "type": "boolean",
+            "default": false,
+            "description": "Deprecated ElevenLabs compatibility switch for using an instant-clone version of a professional voice clone."
           },
           "output_format": {
             "type": "string",
@@ -745,7 +759,7 @@
     },
     {
       "name": "create_ivc_voice",
-      "description": "Create an Instant Voice Clone from one or more audio samples and add it to ElevenLabs Voices. Requires multipart/form-data executor support; until that is available, prefer design_voice/create_voice_from_preview.",
+      "description": "Create an Instant Voice Clone from one or more consented audio samples and add it to ElevenLabs Voices. Returns the reusable voice ID.",
       "method": "POST",
       "path": "/voices/add",
       "timeout_ms": 180000,
@@ -795,6 +809,32 @@
           "name",
           "files"
         ]
+      }
+    },
+    {
+      "name": "delete_voice",
+      "description": "Delete an owned ElevenLabs voice by ID. Deletion is irreversible; shared voices may need to be removed from the Voice Library first.",
+      "method": "DELETE",
+      "path": "/voices/{voice_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_id": {
+            "type": "string",
+            "description": "Owned ElevenLabs voice ID to delete."
+          }
+        },
+        "required": ["voice_id"]
+      }
+    },
+    {
+      "name": "get_subscription",
+      "description": "Get ElevenLabs subscription usage and limits, including credits/characters used, voice slots, cloning permissions, billing period, current overage, and next reset time.",
+      "method": "GET",
+      "path": "/user/subscription",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
       }
     },
     {

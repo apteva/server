@@ -162,7 +162,9 @@ type ProjectTimelineBucket struct {
 func generateID() string {
 	// Simple time-prefixed random ID
 	b := make([]byte, 8)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand unavailable: " + err.Error())
+	}
 	return fmt.Sprintf("%d-%s", time.Now().UnixMilli(), hex.EncodeToString(b))
 }
 
@@ -195,7 +197,9 @@ func (s *Store) InsertTelemetry(events []TelemetryEvent) error {
 		if e.Data != nil {
 			dataStr = string(e.Data)
 		}
-		stmt.Exec(e.ID, e.AgentID, e.ThreadID, e.Type, timeStr, dataStr)
+		if _, err := stmt.Exec(e.ID, e.AgentID, e.ThreadID, e.Type, timeStr, dataStr); err != nil {
+			return err
+		}
 	}
 
 	return tx.Commit()
@@ -256,44 +260,11 @@ func (s *Store) DeleteTelemetryAfter(instanceID int64, cutoff time.Time) error {
 	if instanceID == 0 || cutoff.IsZero() {
 		return nil
 	}
-	rows, err := s.db.Query("SELECT id, time FROM telemetry WHERE agent_id = ?", instanceID)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id, rawTime string
-		if err := rows.Scan(&id, &rawTime); err != nil {
-			return err
-		}
-		t, err := parseTime(rawTime)
-		if err == nil && t.After(cutoff) {
-			ids = append(ids, id)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	stmt, err := tx.Prepare("DELETE FROM telemetry WHERE id = ?")
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	for _, id := range ids {
-		if _, err := stmt.Exec(id); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
+	_, err := s.db.Exec(
+		"DELETE FROM telemetry WHERE agent_id=? AND time>?",
+		instanceID, cutoff.UTC().Format(time.RFC3339Nano),
+	)
+	return err
 }
 
 // ChatHistoryMessage is a reconstructed chat message from telemetry.
@@ -557,7 +528,7 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var events []TelemetryEvent
-	if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<20)).Decode(&events); err != nil {
 		log.Printf("[TELEMETRY] POST /telemetry: invalid JSON: %v", err)
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
@@ -565,6 +536,10 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 
 	if len(events) == 0 {
 		writeJSON(w, map[string]int{"inserted": 0})
+		return
+	}
+	if len(events) > 10000 {
+		http.Error(w, "telemetry batch too large", http.StatusRequestEntityTooLarge)
 		return
 	}
 
@@ -660,8 +635,12 @@ func (s *Server) handleLiveTelemetry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var events []TelemetryEvent
-	if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(&events); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if len(events) > 5000 {
+		http.Error(w, "telemetry batch too large", http.StatusRequestEntityTooLarge)
 		return
 	}
 
@@ -1027,7 +1006,7 @@ func (s *Store) TelemetryTimeline(instanceID int64, since time.Time, bucketMinut
 // do a clean "top N spenders" render. projectID="" means "all projects
 // this user owns".
 func (s *Store) TelemetryStatsByProject(userID int64, projectID string, since time.Time) ([]InstanceStats, error) {
-	insts, err := s.ListAgents(userID, projectID)
+	insts, err := s.listAgentsForTelemetry(userID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -1051,7 +1030,7 @@ func (s *Store) TelemetryStatsByProject(userID int64, projectID string, since ti
 	args := append([]any{}, ids...)
 	args = append(args, since.UTC().Format(time.RFC3339))
 	q := fmt.Sprintf(
-		"SELECT agent_id, thread_id, type, data FROM telemetry WHERE agent_id IN (%s) AND time >= ?",
+		"SELECT agent_id, thread_id, type, data FROM telemetry WHERE agent_id IN (%s) AND time >= ? AND type IN ('llm.done','tool.call','llm.error','tool.error')",
 		strings.Join(placeholders, ","),
 	)
 	rows, err := s.db.Query(q, args...)
@@ -1142,7 +1121,7 @@ func (s *Store) TelemetryStatsByProject(userID int64, projectID string, since ti
 // width. Instances with zero events in the window are omitted from
 // every bucket to keep the payload tight.
 func (s *Store) TelemetryTimelineByProject(userID int64, projectID string, since time.Time, bucketMinutes int) ([]ProjectTimelineBucket, error) {
-	insts, err := s.ListAgents(userID, projectID)
+	insts, err := s.listAgentsForTelemetry(userID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -1158,7 +1137,7 @@ func (s *Store) TelemetryTimelineByProject(userID int64, projectID string, since
 	args := append([]any{}, ids...)
 	args = append(args, since.UTC().Format(time.RFC3339))
 	q := fmt.Sprintf(
-		"SELECT agent_id, type, time, data FROM telemetry WHERE agent_id IN (%s) AND time >= ? ORDER BY time",
+		"SELECT agent_id, type, time, data FROM telemetry WHERE agent_id IN (%s) AND time >= ? AND type IN ('llm.done','llm.error','tool.error') ORDER BY time",
 		strings.Join(placeholders, ","),
 	)
 	rows, err := s.db.Query(q, args...)
@@ -1224,6 +1203,11 @@ func (s *Server) handleTelemetryProjectStats(w http.ResponseWriter, r *http.Requ
 	userID := getUserID(r)
 	q := r.URL.Query()
 	projectID := q.Get("project_id")
+	if projectID != "" {
+		if _, _, ok := s.requireProjectAccess(w, r, projectID, ProjectViewer); !ok {
+			return
+		}
+	}
 	since := parsePeriod(q.Get("period"))
 	stats, err := s.store.TelemetryStatsByProject(userID, projectID, since)
 	if err != nil {
@@ -1261,9 +1245,14 @@ func (s *Server) handleTelemetryProjectTools(w http.ResponseWriter, r *http.Requ
 	userID := getUserID(r)
 	q := r.URL.Query()
 	projectID := q.Get("project_id")
+	if projectID != "" {
+		if _, _, ok := s.requireProjectAccess(w, r, projectID, ProjectViewer); !ok {
+			return
+		}
+	}
 	since := parsePeriod(q.Get("period"))
 
-	insts, err := s.store.ListAgents(userID, projectID)
+	insts, err := s.store.listAgentsForTelemetry(userID, projectID)
 	if err != nil {
 		http.Error(w, "list instances failed", http.StatusInternalServerError)
 		return
@@ -1366,6 +1355,11 @@ func (s *Server) handleTelemetryProjectTimeline(w http.ResponseWriter, r *http.R
 	userID := getUserID(r)
 	q := r.URL.Query()
 	projectID := q.Get("project_id")
+	if projectID != "" {
+		if _, _, ok := s.requireProjectAccess(w, r, projectID, ProjectViewer); !ok {
+			return
+		}
+	}
 	period := q.Get("period")
 	since := parsePeriod(period)
 	bucketMinutes := bucketWidthFor(period)
@@ -1450,6 +1444,9 @@ func (s *Server) handleTelemetryTimeline(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleWipeTelemetry(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "DELETE only", http.StatusMethodNotAllowed)
+		return
+	}
+	if _, ok := s.requirePlatformAdmin(w, r); !ok {
 		return
 	}
 	deleted, err := s.store.WipeTelemetry()

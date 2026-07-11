@@ -158,8 +158,19 @@ func (r *InstalledAppsRegistry) Remove(installID int64) {
 	defer r.mu.Unlock()
 	if e, ok := r.entries[installID]; ok {
 		delete(r.byName, e.AppName)
+		delete(r.entries, installID)
+		// Keep the legacy name index coherent when another project/global
+		// install with the same app name remains mounted.
+		for _, candidate := range r.entries {
+			if candidate.AppName == e.AppName {
+				r.byName[e.AppName] = candidate
+				if candidate.ProjectID == "" {
+					break
+				}
+			}
+		}
+		return
 	}
-	delete(r.entries, installID)
 }
 
 // LoadInstalledApps reads every running app_install from the DB and
@@ -170,7 +181,8 @@ func (s *Server) LoadInstalledApps() {
 		`SELECT i.id, i.app_id, COALESCE(i.project_id, ''), i.service_name,
 			COALESCE(i.sidecar_url_override, ''),
 			COALESCE(i.config_encrypted, ''),
-			i.permissions_json, i.version, a.name, a.manifest_json
+			i.permissions_json, i.version, a.name,
+			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.status = 'running'`)
 	if err != nil {
@@ -216,10 +228,15 @@ func (s *Server) LoadInstalledApps() {
 		// orchestrator lookup and tells the mount loop to wire a
 		// path-mounted file server instead of a reverse proxy.
 		// Token must match what apps_source.installFromSource and
-		// apps_local.installLocally set as APTEVA_APP_TOKEN at spawn:
-		// `dev-<install_id>`. Without this, handleAppProxy sends no
+		// apps_local.installLocally set as APTEVA_APP_TOKEN at spawn.
+		// Without this, handleAppProxy sends no
 		// Authorization header to the sidecar and every dashboard
 		// iframe request comes back 401 from withTokenAuth.
+		token, tokenErr := s.appInstallToken(id)
+		if tokenErr != nil {
+			log.Printf("[APPS] install=%d credential unavailable: %v", id, tokenErr)
+			continue
+		}
 		entry := &InstalledApp{
 			InstallID:   id,
 			AppName:     appName,
@@ -227,7 +244,7 @@ func (s *Server) LoadInstalledApps() {
 			Manifest:    manifest,
 			Config:      cfg,
 			Permissions: perms,
-			Token:       fmt.Sprintf("dev-%d", id),
+			Token:       token,
 		}
 		if strings.HasPrefix(sidecarOverride, "static://") {
 			entry.StaticDir = strings.TrimPrefix(sidecarOverride, "static://")
@@ -354,14 +371,34 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	// see on first paint. 400 with a clear error message surfaces
 	// the bug to the panel author instead of papering over it.
 	//
-	// An ABSENT project_id (no `project_id=` in the query at all)
-	// still falls through to GetByName for back-compat with non-
-	// panel callers (older agents, ad-hoc curl). Those callers are
-	// presumed scope-aware and shouldn't be routed elsewhere.
+	// An absent project_id may only resolve a global install. Picking an
+	// arbitrary project install here would cross tenant boundaries.
 	rawQuery := r.URL.Query()
 	_, hasProjectIDKey := rawQuery["project_id"]
-	projectID := rawQuery.Get("project_id")
-	if hasProjectIDKey && projectID == "" {
+	requestedProjectID := strings.TrimSpace(rawQuery.Get("project_id"))
+
+	// X-Apteva-Project-ID is a server-owned identity header. The auth
+	// middleware removes client-supplied identity headers before setting
+	// these principal fields for delegated user keys. Capture that trusted
+	// project context, then remove the header so it can only be re-added by
+	// the proxy after routing and authorization have completed.
+	trustedProjectID := ""
+	if strings.TrimSpace(r.Header.Get("X-Apteva-Subject-Type")) != "" {
+		trustedProjectID = strings.TrimSpace(r.Header.Get("X-Apteva-Project-ID"))
+	}
+	r.Header.Del("X-Apteva-Project-ID")
+	if trustedProjectID != "" {
+		if requestedProjectID != "" && requestedProjectID != trustedProjectID {
+			http.Error(w, "project_id does not match delegated key project", http.StatusForbidden)
+			return
+		}
+		if requestedProjectID == "" && !hasProjectIDKey {
+			requestedProjectID = trustedProjectID
+			rawQuery.Set("project_id", requestedProjectID)
+			r.URL.RawQuery = rawQuery.Encode()
+		}
+	}
+	if hasProjectIDKey && requestedProjectID == "" {
 		http.Error(w, "project_id query param present but empty — caller must supply the project context", http.StatusBadRequest)
 		return
 	}
@@ -383,21 +420,46 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "api_key install does not match app: "+appName, http.StatusBadRequest)
 			return
 		}
-	} else if projectID != "" {
-		entry = s.installedApps.GetByNameAndProject(appName, projectID)
+	} else if requestedProjectID != "" {
+		entry = s.installedApps.GetByNameAndProject(appName, requestedProjectID)
 	} else {
-		entry = s.installedApps.GetByName(appName)
+		entry = s.installedApps.GetByNameAndProject(appName, "")
 	}
 	if entry == nil {
 		http.Error(w, "app not installed: "+appName, http.StatusNotFound)
 		return
 	}
+	effectiveProjectID := entry.ProjectID
+	if effectiveProjectID == "" {
+		// Global installs execute inside the validated request project. This
+		// lets project members use a shared sidecar without giving them
+		// platform-admin access or exposing another project's data.
+		effectiveProjectID = requestedProjectID
+	} else if requestedProjectID != "" && requestedProjectID != effectiveProjectID {
+		http.Error(w, "project_id does not match selected app install", http.StatusBadRequest)
+		return
+	}
+	authenticatedAppID, _ := strconv.ParseInt(r.Header.Get("X-Apteva-App-Install-ID"), 10, 64)
+	if authenticatedAppID > 0 {
+		if authenticatedAppID != entry.InstallID {
+			http.Error(w, "app credential does not match target install", http.StatusForbidden)
+			return
+		}
+	} else if !appProxyRouteIsNoAuth(entry, tail, r.Method) {
+		need := ProjectViewer
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			need = ProjectEditor
+		}
+		if !s.requireScopedProjectAccess(w, r, effectiveProjectID, need) {
+			return
+		}
+	}
 	if entry.SidecarURL == "" {
 		http.Error(w, "app sidecar not reachable: "+appName, http.StatusServiceUnavailable)
 		return
 	}
-	if projectID != "" && tail == "/mcp" && r.Method == http.MethodPost {
-		if err := injectProjectIntoMCPRequest(r, projectID); err != nil {
+	if effectiveProjectID != "" && tail == "/mcp" && r.Method == http.MethodPost {
+		if err := injectProjectIntoMCPRequest(r, effectiveProjectID); err != nil {
 			http.Error(w, "invalid MCP request: "+err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -418,6 +480,10 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
 		req.URL.Path = tail
+		req.Header.Del("X-Apteva-Project-ID")
+		if effectiveProjectID != "" {
+			req.Header.Set("X-Apteva-Project-ID", effectiveProjectID)
+		}
 		originalAuth := req.Header.Get("Authorization")
 		if originalAuth != "" {
 			req.Header.Set("X-Apteva-Original-Authorization", originalAuth)

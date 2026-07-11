@@ -12,11 +12,15 @@ import (
 )
 
 type ModelInfo struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	ContextSize int     `json:"context_size,omitempty"`
-	InputCost   float64 `json:"input_cost,omitempty"`  // per 1M tokens
-	OutputCost  float64 `json:"output_cost,omitempty"` // per 1M tokens
+	ID           string                    `json:"id"`
+	Name         string                    `json:"name"`
+	Description  string                    `json:"description,omitempty"`
+	ContextSize  int                       `json:"context_size,omitempty"`
+	Priority     int                       `json:"priority,omitempty"`
+	SupportedAPI *bool                     `json:"supported_in_api,omitempty"`
+	Capabilities ProviderModelCapabilities `json:"capabilities,omitempty"`
+	InputCost    float64                   `json:"input_cost,omitempty"`  // per 1M tokens
+	OutputCost   float64                   `json:"output_cost,omitempty"` // per 1M tokens
 }
 
 // modelCache stores fetched models with TTL.

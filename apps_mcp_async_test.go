@@ -94,7 +94,15 @@ func TestAppMCPAsyncCreatesEphemeralSubscriptionsAndAugmentsResult(t *testing.T)
 
 func TestEphemeralWaitGroupCleanup(t *testing.T) {
 	store := newTestStore(t)
-	if _, err := store.CreateEphemeralAppEventSubscription(1, 7, "render", "media:*", "", "", "proj", []string{"render.completed", "render.failed"}, `{"render_id":123}`, "wg-1", time.Now().Add(time.Hour)); err != nil {
+	user, err := store.CreateUser("async-cleanup@test.local", "hash")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	agent, err := store.CreateAgent(user.ID, "renderer", "render", "autonomous", "{}", "proj")
+	if err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	if _, err := store.CreateEphemeralAppEventSubscription(user.ID, agent.ID, "render", "media:*", "", "", "proj", []string{"render.completed", "render.failed"}, `{"render_id":123}`, "wg-1", time.Now().Add(time.Hour)); err != nil {
 		t.Fatalf("create async row: %v", err)
 	}
 	if err := store.DeleteEphemeralSubscriptionWaitGroup("wg-1"); err != nil {

@@ -903,7 +903,7 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Apps-bridge rows: fetch tools/list directly from the sidecar via
-	// our own proxy URL. The URL already carries ?api_key=dev-<id> so
+	// our own proxy URL. The URL already carries a per-install app token so
 	// the auth middleware accepts it; the proxy injects APTEVA_APP_TOKEN
 	// before forwarding to the sidecar's /mcp.
 	if len(tools) == 0 && record != nil && record.Source == "app" && record.URL != "" {
@@ -1185,7 +1185,7 @@ func (s *Server) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 	case "app":
 		// Apps-bridge: same shape as remote — call the bridge URL via
 		// the same callRemoteMCPTool helper. The URL already carries
-		// ?api_key=dev-<install_id> so the auth middleware accepts it.
+		// a scoped app capability so the auth middleware accepts it.
 		if record.URL == "" {
 			http.Error(w, "app mcp row has no URL — install may have failed", http.StatusInternalServerError)
 			return

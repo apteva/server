@@ -92,7 +92,8 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 		appName      string
 	)
 	err = s.store.db.QueryRow(
-		`SELECT i.app_id, COALESCE(i.project_id,''), a.manifest_json, a.name
+		`SELECT i.app_id, COALESCE(i.project_id,''),
+		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json), a.name
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.id = ?`, installID,
 	).Scan(&appID, &oldProjectID, &manifestJSON, &appName)
@@ -267,7 +268,7 @@ func (s *Server) restartInstallSidecar(installID int64) error {
 		`SELECT COALESCE(i.local_pid,0), COALESCE(i.local_port,0),
 		        COALESCE(i.local_bin_path,''), COALESCE(i.project_id,''),
 		        COALESCE(i.config_encrypted,''), COALESCE(i.version,''),
-		        a.manifest_json
+		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.id = ?`, installID,
 	).Scan(&pid, &port, &binPath, &projectID, &cfgEnc, &installedVersion, &manifestJSON)

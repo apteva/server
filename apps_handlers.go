@@ -475,14 +475,7 @@ func (s *Server) refreshManifestFromUpstream(appName, manifestJSON string) {
 	if live.Version == "" || live.Version == current.Version {
 		return
 	}
-	body, err := json.Marshal(live)
-	if err != nil {
-		return
-	}
-	s.store.db.Exec(
-		`UPDATE apps SET manifest_json = ? WHERE name = ? AND source != 'builtin'`,
-		string(body), appName,
-	)
+	s.updateAppCatalogMetadataByName(appName, live)
 }
 
 // lookupRegistryManifestURL returns the manifest_url declared in the
@@ -516,15 +509,24 @@ func (s *Server) lookupRegistryManifestURL(appName string) string {
 // source='builtin'.
 func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 	projectID := r.URL.Query().Get("project_id")
+	if projectID != "" {
+		if _, _, ok := s.requireProjectAccess(w, r, projectID, ProjectViewer); !ok {
+			return
+		}
+	}
 	q := `
 		SELECT i.id, i.app_id, i.project_id, i.status, i.status_message, i.error_message,
-			i.upgrade_policy, i.version, i.permissions_json, a.name, a.source, a.manifest_json,
+			i.upgrade_policy, i.version, i.permissions_json, a.name,
+			COALESCE(NULLIF(i.source, ''), a.source),
+			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json), a.manifest_json,
 			COALESCE(i.integration_bindings, '{}'), COALESCE(i.has_pending_options, 0)
 		FROM app_installs i JOIN apps a ON a.id = i.app_id`
 	args := []any{}
 	if projectID != "" {
 		q += ` WHERE i.project_id = '' OR i.project_id = ?`
 		args = append(args, projectID)
+	} else if s.store.GetPlatformRole(getUserID(r)) != PlatformAdmin {
+		q += ` WHERE i.project_id = ''`
 	}
 	q += ` ORDER BY a.name`
 	// Refresh manifest_json from upstream IN THE BACKGROUND. The list
@@ -570,19 +572,25 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 	out := []AppRow{}
 	for rows.Next() {
 		var (
-			installID, appID                         int64
-			projID, status, statusMsg, errMsg        string
-			upgradePolicy, version, permsJSON        string
-			name, source, manifestJSON, bindingsJSON string
-			hasPendingOptions                        int
+			installID, appID                                                int64
+			projID, status, statusMsg, errMsg                               string
+			upgradePolicy, version, permsJSON                               string
+			name, source, manifestJSON, availableManifestJSON, bindingsJSON string
+			hasPendingOptions                                               int
 		)
 		if err := rows.Scan(&installID, &appID, &projID, &status, &statusMsg, &errMsg,
-			&upgradePolicy, &version, &permsJSON, &name, &source, &manifestJSON,
+			&upgradePolicy, &version, &permsJSON, &name, &source, &manifestJSON, &availableManifestJSON,
 			&bindingsJSON, &hasPendingOptions); err != nil {
 			continue
 		}
 		var manifest sdk.Manifest
 		_ = json.Unmarshal([]byte(manifestJSON), &manifest)
+		var availableManifest sdk.Manifest
+		_ = json.Unmarshal([]byte(availableManifestJSON), &availableManifest)
+		availableVersion := availableManifest.Version
+		if availableVersion == "" || semverLess(availableVersion, version) {
+			availableVersion = version
+		}
 		var perms []sdk.Permission
 		_ = json.Unmarshal([]byte(permsJSON), &perms)
 		var bindings map[string]any
@@ -606,7 +614,7 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			Bindings:          bindings,
 			HasPendingOptions: hasPendingOptions != 0,
 			Version:           version,
-			AvailableVersion:  manifest.Version,
+			AvailableVersion:  availableVersion,
 			Description:       manifest.Description, Icon: manifest.Icon,
 			ProjectID: projID, Status: status, StatusMessage: statusMsg, ErrorMessage: errMsg,
 			Source: source, UpgradePolicy: upgradePolicy,
@@ -803,6 +811,9 @@ func surfacesFromManifest(m *sdk.Manifest) AppSurfaces {
 // Returns the parsed manifest + a permission summary so the dashboard
 // can render the install consent screen before the user commits.
 func (s *Server) handlePreviewApp(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requirePlatformAdmin(w, r); !ok {
+		return
+	}
 	var body struct {
 		ManifestURL  string `json:"manifest_url"`
 		ManifestYAML string `json:"manifest_yaml"`
@@ -839,6 +850,9 @@ func (s *Server) handlePreviewApp(w http.ResponseWriter, r *http.Request) {
 // for now the operator runs `./scripts/admin install-app <id>` or sets
 // status='running' manually after deploying the image).
 func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requirePlatformAdmin(w, r); !ok {
+		return
+	}
 	userID := getUserID(r)
 	var body struct {
 		ManifestURL   string            `json:"manifest_url"`
@@ -956,9 +970,7 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		}
 		appID, _ = res.LastInsertId()
 	} else {
-		s.store.db.Exec(
-			`UPDATE apps SET manifest_json = ?, ref = ? WHERE id = ?`,
-			string(manifestJSON), body.Ref, appID)
+		s.updateAppCatalogMetadata(appID, manifest, source, body.Repo, body.Ref)
 	}
 
 	// Validate bindings against requires.integrations: required roles
@@ -1012,9 +1024,11 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	// Install row.
 	permsJSON, _ := json.Marshal(manifest.Requires.Permissions)
 	res, err := s.store.db.Exec(
-		`INSERT INTO app_installs (app_id, project_id, config_encrypted, status, upgrade_policy, version, permissions_json, installed_by, integration_bindings)
-		 VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
-		appID, body.ProjectID, configEncrypted, upgradePolicy, manifest.Version, string(permsJSON), userID, string(bindingsJSON))
+		`INSERT INTO app_installs
+		 (app_id, project_id, config_encrypted, status, upgrade_policy, version, manifest_json, source, repo, ref, permissions_json, installed_by, integration_bindings)
+		 VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		appID, body.ProjectID, configEncrypted, upgradePolicy, manifest.Version, string(manifestJSON), source, body.Repo, body.Ref,
+		string(permsJSON), userID, string(bindingsJSON))
 	if err != nil {
 		http.Error(w, "create install: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1120,6 +1134,9 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 
 // DELETE /api/apps/installs/:id
 func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requirePlatformAdmin(w, r); !ok {
+		return
+	}
 	idStr := strings.TrimPrefix(r.URL.Path, "/apps/installs/")
 	installID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
@@ -1133,7 +1150,12 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 	// safety net.
 	force := r.URL.Query().Get("force") == "1"
 	if !force {
-		if blockers, err := s.dependentsBlockingUninstall(installID); err == nil && len(blockers) > 0 {
+		blockers, err := s.dependentsBlockingUninstall(installID)
+		if err != nil {
+			http.Error(w, "dependency check failed", http.StatusInternalServerError)
+			return
+		}
+		if len(blockers) > 0 {
 			writeJSONStatus(w, http.StatusConflict, map[string]any{
 				"error":      "uninstall blocked — other apps require this one",
 				"dependents": blockers,
@@ -1141,24 +1163,10 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-	}
-	// Detach in-memory mount first so further proxy calls 404 immediately.
-	s.installedApps.Remove(installID)
-	// Refresh the static-app prefix table so a kind=static install
-	// stops being served immediately. No-op when this install was a
-	// sidecar app (the rebuilt table is identical).
-	s.RemountStaticApps()
-	// Stop the local subprocess if any.
-	if s.localApps != nil {
-		_ = s.localApps.Stop(installID)
-	}
-	if _, err := s.store.db.Exec(`DELETE FROM app_agent_bindings WHERE install_id = ?`, installID); err != nil {
-		log.Printf("[APPS] delete bindings: %v", err)
-	}
-	// Cascade-protect: refuse uninstall if other installs depend on
-	// this app via a kind=app integration binding. ?force=1 overrides.
-	if r.URL.Query().Get("force") != "1" {
-		if deps, derr := s.dependentsOfApp(installID); derr == nil && len(deps) > 0 {
+		if deps, derr := s.dependentsOfApp(installID); derr != nil {
+			http.Error(w, "dependency check failed", http.StatusInternalServerError)
+			return
+		} else if len(deps) > 0 {
 			writeJSONStatus(w, http.StatusConflict, map[string]any{
 				"error":      "app has dependents",
 				"message":    formatDependents(deps),
@@ -1168,52 +1176,67 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Remove the bridge row in mcp_servers BEFORE deleting the install
-	// so a half-finished uninstall (DB error mid-way) leaves the bridge
-	// gone — agents stop seeing the tool first, server cleanup follows.
-	if err := s.unregisterAppMCP(installID); err != nil {
-		log.Printf("[APPS] unregister MCP install=%d: %v", installID, err)
-	}
-	// Skills shipped by this install are explicitly cleaned up — the
-	// schema declares ON DELETE CASCADE but we don't enable
-	// PRAGMA foreign_keys, so do it manually before the install row
-	// goes. Cheap (handful of rows per install).
-	//
-	// Before the catalog rows go: sweep the soon-to-be-orphaned
-	// memory records from every instance in the install's project.
-	// Best-effort — a sweep failure on one instance shouldn't block
-	// the uninstall.
+	// Capture assigned skill identities before the transaction removes their
+	// catalog rows. Memory cleanup runs only after commit.
 	var sweepProjectID string
 	var sweepUserID int64
+	var pendingSkills []struct {
+		id   int64
+		slug string
+	}
 	_ = s.store.db.QueryRow(`SELECT COALESCE(project_id,''), installed_by FROM app_installs WHERE id = ?`, installID).
 		Scan(&sweepProjectID, &sweepUserID)
 	skillRows, _ := s.store.db.Query(`SELECT id, slug FROM skills WHERE install_id = ?`, installID)
 	if skillRows != nil {
-		var pending []struct {
-			id   int64
-			slug string
-		}
 		for skillRows.Next() {
 			var rowID int64
 			var rowSlug string
 			if err := skillRows.Scan(&rowID, &rowSlug); err == nil {
-				pending = append(pending, struct {
+				pendingSkills = append(pendingSkills, struct {
 					id   int64
 					slug string
 				}{rowID, rowSlug})
 			}
 		}
 		skillRows.Close()
-		for _, p := range pending {
-			s.sweepSkillFromProject(sweepUserID, sweepProjectID, p.id, p.slug, "app uninstalled")
+	}
+	tx, err := s.store.db.Begin()
+	if err != nil {
+		http.Error(w, "begin uninstall: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+	statements := []struct {
+		query string
+		arg   any
+	}{
+		{`DELETE FROM app_agent_bindings WHERE install_id=?`, installID},
+		{`DELETE FROM mcp_servers WHERE upstream_id=?`, appMCPUpstreamID(installID)},
+		{`DELETE FROM skills WHERE install_id=?`, installID},
+		{`DELETE FROM app_installs WHERE id=?`, installID},
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement.query, statement.arg); err != nil {
+			http.Error(w, "uninstall failed: "+err.Error(), http.StatusInternalServerError)
+			return
 		}
 	}
-	if _, err := s.store.db.Exec(`DELETE FROM skills WHERE install_id = ?`, installID); err != nil {
-		log.Printf("[APPS] delete skills for install=%d: %v", installID, err)
-	}
-	if _, err := s.store.db.Exec(`DELETE FROM app_installs WHERE id = ?`, installID); err != nil {
-		http.Error(w, "delete install: "+err.Error(), http.StatusInternalServerError)
+	if err := tx.Commit(); err != nil {
+		http.Error(w, "uninstall commit failed: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Runtime side effects only happen after every authorization/dependency
+	// check and the database transaction has committed.
+	s.installedApps.Remove(installID)
+	s.RemountStaticApps()
+	if s.localApps != nil {
+		if err := s.localApps.Stop(installID); err != nil {
+			log.Printf("[APPS] uninstall committed but process stop failed install=%d: %v", installID, err)
+		}
+	}
+	for _, skill := range pendingSkills {
+		s.sweepSkillFromProject(sweepUserID, sweepProjectID, skill.id, skill.slug, "app uninstalled")
 	}
 	// Removed install may both eliminate options AND newly satisfy
 	// other installs' optional deps if it was bound somewhere.
@@ -1419,6 +1442,9 @@ func (s *Server) handleSetInstallBindings2(w http.ResponseWriter, r *http.Reques
 // Dashboard renders a step in the install modal per role. When the
 // user submits, the resulting bindings JSON is passed to /install.
 func (s *Server) handlePreflightApp(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requirePlatformAdmin(w, r); !ok {
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -1480,7 +1506,7 @@ func (s *Server) handlePreflightInstalled(w http.ResponseWriter, r *http.Request
 		projectID, manifestJSON string
 	)
 	if err := s.store.db.QueryRow(
-		`SELECT COALESCE(i.project_id,''), a.manifest_json
+		`SELECT COALESCE(i.project_id,''), COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.id = ?`, installID,
 	).Scan(&projectID, &manifestJSON); err != nil {
@@ -1531,7 +1557,12 @@ func (s *Server) handleInstallTools(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, []installMCPToolInfo{})
 		return
 	}
-	tools, err := listAppMCPTools(inst.SidecarURL+"/mcp", fmt.Sprintf("dev-%d", installID))
+	appToken, err := s.appInstallToken(installID)
+	if err != nil {
+		http.Error(w, "app credential unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	tools, err := listAppMCPTools(inst.SidecarURL+"/mcp", appToken)
 	if err != nil {
 		http.Error(w, "list tools: "+err.Error(), http.StatusBadGateway)
 		return
@@ -1597,7 +1628,8 @@ func (s *Server) buildPreflightRoles(manifest *sdk.Manifest, projectID string, u
 			row.Compatible = dep.CompatibleAppNames
 			row.CanCreateNew = false
 			rs, err := s.store.db.Query(
-				`SELECT i.id, a.name, COALESCE(json_extract(a.manifest_json,'$.display_name'), a.name)
+				`SELECT i.id, a.name,
+				        COALESCE(json_extract(COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),'$.display_name'), a.name)
 				 FROM app_installs i JOIN apps a ON a.id=i.app_id
 				 WHERE i.status='running' AND (i.project_id = ? OR i.project_id = '')`,
 				projectID,
@@ -1630,7 +1662,8 @@ func (s *Server) buildPreflightRoles(manifest *sdk.Manifest, projectID string, u
 			CanCreateNew: false,
 		}
 		rs, err := s.store.db.Query(
-			`SELECT i.id, a.name, COALESCE(json_extract(a.manifest_json,'$.display_name'), a.name)
+			`SELECT i.id, a.name,
+			        COALESCE(json_extract(COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),'$.display_name'), a.name)
 			 FROM app_installs i JOIN apps a ON a.id=i.app_id
 			 WHERE i.status='running' AND (i.project_id = ? OR i.project_id = '')`,
 			projectID,
@@ -1704,6 +1737,9 @@ type preflightRole struct {
 // in-place; the handler returns 501 with a message asking the operator
 // to uninstall + reinstall.
 func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requirePlatformAdmin(w, r); !ok {
+		return
+	}
 	rest := strings.TrimPrefix(r.URL.Path, "/apps/installs/")
 	parts := strings.SplitN(rest, "/", 2)
 	if len(parts) != 2 || parts[1] != "upgrade" {
@@ -1725,13 +1761,15 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var (
-		source, manifestJSON, currentVersion, projectID, configEnc, permissionsJSON string
+		source, manifestJSON, availableManifestJSON, currentVersion, projectID, configEnc, permissionsJSON string
 	)
 	err = s.store.db.QueryRow(
-		`SELECT a.source, a.manifest_json, i.version, i.project_id, COALESCE(i.config_encrypted,''), COALESCE(i.permissions_json,'[]')
+		`SELECT COALESCE(NULLIF(i.source, ''), a.source),
+		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json), a.manifest_json,
+		        i.version, i.project_id, COALESCE(i.config_encrypted,''), COALESCE(i.permissions_json,'[]')
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.id = ?`, installID,
-	).Scan(&source, &manifestJSON, &currentVersion, &projectID, &configEnc, &permissionsJSON)
+	).Scan(&source, &manifestJSON, &availableManifestJSON, &currentVersion, &projectID, &configEnc, &permissionsJSON)
 	if err != nil {
 		http.Error(w, "install not found", http.StatusNotFound)
 		return
@@ -1756,17 +1794,22 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	// Built-in: just bump the version — the running binary already
 	// has whatever was bundled at server-build time.
 	if source == "builtin" {
-		if stored.Version == "" {
+		var available sdk.Manifest
+		if err := json.Unmarshal([]byte(availableManifestJSON), &available); err != nil {
+			http.Error(w, "available manifest parse: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if available.Version == "" {
 			http.Error(w, "no available version in manifest", http.StatusInternalServerError)
 			return
 		}
-		if stored.Version == currentVersion {
+		if available.Version == currentVersion {
 			writeJSON(w, map[string]string{"status": "up-to-date", "version": currentVersion})
 			return
 		}
-		if missing := missingRequiredPermissions(approvedPermissions, stored.Requires.Permissions); len(missing) > 0 {
+		if missing := missingRequiredPermissions(approvedPermissions, available.Requires.Permissions); len(missing) > 0 {
 			if !body.ApproveNewPermissions {
-				writeMissingPermissionUpgradeConflict(w, stored.DisplayName, stored.Version, missing)
+				writeMissingPermissionUpgradeConflict(w, available.DisplayName, available.Version, missing)
 				return
 			}
 			approvedPermissions, err = s.approveAppInstallPermissions(installID, approvedPermissions, missing)
@@ -1776,13 +1819,13 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if _, err := s.store.db.Exec(
-			`UPDATE app_installs SET version = ? WHERE id = ?`,
-			stored.Version, installID,
+			`UPDATE app_installs SET version = ?, manifest_json = ? WHERE id = ?`,
+			available.Version, availableManifestJSON, installID,
 		); err != nil {
 			http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, map[string]string{"status": "upgraded", "version": stored.Version})
+		writeJSON(w, map[string]string{"status": "upgraded", "version": available.Version})
 		return
 	}
 
@@ -1827,30 +1870,14 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 
 	// Persist the new manifest immediately so the next list call
 	// reflects the in-flight version even before the build completes.
-	if body, mErr := json.Marshal(live); mErr == nil {
-		s.store.db.Exec(`UPDATE apps SET manifest_json = ? WHERE name = ?`, string(body), live.Name)
-	}
+	s.updateAppCatalogMetadataByName(live.Name, live)
 
-	// Refresh the install's app-shipped skills against the upgraded
-	// manifest. Best-effort — failure here doesn't fail the upgrade
-	// itself; the next install will retry. Re-fetches body_file
-	// against the (possibly rewritten) manifest URL.
-	if len(live.Provides.Skills) > 0 {
-		fetcher := s.makeSkillBodyFileFetcher(deriveManifestURL(live))
-		if err := s.registerAppSkills(installID, live.Name, projectID, live.Provides.Skills, fetcher); err != nil {
-			log.Printf("[APPS-SKILLS] upgrade refresh install=%d failed: %v", installID, err)
-		} else {
-			log.Printf("[APPS-SKILLS] refreshed %d skill(s) on upgrade install=%d", len(live.Provides.Skills), installID)
-		}
-	} else {
-		// Manifest dropped its skills — clear the rows.
-		if err := s.deleteAppSkillsForInstall(installID, "app skill removed"); err != nil {
-			log.Printf("[APPS-SKILLS] clear install=%d failed: %v", installID, err)
-		}
-	}
+	pendingManifestJSON, _ := json.Marshal(live)
 	s.store.db.Exec(
-		`UPDATE app_installs SET status='pending', status_message='Upgrading…', error_message='' WHERE id=?`,
-		installID,
+		`UPDATE app_installs
+		 SET status='pending', status_message='Upgrading…', error_message='', pending_manifest_json=?
+		 WHERE id=?`,
+		string(pendingManifestJSON), installID,
 	)
 
 	// installFromSource clones + builds + respawns + flips the install
@@ -1870,6 +1897,19 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		if err := s.installFromSource(installID, live, projectID, cfg); err != nil {
 			// installFromSource already wrote status='error' + error_message.
 			return
+		}
+		// The healthy sidecar and install snapshot now point at the new
+		// version. Only now refresh app-owned skills; failed upgrades keep
+		// both their old manifest and old skill surface.
+		if len(live.Provides.Skills) > 0 {
+			fetcher := s.makeSkillBodyFileFetcher(deriveManifestURL(live))
+			if err := s.registerAppSkills(installID, live.Name, projectID, live.Provides.Skills, fetcher); err != nil {
+				log.Printf("[APPS-SKILLS] upgrade refresh install=%d failed: %v", installID, err)
+			} else {
+				log.Printf("[APPS-SKILLS] refreshed %d skill(s) on upgrade install=%d", len(live.Provides.Skills), installID)
+			}
+		} else if err := s.deleteAppSkillsForInstall(installID, "app skill removed"); err != nil {
+			log.Printf("[APPS-SKILLS] clear install=%d failed: %v", installID, err)
 		}
 		// Refresh the bridge row so a manifest that adds new tools
 		// across versions surfaces them in mcp_servers.allowed_tools.

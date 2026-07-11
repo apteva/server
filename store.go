@@ -124,7 +124,7 @@ func NewStore(path string) (*Store, error) {
 	} else {
 		dsn += "&"
 	}
-	dsn += fmt.Sprintf("_pragma=busy_timeout(%d)&_pragma=journal_mode(WAL)", sqliteBusyTimeoutMS)
+	dsn += fmt.Sprintf("_pragma=busy_timeout(%d)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)", sqliteBusyTimeoutMS)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
@@ -145,6 +145,7 @@ func NewStore(path string) (*Store, error) {
 	// already-configured connection.
 	db.Exec("PRAGMA journal_mode=WAL")
 	db.Exec(fmt.Sprintf("PRAGMA busy_timeout=%d", sqliteBusyTimeoutMS))
+	db.Exec("PRAGMA foreign_keys=ON")
 	if err := db.Ping(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -210,28 +211,43 @@ func execWithBusyRetry(db *sql.DB, query string, args ...any) error {
 // SQLite ≥ 3.25 RENAME COLUMN auto-updates indexes that reference
 // the renamed column; we still DROP + CREATE on the index name itself
 // since renaming an index isn't supported in the same statement.
-func (s *Store) renameInstanceTablesToAgents() {
+func (s *Store) renameInstanceTablesToAgents() error {
+	exec := func(query string) error {
+		_, err := s.db.Exec(query)
+		return err
+	}
 	// Rename the main agent table.
 	if tableExists(s.db, "instances") && !tableExists(s.db, "agents") {
-		s.db.Exec("ALTER TABLE instances RENAME TO agents")
+		if err := exec("ALTER TABLE instances RENAME TO agents"); err != nil {
+			return fmt.Errorf("rename instances table: %w", err)
+		}
 	}
 	// Rename FK columns in dependent tables.
 	for _, t := range []string{"subscriptions", "channels", "telemetry", "app_grants"} {
 		if columnExists(s.db, t, "instance_id") && !columnExists(s.db, t, "agent_id") {
-			s.db.Exec("ALTER TABLE " + t + " RENAME COLUMN instance_id TO agent_id")
+			if err := exec("ALTER TABLE " + t + " RENAME COLUMN instance_id TO agent_id"); err != nil {
+				return fmt.Errorf("rename %s.instance_id: %w", t, err)
+			}
 		}
 	}
 	// The binding table itself was renamed.
 	if tableExists(s.db, "app_instance_bindings") && !tableExists(s.db, "app_agent_bindings") {
-		s.db.Exec("ALTER TABLE app_instance_bindings RENAME TO app_agent_bindings")
+		if err := exec("ALTER TABLE app_instance_bindings RENAME TO app_agent_bindings"); err != nil {
+			return fmt.Errorf("rename app instance bindings: %w", err)
+		}
 	}
 	if columnExists(s.db, "app_agent_bindings", "instance_id") && !columnExists(s.db, "app_agent_bindings", "agent_id") {
-		s.db.Exec("ALTER TABLE app_agent_bindings RENAME COLUMN instance_id TO agent_id")
+		if err := exec("ALTER TABLE app_agent_bindings RENAME COLUMN instance_id TO agent_id"); err != nil {
+			return fmt.Errorf("rename app bindings instance column: %w", err)
+		}
 	}
 	// Index name swap. RENAME COLUMN keeps the old index alive
 	// (pointing at the new column) — the rename below just gets the
 	// name consistent with the new conventions, no data movement.
-	s.db.Exec("DROP INDEX IF EXISTS idx_telem_instance_time")
+	if err := exec("DROP INDEX IF EXISTS idx_telem_instance_time"); err != nil {
+		return fmt.Errorf("drop legacy telemetry index: %w", err)
+	}
+	return nil
 }
 
 // tableExists checks whether `name` is a table in the connected DB.
@@ -247,7 +263,9 @@ func tableExists(db *sql.DB, name string) bool {
 func (s *Store) migrate() error {
 	// Phase 1 rename runs first so the CREATE TABLE IF NOT EXISTS
 	// block below sees a freshly-renamed schema.
-	s.renameInstanceTablesToAgents()
+	if err := s.renameInstanceTablesToAgents(); err != nil {
+		return err
+	}
 
 	_, err := s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
@@ -428,6 +446,7 @@ func (s *Store) migrate() error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_telem_agent_time ON telemetry(agent_id, time);
 		CREATE INDEX IF NOT EXISTS idx_telem_type ON telemetry(type, time);
+		CREATE INDEX IF NOT EXISTS idx_telem_agent_type_time ON telemetry(agent_id, type, time);
 
 		CREATE TABLE IF NOT EXISTS agents (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -887,11 +906,11 @@ func (s *Store) migrate() error {
 	s.db.Exec(`INSERT OR IGNORE INTO provider_types
 			(id, type, name, description, fields, requires_credentials, auth_type, auth_provider, runtime_status, capabilities, sort_order)
 			VALUES
-			(15, 'llm', 'OpenAI Codex', 'ChatGPT subscription-backed Codex auth via the Codex Responses runtime.', '[]', 1, 'oauth_device_code', 'openai-codex', 'available', '["llm","subscription","codex_responses","streaming","native_tools"]', 17)`)
+			(15, 'llm', 'OpenAI Codex', 'ChatGPT subscription-backed Codex auth via the Codex Responses runtime.', '[]', 1, 'oauth_device_code', 'openai-codex', 'available', '["llm","subscription","subscription_usage","codex_responses","streaming","native_tools"]', 17)`)
 	s.db.Exec(`UPDATE provider_types
 			SET description='ChatGPT subscription-backed Codex auth via the Codex Responses runtime.',
 			    runtime_status='available',
-			    capabilities='["llm","subscription","codex_responses","streaming","native_tools"]'
+			    capabilities='["llm","subscription","subscription_usage","codex_responses","streaming","native_tools"]'
 			WHERE id=15 AND auth_provider='openai-codex'`)
 
 	// Fix historical row 8: it was seeded with type='browser' but its
@@ -982,12 +1001,43 @@ func (s *Store) migrate() error {
 			status               TEXT NOT NULL DEFAULT 'pending', -- pending|running|error|disabled
 			upgrade_policy       TEXT NOT NULL DEFAULT 'manual',  -- manual|auto-patch|auto-minor
 			version              TEXT NOT NULL DEFAULT '',
+			manifest_json        TEXT NOT NULL DEFAULT '',
+			pending_manifest_json TEXT NOT NULL DEFAULT '',
+			source               TEXT NOT NULL DEFAULT '',
+			repo                 TEXT NOT NULL DEFAULT '',
+			ref                  TEXT NOT NULL DEFAULT '',
 			permissions_json     TEXT NOT NULL DEFAULT '[]',
 			installed_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
-			installed_by         INTEGER DEFAULT 0,
-			UNIQUE(app_id, project_id)
-		)
-	`)
+				installed_by         INTEGER DEFAULT 0,
+				app_token_hash        TEXT NOT NULL DEFAULT '',
+				app_token_encrypted   TEXT NOT NULL DEFAULT '',
+				UNIQUE(app_id, project_id)
+			)
+		`)
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN app_token_hash TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN app_token_encrypted TEXT NOT NULL DEFAULT ''`)
+	// Per-install source snapshot. The apps row tracks marketplace/latest
+	// metadata; these fields describe what this project is actually running.
+	// Backfill keeps upgrades from one project changing another project's
+	// manifest, MCP surface, permissions, or restart behavior.
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN manifest_json TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN pending_manifest_json TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN source TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN repo TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN ref TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`UPDATE app_installs
+		SET manifest_json = COALESCE((SELECT manifest_json FROM apps WHERE apps.id = app_installs.app_id), '')
+		WHERE manifest_json = ''`)
+	s.db.Exec(`UPDATE app_installs
+		SET source = COALESCE((SELECT source FROM apps WHERE apps.id = app_installs.app_id), '')
+		WHERE source = ''`)
+	s.db.Exec(`UPDATE app_installs
+		SET repo = COALESCE((SELECT repo FROM apps WHERE apps.id = app_installs.app_id), '')
+		WHERE repo = ''`)
+	s.db.Exec(`UPDATE app_installs
+		SET ref = COALESCE((SELECT ref FROM apps WHERE apps.id = app_installs.app_id), '')
+		WHERE ref = ''`)
+	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_app_installs_token_hash ON app_installs(app_token_hash) WHERE app_token_hash != ''`)
 	// Forward-add the column for installs created before this field existed.
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN sidecar_url_override TEXT NOT NULL DEFAULT ''`)
 	// Local-spawn supervisor state: PID of the running child + path to
@@ -1018,7 +1068,7 @@ func (s *Store) migrate() error {
 	s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS app_agent_bindings (
 			install_id   INTEGER NOT NULL REFERENCES app_installs(id),
-			agent_id  INTEGER NOT NULL REFERENCES instances(id),
+			agent_id  INTEGER NOT NULL REFERENCES agents(id),
 			enabled      INTEGER NOT NULL DEFAULT 1,
 			PRIMARY KEY (install_id, agent_id)
 		)
@@ -1119,7 +1169,7 @@ func (s *Store) migrate() error {
 		CREATE TABLE IF NOT EXISTS app_grants (
 			id           INTEGER PRIMARY KEY AUTOINCREMENT,
 			install_id   INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE,
-			agent_id  INTEGER NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+			agent_id  INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
 			effect       TEXT NOT NULL CHECK (effect IN ('allow','deny')),
 			permission   TEXT NOT NULL,
 			resource     TEXT NOT NULL DEFAULT '*',
@@ -1132,7 +1182,7 @@ func (s *Store) migrate() error {
 	s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS app_grant_defaults (
 			install_id      INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE,
-			agent_id        INTEGER NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+			agent_id        INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
 			default_effect  TEXT NOT NULL CHECK (default_effect IN ('allow','deny')),
 			updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (install_id, agent_id)
@@ -1196,6 +1246,28 @@ func (s *Store) migrate() error {
 	s.db.Exec(`INSERT OR IGNORE INTO project_members (project_id, user_id, role, added_by)
 	           SELECT id, user_id, 'owner', user_id FROM projects`)
 
+	return s.validateMigratedSchema()
+}
+
+func (s *Store) validateMigratedSchema() error {
+	requiredTables := []string{"users", "agents", "projects", "project_members", "app_installs", "skills", "telemetry"}
+	for _, table := range requiredTables {
+		if !tableExists(s.db, table) {
+			return fmt.Errorf("migration incomplete: required table %s is missing", table)
+		}
+	}
+	requiredColumns := map[string][]string{
+		"agents":       {"project_id", "core_api_key"},
+		"app_installs": {"app_token_hash", "app_token_encrypted", "integration_bindings"},
+		"api_keys":     {"kind", "scopes", "allowed_origins"},
+	}
+	for table, columns := range requiredColumns {
+		for _, column := range columns {
+			if !columnExists(s.db, table, column) {
+				return fmt.Errorf("migration incomplete: required column %s.%s is missing", table, column)
+			}
+		}
+	}
 	return nil
 }
 
@@ -2075,11 +2147,24 @@ func (s *Store) CreateProject(userID int64, name, description, color string) (*P
 	if color == "" {
 		color = "#6366f1"
 	}
-	_, err := s.db.Exec(
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(
 		"INSERT INTO projects (id, user_id, name, description, color) VALUES (?, ?, ?, ?, ?)",
 		id, userID, name, description, color,
-	)
-	if err != nil {
+	); err != nil {
+		return nil, err
+	}
+	if _, err = tx.Exec(
+		`INSERT INTO project_members(project_id,user_id,role,added_by) VALUES(?,?,'owner',?)`,
+		id, userID, userID,
+	); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return &Project{ID: id, UserID: userID, Name: name, Description: description, Color: color, CreatedAt: time.Now()}, nil
@@ -2174,6 +2259,11 @@ func (s *Store) CreateSession(token string, userID int64, expiresAt time.Time) e
 		"INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
 		token, userID, expiresAt.UTC().Format("2006-01-02 15:04:05"),
 	)
+	return err
+}
+
+func (s *Store) DeleteSession(token string) error {
+	_, err := s.db.Exec("DELETE FROM sessions WHERE token = ?", token)
 	return err
 }
 

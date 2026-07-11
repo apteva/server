@@ -170,6 +170,7 @@ func TestCallbackIngress_RequiresPermissionAndScopesOwner(t *testing.T) {
 
 func TestIngressCertsReportsCachedAutocertStatus(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	cacheDir := t.TempDir()
 	s.ingressCerts = &IngressCertManager{cacheDir: cacheDir}
 
@@ -184,6 +185,7 @@ func TestIngressCertsReportsCachedAutocertStatus(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/ingress/certs", nil)
+	req.Header.Set("X-User-ID", "1")
 	rec := httptest.NewRecorder()
 	s.handleIngressCerts(rec, req)
 	if rec.Code != http.StatusOK {

@@ -234,7 +234,13 @@ func (h *handlers) listMessages(w http.ResponseWriter, r *http.Request) {
 	_ = inst
 	since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	msgs, err := h.store.ListMessages(chatID, since, limit)
+	var msgs []Message
+	var err error
+	if since > 0 {
+		msgs, err = h.store.ListMessages(chatID, since, limit)
+	} else {
+		msgs, err = h.store.ListRecentMessages(chatID, limit)
+	}
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -378,14 +384,26 @@ func (h *handlers) stream(w http.ResponseWriter, r *http.Request, _ *framework.A
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	// Backfill from DB — everything since client's checkpoint.
+	// Subscribe before querying the DB. Messages written during catch-up are
+	// buffered by the hub and deduplicated by `since` below, closing the race
+	// where an insert between the final query and subscribe was lost forever.
+	ch, _, cancel := h.hub.subscribe(chatID)
+	defer cancel()
+	streamCh, _, streamCancel := h.hub.subscribeStream(chatID)
+	defer streamCancel()
+
+	// Backfill from DB — every page since the client's checkpoint. The old
+	// one-shot LIMIT 1000 query silently skipped the rest of a large gap.
 	sinceStr := r.URL.Query().Get("since")
 	var since int64
 	if sinceStr != "" {
 		since, _ = strconv.ParseInt(sinceStr, 10, 64)
 	}
-	backfill, err := h.store.ListMessages(chatID, since, 1000)
-	if err == nil {
+	for {
+		backfill, err := h.store.ListMessages(chatID, since, 1000)
+		if err != nil {
+			break
+		}
 		for _, m := range backfill {
 			writeSSE(w, m)
 			if m.ID > since {
@@ -393,21 +411,15 @@ func (h *handlers) stream(w http.ResponseWriter, r *http.Request, _ *framework.A
 			}
 		}
 		flusher.Flush()
+		if len(backfill) < 1000 {
+			break
+		}
 	}
-
-	// Subscribe AFTER backfill so we don't miss anything written
-	// between backfill and subscribe (the DB query + subscribe sandwich
-	// is the canonical "no missed events" pattern).
-	ch, _, cancel := h.hub.subscribe(chatID)
-	defer cancel()
 
 	// Parallel stream-frame subscription. Ephemeral LLM-args chunks
 	// for in-progress `channels_respond` calls land here. Separate
 	// from the Message channel so reverting streaming = delete this
 	// block (no Message-path side effects).
-	streamCh, _, streamCancel := h.hub.subscribeStream(chatID)
-	defer streamCancel()
-
 	// Keepalive ping every 15s prevents intermediary proxies from
 	// killing an idle connection.
 	ping := time.NewTicker(15 * time.Second)
@@ -603,6 +615,31 @@ func (h *handlers) alertMessages(w http.ResponseWriter, r *http.Request, _ *fram
 	rows, err := h.store.ListAlertMessages(ids, r.URL.Query().Get("project_id"), limit)
 	if err != nil {
 		log.Printf("[CHAT] alert-messages: user=%d ids=%v: %v", userID, ids, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, rows)
+}
+
+// GET /api/apps/channel-chat/current-statuses?project_id=<id>
+//
+// Returns one mutable status-card per agent. Statuses are monitoring state,
+// not inbox artifacts, so this endpoint is separate from alert/report views.
+func (h *handlers) currentStatuses(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
+	userID := h.instances.LookupUserID(r)
+	if userID == 0 {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	ids, err := h.instances.InstanceIDsForUser(userID)
+	if err != nil {
+		log.Printf("[CHAT] current-statuses: list agents for user=%d: %v", userID, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	rows, err := h.store.ListCurrentStatuses(ids, r.URL.Query().Get("project_id"))
+	if err != nil {
+		log.Printf("[CHAT] current-statuses: user=%d ids=%v: %v", userID, ids, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

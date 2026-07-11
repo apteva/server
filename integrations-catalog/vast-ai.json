@@ -1,0 +1,218 @@
+{
+  "slug": "vast-ai",
+  "name": "Vast.ai",
+  "description": "Vast.ai GPU cloud marketplace API for searching live GPU offers, creating and managing instances, SSH access, templates, volumes, billing, GPU market metrics, serverless endpoints, deployments, and notification webhooks.",
+  "logo": "https://www.google.com/s2/favicons?domain=vast.ai&sz=128",
+  "categories": ["gpu", "compute", "ai", "cloud", "marketplace", "serverless", "vast-ai"],
+  "base_url": "https://console.vast.ai/api",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "type": "password",
+        "description": "Vast.ai API key from cloud.vast.ai/manage-keys. A scoped key needs user_read and instance_read; creation and lifecycle tools also need instance_write."
+      }
+    ]
+  },
+  "health_check": { "tool": "get_current_user", "input": {} },
+  "tools": [
+    {
+      "name": "get_current_user",
+      "description": "Get the authenticated Vast.ai account, including user ID, email, current credit balance, and account SSH key information. Use this to verify credentials before renting resources.",
+      "method": "GET",
+      "path": "/v0/users/current/",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "search_offers",
+      "description": "Search the live Vast.ai GPU marketplace. Filter values use operator objects such as {\"gte\":1}, {\"eq\":true}, or {\"in\":[\"RTX 4090\"]}. Offers are ephemeral: use the returned offer id immediately with create_instance and retry another result if it becomes unavailable.",
+      "method": "POST",
+      "path": "/v0/bundles/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "enum": ["ondemand", "bid", "reserved"], "default": "ondemand", "description": "ondemand is fixed price; bid is interruptible; reserved supports reservation pricing." },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+          "order": { "type": "array", "description": "Sort pair such as [[\"dph_total\",\"asc\"]].", "items": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 } },
+          "gpu_name": { "type": "object", "description": "GPU model filter, e.g. {\"in\":[\"RTX 4090\",\"RTX 3090\"]}." },
+          "num_gpus": { "type": "object", "description": "GPU count filter, e.g. {\"gte\":1}." },
+          "gpu_ram": { "type": "object", "description": "Total GPU VRAM in MB in the REST API, e.g. {\"gte\":24000}." },
+          "dph_total": { "type": "object", "description": "Total hourly price filter in USD, e.g. {\"lte\":0.5}." },
+          "reliability": { "type": "object", "description": "Host reliability filter, e.g. {\"gte\":0.99}." },
+          "verified": { "type": "object", "description": "Verified host filter, normally {\"eq\":true}." },
+          "rentable": { "type": "object", "description": "Availability filter, normally {\"eq\":true}." },
+          "rented": { "type": "object", "description": "Use {\"eq\":false} to exclude already-rented offers." },
+          "geolocation": { "type": "object", "description": "Location filter using Vast's geolocation strings." },
+          "machine_id": { "type": "object" },
+          "compute_cap": { "type": "object", "description": "CUDA compute capability multiplied by 10, e.g. {\"gte\":80}." },
+          "cuda_max_good": { "type": "object", "description": "Maximum supported CUDA version filter." },
+          "cpu_arch": { "type": "object", "description": "CPU architecture, e.g. {\"eq\":\"amd64\"}." },
+          "cpu_cores_effective": { "type": "object" },
+          "cpu_ram": { "type": "object", "description": "System RAM filter in MB." },
+          "disk_space": { "type": "object", "description": "Available local disk in GB." },
+          "disk_bw": { "type": "object" },
+          "inet_down": { "type": "object", "description": "Download throughput in Mbps." },
+          "inet_up": { "type": "object", "description": "Upload throughput in Mbps." },
+          "static_ip": { "type": "object" },
+          "direct_port_count": { "type": "object" },
+          "total_flops": { "type": "object" },
+          "storage_cost": { "type": "object", "description": "Storage price in USD/GB/month." },
+          "pci_gen": { "type": "object" },
+          "pcie_bw": { "type": "object" },
+          "allocated_storage": { "type": "number", "description": "Disk allocation in GB used when calculating offer pricing." }
+        }
+      }
+    },
+    {
+      "name": "list_instances",
+      "description": "List owned instances with status, GPU, pricing, SSH/Jupyter connection fields, and pagination. select_filters, select_cols, and order_by are JSON strings because Vast expects JSON in query parameters.",
+      "method": "GET",
+      "path": "/v1/instances/",
+      "query_params": ["limit", "after_token", "order_by", "select_cols", "select_filters"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 1, "maximum": 25, "default": 25 },
+          "after_token": { "type": "string", "description": "next_token from the previous response." },
+          "order_by": { "type": "string", "description": "JSON array, e.g. [{\"col\":\"id\",\"dir\":\"desc\"}]." },
+          "select_cols": { "type": "string", "description": "JSON array of returned columns, or [\"*\"]." },
+          "select_filters": { "type": "string", "description": "JSON object with operators, e.g. {\"actual_status\":{\"eq\":\"running\"}}." }
+        }
+      }
+    },
+    {
+      "name": "get_instance",
+      "description": "Get one instance. For connection details inspect actual_status, ssh_host, ssh_port, public_ipaddr, ports, jupyter_token, and image_runtype. Poll until actual_status is running; exited, unknown, or offline will not become ready without intervention.",
+      "method": "GET",
+      "path": "/v0/instances/{instance_id}/",
+      "input_schema": { "type": "object", "properties": { "instance_id": { "type": "integer" } }, "required": ["instance_id"] }
+    },
+    {
+      "name": "create_instance",
+      "description": "Rent an offer and create an instance. First call search_offers, then pass its id as offer_id. The response's new_contract is the new instance ID. Use image for direct configuration or template_hash_id for a template. For environment variables and ports, env is an object such as {\"HF_TOKEN\":\"...\",\"-p 8000:8000\":\"1\"}.",
+      "method": "PUT",
+      "path": "/v0/asks/{offer_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offer_id": { "type": "integer", "description": "Offer/ask id from search_offers." },
+          "image": { "type": "string", "description": "Docker image, e.g. nvidia/cuda:12.4.1-runtime-ubuntu22.04. Optional only when template_hash_id supplies it." },
+          "template_hash_id": { "type": "string" },
+          "label": { "type": "string" },
+          "disk": { "type": "number", "description": "Local disk size in GB." },
+          "runtype": { "type": "string", "enum": ["ssh", "jupyter", "args", "ssh_proxy", "ssh_direct", "jupyter_proxy", "jupyter_direct"], "default": "ssh_direct" },
+          "target_state": { "type": "string", "enum": ["running", "stopped"], "default": "running" },
+          "price": { "type": "number", "minimum": 0.001, "maximum": 128, "description": "Hourly bid for interruptible offers only. Omit for on-demand." },
+          "env": { "type": "object", "description": "Environment variables and Docker port mappings." },
+          "onstart": { "type": "string", "maxLength": 4048 },
+          "args": { "type": "array", "items": { "type": "string" } },
+          "args_str": { "type": "string" },
+          "use_jupyter_lab": { "type": "boolean" },
+          "jupyter_dir": { "type": "string" },
+          "python_utf8": { "type": "boolean" },
+          "lang_utf8": { "type": "boolean" },
+          "cancel_unavail": { "type": "boolean", "description": "Fail fast if the offer cannot start immediately." },
+          "vm": { "type": "boolean" },
+          "force": { "type": "boolean" },
+          "user": { "type": "string" },
+          "image_login": { "type": "string", "description": "Private registry login flags." },
+          "volume_info": { "type": "object", "description": "Existing volume: {create_new:false,volume_id,mount_path}. New volume from offer: {create_new:true,volume_id,size,mount_path}." }
+        },
+        "required": ["offer_id"]
+      }
+    },
+    {
+      "name": "manage_instance",
+      "description": "Start or stop an instance and/or update its label. Stopping pauses compute charges but storage charges continue.",
+      "method": "PUT",
+      "path": "/v0/instances/{instance_id}/",
+      "input_schema": { "type": "object", "properties": { "instance_id": { "type": "integer" }, "state": { "type": "string", "enum": ["stopped", "running"] }, "label": { "type": "string", "maxLength": 1024 } }, "required": ["instance_id"] }
+    },
+    { "name": "destroy_instance", "description": "Permanently destroy an instance and its local data. This is irreversible; use manage_instance with state=stopped when temporary shutdown is intended.", "method": "DELETE", "path": "/v0/instances/{instance_id}/", "input_schema": { "type": "object", "properties": { "instance_id": { "type": "integer" } }, "required": ["instance_id"] } },
+    { "name": "reboot_instance", "description": "Restart an instance container without relinquishing GPU priority.", "method": "PUT", "path": "/v0/instances/reboot/{instance_id}/", "input_schema": { "type": "object", "properties": { "instance_id": { "type": "integer" } }, "required": ["instance_id"] } },
+    { "name": "recycle_instance", "description": "Destroy and recreate the container in place from the image without relinquishing GPU priority. Container-local changes are lost.", "method": "PUT", "path": "/v0/instances/recycle/{instance_id}/", "input_schema": { "type": "object", "properties": { "instance_id": { "type": "integer" } }, "required": ["instance_id"] } },
+    { "name": "change_instance_bid", "description": "Change the hourly bid of an interruptible instance.", "method": "PUT", "path": "/v0/instances/bid_price/{instance_id}/", "input_schema": { "type": "object", "properties": { "instance_id": { "type": "integer" }, "client_id": { "type": "integer", "description": "Optional Vast client/user ID when required by the account context." }, "price": { "type": "number", "minimum": 0.001 } }, "required": ["instance_id", "price"] } },
+    { "name": "prepay_instance", "description": "Deposit prepaid credit into a reserved instance to obtain a duration-based discount.", "method": "PUT", "path": "/v0/instances/prepay/{instance_id}/", "input_schema": { "type": "object", "properties": { "instance_id": { "type": "integer" }, "amount": { "type": "number", "minimum": 0 } }, "required": ["instance_id", "amount"] } },
+    { "name": "execute_instance_command", "description": "Execute a constrained command on an instance. The API returns a result URL/status rather than maintaining an interactive shell.", "method": "PUT", "path": "/v0/instances/command/{instance_id}/", "input_schema": { "type": "object", "properties": { "instance_id": { "type": "integer" }, "command": { "type": "string" } }, "required": ["instance_id", "command"] } },
+    { "name": "request_instance_logs", "description": "Request recent instance logs. tail controls the number of lines; filter narrows log text; daemon_logs selects daemon rather than container logs.", "method": "PUT", "path": "/v0/instances/request_logs/{instance_id}", "input_schema": { "type": "object", "properties": { "instance_id": { "type": "integer" }, "tail": { "type": "integer" }, "filter": { "type": "string" }, "daemon_logs": { "type": "boolean" } }, "required": ["instance_id"] } },
+
+    { "name": "list_account_ssh_keys", "description": "List SSH public keys registered on the Vast.ai account. Register keys before creating VM instances; Docker instances can also attach keys afterward.", "method": "GET", "path": "/v0/ssh/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "create_account_ssh_key", "description": "Register an SSH public key on the account. Vast adds account keys to current and future compatible instances.", "method": "POST", "path": "/v0/ssh/", "input_schema": { "type": "object", "properties": { "ssh_key": { "type": "string", "description": "Full OpenSSH public key." } }, "required": ["ssh_key"] } },
+    { "name": "update_account_ssh_key", "description": "Replace a registered account SSH public key.", "method": "PUT", "path": "/v0/ssh/{ssh_key_id}/", "input_schema": { "type": "object", "properties": { "ssh_key_id": { "type": "integer" }, "ssh_key": { "type": "string" } }, "required": ["ssh_key_id", "ssh_key"] } },
+    { "name": "delete_account_ssh_key", "description": "Delete a registered account SSH key.", "method": "DELETE", "path": "/v0/ssh/{ssh_key_id}/", "input_schema": { "type": "object", "properties": { "ssh_key_id": { "type": "integer" } }, "required": ["ssh_key_id"] } },
+    { "name": "list_instance_ssh_keys", "description": "List SSH keys currently attached to one instance.", "method": "GET", "path": "/v0/instances/{instance_id}/ssh/", "input_schema": { "type": "object", "properties": { "instance_id": { "type": "integer" } }, "required": ["instance_id"] } },
+    { "name": "attach_instance_ssh_key", "description": "Attach an OpenSSH public key directly to a running Docker instance.", "method": "POST", "path": "/v0/instances/{instance_id}/ssh/", "input_schema": { "type": "object", "properties": { "instance_id": { "type": "integer" }, "ssh_key": { "type": "string" } }, "required": ["instance_id", "ssh_key"] } },
+    { "name": "detach_instance_ssh_key", "description": "Detach one SSH key from an instance.", "method": "DELETE", "path": "/v0/instances/{instance_id}/ssh/{ssh_key_id}/", "input_schema": { "type": "object", "properties": { "instance_id": { "type": "integer" }, "ssh_key_id": { "type": "integer" } }, "required": ["instance_id", "ssh_key_id"] } },
+
+    { "name": "search_templates", "description": "Search Vast.ai launch templates. select_filters, select_cols, and order_by must be JSON strings because the API accepts them as encoded query values.", "method": "GET", "path": "/v0/template/", "query_params": ["select_filters", "select_cols", "order_by"], "input_schema": { "type": "object", "properties": { "select_filters": { "type": "string", "description": "JSON filter object with eq/neq/lt/lte/gt/gte/in/notin operators." }, "select_cols": { "type": "string", "description": "JSON array of columns." }, "order_by": { "type": "string", "description": "JSON sort specification." } } } },
+    {
+      "name": "create_template",
+      "description": "Create a reusable Vast.ai instance template. Template env uses Docker flag syntax, unlike create_instance env which uses an object.",
+      "method": "POST",
+      "path": "/v0/template/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" }, "image": { "type": "string" }, "tag": { "type": "string" },
+          "env": { "type": "string", "description": "Docker flags, e.g. -e MODEL_ID=x -p 8000:8000." },
+          "onstart": { "type": "string" }, "runtype": { "type": "string" }, "ssh_direct": { "type": "boolean" }, "jup_direct": { "type": "boolean" },
+          "jupyter_dir": { "type": "string" }, "use_jupyter_lab": { "type": "boolean" }, "docker_login_repo": { "type": "string" },
+          "docker_login_user": { "type": "string" }, "docker_login_pass": { "type": "string" }, "extra_filters": { "type": "object" },
+          "recommended_disk_space": { "type": "number" }, "desc": { "type": "string" }, "readme": { "type": "string" }, "args_str": { "type": "string" },
+          "use_ssh": { "type": "boolean" }, "href": { "type": "string" }, "repo": { "type": "string" }, "private": { "type": "boolean" },
+          "volume_info": { "type": "object" }, "hash_id": { "type": "string" }
+        },
+        "required": ["name", "image"]
+      }
+    },
+    { "name": "edit_template", "description": "Edit mutable fields of an existing template identified by hash_id.", "method": "PUT", "path": "/v0/template/", "input_schema": { "type": "object", "properties": { "hash_id": { "type": "string" }, "name": { "type": "string" }, "image": { "type": "string" }, "desc": { "type": "string" }, "recommended_disk_space": { "type": "number" } }, "required": ["hash_id"] } },
+    { "name": "delete_template", "description": "Delete a template by numeric template ID.", "method": "DELETE", "path": "/v0/template/", "request_transform": { "type": "json_wrap", "fields": ["template_id"] }, "input_schema": { "type": "object", "properties": { "template_id": { "type": "integer" } }, "required": ["template_id"] } },
+
+    { "name": "list_volumes", "description": "List persistent volumes rented by the current user.", "method": "GET", "path": "/v0/volumes/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "search_volumes", "description": "Search available persistent volume offers. q is Vast's JSON-encoded query/filter string; limit is sent in the request body.", "method": "POST", "path": "/v0/volumes/search/", "query_params": ["q"], "input_schema": { "type": "object", "properties": { "q": { "type": "string", "description": "JSON search query string." }, "limit": { "type": "integer" } } } },
+    { "name": "rent_volume", "description": "Rent/create a persistent volume from a volume offer ID.", "method": "PUT", "path": "/v0/volumes/", "input_schema": { "type": "object", "properties": { "id": { "type": "integer", "description": "Volume offer ID from search_volumes." }, "size": { "type": "number", "description": "Requested volume size in GB." } }, "required": ["id", "size"] } },
+    { "name": "delete_volume", "description": "Permanently delete a rented persistent volume.", "method": "DELETE", "path": "/v0/volumes/", "request_transform": { "type": "json_wrap", "fields": ["id"] }, "input_schema": { "type": "object", "properties": { "id": { "type": "integer" } }, "required": ["id"] } },
+
+    { "name": "list_charges", "description": "List per-instance GPU, storage, and bandwidth charges. Query fields that contain JSON must be passed as JSON strings.", "method": "GET", "path": "/v0/charges/", "query_params": ["select_filters", "format", "latest_first", "limit", "after_token"], "input_schema": { "type": "object", "properties": { "select_filters": { "type": "string" }, "format": { "type": "string" }, "latest_first": { "type": "boolean" }, "limit": { "type": "integer" }, "after_token": { "type": "string" } } } },
+    { "name": "list_invoices", "description": "List account billing transactions such as card top-ups, transfers, payouts, and crypto payments.", "method": "GET", "path": "/v1/invoices/", "query_params": ["select_filters", "order_by", "latest_first", "limit", "after_token"], "input_schema": { "type": "object", "properties": { "select_filters": { "type": "string" }, "order_by": { "type": "string" }, "latest_first": { "type": "boolean" }, "limit": { "type": "integer" }, "after_token": { "type": "string" } } } },
+    { "name": "get_gpu_market_metrics", "description": "Get a current marketplace snapshot of GPU supply, demand, and pricing.", "method": "GET", "path": "/v0/metrics/gpu/current/", "query_params": ["verified", "hosting_type", "num_gpus"], "input_schema": { "type": "object", "properties": { "verified": { "type": "boolean" }, "hosting_type": { "type": "string" }, "num_gpus": { "type": "integer" } } } },
+    { "name": "get_gpu_locations", "description": "Get the geographic distribution of GPUs available on the Vast.ai marketplace.", "method": "GET", "path": "/v0/metrics/gpu/locations/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "get_gpu_market_history", "description": "Get time-series GPU supply, demand, and pricing metrics.", "method": "GET", "path": "/v0/metrics/gpu/history/", "query_params": ["gpu_name", "verified", "hosting_type", "num_gpus", "start", "end", "step"], "input_schema": { "type": "object", "properties": { "gpu_name": { "type": "string" }, "verified": { "type": "boolean" }, "hosting_type": { "type": "string" }, "num_gpus": { "type": "integer" }, "start": { "type": "number", "description": "Unix timestamp." }, "end": { "type": "number" }, "step": { "type": "integer", "description": "Sampling interval in seconds." } } } },
+
+    { "name": "list_serverless_endpoints", "description": "List Vast serverless endpoint jobs.", "method": "GET", "path": "/v0/endptjobs/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "create_serverless_endpoint", "description": "Create a serverless endpoint. Pair it with one or more workergroups that define templates and GPU search criteria.", "method": "POST", "path": "/v0/endptjobs/", "input_schema": { "type": "object", "properties": { "endpoint_name": { "type": "string" }, "min_load": { "type": "number" }, "target_util": { "type": "number" }, "cold_mult": { "type": "number" }, "cold_workers": { "type": "integer" }, "max_workers": { "type": "integer" } }, "required": ["endpoint_name"] } },
+    { "name": "update_serverless_endpoint", "description": "Update scaling settings or name for a serverless endpoint.", "method": "PUT", "path": "/v0/endptjobs/{endpoint_id}/", "input_schema": { "type": "object", "properties": { "endpoint_id": { "type": "integer" }, "endpoint_name": { "type": "string" }, "min_load": { "type": "number" }, "target_util": { "type": "number" }, "cold_mult": { "type": "number" }, "cold_workers": { "type": "integer" }, "max_workers": { "type": "integer" } }, "required": ["endpoint_id"] } },
+    { "name": "delete_serverless_endpoint", "description": "Delete a serverless endpoint and its associated workergroups.", "method": "DELETE", "path": "/v0/endptjobs/{endpoint_id}/", "input_schema": { "type": "object", "properties": { "endpoint_id": { "type": "integer" } }, "required": ["endpoint_id"] } },
+    { "name": "list_workergroups", "description": "List serverless workergroups and their autoscaling/template configuration.", "method": "GET", "path": "/v0/workergroups/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "create_workergroup", "description": "Create a serverless workergroup attached to an endpoint. search_params selects marketplace workers; launch_args configures launches.", "method": "POST", "path": "/v0/workergroups/", "input_schema": { "type": "object", "properties": { "endpoint_name": { "type": "string" }, "endpoint_id": { "type": "integer" }, "template_hash": { "type": "string" }, "template_id": { "type": "integer" }, "search_params": { "type": "object" }, "launch_args": { "type": "object" }, "min_load": { "type": "number" }, "target_util": { "type": "number" }, "cold_mult": { "type": "number" }, "cold_workers": { "type": "integer" }, "max_workers": { "type": "integer" }, "test_workers": { "type": "integer" }, "gpu_ram": { "type": "number", "description": "Required GPU RAM in MB." } }, "required": ["endpoint_id"] } },
+    { "name": "update_workergroup", "description": "Update a serverless workergroup's template, GPU search, launch, or scaling settings.", "method": "PUT", "path": "/v0/workergroups/{workergroup_id}/", "input_schema": { "type": "object", "properties": { "workergroup_id": { "type": "integer" }, "endpoint_name": { "type": "string" }, "endpoint_id": { "type": "integer" }, "template_hash": { "type": "string" }, "template_id": { "type": "integer" }, "search_params": { "type": "object" }, "launch_args": { "type": "object" }, "min_load": { "type": "number" }, "target_util": { "type": "number" }, "cold_mult": { "type": "number" }, "test_workers": { "type": "integer" }, "gpu_ram": { "type": "number" } }, "required": ["workergroup_id"] } },
+    { "name": "delete_workergroup", "description": "Delete a serverless workergroup.", "method": "DELETE", "path": "/v0/workergroups/{workergroup_id}/", "input_schema": { "type": "object", "properties": { "workergroup_id": { "type": "integer" } }, "required": ["workergroup_id"] } },
+    { "name": "list_deployments", "description": "List owned Vast serverless deployments and their endpoint state.", "method": "GET", "path": "/v0/deployments/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "get_deployment", "description": "Get one serverless deployment, endpoint state, and worker counts.", "method": "GET", "path": "/v0/deployment/{deployment_id}/", "input_schema": { "type": "object", "properties": { "deployment_id": { "type": "integer" } }, "required": ["deployment_id"] } },
+    { "name": "start_deployment", "description": "Start or restart a serverless deployment and its autoscaler.", "method": "POST", "path": "/v0/deployment/{deployment_id}/start/", "input_schema": { "type": "object", "properties": { "deployment_id": { "type": "integer" } }, "required": ["deployment_id"] } },
+    { "name": "stop_deployment", "description": "Stop a serverless deployment without deleting it.", "method": "POST", "path": "/v0/deployment/{deployment_id}/stop/", "input_schema": { "type": "object", "properties": { "deployment_id": { "type": "integer" } }, "required": ["deployment_id"] } },
+
+    { "name": "list_notification_types", "description": "List notification event type keys available to the account. Use returned keys as event_types when creating or updating a webhook.", "method": "GET", "path": "/v0/notification-types/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "list_notification_webhooks", "description": "List notification webhooks registered on the Vast.ai account.", "method": "GET", "path": "/v0/webhooks/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "create_notification_webhook", "description": "Create a notification webhook for one or more event type keys. Store webhook.webhook_secret from the response immediately; Vast uses it to sign X-Vast-Signature-256.", "method": "POST", "path": "/v0/webhooks/", "input_schema": { "type": "object", "properties": { "name": { "type": "string", "maxLength": 120 }, "webhook_url": { "type": "string", "format": "uri" }, "event_types": { "type": "array", "items": { "type": "string" }, "minItems": 1 } }, "required": ["webhook_url", "event_types"] } },
+    { "name": "update_notification_webhook", "description": "Update a notification webhook name, destination URL, or subscribed event types.", "method": "PUT", "path": "/v0/webhooks/{webhook_id}/", "input_schema": { "type": "object", "properties": { "webhook_id": { "type": "integer" }, "name": { "type": "string", "maxLength": 120 }, "webhook_url": { "type": "string", "format": "uri" }, "event_types": { "type": "array", "items": { "type": "string" }, "minItems": 1 } }, "required": ["webhook_id"] } },
+    { "name": "delete_notification_webhook", "description": "Delete a Vast.ai notification webhook.", "method": "DELETE", "path": "/v0/webhooks/{webhook_id}/", "input_schema": { "type": "object", "properties": { "webhook_id": { "type": "integer" } }, "required": ["webhook_id"] } },
+    { "name": "rotate_notification_webhook_secret", "description": "Rotate a webhook signing secret. Store the newly returned secret immediately.", "method": "POST", "path": "/v0/webhooks/{webhook_id}/rotate-secret/", "input_schema": { "type": "object", "properties": { "webhook_id": { "type": "integer" } }, "required": ["webhook_id"] } },
+    { "name": "test_notification_webhook", "description": "Send a test delivery to a registered webhook using Vast's normal payload and signature headers.", "method": "POST", "path": "/v0/webhooks/{webhook_id}/test/", "input_schema": { "type": "object", "properties": { "webhook_id": { "type": "integer" } }, "required": ["webhook_id"] } }
+  ],
+  "explorer": {
+    "resources": [
+      { "id": "instances", "label": "Instances", "description": "Owned GPU instances and status", "list_tool": "list_instances", "list_input": { "limit": 25 }, "response_path": "instances", "item_id_path": "id", "item_label_path": "label", "item_subtitle_path": "actual_status", "detail_tool": "get_instance", "detail_input": { "instance_id": "{{item.id}}" } },
+      { "id": "volumes", "label": "Volumes", "description": "Persistent rented volumes", "list_tool": "list_volumes", "response_path": "volumes", "item_id_path": "id", "item_label_path": "name", "item_subtitle_path": "status" },
+      { "id": "templates", "label": "Templates", "description": "Reusable instance launch templates", "list_tool": "search_templates", "response_path": "templates", "item_id_path": "id", "item_label_path": "name", "item_subtitle_path": "image" },
+      { "id": "webhooks", "label": "Webhooks", "description": "Vast notification destinations", "list_tool": "list_notification_webhooks", "response_path": "webhooks", "item_id_path": "id", "item_label_path": "name", "item_subtitle_path": "webhook_url" }
+    ]
+  }
+}

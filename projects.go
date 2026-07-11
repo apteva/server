@@ -53,10 +53,6 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to create project", http.StatusInternalServerError)
 		return
 	}
-	// Best-effort: if the membership insert fails for any reason
-	// (DB transient), the project still exists and admins can recover
-	// via the Members tab. Don't roll the project back.
-	_ = s.store.AddProjectMember(project.ID, userID, ProjectOwner, userID)
 	writeJSON(w, project)
 }
 

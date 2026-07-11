@@ -49,9 +49,10 @@ func seedRunningInstall(t *testing.T, s *Server, name, projectID string, manifes
 	}
 	pj, _ := json.Marshal(manifest.Requires.Permissions)
 	res, err := s.store.db.Exec(
-		`INSERT INTO app_installs (app_id, project_id, status, installed_by, integration_bindings, permissions_json)
-		 VALUES (?, ?, 'running', 1, ?, ?)`,
-		appID, projectID, string(bj), string(pj),
+		`INSERT INTO app_installs
+		 (app_id, project_id, status, version, manifest_json, source, installed_by, integration_bindings, permissions_json)
+		 VALUES (?, ?, 'running', ?, ?, 'git', 1, ?, ?)`,
+		appID, projectID, manifest.Version, string(mj), string(bj), string(pj),
 	)
 	if err != nil {
 		t.Fatalf("seed install %q: %v", name, err)
@@ -553,6 +554,7 @@ func TestEndToEnd_RequiresAppsBindingPassesAuthorization(t *testing.T) {
 
 func TestPreflight_EmitsKindAppRowsForRequiresApps(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	seedRunningInstall(t, s, "jobs", "", sdk.Manifest{Name: "jobs", DisplayName: "Jobs"}, nil)
 
 	yaml := `schema: apteva-app/v1

@@ -10,6 +10,7 @@ import (
 
 func TestInstallDeprecatedAppIsBlocked(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 
 	body := map[string]any{
 		"project_id": "proj-1",
@@ -48,6 +49,7 @@ runtime:
 
 func TestUpgradeDeprecatedAppIsBlocked(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	manifestJSON := `{
 		"schema":"apteva-app/v1",
 		"name":"hosting",
@@ -73,6 +75,7 @@ func TestUpgradeDeprecatedAppIsBlocked(t *testing.T) {
 	}
 	installID, _ := res.LastInsertId()
 	req := httptest.NewRequest(http.MethodPost, "/apps/installs/1/upgrade", nil)
+	req.Header.Set("X-User-ID", "1")
 	req.URL.Path = "/apps/installs/" + itoa(installID) + "/upgrade"
 	rec := httptest.NewRecorder()
 

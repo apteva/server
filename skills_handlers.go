@@ -53,6 +53,11 @@ var commandRe = regexp.MustCompile(`^/[a-z0-9][a-z0-9-]{0,63}$`)
 // disabled — the dashboard's filter pills decide what to show.
 func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 	projectID := r.URL.Query().Get("project_id")
+	if projectID != "" {
+		if _, _, ok := s.requireProjectAccess(w, r, projectID, ProjectViewer); !ok {
+			return
+		}
+	}
 	rows, err := s.store.db.Query(`
 		SELECT sk.id, sk.slug, sk.name, sk.description, sk.body, sk.source,
 		       sk.install_id, sk.project_id, sk.command, sk.metadata_json,
@@ -87,6 +92,9 @@ func (s *Server) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 	id, err := parseSkillIDFromPath(r.URL.Path, "")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if _, ok := s.requireSkillAccess(w, r, id, ProjectViewer); !ok {
 		return
 	}
 	row := s.store.db.QueryRow(`
@@ -130,6 +138,9 @@ func (s *Server) handleCreateSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if !s.requireScopedProjectAccess(w, r, body.ProjectID, ProjectEditor) {
 		return
 	}
 	body.Name = strings.TrimSpace(body.Name)
@@ -177,6 +188,9 @@ func (s *Server) handleUpdateSkill(w http.ResponseWriter, r *http.Request) {
 	id, err := parseSkillIDFromPath(r.URL.Path, "")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if _, ok := s.requireSkillAccess(w, r, id, ProjectEditor); !ok {
 		return
 	}
 	var src string
@@ -271,6 +285,9 @@ func (s *Server) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if _, ok := s.requireSkillAccess(w, r, id, ProjectEditor); !ok {
+		return
+	}
 	var src, slug, projectID string
 	if err := s.store.db.QueryRow(`SELECT source, slug, COALESCE(project_id,'') FROM skills WHERE id = ?`, id).
 		Scan(&src, &slug, &projectID); err != nil {
@@ -302,6 +319,9 @@ func (s *Server) handleSetSkillEnabled(w http.ResponseWriter, r *http.Request) {
 	id, err := parseSkillIDFromPath(r.URL.Path, "/enabled")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if _, ok := s.requireSkillAccess(w, r, id, ProjectEditor); !ok {
 		return
 	}
 	var body struct {

@@ -61,7 +61,11 @@ func (s *Server) ExecuteSeedPlanWithBaseDir(environment *Environment, plan []See
 		if err != nil {
 			return results, fmt.Errorf("seed call %d (%s.%s): %w", i, call.App, call.Tool, err)
 		}
-		res, err := callAppMCPTool(inst.SidecarURL+"/mcp", fmt.Sprintf("dev-%d", inst.InstallID), call.Tool, input)
+		appToken, err := s.appInstallToken(inst.InstallID)
+		if err != nil {
+			return results, fmt.Errorf("seed call %d (%s.%s): app credential: %w", i, call.App, call.Tool, err)
+		}
+		res, err := callAppMCPTool(inst.SidecarURL+"/mcp", appToken, call.Tool, input)
 		if err != nil {
 			return results, fmt.Errorf("seed call %d (%s.%s): %w", i, call.App, call.Tool, err)
 		}

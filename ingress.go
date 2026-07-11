@@ -363,7 +363,15 @@ func stripHostPort(host string) string {
 func (s *Server) handleIngressRoutes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		routes, err := s.ListIngressRoutes(r.URL.Query().Get("project_id"), 0)
+		projectID := strings.TrimSpace(r.URL.Query().Get("project_id"))
+		if projectID == "" {
+			if _, ok := s.requirePlatformAdmin(w, r); !ok {
+				return
+			}
+		} else if _, _, ok := s.requireProjectAccess(w, r, projectID, ProjectViewer); !ok {
+			return
+		}
+		routes, err := s.ListIngressRoutes(projectID, 0)
 		if err != nil {
 			http.Error(w, "list ingress routes: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -373,6 +381,9 @@ func (s *Server) handleIngressRoutes(w http.ResponseWriter, r *http.Request) {
 		var req IngressExposeRequest
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 			http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if !s.requireScopedProjectAccess(w, r, strings.TrimSpace(req.ProjectID), ProjectEditor) {
 			return
 		}
 		route, err := s.ExposeIngressRoute(req)
@@ -400,8 +411,19 @@ func (s *Server) handleIngressRoute(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "ingress route not found", http.StatusNotFound)
 			return
 		}
+		if !s.requireScopedProjectAccess(w, r, route.ProjectID, ProjectViewer) {
+			return
+		}
 		writeJSON(w, map[string]any{"route": route})
 	case http.MethodDelete:
+		route, err := s.GetIngressRoute(host)
+		if err != nil {
+			http.Error(w, "ingress route not found", http.StatusNotFound)
+			return
+		}
+		if !s.requireScopedProjectAccess(w, r, route.ProjectID, ProjectEditor) {
+			return
+		}
 		if err := s.DeleteIngressRoute(host, 0); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -417,7 +439,15 @@ func (s *Server) handleIngressCerts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
 	}
-	routes, err := s.ListIngressRoutes(r.URL.Query().Get("project_id"), 0)
+	projectID := strings.TrimSpace(r.URL.Query().Get("project_id"))
+	if projectID == "" {
+		if _, ok := s.requirePlatformAdmin(w, r); !ok {
+			return
+		}
+	} else if _, _, ok := s.requireProjectAccess(w, r, projectID, ProjectViewer); !ok {
+		return
+	}
+	routes, err := s.ListIngressRoutes(projectID, 0)
 	if err != nil {
 		http.Error(w, "list ingress routes: "+err.Error(), http.StatusInternalServerError)
 		return

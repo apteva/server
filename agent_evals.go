@@ -149,6 +149,10 @@ type RunOptions struct {
 	// AppEventSubscriptions creates source='app_event' subscriptions for the
 	// transient environment-agent before seed_after_spawn plans run.
 	AppEventSubscriptions []RunAppEventSubscription `json:"app_event_subscriptions,omitempty"`
+	// FinalStateChecks are deterministic, read-only assertions executed against
+	// the live environment after the agent finishes. When supplied they are the
+	// authoritative pass/fail signal; the LLM judge remains diagnostic only.
+	FinalStateChecks []EnvironmentStateCheck `json:"final_state_checks,omitempty"`
 
 	// SandboxApps + HTTPMocks switch the eval into "real-app sandbox"
 	// mode (see eval_sandbox.go). When either is non-empty, the runner:
@@ -337,12 +341,44 @@ type ToolCallRecord struct {
 //   - MissingCapabilities → reserved for the simulator+catalog pass;
 //     judge returns []  in this release.
 type JudgeVerdict struct {
-	Overall               string            `json:"overall"` // 'pass' | 'fail'
-	Reasoning             string            `json:"reasoning"`
-	PerGoal               []GoalVerdict     `json:"per_goal"`
-	SuggestedImprovements *JudgeSuggestions `json:"suggested_improvements,omitempty"`
-	JudgeModel            string            `json:"judge_model,omitempty"`
-	JudgeTokens           *TokenUsage       `json:"judge_tokens,omitempty"`
+	Overall               string                `json:"overall"` // 'pass' | 'fail'
+	Reasoning             string                `json:"reasoning"`
+	PerGoal               []GoalVerdict         `json:"per_goal"`
+	SuggestedImprovements *JudgeSuggestions     `json:"suggested_improvements,omitempty"`
+	JudgeModel            string                `json:"judge_model,omitempty"`
+	JudgeTokens           *TokenUsage           `json:"judge_tokens,omitempty"`
+	Deterministic         *DeterministicVerdict `json:"deterministic,omitempty"`
+}
+
+// EnvironmentStateCheck describes one read-only observation of an app's final
+// state. Path uses dot-separated object keys and zero-based array indexes.
+// Expected is compared structurally by default, so an expected object may be a
+// subset of a richer app response. Exact=true opts into exact matching.
+type EnvironmentStateCheck struct {
+	ID          string         `json:"id"`
+	Description string         `json:"description,omitempty"`
+	App         string         `json:"app"`
+	Tool        string         `json:"tool"`
+	Input       map[string]any `json:"input,omitempty"`
+	Path        string         `json:"path,omitempty"`
+	Expected    any            `json:"expected,omitempty"`
+	Exact       bool           `json:"exact,omitempty"`
+	Contains    string         `json:"contains,omitempty"`
+	MinCount    *int           `json:"min_count,omitempty"`
+	MaxCount    *int           `json:"max_count,omitempty"`
+}
+
+type DeterministicVerdict struct {
+	Overall string                     `json:"overall"`
+	Checks  []DeterministicCheckResult `json:"checks"`
+}
+
+type DeterministicCheckResult struct {
+	ID          string          `json:"id"`
+	Description string          `json:"description,omitempty"`
+	Pass        bool            `json:"pass"`
+	Reason      string          `json:"reason,omitempty"`
+	Observed    json.RawMessage `json:"observed,omitempty"`
 }
 
 // JudgeSuggestions is the judge's per-iteration improvement bundle.

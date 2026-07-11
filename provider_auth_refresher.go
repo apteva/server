@@ -183,29 +183,10 @@ func agentUsesRefreshedCodexProvider(inst *Agent, refreshed []codexProviderRefre
 
 func (s *Server) restartAgentAfterProviderRefresh(inst *Agent) bool {
 	log.Printf("[PROVIDER-REFRESH] restarting agent=%d after OpenAI Codex token refresh", inst.ID)
-	s.agents.Stop(inst.ID)
-	providerEnv, err := s.store.GetAllProviderEnvVars(inst.UserID, s.secret, inst.ProjectID)
-	if err != nil {
-		log.Printf("[PROVIDER-REFRESH] agent=%d restart skipped: provider env failed: %v", inst.ID, err)
-		return false
-	}
-	pool := s.GetProviderPool(inst.UserID, inst.ProjectID)
-	if len(pool) == 0 {
-		log.Printf("[PROVIDER-REFRESH] agent=%d restart skipped: no provider pool", inst.ID)
-		return false
-	}
-	if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.loadChannelConfigs(inst.ID)...); err != nil {
-		if strings.Contains(err.Error(), "already running") {
-			log.Printf("[PROVIDER-REFRESH] agent=%d already running during restart", inst.ID)
-			return false
-		}
+	if err := s.updateAgentCore(context.Background(), inst.ID); err != nil {
 		log.Printf("[PROVIDER-REFRESH] agent=%d restart failed: %v", inst.ID, err)
 		return false
 	}
-	s.store.UpdateAgent(inst)
-	s.restoreSlackForInstance(inst)
-	s.restoreEmailForInstance(inst)
-	s.notifyAgentSubscriptionStartup(inst)
 	return true
 }
 

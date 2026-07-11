@@ -160,15 +160,30 @@ func (s *Server) handleServerSettings(w http.ResponseWriter, r *http.Request) {
 				"source":         source,
 				"oauth_callback": s.localOAuthRedirectURI(),
 			},
+			"agent_lifecycle": map[string]any{
+				"update_policy":        s.agentUpdatePolicy(),
+				"boot_resume":          s.agentBootResumeMode(),
+				"boot_resume_delay":    s.agentBootResumeDelay().String(),
+				"rollout_delay":        s.agentRolloutDelay().String(),
+				"legacy_detach_active": s.agentShutdownPolicy() == "detach",
+			},
 		})
 		return
 
 	case http.MethodPut:
 		var body struct {
-			PublicURL *string `json:"public_url"`
+			PublicURL            *string `json:"public_url"`
+			AgentUpdatePolicy    *string `json:"agent_update_policy"`
+			AgentBootResume      *string `json:"agent_boot_resume"`
+			AgentBootResumeDelay *string `json:"agent_boot_resume_delay"`
+			AgentRolloutDelay    *string `json:"agent_rollout_delay"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if (body.AgentUpdatePolicy != nil || body.AgentBootResume != nil || body.AgentBootResumeDelay != nil || body.AgentRolloutDelay != nil) && !s.isAdmin(getUserID(r)) {
+			http.Error(w, "admin access required", http.StatusForbidden)
 			return
 		}
 		if body.PublicURL != nil {
@@ -181,6 +196,46 @@ func (s *Server) handleServerSettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if err := s.store.SetSetting("public_url", v); err != nil {
+				http.Error(w, "failed to save: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		if body.AgentUpdatePolicy != nil {
+			policy := normalizeAgentUpdatePolicy(*body.AgentUpdatePolicy)
+			if policy == "" {
+				http.Error(w, "agent_update_policy must be restart, rolling, or preserve", http.StatusBadRequest)
+				return
+			}
+			if err := s.store.SetSetting("agent_update_policy", policy); err != nil {
+				http.Error(w, "failed to save: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		if body.AgentBootResume != nil {
+			mode := strings.ToLower(strings.TrimSpace(*body.AgentBootResume))
+			if mode != "auto" && mode != "staggered" && mode != "manual" {
+				http.Error(w, "agent_boot_resume must be auto, staggered, or manual", http.StatusBadRequest)
+				return
+			}
+			if err := s.store.SetSetting("agent_boot_resume", mode); err != nil {
+				http.Error(w, "failed to save: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		for key, value := range map[string]*string{
+			"agent_boot_resume_delay": body.AgentBootResumeDelay,
+			"agent_rollout_delay":     body.AgentRolloutDelay,
+		} {
+			if value == nil {
+				continue
+			}
+			d, err := time.ParseDuration(strings.TrimSpace(*value))
+			invalidZero := key == "agent_boot_resume_delay" && d == 0
+			if err != nil || d < 0 || invalidZero || d > time.Hour {
+				http.Error(w, key+" must be a valid duration no longer than 1h", http.StatusBadRequest)
+				return
+			}
+			if err := s.store.SetSetting(key, d.String()); err != nil {
 				http.Error(w, "failed to save: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -616,8 +671,8 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 	for k := range tokens {
 		tokKeys = append(tokKeys, k)
 	}
-	log.Printf("[OAUTH-CB] token exchange OK conn=%d slug=%s keys=%v access_token=%s",
-		row.ConnectionID, app.Slug, tokKeys, maskMiddle(tokens["access_token"], 6, 4))
+	log.Printf("[OAUTH-CB] token exchange OK conn=%d slug=%s keys=%v",
+		row.ConnectionID, app.Slug, tokKeys)
 
 	// Merge the token bundle back onto the existing blob so we KEEP the
 	// client credentials in the row. This is what lets the next "Connect

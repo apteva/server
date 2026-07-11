@@ -2,7 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-bWO2FZl6fPHE8Tt1CPTbAKOWkl7Mw5Bnzy6kOHROc3c=' 'sha256-yjZZMG5ughBR/LbWzc7bjfQCmu+K5CvTmwz0AGKxPVI='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' ws: wss:; frame-src 'self' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'" />
     <title>Apteva</title>
 
     <!-- Favicons. Opaque orange tile with a white mark; avoids Safari's
@@ -17,8 +18,7 @@
          first paint already has the right data-theme/data-mode set.
          Without this, every cold load flashes the default theme for
          one frame before the React tree picks up localStorage. -->
-    <script>
-    (function() {
+    <script>(function() {
       try {
         var saved = JSON.parse(localStorage.getItem('apteva.appearance') || '{}');
         var theme = (saved.theme === 'clean' || saved.theme === 'terminal') ? saved.theme : 'terminal';
@@ -30,8 +30,7 @@
         document.documentElement.setAttribute('data-theme', 'terminal');
         document.documentElement.setAttribute('data-mode', 'dark');
       }
-    })();
-    </script>
+    })();</script>
 
     <!-- Webfonts — JetBrains Mono drives the Terminal theme, Inter
          drives Clean. Both come from the same Google Fonts request;
@@ -43,8 +42,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/style.css" />
     <!-- Importmap so dynamically-loaded panel modules import React from the host -->
-    <script type="importmap">
-      {
+    <script type="importmap">{
         "imports": {
           "react": "/vendor/react.mjs",
           "react/jsx-runtime": "/vendor/react-jsx-runtime.mjs",
@@ -53,11 +51,10 @@
           "react-dom/client": "/vendor/react-dom-client.mjs",
           "@apteva/ui-kit": "/vendor/ui-kit.mjs"
         }
-      }
-    </script>
+      }</script>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/main-q1zjf86z.js"></script>
+    <script type="module" src="/entry-main-jr0tspjt.js"></script>
   </body>
 </html>

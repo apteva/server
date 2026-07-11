@@ -74,6 +74,18 @@ type AlertMessage struct {
 	Dismissed bool    `json:"dismissed,omitempty"`
 }
 
+type CurrentStatusMessage struct {
+	Message   Message  `json:"message"`
+	AgentID   int64    `json:"instance_id"`
+	AgentName string   `json:"instance_name"`
+	ProjectID string   `json:"project_id"`
+	Title     string   `json:"title"`
+	Detail    string   `json:"detail,omitempty"`
+	State     string   `json:"state"`
+	Progress  *float64 `json:"progress,omitempty"`
+	Stale     bool     `json:"stale"`
+}
+
 // Chat is one conversation — today typically one per instance.
 type Chat struct {
 	ID        string    `json:"id"`
@@ -280,6 +292,47 @@ func (s *store) AppendFull(chatID, role, content string, userID *int64, threadID
 	return s.GetMessage(id)
 }
 
+// UpsertCurrentStatus keeps exactly one mutable status row per chat. Status is
+// operational state rather than conversation history, so it deliberately does
+// not update channel_chat_chats.updated_at or the unread watermark.
+func (s *store) UpsertCurrentStatus(chatID, content string, components []framework.ChatComponent) (*Message, error) {
+	componentsJSON, err := json.Marshal(components)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var id int64
+	err = tx.QueryRow(`
+		SELECT id FROM channel_chat_messages
+		WHERE chat_id = ? AND COALESCE(components_json, '[]') LIKE '%"status-card"%'
+		ORDER BY id DESC LIMIT 1`, chatID).Scan(&id)
+	switch {
+	case err == nil:
+		_, err = tx.Exec(`
+			UPDATE channel_chat_messages
+			SET role='agent', content=?, thread_id='', status='final', created_at=CURRENT_TIMESTAMP,
+			    components_json=?, attachments_json='[]'
+			WHERE id=?`, content, string(componentsJSON), id)
+	case errors.Is(err, sql.ErrNoRows):
+		err = tx.QueryRow(`
+			INSERT INTO channel_chat_messages
+				(chat_id, role, content, thread_id, status, components_json, attachments_json)
+			VALUES (?, 'agent', ?, '', 'final', ?, '[]')
+			RETURNING id`, chatID, content, string(componentsJSON)).Scan(&id)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetMessage(id)
+}
+
 func (s *store) GetMessage(id int64) (*Message, error) {
 	var m Message
 	var userID sql.NullInt64
@@ -356,8 +409,8 @@ func decodeAttachments(raw string) []ChatAttachment {
 	return out
 }
 
-// ListMessages returns rows for a chat with id > since, ordered by id
-// asc. Limit caps the page size (default 500 if <= 0).
+// ListMessages returns the next page of rows for a chat with id > since,
+// ordered by id asc. It is the cursor API used by SSE catch-up.
 func (s *store) ListMessages(chatID string, since int64, limit int) ([]Message, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 500
@@ -370,6 +423,7 @@ func (s *store) ListMessages(chatID string, since int64, limit int) ([]Message, 
 		   AND COALESCE(components_json, '[]') NOT LIKE '%"approval-card"%'
 		   AND COALESCE(components_json, '[]') NOT LIKE '%"report-card"%'
 		   AND COALESCE(components_json, '[]') NOT LIKE '%"alert-card"%'
+		   AND COALESCE(components_json, '[]') NOT LIKE '%"status-card"%'
 		 ORDER BY id ASC
 		 LIMIT ?`,
 		chatID, since, limit,
@@ -377,6 +431,44 @@ func (s *store) ListMessages(chatID string, since int64, limit int) ([]Message, 
 	if err != nil {
 		return nil, err
 	}
+	return scanMessageRows(rows)
+}
+
+// ListRecentMessages returns the newest page of a chat in chronological
+// order. Fetching DESC in SQL and reversing the bounded page avoids the old
+// behavior where a long-lived chat always rendered its first 500 messages and
+// hid everything recent.
+func (s *store) ListRecentMessages(chatID string, limit int) ([]Message, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 500
+	}
+	rows, err := s.db.Query(
+		`SELECT id, chat_id, role, content, user_id, thread_id, status, created_at,
+		        COALESCE(components_json, '[]'), COALESCE(attachments_json, '[]')
+		 FROM channel_chat_messages
+		 WHERE chat_id = ?
+		   AND COALESCE(components_json, '[]') NOT LIKE '%"approval-card"%'
+		   AND COALESCE(components_json, '[]') NOT LIKE '%"report-card"%'
+		   AND COALESCE(components_json, '[]') NOT LIKE '%"alert-card"%'
+		   AND COALESCE(components_json, '[]') NOT LIKE '%"status-card"%'
+		 ORDER BY id DESC
+		 LIMIT ?`,
+		chatID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	out, err := scanMessageRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	for left, right := 0, len(out)-1; left < right; left, right = left+1, right-1 {
+		out[left], out[right] = out[right], out[left]
+	}
+	return out, nil
+}
+
+func scanMessageRows(rows *sql.Rows) ([]Message, error) {
 	defer rows.Close()
 	out := []Message{}
 	for rows.Next() {
@@ -637,6 +729,69 @@ func (s *store) ListAlertMessages(ownerIDs []int64, projectID string, limit int)
 	return out, rows.Err()
 }
 
+func (s *store) ListCurrentStatuses(ownerIDs []int64, projectID string) ([]CurrentStatusMessage, error) {
+	if len(ownerIDs) == 0 {
+		return []CurrentStatusMessage{}, nil
+	}
+	placeholders := make([]string, len(ownerIDs))
+	args := make([]any, 0, len(ownerIDs)+1)
+	for i, id := range ownerIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	where := `c.agent_id IN (` + strings.Join(placeholders, ",") + `)
+		AND COALESCE(m.components_json, '[]') LIKE '%"status-card"%'`
+	if strings.TrimSpace(projectID) != "" {
+		where += ` AND i.project_id = ?`
+		args = append(args, strings.TrimSpace(projectID))
+	}
+	q := `
+		SELECT m.id, m.chat_id, m.role, m.content, m.user_id, m.thread_id, m.status, m.created_at,
+		       COALESCE(m.components_json, '[]'), COALESCE(m.attachments_json, '[]'),
+		       c.agent_id, COALESCE(i.name, ''), COALESCE(i.project_id, '')
+		FROM channel_chat_messages m
+		JOIN channel_chat_chats c ON c.id = m.chat_id
+		JOIN agents i ON i.id = c.agent_id
+		WHERE ` + where + `
+		ORDER BY m.created_at DESC`
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	now := time.Now()
+	out := []CurrentStatusMessage{}
+	for rows.Next() {
+		var m Message
+		var userID sql.NullInt64
+		var threadID sql.NullString
+		var componentsJSON, attachmentsJSON sql.NullString
+		var row CurrentStatusMessage
+		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &userID, &threadID, &m.Status, &m.CreatedAt,
+			&componentsJSON, &attachmentsJSON, &row.AgentID, &row.AgentName, &row.ProjectID); err != nil {
+			return nil, err
+		}
+		if userID.Valid {
+			v := userID.Int64
+			m.UserID = &v
+		}
+		if threadID.Valid {
+			m.ThreadID = threadID.String
+		}
+		m.Components = decodeComponents(componentsJSON.String)
+		m.Attachments = decodeAttachments(attachmentsJSON.String)
+		title, detail, state, progress, ok := currentStatusSummary(m.Components)
+		if !ok {
+			continue
+		}
+		row.Message = m
+		row.Title, row.Detail, row.State, row.Progress = title, detail, state, progress
+		row.Stale = state != "completed" && now.Sub(m.CreatedAt) > 30*time.Minute
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 func approvalSummary(components []framework.ChatComponent) (title, body, status string, dismissed bool, ok bool) {
 	for _, c := range components {
 		if c.App != "channel-chat" || c.Name != "approval-card" {
@@ -686,6 +841,25 @@ func alertSummary(components []framework.ChatComponent) (title, body, severity s
 		return title, body, severity, dismissed, true
 	}
 	return "", "", "", false, false
+}
+
+func currentStatusSummary(components []framework.ChatComponent) (title, detail, state string, progress *float64, ok bool) {
+	for _, c := range components {
+		if c.App != "channel-chat" || c.Name != "status-card" {
+			continue
+		}
+		title, _ = c.Props["title"].(string)
+		detail, _ = c.Props["detail"].(string)
+		state, _ = c.Props["state"].(string)
+		if state == "" {
+			state = "working"
+		}
+		if value, exists := c.Props["progress"].(float64); exists {
+			progress = &value
+		}
+		return title, detail, state, progress, true
+	}
+	return "", "", "", nil, false
 }
 
 func componentDismissed(props map[string]any) bool {
@@ -786,6 +960,7 @@ func (s *store) LatestForOwner(ownerIDs []int64) ([]ChatLatest, error) {
 				  AND COALESCE(components_json, '[]') NOT LIKE '%"approval-card"%'
 				  AND COALESCE(components_json, '[]') NOT LIKE '%"report-card"%'
 				  AND COALESCE(components_json, '[]') NOT LIKE '%"alert-card"%'
+				  AND COALESCE(components_json, '[]') NOT LIKE '%"status-card"%'
 			)
 		WHERE c.agent_id IN (` + strings.Join(placeholders, ",") + `)
 		ORDER BY COALESCE(m.created_at, c.updated_at) DESC`

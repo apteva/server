@@ -154,16 +154,44 @@ func (s *Server) runEvalInEnvironment(ctx context.Context, userID int64, agent *
 	}
 	session.metrics = s.evalRunMetricsFromTelemetry(wa.AgentID, startedAt)
 
-	// 4. Judge against the goals (no deterministic criteria — the meta-agent
-	//    reads the plain-English goals and grades).
+	// 4. Read the final app state before teardown. Deterministic checks are the
+	// authoritative outcome when the scenario supplies them; the LLM judge is
+	// retained for explanation and failure diagnosis only.
+	deterministic, assertionErr := s.evaluateEnvironmentStateChecks(environment, opts.FinalStateChecks)
+	if assertionErr != nil {
+		snap := session.snapshot()
+		return s.writeEvalRunWithDetails(ev.ID, startedAt, time.Now(), session, &snap, nil, nil, "error",
+			"deterministic evaluator: "+assertionErr.Error(), preview, 1)
+	}
+	if deterministic != nil {
+		session.recordSystem(fmt.Sprintf("deterministic final-state checks: %s (%d checks)", deterministic.Overall, len(deterministic.Checks)))
+	}
+
+	// 5. Judge against the goals. A judge failure must not erase a completed
+	// deterministic result: provider outages and long free-form trajectories
+	// are diagnostic failures, not evidence that the final app state is wrong.
 	snap := session.snapshot()
 	judgeTimeout := boundedRunOptionDuration(opts.JudgeTimeoutSeconds, 5*time.Minute, time.Minute, 10*time.Minute)
 	judgeCtx, judgeCancel := context.WithTimeout(ctx, judgeTimeout)
 	defer judgeCancel()
 	verdict, judgeErr := s.judgeWithMetaAgent(judgeCtx, userID, agent.ProjectID, ev, snap, agent.Directive, false)
 	if judgeErr != nil {
-		return s.writeEvalRunWithDetails(ev.ID, startedAt, time.Now(), session, &snap, nil, nil, "error",
-			"judge: "+judgeErr.Error(), preview, 1)
+		if deterministic == nil {
+			return s.writeEvalRunWithDetails(ev.ID, startedAt, time.Now(), session, &snap, nil, nil, "error",
+				"judge: "+judgeErr.Error(), preview, 1)
+		}
+		session.recordSystem("judge diagnostic unavailable: " + judgeErr.Error())
+		verdict = &JudgeVerdict{Reasoning: "Programmatic final-state checks are authoritative; the diagnostic judge was unavailable."}
+	}
+	if deterministic != nil {
+		if verdict == nil {
+			verdict = &JudgeVerdict{}
+		}
+		verdict.Deterministic = deterministic
+		verdict.Overall = deterministic.Overall
+		if strings.TrimSpace(verdict.Reasoning) == "" {
+			verdict.Reasoning = "Programmatic final-state checks are authoritative for this run."
+		}
 	}
 	status := "fail"
 	if verdict != nil && verdict.Overall == "pass" {

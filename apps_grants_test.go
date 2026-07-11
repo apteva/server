@@ -23,6 +23,7 @@ import (
 // way the storage app will.
 func seedStorageInstall(t *testing.T, s *Server) int64 {
 	t.Helper()
+	ensureTestAdmin(t, s)
 	manifest := sdk.Manifest{
 		Schema:  sdk.SchemaCurrent,
 		Name:    "storage",
@@ -45,8 +46,8 @@ func seedStorageInstall(t *testing.T, s *Server) int64 {
 	}
 	id := seedInstallWithBindings(t, s, "storage", manifest, nil)
 	// Need an instances row for FK.
-	s.store.db.Exec(`INSERT OR IGNORE INTO agents (id, project_id, name, status) VALUES (7, 'proj-1', 'agent-A', 'running')`)
-	s.store.db.Exec(`INSERT OR IGNORE INTO agents (id, project_id, name, status) VALUES (8, 'proj-1', 'agent-B', 'running')`)
+	s.store.db.Exec(`INSERT OR IGNORE INTO agents (id, user_id, project_id, name, status) VALUES (7, 1, 'proj-1', 'agent-A', 'running')`)
+	s.store.db.Exec(`INSERT OR IGNORE INTO agents (id, user_id, project_id, name, status) VALUES (8, 1, 'proj-1', 'agent-B', 'running')`)
 	return id
 }
 

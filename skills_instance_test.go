@@ -113,6 +113,7 @@ func TestComputeInstanceSkillView_EmptyJournal(t *testing.T) {
 
 func TestPushSkillToInstance_StoppedWritesToJournal(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	inst, err := s.store.CreateAgent(1, "test", "directive", "autonomous", "{}", "proj-a")
 	if err != nil {
 		t.Fatal(err)
@@ -149,6 +150,7 @@ func TestPushSkillToInstance_StoppedWritesToJournal(t *testing.T) {
 
 func TestPushSkillToInstance_StoppedUpsertsOnRePush(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	inst, err := s.store.CreateAgent(1, "test", "directive", "autonomous", "{}", "")
 	if err != nil {
 		t.Fatal(err)
@@ -180,6 +182,7 @@ func TestPushSkillToInstance_StoppedUpsertsOnRePush(t *testing.T) {
 
 func TestUpdateSkillRefreshesAssignedInstanceMemories(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	res, err := s.store.db.Exec(`
 		INSERT INTO skills (slug, name, description, body, source, project_id, metadata_json)
 		VALUES ('user:briefing', 'briefing', 'old description', 'old body', 'user', 'proj-x', '{}')`)
@@ -250,6 +253,7 @@ func TestUpdateSkillRefreshesAssignedInstanceMemories(t *testing.T) {
 
 func TestRegisterAppSkillsRefreshesAssignedMemoriesBySlug(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	appRes, err := s.store.db.Exec(`INSERT INTO apps (name, source, manifest_json) VALUES ('media', 'git', '{}')`)
 	if err != nil {
 		t.Fatal(err)
@@ -314,6 +318,7 @@ func TestRegisterAppSkillsRefreshesAssignedMemoriesBySlug(t *testing.T) {
 
 func TestSweepSkillFromProject_DropsAcrossAllInstances(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	// Two instances in the same project + one in a different project.
 	a, _ := s.store.CreateAgent(1, "a", "d", "autonomous", "{}", "proj-x")
 	b, _ := s.store.CreateAgent(1, "b", "d", "autonomous", "{}", "proj-x")
@@ -355,6 +360,7 @@ func TestSweepSkillFromProject_DropsAcrossAllInstances(t *testing.T) {
 
 func TestRemoveSkillFromInstance_StoppedTombstones(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	inst, err := s.store.CreateAgent(1, "test", "directive", "autonomous", "{}", "")
 	if err != nil {
 		t.Fatal(err)

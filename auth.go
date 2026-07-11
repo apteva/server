@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,11 +50,18 @@ func (rl *rateLimiter) allow(ip string, maxAttempts int, window time.Duration) b
 }
 
 func clientIP(r *http.Request) string {
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" && trustForwardedHeaders(r) {
 		return strings.Split(fwd, ",")[0]
 	}
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-	return ip
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return ip
+	}
+	return strings.TrimSpace(r.RemoteAddr)
+}
+
+func trustForwardedHeaders(r *http.Request) bool {
+	return requestFromLoopback(r) || envTruthy(os.Getenv("APTEVA_TRUST_PROXY_HEADERS"))
 }
 
 func requestFromLoopback(r *http.Request) bool {
@@ -80,7 +88,9 @@ var crossOriginCookies bool
 
 func generateToken(n int) string {
 	b := make([]byte, n)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand unavailable: " + err.Error())
+	}
 	return hex.EncodeToString(b)
 }
 
@@ -95,7 +105,7 @@ func requestIsTLS(r *http.Request) bool {
 	if r.TLS != nil {
 		return true
 	}
-	if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+	if trustForwardedHeaders(r) && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
 		return true
 	}
 	return false
@@ -118,6 +128,7 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionDuration.Seconds()),
+		Secure:   requestIsTLS(r),
 	}
 	if crossOriginCookies && requestIsTLS(r) {
 		c.SameSite = http.SameSiteNoneMode
@@ -144,21 +155,16 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 // authMiddleware extracts user from session cookie or API key.
 func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Signed-URL passthrough for app routes. Storage (and any
-		// future app) mints time-limited URLs with `?sig=…&exp=…`
-		// for cases where the consumer can't carry session/API auth
-		// (Facebook's CDN fetching a posted image, a public link
-		// shared by the user, etc.). The app's own handler verifies
-		// the signature; the platform proxy just needs to let the
-		// request reach it. We require BOTH params and an app-route
-		// prefix so this can't be used to bypass auth on management
-		// routes (which never need signing).
-		if strings.HasPrefix(r.URL.Path, "/api/apps/") || strings.HasPrefix(r.URL.Path, "/apps/") {
-			q := r.URL.Query()
-			if q.Get("sig") != "" && q.Get("exp") != "" {
-				next(w, r)
-				return
-			}
+		// These identity headers are owned by the server. A network client
+		// cannot select a user or app install by supplying them directly.
+		r.Header.Del("X-User-ID")
+		r.Header.Del("X-Apteva-App-Install-ID")
+		for _, header := range []string{
+			"X-Apteva-Project-ID", "X-Apteva-Issuer-App", "X-Apteva-Issuer-Install-ID",
+			"X-Apteva-Subject-Type", "X-Apteva-Subject-ID", "X-Apteva-Subject-Email",
+			"X-Apteva-Organization-ID", "X-Apteva-Organization-Slug", "X-Apteva-Scopes",
+		} {
+			r.Header.Del(header)
 		}
 		// Try session cookie first
 		if cookie, err := r.Cookie(cookieName); err == nil && cookie.Value != "" {
@@ -202,8 +208,13 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		if token == "" {
 			token = r.Header.Get("X-API-Key")
 		}
-		if token == "" {
+		if token == "" && apiKeyQueryAllowed(r) {
 			token = r.URL.Query().Get("api_key")
+		} else if token == "" && appTokenQueryAllowed(r) {
+			candidate := r.URL.Query().Get("api_key")
+			if strings.HasPrefix(candidate, "app_") || strings.HasPrefix(candidate, "dev-") {
+				token = candidate
+			}
 		}
 		if token != "" {
 			keyHash := HashAPIKey(token)
@@ -234,6 +245,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 						}
 					}
 					setDelegatedUserPrincipalHeaders(r, key)
+					r.Header.Set("X-User-ID", itoa(key.UserID))
 					s.store.MarkAPIKeyUsed(key.ID, requestClientIP(r))
 					next(w, r)
 					return
@@ -253,16 +265,19 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// formatted "dev-<install_id>". Resolve it to the install row's
 		// installed_by user so downstream handlers see a normal user
 		// id; the proxy then swaps the header to the destination
-		// install's token before forwarding.
-		if token != "" && strings.HasPrefix(token, "dev-") {
-			if id, perr := atoi64(strings.TrimPrefix(token, "dev-")); perr == nil && id > 0 {
-				var (
-					installedBy int64
-					status      string
-				)
-				err := s.store.db.QueryRow(
-					`SELECT installed_by, status FROM app_installs WHERE id = ?`, id,
-				).Scan(&installedBy, &status)
+		// install's token before forwarding. Loopback-only dev tokens are
+		// accepted temporarily for sidecars started by an older server build.
+		if token != "" && appTokenRouteAllowed(r.URL.Path) {
+			id, installedBy, status, appErr := s.appInstallForToken(token)
+			if appErr != nil && strings.HasPrefix(token, "dev-") {
+				id = legacyAppTokenInstallID(r, token)
+				if id > 0 {
+					appErr = s.store.db.QueryRow(
+						`SELECT COALESCE(installed_by,0), status FROM app_installs WHERE id=?`, id,
+					).Scan(&installedBy, &status)
+				}
+			}
+			if appErr == nil && id > 0 {
 				// Accept "running" plus any pre-running state. The
 				// supervisor only flips status to "running" AFTER
 				// the health check passes, but the sidecar's OnMount
@@ -273,7 +288,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				// boot — exactly when those callbacks are most
 				// needed. "disabled" / "error" are still rejected so
 				// a stopped install can't impersonate itself.
-				if err == nil && status != "disabled" && status != "error" {
+				if status != "disabled" && status != "error" {
 					if installedBy == 0 {
 						installedBy = 1 // global / built-in installs default to admin
 					}
@@ -285,12 +300,9 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
-		// Anonymous app-route fall-through. Explicit manifest-declared
-		// no_auth routes may accept any method; legacy GET/HEAD app
-		// routes still fall through for public read handlers such as
-		// Storage public files. X-User-ID is intentionally NOT set so
-		// the app can tell this is an anonymous request and apply its
-		// own token/signature/resource checks.
+		// Anonymous app-route fall-through is only allowed when the manifest
+		// explicitly marks the matching route no_auth. Signed URLs must be
+		// declared this way too; the sidecar still verifies their signature.
 		if s.anonymousAppRouteAllowed(r) {
 			next(w, r)
 			return
@@ -300,15 +312,26 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func apiKeyQueryAllowed(r *http.Request) bool {
+	if r == nil || r.Method != http.MethodGet {
+		return false
+	}
+	return r.URL.Path == "/telemetry/stream" || strings.HasPrefix(r.URL.Path, "/app-events/")
+}
+
+func appTokenQueryAllowed(r *http.Request) bool {
+	if r == nil || !requestFromLoopback(r) {
+		return false
+	}
+	return strings.HasPrefix(r.URL.Path, "/apps/") && appTokenRouteAllowed(r.URL.Path)
+}
+
 func (s *Server) anonymousAppRouteAllowed(r *http.Request) bool {
 	appName, appPath, ok := splitAppProxyPath(r.URL.Path)
 	if !ok || isAppManagementRoute(appName) {
 		return false
 	}
-	if s.anonymousAppNoAuthRouteAllowed(r, appName, appPath) {
-		return true
-	}
-	return r.Method == http.MethodGet || r.Method == http.MethodHead
+	return s.anonymousAppNoAuthRouteAllowed(r, appName, appPath)
 }
 
 func splitAppProxyPath(path string) (appName, appPath string, ok bool) {
@@ -383,7 +406,7 @@ func (s *Server) installedAppForRequest(appName string, r *http.Request) *Instal
 	if projectID := q.Get("project_id"); projectID != "" {
 		return s.installedApps.GetByNameAndProject(appName, projectID)
 	}
-	return s.installedApps.GetByName(appName)
+	return s.installedApps.GetByNameAndProject(appName, "")
 }
 
 func appRouteMatches(pattern, path string) bool {
@@ -599,6 +622,9 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
+	}
+	if cookie, err := r.Cookie(cookieName); err == nil && cookie.Value != "" {
+		_ = s.store.DeleteSession(cookie.Value)
 	}
 	clearSessionCookie(w, r)
 	writeJSON(w, map[string]string{"status": "ok"})

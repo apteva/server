@@ -80,6 +80,8 @@ type Server struct {
 	setupToken        string // one-time token for first registration (empty after use)
 	regMode           string // "open", "locked", "setup" — controls registration
 	instanceSecret    string // shared secret for MCP and telemetry auth
+	startupIntent     agentLifecycleIntent
+	agentRollouts     *agentRolloutCoordinator
 	// apps holds the loaded Apteva Apps registry. Apps attach to
 	// instance lifecycle via NotifyInstanceAttach/Detach and expose
 	// HTTP routes under /api/apps/<slug>/. Nil before startApps().
@@ -163,6 +165,7 @@ type Server struct {
 	judgeMutexesOnce sync.Once
 	judgeMutexesMu   sync.Mutex
 	judgeMutexes     map[int64]*sync.Mutex
+	appTokenMu       sync.Mutex
 
 	// environments supervises isolated test Environments — sets of real app
 	// sidecars sharing one HTTP edge (see environment.go / environment_edge.go).
@@ -527,6 +530,8 @@ func main() {
 		primaryHost:    strings.TrimSpace(os.Getenv("APTEVA_PRIMARY_HOST")),
 		environments:   NewEnvironmentManager(environmentDataRoot(dataDir)),
 	}
+	s.startupIntent = s.readLifecycleIntent(false)
+	s.agentRollouts = newAgentRolloutCoordinator(s.updateAgentCore)
 	s.installCapabilityMemoryHooks()
 	s.ingressCerts = NewIngressCertManager(s)
 	// Back-reference so Environments can drive real (install-backed) app
@@ -543,6 +548,7 @@ func main() {
 	// fires immediately so /api/platform-status has data on the very
 	// first dashboard render after boot.
 	go s.platformStatus.Run()
+	go s.startTelemetryRetention()
 
 	// Platform helpers are lazy by default. Eagerly booting one helper
 	// per provider-backed user makes updates noisy and can emit a burst of
@@ -966,6 +972,19 @@ func main() {
 	}))
 	apiMux.HandleFunc("/apps/installs/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/apps/installs/")
+		idPart := strings.SplitN(path, "/", 2)[0]
+		installID, err := strconv.ParseInt(idPart, 10, 64)
+		if err != nil || installID <= 0 {
+			http.Error(w, "invalid install id", http.StatusBadRequest)
+			return
+		}
+		need := ProjectViewer
+		if r.Method != http.MethodGet {
+			need = ProjectEditor
+		}
+		if _, ok := s.requireAppInstallAccess(w, r, installID, need); !ok {
+			return
+		}
 		switch {
 		case strings.HasSuffix(path, "/status") && r.Method == http.MethodPut:
 			s.handleSetInstallStatus(w, r)
@@ -1076,6 +1095,10 @@ func main() {
 		}
 		if strings.HasSuffix(path, "/models") {
 			s.handleProviderModels(w, r)
+			return
+		}
+		if strings.HasSuffix(path, "/usage") {
+			s.handleProviderUsage(w, r)
 			return
 		}
 		if strings.HasSuffix(path, "/auth/status") {
@@ -1193,6 +1216,7 @@ func main() {
 	// normalises /agents/... back to /instances/... so handlers that
 	// strings.TrimPrefix on "/instances/" keep working unchanged.
 	apiMux.HandleFunc("/agents", instancesCollectionHandler)
+	apiMux.HandleFunc("/agents/core-rollout", s.authMiddleware(s.handleCoreRollout))
 
 	// Agent routes — need to distinguish /instances/:id from /instances/:id/...
 	instancesItemHandler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -1205,10 +1229,31 @@ func main() {
 			r.URL.Path = "/instances/" + strings.TrimPrefix(r.URL.Path, "/agents/")
 		}
 		path := strings.TrimPrefix(r.URL.Path, "/instances/")
+		agentIDPart := strings.SplitN(path, "/", 2)[0]
+		agentID, err := strconv.ParseInt(agentIDPart, 10, 64)
+		if err != nil || agentID <= 0 {
+			http.Error(w, "invalid agent id", http.StatusBadRequest)
+			return
+		}
+		need := ProjectViewer
+		if r.Method != http.MethodGet {
+			need = ProjectEditor
+		}
+		if _, ok := s.requireAgentAccess(w, r, agentID, need); !ok {
+			return
+		}
 
 		// /instances/:id/config
 		if strings.HasSuffix(path, "/config") {
 			s.handleUpdateConfig(w, r)
+			return
+		}
+
+		// /instances/:id/background-memory — inspect or toggle the
+		// per-agent unconscious consolidation thread. Runtime changes
+		// require a controlled restart so core boot owns spawn/teardown.
+		if strings.HasSuffix(path, "/background-memory") {
+			s.handleBackgroundMemory(w, r)
 			return
 		}
 
@@ -1233,6 +1278,13 @@ func main() {
 			log.Printf("[LIFECYCLE] POST %s remote=%s ua=%q referer=%q",
 				r.URL.Path, r.RemoteAddr, r.UserAgent(), r.Referer())
 			s.handleRestartInstance(w, r)
+			return
+		}
+
+		// /instances/:id/core-update — replace just this running core with
+		// the server's bundled target version through the rollout coordinator.
+		if strings.HasSuffix(path, "/core-update") {
+			s.handleAgentCoreUpdate(w, r, agentID)
 			return
 		}
 
@@ -1292,13 +1344,12 @@ func main() {
 	// `strings.TrimPrefix(r.URL.Path, "/instances/")`) work unchanged — they
 	// see the post-strip path (e.g. `/instances/42/status`) exactly as
 	// before.
-	// CORS: default is "permissive" (echo any origin with credentials)
-	// so browser UIs hosted anywhere can authenticate out of the box.
-	// Override CORS_ORIGIN with a comma-separated allowlist to lock it
-	// down, "*" for API-key only clients, or "off" to disable entirely.
+	// CORS is disabled by default because the bundled dashboard is same-origin.
+	// Set CORS_ORIGIN to a comma-separated allowlist for trusted remote UIs,
+	// "*" for credential-free public clients, or "off" explicitly.
 	corsCfg := newCORSConfig(os.Getenv("CORS_ORIGIN"))
 	crossOriginCookies = corsCfg.needsCrossOriginCookies()
-	mux.Handle("/api/", compressHTTP(http.StripPrefix("/api", corsCfg.middleware(apiMux))))
+	mux.Handle("/api/", limitAPIRequestBody(compressHTTP(http.StripPrefix("/api", corsCfg.middleware(apiMux)))))
 
 	// Dashboard — served from disk (always up-to-date, copied by CLI on startup)
 	// Falls back to embedded dashboard if disk copy not found.
@@ -1489,8 +1540,16 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Fprintf(os.Stderr, "apteva-server listening on %s\n", listenAddr)
+	httpServer := &http.Server{
+		Handler:           hostRouter,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Minute,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+		// WriteTimeout remains zero because telemetry and chat use long-lived SSE.
+	}
 	go func() {
-		if err := http.Serve(listener, hostRouter); err != nil {
+		if err := httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 			fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 			os.Exit(1)
 		}
@@ -1530,8 +1589,11 @@ func main() {
 	go func() {
 		sig := <-sigCh
 		fmt.Fprintf(os.Stderr, "\napteva-server received %s — shutting down\n", sig)
-		shutdownPolicy := s.agentShutdownPolicy()
-		if shutdownPolicy == "detach" {
+		intent := s.readLifecycleIntent(false)
+		shutdownPolicy := s.resolvedShutdownPolicy(intent)
+		preserveAgents := shutdownPolicy == "preserve" || shutdownPolicy == "rolling"
+		log.Printf("[LIFECYCLE] shutdown reason=%s agent_policy=%s", map[bool]string{true: intent.Reason, false: "stop"}[intent.Reason != ""], shutdownPolicy)
+		if preserveAgents {
 			if rows, err := s.store.ListAgentsByStatus("running"); err == nil {
 				for i := range rows {
 					if rows[i].Kind != "" && rows[i].Kind != "user" {
@@ -1546,8 +1608,8 @@ func main() {
 			log.Printf("[SHUTDOWN] marked %d platform agent(s) stopped for clean shutdown", stopped)
 		}
 		s.stopApps(appsReg)
-		if shutdownPolicy == "detach" {
-			log.Printf("[SHUTDOWN] leaving user agent core process(es) alive for reattach; default is stop, APTEVA_AGENT_SHUTDOWN_POLICY=detach enabled this mode")
+		if preserveAgents {
+			log.Printf("[SHUTDOWN] leaving user agent core process(es) alive for reattach")
 		} else {
 			s.agents.StopAll(5 * time.Second)
 		}

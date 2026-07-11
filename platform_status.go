@@ -273,8 +273,8 @@ func (s *Server) handlePlatformStatusRefresh(w http.ResponseWriter, r *http.Requ
 // is treated as equal at that component. Unparseable components
 // fall back to string compare for that one position. Good enough
 // for the only consumer (the dashboard's update-available pill);
-// don't grow this into a full semver lib unless a second consumer
-// shows up.
+// Keep this lightweight while internal version comparisons only need numeric
+// release ordering; prerelease channel ordering would require a full library.
 func semverLess(a, b string) bool {
 	stripPre := func(s string) string {
 		for _, sep := range []string{"-", "+"} {

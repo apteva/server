@@ -694,9 +694,9 @@ func (s *Server) seedBuiltinInstalls(reg *framework.Registry) {
 		// 'running' since the bundled app is always running.
 		if err := execWithBusyRetry(s.store.db,
 			`INSERT OR IGNORE INTO app_installs
-				(app_id, project_id, status, version, upgrade_policy, permissions_json)
-			 VALUES (?, '', 'running', ?, 'manual', '[]')`,
-			appID, fm.Version,
+				(app_id, project_id, status, version, manifest_json, source, repo, ref, upgrade_policy, permissions_json)
+			 VALUES (?, '', 'running', ?, ?, 'builtin', '', '', 'manual', '[]')`,
+			appID, fm.Version, string(manifestJSON),
 		); err != nil {
 			log.Printf("[APPS] seed builtin %s: insert install: %v", fm.Slug, err)
 			continue

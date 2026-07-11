@@ -29,6 +29,7 @@
       }
     ]
   },
+  "health_check": { "tool": "get_account", "input": {} },
   "tools": [
     {
       "name": "synthesize_speech",

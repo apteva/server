@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"compress/gzip"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +13,14 @@ import (
 	"strings"
 	"testing"
 )
+
+type hijackableRecorder struct {
+	*httptest.ResponseRecorder
+}
+
+func (h *hijackableRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return nil, nil, errors.New("test hijack")
+}
 
 func TestCompressHTTPGzipsJSON(t *testing.T) {
 	handler := compressHTTP(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +71,29 @@ func TestCompressHTTPSkipsEventStream(t *testing.T) {
 	}
 	if got := rec.Body.String(); got != "data: hello\n\n" {
 		t.Fatalf("body=%q", got)
+	}
+}
+
+func TestCompressHTTPSkipsProtocolUpgrade(t *testing.T) {
+	handler := compressHTTP(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if _, ok := w.(http.Hijacker); !ok {
+			t.Error("protocol upgrade lost http.Hijacker")
+		}
+		w.WriteHeader(http.StatusSwitchingProtocols)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/apps/simulator/stream/device", nil)
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+	req.Header.Set("Connection", "keep-alive, Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	rec := &hijackableRecorder{ResponseRecorder: httptest.NewRecorder()}
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSwitchingProtocols {
+		t.Fatalf("status=%d, want %d", rec.Code, http.StatusSwitchingProtocols)
+	}
+	if got := rec.Header().Get("Content-Encoding"); got != "" {
+		t.Fatalf("Content-Encoding=%q, want empty for protocol upgrade", got)
 	}
 }
 

@@ -29,6 +29,7 @@
       }
     ]
   },
+  "health_check": { "tool": "list_voices", "input": { "limit": 1 } },
   "tools": [
     {
       "name": "create_speech",

@@ -1189,7 +1189,8 @@ func installHasPermission(s *Server, installID int64, perm sdk.Permission) bool 
 func installManifest(s *Server, installID int64) (*sdk.Manifest, error) {
 	var raw string
 	err := s.store.db.QueryRow(
-		`SELECT a.manifest_json FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID,
+		`SELECT COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
+		 FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID,
 	).Scan(&raw)
 	if err != nil {
 		return nil, err

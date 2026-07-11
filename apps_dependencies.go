@@ -281,7 +281,8 @@ func (s *Server) dependentsBlockingUninstall(installID int64) ([]string, error) 
 	// Walk every other running install's manifest looking for a hard
 	// requires.apps entry that names the target.
 	rows, err := s.store.db.Query(
-		`SELECT a.name, a.manifest_json FROM apps a JOIN app_installs i ON i.app_id = a.id
+		`SELECT a.name, COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
+		 FROM apps a JOIN app_installs i ON i.app_id = a.id
 		 WHERE i.id != ? AND i.status IN ('running', 'pending')`,
 		installID,
 	)
@@ -349,15 +350,15 @@ func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, pr
 		}
 		appID, _ = res.LastInsertId()
 	} else {
-		s.store.db.Exec(`UPDATE apps SET manifest_json = ? WHERE id = ?`,
-			string(manifestJSON), appID)
+		s.updateAppCatalogMetadata(appID, manifest, "registry", "", "")
 	}
 
 	permsJSON, _ := json.Marshal(manifest.Requires.Permissions)
 	res, err := s.store.db.Exec(
-		`INSERT INTO app_installs (app_id, project_id, config_encrypted, status, upgrade_policy, version, permissions_json, installed_by)
-		 VALUES (?, ?, '', 'pending', 'manual', ?, ?, ?)`,
-		appID, projectID, manifest.Version, string(permsJSON), userID)
+		`INSERT INTO app_installs
+		 (app_id, project_id, config_encrypted, status, upgrade_policy, version, manifest_json, source, repo, ref, permissions_json, installed_by)
+		 VALUES (?, ?, '', 'pending', 'manual', ?, ?, 'registry', '', '', ?, ?)`,
+		appID, projectID, manifest.Version, string(manifestJSON), string(permsJSON), userID)
 	if err != nil {
 		return 0, fmt.Errorf("create install row: %w", err)
 	}

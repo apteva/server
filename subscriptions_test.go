@@ -102,6 +102,7 @@ func TestSubscriptionCRUD(t *testing.T) {
 
 func TestAppEventSubscriptionsUseUniqueInternalWebhookPaths(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	s.secret = testSecret()
 
 	first, err := s.store.CreateAppEventSubscription(1, 11, "CRM contact added", "crm:contact.added", "", "main", "project-a", []string{"contact.added"})
@@ -138,6 +139,7 @@ func TestAppEventSubscriptionsUseUniqueInternalWebhookPaths(t *testing.T) {
 
 func TestEmptyWebhookPathFallbackIsUniqueAndNotPubliclyRoutable(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	s.secret = testSecret()
 
 	first, err := s.store.CreateSubscription(1, 11, 101, "Provider trigger A", "crm", "", "", "", "main", "project-a", []string{"contact.added"})
@@ -165,6 +167,7 @@ func TestEmptyWebhookPathFallbackIsUniqueAndNotPubliclyRoutable(t *testing.T) {
 
 func TestPollSubscriptionWebhookPathIsNotPubliclyRoutable(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	s.secret = testSecret()
 
 	sub, err := s.store.CreatePollSubscription(1, 11, 101, "Polling trigger", "crm", "", "main", "project-a", []string{"contact.added"}, "{}", time.Now())
@@ -181,6 +184,7 @@ func TestPollSubscriptionWebhookPathIsNotPubliclyRoutable(t *testing.T) {
 
 func TestMigrateEmptySubscriptionWebhookPaths(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	s.secret = testSecret()
 
 	_, err := s.store.db.Exec(`

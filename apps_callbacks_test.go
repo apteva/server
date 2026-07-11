@@ -438,6 +438,7 @@ func TestCallback_Whoami_ReturnsBindings(t *testing.T) {
 // tests can exercise R2 / S3 / generic.
 func seedCredsConnection(t *testing.T, s *Server, slug string, creds map[string]string) int64 {
 	t.Helper()
+	ensureTestAdmin(t, s)
 	if len(s.secret) == 0 {
 		// Encrypt requires a 32-byte AES key. newTestServer doesn't
 		// populate s.secret, so seed a deterministic test key here

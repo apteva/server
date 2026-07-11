@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/apteva/server/apps/framework"
 )
@@ -19,6 +20,7 @@ import (
 type chatChannel struct {
 	chatID   string
 	threadID string
+	agentID  int64
 	userID   int64 // owner of the instance — drives wildcard hub fanout
 	store    *store
 	hub      *hub
@@ -205,6 +207,56 @@ func (c *chatChannel) Status(text, level string) error {
 	return nil
 }
 
+func (c *chatChannel) SetCurrentStatus(req framework.CurrentStatusRequest) (framework.CurrentStatusResult, error) {
+	if c.store == nil {
+		return framework.CurrentStatusResult{}, fmt.Errorf("channel-chat: store not initialised")
+	}
+	req.Title = strings.TrimSpace(req.Title)
+	req.Detail = strings.TrimSpace(req.Detail)
+	req.State = strings.ToLower(strings.TrimSpace(req.State))
+	if req.Title == "" {
+		return framework.CurrentStatusResult{}, fmt.Errorf("title required")
+	}
+	if req.State == "" {
+		req.State = "working"
+	}
+	switch req.State {
+	case "working", "waiting", "blocked", "completed":
+	default:
+		return framework.CurrentStatusResult{}, fmt.Errorf("state must be working, waiting, blocked, or completed")
+	}
+	if req.Progress != nil && (*req.Progress < 0 || *req.Progress > 100) {
+		return framework.CurrentStatusResult{}, fmt.Errorf("progress must be between 0 and 100")
+	}
+	props := map[string]any{
+		"agent_id":   c.agentID,
+		"title":      req.Title,
+		"detail":     req.Detail,
+		"state":      req.State,
+		"updated_at": time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if req.Progress != nil {
+		props["progress"] = *req.Progress
+	}
+	components := []framework.ChatComponent{{App: "channel-chat", Name: "status-card", Props: props}}
+	m, err := c.store.UpsertCurrentStatus(c.chatID, "Status: "+req.Title, components)
+	if err != nil {
+		return framework.CurrentStatusResult{}, err
+	}
+	m.Components[0].Props["message_id"] = m.ID
+	m, err = c.store.UpdateMessageComponents(m.ID, m.Components)
+	if err != nil {
+		return framework.CurrentStatusResult{}, err
+	}
+	// Status is intentionally absent from the per-chat hub. The user stream
+	// drives monitoring surfaces while chat panels remain untouched.
+	c.hub.publishToUser(c.userID, *m)
+	if c.bus != nil {
+		c.bus.Publish("chat.status", "channel-chat", *m)
+	}
+	return framework.CurrentStatusResult{MessageID: m.ID, ChatID: m.ChatID, State: req.State}, nil
+}
+
 // Close is a no-op — nothing to tear down. The Channel interface
 // requires it; the per-instance registry calls it on detach.
 func (c *chatChannel) Close() {}
@@ -235,11 +287,12 @@ func (f *chatChannelFactory) Build(_ *framework.AppCtx, inst framework.InstanceI
 		return nil, err
 	}
 	return &chatChannel{
-		chatID: chat.ID,
-		userID: inst.UserID,
-		store:  f.store,
-		hub:    f.hub,
-		bus:    f.bus,
+		chatID:  chat.ID,
+		agentID: inst.ID,
+		userID:  inst.UserID,
+		store:   f.store,
+		hub:     f.hub,
+		bus:     f.bus,
 	}, nil
 }
 

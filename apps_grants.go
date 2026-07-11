@@ -528,12 +528,14 @@ func (s *Server) fetchGrantsForInstance(installID, instanceID int64) (*grantsRes
 }
 
 // loadInstallManifest pulls the parsed manifest JSON persisted on the
-// apps row at install time. Returns ErrNoManifest when the install
+// install row at install time. The shared app row is a legacy fallback.
+// Returns ErrNoManifest when the install
 // hasn't shipped a manifest_json yet (legacy rows pre-permissions feature).
 func (s *Server) loadInstallManifest(installID int64) (*sdk.Manifest, error) {
 	var raw string
 	err := s.store.db.QueryRow(
-		`SELECT a.manifest_json FROM app_installs i JOIN apps a ON a.id = i.app_id WHERE i.id = ?`,
+		`SELECT COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
+		 FROM app_installs i JOIN apps a ON a.id = i.app_id WHERE i.id = ?`,
 		installID,
 	).Scan(&raw)
 	if err == sql.ErrNoRows {

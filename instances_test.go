@@ -152,6 +152,82 @@ func TestUpdateConfig(t *testing.T) {
 	}
 }
 
+func TestBackgroundMemoryTogglePersistsAndPreservesMemory(t *testing.T) {
+	s := newTestServer(t)
+	registerAndLogin(t, s)
+	agent, err := s.store.CreateAgent(1, "memory-agent", "directive", "autonomous", `{"unconscious":true}`, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.writeStoppedConfigAtomic(agent.ID, func(cfg map[string]any) error {
+		cfg["unconscious"] = true
+		cfg["threads"] = []any{
+			map[string]any{"id": "unconscious", "system": true},
+			map[string]any{"id": "worker"},
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	memoryPath := filepath.Join(s.agents.instanceDir(agent.ID), "memory.jsonl")
+	if err := os.WriteFile(memoryPath, []byte("preserve me\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	req := authedRequest(t, http.MethodPut, "/instances/1/background-memory", "", map[string]any{
+		"enabled": false,
+		"restart": false,
+	})
+	w := httptest.NewRecorder()
+	s.handleBackgroundMemory(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("toggle status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	configData, err := os.ReadFile(filepath.Join(s.agents.instanceDir(agent.ID), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(configData, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if enabled, _ := cfg["unconscious"].(bool); enabled {
+		t.Fatalf("unconscious still enabled: %s", configData)
+	}
+	threads, _ := cfg["threads"].([]any)
+	if len(threads) != 1 || threads[0].(map[string]any)["id"] != "worker" {
+		t.Fatalf("threads=%#v, want worker only", threads)
+	}
+	if got, err := os.ReadFile(memoryPath); err != nil || string(got) != "preserve me\n" {
+		t.Fatalf("memory changed: %q err=%v", got, err)
+	}
+	stored, err := s.store.GetAgentByID(agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.backgroundMemoryEnabled(stored) {
+		t.Fatal("background memory still enabled after toggle")
+	}
+
+	req = authedRequest(t, http.MethodGet, "/instances/1/background-memory", "", nil)
+	w = httptest.NewRecorder()
+	s.handleBackgroundMemory(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get status=%d body=%s", w.Code, w.Body.String())
+	}
+	var state struct {
+		Enabled bool `json:"enabled"`
+		Running bool `json:"running"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Enabled || state.Running {
+		t.Fatalf("state=%+v, want disabled and stopped", state)
+	}
+}
+
 func TestAgentBootResumeMode(t *testing.T) {
 	s := newTestServer(t)
 
@@ -226,8 +302,23 @@ while :; do sleep 1 & wait $!; done
 	providerEnv := map[string]string{
 		"OPENAI_CODEX_ACCESS_TOKEN": "access-token",
 		"OPENAI_CODEX_PROVIDER_ID":  "42",
+		"OPENAI_CODEX_ACCOUNT_ID":   "account-a",
 	}
-	if err := im.Start(inst, providerEnv, "5280", nil, "agent-secret"); err != nil {
+	parallel := true
+	providerPool := []ProviderInfo{{
+		Type:        "openai-codex",
+		ModelLarge:  "gpt-5.6-sol",
+		ModelMedium: "gpt-5.6-terra",
+		ModelSmall:  "gpt-5.6-terra",
+		ModelCapabilities: map[string]ProviderModelCapabilities{
+			"gpt-5.6-terra": {
+				ContextWindow:                 400000,
+				EffectiveContextWindowPercent: 95,
+				SupportsParallelToolCalls:     &parallel,
+			},
+		},
+	}}
+	if err := im.Start(inst, providerEnv, "5280", providerPool, "agent-secret"); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	t.Cleanup(func() { im.Stop(inst.ID) })
@@ -250,8 +341,32 @@ while :; do sleep 1 & wait $!; done
 	assertEnvValue(t, lines, "APTEVA_API_KEY", inst.CoreAPIKey)
 	assertEnvValue(t, lines, "OPENAI_CODEX_ACCESS_TOKEN", "access-token")
 	assertEnvValue(t, lines, "OPENAI_CODEX_PROVIDER_ID", "42")
+	assertEnvValue(t, lines, "OPENAI_CODEX_ACCOUNT_ID", "account-a")
 	if !strings.HasPrefix(inst.CoreAPIKey, "core_") {
 		t.Fatalf("CoreAPIKey=%q, want generated core_ key", inst.CoreAPIKey)
+	}
+
+	rawConfig, err := os.ReadFile(filepath.Join(im.InstanceDir(inst.ID), "config.json"))
+	if err != nil {
+		t.Fatalf("read config.json: %v", err)
+	}
+	var config map[string]any
+	if err := json.Unmarshal(rawConfig, &config); err != nil {
+		t.Fatalf("decode config.json: %v", err)
+	}
+	providers, _ := config["providers"].([]any)
+	if len(providers) != 1 {
+		t.Fatalf("providers = %#v", config["providers"])
+	}
+	provider, _ := providers[0].(map[string]any)
+	models, _ := provider["models"].(map[string]any)
+	if models["large"] != "gpt-5.6-sol" || models["medium"] != "gpt-5.6-terra" || models["small"] != "gpt-5.6-terra" {
+		t.Fatalf("models = %#v", models)
+	}
+	caps, _ := provider["model_capabilities"].(map[string]any)
+	terra, _ := caps["gpt-5.6-terra"].(map[string]any)
+	if terra["context_window"] != float64(400000) || terra["supports_parallel_tool_calls"] != true {
+		t.Fatalf("model_capabilities = %#v", caps)
 	}
 }
 

@@ -1152,12 +1152,17 @@ func (s *Server) proxyToEnvironmentApp(w http.ResponseWriter, r *http.Request, e
 		http.Error(w, "invalid sidecar url", http.StatusInternalServerError)
 		return
 	}
+	appToken, err := s.appInstallToken(inst.InstallID)
+	if err != nil {
+		http.Error(w, "app credential unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
 		req.URL.Path = tail
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer dev-%d", inst.InstallID))
+		req.Header.Set("Authorization", "Bearer "+appToken)
 	}
 	proxy.ServeHTTP(w, r)
 }

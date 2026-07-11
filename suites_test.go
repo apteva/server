@@ -98,6 +98,9 @@ func TestResolveConnectionContext_HeaderBinding(t *testing.T) {
 	// credentials pointing at it.
 	store := newTestStore(t)
 	defer store.Close()
+	if _, err := store.CreateUser("suite@test.local", "hash"); err != nil {
+		t.Fatal(err)
+	}
 	secret := make([]byte, 32)
 	for i := range secret {
 		secret[i] = byte(i)

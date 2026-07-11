@@ -26,6 +26,10 @@ import (
 )
 
 func (s *Server) handleEnvironmentMCP(w http.ResponseWriter, r *http.Request) {
+	if !requestFromLoopback(r) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return

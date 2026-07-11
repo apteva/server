@@ -263,12 +263,25 @@ func executeOpenAICodexIntegrationTool(app *AppTemplate, tool *AppToolDef, crede
 	if tool.TimeoutMS > 0 {
 		timeout = time.Duration(tool.TimeoutMS) * time.Millisecond
 	}
+	resolvedInput := make(map[string]any, len(input)+1)
+	for key, value := range input {
+		resolvedInput[key] = value
+	}
+	if model := strings.TrimSpace(fmt.Sprint(resolvedInput["model"])); model == "" || model == "<nil>" || model == "kimi-k2.6" || !codexRuntimeModelAllowed(model) {
+		model = "gpt-5.5"
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		if models, err := fetchCodexModelCatalog(ctx, accessToken, credentials["account_id"], false); err == nil {
+			model = codexDefaultModel(models, "medium")
+		}
+		cancel()
+		resolvedInput["model"] = model
+	}
 	payload := map[string]any{}
 	normalizeChat := false
 	normalizeImage := false
 	switch tool.Name {
 	case "responses_create":
-		for k, v := range input {
+		for k, v := range resolvedInput {
 			payload[k] = v
 		}
 		if _, ok := payload["instructions"]; !ok {
@@ -276,10 +289,10 @@ func executeOpenAICodexIntegrationTool(app *AppTemplate, tool *AppToolDef, crede
 		}
 	case "chat_completion", "vision_describe":
 		normalizeChat = true
-		payload = buildOpenAICodexResponsesPayload(input)
+		payload = buildOpenAICodexResponsesPayload(resolvedInput)
 	case "generate_image":
 		normalizeImage = true
-		payload = buildOpenAICodexImagePayload(input)
+		payload = buildOpenAICodexImagePayload(resolvedInput)
 	default:
 		return nil, fmt.Errorf("unsupported OpenAI Codex tool %q", tool.Name)
 	}
@@ -289,7 +302,7 @@ func executeOpenAICodexIntegrationTool(app *AppTemplate, tool *AppToolDef, crede
 	if _, ok := payload["stream"]; !ok {
 		payload["stream"] = true
 	}
-	status, data, headers, err := callOpenAICodexResponses(context.Background(), accessToken, payload, timeout)
+	status, data, headers, err := callOpenAICodexResponses(context.Background(), accessToken, credentials["account_id"], payload, timeout)
 	if err != nil {
 		return &ExecuteResult{Success: false, Status: status, Data: map[string]any{"error": err.Error()}, Headers: headers}, nil
 	}
@@ -547,7 +560,7 @@ func extractOpenAICodexIntegrationText(data any) string {
 	return ""
 }
 
-func callOpenAICodexResponses(ctx context.Context, accessToken string, payload map[string]any, timeout time.Duration) (int, any, map[string]string, error) {
+func callOpenAICodexResponses(ctx context.Context, accessToken, accountID string, payload map[string]any, timeout time.Duration) (int, any, map[string]string, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return 0, nil, nil, fmt.Errorf("build request: %w", err)
@@ -557,6 +570,9 @@ func callOpenAICodexResponses(ctx context.Context, accessToken string, payload m
 		return 0, nil, nil, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
+	if strings.TrimSpace(accountID) != "" {
+		req.Header.Set("ChatGPT-Account-ID", strings.TrimSpace(accountID))
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	client := &http.Client{Timeout: timeout}
@@ -726,6 +742,11 @@ func buildConnectionOpenAICodexCredentials(tokens map[string]any) map[string]str
 		expiresAt = exp.Format(time.RFC3339)
 	}
 	claims := connectionJWTClaims(accessToken)
+	if idToken, _ := tokens["id_token"].(string); strings.TrimSpace(idToken) != "" {
+		if idClaims := connectionJWTClaims(idToken); len(idClaims) > 0 {
+			claims = idClaims
+		}
+	}
 	creds := map[string]string{
 		"access_token":     accessToken,
 		"token":            accessToken,
@@ -738,8 +759,18 @@ func buildConnectionOpenAICodexCredentials(tokens map[string]any) map[string]str
 		"auth_type":        connectionAuthTypeDeviceCode,
 		"runtime_base_url": integrationOpenAICodexBackendAPIBaseURL,
 	}
-	if sub, _ := claims["sub"].(string); strings.TrimSpace(sub) != "" {
-		creds["account_id"] = sub
+	if authClaims := stateMap(claims, "https://api.openai.com/auth"); len(authClaims) > 0 {
+		if accountID, _ := authClaims["chatgpt_account_id"].(string); strings.TrimSpace(accountID) != "" {
+			creds["account_id"] = accountID
+		}
+	}
+	if accountID, _ := tokens["account_id"].(string); strings.TrimSpace(accountID) != "" {
+		creds["account_id"] = accountID
+	}
+	if creds["account_id"] == "" {
+		if sub, _ := claims["sub"].(string); strings.TrimSpace(sub) != "" {
+			creds["account_id"] = sub
+		}
 	}
 	if email, _ := claims["email"].(string); strings.TrimSpace(email) != "" {
 		creds["account_email"] = email

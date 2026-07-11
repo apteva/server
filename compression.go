@@ -13,7 +13,11 @@ var hashedAssetName = regexp.MustCompile(`-[A-Za-z0-9_]{6,}\.[A-Za-z0-9]+$`)
 
 func compressHTTP(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !requestAcceptsGzip(r) || r.Method == http.MethodHead {
+		// Protocol upgrades (most importantly WebSockets) must retain the
+		// original ResponseWriter's http.Hijacker implementation. Wrapping it
+		// in gzipResponseWriter makes ReverseProxy return 502 when browsers
+		// advertise both gzip and Connection: Upgrade.
+		if !requestAcceptsGzip(r) || r.Method == http.MethodHead || requestIsProtocolUpgrade(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -24,6 +28,18 @@ func compressHTTP(next http.Handler) http.Handler {
 		next.ServeHTTP(cw, r)
 		cw.finish()
 	})
+}
+
+func requestIsProtocolUpgrade(r *http.Request) bool {
+	if strings.TrimSpace(r.Header.Get("Upgrade")) == "" {
+		return false
+	}
+	for _, part := range strings.Split(r.Header.Get("Connection"), ",") {
+		if strings.EqualFold(strings.TrimSpace(part), "upgrade") {
+			return true
+		}
+	}
+	return false
 }
 
 type gzipResponseWriter struct {

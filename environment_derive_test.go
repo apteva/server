@@ -35,6 +35,7 @@ func TestDeriveEnvironmentSpecForAgent(t *testing.T) {
 	}
 	defer store.Close()
 	s := &Server{store: store, port: "5280", environments: NewEnvironmentManager(environmentDataRoot(dataDir))}
+	ensureTestAdmin(t, s)
 	s.environments.server = s
 	// Mock the source resolver so the test doesn't depend on the filesystem.
 	s.environments.ResolveSource = func(name string) (string, error) { return "/src/" + name, nil }

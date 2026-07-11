@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/pages/Monitor.tsx"],
+  "sourcesContent": [
+    "import { AptevaInbox } from \"../components/dashboard/AptevaInbox\";\nimport { CurrentStatuses } from \"../components/dashboard/CurrentStatuses\";\nimport { usePageTitle } from \"../hooks/usePageTitle\";\n\nexport function Monitor() {\n  usePageTitle(\"Monitor\");\n\n  return (\n    <div className=\"flex flex-col h-full overflow-hidden\">\n      <div className=\"border-b border-border px-6 py-4\">\n        <h1 className=\"text-text text-lg font-bold\">Monitor</h1>\n        <p className=\"mt-1 text-xs text-text-dim\">\n          Current agent work and all-project Apteva channel inbox.\n        </p>\n      </div>\n\n      <div className=\"flex-1 overflow-auto p-4\">\n        <div className=\"grid grid-cols-1 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)] gap-4 items-start\">\n          <CurrentStatuses />\n          <AptevaInbox allProjects limit={30} />\n        </div>\n      </div>\n    </div>\n  );\n}\n"
+  ],
+  "mappings": "4RAIO,EAAS,NAAO,LAAG,NAGxB,AAFA,EAAa,SAAS,EAGpB,EAcE,MAdF,CAAK,UAAU,uCAAf,SAcE,CAbA,EAKE,MALF,CAAK,UAAU,mCAAf,SAKE,CAJA,EAAqD,KAArD,CAAI,UAAU,8BAAd,mBAAqD,EACrD,EAEE,IAFF,CAAG,UAAU,6BAAb,oEAEE,GACF,EAEF,EAKE,MALF,CAAK,UAAU,2BAAf,SACE,EAGE,MAHF,CAAK,UAAU,wFAAf,SAGE,CAFA,EAAC,EAAD,EAAiB,EACjB,EAAC,EAAD,CAAa,YAAW,GAAC,MAAO,GAAI,GACpC,EACF,GACF",
+  "debugId": "F8CF0B4AA7CF43CC64756E2164756E21",
+  "names": []
+}

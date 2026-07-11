@@ -191,6 +191,26 @@ type ReportSender interface {
 	SendReport(req ReportRequest) (ReportResult, error)
 }
 
+// CurrentStatusRequest is an agent-authored headline describing what it is
+// doing now. Unlike reports and alerts, this is mutable monitoring state: the
+// channel updates its existing status instead of appending notifications.
+type CurrentStatusRequest struct {
+	Title    string   `json:"title"`
+	Detail   string   `json:"detail,omitempty"`
+	State    string   `json:"state"` // working | waiting | blocked | completed
+	Progress *float64 `json:"progress,omitempty"`
+}
+
+type CurrentStatusResult struct {
+	MessageID int64  `json:"message_id"`
+	ChatID    string `json:"chat_id"`
+	State     string `json:"state"`
+}
+
+type CurrentStatusSender interface {
+	SetCurrentStatus(req CurrentStatusRequest) (CurrentStatusResult, error)
+}
+
 // MCPTool is one tool exposed through the instance's channel MCP.
 // Handlers have full access to the app's DB + the calling instance.
 type MCPTool struct {

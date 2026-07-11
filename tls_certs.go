@@ -202,9 +202,13 @@ func startTLSListener(addr string, handler http.Handler, cache *CertCache) {
 		NextProtos:     []string{"h2", "http/1.1"},
 	}
 	srv := &http.Server{
-		Addr:      addr,
-		Handler:   handler,
-		TLSConfig: cfg,
+		Addr:              addr,
+		Handler:           handler,
+		TLSConfig:         cfg,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Minute,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 	go func() {
 		log.Printf("[tls] listening on %s", addr)

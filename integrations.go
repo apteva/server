@@ -549,14 +549,24 @@ type MultipartFormDef struct {
 }
 
 type RequestTransformDef struct {
-	Type          string            `json:"type"`
-	Output        string            `json:"output,omitempty"`
-	Target        string            `json:"target,omitempty"`
-	Encoding      string            `json:"encoding,omitempty"`
-	Source        string            `json:"source,omitempty"`
-	Fields        []string          `json:"fields,omitempty"`
-	AsArray       bool              `json:"as_array,omitempty"`
-	IncludeFields map[string]string `json:"include_fields,omitempty"`
+	Type          string                         `json:"type"`
+	Output        string                         `json:"output,omitempty"`
+	Target        string                         `json:"target,omitempty"`
+	Encoding      string                         `json:"encoding,omitempty"`
+	Source        string                         `json:"source,omitempty"`
+	Fields        []string                       `json:"fields,omitempty"`
+	AsArray       bool                           `json:"as_array,omitempty"`
+	IncludeFields map[string]string              `json:"include_fields,omitempty"`
+	ResourceType  string                         `json:"resource_type,omitempty"`
+	IDField       string                         `json:"id_field,omitempty"`
+	Attributes    []string                       `json:"attributes,omitempty"`
+	Relationships map[string]JSONAPIRelationship `json:"relationships,omitempty"`
+}
+
+type JSONAPIRelationship struct {
+	Source       string `json:"source"`
+	ResourceType string `json:"resource_type"`
+	Many         bool   `json:"many,omitempty"`
 }
 
 type ResponseTransformDef struct {

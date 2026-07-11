@@ -1,0 +1,282 @@
+{
+  "slug": "minimax-audio",
+  "name": "MiniMax Audio",
+  "description": "MiniMax speech API for synchronous and long-form text-to-speech, voice discovery, voice design, rapid voice cloning, and cloning-file management.",
+  "logo": "https://www.google.com/s2/favicons?domain=minimax.io&sz=128",
+  "categories": ["ai", "voice", "text-to-speech", "tts", "audio", "voice-cloning", "speech-synthesis"],
+  "base_url": "https://api.minimax.io",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "MiniMax API key from Account Management > API Keys at https://platform.minimax.io."
+      }
+    ]
+  },
+  "health_check": { "tool": "list_voices", "input": { "voice_type": "system" } },
+  "tools": [
+    {
+      "name": "text_to_speech",
+      "description": "Generate speech synchronously with MiniMax. Keep stream=false for a single structured response. output_format=hex returns audio in data.audio; output_format=url returns a temporary URL when supported.",
+      "method": "POST",
+      "path": "/v1/t2a_v2",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": ["speech-2.8-hd", "speech-2.8-turbo", "speech-2.6-hd", "speech-2.6-turbo", "speech-02-hd", "speech-02-turbo", "speech-01-hd", "speech-01-turbo"],
+            "default": "speech-2.8-hd"
+          },
+          "text": { "type": "string", "maxLength": 10000, "description": "Text to synthesize. Text over 3000 characters is better handled by create_long_speech_task." },
+          "stream": { "type": "boolean", "default": false, "description": "Use false with this generic REST tool. Streaming responses are event streams and are not incrementally surfaced by the integration runner." },
+          "output_format": { "type": "string", "enum": ["hex", "url"], "default": "hex" },
+          "language_boost": { "type": "string", "description": "Language name or auto. Examples: English, French, Spanish, Japanese, Chinese, auto.", "default": "auto" },
+          "voice_setting": {
+            "type": "object",
+            "properties": {
+              "voice_id": { "type": "string", "description": "System, cloned, or designed voice ID. Use list_voices to discover IDs." },
+              "speed": { "type": "number", "minimum": 0.5, "maximum": 2, "default": 1 },
+              "vol": { "type": "number", "exclusiveMinimum": 0, "maximum": 10, "default": 1 },
+              "pitch": { "type": "integer", "minimum": -12, "maximum": 12, "default": 0 },
+              "emotion": { "type": "string", "enum": ["happy", "sad", "angry", "fearful", "disgusted", "surprised", "calm", "fluent", "whisper"] },
+              "english_normalization": { "type": "boolean", "default": false },
+              "latex_read": { "type": "boolean", "default": false }
+            },
+            "required": ["voice_id"]
+          },
+          "audio_setting": {
+            "type": "object",
+            "properties": {
+              "sample_rate": { "type": "integer", "enum": [8000, 16000, 22050, 24000, 32000, 44100], "default": 32000 },
+              "bitrate": { "type": "integer", "enum": [32000, 64000, 128000, 256000], "default": 128000 },
+              "format": { "type": "string", "enum": ["mp3", "pcm", "flac", "wav"], "default": "mp3" },
+              "channel": { "type": "integer", "enum": [1, 2], "default": 1 }
+            }
+          },
+          "pronunciation_dict": {
+            "type": "object",
+            "properties": {
+              "tone": { "type": "array", "items": { "type": "string" }, "description": "Pronunciation substitutions in source/replacement form." }
+            }
+          },
+          "timbre_weights": {
+            "type": "array",
+            "description": "Optional mixed-voice configuration. When used, follow MiniMax's timbre-weight schema and leave voice_setting.voice_id empty if required by the selected model.",
+            "items": { "type": "object", "properties": { "voice_id": { "type": "string" }, "weight": { "type": "integer" } } }
+          },
+          "voice_modify": {
+            "type": "object",
+            "properties": {
+              "pitch": { "type": "integer", "minimum": -100, "maximum": 100, "default": 0 },
+              "intensity": { "type": "integer", "minimum": -100, "maximum": 100, "default": 0 },
+              "timbre": { "type": "integer", "minimum": -100, "maximum": 100, "default": 0 },
+              "sound_effects": { "type": "string", "enum": ["spacious_echo", "auditorium_echo", "lofi_telephone", "robotic"] }
+            }
+          }
+        },
+        "required": ["model", "text", "voice_setting"]
+      }
+    },
+    {
+      "name": "create_long_speech_task",
+      "description": "Create an asynchronous MiniMax long-form speech task. Provide text up to 50,000 characters or a text_file_id for up to 1,000,000 characters. Poll query_long_speech_task, then retrieve the resulting file.",
+      "method": "POST",
+      "path": "/v1/t2a_async_v2",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string", "enum": ["speech-2.8-hd", "speech-2.8-turbo", "speech-2.6-hd", "speech-2.6-turbo", "speech-02-hd", "speech-02-turbo", "speech-01-hd", "speech-01-turbo"], "default": "speech-2.8-hd" },
+          "text": { "type": "string", "maxLength": 50000 },
+          "text_file_id": { "type": "integer", "description": "File ID uploaded with purpose=t2a_async_input. Mutually exclusive with text." },
+          "language_boost": { "type": "string", "default": "auto" },
+          "voice_setting": {
+            "type": "object",
+            "properties": {
+              "voice_id": { "type": "string" },
+              "speed": { "type": "number", "minimum": 0.5, "maximum": 2, "default": 1 },
+              "vol": { "type": "number", "exclusiveMinimum": 0, "maximum": 10, "default": 1 },
+              "pitch": { "type": "integer", "minimum": -12, "maximum": 12, "default": 0 },
+              "emotion": { "type": "string", "enum": ["happy", "sad", "angry", "fearful", "disgusted", "surprised", "calm", "fluent", "whisper"] },
+              "english_normalization": { "type": "boolean", "default": false }
+            },
+            "required": ["voice_id"]
+          },
+          "audio_setting": {
+            "type": "object",
+            "properties": {
+              "audio_sample_rate": { "type": "integer", "enum": [8000, 16000, 22050, 24000, 32000, 44100], "default": 32000 },
+              "bitrate": { "type": "integer", "enum": [32000, 64000, 128000, 256000], "default": 128000 },
+              "format": { "type": "string", "enum": ["mp3", "pcm", "flac", "wav"], "default": "mp3" },
+              "channel": { "type": "integer", "enum": [1, 2], "default": 1 }
+            }
+          },
+          "pronunciation_dict": { "type": "object", "properties": { "tone": { "type": "array", "items": { "type": "string" } } } },
+          "voice_modify": { "type": "object", "properties": { "pitch": { "type": "integer" }, "intensity": { "type": "integer" }, "timbre": { "type": "integer" }, "sound_effects": { "type": "string" } } }
+        },
+        "required": ["model", "voice_setting"],
+        "oneOf": [{ "required": ["text"] }, { "required": ["text_file_id"] }]
+      }
+    },
+    {
+      "name": "query_long_speech_task",
+      "description": "Query an asynchronous MiniMax speech task. On success, use file_id with retrieve_file or retrieve_file_content before the temporary result expires.",
+      "method": "GET",
+      "path": "/v1/query/t2a_async_query_v2",
+      "query_params": ["task_id"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "task_id": { "type": "integer" } },
+        "required": ["task_id"]
+      }
+    },
+    {
+      "name": "list_voices",
+      "description": "List MiniMax system voices, successfully activated cloned voices, designed voices, or all categories available to the account.",
+      "method": "POST",
+      "path": "/v1/get_voice",
+      "input_schema": {
+        "type": "object",
+        "properties": { "voice_type": { "type": "string", "enum": ["system", "voice_cloning", "voice_generation", "all"], "default": "all" } },
+        "required": ["voice_type"]
+      }
+    },
+    {
+      "name": "design_voice",
+      "description": "Create a MiniMax voice from a text description and generate a preview. Returns voice_id and hex-encoded trial_audio. Preview generation is billable.",
+      "method": "POST",
+      "path": "/v1/voice_design",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": { "type": "string", "description": "Description of the desired voice." },
+          "preview_text": { "type": "string", "maxLength": 500, "description": "Text spoken in the generated preview." },
+          "voice_id": { "type": "string", "description": "Optional custom voice ID. MiniMax creates one when omitted." }
+        },
+        "required": ["prompt", "preview_text"]
+      }
+    },
+    {
+      "name": "upload_file",
+      "description": "Upload a file for voice cloning, cloning-prompt audio, or asynchronous long-form TTS. Returns file.file_id for subsequent tools.",
+      "method": "POST",
+      "path": "/v1/files/upload",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": ["purpose"],
+        "file_fields": { "file": "file" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "purpose": { "type": "string", "enum": ["voice_clone", "prompt_audio", "t2a_async_input"], "description": "Purpose controls accepted file formats and how the returned ID may be used." },
+          "file": { "type": "string", "description": "File as base64, data URL, blobref, or binary envelope." },
+          "file_filename": { "type": "string", "description": "Original filename with a supported extension." }
+        },
+        "required": ["purpose", "file"]
+      }
+    },
+    {
+      "name": "clone_voice",
+      "description": "Create a rapid MiniMax voice clone from a voice_clone file_id. Use upload_file first. To keep the clone beyond seven days, synthesize speech with the returned voice_id within that period.",
+      "method": "POST",
+      "path": "/v1/voice_clone",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": { "type": "integer", "description": "Uploaded source-audio file ID with purpose=voice_clone." },
+          "voice_id": { "type": "string", "minLength": 8, "maxLength": 256, "description": "New unique voice ID. Must start with a letter and contain only letters, digits, hyphens, or underscores." },
+          "clone_prompt": {
+            "type": "object",
+            "description": "Optional short prompt-audio pair to improve similarity and stability.",
+            "properties": { "prompt_audio": { "type": "integer", "description": "File ID uploaded with purpose=prompt_audio; audio must be under eight seconds." }, "prompt_text": { "type": "string", "description": "Exact transcript of prompt_audio, ending in punctuation." } },
+            "required": ["prompt_audio", "prompt_text"]
+          },
+          "text": { "type": "string", "maxLength": 1000, "description": "Optional billable preview text." },
+          "model": { "type": "string", "enum": ["speech-2.8-hd", "speech-2.8-turbo", "speech-2.6-hd", "speech-2.6-turbo", "speech-02-hd", "speech-02-turbo", "speech-01-hd", "speech-01-turbo"], "description": "Required when text is supplied." },
+          "language_boost": { "type": "string", "default": "auto" },
+          "text_validation": { "type": "string", "maxLength": 200, "description": "Optional expected transcript used for ASR validation of the source sample." },
+          "accuracy": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.7 },
+          "need_noise_reduction": { "type": "boolean", "default": false },
+          "need_volume_normalization": { "type": "boolean", "default": false },
+          "aigc_watermark": { "type": "boolean", "default": false }
+        },
+        "required": ["file_id", "voice_id"]
+      }
+    },
+    {
+      "name": "delete_voice",
+      "description": "Delete a MiniMax cloned or designed voice. The voice ID cannot be reused after deletion.",
+      "method": "POST",
+      "path": "/v1/delete_voice",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_type": { "type": "string", "enum": ["voice_cloning", "voice_generation"] },
+          "voice_id": { "type": "string" }
+        },
+        "required": ["voice_type", "voice_id"]
+      }
+    },
+    {
+      "name": "list_files",
+      "description": "List MiniMax files for a purpose category.",
+      "method": "GET",
+      "path": "/v1/files/list",
+      "query_params": ["purpose"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "purpose": { "type": "string", "enum": ["voice_clone", "prompt_audio", "t2a_async_input"] } },
+        "required": ["purpose"]
+      }
+    },
+    {
+      "name": "retrieve_file",
+      "description": "Retrieve MiniMax file metadata and its temporary download URL.",
+      "method": "GET",
+      "path": "/v1/files/retrieve",
+      "query_params": ["file_id"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "file_id": { "type": "integer" } },
+        "required": ["file_id"]
+      }
+    },
+    {
+      "name": "retrieve_file_content",
+      "description": "Download generated MiniMax file bytes. Returns a binary envelope from the integration runner.",
+      "method": "GET",
+      "path": "/v1/files/retrieve_content",
+      "query_params": ["file_id"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "file_id": { "type": "integer" } },
+        "required": ["file_id"]
+      }
+    },
+    {
+      "name": "delete_file",
+      "description": "Delete a MiniMax uploaded or generated file.",
+      "method": "POST",
+      "path": "/v1/files/delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": { "type": "integer" },
+          "purpose": { "type": "string", "enum": ["voice_clone", "prompt_audio", "t2a_async", "t2a_async_input", "video_generation"] }
+        },
+        "required": ["file_id", "purpose"]
+      }
+    }
+  ]
+}

@@ -63,13 +63,14 @@ func TestAppProxy_NoAuthRoutePreservesCallerAuthorization(t *testing.T) {
 
 func TestAppProxy_PrivateRouteStillUsesInstallAuthorization(t *testing.T) {
 	s := newTestServer(t)
+	apiKey := testPrivateAPIKey(t, s)
 	s.installedApps = NewInstalledAppsRegistry()
 
 	const (
-		projectID    = "proj-auth"
-		appToken     = "install-token"
-		callerBearer = "Bearer operator-key"
+		projectID = "proj-auth"
+		appToken  = "install-token"
 	)
+	callerBearer := "Bearer " + apiKey
 
 	var seenAuth string
 	var seenAppToken string

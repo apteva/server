@@ -8,6 +8,7 @@ import (
 
 func TestBuildAgentActivityBuildsThoughtsAndToolActions(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	agent, err := s.store.CreateAgent(1, "Media Agent", "process media", "autonomous", "{}", "proj-a")
 	if err != nil {
 		t.Fatalf("CreateAgent: %v", err)
@@ -72,6 +73,7 @@ func TestBuildAgentActivityBuildsThoughtsAndToolActions(t *testing.T) {
 
 func TestGatewayAgentListActivityTool(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	agent, err := s.store.CreateAgent(1, "Worker", "work", "autonomous", "{}", "")
 	if err != nil {
 		t.Fatalf("CreateAgent: %v", err)

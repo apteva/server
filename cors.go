@@ -7,9 +7,7 @@ import (
 
 // corsConfig is built once at startup from the CORS_ORIGIN env var.
 //
-//	unset / ""    → permissive: echo any Origin back with credentials.
-//	                Practical default so a UI hosted anywhere can log
-//	                in without extra server config.
+//	unset / ""    → disabled. The bundled dashboard is same-origin.
 //	"off" / "none"→ disabled: no Access-Control-* headers at all.
 //	"*"           → wildcard: Allow-Origin: *, NO credentials (browsers
 //	                reject "*" with Allow-Credentials). Use only for
@@ -27,7 +25,7 @@ func newCORSConfig(env string) *corsConfig {
 	case lower == "off" || lower == "none" || lower == "disabled":
 		return nil
 	case env == "":
-		return &corsConfig{mode: "permissive"}
+		return nil
 	case env == "*":
 		return &corsConfig{mode: "wildcard"}
 	default:

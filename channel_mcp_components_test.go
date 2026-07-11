@@ -89,6 +89,19 @@ func TestChannelMCPSendAdvertisesWakeAlways(t *testing.T) {
 		if tool["name"] != "send" {
 			continue
 		}
+		description, _ := tool["description"].(string)
+		for _, want := range []string{
+			"before any substantive external action",
+			"even a single create/update/delete/send/publish/trigger tool call",
+			"same parallel tool-call batch",
+			"do not wait for the status result",
+			"Never parallelize past a required approval or prerequisite",
+			"Skip status for read-only lookups",
+		} {
+			if !strings.Contains(description, want) {
+				t.Fatalf("send description missing %q: %s", want, description)
+			}
+		}
 		meta, ok := tool["_meta"].(map[string]any)
 		if !ok {
 			t.Fatalf("send tool missing _meta: %#v", tool)
@@ -209,6 +222,32 @@ func TestChannelMCPSendApprovalAndReportUseAptevaChannel(t *testing.T) {
 	}
 }
 
+func TestChannelMCPSendStatusUsesAptevaCurrentStatus(t *testing.T) {
+	reg := NewChannelRegistry()
+	ch := &captureChannel{id: "apteva"}
+	reg.Register(ch)
+	s := &channelMCPServer{registry: reg}
+	params, _ := json.Marshal(map[string]any{
+		"name": "send",
+		"arguments": map[string]any{
+			"kind": "status", "channel": "apteva", "title": "Rendering clips",
+			"detail": "Three of five complete", "state": "working", "progress": 60,
+		},
+	})
+	out, rpcErr := s.handleToolCall(params)
+	if rpcErr != nil {
+		t.Fatalf("rpcErr: %#v", rpcErr)
+	}
+	if ch.currentStatus.Title != "Rendering clips" || ch.currentStatus.State != "working" ||
+		ch.currentStatus.Progress == nil || *ch.currentStatus.Progress != 60 {
+		t.Fatalf("status request = %#v", ch.currentStatus)
+	}
+	b, _ := json.Marshal(out)
+	if !strings.Contains(string(b), "current status updated") {
+		t.Fatalf("unexpected result: %s", b)
+	}
+}
+
 func TestChannelMCPListChannelsIncludesAptevaCapabilities(t *testing.T) {
 	reg := NewChannelRegistry()
 	reg.Register(&captureChannel{id: "apteva", active: true})
@@ -255,7 +294,7 @@ func TestChannelMCPListChannelsIncludesAptevaCapabilities(t *testing.T) {
 			t.Fatalf("missing channel %q in %#v", id, channels)
 		}
 	}
-	for _, want := range []string{"message", "approval", "report", "alert", "buttons", "components"} {
+	for _, want := range []string{"message", "status", "approval", "report", "alert", "buttons", "components"} {
 		if !capabilityPresent(seen["apteva"]["capabilities"], want) {
 			t.Fatalf("apteva channel missing capability %q: %#v", want, seen["apteva"])
 		}
@@ -279,12 +318,13 @@ func capabilityPresent(raw any, want string) bool {
 }
 
 type captureChannel struct {
-	id         string
-	sent       string
-	statusText string
-	active     bool
-	approvals  int
-	reports    int
+	id            string
+	sent          string
+	statusText    string
+	active        bool
+	approvals     int
+	reports       int
+	currentStatus framework.CurrentStatusRequest
 }
 
 func (c *captureChannel) ID() string { return c.id }
@@ -305,4 +345,8 @@ func (c *captureChannel) RequestApproval(req framework.ApprovalRequest) (framewo
 func (c *captureChannel) SendReport(req framework.ReportRequest) (framework.ReportResult, error) {
 	c.reports++
 	return framework.ReportResult{MessageID: int64(c.reports), ChatID: c.id, Status: "sent"}, nil
+}
+func (c *captureChannel) SetCurrentStatus(req framework.CurrentStatusRequest) (framework.CurrentStatusResult, error) {
+	c.currentStatus = req
+	return framework.CurrentStatusResult{MessageID: 1, ChatID: c.id, State: req.State}, nil
 }

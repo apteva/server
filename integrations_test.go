@@ -113,6 +113,33 @@ func TestCatalogLoad(t *testing.T) {
 	}
 }
 
+func TestOpenAICodexCatalogDoesNotPinLegacyDefaultModel(t *testing.T) {
+	raw, err := integrationsCatalogFS.ReadFile("integrations-catalog/openai-codex.json")
+	if err != nil {
+		t.Fatalf("read embedded OpenAI Codex catalog: %v", err)
+	}
+	var app AppTemplate
+	if err := json.Unmarshal(raw, &app); err != nil {
+		t.Fatalf("decode OpenAI Codex catalog: %v", err)
+	}
+	if len(app.Tools) == 0 {
+		t.Fatal("OpenAI Codex catalog has no tools")
+	}
+	for _, tool := range app.Tools {
+		properties, _ := tool.InputSchema["properties"].(map[string]any)
+		model, _ := properties["model"].(map[string]any)
+		if _, pinned := model["default"]; pinned {
+			t.Fatalf("tool %s still pins a model default: %#v", tool.Name, model)
+		}
+		required, _ := tool.InputSchema["required"].([]any)
+		for _, rawRequired := range required {
+			if requiredName, _ := rawRequired.(string); requiredName == "model" {
+				t.Fatalf("tool %s still requires model", tool.Name)
+			}
+		}
+	}
+}
+
 func TestCatalogGet(t *testing.T) {
 	catalog := createTestCatalog(t)
 
@@ -406,6 +433,7 @@ func TestConnectionHTTPHandler(t *testing.T) {
 
 func TestDashboardListsHideAppOwnedConnectionsByDefault(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	s.secret = testSecret()
 	s.catalog = createTestCatalog(t)
 
@@ -470,6 +498,7 @@ func TestDashboardListsHideAppOwnedConnectionsByDefault(t *testing.T) {
 
 func TestDashboardMCPListHidesAppOwnedConnectionRowsByDefault(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	s.secret = testSecret()
 	s.catalog = createTestCatalog(t)
 
@@ -664,6 +693,7 @@ func TestRemoteMcpAppLoad(t *testing.T) {
 // handleOAuthCallback both call after a successful connect.
 func TestRemoteMcpAutoCreatedFromConnection(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	s.secret = testSecret()
 	s.catalog = NewAppCatalog()
 
@@ -772,6 +802,7 @@ func TestRemoteMcpAutoCreatedFromConnection(t *testing.T) {
 // see the misconfiguration before the agent tries to call upstream.
 func TestRemoteMcpRejectsUnresolvedTemplate(t *testing.T) {
 	s := newTestServer(t)
+	ensureTestAdmin(t, s)
 	s.secret = testSecret()
 	s.catalog = NewAppCatalog()
 
@@ -1124,6 +1155,42 @@ func TestExecuteIntegrationTool_PostQueryParamsExcludedFromBody(t *testing.T) {
 	}
 	if gotBody["url"] != "https://example.com/video.mp4" || gotBody["title"] != "video.mp4" {
 		t.Fatalf("body lost fetch fields: %#v", gotBody)
+	}
+}
+
+func TestExecuteIntegrationTool_HeaderParamsExcludedFromBody(t *testing.T) {
+	var gotHeader string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeader = r.Header.Get("model")
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{Slug: "fake-fish", BaseURL: srv.URL}
+	tool := &AppToolDef{
+		Name:         "text_to_speech",
+		Method:       "POST",
+		Path:         "/v1/tts",
+		HeaderParams: map[string]string{"model": "model"},
+	}
+	input := map[string]any{"model": "s2-pro", "text": "Hello"}
+	if _, err := executeIntegrationTool(app, tool, nil, input, ""); err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if gotHeader != "s2-pro" {
+		t.Fatalf("model header=%q, want s2-pro", gotHeader)
+	}
+	if _, leaked := gotBody["model"]; leaked {
+		t.Fatalf("model leaked into body: %#v", gotBody)
+	}
+	if gotBody["text"] != "Hello" {
+		t.Fatalf("body lost text: %#v", gotBody)
 	}
 }
 
