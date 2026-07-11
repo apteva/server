@@ -680,7 +680,8 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		// access and is identified as official (apps_dynamic_call.go).
 		// Project isolation is preserved: the connection's project_id
 		// must match the caller install's.
-		if ok, msg := s.resolveDynamicIntegration(installID, connID, conn.ProjectID); ok {
+		delegatedProject, _ := body.Input["_project_id"].(string)
+		if ok, msg := s.resolveDynamicIntegration(installID, connID, conn.ProjectID, delegatedProject); ok {
 			log.Printf("[INTEGRATIONS-EXEC] grant=dynamic install=%d conn=%d slug=%s", installID, connID, conn.AppSlug)
 		} else if msg != "" {
 			// Eligible caller, wrong project — distinct diagnostic so

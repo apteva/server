@@ -37,7 +37,7 @@ func TestResolveDynamicIntegration_ThirdPartyWithFlag_StaysBlocked(t *testing.T)
 	s := newTestServer(t)
 	caller := seedRunningInstall(t, s, "evil-wf", "proj-1", integrationThirdPartyManifest("evil-wf", true), nil)
 
-	ok, msg := s.resolveDynamicIntegration(caller, 17, "proj-1")
+	ok, msg := s.resolveDynamicIntegration(caller, 17, "proj-1", "")
 	if ok {
 		t.Fatal("expected reject, got allow")
 	}
@@ -54,7 +54,7 @@ func TestResolveDynamicIntegration_OfficialNoFlag_StaysBlocked(t *testing.T) {
 	s := newTestServer(t)
 	caller := seedRunningInstall(t, s, "workflows", "proj-1", integrationOfficialManifest("workflows", false), nil)
 
-	ok, msg := s.resolveDynamicIntegration(caller, 17, "proj-1")
+	ok, msg := s.resolveDynamicIntegration(caller, 17, "proj-1", "")
 	if ok {
 		t.Fatal("expected reject without flag")
 	}
@@ -69,7 +69,7 @@ func TestResolveDynamicIntegration_OfficialWithFlag_SameProject(t *testing.T) {
 	s := newTestServer(t)
 	caller := seedRunningInstall(t, s, "workflows", "proj-1", integrationOfficialManifest("workflows", true), nil)
 
-	ok, msg := s.resolveDynamicIntegration(caller, 17, "proj-1")
+	ok, msg := s.resolveDynamicIntegration(caller, 17, "proj-1", "")
 	if !ok {
 		t.Fatalf("expected allow, got reject (%s)", msg)
 	}
@@ -82,7 +82,7 @@ func TestResolveDynamicIntegration_CrossProject_DistinctError(t *testing.T) {
 	s := newTestServer(t)
 	caller := seedRunningInstall(t, s, "workflows", "proj-A", integrationOfficialManifest("workflows", true), nil)
 
-	ok, msg := s.resolveDynamicIntegration(caller, 17, "proj-B")
+	ok, msg := s.resolveDynamicIntegration(caller, 17, "proj-B", "")
 	if ok {
 		t.Fatal("cross-project allowed — isolation broken")
 	}
@@ -99,8 +99,19 @@ func TestResolveDynamicIntegration_GlobalCaller_GlobalConn(t *testing.T) {
 	s := newTestServer(t)
 	caller := seedRunningInstall(t, s, "workflows", "" /* global */, integrationOfficialManifest("workflows", true), nil)
 
-	ok, _ := s.resolveDynamicIntegration(caller, 17, "")
+	ok, _ := s.resolveDynamicIntegration(caller, 17, "", "")
 	if !ok {
 		t.Errorf("global caller + global conn should match")
+	}
+}
+
+func TestResolveDynamicIntegration_GlobalCaller_DelegatedProject(t *testing.T) {
+	s := newTestServer(t)
+	caller := seedRunningInstall(t, s, "functions", "", integrationOfficialManifest("functions", true), nil)
+	if ok, msg := s.resolveDynamicIntegration(caller, 17, "proj-A", "proj-A"); !ok {
+		t.Fatalf("delegated project should allow matching connection: %s", msg)
+	}
+	if ok, _ := s.resolveDynamicIntegration(caller, 17, "proj-B", "proj-A"); ok {
+		t.Fatal("delegated project allowed a connection from another project")
 	}
 }

@@ -105,7 +105,7 @@ func installProjectID(s *Server, installID int64) string {
 // Returns (true, "") to allow, (false, msg) otherwise — msg lets
 // the caller surface a distinct diagnostic when the caller IS
 // eligible but the project doesn't match.
-func (s *Server) resolveDynamicIntegration(callerInstallID, connID int64, connProjectID string) (bool, string) {
+func (s *Server) resolveDynamicIntegration(callerInstallID, connID int64, connProjectID, delegatedProjectID string) (bool, string) {
 	callerMan, err := installManifest(s, callerInstallID)
 	if err != nil || callerMan == nil {
 		return false, ""
@@ -114,6 +114,12 @@ func (s *Server) resolveDynamicIntegration(callerInstallID, connID int64, connPr
 		return false, ""
 	}
 	callerProject := installProjectID(s, callerInstallID)
+	if callerProject == "" {
+		// Global official runners carry the project selected by their
+		// server-dispatched invocation. The caller app must overwrite this
+		// field rather than forwarding handler input verbatim.
+		callerProject = strings.TrimSpace(delegatedProjectID)
+	}
 	if connProjectID != callerProject {
 		return false, fmt.Sprintf("connection %d is in another project (caller=%s, connection=%s)",
 			connID, callerProject, connProjectID)
