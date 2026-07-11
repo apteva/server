@@ -1,5 +1,5 @@
-github.com/apteva/app-sdk v0.36.3 h1:FVTYLx9wBYTEI0o1VnR/2XX0aF2XsVB/5bGarzxT9mM=
-github.com/apteva/app-sdk v0.36.3/go.mod h1:Im4hJoe7MLxQD8epNJXVMGzqM3mpKPe3ioow6P6YYw0=
+github.com/apteva/app-sdk v0.36.4 h1:MS5DjYjZS2miAGCxjV+P7VaqPGJnFZTvV31Y5O0LT8M=
+github.com/apteva/app-sdk v0.36.4/go.mod h1:Im4hJoe7MLxQD8epNJXVMGzqM3mpKPe3ioow6P6YYw0=
 github.com/decred/dcrd/crypto/blake256 v1.1.0 h1:zPMNGQCm0g4QTY27fOCorQW7EryeQ/U0x++OzVrdms8=
 github.com/decred/dcrd/crypto/blake256 v1.1.0/go.mod h1:2OfgNZ5wDpcsFmHmCK5gZTPcCXqlm2ArzUIkw9czNJo=
 github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 h1:5RVFMOWjMyRy8cARdy79nAmgYw3hK/4HUq48LQ6Wwqo=
