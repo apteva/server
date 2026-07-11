@@ -32,6 +32,14 @@ jobs:
         with:
           go-version: '1.25'
 
+      # Local monorepo builds overlay ../app-sdk, but the standalone server
+      # release checkout has no sibling directory. Release against the pinned
+      # published SDK from go.mod instead.
+      - name: Resolve published app-sdk
+        run: |
+          go mod edit -dropreplace=github.com/apteva/app-sdk
+          go mod download github.com/apteva/app-sdk
+
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}

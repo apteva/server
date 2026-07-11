@@ -17,7 +17,7 @@ require (
 )
 
 require (
-	github.com/apteva/app-sdk v0.36.2
+	github.com/apteva/app-sdk v0.36.3
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3
@@ -33,7 +33,6 @@ require (
 // Local sibling — the monorepo carries app-sdk one directory up.
 // build-local.sh runs `go build` inside server/ so ../app-sdk
 // resolves naturally; the Docker build copies app-sdk next to server/
-// before `go build` for the same reason. Drop this replace once we
-// cut a tagged SDK release that includes the new `kind: static`
-// runtime variant + UIApp.MountPath.
+// before `go build` for the same reason. The standalone GitHub release
+// workflow drops this replacement and builds against the pinned SDK tag.
 replace github.com/apteva/app-sdk => ../app-sdk
