@@ -43,8 +43,11 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 			return nil, fmt.Errorf("load app: %w", err)
 		}
 	}
-	if err := reg.Start(); err != nil {
-		return nil, fmt.Errorf("start apps: %w", err)
+	quarantined := cloneQuarantineEnabled()
+	if !quarantined {
+		if err := reg.Start(); err != nil {
+			return nil, fmt.Errorf("start apps: %w", err)
+		}
 	}
 
 	// Wire the channelchat streaming tap. Setting the hook here (after
@@ -53,7 +56,7 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 	// Single-place disable: CHANNELCHAT_STREAMING=0 leaves the hook
 	// nil and the entire feature is off. Reverting this block reverts
 	// the streaming feature without touching any other code.
-	if os.Getenv("CHANNELCHAT_STREAMING") != "0" {
+	if !quarantined && os.Getenv("CHANNELCHAT_STREAMING") != "0" {
 		if app, ok := cc.(interface {
 			Streamer() *channelchat.Streamer
 		}); ok {
@@ -81,8 +84,10 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 	// touch any AgentManager accessor that takes the mutex
 	// (GetPort, GetCoreAPIKey, etc.); we pass the Agent
 	// directly so everything we need is already in hand.
-	s.agents.PostChannelsInit = func(inst *Agent, ic *AgentChannels) {
-		s.attachAppChannelsDuringStart(reg, inst, ic)
+	if !quarantined {
+		s.agents.PostChannelsInit = func(inst *Agent, ic *AgentChannels) {
+			s.attachAppChannelsDuringStart(reg, inst, ic)
+		}
 	}
 
 	// ComponentCatalog feeds the channel MCP server so the agent's
@@ -98,7 +103,9 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 	// restarts in our model, apps need to see them). This also
 	// ensures default chat rows exist for pre-existing instances
 	// before the dashboard asks for them.
-	s.notifyAppsAboutExistingInstances(reg)
+	if !quarantined {
+		s.notifyAppsAboutExistingInstances(reg)
+	}
 
 	return reg, nil
 }

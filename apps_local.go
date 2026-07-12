@@ -22,6 +22,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -851,7 +852,7 @@ func (s *Server) ResumeLocalInstalls() {
 	// points at a not-yet-cached version and every dashboard request
 	// for /api/apps/<name>/ui/<Panel>.mjs returns 404.
 	rows, err := s.store.db.Query(
-		`SELECT i.id, i.local_pid, i.local_bin_path, i.local_port,
+		`SELECT i.id, i.local_pid, i.local_bin_path, i.local_port, a.name,
 			COALESCE(i.project_id,''), i.config_encrypted, i.version,
 			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
@@ -860,13 +861,13 @@ func (s *Server) ResumeLocalInstalls() {
 		return
 	}
 	type resumeRow struct {
-		id, pid, port                                              int64
-		binPath, projectID, cfgEnc, installedVersion, manifestJSON string
+		id, pid, port                                                       int64
+		binPath, appName, projectID, cfgEnc, installedVersion, manifestJSON string
 	}
 	var todo []resumeRow
 	for rows.Next() {
 		var r resumeRow
-		if err := rows.Scan(&r.id, &r.pid, &r.binPath, &r.port,
+		if err := rows.Scan(&r.id, &r.pid, &r.binPath, &r.port, &r.appName,
 			&r.projectID, &r.cfgEnc, &r.installedVersion, &r.manifestJSON); err == nil {
 			todo = append(todo, r)
 		}
@@ -901,10 +902,73 @@ func (s *Server) ResumeLocalInstalls() {
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			s.resumeOneLocalInstall(r.id, r.pid, r.port, r.binPath, r.projectID, r.cfgEnc, r.installedVersion, r.manifestJSON)
+			s.resumeOneLocalInstall(r.id, r.pid, r.port, r.binPath, r.appName, r.projectID, r.cfgEnc, r.installedVersion, r.manifestJSON)
 		}()
 	}
 	wg.Wait()
+}
+
+// PrepareCloneLocalRuntimes makes copied source installs portable without
+// starting them. It is only used by explicit clone quarantine boot.
+func (s *Server) PrepareCloneLocalRuntimes() error {
+	rows, err := s.store.db.Query(
+		`SELECT i.id, a.name, COALESCE(i.project_id,''),
+			i.version, COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
+		 FROM app_installs i JOIN apps a ON a.id = i.app_id
+		 WHERE i.status='running' AND i.local_bin_path != ''`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type runtimeRow struct {
+		id                                       int64
+		appName, projectID, version, mj string
+	}
+	var installs []runtimeRow
+	for rows.Next() {
+		var r runtimeRow
+		if err := rows.Scan(&r.id, &r.appName, &r.projectID, &r.version, &r.mj); err != nil {
+			return err
+		}
+		installs = append(installs, r)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, r := range installs {
+		path, found := cloneLocalBinPath(s.localApps.cacheDir, r.appName, r.version)
+		if !found {
+			m, err := exactSourceRuntimeManifest(r.appName, r.version, r.mj)
+			if err != nil {
+				return fmt.Errorf("install %d (%s): parse manifest: %w", r.id, r.appName, err)
+			}
+			release := s.localApps.acquireBuildSlot()
+			path, err = s.localApps.BuildFromSourceBinary(m, func(msg string) {
+				s.store.db.Exec(`UPDATE app_installs SET status_message=? WHERE id=?`, "Quarantine: "+msg, r.id)
+			})
+			release()
+			if err != nil {
+				return fmt.Errorf("install %d (%s@%s): reconstruct runtime: %w", r.id, r.appName, r.version, err)
+			}
+		}
+		if _, err := s.store.db.Exec(
+			`UPDATE app_installs SET local_bin_path=?, status_message='Quarantined — runtime ready' WHERE id=?`,
+			path, r.id); err != nil {
+			return fmt.Errorf("install %d (%s): persist runtime path: %w", r.id, r.appName, err)
+		}
+	}
+	return nil
+}
+
+func cloneLocalBinPath(cacheDir, appName, version string) (string, bool) {
+	if appName == "" || version == "" || filepath.Base(appName) != appName || filepath.Base(version) != version {
+		return "", false
+	}
+	candidate := filepath.Join(cacheDir, appName, version, "bin")
+	if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+		return candidate, true
+	}
+	return candidate, false
 }
 
 type pendingLocalInstall struct {
@@ -960,7 +1024,7 @@ func (s *Server) ResumePendingLocalInstalls() {
 			}
 		}
 		if r.localPID > 0 && r.localPort > 0 && r.binPath != "" {
-			s.resumeOneLocalInstall(r.id, r.localPID, r.localPort, r.binPath, r.projectID, r.configEnc, r.version, r.manifestJSON)
+			s.resumeOneLocalInstall(r.id, r.localPID, r.localPort, r.binPath, r.appName, r.projectID, r.configEnc, r.version, r.manifestJSON)
 		}
 		log.Printf("[APPS-LOCAL] resuming pending install=%d app=%s version=%s", r.id, m.Name, m.Version)
 		s.store.db.Exec(
@@ -1000,7 +1064,20 @@ func isRecoverableLocalPending(m *sdk.Manifest) bool {
 // extracted so the parallel fanout can call it from a worker goroutine.
 // Logging keeps the install id in every line so interleaved output
 // stays attributable.
-func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, projectID, cfgEnc, installedVersion, manifestJSON string) {
+func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, appName, projectID, cfgEnc, installedVersion, manifestJSON string) {
+	resolvedPath, found := portableLocalBinPath(binPath, s.localApps.cacheDir, appName, installedVersion)
+	if !found {
+		s.queueExactRuntimeReconstruction(id, appName, projectID, cfgEnc, installedVersion, manifestJSON)
+		return
+	}
+	if resolvedPath != binPath {
+		if _, err := s.store.db.Exec(`UPDATE app_installs SET local_bin_path=? WHERE id=?`, resolvedPath, id); err != nil {
+			log.Printf("[APPS-LOCAL] persist rebased path install=%d: %v", id, err)
+			return
+		}
+		log.Printf("[APPS-LOCAL] rebased install=%d path %s -> %s", id, binPath, resolvedPath)
+		binPath = resolvedPath
+	}
 	// If the recorded pid is still alive, it's an orphan from a
 	// previous apteva-server (we just started — nothing we spawned
 	// has had time to exist yet). The orphan still holds its port
@@ -1074,6 +1151,66 @@ func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, projectID, 
 	}
 	newPID := s.localApps.PID(id)
 	s.updateLocalInstallRuntime(id, newPID, port)
+}
+
+func portableLocalBinPath(recorded, cacheDir, appName, version string) (string, bool) {
+	if recorded != "" {
+		if info, err := os.Stat(recorded); err == nil && !info.IsDir() {
+			return recorded, true
+		}
+	}
+	if appName == "" || version == "" || filepath.Base(appName) != appName || filepath.Base(version) != version {
+		return "", false
+	}
+	expectedSuffix := filepath.Join(appName, version, "bin")
+	cleanRecorded := filepath.Clean(recorded)
+	if cleanRecorded == "." || (cleanRecorded != expectedSuffix && !strings.HasSuffix(cleanRecorded, string(filepath.Separator)+expectedSuffix)) {
+		return "", false
+	}
+	candidate := filepath.Join(cacheDir, expectedSuffix)
+	if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+		return candidate, true
+	}
+	return candidate, false
+}
+
+func (s *Server) queueExactRuntimeReconstruction(id int64, appName, projectID, cfgEnc, installedVersion, manifestJSON string) {
+	m, err := exactSourceRuntimeManifest(appName, installedVersion, manifestJSON)
+	if err != nil {
+		log.Printf("[APPS-LOCAL] reconstruct install=%d bad manifest: %v", id, err)
+		s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, err.Error(), id)
+		return
+	}
+	var cfg map[string]string
+	if cfgEnc != "" {
+		if plain, err := Decrypt(s.secret, cfgEnc); err == nil {
+			_ = json.Unmarshal([]byte(plain), &cfg)
+		}
+	}
+	s.store.db.Exec(`UPDATE app_installs SET status='pending', status_message='Queued — reconstructing exact installed version', error_message='' WHERE id=?`, id)
+	go func() {
+		release := s.localApps.acquireBuildSlot()
+		defer release()
+		if err := s.installFromSource(id, m, projectID, cfg); err != nil {
+			log.Printf("[APPS-LOCAL] exact reconstruction install=%d app=%s version=%s failed: %v", id, appName, installedVersion, err)
+		}
+	}()
+}
+
+func exactSourceRuntimeManifest(appName, installedVersion, manifestJSON string) (*sdk.Manifest, error) {
+	var m sdk.Manifest
+	if err := json.Unmarshal([]byte(manifestJSON), &m); err != nil {
+		return nil, err
+	}
+	if appName == "" || installedVersion == "" || (m.Runtime.Kind != "source" && m.Runtime.Source == nil) {
+		return nil, errors.New("cached runtime is missing and cannot be reconstructed exactly")
+	}
+	if m.Runtime.Source == nil || strings.TrimSpace(m.Runtime.Source.Repo) == "" || strings.TrimSpace(m.Runtime.Source.Ref) == "" || m.Runtime.Source.Ref == "main" || m.Runtime.Source.Ref == "master" {
+		return nil, errors.New("cached source runtime has no immutable source ref")
+	}
+	m.Name = appName
+	m.Version = installedVersion
+	return &m, nil
 }
 
 // envResumeConcurrency returns APTEVA_RESUME_CONCURRENCY parsed as

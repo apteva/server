@@ -20,6 +20,11 @@ import (
 	"github.com/apteva/server/apps/framework"
 )
 
+func cloneQuarantineEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("APTEVA_CLONE_QUARANTINE")))
+	return v == "1" || v == "true"
+}
+
 // Version fields are injected at build time via -ldflags "-X main.Xxx=..."
 // The Dockerfile reads each component's package.json or go.mod at build
 // time and passes the extracted values, so /health reflects the actual
@@ -531,6 +536,7 @@ func main() {
 		environments:   NewEnvironmentManager(environmentDataRoot(dataDir)),
 	}
 	s.startupIntent = s.readLifecycleIntent(false)
+	quarantined := cloneQuarantineEnabled()
 	s.agentRollouts = newAgentRolloutCoordinator(s.updateAgentCore)
 	s.installCapabilityMemoryHooks()
 	s.ingressCerts = NewIngressCertManager(s)
@@ -547,19 +553,23 @@ func main() {
 	// Start the platform-update poller in the background. First poll
 	// fires immediately so /api/platform-status has data on the very
 	// first dashboard render after boot.
-	go s.platformStatus.Run()
-	go s.startTelemetryRetention()
+	if !quarantined {
+		go s.platformStatus.Run()
+		go s.startTelemetryRetention()
+	}
 
 	// Platform helpers are lazy by default. Eagerly booting one helper
 	// per provider-backed user makes updates noisy and can emit a burst of
 	// telemetry before anyone asks for dashboard help or an eval. Keep an
 	// opt-in escape hatch for deployments that prefer warm helpers.
-	if envTruthy(os.Getenv("APTEVA_BOOT_META_AGENTS")) {
+	if !quarantined && envTruthy(os.Getenv("APTEVA_BOOT_META_AGENTS")) {
 		go s.bootMetaAgents()
 	}
 
-	s.initSlack()
-	s.initEmail()
+	if !quarantined {
+		s.initSlack()
+		s.initEmail()
+	}
 
 	mux := http.NewServeMux()
 
@@ -1402,7 +1412,9 @@ func main() {
 	// the rest of the process lifetime. Symptom: "MCP server
 	// disconnected" on every page reload until manual reconnect.
 	resumeInstancesAfterApps := func() {
-		go s.ResumeRunningInstances()
+		if !quarantined {
+			go s.ResumeRunningInstances()
+		}
 	}
 
 	// One-shot on boot: any local connection that's missing its
@@ -1410,7 +1422,9 @@ func main() {
 	// children created before the auto-MCP hook was added to the
 	// suite handler; also defensive against any race where the MCP
 	// insert failed after the connection insert succeeded.
-	go s.BackfillMissingMCPServers()
+	if !quarantined {
+		go s.BackfillMissingMCPServers()
+	}
 
 	// Graceful shutdown: on SIGTERM or SIGINT (Ctrl+C), stop every
 	// tracked core child cleanly before we exit. Prevents today's
@@ -1448,9 +1462,11 @@ func main() {
 	// any events published during boot are picked up via the bus's
 	// since-cursor (replays from the ring up to last_seq_delivered).
 	s.appEventDispatcher = NewAppEventDispatcher(s)
-	s.appEventDispatcher.Start()
 	s.pollingDispatcher = NewPollingSubscriptionDispatcher(s)
-	s.pollingDispatcher.Start()
+	if !quarantined {
+		s.appEventDispatcher.Start()
+		s.pollingDispatcher.Start()
+	}
 	s.orchestratorURL = os.Getenv("ORCHESTRATOR_URL")
 	if s.orchestratorURL == "" {
 		s.orchestratorURL = "http://46.224.26.45:8099"
@@ -1555,7 +1571,7 @@ func main() {
 		}
 	}()
 	httpIngressAddr, httpsIngressAddr := ingressListenAddrs(listenAddr)
-	if s.ingressCerts != nil && httpsIngressAddr != "" {
+	if !quarantined && s.ingressCerts != nil && httpsIngressAddr != "" {
 		s.ingressCerts.Start(60 * time.Second)
 	}
 	if httpIngressAddr != "" && httpIngressAddr != listenAddr {
@@ -1565,24 +1581,36 @@ func main() {
 		startIngressTLSListener(httpsIngressAddr, hostRouter, s.ingressCerts)
 	}
 
-	s.ResumeLocalInstalls()
-	s.PruneInstalledAppVersions()
-	s.ResumePendingLocalInstalls()
+	if quarantined {
+		if err := s.PrepareCloneLocalRuntimes(); err != nil {
+			log.Printf("[CLONE-QUARANTINE] runtime preparation failed: %v", err)
+		} else {
+			log.Printf("[CLONE-QUARANTINE] runtimes prepared; agents, apps, subscriptions, and refresh workers remain stopped")
+		}
+	} else {
+		s.ResumeLocalInstalls()
+		s.PruneInstalledAppVersions()
+		s.ResumePendingLocalInstalls()
+	}
 	s.LoadInstalledApps()
-	s.RemountStaticApps()
-	s.backfillAppMCPs()
+	if !quarantined {
+		s.RemountStaticApps()
+		s.backfillAppMCPs()
+	}
 	// Backfill any missing requires.apps[].name bindings on running
 	// installs. Catches parents installed before the cascade learned
 	// to write them and out-of-order installs (parent first, dep
 	// later). Idempotent — only writes when a key is genuinely
 	// missing, so re-runs on every boot are cheap.
-	s.reconcileAllAppDepBindings()
-	s.recomputePendingOptions()
+	if !quarantined {
+		s.reconcileAllAppDepBindings()
+		s.recomputePendingOptions()
+	}
 
 	// Apps are healthy and the installedApps registry is populated.
 	// Now safe to spawn agents — their MCP proxies will resolve.
 	resumeInstancesAfterApps()
-	if providerAuthRefreshEnvEnabled() {
+	if !quarantined && providerAuthRefreshEnvEnabled() {
 		s.startProviderAuthRefresher(context.Background())
 	}
 

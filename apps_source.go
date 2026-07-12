@@ -83,12 +83,28 @@ func humaniseBuildLine(line string) string {
 // caller can persist a human-readable status message — passing nil
 // is fine.
 func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, env map[string]string, progress func(string)) (port int, binPath string, err error) {
+	binPath, err = sup.BuildFromSourceBinary(m, progress)
+	if err != nil {
+		return 0, "", err
+	}
+	port, err = sup.startBuiltSource(installID, m, binPath, env, progress)
+	if err != nil {
+		cleanupFailedSourceVersionDir(filepath.Dir(binPath), binPath)
+		return 0, "", err
+	}
+	return port, binPath, nil
+}
+
+// BuildFromSourceBinary reconstructs an exact source runtime without starting
+// it. Clone quarantine uses this to make copied installs portable while keeping
+// app workers and external side effects stopped.
+func (sup *LocalSupervisor) BuildFromSourceBinary(m *sdk.Manifest, progress func(string)) (binPath string, err error) {
 	if progress == nil {
 		progress = func(string) {}
 	}
 	src := m.Runtime.Source
 	if src == nil || src.Repo == "" {
-		return 0, "", fmt.Errorf("manifest has no source.repo")
+		return "", fmt.Errorf("manifest has no source.repo")
 	}
 	ref := src.Ref
 	if ref == "" {
@@ -103,7 +119,7 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 	srcDir := filepath.Join(dir, "src")
 	binPath = filepath.Join(dir, "bin")
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return 0, "", err
+		return "", err
 	}
 	// Share GOCACHE + GOMODCACHE across every app build instead of
 	// giving each (app × version) its own ~900 MB private cache. The
@@ -111,23 +127,32 @@ func (sup *LocalSupervisor) BuildFromSource(installID int64, m *sdk.Manifest, en
 	// collide with an app called "gocache" or "gomodcache".
 	gobuildDir := filepath.Join(sup.cacheDir, ".gobuild")
 	if err := os.MkdirAll(gobuildDir, 0755); err != nil {
-		return 0, "", err
+		return "", err
 	}
 
 	progress(fmt.Sprintf("Cloning %s@%s…", src.Repo, ref))
 	if err := cloneOrUpdate(srcDir, src.Repo, ref, entry); err != nil {
 		cleanupFailedSourceVersionDir(dir, binPath)
-		return 0, "", fmt.Errorf("clone %s@%s: %w", src.Repo, ref, err)
+		return "", fmt.Errorf("clone %s@%s: %w", src.Repo, ref, err)
 	}
-	port, err = sup.buildAndSpawn(installID, m, srcDir, entry, binPath, gobuildDir, nil, env, progress)
-	if err != nil {
+	progress("Compiling…")
+	if err := goBuild(srcDir, entry, binPath, gobuildDir, nil, progress); err != nil {
 		cleanupFailedSourceVersionDir(dir, binPath)
-		return 0, "", err
+		return "", fmt.Errorf("go build: %w", err)
 	}
 	if err := stripGitMetadata(srcDir); err != nil {
 		log.Printf("[APPS-SOURCE] strip git metadata %s: %v", srcDir, err)
 	}
-	return port, binPath, nil
+	return binPath, nil
+}
+
+func (sup *LocalSupervisor) startBuiltSource(installID int64, m *sdk.Manifest, binPath string, env map[string]string, progress func(string)) (int, error) {
+	srcDir := filepath.Join(filepath.Dir(binPath), "src")
+	entry := "."
+	if m.Runtime.Source != nil && m.Runtime.Source.Entry != "" {
+		entry = m.Runtime.Source.Entry
+	}
+	return sup.spawnBuiltSource(installID, m, srcDir, entry, binPath, env, progress)
 }
 
 // buildAndSpawn compiles srcDir/<entry> → binPath, then spawns +
@@ -150,7 +175,10 @@ func (sup *LocalSupervisor) buildAndSpawn(installID int64, m *sdk.Manifest, srcD
 	if err := goBuild(srcDir, entry, binPath, gobuildDir, goEnv, progress); err != nil {
 		return 0, fmt.Errorf("go build: %w", err)
 	}
+	return sup.spawnBuiltSource(installID, m, srcDir, entry, binPath, env, progress)
+}
 
+func (sup *LocalSupervisor) spawnBuiltSource(installID int64, m *sdk.Manifest, srcDir, entry, binPath string, env map[string]string, progress func(string)) (port int, err error) {
 	port, err = freePort()
 	if err != nil {
 		return 0, err

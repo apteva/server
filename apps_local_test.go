@@ -5,13 +5,108 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	sdk "github.com/apteva/app-sdk"
 )
+
+func TestPortableLocalBinPath(t *testing.T) {
+	cache := t.TempDir()
+	current := filepath.Join(cache, "deploy", "1.2.3", "bin")
+	if err := os.MkdirAll(filepath.Dir(current), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(current, []byte("binary"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, ok := portableLocalBinPath(current, cache, "deploy", "1.2.3"); !ok || got != current {
+		t.Fatalf("existing path changed: got=%q ok=%v", got, ok)
+	}
+	old := filepath.Join(t.TempDir(), "deploy", "1.2.3", "bin")
+	if got, ok := portableLocalBinPath(old, cache, "deploy", "1.2.3"); !ok || got != current {
+		t.Fatalf("portable path not rebased: got=%q ok=%v", got, ok)
+	}
+	if got, ok := portableLocalBinPath(filepath.Join(t.TempDir(), "unrelated"), cache, "deploy", "1.2.3"); ok || got != "" {
+		t.Fatalf("arbitrary missing path was rebased: got=%q ok=%v", got, ok)
+	}
+	if _, ok := portableLocalBinPath(old, cache, "../deploy", "1.2.3"); ok {
+		t.Fatal("unsafe app name was accepted")
+	}
+}
+
+func TestPrepareCloneLocalRuntimesRebasesWithoutStarting(t *testing.T) {
+	s := newTestServer(t)
+	cache := t.TempDir()
+	s.localApps = NewLocalSupervisor(cache)
+	m := sdk.Manifest{Name: "deploy", Version: "1.2.3", Runtime: sdk.Runtime{Kind: "source", Source: &sdk.SourceSpec{Repo: "example.invalid/repo", Ref: "v1.2.3"}}}
+	id := seedRunningInstall(t, s, m.Name, "", m, nil)
+	current := filepath.Join(cache, m.Name, m.Version, "bin")
+	if err := os.MkdirAll(filepath.Dir(current), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(current, []byte("binary"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(t.TempDir(), m.Name, m.Version, "bin")
+	if err := os.MkdirAll(filepath.Dir(old), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old, []byte("source binary"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET local_bin_path=?, local_pid=4242, local_port=7000 WHERE id=?`, old, id); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.PrepareCloneLocalRuntimes(); err != nil {
+		t.Fatal(err)
+	}
+	var path, status string
+	var pid, port int64
+	if err := s.store.db.QueryRow(`SELECT local_bin_path, status, local_pid, local_port FROM app_installs WHERE id=?`, id).Scan(&path, &status, &pid, &port); err != nil {
+		t.Fatal(err)
+	}
+	if path != current || status != "running" || pid != 4242 || port != 7000 {
+		t.Fatalf("unexpected quarantine mutation: path=%q status=%q pid=%d port=%d", path, status, pid, port)
+	}
+	if s.localApps.PID(id) != 0 {
+		t.Fatal("quarantine started the sidecar")
+	}
+}
+
+func TestCloneQuarantineEnabledIsOptIn(t *testing.T) {
+	t.Setenv("APTEVA_CLONE_QUARANTINE", "")
+	if cloneQuarantineEnabled() {
+		t.Fatal("quarantine enabled by default")
+	}
+	t.Setenv("APTEVA_CLONE_QUARANTINE", "1")
+	if !cloneQuarantineEnabled() {
+		t.Fatal("quarantine not enabled for 1")
+	}
+}
+
+func TestExactSourceRuntimeManifestPinsInstalledVersion(t *testing.T) {
+	raw := `{"name":"deploy","version":"9.9.9","runtime":{"kind":"source","source":{"repo":"github.com/apteva/apps","ref":"deploy/v1.2.3"}}}`
+	m, err := exactSourceRuntimeManifest("deploy", "1.2.3", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Version != "1.2.3" || m.Runtime.Source.Ref != "deploy/v1.2.3" {
+		t.Fatalf("runtime not pinned: version=%q ref=%q", m.Version, m.Runtime.Source.Ref)
+	}
+	mutable := strings.Replace(raw, "deploy/v1.2.3", "main", 1)
+	if _, err := exactSourceRuntimeManifest("deploy", "1.2.3", mutable); err == nil {
+		t.Fatal("mutable source ref accepted for exact reconstruction")
+	}
+}
 
 func TestChildEnvWithOverridesReplacesInheritedProxyEnv(t *testing.T) {
 	base := []string{

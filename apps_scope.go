@@ -259,6 +259,7 @@ func (s *Server) restartInstallSidecar(installID int64) error {
 		pid              int64
 		port             int64
 		binPath          string
+		appName          string
 		projectID        string
 		cfgEnc           string
 		installedVersion string
@@ -266,12 +267,12 @@ func (s *Server) restartInstallSidecar(installID int64) error {
 	)
 	err := s.store.db.QueryRow(
 		`SELECT COALESCE(i.local_pid,0), COALESCE(i.local_port,0),
-		        COALESCE(i.local_bin_path,''), COALESCE(i.project_id,''),
+		        COALESCE(i.local_bin_path,''), a.name, COALESCE(i.project_id,''),
 		        COALESCE(i.config_encrypted,''), COALESCE(i.version,''),
 		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.id = ?`, installID,
-	).Scan(&pid, &port, &binPath, &projectID, &cfgEnc, &installedVersion, &manifestJSON)
+	).Scan(&pid, &port, &binPath, &appName, &projectID, &cfgEnc, &installedVersion, &manifestJSON)
 	if err != nil {
 		return err
 	}
@@ -280,6 +281,6 @@ func (s *Server) restartInstallSidecar(installID int64) error {
 		// restart; the eventual build will pick up the new scope.
 		return nil
 	}
-	go s.resumeOneLocalInstall(installID, pid, port, binPath, projectID, cfgEnc, installedVersion, manifestJSON)
+	go s.resumeOneLocalInstall(installID, pid, port, binPath, appName, projectID, cfgEnc, installedVersion, manifestJSON)
 	return nil
 }
