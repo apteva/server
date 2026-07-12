@@ -438,9 +438,20 @@ func deriveManifestURL(m *sdk.Manifest) string {
 	return fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/apteva.yaml", ownerAndRepo, ref, strings.Trim(entry, "/"))
 }
 
+// updateManifestURL returns the moving manifest URL used to discover and
+// execute upgrades. Curated apps must follow the registry's manifest_url:
+// the runtime ref in an installed manifest is an immutable release tag and
+// therefore cannot advertise the next release. Unregistered source apps fall
+// back to their declared runtime source.
+func (s *Server) updateManifestURL(appName string, installed *sdk.Manifest) string {
+	if url := s.lookupRegistryManifestURL(appName); url != "" {
+		return url
+	}
+	return deriveManifestURL(installed)
+}
+
 // refreshManifestFromUpstream re-fetches the live apteva.yaml from
-// the install's source (github raw URL derived from the stored
-// manifest's runtime.source) and writes it back into apps.manifest_json
+// the app's moving update channel and writes it back into apps.manifest_json
 // so the dashboard's "update available" detector compares the
 // installed version against what's actually upstream — not against
 // the snapshot taken at install time, and not against the running
@@ -456,15 +467,7 @@ func (s *Server) refreshManifestFromUpstream(appName, manifestJSON string) {
 	if err := json.Unmarshal([]byte(manifestJSON), &current); err != nil {
 		return
 	}
-	// Try runtime.source first (github raw URL derived from the
-	// manifest itself). When that's not declared — true for any app
-	// that ships via runtime.bundle — fall back to the curated
-	// registry's manifest_url. Both paths land at the same kind of
-	// URL; they just differ in who declares it.
-	url := deriveManifestURL(&current)
-	if url == "" {
-		url = s.lookupRegistryManifestURL(appName)
-	}
+	url := s.updateManifestURL(appName, &current)
 	if url == "" {
 		return
 	}
@@ -1833,7 +1836,7 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	// gets the version the user actually wants, not the snapshot in
 	// apps.manifest_json (which may itself be stale if the cache hasn't
 	// rolled over).
-	url := deriveManifestURL(&stored)
+	url := s.updateManifestURL(stored.Name, &stored)
 	if url == "" {
 		http.Error(w, "manifest has no github source — uninstall + reinstall at the desired ref", http.StatusNotImplemented)
 		return

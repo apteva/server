@@ -8,12 +8,16 @@ package main
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	sdk "github.com/apteva/app-sdk"
 )
 
 // TestPruneOldAppVersions_PreservesDataDir is the load-bearing
@@ -232,6 +236,44 @@ func TestRefExprRecognizesNamespacedReleaseTags(t *testing.T) {
 		if got := refExpr(input); got != want {
 			t.Errorf("refExpr(%q)=%q, want %q", input, got, want)
 		}
+	}
+}
+
+func TestUpdateManifestURLPrefersRegistryReleaseChannel(t *testing.T) {
+	manifestURL := "https://example.test/apps/instances/apteva.yaml"
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"schema":"apteva-registry/v1","apps":[{"name":"instances","manifest_url":"` + manifestURL + `"}]}`))
+	}))
+	defer registry.Close()
+	t.Setenv("APTEVA_APP_REGISTRY_URL", registry.URL)
+
+	registryCacheMu.Lock()
+	previousCache := registryCache
+	registryCache = registryCacheEntry{}
+	registryCacheMu.Unlock()
+	t.Cleanup(func() {
+		registryCacheMu.Lock()
+		registryCache = previousCache
+		registryCacheMu.Unlock()
+	})
+
+	s := newTestServer(t)
+	installed := &sdk.Manifest{
+		Name: "instances",
+		Runtime: sdk.Runtime{Source: &sdk.SourceSpec{
+			Repo:  "github.com/apteva/apps",
+			Ref:   "instances/v0.4.18",
+			Entry: "mcp/instances",
+		}},
+	}
+	if got := s.updateManifestURL("instances", installed); got != manifestURL {
+		t.Fatalf("updateManifestURL()=%q, want registry URL %q", got, manifestURL)
+	}
+
+	wantFallback := "https://raw.githubusercontent.com/apteva/apps/instances/v0.4.18/mcp/instances/apteva.yaml"
+	if got := s.updateManifestURL("private-app", installed); got != wantFallback {
+		t.Fatalf("fallback updateManifestURL()=%q, want %q", got, wantFallback)
 	}
 }
 
