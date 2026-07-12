@@ -1278,6 +1278,27 @@ func registerEnvironmentIntegrationMode(environmentID, mode string) func() {
 	return func() { environmentIntegrationModes.Delete(environmentID) }
 }
 
+func inputSchemaRequires(schema map[string]any, field string) bool {
+	if field == "" || schema == nil {
+		return false
+	}
+	switch required := schema["required"].(type) {
+	case []string:
+		for _, name := range required {
+			if name == field {
+				return true
+			}
+		}
+	case []any:
+		for _, raw := range required {
+			if name, ok := raw.(string); ok && name == field {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string) (*ExecuteResult, error) {
 	// Environment test-mode seam: a call inside a Environment must NEVER reach the real
 	// API. Resolve it fail-safe, in order:
@@ -1426,6 +1447,15 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	if err != nil {
 		return nil, err
 	}
+	var binaryBody any
+	binaryBodyPresent := false
+	if tool.BodyBinaryParam != "" {
+		binaryBody, binaryBodyPresent = input[tool.BodyBinaryParam]
+		binaryBodyPresent = binaryBodyPresent && binaryBody != nil
+		if !binaryBodyPresent && inputSchemaRequires(tool.InputSchema, tool.BodyBinaryParam) {
+			return nil, fmt.Errorf("body_binary_param %q is required", tool.BodyBinaryParam)
+		}
+	}
 
 	// Build body for POST/PUT/PATCH, plus DELETE only when a template
 	// explicitly declares a body slot. Some APIs, including Spaceship's
@@ -1452,12 +1482,8 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			}
 			bodyReader = body
 			headers["Content-Type"] = contentType
-		} else if tool.BodyBinaryParam != "" {
-			v, ok := input[tool.BodyBinaryParam]
-			if !ok || v == nil {
-				return nil, fmt.Errorf("body_binary_param %q is required", tool.BodyBinaryParam)
-			}
-			env, ok := v.(map[string]any)
+		} else if tool.BodyBinaryParam != "" && binaryBodyPresent {
+			env, ok := binaryBody.(map[string]any)
 			if !ok {
 				return nil, fmt.Errorf("body_binary_param %q must be a binary envelope", tool.BodyBinaryParam)
 			}

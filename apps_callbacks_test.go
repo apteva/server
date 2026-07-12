@@ -306,6 +306,79 @@ func TestCallback_IntegrationExecute_RejectsMissingPermission(t *testing.T) {
 	}
 }
 
+func TestCallback_IntegrationExecute_StripsProjectRoutingInput(t *testing.T) {
+	var upstreamBody map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&upstreamBody); err != nil {
+			t.Fatalf("decode upstream body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"msg_test"}`))
+	}))
+	defer upstream.Close()
+
+	s := newTestServer(t)
+	s.secret = []byte("0123456789abcdef0123456789abcdef")
+	s.catalog = NewAppCatalog()
+	s.catalog.Register(&AppTemplate{
+		Slug:    "anthropic",
+		BaseURL: upstream.URL,
+		Auth: AppAuthConfig{
+			Types:   []string{"api_key"},
+			Headers: map[string]string{"x-api-key": "{{api_key}}"},
+		},
+		Tools: []AppToolDef{{Name: "messages_create", Method: "POST", Path: "/v1/messages"}},
+	})
+
+	manifest := integrationOfficialManifest("functions", true)
+	manifest.Requires.Permissions = []sdk.Permission{sdk.PermConnectionsExecute}
+	installID := seedRunningInstall(t, s, "functions", "", manifest, nil)
+
+	plain, _ := json.Marshal(map[string]string{"api_key": "test-key"})
+	encrypted, err := Encrypt(s.secret, string(plain))
+	if err != nil {
+		t.Fatalf("encrypt credentials: %v", err)
+	}
+	conn, err := s.store.CreateConnectionExt(ConnectionInput{
+		UserID: 1, AppSlug: "anthropic", AppName: "Anthropic", Name: "Anthropic",
+		AuthType: "api_key", EncryptedCreds: encrypted, ProjectID: "proj-1",
+		CreatedVia: "app_install", OwnerAppInstallID: 999,
+	})
+	if err != nil {
+		t.Fatalf("create connection: %v", err)
+	}
+
+	req := httptest.NewRequest("POST", "/apps/callback/integrations/"+itoa(conn.ID)+"/execute",
+		strings.NewReader(`{"tool":"messages_create","input":{"_project_id":"proj-1","model":"claude-test","messages":[{"role":"user","content":"hello"}]}}`))
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if upstreamBody["model"] != "claude-test" {
+		t.Fatalf("upstream body missing provider input: %#v", upstreamBody)
+	}
+	if _, leaked := upstreamBody["_project_id"]; leaked {
+		t.Fatalf("routing metadata leaked upstream: %#v", upstreamBody)
+	}
+}
+
+func TestSanitizeIntegrationCallbackInputDoesNotMutateCaller(t *testing.T) {
+	input := map[string]any{"_project_id": " proj-1 ", "model": "claude-test"}
+	projectID, clean := sanitizeIntegrationCallbackInput(input)
+	if projectID != "proj-1" {
+		t.Fatalf("projectID=%q", projectID)
+	}
+	if _, present := clean["_project_id"]; present {
+		t.Fatalf("clean input contains routing field: %#v", clean)
+	}
+	if input["_project_id"] != " proj-1 " {
+		t.Fatalf("caller input mutated: %#v", input)
+	}
+}
+
 // --- /apps/:appName/call auth checks --------------------------------
 
 func TestCallback_AppCall_RejectsUnboundApp(t *testing.T) {

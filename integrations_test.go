@@ -1470,6 +1470,80 @@ func TestExecuteIntegrationTool_BodyBinaryParamRejectsInvalidEnvelope(t *testing
 	}
 }
 
+func TestExecuteIntegrationTool_OptionalBodyBinaryParamFallsBackToJSON(t *testing.T) {
+	var capturedCT string
+	var capturedBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedCT = r.Header.Get("Content-Type")
+		if err := json.NewDecoder(r.Body).Decode(&capturedBody); err != nil {
+			t.Fatalf("decode upstream body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{Slug: "deepgram", BaseURL: srv.URL}
+	tool := &AppToolDef{
+		Name:            "listen",
+		Method:          "POST",
+		Path:            "/v1/listen",
+		BodyBinaryParam: "audio",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"url":   map[string]any{"type": "string"},
+				"audio": map[string]any{"type": "string"},
+			},
+		},
+	}
+	input := map[string]any{"url": "https://cdn.example.test/audio.mp3", "model": "nova-3"}
+	result, err := executeIntegrationTool(app, tool, nil, input, "")
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("result=%+v", result)
+	}
+	if capturedCT != "application/json" {
+		t.Fatalf("Content-Type=%q, want application/json", capturedCT)
+	}
+	if capturedBody["url"] != input["url"] || capturedBody["model"] != "nova-3" {
+		t.Fatalf("upstream body=%#v", capturedBody)
+	}
+	if _, leaked := capturedBody["audio"]; leaked {
+		t.Fatalf("absent binary field leaked into JSON: %#v", capturedBody)
+	}
+}
+
+func TestExecuteIntegrationTool_RequiredBodyBinaryParamStillRejectsMissing(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{Slug: "youtube-api", BaseURL: srv.URL}
+	tool := &AppToolDef{
+		Name:            "set_thumbnail",
+		Method:          "POST",
+		Path:            "/upload",
+		BodyBinaryParam: "image",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []any{"videoId", "image"},
+		},
+	}
+	_, err := executeIntegrationTool(app, tool, nil, map[string]any{"videoId": "abc123"}, "")
+	if err == nil || !strings.Contains(err.Error(), `body_binary_param "image" is required`) {
+		t.Fatalf("error=%v, want required binary error", err)
+	}
+	if called {
+		t.Fatal("upstream called despite missing required binary input")
+	}
+}
+
 func TestExecuteIntegrationTool_MultipartForm(t *testing.T) {
 	var capturedPath string
 	var capturedCT string

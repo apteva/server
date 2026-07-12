@@ -632,6 +632,7 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	if body.Input == nil {
 		body.Input = map[string]any{}
 	}
+	delegatedProject, executionInput := sanitizeIntegrationCallbackInput(body.Input)
 
 	// 2. Permission check.
 	if !installHasPermission(s, installID, sdk.PermConnectionsExecute) {
@@ -680,7 +681,6 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		// access and is identified as official (apps_dynamic_call.go).
 		// Project isolation is preserved: the connection's project_id
 		// must match the caller install's.
-		delegatedProject, _ := body.Input["_project_id"].(string)
 		if ok, msg := s.resolveDynamicIntegration(installID, connID, conn.ProjectID, delegatedProject); ok {
 			log.Printf("[INTEGRATIONS-EXEC] grant=dynamic install=%d conn=%d slug=%s", installID, connID, conn.AppSlug)
 		} else if msg != "" {
@@ -735,7 +735,7 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "delegated provider credentials invalid: "+err.Error(), http.StatusBadGateway)
 		return
 	} else if ok {
-		result, err := s.executeDelegatedProviderTool(installID, connID, conn, grant, tool.Name, body.Input)
+		result, err := s.executeDelegatedProviderTool(installID, connID, conn, grant, tool.Name, executionInput)
 		if err != nil {
 			writeJSON(w, map[string]any{"success": false, "data": err.Error()})
 			return
@@ -748,9 +748,9 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	ctx, err := s.resolveConnectionContext(userID, app, credentials, body.Input)
+	ctx, err := s.resolveConnectionContext(userID, app, credentials, executionInput)
 	if err != nil {
-		s.recordIntegrationUsage(integrationUsageFromResult(conn, installID, s.callerAppName(installID), tool.Name, body.Input, nil, err))
+		s.recordIntegrationUsage(integrationUsageFromResult(conn, installID, s.callerAppName(installID), tool.Name, executionInput, nil, err))
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -775,23 +775,23 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	}
 	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
 	if err != nil {
-		if ev, ok := delegatedUsageFromHeaders(r, connID, conn, tool.Name, body.Input, "error", err.Error()); ok {
+		if ev, ok := delegatedUsageFromHeaders(r, connID, conn, tool.Name, executionInput, "error", err.Error()); ok {
 			s.recordDelegatedProviderUsage(ev)
 		} else {
-			s.recordIntegrationUsage(integrationUsageFromResult(conn, installID, s.callerAppName(installID), tool.Name, body.Input, nil, err))
+			s.recordIntegrationUsage(integrationUsageFromResult(conn, installID, s.callerAppName(installID), tool.Name, executionInput, nil, err))
 		}
 		writeJSON(w, map[string]any{"success": false, "data": err.Error()})
 		return
 	}
-	if ev, ok := delegatedUsageFromHeaders(r, connID, conn, tool.Name, body.Input, "success", ""); ok {
-		ev.Quantity, ev.Unit, _ = integrationUsageMetric(conn, tool.Name, body.Input, result)
+	if ev, ok := delegatedUsageFromHeaders(r, connID, conn, tool.Name, executionInput, "success", ""); ok {
+		ev.Quantity, ev.Unit, _ = integrationUsageMetric(conn, tool.Name, executionInput, result)
 		if result != nil && (!result.Success || result.Status >= 400) {
 			ev.Status = "error"
 			ev.Error = truncate(fmt.Sprintf("%v", result.Data), 500)
 		}
 		s.recordDelegatedProviderUsage(ev)
 	} else {
-		s.recordIntegrationUsage(integrationUsageFromResult(conn, installID, s.callerAppName(installID), tool.Name, body.Input, result, nil))
+		s.recordIntegrationUsage(integrationUsageFromResult(conn, installID, s.callerAppName(installID), tool.Name, executionInput, result, nil))
 	}
 	// Match handleExecuteTool's response shape. The SDK caller can
 	// json.Unmarshal the data field into whatever type they expect.
@@ -800,6 +800,21 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, result)
+}
+
+// sanitizeIntegrationCallbackInput separates server-owned routing metadata
+// from provider input. App callbacks may use _project_id to authorize a
+// dynamic integration call, but upstream APIs must never receive that field.
+func sanitizeIntegrationCallbackInput(input map[string]any) (string, map[string]any) {
+	projectID, _ := input["_project_id"].(string)
+	clean := make(map[string]any, len(input))
+	for key, value := range input {
+		if key == "_project_id" {
+			continue
+		}
+		clean[key] = value
+	}
+	return strings.TrimSpace(projectID), clean
 }
 
 // ─── /apps/:appName/call ───────────────────────────────────────────
