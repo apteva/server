@@ -423,7 +423,11 @@ func refExpr(ref string) string {
 }
 
 func isLikelySHAOrTag(ref string) bool {
-	if strings.HasPrefix(ref, "v") {
+	// App release tags are namespaced by slug (for example
+	// "instances/v0.4.19"). Treat a version-shaped final path segment
+	// as a tag so checkout uses the local tag ref instead of inventing
+	// an origin/<tag> remote-tracking branch.
+	if strings.HasPrefix(filepath.Base(ref), "v") {
 		return true
 	}
 	return isLikelySHA(ref)

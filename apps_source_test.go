@@ -219,6 +219,22 @@ func TestCloneArgsUsePartialShallowCheckoutForBranchRefs(t *testing.T) {
 	}
 }
 
+func TestRefExprRecognizesNamespacedReleaseTags(t *testing.T) {
+	tests := map[string]string{
+		"":                     "origin/main",
+		"main":                 "origin/main",
+		"feature/source-cache": "origin/feature/source-cache",
+		"v1.2.3":               "v1.2.3",
+		"instances/v0.4.19":    "instances/v0.4.19",
+		"0123456789abcdef":     "0123456789abcdef",
+	}
+	for input, want := range tests {
+		if got := refExpr(input); got != want {
+			t.Errorf("refExpr(%q)=%q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestNormalizeSparsePaths(t *testing.T) {
 	got := normalizeSparsePaths("mcp/code/", "/ui/dist", ".", "", "mcp/code")
 	want := []string{"mcp/code", "ui/dist"}
