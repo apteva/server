@@ -7,6 +7,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -427,6 +428,127 @@ func TestCallback_AppCall_RejectsMissingPermission(t *testing.T) {
 	s.handleAppCallback(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 missing permission, got %d", rec.Code)
+	}
+}
+
+func TestCallback_AppProxy_StreamsThroughExactBinding(t *testing.T) {
+	s := newTestServer(t)
+	s.installedApps = NewInstalledAppsRegistry()
+	ensureTestAdmin(t, s)
+	var gotPath, gotQuery, gotAuth, gotTargetID, gotCallerID, gotUserID, gotRange, gotBody string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.Query().Get("project_id")
+		gotAuth = r.Header.Get("Authorization")
+		gotTargetID = r.Header.Get("X-Apteva-App-Install-ID")
+		gotCallerID = r.Header.Get("X-Apteva-Bound-Caller-Install-ID")
+		gotUserID = r.Header.Get("X-User-ID")
+		gotRange = r.Header.Get("Range")
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		if r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = io.WriteString(w, "video-bytes")
+	}))
+	defer upstream.Close()
+
+	storageManifest := sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "storage"}
+	storageID := seedInstallWithBindings(t, s, "storage", storageManifest, nil)
+	s.installedApps.Add(&InstalledApp{
+		InstallID: storageID, AppName: "storage", ProjectID: "proj-1",
+		Manifest: storageManifest, SidecarURL: upstream.URL, Token: "storage-token",
+	})
+	mediaManifest := sdk.Manifest{
+		Schema: sdk.SchemaCurrent,
+		Name:   "media",
+		Requires: sdk.Requires{
+			Permissions: []sdk.Permission{sdk.PermAppsCall},
+			Apps:        []sdk.RequiredAppRef{{Name: "storage"}},
+		},
+	}
+	mediaID := seedInstallWithBindings(t, s, "media", mediaManifest, map[string]any{"storage": storageID})
+	mediaToken, err := s.appInstallToken(mediaID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/apps/callback/apps/storage/proxy/files/5300/content?project_id=proj-1", nil)
+	req.Header.Set("Authorization", "Bearer "+mediaToken)
+	req.Header.Set("Range", "bytes=0-1023")
+	rec := httptest.NewRecorder()
+	s.authMiddleware(s.handleAppCallback)(rec, req)
+
+	if rec.Code != http.StatusPartialContent || rec.Body.String() != "video-bytes" {
+		t.Fatalf("response = %d %q", rec.Code, rec.Body.String())
+	}
+	if gotPath != "/files/5300/content" || gotQuery != "proj-1" {
+		t.Fatalf("upstream route = %q project=%q", gotPath, gotQuery)
+	}
+	if gotAuth != "Bearer storage-token" {
+		t.Fatalf("target credential not swapped: %q", gotAuth)
+	}
+	if gotTargetID != itoa(storageID) || gotCallerID != itoa(mediaID) {
+		t.Fatalf("install headers target=%q caller=%q", gotTargetID, gotCallerID)
+	}
+	if gotUserID != "1" {
+		t.Fatalf("trusted caller user missing: %q", gotUserID)
+	}
+	if gotRange != "bytes=0-1023" {
+		t.Fatalf("Range header lost: %q", gotRange)
+	}
+
+	req = httptest.NewRequest(http.MethodPost,
+		"/apps/callback/apps/storage/proxy/uploads?project_id=proj-1", strings.NewReader("upload-bytes"))
+	req.Header.Set("Authorization", "Bearer "+mediaToken)
+	rec = httptest.NewRecorder()
+	s.authMiddleware(s.handleAppCallback)(rec, req)
+	if rec.Code != http.StatusCreated || gotPath != "/uploads" || gotBody != "upload-bytes" {
+		t.Fatalf("streamed upload = status %d path %q body %q", rec.Code, gotPath, gotBody)
+	}
+}
+
+func TestCallback_AppProxy_RejectsUnboundAndCrossProject(t *testing.T) {
+	s := newTestServer(t)
+	s.installedApps = NewInstalledAppsRegistry()
+	ensureTestAdmin(t, s)
+	manifest := sdk.Manifest{
+		Schema: sdk.SchemaCurrent, Name: "media",
+		Requires: sdk.Requires{
+			Permissions: []sdk.Permission{sdk.PermAppsCall},
+			Apps:        []sdk.RequiredAppRef{{Name: "storage"}},
+		},
+	}
+	mediaID := seedInstallWithBindings(t, s, "media", manifest, nil)
+	req := httptest.NewRequest(http.MethodGet,
+		"/apps/callback/apps/storage/proxy/files/1?project_id=proj-1", nil)
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(mediaID))
+	rec := httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("unbound: expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	storageManifest := sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "storage"}
+	storageID := seedInstallWithBindings(t, s, "storage", storageManifest, nil)
+	s.installedApps.Add(&InstalledApp{
+		InstallID: storageID, AppName: "storage", ProjectID: "proj-1",
+		Manifest: storageManifest, SidecarURL: "http://127.0.0.1:1", Token: "storage-token",
+	})
+	bindingJSON, _ := json.Marshal(map[string]any{"storage": storageID})
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET integration_bindings=? WHERE id=?`, bindingJSON, mediaID); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodGet,
+		"/apps/callback/apps/storage/proxy/files/1?project_id=other-project", nil)
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(mediaID))
+	rec = httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "scoped to another project") {
+		t.Fatalf("cross-project: expected project 403, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

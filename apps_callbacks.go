@@ -33,6 +33,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -835,8 +837,12 @@ func sanitizeIntegrationCallbackInput(input map[string]any) (string, map[string]
 // proxy machinery the dashboard uses — credentials in the form of
 // the target's APTEVA_APP_TOKEN are injected by handleAppProxy.
 func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, parts []string) {
+	if len(parts) >= 2 && parts[1] == "proxy" {
+		s.handleCallbackAppProxy(w, r, parts[0], parts[2:])
+		return
+	}
 	if len(parts) != 2 || parts[1] != "call" || r.Method != http.MethodPost {
-		http.Error(w, "POST /apps/:name/call only", http.StatusMethodNotAllowed)
+		http.Error(w, "use /apps/:name/call or /apps/:name/proxy/*", http.StatusMethodNotAllowed)
 		return
 	}
 	installID, err := requireInstallID(r)
@@ -941,6 +947,87 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(respBody)
+}
+
+// handleCallbackAppProxy is the streaming counterpart to CallApp.
+// It is intentionally mounted below the authenticated callback
+// surface rather than /api/apps/<name>: the caller keeps its own app
+// credential, the server verifies platform.apps.call plus the exact
+// requires.apps binding, then swaps in the target install's token.
+// This supports large downloads, resumable uploads, Range requests,
+// and SSE without exposing target credentials or weakening the
+// ordinary app proxy's same-install credential rule.
+func (s *Server) handleCallbackAppProxy(w http.ResponseWriter, r *http.Request, targetAppName string, tailParts []string) {
+	callerInstallID, err := requireInstallID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	if targetAppName == "" || len(tailParts) == 0 {
+		http.Error(w, "target app and proxy path required", http.StatusBadRequest)
+		return
+	}
+	if !installHasPermission(s, callerInstallID, sdk.PermAppsCall) {
+		http.Error(w, "missing permission: "+string(sdk.PermAppsCall), http.StatusForbidden)
+		return
+	}
+	targetInstallID := installBoundAppID(s, callerInstallID, targetAppName)
+	if targetInstallID == 0 {
+		http.Error(w, "target app is not bound: "+targetAppName, http.StatusForbidden)
+		return
+	}
+	target := s.installedApps.Get(targetInstallID)
+	if target == nil || target.SidecarURL == "" {
+		http.Error(w, "target app not reachable: "+targetAppName, http.StatusBadGateway)
+		return
+	}
+	q := r.URL.Query()
+	callerUserID, requestedProjectID, ok := s.runtimeCallerProject(
+		w, r, callerInstallID, q.Get("project_id"), ProjectViewer,
+	)
+	if !ok {
+		return
+	}
+	if target.ProjectID != "" && requestedProjectID != target.ProjectID {
+		http.Error(w, "project_id does not match bound target install", http.StatusForbidden)
+		return
+	}
+	q.Set("project_id", requestedProjectID)
+	r.URL.RawQuery = q.Encode()
+	for _, part := range tailParts {
+		if part == "." || part == ".." {
+			http.Error(w, "invalid proxy path", http.StatusBadRequest)
+			return
+		}
+	}
+
+	upstream, err := url.Parse(target.SidecarURL)
+	if err != nil {
+		http.Error(w, "invalid target sidecar URL", http.StatusInternalServerError)
+		return
+	}
+	proxy := httputil.NewSingleHostReverseProxy(upstream)
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.URL.Path = "/" + strings.Join(tailParts, "/")
+		req.URL.RawPath = ""
+		req.Header.Set("X-User-ID", strconv.FormatInt(callerUserID, 10))
+		req.Header.Del("X-Apteva-Project-ID")
+		if requestedProjectID != "" {
+			req.Header.Set("X-Apteva-Project-ID", requestedProjectID)
+		}
+		req.Header.Del("X-Apteva-Subject-Type")
+		req.Header.Del("X-Apteva-Original-Authorization")
+		if target.Token != "" {
+			req.Header.Set("Authorization", "Bearer "+target.Token)
+		} else {
+			req.Header.Del("Authorization")
+		}
+		req.Header.Set("X-Apteva-App-Install-ID", strconv.FormatInt(target.InstallID, 10))
+		req.Header.Set("X-Apteva-Bound-Caller-Install-ID", strconv.FormatInt(callerInstallID, 10))
+	}
+	proxy.ServeHTTP(w, r)
 }
 
 // ─── helpers ───────────────────────────────────────────────────────
