@@ -75,6 +75,10 @@ func TestHandleListAppsClosesInstallRowsBeforeIntegrationRows(t *testing.T) {
 		Name:        "storage",
 		DisplayName: "Storage",
 		Version:     "0.1.0",
+		Provides: sdk.Provides{UISurfaces: []sdk.UISurface{{
+			ID: "files", Label: "Files", Icon: "folder", Schema: sdk.NativeSurfaceSchemaCurrent,
+			Entry: "/ui/surfaces/files.json", Slots: []string{sdk.UISurfaceSlotMobileProjectApp},
+		}}},
 	}
 	manifestJSON, err := json.Marshal(manifest)
 	if err != nil {
@@ -131,6 +135,15 @@ func TestHandleListAppsClosesInstallRowsBeforeIntegrationRows(t *testing.T) {
 	}
 	if len(rows) != 2 {
 		t.Fatalf("rows=%d, want app row plus integration row: %s", len(rows), rec.Body.String())
+	}
+	var storage *AppRow
+	for i := range rows {
+		if rows[i].Name == "storage" {
+			storage = &rows[i]
+		}
+	}
+	if storage == nil || len(storage.UISurfaces) != 1 || storage.UISurfaces[0].ID != "files" {
+		t.Fatalf("storage ui_surfaces missing from response: %#v", storage)
 	}
 }
 

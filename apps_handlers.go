@@ -44,6 +44,10 @@ type AppRow struct {
 	Deprecation      string           `json:"deprecation,omitempty"`
 	Replacement      string           `json:"replacement,omitempty"`
 	UIPanels         []sdk.UIPanel    `json:"ui_panels,omitempty"`
+	// UISurfaces are code-free native UI descriptors. Mobile clients use
+	// Entry through the authenticated /api/apps/<name>/... proxy and validate
+	// the downloaded document against Schema before rendering it.
+	UISurfaces []sdk.UISurface `json:"ui_surfaces,omitempty"`
 	// UIComponents — chat-attachment + sidebar-widget components
 	// declared in the install's manifest. The dashboard reads this
 	// to know which {app, name} pairs the agent's respond(components)
@@ -636,6 +640,7 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			Deprecation:  depInfo.Message,
 			Replacement:  depInfo.Replacement,
 			UIPanels:     manifest.Provides.UIPanels,
+			UISurfaces:   manifest.Provides.UISurfaces,
 			UIComponents: manifest.Provides.UIComponents,
 			Publishes:    manifest.Provides.Publishes,
 			Imports:      manifest.Imports,
