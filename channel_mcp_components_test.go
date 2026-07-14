@@ -64,13 +64,11 @@ func TestBuildSendDescription_EmptyCatalogOmitsBlock(t *testing.T) {
 func TestBuildSendDescription_MessageWakesAgain(t *testing.T) {
 	desc := buildSendDescription([]string{"apteva"}, nil)
 	for _, want := range []string{
-		"successful message send wakes you again",
-		"continue after the send result",
-		"schedule yourself with pace",
-		"send another kind=\"message\" with the actual outcome",
-		"requested delayed/background checks",
-		"after a dashboard chat disconnect",
-		"do not send the completed check as kind=\"message\"",
+		"successful send wakes you again",
+		"continue with the needed tools or pace",
+		"send the actual outcome before going idle",
+		"Use publish for approvals/reports/alerts",
+		"set_status for mutable work state",
 	} {
 		if !strings.Contains(desc, want) {
 			t.Fatalf("respond description missing %q:\n%s", want, desc)
@@ -85,36 +83,64 @@ func TestChannelMCPSendAdvertisesWakeAlways(t *testing.T) {
 	if !ok {
 		t.Fatalf("tools payload has unexpected shape: %#v", out["tools"])
 	}
+	seen := map[string]bool{}
 	for _, tool := range tools {
-		if tool["name"] != "send" {
+		name, _ := tool["name"].(string)
+		if name != "send" && name != "publish" && name != "set_status" {
 			continue
 		}
-		description, _ := tool["description"].(string)
-		for _, want := range []string{
-			"before any substantive external action",
-			"even a single create/update/delete/send/publish/trigger tool call",
-			"same parallel tool-call batch",
-			"do not wait for the status result",
-			"Never parallelize past a required approval or prerequisite",
-			"Skip status for read-only lookups",
-		} {
-			if !strings.Contains(description, want) {
-				t.Fatalf("send description missing %q: %s", want, description)
-			}
-		}
+		seen[name] = true
 		meta, ok := tool["_meta"].(map[string]any)
 		if !ok {
-			t.Fatalf("send tool missing _meta: %#v", tool)
+			t.Fatalf("%s tool missing _meta: %#v", name, tool)
 		}
 		if got := meta["io.apteva/wakeOnResult"]; got != "always" {
-			t.Fatalf("wakeOnResult=%v, want always", got)
+			t.Fatalf("%s wakeOnResult=%v, want always", name, got)
 		}
-		return
 	}
-	t.Fatal("send tool not found")
+	for _, name := range []string{"send", "publish", "set_status"} {
+		if !seen[name] {
+			t.Fatalf("tool %q not found", name)
+		}
+	}
 }
 
-func TestChannelMCPAdvertisesOnlySendAndList(t *testing.T) {
+func TestChannelMCPAdvertisesUnconditionalSchemas(t *testing.T) {
+	s := &channelMCPServer{registry: NewChannelRegistry()}
+	tools := s.toolsList()["tools"].([]map[string]any)
+	byName := map[string]map[string]any{}
+	for _, tool := range tools {
+		name, _ := tool["name"].(string)
+		byName[name] = tool
+	}
+	assertRequired := func(name string, want []string) map[string]any {
+		t.Helper()
+		schema := byName[name]["inputSchema"].(map[string]any)
+		got := schema["required"].([]string)
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("%s required=%v, want %v", name, got, want)
+		}
+		return schema["properties"].(map[string]any)
+	}
+	sendProps := assertRequired("send", []string{"channel", "text"})
+	if _, exists := sendProps["kind"]; exists {
+		t.Fatal("new send schema must not advertise legacy kind")
+	}
+	publishProps := assertRequired("publish", []string{"kind", "title", "content"})
+	statusProps := assertRequired("set_status", []string{"title", "state"})
+	assertEnum := func(properties map[string]any, field string, want []string) {
+		t.Helper()
+		definition := properties[field].(map[string]any)
+		got := definition["enum"].([]string)
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("%s enum=%#v, want %#v", field, got, want)
+		}
+	}
+	assertEnum(publishProps, "kind", []string{"approval", "report", "alert"})
+	assertEnum(statusProps, "state", []string{"working", "waiting", "blocked", "completed"})
+}
+
+func TestChannelMCPAdvertisesSeparatedTools(t *testing.T) {
 	s := &channelMCPServer{registry: NewChannelRegistry()}
 	out := s.toolsList()
 	tools, ok := out["tools"].([]map[string]any)
@@ -125,12 +151,14 @@ func TestChannelMCPAdvertisesOnlySendAndList(t *testing.T) {
 	for _, tool := range tools {
 		name, _ := tool["name"].(string)
 		seen[name] = true
-		if name != "send" && name != "list_channels" {
+		if name != "send" && name != "publish" && name != "set_status" && name != "list_channels" {
 			t.Fatalf("unexpected advertised tool %q: %#v", name, tool)
 		}
 	}
-	if !seen["send"] || !seen["list_channels"] {
-		t.Fatalf("missing advertised tools: %#v", seen)
+	for _, name := range []string{"send", "publish", "set_status", "list_channels"} {
+		if !seen[name] {
+			t.Fatalf("missing advertised tool %q: %#v", name, seen)
+		}
 	}
 }
 
@@ -167,7 +195,6 @@ func TestChannelMCPSendMessageCurrentUsesLiveChat(t *testing.T) {
 	params, _ := json.Marshal(map[string]any{
 		"name": "send",
 		"arguments": map[string]any{
-			"kind":    "message",
 			"channel": "current",
 			"text":    "On it.",
 		},
@@ -185,7 +212,7 @@ func TestChannelMCPSendMessageCurrentUsesLiveChat(t *testing.T) {
 	}
 }
 
-func TestChannelMCPSendApprovalAndReportUseAptevaChannel(t *testing.T) {
+func TestChannelMCPPublishApprovalAndReportUseAptevaChannel(t *testing.T) {
 	reg := NewChannelRegistry()
 	ch := &captureChannel{id: "apteva"}
 	reg.Register(ch)
@@ -195,17 +222,15 @@ func TestChannelMCPSendApprovalAndReportUseAptevaChannel(t *testing.T) {
 		args map[string]any
 		want string
 	}{
-		{"approval", map[string]any{"title": "Approve deploy", "body": "Deploy now?"}, "approval sent to Apteva channel"},
-		{"report", map[string]any{"title": "Daily report", "summary": "Imported 42 contacts."}, "report sent to Apteva channel"},
+		{"approval", map[string]any{"title": "Approve deploy", "content": "Deploy now?"}, "approval sent to Apteva channel"},
+		{"report", map[string]any{"title": "Daily report", "content": "Imported 42 contacts."}, "report sent to Apteva channel"},
 	} {
 		params, _ := json.Marshal(map[string]any{
-			"name": "send",
+			"name": "publish",
 			"arguments": map[string]any{
 				"kind":    tc.kind,
-				"channel": "apteva",
 				"title":   tc.args["title"],
-				"body":    tc.args["body"],
-				"summary": tc.args["summary"],
+				"content": tc.args["content"],
 			},
 		})
 		out, rpcErr := s.handleToolCall(params)
@@ -222,15 +247,15 @@ func TestChannelMCPSendApprovalAndReportUseAptevaChannel(t *testing.T) {
 	}
 }
 
-func TestChannelMCPSendStatusUsesAptevaCurrentStatus(t *testing.T) {
+func TestChannelMCPSetStatusUsesAptevaCurrentStatus(t *testing.T) {
 	reg := NewChannelRegistry()
 	ch := &captureChannel{id: "apteva"}
 	reg.Register(ch)
 	s := &channelMCPServer{registry: reg}
 	params, _ := json.Marshal(map[string]any{
-		"name": "send",
+		"name": "set_status",
 		"arguments": map[string]any{
-			"kind": "status", "channel": "apteva", "title": "Rendering clips",
+			"title":  "Rendering clips",
 			"detail": "Three of five complete", "state": "working", "progress": 60,
 		},
 	})
@@ -245,6 +270,76 @@ func TestChannelMCPSendStatusUsesAptevaCurrentStatus(t *testing.T) {
 	b, _ := json.Marshal(out)
 	if !strings.Contains(string(b), "current status updated") {
 		t.Fatalf("unexpected result: %s", b)
+	}
+}
+
+func TestChannelMCPSetStatusRejectsMissingStateWithTargetedRetry(t *testing.T) {
+	s := &channelMCPServer{registry: NewChannelRegistry()}
+	params, _ := json.Marshal(map[string]any{
+		"name": "set_status", "arguments": map[string]any{"title": "Incomplete status"},
+	})
+	out, rpcErr := s.handleToolCall(params)
+	if rpcErr != nil {
+		t.Fatalf("rpcErr: %#v", rpcErr)
+	}
+	b, _ := json.Marshal(out)
+	for _, want := range []string{"requires state", "Retry only this failed status call"} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("missing targeted error %q: %s", want, b)
+		}
+	}
+}
+
+func TestChannelMCPLegacyTypedSendStillWorks(t *testing.T) {
+	reg := NewChannelRegistry()
+	ch := &captureChannel{id: "apteva"}
+	reg.Register(ch)
+	s := &channelMCPServer{registry: reg}
+	params, _ := json.Marshal(map[string]any{
+		"name": "send",
+		"arguments": map[string]any{
+			"kind": "report", "channel": "apteva", "title": "Legacy report", "summary": "Still accepted.",
+		},
+	})
+	out, rpcErr := s.handleToolCall(params)
+	if rpcErr != nil {
+		t.Fatalf("rpcErr: %#v", rpcErr)
+	}
+	b, _ := json.Marshal(out)
+	if !strings.Contains(string(b), "report sent to Apteva channel") || ch.reports != 1 {
+		t.Fatalf("legacy report was not delivered: result=%s reports=%d", b, ch.reports)
+	}
+}
+
+func TestChannelMCPPublishDescriptionRequiresSubstantiveReportContent(t *testing.T) {
+	desc := buildPublishDescription()
+	for _, want := range []string{
+		"Every call requires kind, title, and content",
+		"content must still stand alone",
+		`{"kind":"report","title":"Import completed","content":"Imported 842 contacts; 17 invalid rows were skipped and saved for review."`,
+		"what actually happened",
+	} {
+		if !strings.Contains(desc, want) {
+			t.Fatalf("publish description missing %q:\n%s", want, desc)
+		}
+	}
+}
+
+func TestChannelMCPPublishRejectsMissingContentWithTargetedRetry(t *testing.T) {
+	s := &channelMCPServer{registry: NewChannelRegistry()}
+	params, _ := json.Marshal(map[string]any{
+		"name":      "publish",
+		"arguments": map[string]any{"kind": "report", "title": "Incomplete report"},
+	})
+	out, rpcErr := s.handleToolCall(params)
+	if rpcErr != nil {
+		t.Fatalf("rpcErr: %#v", rpcErr)
+	}
+	b, _ := json.Marshal(out)
+	for _, want := range []string{"requires substantive content", "what actually happened", "Retry only this failed publication"} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("missing targeted error %q: %s", want, b)
+		}
 	}
 }
 
@@ -294,7 +389,7 @@ func TestChannelMCPListChannelsIncludesAptevaCapabilities(t *testing.T) {
 			t.Fatalf("missing channel %q in %#v", id, channels)
 		}
 	}
-	for _, want := range []string{"message", "status", "approval", "report", "alert", "buttons", "components"} {
+	for _, want := range []string{"message", "approval", "report", "alert", "buttons", "components"} {
 		if !capabilityPresent(seen["apteva"]["capabilities"], want) {
 			t.Fatalf("apteva channel missing capability %q: %#v", want, seen["apteva"])
 		}

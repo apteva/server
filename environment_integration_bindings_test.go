@@ -41,7 +41,7 @@ func TestBindEnvironmentIntegrationMocksCreatesAppOwnedConnection(t *testing.T) 
 		},
 	}
 
-	if err := s.bindEnvironmentIntegrationMocks(user.ID, environment, []RunIntegrationBinding{{
+	if err := s.bindEnvironmentIntegrationMocks(user.ID, environment, []RuntimeIntegrationBinding{{
 		App:      "messaging",
 		Role:     "email_provider",
 		Slug:     "aws-ses",
@@ -86,5 +86,41 @@ func TestBindEnvironmentIntegrationMocksCreatesAppOwnedConnection(t *testing.T) 
 		if credentials[key] == "" {
 			t.Fatalf("missing mock aws credential %q in %#v", key, credentials)
 		}
+	}
+}
+
+func TestBindEnvironmentIntegrationMocksExposesCatalogConnectionToAgents(t *testing.T) {
+	dataDir := t.TempDir()
+	store, err := NewStore(filepath.Join(dataDir, "server.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	user, err := store.CreateUser("env-agent-mock@example.com", "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := NewAppCatalog()
+	catalog.Register(&AppTemplate{Slug: "facebook", Name: "Facebook", Tools: []AppToolDef{{Name: "pages_list"}}})
+	s := &Server{store: store, secret: []byte("0123456789abcdef0123456789abcdef"), installedApps: NewInstalledAppsRegistry(), catalog: catalog}
+	ownerID := seedRunningInstall(t, s, "environments", "proj-1", sdk.Manifest{Name: "environments"}, nil)
+	environment := &Environment{ID: "runtime-1", ProjectID: "proj-1", ownerInstallID: ownerID, installs: map[string]*localInstall{}}
+
+	if err := s.bindEnvironmentIntegrationMocks(user.ID, environment, []RuntimeIntegrationBinding{{
+		Slug: "facebook", Name: "Mock Facebook", ExposeToAgents: true,
+	}}); err != nil {
+		t.Fatalf("bind agent mock: %v", err)
+	}
+	ids := environment.ConnectionIDs()
+	if len(ids) != 1 || ids[0] <= 0 {
+		t.Fatalf("connection ids = %#v", ids)
+	}
+	var projectID, slug string
+	var owner int64
+	if err := store.db.QueryRow(`SELECT project_id, app_slug, owner_app_install_id FROM connections WHERE id=?`, ids[0]).Scan(&projectID, &slug, &owner); err != nil {
+		t.Fatal(err)
+	}
+	if projectID != environment.ID || slug != "facebook" || owner != ownerID {
+		t.Fatalf("project=%q slug=%q owner=%d", projectID, slug, owner)
 	}
 }

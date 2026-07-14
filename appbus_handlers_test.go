@@ -484,7 +484,7 @@ func TestStreamHandler_RequiresProjectID(t *testing.T) {
 	}
 }
 
-func TestStreamHandler_RejectsSidecarToken(t *testing.T) {
+func TestStreamHandler_RejectsUnknownSidecarInstall(t *testing.T) {
 	s := newBusServer(t)
 	req := httptest.NewRequest("GET", "/app-events/storage?project_id=p1", nil)
 	req.Header.Set("X-User-ID", "1")
@@ -492,7 +492,7 @@ func TestStreamHandler_RejectsSidecarToken(t *testing.T) {
 	rec := httptest.NewRecorder()
 	s.handleAppEventStream(rec, req)
 	if rec.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for sidecar token on stream, got %d", rec.Code)
+		t.Fatalf("expected 403 for unknown sidecar install, got %d", rec.Code)
 	}
 }
 

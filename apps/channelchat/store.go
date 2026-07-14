@@ -1,6 +1,7 @@
 package channelchat
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -109,6 +110,32 @@ type store struct {
 }
 
 func newStore(db *sql.DB) *store { return &store{db: db} }
+
+func (s *store) withImmediateWrite(fn func(context.Context, *sql.Conn) error) error {
+	ctx := context.Background()
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(ctx, `ROLLBACK`)
+		}
+	}()
+	if err := fn(ctx, conn); err != nil {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
 
 // renameInstanceIDToAgentID catches up DBs created before the
 // platform's instance → agent rename. The first 001_init.sql on
@@ -292,6 +319,68 @@ func (s *store) AppendFull(chatID, role, content string, userID *int64, threadID
 	return s.GetMessage(id)
 }
 
+// AppendAgentMessageOnce persists a normal agent reply while suppressing an
+// immediate exact retry. Tool calls can be retried after a parallel sibling
+// fails even when the first message was delivered successfully. Treat the
+// retry as idempotent only when no newer visible user message exists, so two
+// separate user turns can still receive the same legitimate response.
+func (s *store) AppendAgentMessageOnce(chatID, content, threadID string, components []framework.ChatComponent) (*Message, bool, error) {
+	if components == nil {
+		components = []framework.ChatComponent{}
+	}
+	componentsJSON, err := json.Marshal(components)
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal components: %w", err)
+	}
+	encodedComponents := string(componentsJSON)
+	var id int64
+	inserted := false
+	err = s.withImmediateWrite(func(ctx context.Context, conn *sql.Conn) error {
+		var latestRole, latestContent, latestThread, latestComponents string
+		latestErr := conn.QueryRowContext(ctx, `
+			SELECT id, role, content, COALESCE(thread_id, ''), COALESCE(components_json, '[]')
+			FROM channel_chat_messages
+			WHERE chat_id = ?
+			  AND created_at >= datetime('now', '-5 seconds')
+			  AND COALESCE(components_json, '[]') NOT LIKE '%"approval-card"%'
+			  AND COALESCE(components_json, '[]') NOT LIKE '%"report-card"%'
+			  AND COALESCE(components_json, '[]') NOT LIKE '%"alert-card"%'
+			  AND COALESCE(components_json, '[]') NOT LIKE '%"status-card"%'
+			ORDER BY id DESC
+			LIMIT 1`, chatID).Scan(&id, &latestRole, &latestContent, &latestThread, &latestComponents)
+		if latestErr == nil && latestRole == "agent" && latestContent == content &&
+			latestThread == threadID && latestComponents == encodedComponents {
+			return nil
+		}
+		if latestErr != nil && !errors.Is(latestErr, sql.ErrNoRows) {
+			return latestErr
+		}
+
+		res, err := conn.ExecContext(ctx, `
+			INSERT INTO channel_chat_messages
+				(chat_id, role, content, user_id, thread_id, status, components_json, attachments_json)
+			VALUES (?, 'agent', ?, NULL, ?, 'final', ?, '[]')`,
+			chatID, content, threadID, encodedComponents)
+		if err != nil {
+			return err
+		}
+		id, err = res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		if _, err := conn.ExecContext(ctx, `UPDATE channel_chat_chats SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, chatID); err != nil {
+			return err
+		}
+		inserted = true
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	m, err := s.GetMessage(id)
+	return m, inserted, err
+}
+
 // UpsertCurrentStatus keeps exactly one mutable status row per chat. Status is
 // operational state rather than conversation history, so it deliberately does
 // not update channel_chat_chats.updated_at or the unread watermark.
@@ -300,34 +389,37 @@ func (s *store) UpsertCurrentStatus(chatID, content string, components []framewo
 	if err != nil {
 		return nil, err
 	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
 	var id int64
-	err = tx.QueryRow(`
-		SELECT id FROM channel_chat_messages
-		WHERE chat_id = ? AND COALESCE(components_json, '[]') LIKE '%"status-card"%'
-		ORDER BY id DESC LIMIT 1`, chatID).Scan(&id)
-	switch {
-	case err == nil:
-		_, err = tx.Exec(`
-			UPDATE channel_chat_messages
-			SET role='agent', content=?, thread_id='', status='final', created_at=CURRENT_TIMESTAMP,
-			    components_json=?, attachments_json='[]'
-			WHERE id=?`, content, string(componentsJSON), id)
-	case errors.Is(err, sql.ErrNoRows):
-		err = tx.QueryRow(`
-			INSERT INTO channel_chat_messages
-				(chat_id, role, content, thread_id, status, components_json, attachments_json)
-			VALUES (?, 'agent', ?, '', 'final', ?, '[]')
-			RETURNING id`, chatID, content, string(componentsJSON)).Scan(&id)
-	}
+	err = s.withImmediateWrite(func(ctx context.Context, conn *sql.Conn) error {
+		// A normal database/sql transaction is DEFERRED in SQLite. The SELECT
+		// below then takes a read lock which can fail immediately when upgraded
+		// to a writer if a parallel chat message already owns the write
+		// reservation. BEGIN IMMEDIATE queues for the writer lock up front, so
+		// the connection's busy_timeout applies instead of surfacing SQLITE_BUSY.
+		err = conn.QueryRowContext(ctx, `
+			SELECT id FROM channel_chat_messages
+			WHERE chat_id = ? AND COALESCE(components_json, '[]') LIKE '%"status-card"%'
+			ORDER BY id DESC LIMIT 1`, chatID).Scan(&id)
+		switch {
+		case err == nil:
+			_, err = conn.ExecContext(ctx, `
+				UPDATE channel_chat_messages
+				SET role='agent', content=?, thread_id='', status='final', created_at=CURRENT_TIMESTAMP,
+				    components_json=?, attachments_json='[]'
+				WHERE id=?`, content, string(componentsJSON), id)
+		case errors.Is(err, sql.ErrNoRows):
+			err = conn.QueryRowContext(ctx, `
+				INSERT INTO channel_chat_messages
+					(chat_id, role, content, thread_id, status, components_json, attachments_json)
+				VALUES (?, 'agent', ?, '', 'final', ?, '[]')
+				RETURNING id`, chatID, content, string(componentsJSON)).Scan(&id)
+		}
+		if err != nil {
+			return err
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return s.GetMessage(id)

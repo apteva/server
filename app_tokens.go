@@ -85,6 +85,12 @@ func appTokenRouteAllowed(path string) bool {
 	switch {
 	case path == "/app-events/internal/emit":
 		return true
+	case strings.HasPrefix(path, "/app-events/"):
+		// App-event stream handlers perform the project/global scope check
+		// using X-Apteva-App-Install-ID. Authentication must let the install
+		// token reach that handler, but only for a single app lane.
+		lane := strings.Trim(strings.TrimPrefix(path, "/app-events/"), "/")
+		return lane != "" && !strings.Contains(lane, "/")
 	case strings.HasPrefix(path, "/apps/callback/"):
 		return true
 	case strings.HasPrefix(path, "/apps/"):

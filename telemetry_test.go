@@ -80,7 +80,7 @@ func TestTelemetryProjectAllowlistIncludesPlatformHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	helper, err := s.store.GetOrCreatePlatformHelper(user.ID, judgeSystemPrompt)
+	helper, err := s.store.GetOrCreatePlatformHelper(user.ID, platformHelperSystemPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestTelemetryProjectStreamForwardsPlatformHelperEvents(t *testing.T) {
 	if _, err := s.store.CreateAgent(user.ID, "project agent", "d", "autonomous", "{}", "project-a"); err != nil {
 		t.Fatal(err)
 	}
-	helper, err := s.store.GetOrCreatePlatformHelper(user.ID, judgeSystemPrompt)
+	helper, err := s.store.GetOrCreatePlatformHelper(user.ID, platformHelperSystemPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}

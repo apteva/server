@@ -188,24 +188,10 @@ func (s *channelMCPServer) toolsList() map[string]any {
 				},
 				"inputSchema": map[string]any{
 					"type":     "object",
-					"required": []string{"kind", "channel"},
+					"required": []string{"channel", "text"},
 					"properties": map[string]any{
-						"kind":    map[string]any{"type": "string", "description": "Payload kind: message, status, approval, report, or alert."},
-						"channel": map[string]any{"type": "string", "description": "Target channel. Use \"current\" for the channel that triggered the event, \"apteva\" for Apteva operator messages/statuses/approvals/reports/alerts, or Telegram/Slack/etc ids from list_channels. Legacy \"chat\" is accepted as an alias for \"apteva\"."},
-						"text":    map[string]any{"type": "string", "description": "User-visible message body for kind=message. Plain assistant output/thoughts are internal and invisible."},
-						"title":   map[string]any{"type": "string", "description": "Short title for kind=status, kind=approval, kind=report, or kind=alert."},
-						"body":    map[string]any{"type": "string", "description": "Body/details for kind=approval or kind=alert."},
-						"summary": map[string]any{"type": "string", "description": "Compact outcome summary for kind=report."},
-						"severity": map[string]any{
-							"type":        "string",
-							"description": "Optional alert severity: info, warning, error, or critical.",
-						},
-						"state": map[string]any{
-							"type":        "string",
-							"description": "Current status state for kind=status: working, waiting, blocked, or completed.",
-						},
-						"detail":   map[string]any{"type": "string", "description": "Optional concise detail for kind=status."},
-						"progress": map[string]any{"type": "number", "minimum": 0, "maximum": 100, "description": "Optional completion percentage for kind=status."},
+						"channel": map[string]any{"type": "string", "description": "Target channel. Use \"current\" to reply where the event originated, \"apteva\" for the durable Apteva operator chat, or an id returned by list_channels."},
+						"text":    map[string]any{"type": "string", "description": "Complete user-visible message. Thoughts and plain assistant output are invisible; put the actual reply here."},
 						"components": map[string]any{
 							"type":        "array",
 							"description": "Optional rich attachments for kind=message — see AVAILABLE COMPONENTS in the description. External channels ignore this field; the Apteva channel renders attachments.",
@@ -219,9 +205,34 @@ func (s *channelMCPServer) toolsList() map[string]any {
 								},
 							},
 						},
+					},
+				},
+			},
+			{
+				"name":        "publish",
+				"description": buildPublishDescription(),
+				"_meta": map[string]any{
+					"io.apteva/wakeOnResult": "always",
+				},
+				"inputSchema": map[string]any{
+					"type":     "object",
+					"required": []string{"kind", "title", "content"},
+					"properties": map[string]any{
+						"kind": map[string]any{
+							"type":        "string",
+							"enum":        []string{"approval", "report", "alert"},
+							"description": "Inbox artifact type: approval, report, or alert.",
+						},
+						"title":   map[string]any{"type": "string", "description": "Short, specific operator-facing title."},
+						"content": map[string]any{"type": "string", "description": "Required substantive content. For reports, summarize what actually happened and the outcome; for approvals, state the decision needed; for alerts, explain the problem and impact."},
+						"severity": map[string]any{
+							"type":        "string",
+							"enum":        []string{"info", "warning", "error", "critical"},
+							"description": "Optional alert severity: info, warning, error, or critical.",
+						},
 						"actions": map[string]any{
 							"type":        "array",
-							"description": "Optional button list for kind=approval. Defaults to Approve and Deny.",
+							"description": "Optional approval buttons. Defaults to Approve and Deny.",
 							"items": map[string]any{
 								"type":     "object",
 								"required": []string{"id", "label"},
@@ -232,7 +243,7 @@ func (s *channelMCPServer) toolsList() map[string]any {
 								},
 							},
 						},
-						"period": map[string]any{"type": "string", "description": "Optional period such as today, yesterday, past_week, daily, weekly, or an ISO date range."},
+						"period": map[string]any{"type": "string", "description": "Optional report period such as today, yesterday, past_week, daily, weekly, or an ISO date range."},
 						"sections": map[string]any{
 							"type":        "array",
 							"description": "Optional expanded details for the report modal. Each item is {title, body}. Use sections for completed work, findings, risks, next steps, metrics, evidence, links, or chronology. Do not rely on sections to replace the summary.",
@@ -244,14 +255,35 @@ func (s *channelMCPServer) toolsList() map[string]any {
 								},
 							},
 						},
-						"tags":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional tags like daily, weekly, milestone, incident, activity."},
-						"context": map[string]any{"type": "object", "description": "Optional structured context for approval/report/alert follow-up."},
+						"tags":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional report tags such as daily, weekly, milestone, incident, or activity."},
+						"context": map[string]any{"type": "object", "description": "Optional structured context for follow-up."},
+					},
+				},
+			},
+			{
+				"name":        "set_status",
+				"description": buildSetStatusDescription(),
+				"_meta": map[string]any{
+					"io.apteva/wakeOnResult": "always",
+				},
+				"inputSchema": map[string]any{
+					"type":     "object",
+					"required": []string{"title", "state"},
+					"properties": map[string]any{
+						"title": map[string]any{"type": "string", "description": "Concise current work headline."},
+						"state": map[string]any{
+							"type":        "string",
+							"enum":        []string{"working", "waiting", "blocked", "completed"},
+							"description": "Required current state: working, waiting, blocked, or completed.",
+						},
+						"detail":   map[string]any{"type": "string", "description": "Optional concise detail about the current phase or result."},
+						"progress": map[string]any{"type": "number", "minimum": 0, "maximum": 100, "description": "Optional completion percentage."},
 					},
 				},
 			},
 			{
 				"name":        "list_channels",
-				"description": "List communication channels and their capabilities. For normal Apteva operator replies, send kind=message to channel=\"current\" or channel=\"apteva\". Use kind=status for current monitoring state, or kind=approval/report/alert for structured inbox artifacts, on channel=\"apteva\".",
+				"description": "List communication channels and their capabilities. Use send for ordinary messages, publish for Apteva approval/report/alert Inbox artifacts, and set_status for mutable monitoring state.",
 				"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 			},
 		},
@@ -383,35 +415,43 @@ func buildSendDescription(channelIDs []string, components []componentEntry) stri
 			"  - The reply is about a specific file, image, video, or media item the user can view → attach the matching card with the item's id in props.\n" +
 			"  - You looked up an entity (file, post, document) and are reporting metadata about it → attach the card alongside or instead of a text dump.\n" +
 			"  - The user said \"show\", \"display\", \"preview\", \"render\" — always attach.\n" +
-			"Plain status updates, error messages, and pure conversation do NOT need a component.\n" +
-			"Format: components=[{app:\"<app>\", name:\"<component-name>\", props:{<props>}}]. Send the text AND components in the same kind=\"message\" call — never a text-only message followed by a component-only message (that double-pings the user)."
+			"Status updates, errors, and pure conversation do NOT need a component.\n" +
+			"Format: components=[{app:\"<app>\", name:\"<component-name>\", props:{<props>}}]. Send text AND components in one call — never a text-only message followed by a component-only message (that double-pings the user)."
 	}
 
 	return fmt.Sprintf(
-		"Send typed communication through Apteva Channels. Text in your thoughts is INVISIBLE — only this tool delivers messages or durable channel artifacts.\n\n"+
-			"KINDS:\n"+
-			"- kind=\"message\": visible user-facing message to a channel such as current/apteva/telegram. Use this for live conversation, immediate progress, and final answers while the operator is actively chatting.\n"+
-			"- kind=\"status\": current monitoring headline for what you are doing now. Use channel=\"apteva\". Set working before meaningful multi-step work and before any substantive external action, even a single create/update/delete/send/publish/trigger tool call. When work can start immediately, call working status and the first action tool in the same parallel tool-call batch; do not wait for the status result. Never parallelize past a required approval or prerequisite. Update status at phase changes, when waiting/blocked, and set completed after the action result or work finishes. It replaces your previous status and never appears in chat or Inbox. Skip status for read-only lookups, brief answers, internal pacing, and individual tool calls within one stated phase.\n"+
-			"- kind=\"approval\": Apteva approval request with buttons. Use channel=\"apteva\".\n"+
-			"- kind=\"report\": Apteva dashboard report. Use channel=\"apteva\". Use this for requested delayed/background checks, scheduled summaries, significant completed work, and anything the operator asked to review later, especially after a dashboard chat disconnect.\n"+
-			"- kind=\"alert\": Apteva operator alert. Use channel=\"apteva\".\n\n"+
-			"APTEVA OPERATOR CHANNEL:\n"+
-			"- channel=\"apteva\" is the internal Apteva channel for talking to operators. It is durable: messages are saved even when the user is offline.\n"+
-			"- channel=\"current\" resolves to the channel that triggered the event. For dashboard chat events, current resolves to apteva.\n"+
-			"- Legacy channel=\"chat\" is accepted as an alias for channel=\"apteva\", but prefer apteva.\n"+
-			"- Use kind=\"message\" for normal conversation, followups, and completion notes while the operator is currently chatting.\n"+
-			"- If you receive a chat disconnect before finishing delayed work, do not send the completed check as kind=\"message\". Send a kind=\"report\" artifact unless the user explicitly requested a normal message.\n"+
-			"- Use approval/report/alert for structured inbox artifacts. Reports should state what actually happened and omit routine chat/connect/disconnect/idle events.\n"+
-			"- A successful message send wakes you again, so visible messages do not end the work loop.\n"+
-			"- If you promised work, continue after the send result: call the needed tools, schedule yourself with pace, or explain why blocked.\n"+
-			"- If the request is fully answered, use the follow-up turn to pace/done/wait normally.\n"+
-			"- After action tool results arrive, send another kind=\"message\" with the actual outcome before pace/done/wait. \"Done\" alone is not enough; include what you did or found.\n\n"+
+		"Send one complete user-visible message through a communication channel. Thoughts and plain assistant output are INVISIBLE; only this tool delivers chat text. Use publish for approvals/reports/alerts and set_status for mutable work state.\n\n"+
+			"channel=\"current\" replies where the event originated. For dashboard chat it resolves to apteva. channel=\"apteva\" is durable and saves messages even while the operator is offline.\n"+
+			"A successful send wakes you again. If you promised work, continue with the needed tools or pace; after action results, send the actual outcome before going idle. Build one complete call and never send placeholder or duplicate messages.\n\n"+
 			"KNOWN CHANNELS (valid values for channel): [%s].\n"+
 			"Routing — match the event prefix to the channel: %s.\n\n"+
 			"If the gate rejects your message channel as unknown, retry with a channel from the list above — NOT to fall silent. Do NOT default to \"cli\" from training-data prior; use exactly the names listed.\n\n"+
-			"DIRECTIVES vs MESSAGES: events whose tag does NOT correspond to a known live channel above — e.g. [admin], [system], [inject], or a bare untagged event — are DIRECTIVES from an operator, not user messages. Act on them but do NOT send a live message unless the task needs a durable Apteva artifact.%s",
+			"Events tagged [admin], [system], [inject], or with no known live channel are directives, not user messages. Act on them without sending chat unless communication is useful.%s",
 		connectedList, examplesLine, componentsBlock,
 	)
+}
+
+func buildPublishDescription() string {
+	return `Publish one durable structured artifact to the Apteva operator Inbox. This is not chat and not current work status.
+
+Every call requires kind, title, and content. Build one complete call; never publish placeholders or duplicates. The content field is always the artifact's substantive operator-facing text:
+- report: a compact factual summary of what actually happened, the result, important evidence or metrics, and any blocker or next step. Do not describe what a report is. Omit greetings, chat/connect/disconnect events, idle time, and internal reasoning. Add sections for useful detail, but content must still stand alone.
+- approval: the exact decision needed, why it is needed, and the consequence of approving or denying it.
+- alert: what went wrong, its impact, and the relevant next action.
+
+Correct report example: {"kind":"report","title":"Import completed","content":"Imported 842 contacts; 17 invalid rows were skipped and saved for review.","period":"today"}
+Correct approval example: {"kind":"approval","title":"Approve production deploy","content":"Deploy version 1.4 now; this will restart two API workers."}
+Correct alert example: {"kind":"alert","title":"CRM authentication expired","content":"Lead synchronization stopped after the CRM token expired; reconnect the integration to resume.","severity":"error"}
+
+Use reports for requested delayed/background checks, scheduled summaries, significant completed work, and results the operator asked to review later. Use approvals only when a decision is genuinely required. Use alerts only for important problems requiring attention.`
+}
+
+func buildSetStatusDescription() string {
+	return `Set the agent's single mutable current-work status. Status is operational state: it replaces the previous status and never appears in chat or the Inbox. Every call requires both title and state.
+
+Set working before meaningful multi-step work or a substantive external action. When work can start immediately, call set_status and the first action tool in the same parallel batch. Use waiting for time or an external dependency, blocked when progress cannot continue, and completed after the action result or work finishes.
+
+Emit at most one status per work phase. If the request or directive already specifies a status call, that call satisfies this rule; never add a separate preliminary status. Skip status for read-only lookups, brief answers, internal pacing, and individual tool calls within one phase.`
 }
 
 func canonicalChannelIDs(ids []string) []string {
@@ -687,6 +727,9 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 
 	switch call.Name {
 	case "send":
+		// New clients use send only for ordinary messages. Keep the kind
+		// dispatch below for older cores that cached the previous tools/list
+		// schema before this server was upgraded.
 		kind, _ := call.Arguments["kind"].(string)
 		kind = strings.ToLower(strings.TrimSpace(kind))
 		if kind == "" {
@@ -711,6 +754,43 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		default:
 			return textToolError(fmt.Sprintf("unknown channels send kind %q", kind)), nil
 		}
+
+	case "publish":
+		kind, _ := call.Arguments["kind"].(string)
+		kind = strings.ToLower(strings.TrimSpace(kind))
+		title, _ := call.Arguments["title"].(string)
+		content, _ := call.Arguments["content"].(string)
+		title = strings.TrimSpace(title)
+		content = strings.TrimSpace(content)
+		if title == "" {
+			return textToolError("publish requires a non-empty title; retry only this failed publication and do not repeat successful sibling calls"), nil
+		}
+		if content == "" {
+			return textToolError("publish requires substantive content; for a report, summarize what actually happened and the outcome. Retry only this failed publication and do not repeat successful sibling calls"), nil
+		}
+		call.Arguments["title"] = title
+		switch kind {
+		case "approval":
+			call.Arguments["body"] = content
+			return sendApproval("apteva"), nil
+		case "report":
+			call.Arguments["summary"] = content
+			return sendReport("apteva"), nil
+		case "alert":
+			call.Arguments["body"] = content
+			return sendAlert("apteva"), nil
+		default:
+			return textToolError(fmt.Sprintf("publish kind %q is invalid; use approval, report, or alert", kind)), nil
+		}
+
+	case "set_status":
+		state, _ := call.Arguments["state"].(string)
+		state = strings.ToLower(strings.TrimSpace(state))
+		if state == "" {
+			return textToolError("set_status requires state: working, waiting, blocked, or completed. Retry only this failed status call and do not repeat successful sibling calls"), nil
+		}
+		call.Arguments["state"] = state
+		return sendStatus("apteva"), nil
 
 	case "respond":
 		text, _ := call.Arguments["text"].(string)
@@ -809,7 +889,7 @@ func (s *channelMCPServer) channelCapabilityList() []map[string]any {
 			typ = "internal"
 			durable = true
 			online = available[id]
-			caps = []string{"message", "status", "approval", "report", "alert", "buttons", "components"}
+			caps = []string{"message", "approval", "report", "alert", "buttons", "components"}
 		}
 		isAvailable := available[id]
 		if id == "apteva" {

@@ -257,6 +257,7 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 	// don't have a fetchable manifest_url because they ship inside
 	// apteva-server itself).
 	builtin := map[string]bool{}
+	internal := map[string]bool{}
 	builtinSurfaces := map[string]AppSurfaces{}
 	if s.apps != nil {
 		for _, a := range s.apps.Loaded() {
@@ -269,12 +270,21 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 				}
 				builtin[key] = true
 				builtinSurfaces[key] = surf
+				if m.Internal {
+					internal[key] = true
+				}
 			}
 		}
 	}
 	categoryCounts := map[string]int{}
 	filtered := make([]RegistryEntry, 0, len(reg.Apps))
 	for _, e := range reg.Apps {
+		// Internal framework components use the app runtime as an
+		// implementation detail. They are neither installable products nor
+		// operator-managed inventory, so omit them from Marketplace too.
+		if internal[normalizeAppName(e.Name)] {
+			continue
+		}
 		entryCategory := strings.ToLower(e.Category)
 		if entryCategory == "" {
 			entryCategory = "other"

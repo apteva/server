@@ -308,6 +308,7 @@ func (s *Store) QueryChatHistory(instanceID int64, limit int) ([]ChatHistoryMess
 	hiddenTools := map[string]bool{
 		"pace": true, "done": true, "evolve": true, "remember": true, "send": true,
 		"channels_respond": true, "channels_send": true, "channels_status": true,
+		"channels_publish": true, "channels_set_status": true,
 	}
 
 	type rawEvent struct {

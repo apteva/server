@@ -84,6 +84,8 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		s.handleCallbackProjects(w, r, parts[1:])
 	case "threads":
 		s.handleCallbackThreads(w, r, parts[1:])
+	case "runtimes":
+		s.handleCallbackRuntimes(w, r, parts[1:])
 	case "platform-info":
 		if r.Method != http.MethodGet {
 			http.Error(w, "GET only", http.StatusMethodNotAllowed)

@@ -3,7 +3,7 @@ package main
 // environment_mcp.go — the Environment control surface, exposed as MCP tools.
 //
 // Environments are driven the same way as everything else in apteva: by tool calls.
-// This is an MCP-over-HTTP endpoint (same shape as the eval-mock-gateway) that
+// This is an MCP-over-HTTP endpoint that
 // the meta-agent gets in its mcp_servers, so it creates + seeds + tears down
 // Environments by calling tools — no bespoke "plan" codepath.
 //
@@ -140,7 +140,7 @@ func (s *Server) environmentMCPCall(name string, args map[string]any) (any, erro
 		if err != nil || agent == nil {
 			return nil, fmt.Errorf("agent %d not found", agentID)
 		}
-		environmentID := fmt.Sprintf("eval-%d-%d", agentID, time.Now().UnixNano())
+		environmentID := fmt.Sprintf("environment-%d-%d", agentID, time.Now().UnixNano())
 		environment, err := s.CreateEnvironmentForAgent(agent, environmentID)
 		if err != nil {
 			return nil, err

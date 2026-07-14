@@ -41,7 +41,7 @@ type localInstall struct {
 // scoped to projectID, and returns its running coordinates. env is the spawn
 // env the caller wants threaded to the sidecar (e.g. HTTP_PROXY=<edge>,
 // APTEVA_ENVIRONMENT_ID); installLocalSource fills in the platform identity vars.
-func (s *Server) installLocalSource(srcDir, projectID string, env map[string]string, progress func(string)) (*localInstall, error) {
+func (s *Server) installLocalSource(srcDir, projectID string, env map[string]string, restoredDataDir string, progress func(string)) (*localInstall, error) {
 	if s.localApps == nil {
 		return nil, fmt.Errorf("installLocalSource: local supervisor not configured")
 	}
@@ -118,21 +118,39 @@ func (s *Server) installLocalSource(srcDir, projectID string, env map[string]str
 		return nil, fmt.Errorf("build/spawn %s: %w", m.Name, err)
 	}
 
-	// 6. Persist running state.
+	// 6. A restored database must be in place before the app opens it. The
+	// build path starts the sidecar to verify the binary, so stop it, replace
+	// its fresh data directory, and restart with the same runtime environment.
 	sidecarURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+	binDir := filepath.Dir(binPath)
+	dataDir := filepath.Join(filepath.Dir(binDir), "data", strconv.FormatInt(installID, 10))
+	if restoredDataDir = strings.TrimSpace(restoredDataDir); restoredDataDir != "" {
+		if err := s.localApps.Stop(installID); err != nil {
+			return nil, fmt.Errorf("stop %s before restore: %w", m.Name, err)
+		}
+		if err := os.RemoveAll(dataDir); err != nil {
+			return nil, fmt.Errorf("clear %s data before restore: %w", m.Name, err)
+		}
+		if err := copyTree(restoredDataDir, dataDir); err != nil {
+			return nil, fmt.Errorf("restore %s data: %w", m.Name, err)
+		}
+		if err := s.localApps.Restart(installID, m, port, binPath, env); err != nil {
+			return nil, fmt.Errorf("restart %s after restore: %w", m.Name, err)
+		}
+	}
+
+	// 7. Persist running state.
 	_, _ = s.store.db.Exec(
 		`UPDATE app_installs SET status='running', local_pid=?, local_bin_path=?, local_port=?, sidecar_url_override=?, status_message='', error_message='' WHERE id=?`,
 		s.localApps.PID(installID), binPath, port, sidecarURL, installID)
 
-	// 7. Register in the in-memory registry so project-scoped lookups
+	// 8. Register in the in-memory registry so project-scoped lookups
 	//    (GetByNameAndProject) and inter-app CallApp routing resolve.
 	s.LoadInstalledApps()
 
 	// Data dir layout mirrors spawn(): persistentRoot is a sibling "data"
 	// dir next to the binary's directory, keyed by install id —
 	//   <dir(binPath)>/../data/<installID>/app.db
-	binDir := filepath.Dir(binPath)
-	dataDir := filepath.Join(filepath.Dir(binDir), "data", strconv.FormatInt(installID, 10))
 	return &localInstall{
 		InstallID:  installID,
 		AppName:    m.Name,
@@ -152,6 +170,9 @@ func (s *Server) deleteEnvironmentInstall(installID int64) {
 	var appID int64
 	_ = s.store.db.QueryRow(`SELECT app_id FROM app_installs WHERE id=?`, installID).Scan(&appID)
 	_ = s.localApps.Stop(installID)
+	if s.installedApps != nil {
+		s.installedApps.Remove(installID)
+	}
 	_, _ = s.store.db.Exec(`DELETE FROM app_installs WHERE id=?`, installID)
 	// Drop the apps row only if no other install references it.
 	if appID != 0 {

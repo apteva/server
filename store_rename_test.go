@@ -11,6 +11,7 @@ package main
 import (
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -114,5 +115,56 @@ func TestRenameMigration_FreshDBUnaffected(t *testing.T) {
 	s.renameInstanceTablesToAgents() // no-op
 	if tableExists(db, "agents") {
 		t.Error("rename should not create tables on a fresh DB")
+	}
+}
+
+func TestRepairLegacyAgentForeignKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "stale-agent-fks.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	statements := []string{
+		`PRAGMA foreign_keys=OFF`,
+		`CREATE TABLE agents (id INTEGER PRIMARY KEY)`,
+		`CREATE TABLE app_installs (id INTEGER PRIMARY KEY)`,
+		`CREATE TABLE app_agent_bindings (install_id INTEGER NOT NULL REFERENCES app_installs(id), agent_id INTEGER NOT NULL REFERENCES instances(id), enabled INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (install_id, agent_id))`,
+		`CREATE TABLE app_grants (id INTEGER PRIMARY KEY AUTOINCREMENT, install_id INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE, agent_id INTEGER NOT NULL REFERENCES instances(id) ON DELETE CASCADE, effect TEXT NOT NULL, permission TEXT NOT NULL, resource TEXT NOT NULL DEFAULT '*', created_at DATETIME DEFAULT CURRENT_TIMESTAMP, created_by TEXT NOT NULL DEFAULT '')`,
+		`CREATE TABLE app_grant_defaults (install_id INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE, agent_id INTEGER NOT NULL REFERENCES instances(id) ON DELETE CASCADE, default_effect TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (install_id, agent_id))`,
+		`INSERT INTO agents(id) VALUES (7)`,
+		`INSERT INTO app_installs(id) VALUES (11)`,
+		`INSERT INTO app_agent_bindings(install_id,agent_id,enabled) VALUES (11,7,1)`,
+		`INSERT INTO app_grants(install_id,agent_id,effect,permission) VALUES (11,7,'allow','tools.call')`,
+		`INSERT INTO app_grant_defaults(install_id,agent_id,default_effect) VALUES (11,7,'deny')`,
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatalf("seed %q: %v", statement, err)
+		}
+	}
+
+	s := &Store{db: db}
+	if err := s.repairLegacyAgentForeignKeys(); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"app_agent_bindings", "app_grants", "app_grant_defaults"} {
+		var schema string
+		if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&schema); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(strings.ToLower(schema), "references instances") || !strings.Contains(strings.ToLower(schema), "references agents") {
+			t.Errorf("%s foreign key was not repaired: %s", table, schema)
+		}
+		var count int
+		if err := db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count); err != nil || count != 1 {
+			t.Errorf("%s data was not preserved: count=%d err=%v", table, count, err)
+		}
+	}
+	if _, err := db.Exec(`DELETE FROM app_agent_bindings WHERE install_id=11`); err != nil {
+		t.Fatalf("binding delete still broken after repair: %v", err)
+	}
+	if _, err := db.Exec(`DELETE FROM app_installs WHERE id=11`); err != nil {
+		t.Fatalf("install delete still broken after repair: %v", err)
 	}
 }

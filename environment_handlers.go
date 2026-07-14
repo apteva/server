@@ -23,6 +23,7 @@ package main
 // permissions on their app manifest.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -693,6 +694,10 @@ func (s *Server) handleEnvironmentByID(w http.ResponseWriter, r *http.Request) {
 	if len(parts) == 2 {
 		sub = parts[1]
 	}
+	if id == "migrate-to-app" && sub == "" {
+		s.handleLegacyEnvironmentMigration(w, r)
+		return
+	}
 	environment, live := s.environments.Get(id)
 	var rec *EnvironmentRecord
 	if s.store != nil {
@@ -876,6 +881,153 @@ func (s *Server) handleEnvironmentByID(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+type legacyEnvironmentImportDefinition struct {
+	ID           string                      `json:"id"`
+	Name         string                      `json:"name"`
+	DesiredState string                      `json:"desired_state"`
+	SpecVersion  int                         `json:"spec_version"`
+	Spec         legacyEnvironmentImportSpec `json:"spec"`
+}
+
+type legacyEnvironmentImportSpec struct {
+	Version             int                          `json:"version"`
+	TTLSeconds          int                          `json:"ttl_seconds"`
+	AppInstallIDs       []int64                      `json:"app_install_ids,omitempty"`
+	ConnectionIDs       []int64                      `json:"connection_ids,omitempty"`
+	NetworkMode         sdk.RuntimeNetworkMode       `json:"network_mode,omitempty"`
+	IntegrationMode     string                       `json:"integration_mode,omitempty"`
+	AllowHostSuffixes   []string                     `json:"allow_host_suffixes,omitempty"`
+	HTTPMocks           []sdk.RuntimeHTTPMock        `json:"http_mocks,omitempty"`
+	IntegrationFixtures []sdk.RuntimeIntegrationMock `json:"integration_fixtures,omitempty"`
+	Subscriptions       []sdk.RuntimeSubscription    `json:"subscriptions,omitempty"`
+	Seeds               []sdkRuntimeSeedStep         `json:"seeds,omitempty"`
+	SnapshotID          string                       `json:"snapshot_id,omitempty"`
+}
+
+type sdkRuntimeSeedStep struct {
+	App   string         `json:"app"`
+	Tool  string         `json:"tool"`
+	Input map[string]any `json:"input,omitempty"`
+}
+
+func (s *Server) handleLegacyEnvironmentMigration(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		ProjectID string `json:"project_id"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil || strings.TrimSpace(req.ProjectID) == "" {
+		http.Error(w, "project_id required", http.StatusBadRequest)
+		return
+	}
+	userID, _, ok := s.requireProjectAccess(w, r, req.ProjectID, ProjectEditor)
+	if !ok {
+		return
+	}
+	if s.installedApps == nil {
+		http.Error(w, "app registry unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	entry := s.installedApps.GetByNameAndProject("environments", req.ProjectID)
+	if entry == nil || entry.SidecarURL == "" {
+		http.Error(w, "install and start the Environments app in this project first", http.StatusConflict)
+		return
+	}
+	records, err := s.store.ListEnvironmentRecords(userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	definitions := []legacyEnvironmentImportDefinition{}
+	warnings := []string{}
+	for i := range records {
+		rec := records[i]
+		if rec.ProjectID != req.ProjectID {
+			continue
+		}
+		old := decodePersistedEnvironmentSpec(&rec)
+		appIDs := append([]int64(nil), old.AppInstallIDs...)
+		for _, name := range old.Apps {
+			if app := s.installedApps.GetByNameAndProject(name, req.ProjectID); app != nil {
+				appIDs = append(appIDs, app.InstallID)
+			} else {
+				warnings = append(warnings, fmt.Sprintf("%s: app %q is no longer installed", rec.ID, name))
+			}
+		}
+		appIDs = uniqueInt64s(appIDs)
+		httpMocks := make([]sdk.RuntimeHTTPMock, 0, len(old.Mocks))
+		for _, mock := range old.Mocks {
+			httpMocks = append(httpMocks, sdk.RuntimeHTTPMock{Host: mock.Host, Path: mock.Path, Method: mock.Method, Status: mock.Status, Headers: mock.Headers, Body: mock.Body})
+		}
+		fixtures := make([]sdk.RuntimeIntegrationMock, 0, len(old.IntegrationFixtures))
+		for _, fixture := range old.IntegrationFixtures {
+			fixtures = append(fixtures, sdk.RuntimeIntegrationMock{App: fixture.App, Tool: fixture.Tool, Status: fixture.Status, Data: fixture.Data})
+		}
+		subscriptions := make([]sdk.RuntimeSubscription, 0, len(old.Subscriptions))
+		for _, sub := range old.Subscriptions {
+			subscriptions = append(subscriptions, sdk.RuntimeSubscription{ID: sub.ID, Source: sub.Source, App: sub.App, Topic: sub.Topic, TargetAgentAlias: sub.TargetAgentAlias, ThreadID: sub.ThreadID, Name: sub.Name, Description: sub.Description, Enabled: sub.Enabled})
+		}
+		seeds := make([]sdkRuntimeSeedStep, 0, len(old.SeedPlan))
+		for _, seed := range old.SeedPlan {
+			seeds = append(seeds, sdkRuntimeSeedStep{App: seed.App, Tool: seed.Tool, Input: seed.Input})
+			if seed.File != "" {
+				warnings = append(warnings, fmt.Sprintf("%s: seed file %q requires manual conversion", rec.ID, seed.File))
+			}
+		}
+		definitions = append(definitions, legacyEnvironmentImportDefinition{ID: rec.ID, Name: rec.Name, DesiredState: "stopped", SpecVersion: 1, Spec: legacyEnvironmentImportSpec{Version: 1, TTLSeconds: 3600, AppInstallIDs: appIDs, ConnectionIDs: old.ConnectionIDs, NetworkMode: sdk.RuntimeNetworkMode(old.NetworkMode), IntegrationMode: old.IntegrationMode, AllowHostSuffixes: old.AllowSuffixes, HTTPMocks: httpMocks, IntegrationFixtures: fixtures, Subscriptions: subscriptions, Seeds: seeds, SnapshotID: old.SnapshotID}})
+	}
+	payload := map[string]any{"migration_id": "server-environments-v1:" + req.ProjectID, "definitions": definitions}
+	body, _ := json.Marshal(payload)
+	call, err := http.NewRequestWithContext(r.Context(), http.MethodPost, entry.SidecarURL+"/api/import/legacy", bytes.NewReader(body))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	call.Header.Set("Content-Type", "application/json")
+	call.Header.Set("Authorization", "Bearer "+entry.Token)
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(call)
+	if err != nil {
+		http.Error(w, "call Environments app: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	var appResult map[string]any
+	if json.NewDecoder(resp.Body).Decode(&appResult) != nil {
+		appResult = map[string]any{"status": resp.Status}
+	}
+	if resp.StatusCode >= 300 {
+		writeJSONStatus(w, resp.StatusCode, appResult)
+		return
+	}
+	ownedSnapshots := 0
+	if s.environments != nil {
+		if snapshots, listErr := s.environments.Snapshots().List(); listErr == nil {
+			for _, snapshot := range snapshots {
+				if snapshot.ProjectID == req.ProjectID && snapshot.OwnerInstallID == 0 {
+					if s.environments.Snapshots().AssignOwner(snapshot.ID, req.ProjectID, entry.InstallID) == nil {
+						ownedSnapshots++
+					}
+				}
+			}
+		}
+	}
+	writeJSON(w, map[string]any{"app": appResult, "definitions_seen": len(definitions), "snapshots_assigned": ownedSnapshots, "warnings": warnings})
+}
+
+func uniqueInt64s(in []int64) []int64 {
+	out := make([]int64, 0, len(in))
+	seen := map[int64]bool{}
+	for _, id := range in {
+		if id > 0 && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 func (s *Server) requireEnvironmentAgentPermission(w http.ResponseWriter, r *http.Request) bool {

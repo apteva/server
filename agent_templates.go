@@ -53,17 +53,9 @@ type AgentTemplate struct {
 	// catalog logos, and emits a flat array the dashboard renders
 	// inside each template card.
 	ResolvedLogos []TemplateLogo `json:"resolved_logos,omitempty"`
-	// SuggestedEvals is the starter eval set shipped with the
-	// template. One entry per template in PR-1 (16 total minus
-	// 'empty'). Copied into agent_evals at agent-create time so
-	// the wizard's Verify step has something to run immediately.
-	// Not persisted on agent_templates itself — lives only on the
-	// Go-side builtin slice in this file. PR-2 will support
-	// app-contributed suggested evals via the manifest.
-	SuggestedEvals []SuggestedEval `json:"suggested_evals,omitempty"`
-	SortOrder      int             `json:"sort_order"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
+	SortOrder     int            `json:"sort_order"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
 }
 
 // Requirement is one entry on a template's setup checklist. Four
@@ -159,30 +151,6 @@ Daily routine:
 - At 9am, summarise yesterday's high-activity threads (≥10 messages) into a one-paragraph digest. Post to a designated channel — ask the operator which one on first run.
 
 Tone: match the team. No formal preambles, no apologies for being a bot.`,
-		SuggestedEvals: []SuggestedEval{
-			{
-				ID:   "slack-bot:default",
-				Name: "Mention triggers thread summary",
-				Trigger: EvalTrigger{
-					Type: "chat_message",
-					Payload: map[string]any{
-						"channel": "#engineering",
-						"text":    "@apteva can you summarise this thread?",
-					},
-				},
-				Goals: []string{
-					"Read recent thread context before replying.",
-					"Reply in the same channel with a short summary.",
-					"Keep the reply brief — under 200 words.",
-					"Match the team's informal tone — no formal preambles or sign-offs.",
-				},
-				Mocks: []EvalMock{
-					{App: "slack", Tool: "read_messages",
-						Return: json.RawMessage(`{"messages":[{"user":"alice","text":"the auth migration failed in staging"},{"user":"bob","text":"rolling back now"},{"user":"alice","text":"want me to file an incident?"}]}`)},
-					{App: "slack", Tool: "send_message", Return: json.RawMessage(`{"ok":true,"ts":"123"}`)},
-				},
-			},
-		},
 	},
 	{
 		ID:          "github-helper",
@@ -207,29 +175,6 @@ Daily:
 - Surface PRs open >5 days with no activity. Post a digest to the designated review channel (ask on first run).
 
 Tone: technical and direct. "Probably fine" is unacceptable — be specific or say you don't know.`,
-		SuggestedEvals: []SuggestedEval{
-			{
-				ID:   "github-helper:default",
-				Name: "New PR gets a review comment",
-				Trigger: EvalTrigger{
-					Type: "webhook",
-					Payload: map[string]any{
-						"event": "pull_request.opened",
-						"pr":    map[string]any{"number": 42, "title": "Bump auth library to v2", "files_changed": 3, "additions": 120, "deletions": 30},
-					},
-				},
-				Goals: []string{
-					"Read the PR diff before commenting.",
-					"Post a review comment summarising the change in 1-2 sentences.",
-					"Flag regression risk if the diff touches authentication or migrations.",
-					"Don't approve or request changes — just comment.",
-				},
-				Mocks: []EvalMock{
-					{App: "github", Tool: "get_pull_request", Return: json.RawMessage(`{"number":42,"title":"Bump auth library to v2","body":"upgrades jose from 1.x to 2.x","diff":"--- a/auth.go\n+++ b/auth.go\n@@ ... @@"}`)},
-					{App: "github", Tool: "create_review_comment", Return: json.RawMessage(`{"id":99,"ok":true}`)},
-				},
-			},
-		},
 	},
 	{
 		ID:          "sales-prospecting",
@@ -256,31 +201,6 @@ Per contact:
 SAFETY: never send the first message in a cadence without showing it to me first. Follow-ups within an approved cadence are pre-approved.
 
 Tone: warm and human. Avoid every cold-email cliché ("hope this finds you well", "circle back", "synergies"). Read like a peer reaching out.`,
-		SuggestedEvals: []SuggestedEval{
-			{
-				ID:   "sales-prospecting:default",
-				Name: "Drafts the first email, doesn't send",
-				Trigger: EvalTrigger{
-					Type: "chat_message",
-					Payload: map[string]any{
-						"text": "Start a cadence for Sarah Chen, CTO at Acme — they just announced their Series B.",
-					},
-				},
-				Goals: []string{
-					"Read Sarah's HubSpot profile before drafting.",
-					"Compose ONE specific email that references the Series B news.",
-					"Do NOT send the first email — show me the draft and wait for confirmation.",
-					"Log the draft as an activity on the HubSpot contact.",
-					"Avoid cold-email clichés (hope this finds you well / circle back / synergies).",
-				},
-				Mocks: []EvalMock{
-					{App: "hubspot", Tool: "get_contact", Return: json.RawMessage(`{"id":"c-1","name":"Sarah Chen","title":"CTO","company":"Acme","email":"sarah@acme.com","activities":[]}`)},
-					{App: "hubspot", Tool: "log_activity", Return: json.RawMessage(`{"id":"a-1","ok":true}`)},
-					{App: "gmail", Tool: "send_email", Error: "test_mode: first-email send blocked, must be drafted via create_draft"},
-					{App: "gmail", Tool: "create_draft", Return: json.RawMessage(`{"draft_id":"d-1","ok":true}`)},
-				},
-			},
-		},
 	},
 	{
 		ID:          "customer-support",
@@ -306,30 +226,6 @@ For each one:
 - Churn signals (angry tone, mentions of cancellation, repeated questions) → tag churn-risk and ping me directly in Slack DM.
 
 Tone: warm, brief, acknowledge the customer's frustration before solving.`,
-		SuggestedEvals: []SuggestedEval{
-			{
-				ID:   "customer-support:default",
-				Name: "Billing question pulls Stripe state",
-				Trigger: EvalTrigger{
-					Type: "webhook",
-					Payload: map[string]any{
-						"event": "intercom.conversation_created",
-						"from":  "user@example.com",
-						"body":  "Why did I just get charged $99? I thought I was on the free plan.",
-					},
-				},
-				Goals: []string{
-					"Look up the customer in Stripe before replying.",
-					"Reference the actual subscription details (plan, last invoice) in the draft.",
-					"Show me the draft — do not auto-send.",
-					"Acknowledge the customer's confusion in the opening line.",
-				},
-				Mocks: []EvalMock{
-					{App: "stripe", Tool: "get_customer", Return: json.RawMessage(`{"id":"cus_1","email":"user@example.com","subscription":{"plan":"Pro","status":"active","last_invoice":{"amount":99,"date":"2026-05-10"}}}`)},
-					{App: "intercom", Tool: "draft_reply", Return: json.RawMessage(`{"draft_id":"r-1","ok":true}`)},
-				},
-			},
-		},
 	},
 	{
 		ID:          "meeting-coordinator",
@@ -355,27 +251,6 @@ Tone: warm, brief, acknowledge the customer's frustration before solving.`,
 Daily 8am: post tomorrow's full calendar to #planning. Flag conflicts (back-to-back without travel time, double-booked rooms, meetings without agendas).
 
 Tone: short and exact. Times always in the recipient's timezone.`,
-		SuggestedEvals: []SuggestedEval{
-			{
-				ID:   "meeting-coordinator:default",
-				Name: "Schedule request proposes 3 times",
-				Trigger: EvalTrigger{
-					Type: "chat_message",
-					Payload: map[string]any{
-						"text": "Set up a 30-minute chat with Diana next week to talk about the launch.",
-					},
-				},
-				Goals: []string{
-					"Check Google Calendar for mutual availability across the next 5 business days.",
-					"Draft a Gmail invite with three time options.",
-					"Do not send the invite — show me the draft and wait for confirmation.",
-				},
-				Mocks: []EvalMock{
-					{App: "google-calendar", Tool: "find_availability", Return: json.RawMessage(`{"slots":[{"date":"2026-05-13","time":"14:00"},{"date":"2026-05-14","time":"10:00"},{"date":"2026-05-15","time":"15:30"}]}`)},
-					{App: "gmail", Tool: "create_draft", Return: json.RawMessage(`{"draft_id":"d-1","ok":true}`)},
-				},
-			},
-		},
 	},
 	{
 		ID:          "devops-bot",
@@ -402,29 +277,6 @@ Events to act on:
 Weekly Monday 10am: post a digest of release velocity (commits merged, PRs landed, mean time-to-merge, blocked PRs).
 
 Tone: terse engineering register. Links matter more than prose.`,
-		SuggestedEvals: []SuggestedEval{
-			{
-				ID:   "devops-bot:default",
-				Name: "Failing CI on main pings on-call",
-				Trigger: EvalTrigger{
-					Type: "webhook",
-					Payload: map[string]any{
-						"event": "github.workflow_run.completed",
-						"run":   map[string]any{"branch": "main", "status": "completed", "conclusion": "failure", "workflow": "CI", "url": "https://github.com/acme/repo/actions/runs/123"},
-					},
-				},
-				Goals: []string{
-					"Post a notification to the engineering Slack channel.",
-					"Include the workflow run URL in the message.",
-					"@-mention the on-call engineer.",
-					"Don't file a Linear issue — this isn't a security alert.",
-				},
-				Mocks: []EvalMock{
-					{App: "slack", Tool: "send_message", Return: json.RawMessage(`{"ok":true}`)},
-					{App: "linear", Tool: "create_issue", Error: "test_mode: linear should not be called for CI failures"},
-				},
-			},
-		},
 	},
 	{
 		ID:          "site-monitoring",
@@ -451,28 +303,6 @@ For each alarm:
 Daily 9am: post a 24h health digest to #incidents — total alarms by severity, top 3 noisiest services, anything that paged overnight.
 
 Never escalate the same alarm twice within 30 minutes (suppress via alarm name).`,
-		SuggestedEvals: []SuggestedEval{
-			{
-				ID:   "site-monitoring:default",
-				Name: "Critical alarm pages on-call",
-				Trigger: EvalTrigger{
-					Type: "webhook",
-					Payload: map[string]any{
-						"event": "cloudwatch.alarm_state_changed",
-						"alarm": map[string]any{"name": "api-5xx-rate", "severity": "critical", "metric": "5xx_per_minute", "threshold": 50, "value": 127},
-					},
-				},
-				Goals: []string{
-					"Create a PagerDuty incident with the alarm name and breached value.",
-					"Post a parallel notice to the #incidents Slack channel.",
-					"Don't auto-acknowledge or auto-resolve the PagerDuty incident.",
-				},
-				Mocks: []EvalMock{
-					{App: "pagerduty", Tool: "create_incident", Return: json.RawMessage(`{"id":"PD-1","ok":true}`)},
-					{App: "slack", Tool: "send_message", Return: json.RawMessage(`{"ok":true}`)},
-				},
-			},
-		},
 	},
 	{
 		ID:          "content-distribution",
@@ -497,29 +327,6 @@ For each ready post:
 - Once scheduled, mark the Notion entry status=published with timestamps for each surface.
 
 Never publish anything without my explicit go-ahead per surface. "OK" applies to LinkedIn only; ask separately for the newsletter.`,
-		SuggestedEvals: []SuggestedEval{
-			{
-				ID:   "content-distribution:default",
-				Name: "Ready post produces both variants, waits for go-ahead",
-				Trigger: EvalTrigger{
-					Type: "webhook",
-					Payload: map[string]any{
-						"event": "notion.page_status_changed",
-						"page":  map[string]any{"id": "p-1", "title": "Why we rewrote our scheduler", "status": "ready", "body": "<long post body...>"},
-					},
-				},
-				Goals: []string{
-					"Format a LinkedIn variant (long-form, ~300 words).",
-					"Format a Mailchimp newsletter variant.",
-					"Do NOT schedule either yet — show me both variants and wait for explicit per-platform 'go'.",
-				},
-				Mocks: []EvalMock{
-					{App: "notion", Tool: "get_page", Return: json.RawMessage(`{"id":"p-1","title":"Why we rewrote our scheduler","body":"long post body...","status":"ready"}`)},
-					{App: "linkedin", Tool: "schedule_post", Error: "test_mode: scheduling blocked, draft first"},
-					{App: "mailchimp", Tool: "schedule_campaign", Error: "test_mode: scheduling blocked, draft first"},
-				},
-			},
-		},
 	},
 	{
 		ID:          "personal-assistant",
@@ -544,28 +351,6 @@ Daily rhythm:
 - Track decisions I make in messages ("Yes, let's do Tuesday") and remember them so I don't have to repeat myself.
 
 Tone: terse, helpful, never apologise for being a bot. Treat the inbox like a queue, not a museum.`,
-		SuggestedEvals: []SuggestedEval{
-			{
-				ID:   "personal-assistant:default",
-				Name: "Reschedule request drafts a reply",
-				Trigger: EvalTrigger{
-					Type: "chat_message",
-					Payload: map[string]any{
-						"from": "alice@example.com",
-						"text": "Email arrived from Alice: 'Can we push our 3pm meeting Tuesday to 4pm instead?'",
-					},
-				},
-				Goals: []string{
-					"Check the calendar for Tuesday 4pm availability before replying.",
-					"Draft an email response — do NOT send yet.",
-					"Show me the draft and wait for explicit confirmation.",
-				},
-				Mocks: []EvalMock{
-					{App: "calendar", Tool: "find_events", Return: json.RawMessage(`{"events":[],"available":true,"day":"Tuesday","time":"16:00"}`)},
-					{App: "channel-email", Tool: "create_draft", Return: json.RawMessage(`{"draft_id":"d-1","ok":true}`)},
-				},
-			},
-		},
 	},
 	{
 		ID:          "todo-coach",
@@ -593,27 +378,6 @@ Stalled-task surfacing:
 - Anything older than 5 days with no edits → mention it in the morning plan with "still on your list?". Never auto-delete; suggest snooze/archive and wait for me.
 
 Tone: encouraging, never preachy. Don't lecture me about productivity.`,
-		SuggestedEvals: []SuggestedEval{
-			{
-				ID:   "todo-coach:default",
-				Name: "Quick-add parses a one-liner",
-				Trigger: EvalTrigger{
-					Type: "chat_message",
-					Payload: map[string]any{
-						"text": "write the launch email by Friday p1",
-					},
-				},
-				Goals: []string{
-					"Create a todo with title 'write the launch email'.",
-					"Set the due date to this Friday.",
-					"Set the priority to P1.",
-					"Confirm in one short line — don't ask clarifying questions when the input is unambiguous.",
-				},
-				Mocks: []EvalMock{
-					{App: "todo", Tool: "quick_add", Return: json.RawMessage(`{"id":1,"title":"write the launch email","due":"2026-05-15","priority":"p1","ok":true}`)},
-				},
-			},
-		},
 	},
 	{
 		ID:          "health-logger",
@@ -641,26 +405,6 @@ Weekly recap (Sundays 8pm):
 - Pull the last 7 days. Compute deltas vs. the prior week for the pinned kinds. Send a short message: what trended up, what trended down, one observation, no prescription.
 
 Never recommend medical decisions. If I describe symptoms, log them and say "noted, see a doctor if it persists" — don't diagnose.`,
-		SuggestedEvals: []SuggestedEval{
-			{
-				ID:   "health-logger:default",
-				Name: "One-liner logs structured datapoint",
-				Trigger: EvalTrigger{
-					Type: "chat_message",
-					Payload: map[string]any{
-						"text": "weight 78.4",
-					},
-				},
-				Goals: []string{
-					"Log a health datapoint with kind=weight value=78.4.",
-					"Use kg as the unit (or note the unit explicitly).",
-					"Confirm in one short line — don't ask clarifying questions for unambiguous inputs.",
-				},
-				Mocks: []EvalMock{
-					{App: "health", Tool: "health_log", Return: json.RawMessage(`{"id":42,"kind":"weight","value":78.4,"unit":"kg","ok":true}`)},
-				},
-			},
-		},
 	},
 	{
 		ID:          "crm-assistant",
@@ -686,27 +430,6 @@ Weekly Monday 9am:
 - Surface contacts with no activity in 30+ days, sorted by importance signals (tags, custom attributes you've learned matter). Send a digest message: "5 contacts to re-engage this week, want me to draft?".
 
 Never bulk-send. One draft, one confirmation, one send. Treat the contact list as a relationship graph, not a mailing list.`,
-		SuggestedEvals: []SuggestedEval{
-			{
-				ID:   "crm-assistant:default",
-				Name: "Drafts follow-up, doesn't send",
-				Trigger: EvalTrigger{
-					Type: "chat_message",
-					Payload: map[string]any{
-						"text": "Follow up with John Park — we last talked about the integration timeline.",
-					},
-				},
-				Goals: []string{
-					"Pull John's activity log from the CRM before composing.",
-					"Reference the integration-timeline conversation in the draft.",
-					"Show me the draft — don't send yet.",
-				},
-				Mocks: []EvalMock{
-					{App: "crm", Tool: "get_contact", Return: json.RawMessage(`{"id":"c-7","name":"John Park","email":"john@partner.com","activities":[{"date":"2026-05-01","note":"talked integration timeline, awaiting their security review"}]}`)},
-					{App: "messaging", Tool: "draft_message", Return: json.RawMessage(`{"draft_id":"m-1","ok":true}`)},
-				},
-			},
-		},
 	},
 	{
 		ID:          "media-studio-pal",
@@ -733,29 +456,6 @@ Per request:
 Cost discipline: if I haven't said "more", stop at 3 image variants (or 1 for video/audio/music). If I say "tighter on the second one", regenerate that one — don't reroll the whole batch.
 
 Tone: art-director short. No "Here are some images I generated for you!" preamble.`,
-		SuggestedEvals: []SuggestedEval{
-			{
-				ID:   "media-studio-pal:default",
-				Name: "Brief produces 3 image variants and saves them",
-				Trigger: EvalTrigger{
-					Type: "chat_message",
-					Payload: map[string]any{
-						"text": "Generate a hero image for a launch post about our new scheduler — clean, blue-tinted, minimalist.",
-					},
-				},
-				Goals: []string{
-					"Use media_generate with kind=image.",
-					"Generate three variants — not one, not five.",
-					"Vary one dimension across the three (style, framing, or palette).",
-					"Save each generation to storage under /.media/image/.",
-					"Reply with thumbnails + a one-line description per variant.",
-				},
-				Mocks: []EvalMock{
-					{App: "media-studio", Tool: "media_generate", Return: json.RawMessage(`{"id":"img-1","url":"https://example.com/i.png"}`)},
-					{App: "storage", Tool: "files_upload", Return: json.RawMessage(`{"id":1,"path":"/.media/image/2026-05/scheduler-v1.png","ok":true}`)},
-				},
-			},
-		},
 	},
 	{
 		ID:          "social-poster",
@@ -781,30 +481,6 @@ Per post request:
 Scheduling: weekday 10am local unless I specify otherwise. Never schedule the same content to two platforms within an hour of each other.
 
 Tone: my voice, not corporate-LinkedIn. Stay editorial.`,
-		SuggestedEvals: []SuggestedEval{
-			{
-				ID:   "social-poster:default",
-				Name: "Draft request produces per-platform variants",
-				Trigger: EvalTrigger{
-					Type: "chat_message",
-					Payload: map[string]any{
-						"text": "Draft a social post about shipping our scheduler rewrite — punchy on Twitter, story-driven on LinkedIn.",
-					},
-				},
-				Goals: []string{
-					"Read voice samples from /writing/voice-samples/ in storage before drafting.",
-					"Produce a Twitter variant (≤280 chars, hook-first).",
-					"Produce a LinkedIn variant (1-2 short paragraphs).",
-					"Save the draft set to storage under /.social/.",
-					"Do NOT schedule either — wait for per-platform confirmation.",
-				},
-				Mocks: []EvalMock{
-					{App: "storage", Tool: "files_list", Return: json.RawMessage(`{"files":[{"path":"/writing/voice-samples/sample1.md","content":"short editorial voice example..."}]}`)},
-					{App: "storage", Tool: "files_upload", Return: json.RawMessage(`{"id":1,"path":"/.social/2026-05-12-scheduler.md","ok":true}`)},
-					{App: "social", Tool: "schedule_post", Error: "test_mode: scheduling blocked, draft first"},
-				},
-			},
-		},
 	},
 	{
 		ID:          "research-bot",
@@ -828,28 +504,6 @@ Workflow per question:
 - File the summary as a markdown note in storage under /research/<date>-<slug>.md so I can retrieve it later.
 
 Tone: skeptical of single-source claims, comfortable saying "I couldn't find a clear answer."`,
-		SuggestedEvals: []SuggestedEval{
-			{
-				ID:   "research-bot:default",
-				Name: "Research request files a markdown note",
-				Trigger: EvalTrigger{
-					Type: "chat_message",
-					Payload: map[string]any{
-						"text": "Research the current state of Postgres logical replication tooling for multi-region failover.",
-					},
-				},
-				Goals: []string{
-					"Use the computer app to browse the web.",
-					"Take notes as you go — bullets with links, not full quotes.",
-					"Save a markdown summary to storage under /research/.",
-					"Reply with a 3-sentence headline answer + a pointer to the saved note.",
-				},
-				Mocks: []EvalMock{
-					{App: "computer", Tool: "browse", Return: json.RawMessage(`{"url":"https://www.postgresql.org/docs/current/logical-replication.html","text":"PostgreSQL logical replication ships changes by replicating decoded WAL..."}`)},
-					{App: "storage", Tool: "files_upload", Return: json.RawMessage(`{"id":1,"path":"/research/2026-05-12-postgres-logical-replication.md","ok":true}`)},
-				},
-			},
-		},
 	},
 	{
 		ID:           "empty",
@@ -1284,28 +938,8 @@ func (s *Server) handleListAgentTemplates(w http.ResponseWriter, r *http.Request
 	}
 	for i := range list {
 		s.resolveTemplateLogos(&list[i])
-		mergeSuggestedEvals(&list[i])
 	}
 	writeJSON(w, list)
-}
-
-// mergeSuggestedEvals attaches the in-memory builtin's
-// SuggestedEvals onto the wire-bound AgentTemplate. The DB row
-// doesn't carry them — they live exclusively on the Go-side
-// builtinAgentTemplates slice — so the wizard wouldn't see them
-// without this merge. PR-2 promotes them to a JSON column on the
-// table when app-contributed templates start shipping their own
-// evals via manifest.
-func mergeSuggestedEvals(t *AgentTemplate) {
-	if t.Source != "builtin" {
-		return
-	}
-	for i := range builtinAgentTemplates {
-		if builtinAgentTemplates[i].ID == t.ID {
-			t.SuggestedEvals = builtinAgentTemplates[i].SuggestedEvals
-			return
-		}
-	}
 }
 
 // POST /agent-templates — body shape mirrors AgentTemplate (no id
@@ -1335,7 +969,6 @@ func (s *Server) handleCreateAgentTemplate(w http.ResponseWriter, r *http.Reques
 	}
 	if t != nil {
 		s.resolveTemplateLogos(t)
-		mergeSuggestedEvals(t)
 	}
 	writeJSON(w, t)
 }
@@ -1372,7 +1005,6 @@ func (s *Server) handleAgentTemplateByID(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		s.resolveTemplateLogos(t)
-		mergeSuggestedEvals(t)
 		writeJSON(w, t)
 	case http.MethodPut:
 		var body AgentTemplate
@@ -1387,7 +1019,6 @@ func (s *Server) handleAgentTemplateByID(w http.ResponseWriter, r *http.Request)
 		t, _ := s.store.GetAgentTemplate(userID, id)
 		if t != nil {
 			s.resolveTemplateLogos(t)
-			mergeSuggestedEvals(t)
 		}
 		writeJSON(w, t)
 	case http.MethodDelete:

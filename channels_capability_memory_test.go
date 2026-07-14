@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestChannelsCapabilityPayloadDocumentsUnifiedSend(t *testing.T) {
+func TestChannelsCapabilityPayloadDocumentsSeparatedTools(t *testing.T) {
 	payload := channelsCapabilityPayload()
 	if payload.ID != channelsCapabilityMemoryID {
 		t.Fatalf("id=%q, want %q", payload.ID, channelsCapabilityMemoryID)
@@ -26,46 +26,27 @@ func TestChannelsCapabilityPayloadDocumentsUnifiedSend(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"`channels_send`",
-		"kind=\"message\" for normal operator conversation",
-		"kind=\"status\" and channel=\"apteva\"",
-		"state=\"working\" before meaningful multi-step work",
-		"before any substantive external action",
-		"even when it needs only one tool call",
-		"creating, updating, deleting, sending, publishing, triggering",
-		"same parallel tool-call batch",
-		"do not wait for the status result",
-		"Do not parallelize past a required approval or prerequisite",
-		"state=\"waiting\"",
-		"state=\"blocked\"",
-		"state=\"completed\"",
-		"never in chat, Inbox, or notifications",
-		"Do not emit status for read-only lookups",
-		"every individual tool call within one stated phase",
-		"kind=\"approval\" and channel=\"apteva\"",
-		"kind=\"report\" and channel=\"apteva\"",
-		"kind=\"alert\" and channel=\"apteva\"",
-		"`channels_list_channels`",
-		"Thoughts are not visible",
-		"destructive changes",
-		"daily/weekly report",
-		"Daily reports are useful for ongoing agents",
-		"meaningful progress",
-		"Do not send empty \"nothing happened\" reports",
-		"Weekly reports should be more structured",
-		"metrics/trends when available",
-		"Before writing a report, use available read-only tools",
-		"recent agent activity",
-		"telemetry/actions",
-		"Prefer facts from tools over vague memory",
-		"check/review/summarize something later",
-		"send the result as a report, not a normal message",
-		"requested delayed/background checks",
-		"repeated failures",
-		"If an operator is actively chatting",
-		"If no operator is actively chatting",
-		"omit routine chat/connect/disconnect/idle events",
-		"Skip dashboard chat greetings",
+		"`channels_send(channel, text, components?)`",
+		"`channels_publish(kind, title, content, ...)`",
+		"`channels_set_status(title, state, detail?, progress?)`",
+		"title and state are required",
+		"title and content are required for every publication",
+		"If one call in a parallel batch fails, retry only that failed call",
+		"call `channels_set_status` and the first action tool in the same parallel batch",
+		"Always pass state explicitly",
+		"at most one status per work phase",
+		"do not add a preliminary status",
+		"Report content is the report summary",
+		"Draft it before calling the tool",
+		"Never publish a title-only report",
+		"Imported 842 contacts; 17 invalid rows were skipped",
+		"Daily reports cover meaningful recent outcomes",
+		"Weekly reports add trends, metrics, recurring issues",
+		"use available read-only tools when possible",
+		"activity, telemetry, task/app state, files, records",
+		"Omit greetings, dashboard chat, connect/disconnect events",
+		"When an operator is actively chatting",
+		"publish a report when the result was requested for later review",
 	} {
 		if !strings.Contains(payload.Content, want) {
 			t.Fatalf("payload content missing %q:\n%s", want, payload.Content)

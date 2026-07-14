@@ -162,15 +162,7 @@ type Server struct {
 	liveTelemetryHook func([]TelemetryEvent)
 	latestLLMDone     latestLLMDoneCache
 
-	// judgeMutexes serializes judge calls per user. The meta-agent's
-	// "main" thread is shared across calls and we reset+repost on
-	// every call; without this lock, two concurrent evals for the
-	// same user would race on the shared context. See
-	// judgeWithMetaAgent in platform_agent.go.
-	judgeMutexesOnce sync.Once
-	judgeMutexesMu   sync.Mutex
-	judgeMutexes     map[int64]*sync.Mutex
-	appTokenMu       sync.Mutex
+	appTokenMu sync.Mutex
 
 	// environments supervises isolated test Environments — sets of real app
 	// sidecars sharing one HTTP edge (see environment.go / environment_edge.go).
@@ -560,7 +552,7 @@ func main() {
 
 	// Platform helpers are lazy by default. Eagerly booting one helper
 	// per provider-backed user makes updates noisy and can emit a burst of
-	// telemetry before anyone asks for dashboard help or an eval. Keep an
+	// telemetry before anyone asks for dashboard help. Keep an
 	// opt-in escape hatch for deployments that prefer warm helpers.
 	if !quarantined && envTruthy(os.Getenv("APTEVA_BOOT_META_AGENTS")) {
 		go s.bootMetaAgents()
@@ -1168,35 +1160,10 @@ func main() {
 	}))
 	apiMux.HandleFunc("/agent-templates/", s.authMiddleware(s.handleAgentTemplateByID))
 
-	// /evals/preview — wizard's Verify step uses this to run an
-	// eval against a draft (uncreated) agent. No DB writes; the
-	// returned EvalRun has ID=0. After the agent is created, the
-	// regular /agents/:id/evals/:evalId/run path persists results.
-	apiMux.HandleFunc("/evals/preview", s.authMiddleware(s.handleEvalPreview))
-
-	// /agents/seed-directive — synthesize a starter directive from
-	// an eval's goals. Used by the wizard's "Suggest from goals"
-	// button so operators don't have to hand-write a directive for
-	// simple cases. See platform_agent.go.
-	apiMux.HandleFunc("/agents/seed-directive", s.authMiddleware(s.handleSeedDirective))
 	apiMux.HandleFunc("/platform/helper", s.authMiddleware(s.handlePlatformHelper))
-
-	// /evals/preview/stream — SSE counterpart of /evals/preview that
-	// emits a per-iteration event so the wizard can pause-and-confirm
-	// between steps. See eval_streaming.go.
-	apiMux.HandleFunc("/evals/preview/stream", s.authMiddleware(s.handleEvalPreviewStream))
-
-	// /eval-runs/:run_id/step — operator's continue/stop signal for an
-	// in-flight streaming run. Paired with /evals/preview/stream and
-	// /agents/:id/evals/:evalId/run/stream.
-	apiMux.HandleFunc("/eval-runs/", s.authMiddleware(s.handleEvalStepControl))
-
-	// /eval-mock-gateway/<token>[/...] — HTTP MCP endpoint that
-	// spawned eval cores talk to in place of the real gateway.
-	// Authenticates via the token in the path (it IS the credential).
-	// See eval_runner.go for the runner that registers the session
-	// and agent_evals.go for the handler logic.
-	apiMux.HandleFunc("/eval-mock-gateway/", s.handleEvalMockGateway)
+	// Private capability-token gateway used by temporary runtime agents to
+	// reach dynamic MCP sessions exposed by the runtime-owning app.
+	apiMux.HandleFunc("/runtime-mcp-gateway/", s.handleRuntimeMCPGateway)
 
 	// /environments, /environment-snapshots — isolated test environments.
 	s.registerEnvironmentRoutes(apiMux)
@@ -1323,15 +1290,6 @@ func main() {
 		// /instances/:id/skills/:skill — POST assign / DELETE unassign
 		if strings.HasSuffix(path, "/skills") || strings.Contains(path, "/skills/") {
 			s.handleInstanceSkills(w, r)
-			return
-		}
-
-		// /instances/:id/evals                  — list / create
-		// /instances/:id/evals/:evalId          — get / update / delete
-		// /instances/:id/evals/:evalId/run      — POST execute the eval
-		// /instances/:id/evals/:evalId/runs     — GET run history
-		if strings.HasSuffix(path, "/evals") || strings.Contains(path, "/evals/") {
-			s.handleAgentEvals(w, r)
 			return
 		}
 

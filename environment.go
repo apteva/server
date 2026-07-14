@@ -9,8 +9,7 @@ package main
 // the app-sidecar half plus the edge, which is the part that lets us boot a
 // coherent multi-app environment without modifying any app.
 //
-// This generalises eval_sandbox.go's one-shot SpawnSandboxedApp pattern
-// into a named, long-lived container that can host several sidecars and be
+// This is a named, long-lived container that can host several sidecars and be
 // reset/torn down as a unit. It's a pure addition: nothing here runs unless
 // a caller explicitly creates a Environment, so production agent paths are
 // untouched (s.environments is only ever consulted by environment endpoints).
@@ -40,10 +39,15 @@ func environmentDataRoot(dataDir string) string {
 
 // EnvironmentSpec declares a Environment to stand up.
 type EnvironmentSpec struct {
-	ID         string       // unique id for this environment (caller-supplied)
-	ProjectID  string       // project scope the in-environment apps run under
-	GatewayURL string       // shared apteva-server URL sidecars call back to
-	Apps       []SandboxApp // legacy prebuilt-binary sidecars (eval path)
+	ID         string // unique id for this environment (caller-supplied)
+	ProjectID  string // project scope the in-environment apps run under
+	GatewayURL string // shared apteva-server URL sidecars call back to
+	// Set only by the generic app-facing runtime API. Legacy environment callers
+	// leave these zero-valued.
+	RuntimeOwnerInstallID int64
+	RuntimeExpiresAt      time.Time
+	SourceInstallIDs      map[string]int64
+	Apps                  []SandboxApp // legacy prebuilt-binary sidecars
 	// AppSrcDirs maps app name → local working-copy dir. These are installed
 	// via the real install path (installLocalSource) under project_id=ID, so
 	// each is a project-scoped REAL install: its callbacks authenticate and
@@ -87,23 +91,85 @@ type Environment struct {
 	Mode            EdgeMode // legacy alias for NetworkMode
 	NetworkMode     EdgeMode
 	IntegrationMode string
+	ownerInstallID  int64
+	expiresAt       time.Time
 
 	edge              *EnvironmentEdge
 	server            *Server // back-ref for real installs + teardown (nil for edge-only environments)
 	connectionIDs     []int64
+	sourceInstallIDs  map[string]int64
 	mu                sync.Mutex
 	apps              map[string]*SandboxAppInstance
 	installs          map[string]*localInstall    // real installs (AppSrcDirs path), keyed by app name
 	agents            map[int64]*EnvironmentAgent // running agent cores in this environment, keyed by transient agent id
 	agentAliases      map[string]int64            // stable environment-local alias → agent id
 	subscriptions     []EnvironmentSubscriptionSpec
+	mcpAttachments    map[string]RuntimeMCPAttachment
 	removeInterceptor func() // unregisters this environment's integration interceptor
 	createdAt         time.Time
+}
+
+func (w *Environment) OwnerInstallID() int64 { return w.ownerInstallID }
+func (w *Environment) ExpiresAt() time.Time  { return w.expiresAt }
+
+func (w *Environment) SourceInstallID(appName string) int64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.sourceInstallIDs[appName]
+}
+
+func (w *Environment) AddMCPAttachment(a RuntimeMCPAttachment) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.agents) > 0 {
+		return fmt.Errorf("attach MCP before spawning runtime agents")
+	}
+	if w.mcpAttachments == nil {
+		w.mcpAttachments = map[string]RuntimeMCPAttachment{}
+	}
+	for _, existing := range w.mcpAttachments {
+		if existing.Name == a.Name {
+			return fmt.Errorf("runtime already has MCP attachment %q", a.Name)
+		}
+	}
+	w.mcpAttachments[a.ID] = a
+	return nil
+}
+
+func (w *Environment) MCPAttachments() []RuntimeMCPAttachment {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := make([]RuntimeMCPAttachment, 0, len(w.mcpAttachments))
+	for _, a := range w.mcpAttachments {
+		out = append(out, a)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+func (w *Environment) MCPAttachmentByToken(token string) *RuntimeMCPAttachment {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, a := range w.mcpAttachments {
+		if a.Token == token {
+			copy := a
+			return &copy
+		}
+	}
+	return nil
 }
 
 type environmentAppSource struct {
 	Name string
 	Dir  string
+}
+
+func cloneInt64Map(in map[string]int64) map[string]int64 {
+	out := make(map[string]int64, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 const (
@@ -162,6 +228,25 @@ func (w *Environment) ConnectionIDs() []int64 {
 	out := make([]int64, len(w.connectionIDs))
 	copy(out, w.connectionIDs)
 	return out
+}
+
+func (w *Environment) AddConnectionIDs(ids ...int64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	seen := make(map[int64]struct{}, len(w.connectionIDs)+len(ids))
+	for _, id := range w.connectionIDs {
+		seen[id] = struct{}{}
+	}
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		w.connectionIDs = append(w.connectionIDs, id)
+		seen[id] = struct{}{}
+	}
 }
 
 // SubscriptionSpecs returns the environment-owned subscription declarations.
@@ -396,6 +481,12 @@ func (w *Environment) Stop() {
 			agent.Stop()
 		}
 	}
+	// Fake integration connections can belong to cloned installs. Remove
+	// runtime-scoped connection rows first so install teardown cannot be held
+	// back by present or future ownership constraints.
+	if w.server != nil && w.ID != "" {
+		_, _ = w.server.store.db.Exec(`DELETE FROM connections WHERE project_id = ?`, w.ID)
+	}
 	// Tear down real installs (stop process + delete install/app rows +
 	// remove the throwaway data dir).
 	if w.server != nil {
@@ -404,12 +495,6 @@ func (w *Environment) Stop() {
 			if in.DataDir != "" {
 				_ = os.RemoveAll(in.DataDir)
 			}
-		}
-		// Delete any connections seeded under this environment's project. The
-		// project id is the environment id — never empty/global — so this only
-		// removes environment-scoped rows.
-		if w.ID != "" {
-			_, _ = w.server.store.db.Exec(`DELETE FROM connections WHERE project_id = ?`, w.ID)
 		}
 		if w.server.appEventDispatcher != nil {
 			_ = w.server.appEventDispatcher.Reconcile()
@@ -431,9 +516,11 @@ func (w *Environment) Stop() {
 type EnvironmentManager struct {
 	mu           sync.Mutex
 	environments map[string]*Environment
+	creating     map[string]bool
 	dataDir      string
 	snapshots    *SnapshotStore
 	server       *Server // set in NewServer; needed for real (install-backed) environment apps
+	expiryTimers map[string]*time.Timer
 
 	// ResolveBinary maps an app manifest name to its sidecar binary path
 	// when a SandboxApp doesn't carry an explicit BinaryPath. Injectable
@@ -452,8 +539,10 @@ func NewEnvironmentManager(dataDir string) *EnvironmentManager {
 	_ = os.MkdirAll(dataDir, 0755)
 	return &EnvironmentManager{
 		environments:  map[string]*Environment{},
+		creating:      map[string]bool{},
 		dataDir:       dataDir,
 		snapshots:     NewSnapshotStore(dataDir),
+		expiryTimers:  map[string]*time.Timer{},
 		ResolveBinary: defaultBinaryResolver,
 		ResolveSource: defaultSourceResolver,
 	}
@@ -469,6 +558,19 @@ type IntegrationFixture struct {
 	Tool   string `json:"tool"` // AppToolDef.Name
 	Status int    `json:"status"`
 	Data   any    `json:"data"`
+}
+
+// RuntimeIntegrationBinding is the generic runtime primitive for creating a
+// fake, runtime-scoped connection and binding it to one cloned app role.
+type RuntimeIntegrationBinding struct {
+	App            string            `json:"app"`
+	Role           string            `json:"role"`
+	Slug           string            `json:"slug"`
+	AppName        string            `json:"app_name,omitempty"`
+	Name           string            `json:"name,omitempty"`
+	AuthType       string            `json:"auth_type,omitempty"`
+	Credentials    map[string]string `json:"credentials,omitempty"`
+	ExposeToAgents bool              `json:"expose_to_agents,omitempty"`
 }
 
 // RegisterEnvironmentInterceptor registers a PER-WORLD integration interceptor
@@ -499,7 +601,7 @@ func RegisterEnvironmentInterceptor(environmentID string, fixtures []Integration
 
 // CreateFromSnapshot forks a Environment from a captured snapshot: it restores
 // each app's data dir and the cassette, then boots the sidecars on that
-// pre-populated state. This is the eval-run fork path — independent,
+// pre-populated state. This fork is independent and
 // repeatable, starting from a known fixture.
 func (wm *EnvironmentManager) CreateFromSnapshot(spec EnvironmentSpec, snapshotID string) (*Environment, error) {
 	man, merr := wm.snapshots.Get(snapshotID)
@@ -543,11 +645,21 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 		return nil, fmt.Errorf("environment: ID required")
 	}
 	wm.mu.Lock()
-	if _, exists := wm.environments[spec.ID]; exists {
+	if _, exists := wm.environments[spec.ID]; exists || wm.creating[spec.ID] {
 		wm.mu.Unlock()
 		return nil, fmt.Errorf("environment %q already exists", spec.ID)
 	}
+	wm.creating[spec.ID] = true
 	wm.mu.Unlock()
+	registered := false
+	defer func() {
+		if registered {
+			return
+		}
+		wm.mu.Lock()
+		delete(wm.creating, spec.ID)
+		wm.mu.Unlock()
+	}()
 
 	networkMode := normalizeEnvironmentNetworkMode(spec.NetworkMode, spec.Mode)
 	integrationMode := normalizeEnvironmentIntegrationMode(spec.IntegrationMode, spec.Mode)
@@ -561,20 +673,24 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 		budget = 20 * time.Second
 	}
 	w := &Environment{
-		ID:              spec.ID,
-		ProjectID:       spec.ProjectID,
-		Mode:            edge.mode,
-		NetworkMode:     edge.mode,
-		IntegrationMode: integrationMode,
-		edge:            edge,
-		server:          wm.server,
-		connectionIDs:   append([]int64(nil), spec.ConnectionIDs...),
-		apps:            map[string]*SandboxAppInstance{},
-		installs:        map[string]*localInstall{},
-		agents:          map[int64]*EnvironmentAgent{},
-		agentAliases:    map[string]int64{},
-		subscriptions:   append([]EnvironmentSubscriptionSpec(nil), spec.Subscriptions...),
-		createdAt:       time.Now(),
+		ID:               spec.ID,
+		ProjectID:        spec.ProjectID,
+		Mode:             edge.mode,
+		NetworkMode:      edge.mode,
+		IntegrationMode:  integrationMode,
+		ownerInstallID:   spec.RuntimeOwnerInstallID,
+		expiresAt:        spec.RuntimeExpiresAt,
+		edge:             edge,
+		server:           wm.server,
+		connectionIDs:    append([]int64(nil), spec.ConnectionIDs...),
+		sourceInstallIDs: cloneInt64Map(spec.SourceInstallIDs),
+		apps:             map[string]*SandboxAppInstance{},
+		installs:         map[string]*localInstall{},
+		agents:           map[int64]*EnvironmentAgent{},
+		agentAliases:     map[string]int64{},
+		subscriptions:    append([]EnvironmentSubscriptionSpec(nil), spec.Subscriptions...),
+		mcpAttachments:   map[string]RuntimeMCPAttachment{},
+		createdAt:        time.Now(),
 	}
 	removeIntegrationMode := registerEnvironmentIntegrationMode(spec.ID, integrationMode)
 
@@ -637,17 +753,10 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 			"NO_PROXY":              "",
 			"APTEVA_ENVIRONMENT_ID": spec.ID,
 		}
-		inst, ierr := wm.server.installLocalSource(src.Dir, spec.ID, env, nil)
+		inst, ierr := wm.server.installLocalSource(src.Dir, spec.ID, env, spec.RestoredAppDataDirs[src.Name], nil)
 		if ierr != nil {
 			w.Stop()
 			return nil, fmt.Errorf("environment %q: install app %q: %w", spec.ID, src.Name, ierr)
-		}
-		if restored := spec.RestoredAppDataDirs[src.Name]; restored != "" && inst.DataDir != "" {
-			_ = os.RemoveAll(inst.DataDir)
-			if cerr := copyTree(restored, inst.DataDir); cerr != nil {
-				w.Stop()
-				return nil, fmt.Errorf("environment %q: restore app %q data: %w", spec.ID, src.Name, cerr)
-			}
 		}
 		w.mu.Lock()
 		w.installs[inst.AppName] = inst
@@ -661,8 +770,17 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 	}
 
 	wm.mu.Lock()
+	delete(wm.creating, spec.ID)
 	wm.environments[spec.ID] = w
+	if !spec.RuntimeExpiresAt.IsZero() {
+		delay := time.Until(spec.RuntimeExpiresAt)
+		if delay < 0 {
+			delay = 0
+		}
+		wm.expiryTimers[spec.ID] = time.AfterFunc(delay, func() { wm.Destroy(spec.ID) })
+	}
 	wm.mu.Unlock()
+	registered = true
 	return w, nil
 }
 
@@ -804,7 +922,7 @@ func (s *Server) bindEnvironmentAppDependencies(w *Environment, depsByName map[s
 	return nil
 }
 
-func (s *Server) bindEnvironmentIntegrationMocks(userID int64, w *Environment, bindings []RunIntegrationBinding) error {
+func (s *Server) bindEnvironmentIntegrationMocks(userID int64, w *Environment, bindings []RuntimeIntegrationBinding) error {
 	if w == nil {
 		return fmt.Errorf("environment required")
 	}
@@ -812,6 +930,17 @@ func (s *Server) bindEnvironmentIntegrationMocks(userID int64, w *Environment, b
 		appName := strings.TrimSpace(b.App)
 		role := strings.TrimSpace(b.Role)
 		slug := strings.TrimSpace(b.Slug)
+		if b.ExposeToAgents {
+			if appName != "" || role != "" {
+				return fmt.Errorf("binding %d: agent-visible bindings must omit app and role", i)
+			}
+			conn, err := s.createEnvironmentMockConnection(userID, w, b, w.OwnerInstallID())
+			if err != nil {
+				return fmt.Errorf("binding %d: %w", i, err)
+			}
+			w.AddConnectionIDs(conn.ID)
+			continue
+		}
 		if appName == "" || role == "" || slug == "" {
 			return fmt.Errorf("binding %d: app, role, and slug required", i)
 		}
@@ -890,6 +1019,50 @@ func (s *Server) bindEnvironmentIntegrationMocks(userID int64, w *Environment, b
 	return nil
 }
 
+func (s *Server) createEnvironmentMockConnection(userID int64, w *Environment, b RuntimeIntegrationBinding, ownerInstallID int64) (*Connection, error) {
+	slug := strings.TrimSpace(b.Slug)
+	if slug == "" {
+		return nil, fmt.Errorf("slug required")
+	}
+	if s.catalog == nil || s.catalog.Get(slug) == nil {
+		return nil, fmt.Errorf("integration %q not found", slug)
+	}
+	credentials := map[string]string{}
+	for k, v := range b.Credentials {
+		credentials[k] = v
+	}
+	applyEnvironmentMockCredentialDefaults(slug, credentials)
+	raw, err := json.Marshal(credentials)
+	if err != nil {
+		return nil, fmt.Errorf("marshal credentials: %w", err)
+	}
+	enc, err := Encrypt(s.secret, string(raw))
+	if err != nil {
+		return nil, fmt.Errorf("encrypt credentials: %w", err)
+	}
+	authType := strings.TrimSpace(b.AuthType)
+	if authType == "" {
+		authType = "api_key"
+	}
+	connectionName := strings.TrimSpace(b.Name)
+	if connectionName == "" {
+		connectionName = "Mock " + slug
+	}
+	connectionAppName := strings.TrimSpace(b.AppName)
+	if connectionAppName == "" {
+		connectionAppName = slug
+	}
+	conn, err := s.store.CreateConnectionExt(ConnectionInput{
+		UserID: userID, AppSlug: slug, AppName: connectionAppName, Name: connectionName,
+		AuthType: authType, EncryptedCreds: enc, ProjectID: w.ID, Source: "local",
+		Status: "active", CreatedVia: "app_install", OwnerAppInstallID: ownerInstallID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create connection: %w", err)
+	}
+	return conn, nil
+}
+
 func applyEnvironmentMockCredentialDefaults(slug string, credentials map[string]string) {
 	if credentials == nil {
 		return
@@ -937,6 +1110,10 @@ func (wm *EnvironmentManager) Destroy(id string) {
 	if ok {
 		delete(wm.environments, id)
 	}
+	if timer := wm.expiryTimers[id]; timer != nil {
+		timer.Stop()
+	}
+	delete(wm.expiryTimers, id)
 	wm.mu.Unlock()
 	if ok && w != nil {
 		w.Stop()
@@ -948,6 +1125,11 @@ func (wm *EnvironmentManager) StopAll() {
 	wm.mu.Lock()
 	ws := wm.environments
 	wm.environments = map[string]*Environment{}
+	wm.creating = map[string]bool{}
+	for _, timer := range wm.expiryTimers {
+		timer.Stop()
+	}
+	wm.expiryTimers = map[string]*time.Timer{}
 	wm.mu.Unlock()
 	for _, w := range ws {
 		w.Stop()

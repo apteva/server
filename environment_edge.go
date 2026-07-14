@@ -2,8 +2,7 @@ package main
 
 // environment_edge.go — the cassette-backed HTTP edge for test Environments.
 //
-// This generalises eval_sandbox.go's sandboxProxy (allow | mock | block)
-// into a five-mode edge that also supports record/replay cassettes — the
+// This edge supports allow, mock, block, and record/replay cassettes - the
 // VCR/Polly pattern, applied to a whole agent environment. Every process inside
 // a Environment (app sidecars today; the agent core + meta-agent later) gets
 // HTTP_PROXY pointed at one EnvironmentEdge, so all of their outbound HTTP is
@@ -20,11 +19,7 @@ package main
 //        block/mock/replay-miss → 502 + record (fail loud — the property
 //                     that makes replay runs deterministic).
 //
-// This file is additive: sandboxProxy stays as-is so the current eval path
-// is untouched. A later phase migrates eval onto EnvironmentEdge and removes the
-// duplication. It reuses eval_sandbox.go's HTTPMock / InterceptedCall /
-// SandboxPolicy / hostMatchesSuffix / mockMatches / defaultAllowSuffixes
-// (same package), so the edge and the sandbox speak the same vocabulary.
+// Shared edge types and matching helpers live in environment_process.go.
 //
 // Phase-1 limitation: like sandboxProxy, this serves HTTP forward-proxy
 // semantics. HTTPS hosts only get CONNECT-tunnel passthrough for the
@@ -145,7 +140,7 @@ func LoadCassette(path string) (*Cassette, error) {
 }
 
 // Save writes the cassette as pretty JSON, suitable for committing
-// alongside an eval so CI replay is byte-stable.
+// alongside a test run so CI replay is byte-stable.
 func (c *Cassette) Save(path string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

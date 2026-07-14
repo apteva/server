@@ -12,7 +12,7 @@ package main
 //
 // Path: /api/environment-app-gateway/<environmentID>/<app>/<tail...>
 // (e.g. .../mcp). Loopback only; the (unguessable) environment id in the path is the credential,
-// same model as the eval-mock-gateway. Not behind authMiddleware so the
+// It is not behind authMiddleware so the
 // spawned core can reach it.
 
 import (

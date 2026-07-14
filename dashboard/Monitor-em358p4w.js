@@ -1,4 +1,0 @@
-import{U as z}from"./main-sd5xjad8.js";import{W as y}from"./main-vr1xm6zn.js";import"./main-ht5mrz80.js";import"./main-fzp2ykj0.js";import"./main-e68qatm3.js";import{Ta as w}from"./main-1sggbm6b.js";import{jsx as f,jsxs as q}from"react/jsx-runtime";function F(){return w("Monitor"),q("div",{className:"flex flex-col h-full overflow-hidden",children:[q("div",{className:"border-b border-border px-6 py-4",children:[f("h1",{className:"text-text text-lg font-bold",children:"Monitor"}),f("p",{className:"mt-1 text-xs text-text-dim",children:"Current agent work and all-project Apteva channel inbox."})]}),f("div",{className:"flex-1 overflow-auto p-4",children:q("div",{className:"grid grid-cols-1 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)] gap-4 items-start",children:[f(z,{}),f(y,{allProjects:!0,limit:30})]})})]})}export{F as Monitor};
-
-//# debugId=F8CF0B4AA7CF43CC64756E2164756E21
-//# sourceMappingURL=Monitor-em358p4w.js.map

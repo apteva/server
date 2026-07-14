@@ -308,30 +308,10 @@ func (im *AgentManager) InstanceDir(id int64) string { return im.instanceDir(id)
 // PreSeedConfig writes a starting config.json into an instance's
 // directory. Start reads disk-first ("Disk config.json is the single
 // source of truth"), so any field the caller wants the spawned core
-// to see — including mcp_servers — has to land on disk before Start
-// runs. The eval runner uses this to inject the eval-mock-gateway
-// MCP for its transient agent rows; live agents don't need it
-// because their disk config persists across spawns.
+// to see, including mcp_servers, has to land on disk before Start runs.
 func (im *AgentManager) PreSeedConfig(instID int64, cfgJSON string) error {
 	dir := im.instanceDir(instID)
 	return os.WriteFile(filepath.Join(dir, "config.json"), []byte(cfgJSON), 0644)
-}
-
-// WipeInstanceHistory removes the per-thread session history files
-// from an instance's directory. Used by the eval runner between
-// improvement-loop iterations after a directive_edit so the next
-// spawn doesn't load the previous iteration's assistant reply via
-// Session.LoadTail — which would otherwise make the model parrot
-// its prior answer even though the directive changed.
-//
-// Safe to call while the core is stopped (caller's responsibility);
-// no-op if the directory doesn't exist.
-func (im *AgentManager) WipeInstanceHistory(instID int64) error {
-	historyPath := filepath.Join(im.instanceDir(instID), "history")
-	if _, err := os.Stat(historyPath); os.IsNotExist(err) {
-		return nil
-	}
-	return os.RemoveAll(historyPath)
 }
 
 // ProviderInfo holds provider metadata for config.json injection.
@@ -1307,12 +1287,6 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		// stateless agent can stay out of the memory-write cycle
 		// while a personal-assistant-style agent enables it.
 		Unconscious *bool `json:"unconscious,omitempty"`
-		// TemplateID — when set, the server copies the template's
-		// SuggestedEvals into agent_evals for this new agent so the
-		// wizard's Verify step has a starter test to run. Empty
-		// (e.g. quick-create flow) is fine; the agent just starts
-		// with no evals and the operator can add some by hand.
-		TemplateID string `json:"template_id,omitempty"`
 		// BoundAppInstallIDs — installed apps the operator picked
 		// in the wizard's Setup step. We write app_agent_bindings
 		// rows so the gateway's per-agent tool filter (currently
@@ -1372,16 +1346,6 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "failed to create instance", http.StatusInternalServerError)
 		return
-	}
-
-	// Seed template-suggested evals if the wizard told us which
-	// template was used. Failures here aren't fatal — the agent
-	// still works, the operator just won't have a starter test in
-	// the Verify step. Suggested-eval lookup pulls from the
-	// in-memory builtinAgentTemplates slice (and, future PR, from
-	// app-contributed templates in the DB).
-	if body.TemplateID != "" {
-		s.seedTemplateEvalsForAgent(inst.ID, body.TemplateID)
 	}
 
 	// Write the operator's explicit app + integration selections from
@@ -1837,8 +1801,7 @@ func (s *Server) ResumeRunningInstances() {
 
 	for i := range rows {
 		inst := &rows[i]
-		// Platform-owned agents (the meta-agent, eval-run scratch
-		// rows) are lazy-managed by helper/eval paths — skip them
+		// Platform-owned agents are lazy-managed by their owning paths; skip them
 		// here so restart recovery only wakes real user agents.
 		if inst.Kind != "" && inst.Kind != "user" {
 			log.Printf("[RESUME] instance %d (%s): kind=%s is platform-managed, skipping", inst.ID, inst.Name, inst.Kind)

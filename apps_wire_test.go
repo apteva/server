@@ -36,12 +36,35 @@ func TestChannelChatApp_EndToEnd(t *testing.T) {
 	}
 
 	// Stand up the apps framework on a fresh mux.
+	// Pre-seed the synthetic inventory row written by older servers. Startup
+	// must remove it now that channel-chat is marked as internal.
+	if _, err := s.store.db.Exec(
+		`INSERT INTO apps (name, source, repo, ref, manifest_json)
+		 VALUES ('channel-chat', 'builtin', '', '', '{}')`,
+	); err != nil {
+		t.Fatalf("seed legacy channel-chat app: %v", err)
+	}
+	if _, err := s.store.db.Exec(
+		`INSERT INTO app_installs (app_id, project_id, status, source)
+		 SELECT id, '', 'running', 'builtin' FROM apps WHERE name='channel-chat'`,
+	); err != nil {
+		t.Fatalf("seed legacy channel-chat install: %v", err)
+	}
 	mux := http.NewServeMux()
 	reg, err := s.startApps(mux)
 	if err != nil {
 		t.Fatalf("startApps: %v", err)
 	}
 	t.Cleanup(func() { reg.Stop(500 * time.Millisecond) })
+	var channelChatInstalls int
+	if err := s.store.db.QueryRow(
+		`SELECT COUNT(*) FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE a.name='channel-chat'`,
+	).Scan(&channelChatInstalls); err != nil {
+		t.Fatalf("count channel-chat installs: %v", err)
+	}
+	if channelChatInstalls != 0 {
+		t.Fatalf("channel-chat inventory rows=%d, want 0", channelChatInstalls)
+	}
 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)

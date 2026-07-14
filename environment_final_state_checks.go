@@ -1,7 +1,7 @@
 package main
 
-// environment_final_state_checks.go contains the deterministic half of environment
-// evals. It deliberately uses the same authenticated app-tool path as seeding,
+// This file contains deterministic checks for completed environment runs. It uses
+// the same authenticated app-tool path as seeding,
 // but accepts only read-shaped tool names. This lets scenarios grade final
 // state without baking app storage internals into the benchmark runner.
 
@@ -12,6 +12,34 @@ import (
 	"strconv"
 	"strings"
 )
+
+// EnvironmentStateCheck describes one read-only observation of an app's final state.
+type EnvironmentStateCheck struct {
+	ID          string         `json:"id"`
+	Description string         `json:"description,omitempty"`
+	App         string         `json:"app"`
+	Tool        string         `json:"tool"`
+	Input       map[string]any `json:"input,omitempty"`
+	Path        string         `json:"path,omitempty"`
+	Expected    any            `json:"expected,omitempty"`
+	Exact       bool           `json:"exact,omitempty"`
+	Contains    string         `json:"contains,omitempty"`
+	MinCount    *int           `json:"min_count,omitempty"`
+	MaxCount    *int           `json:"max_count,omitempty"`
+}
+
+type DeterministicVerdict struct {
+	Overall string                     `json:"overall"`
+	Checks  []DeterministicCheckResult `json:"checks"`
+}
+
+type DeterministicCheckResult struct {
+	ID          string          `json:"id"`
+	Description string          `json:"description,omitempty"`
+	Pass        bool            `json:"pass"`
+	Reason      string          `json:"reason,omitempty"`
+	Observed    json.RawMessage `json:"observed,omitempty"`
+}
 
 func (s *Server) evaluateEnvironmentStateChecks(environment *Environment, checks []EnvironmentStateCheck) (*DeterministicVerdict, error) {
 	if len(checks) == 0 {

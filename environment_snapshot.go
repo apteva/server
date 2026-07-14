@@ -2,8 +2,7 @@ package main
 
 // environment_snapshot.go — snapshot/restore of Environment state.
 //
-// A snapshot is the reusable fixture an eval forks from (see the design:
-// "Environment snapshot : eval run :: test DB template : test case"). It freezes:
+// A snapshot is a reusable environment fixture. It freezes:
 //   - an agent's full state: config.json + history/ + memory.jsonl
 //   - each in-environment sidecar's SQLite data dir (real rows the apps wrote)
 //   - the environment's cassette (recorded external responses)
@@ -32,14 +31,16 @@ import (
 
 // SnapshotManifest is the metadata written at the root of every snapshot.
 type SnapshotManifest struct {
-	ID            string                        `json:"id"`
-	ProjectID     string                        `json:"project_id"`
-	Description   string                        `json:"description,omitempty"`
-	Apps          []string                      `json:"apps"`         // sidecar names captured
-	HasAgent      bool                          `json:"has_agent"`    // agent/ dir present
-	HasCassette   bool                          `json:"has_cassette"` // cassette.json present
-	Subscriptions []EnvironmentSubscriptionSpec `json:"subscriptions,omitempty"`
-	CreatedAt     time.Time                     `json:"created_at"`
+	ID               string                        `json:"id"`
+	ProjectID        string                        `json:"project_id"`
+	OwnerInstallID   int64                         `json:"owner_install_id,omitempty"`
+	Description      string                        `json:"description,omitempty"`
+	Apps             []string                      `json:"apps"` // sidecar names captured
+	SourceInstallIDs map[string]int64              `json:"source_install_ids,omitempty"`
+	HasAgent         bool                          `json:"has_agent"`    // agent/ dir present
+	HasCassette      bool                          `json:"has_cassette"` // cassette.json present
+	Subscriptions    []EnvironmentSubscriptionSpec `json:"subscriptions,omitempty"`
+	CreatedAt        time.Time                     `json:"created_at"`
 }
 
 // SnapshotStore manages snapshot artifacts on disk.
@@ -58,13 +59,17 @@ func (ss *SnapshotStore) dir(id string) string { return filepath.Join(ss.root, i
 
 // CaptureSpec declares what to snapshot.
 type CaptureSpec struct {
-	ID          string
-	ProjectID   string
-	Description string
+	ID             string
+	ProjectID      string
+	OwnerInstallID int64
+	Description    string
 	// AgentInstanceDir, when set, is copied into the snapshot's agent/ dir.
 	AgentInstanceDir string
 	// AppDataDirs maps sidecar name → its live data dir to copy.
 	AppDataDirs map[string]string
+	// SourceInstallIDs maps each captured app name to the project install it
+	// was cloned from, allowing a snapshot-only runtime request to restore apps.
+	SourceInstallIDs map[string]int64
 	// Cassette, when non-nil, is saved as cassette.json.
 	Cassette *Cassette
 	// Subscriptions are logical environment-owned event routes. Raw DB row ids
@@ -86,11 +91,13 @@ func (ss *SnapshotStore) Capture(spec CaptureSpec) (*SnapshotManifest, error) {
 	}
 
 	man := &SnapshotManifest{
-		ID:            spec.ID,
-		ProjectID:     spec.ProjectID,
-		Description:   spec.Description,
-		Subscriptions: append([]EnvironmentSubscriptionSpec(nil), spec.Subscriptions...),
-		CreatedAt:     time.Now(),
+		ID:               spec.ID,
+		ProjectID:        spec.ProjectID,
+		OwnerInstallID:   spec.OwnerInstallID,
+		Description:      spec.Description,
+		SourceInstallIDs: cloneInt64Map(spec.SourceInstallIDs),
+		Subscriptions:    append([]EnvironmentSubscriptionSpec(nil), spec.Subscriptions...),
+		CreatedAt:        time.Now(),
 	}
 
 	if spec.AgentInstanceDir != "" {
@@ -135,6 +142,21 @@ func (ss *SnapshotStore) Get(id string) (*SnapshotManifest, error) {
 		return nil, err
 	}
 	return &man, nil
+}
+
+func (ss *SnapshotStore) AssignOwner(id, projectID string, ownerInstallID int64) error {
+	man, err := ss.Get(id)
+	if err != nil {
+		return err
+	}
+	if man.ProjectID != projectID {
+		return fmt.Errorf("snapshot %q belongs to another project", id)
+	}
+	if man.OwnerInstallID != 0 && man.OwnerInstallID != ownerInstallID {
+		return fmt.Errorf("snapshot %q is already owned by another app", id)
+	}
+	man.OwnerInstallID = ownerInstallID
+	return writeJSONFile(filepath.Join(ss.dir(id), "manifest.json"), man)
 }
 
 // List returns every snapshot manifest, newest first not guaranteed.

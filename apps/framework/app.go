@@ -61,13 +61,17 @@ type App interface {
 // Manifest is what /api/apps/manifest reports — the shape the
 // dashboard consumes to decide what UI slots to render.
 type Manifest struct {
-	Slug        string   `json:"slug"`
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description,omitempty"`
-	UISlots     []UISlot `json:"ui_slots,omitempty"`
-	Publishes   []string `json:"publishes,omitempty"`
-	Subscribes  []string `json:"subscribes,omitempty"`
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Description string `json:"description,omitempty"`
+	// Internal marks platform infrastructure that uses the app runtime but
+	// is not an operator-installed product. Internal apps remain mounted and
+	// fully functional, but are omitted from the installed-app inventory.
+	Internal   bool     `json:"internal,omitempty"`
+	UISlots    []UISlot `json:"ui_slots,omitempty"`
+	Publishes  []string `json:"publishes,omitempty"`
+	Subscribes []string `json:"subscribes,omitempty"`
 }
 
 // UISlot declares where in the dashboard this app's UI should render.

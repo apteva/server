@@ -46,16 +46,21 @@ func TestSnapshotCaptureRestore(t *testing.T) {
 	cas.put("GET", "api.example.com", "/v1/x", nil, 200, nil, []byte(`{"ok":true}`))
 
 	man, err := ss.Capture(CaptureSpec{
-		ID:          "snap1",
-		ProjectID:   "proj1",
-		AppDataDirs: map[string]string{"crm": liveDir},
-		Cassette:    cas,
+		ID:               "snap1",
+		ProjectID:        "proj1",
+		AppDataDirs:      map[string]string{"crm": liveDir},
+		SourceInstallIDs: map[string]int64{"crm": 42},
+		Cassette:         cas,
 	})
 	if err != nil {
 		t.Fatalf("capture: %v", err)
 	}
-	if !man.HasCassette || len(man.Apps) != 1 || man.Apps[0] != "crm" {
+	if !man.HasCassette || len(man.Apps) != 1 || man.Apps[0] != "crm" || man.SourceInstallIDs["crm"] != 42 {
 		t.Fatalf("manifest wrong: %+v", man)
+	}
+	loaded, err := ss.Get("snap1")
+	if err != nil || loaded.SourceInstallIDs["crm"] != 42 {
+		t.Fatalf("persisted source installs wrong: manifest=%+v err=%v", loaded, err)
 	}
 
 	// Re-capture same id should fail.

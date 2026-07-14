@@ -69,10 +69,9 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 			}
 		}
 	}
-	// Seed apps + app_installs rows for every built-in so they show up
-	// alongside sidecar apps in the dashboard's Installed tab. Idempotent
-	// across restarts: INSERT OR IGNORE keys off (name) and (app_id,
-	// project_id='') so re-seeding is a no-op once the rows exist.
+	// Seed inventory-visible built-ins alongside sidecar apps. Internal
+	// platform components (channel-chat) stay loaded but are deliberately
+	// excluded from the operator's Installed-app inventory.
 	s.seedBuiltinInstalls(reg)
 	// Mount each app's HTTP routes under /api/apps/<slug>/...
 	reg.MountHTTP(apiMux, s.authMiddleware)
@@ -623,10 +622,9 @@ func (r *serverResolver) KillThread(inst framework.InstanceInfo, threadID string
 	return nil
 }
 
-// seedBuiltinInstalls writes one apps + app_installs row per bundled
-// app so they appear in the dashboard's Installed tab alongside sidecar
-// installs. Status is hard-coded 'running' since the framework already
-// started them; uninstall is gated in the dashboard via source='builtin'.
+// seedBuiltinInstalls writes one apps + app_installs row per inventory-visible
+// bundled app. Internal framework apps still run normally, but are not things
+// an operator installed or can manage, so they must not appear in Apps.
 //
 // Translation: framework.Manifest is a smaller struct than sdk.Manifest,
 // so we synthesize an sdk shape with the bundled metadata. The list
@@ -636,6 +634,10 @@ func (r *serverResolver) KillThread(inst framework.InstanceInfo, threadID string
 func (s *Server) seedBuiltinInstalls(reg *framework.Registry) {
 	for _, app := range reg.Loaded() {
 		fm := app.Manifest()
+		if fm.Internal {
+			s.removeLegacyInternalInstall(fm.Slug)
+			continue
+		}
 		display := fm.Name
 		if display == "" {
 			display = fm.Slug
@@ -728,5 +730,66 @@ func (s *Server) seedBuiltinInstalls(reg *framework.Registry) {
 				log.Printf("[APPS-BUILTIN] register MCP %s: %v", fm.Slug, err)
 			}
 		}
+	}
+}
+
+// removeLegacyInternalInstall cleans up synthetic install rows written by
+// older server versions before framework manifests could distinguish internal
+// platform components from user-manageable built-ins. The underlying `apps`
+// metadata row is harmless and retained for compatibility; only the install
+// inventory row and any derived bindings are removed. Chat's framework app,
+// routes, SSE hub, channels, and migrations do not depend on this row.
+func (s *Server) removeLegacyInternalInstall(slug string) {
+	rows, err := s.store.db.Query(
+		`SELECT i.id
+		 FROM app_installs i JOIN apps a ON a.id = i.app_id
+		 WHERE a.name = ? AND a.source = 'builtin'`,
+		slug,
+	)
+	if err != nil {
+		log.Printf("[APPS] cleanup internal %s: list installs: %v", slug, err)
+		return
+	}
+	var installIDs []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			installIDs = append(installIDs, id)
+		}
+	}
+	rows.Close()
+
+	for _, installID := range installIDs {
+		tx, err := s.store.db.Begin()
+		if err != nil {
+			log.Printf("[APPS] cleanup internal %s install=%d: begin: %v", slug, installID, err)
+			continue
+		}
+		statements := []struct {
+			query string
+			arg   any
+		}{
+			{`DELETE FROM app_agent_bindings WHERE install_id = ?`, installID},
+			{`DELETE FROM mcp_servers WHERE upstream_id = ?`, appMCPUpstreamID(installID)},
+			{`DELETE FROM skills WHERE install_id = ?`, installID},
+			{`DELETE FROM app_installs WHERE id = ?`, installID},
+		}
+		failed := false
+		for _, statement := range statements {
+			if _, err := tx.Exec(statement.query, statement.arg); err != nil {
+				log.Printf("[APPS] cleanup internal %s install=%d: %v", slug, installID, err)
+				failed = true
+				break
+			}
+		}
+		if failed {
+			_ = tx.Rollback()
+			continue
+		}
+		if err := tx.Commit(); err != nil {
+			log.Printf("[APPS] cleanup internal %s install=%d: commit: %v", slug, installID, err)
+			continue
+		}
+		log.Printf("[APPS] removed legacy internal install %s id=%d", slug, installID)
 	}
 }

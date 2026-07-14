@@ -1302,7 +1302,7 @@ func inputSchemaRequires(schema map[string]any, field string) bool {
 func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string) (*ExecuteResult, error) {
 	// Environment test-mode seam: a call inside a Environment must NEVER reach the real
 	// API. Resolve it fail-safe, in order:
-	//   1. a per-environment interceptor fixture (eval-specific override);
+	//   1. a per-environment interceptor fixture;
 	//   2. the catalog tool's curated mock_response (faithful default);
 	//   3. a generic stub-ok.
 	if environmentID != "" && environmentIntegrationMode(environmentID) != IntegrationModeReal {

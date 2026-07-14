@@ -10,7 +10,7 @@ import (
 )
 
 // chatChannel is the Channel implementation the agent reaches via
-// channels_send(channel="apteva", kind="message", text=...). It writes the agent's
+// channels_send(channel="apteva", text=...). It writes the agent's
 // reply as a new `role=agent` row and pushes to the hub so every
 // connected dashboard tab sees the new message immediately.
 //
@@ -45,10 +45,14 @@ func (c *chatChannel) SendWithComponents(text string, components []framework.Cha
 	if c.store == nil {
 		return fmt.Errorf("channel-chat: store not initialised")
 	}
-	m, err := c.store.Append(c.chatID, "agent", text, nil, c.threadID, "final", components)
+	m, inserted, err := c.store.AppendAgentMessageOnce(c.chatID, text, c.threadID, components)
 	if err != nil {
 		log.Printf("[CHAT] Send DB append failed chatID=%s err=%v", c.chatID, err)
 		return err
+	}
+	if !inserted {
+		log.Printf("[CHAT-DEBUG] suppressed immediate duplicate chat=%s messageID=%d", c.chatID, m.ID)
+		return nil
 	}
 	chatSubs, userSubs := c.hub.subscriberCounts(c.chatID, c.userID)
 	log.Printf("[CHAT-DEBUG] Send chat=%s user=%d msgID=%d components=%d chatSubs=%d userSubs=%d",

@@ -36,7 +36,7 @@ func perThreadEnabled() bool {
 // chasing call sites.
 const chatThreadDirectiveSuffix = "\n\n---\n" +
 	"You're handling a live chat with the user. You ARE the agent — use the tools attached " +
-	"(see your tool list) and reply via channels_send(kind=\"message\", channel=\"current\", text=...). " +
+	"(see your tool list) and reply via channels_send(channel=\"current\", text=...). " +
 	"Just act — if the user asks for something you can do with your tools, do it and reply " +
 	"with the result. Don't ask for clarification on obvious requests; pick sensible " +
 	"defaults and ship.\n\n" +
@@ -894,7 +894,7 @@ func formatApprovalResultEvent(messageID int64, actionID string, approval map[st
 		b.WriteString("\nNote: ")
 		b.WriteString(strings.TrimSpace(note))
 	}
-	b.WriteString("\nContinue from this decision. If this was requested from dashboard chat, send a visible channels_send with kind=\"message\" and channel=\"current\" when you have acted on it.")
+	b.WriteString("\nContinue from this decision. If this was requested from dashboard chat, send a visible channels_send with channel=\"current\" and complete text when you have acted on it.")
 	return b.String()
 }
 
@@ -1085,9 +1085,9 @@ func formatAgentChatEvent(text string, context any) string {
 	var b strings.Builder
 	b.WriteString("[chat]\n")
 	b.WriteString("A user is talking to you in dashboard chat. Thoughts are not visible to the user. ")
-	b.WriteString("Use channels_send with kind=\"message\" and channel=\"current\" or channel=\"apteva\" for visible Apteva operator messages. ")
+	b.WriteString("Use channels_send with channel=\"current\" or channel=\"apteva\" and complete text for visible Apteva operator messages. ")
 	b.WriteString("A successful channels_send message wakes you again. If you promised work, continue after the tool result: call the needed tools, schedule yourself with pace, or explain why blocked. ")
-	b.WriteString("After action tool results arrive, send another channels_send kind=\"message\" with the outcome before pacing or going idle.\n\n")
+	b.WriteString("After action tool results arrive, send another channels_send with the outcome text before pacing or going idle.\n\n")
 	if ctx := formatDashboardContext(context); ctx != "" {
 		b.WriteString(ctx)
 		b.WriteString("\n\n")
@@ -1103,7 +1103,7 @@ func formatPlatformHelperChatEvent(text string, context any) string {
 	b.WriteString("TASK TYPE: platform_assistant (NOT eval grading)\n\n")
 	b.WriteString("You are Apteva Helper in the dashboard. Help the operator understand the current page, design agents, and turn rough goals into concrete next steps. ")
 	b.WriteString("When the operator wants to create or manage agents, ask briefly for missing details, then use the apteva-server MCP tools such as agents_create, agents_list, agents_start, agents_stop, and agents_update when appropriate. ")
-	b.WriteString("Do not grade anything. Do not return judge JSON. Use channels_send with kind=\"message\" and channel=\"current\" or channel=\"apteva\" for visible Apteva operator messages; if you promised tool work, continue after the send result and then send another channels_send message with the outcome.\n\n")
+	b.WriteString("Do not grade anything. Do not return judge JSON. Use channels_send with channel=\"current\" or channel=\"apteva\" and complete text for visible Apteva operator messages; if you promised tool work, continue after the send result and then send another channels_send message with the outcome.\n\n")
 	if ctx := formatDashboardContext(context); ctx != "" {
 		b.WriteString(ctx)
 		b.WriteString("\n\n")

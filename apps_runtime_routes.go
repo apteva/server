@@ -6,7 +6,7 @@ import (
 )
 
 // registerAppRuntimeRoutes mounts the app data-plane routes that sidecars use
-// at runtime. Production and Environment/eval test servers both need this
+// at runtime. Production and environment test servers both need this
 // surface; keeping it here prevents tests from drifting into a smaller route
 // set than real apteva-server.
 func (s *Server) registerAppRuntimeRoutes(apiMux *http.ServeMux) {

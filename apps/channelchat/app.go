@@ -63,6 +63,7 @@ func (a *App) Manifest() framework.Manifest {
 		Name:        "Chat",
 		Version:     "1.0.0",
 		Description: "DB-backed chat channel with per-instance history. Agent replies land as chat messages; dashboard subscribes via SSE.",
+		Internal:    true,
 		UISlots: []framework.UISlot{
 			{Slot: "instance.chat", Title: "Chat"},
 		},

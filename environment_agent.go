@@ -2,9 +2,8 @@ package main
 
 // environment_agent.go — spawn a copy of an agent INTO a Environment.
 //
-// This is the "agent copy evolving in a virtual environment" piece. It mirrors
-// the eval runner's core-spawn wiring (eval_runner.go) but, instead of a
-// mock gateway, points the agent's mcp_servers at the Environment's REAL in-environment
+// This is the "agent copy evolving in a virtual environment" piece. It points
+// the agent's mcp_servers at the Environment's real in-environment
 // sidecars (so it sees real tools with real schemas) and routes the core's
 // egress through the Environment edge (so its outbound HTTP is virtualised by the
 // same cassette/mock policy as the sidecars). No apteva-core changes: the
@@ -21,6 +20,17 @@ import (
 	"time"
 )
 
+func waitForCoreListening(port int, budget time.Duration) bool {
+	deadline := time.Now().Add(budget)
+	for time.Now().Before(deadline) {
+		if isCoreListening(port) {
+			return true
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	return false
+}
+
 // EnvironmentAgentSpec configures spawning an agent copy into a Environment.
 type EnvironmentAgentSpec struct {
 	UserID            int64
@@ -28,8 +38,10 @@ type EnvironmentAgentSpec struct {
 	DirectiveOverride string // optional: run with a modified directive
 	Alias             string // stable environment-local label; defaults to "main"
 	ProviderPool      []ProviderInfo
+	Provider          string
+	Model             string
 	// StartPaused gates the cloned core at main's first iteration.start. This
-	// lets eval runners inject the opening event into main before the initial
+	// lets callers inject the opening event into main before the initial
 	// autonomous no-event loop can race ahead.
 	StartPaused bool
 }
@@ -40,6 +52,8 @@ type EnvironmentAgent struct {
 	SourceAgentID int64     `json:"source_agent_id"`
 	SourceName    string    `json:"source_name"`
 	Alias         string    `json:"alias"`
+	Provider      string    `json:"provider,omitempty"`
+	Model         string    `json:"model,omitempty"`
 	Port          int       `json:"port"`
 	CreatedAt     time.Time `json:"created_at"`
 	APIKey        string    `json:"-"` // core API key — never serialised to clients
@@ -70,13 +84,17 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		return nil, fmt.Errorf("environment already has an agent with alias %q", alias)
 	}
 
-	// Provider preflight — same fail-fast as the eval runner.
+	// Fail before spawning when no provider can run the agent.
 	pool := spec.ProviderPool
 	if len(pool) == 0 {
 		pool = s.GetProviderPool(userID, src.ProjectID)
 	}
 	if len(pool) == 0 {
 		return nil, fmt.Errorf("no LLM provider configured — add one in Settings → Providers")
+	}
+	pool, selectedProvider, selectedModel, err := runtimeProviderPool(pool, spec.Provider, spec.Model)
+	if err != nil {
+		return nil, err
 	}
 
 	directive := src.Directive
@@ -135,6 +153,17 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		mcpServers = append(mcpServers, map[string]any{
 			"name":      conn.AppSlug,
 			"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/%d?environment_id=%s", s.port, cid, environment.ID),
+			"transport": "http",
+			"no_spawn":  true,
+		})
+	}
+	// Runtime-owned MCP attachments are private endpoints exposed by the
+	// orchestrating app (for example a dynamic mock session). The
+	// core reaches them only through the server's capability-token gateway.
+	for _, attachment := range environment.MCPAttachments() {
+		mcpServers = append(mcpServers, map[string]any{
+			"name":      attachment.Name,
+			"url":       s.runtimeMCPAttachmentURL(environment.ID, attachment.Token),
 			"transport": "http",
 			"no_spawn":  true,
 		})
@@ -221,6 +250,8 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		SourceAgentID: src.ID,
 		SourceName:    src.Name,
 		Alias:         alias,
+		Provider:      selectedProvider,
+		Model:         selectedModel,
 		Port:          s.agents.GetPort(wAgent.ID),
 		CreatedAt:     time.Now(),
 		APIKey:        s.agents.GetCoreAPIKey(wAgent.ID),
@@ -235,6 +266,35 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		return nil, fmt.Errorf("install environment subscriptions: %w", err)
 	}
 	return wa, nil
+}
+
+func runtimeProviderPool(pool []ProviderInfo, provider, model string) ([]ProviderInfo, string, string, error) {
+	provider = providerKeyFromName(provider)
+	model = strings.TrimSpace(model)
+	selected := pool[0]
+	if provider != "" {
+		found := false
+		for _, candidate := range pool {
+			if providerKeyFromName(candidate.Type) == provider {
+				selected = candidate
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, "", "", fmt.Errorf("LLM provider %q is not configured for this project", provider)
+		}
+	}
+	if model != "" {
+		selected.ModelLarge = model
+		selected.ModelMedium = model
+		selected.ModelSmall = model
+	}
+	selectedModel := model
+	if selectedModel == "" {
+		selectedModel = selected.ModelLarge
+	}
+	return []ProviderInfo{selected}, selected.Type, selectedModel, nil
 }
 
 func (s *Server) environmentAgentAppMCPNames(environment *Environment, src *Agent) []string {

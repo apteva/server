@@ -24,26 +24,39 @@ func channelsCapabilityMemoryContent() string {
 
 Use the channels MCP server to communicate with the outside world.
 
-The Apteva channel is the internal operator channel. It is durable: messages and inbox artifacts are saved even when operators are offline. Use channel="current" when replying to the channel that triggered the current event, or channel="apteva" when you specifically want the Apteva operator channel.
+The Apteva channel is the durable internal operator chat. Messages and Inbox artifacts are saved even when operators are offline. Use channel="current" to reply where the current event originated, or channel="apteva" to target Apteva directly.
 
-Kinds:
-- Call ` + "`channels_send`" + ` (the channels MCP ` + "`send`" + ` tool) with kind="message" for normal operator conversation, progress updates, and final answers. Thoughts are not visible to users.
-- Call ` + "`channels_send`" + ` with kind="status" and channel="apteva" to maintain a concise current headline describing what you are doing now. Set state="working" before meaningful multi-step work and before any substantive external action, even when it needs only one tool call. Substantive external actions include creating, updating, deleting, sending, publishing, triggering, or otherwise changing an external system. When the action can begin immediately, call the working status and the first action tool in the same parallel tool-call batch; do not wait for the status result before starting work. Do not parallelize past a required approval or prerequisite. Update status when the phase changes, use state="waiting" when waiting on time or an external dependency, state="blocked" when progress cannot continue, and state="completed" after the action result or work finishes. Status replaces your previous status and appears only in monitoring surfaces, never in chat, Inbox, or notifications. Do not emit status for read-only lookups, brief answers, internal pacing, or every individual tool call within one stated phase.
-- Call ` + "`channels_send`" + ` with kind="approval" and channel="apteva" when an important step needs operator permission: destructive changes, external side effects, spending money, credentials/secrets, irreversible actions, or a meaningful step you have never done before and are not sure is safe. This applies in every mode unless the directive clearly pre-authorizes the exact action.
-- Call ` + "`channels_send`" + ` with kind="report" and channel="apteva" for durable dashboard reports when the user asks, the directive asks, a daily/weekly report is due, or you finish a significant task or milestone. If the user asked you to check/review/summarize something later or in the future and the operator is no longer actively chatting when you complete it, send the result as a report, not a normal message. Reports should say what actually happened and omit routine chat/connect/disconnect/idle events.
-- Call ` + "`channels_send`" + ` with kind="alert" and channel="apteva" when something important goes wrong: repeated failures, auth problems, external services down, data risk, a blocked task, or a situation requiring operator attention. Do not send alerts for routine status or successful work.
-- Call ` + "`channels_list_channels`" + ` (the channels MCP ` + "`list_channels`" + ` tool) when unsure what channels and capabilities are available.
+## Tools
 
-Report guidance:
-- Daily reports are useful for ongoing agents whose directive implies continuing work, monitoring, operations, research, support, or task execution. Send one only when there was meaningful progress, a completed check, a decision, a blocker, or an important state change. Do not send empty "nothing happened" reports unless the directive explicitly asks for them.
-- Weekly reports should be more structured and higher-level than daily reports: summarize outcomes, recurring issues, metrics/trends when available, notable decisions, unresolved blockers, and recommended next actions. Use weekly reports when the directive asks for a weekly digest/review, when a user asks for a period summary, or when a long-running agent has enough activity to justify one.
-- Before writing a report, use available read-only tools when possible to reconstruct what happened: recent agent activity, telemetry/actions, task/app state, files or records you worked on, or the external system you monitor. Prefer facts from tools over vague memory. If no suitable read-only tool is available, say what evidence the report is based on.
-- Keep reports operator-focused: report completed work, results, failures, blockers, changes made, and next recommended actions. Skip dashboard chat greetings, connect/disconnect events, idle pacing, and internal reasoning unless they explain an important outcome.
+- ` + "`channels_send(channel, text, components?)`" + ` sends one ordinary visible message. Thoughts and plain assistant output are invisible. Use it for conversation, immediate progress, and final outcomes.
+- ` + "`channels_publish(kind, title, content, ...)`" + ` creates one durable Apteva Inbox artifact. kind is approval, report, or alert. title and content are required for every publication.
+- ` + "`channels_set_status(title, state, detail?, progress?)`" + ` replaces the single current monitoring status. title and state are required. It is not chat and never appears in the Inbox.
+- ` + "`channels_list_channels()`" + ` lists available communication targets. Use it instead of a send call to inspect availability.
 
-Presence guidance:
-- If an operator is actively chatting with you, reply with kind="message" and do the requested work. In autonomous mode, do not create reports or alerts for normal progress while the operator is present unless asked or the event is genuinely important.
-- If no operator is actively chatting, avoid chatty status messages. Use kind="report" for meaningful completed work or requested delayed/background checks, kind="alert" for important problems, and kind="approval" when permission is needed.
-- If you create an approval, report, or alert because of a live operator request, also send a short kind="message" reply confirming what happened.`
+Build every tool call once with all required fields. Never emit placeholder, preflight, partial, or duplicate calls. If one call in a parallel batch fails, retry only that failed call.
+
+## Status
+
+Set status to working before meaningful multi-step work or a substantive external action such as create, update, delete, send, publish, or trigger. When work can start immediately, call ` + "`channels_set_status`" + ` and the first action tool in the same parallel batch. Do not wait for the status result and do not parallelize past an approval or prerequisite.
+
+Always pass state explicitly: working while acting, waiting for time or an external dependency, blocked when progress cannot continue, and completed after the action result or work finishes. Emit at most one status per work phase. If the request already specifies a status call, that call satisfies the rule; do not add a preliminary status. Skip status for read-only lookups, brief answers, internal pacing, and individual tools within one phase.
+
+## Inbox Publications
+
+Approval content states the exact decision needed, why, and the consequence. Use approval for destructive changes, spending, secrets, irreversible external effects, or a meaningful unfamiliar step not clearly pre-authorized.
+
+Alert content states what went wrong, its impact, and the relevant next action. Use alerts for important repeated failures, authentication problems, external outages, data risk, or blocked work; not routine progress or successful work.
+
+Report content is the report summary. Draft it before calling the tool. It must stand alone and say what actually happened: completed work, concrete results, failures or blockers, important evidence or metrics, and the next action when relevant. Never publish a title-only report, a generic description of the report, or an empty "nothing happened" report. Omit greetings, dashboard chat, connect/disconnect events, idle pacing, and internal reasoning.
+
+Correct report call:
+` + "`channels_publish(kind=\"report\", title=\"Import completed\", content=\"Imported 842 contacts; 17 invalid rows were skipped and saved for review.\", period=\"today\")`" + `
+
+Use reports when requested, when a directive requires a daily/weekly report, after a delayed/background check, or after significant completed work the operator should review later. Daily reports cover meaningful recent outcomes. Weekly reports add trends, metrics, recurring issues, decisions, unresolved blockers, and recommended next actions. Before reporting, use available read-only tools when possible to reconstruct facts from activity, telemetry, task/app state, files, records, or the monitored external system.
+
+## Presence
+
+When an operator is actively chatting, use ` + "`channels_send`" + ` for replies and final outcomes. Do not create reports or alerts for normal live progress unless asked or genuinely important. If work finishes after the operator disconnects, publish a report when the result was requested for later review. If a live request creates an approval, report, or alert, also send a short chat confirmation.`
 }
 
 func channelsCapabilityPayload() pushPayload {

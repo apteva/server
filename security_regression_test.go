@@ -64,6 +64,66 @@ func TestAppInstallTokensAreRandomStableAndDataPlaneOnly(t *testing.T) {
 	}
 }
 
+func TestAppInstallTokensCanSubscribeOnlyWithinEventScope(t *testing.T) {
+	s := newTestServer(t)
+	seedProject(t, s, "project-a")
+	seedProject(t, s, "project-b")
+
+	globalID := seedInstall(t, s, "routes-auth-test", "")
+	globalToken, err := s.appInstallToken(globalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := seedInstall(t, s, "storage-auth-test", "project-a")
+	projectToken, err := s.appInstallToken(projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Apteva-App-Install-ID") == "" {
+			http.Error(w, "missing install principal", http.StatusUnauthorized)
+			return
+		}
+		projectID := r.URL.Query().Get("project_id")
+		var accessErr error
+		if projectID == "" {
+			accessErr = s.checkFirehoseAccess(r)
+		} else {
+			accessErr = s.checkProjectAccess(r, projectID)
+		}
+		if accessErr != nil {
+			http.Error(w, accessErr.Error(), http.StatusForbidden)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	request := func(token, path string) int {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		handler(rec, req)
+		return rec.Code
+	}
+
+	if got := request(globalToken, "/app-events/routes-auth-test"); got != http.StatusNoContent {
+		t.Fatalf("global app event firehose status=%d, want %d", got, http.StatusNoContent)
+	}
+	if got := request(projectToken, "/app-events/storage-auth-test?project_id=project-a"); got != http.StatusNoContent {
+		t.Fatalf("same-project event stream status=%d, want %d", got, http.StatusNoContent)
+	}
+	if got := request(projectToken, "/app-events/storage-auth-test?project_id=project-b"); got != http.StatusForbidden {
+		t.Fatalf("cross-project event stream status=%d, want %d", got, http.StatusForbidden)
+	}
+	if got := request(projectToken, "/app-events/storage-auth-test"); got != http.StatusForbidden {
+		t.Fatalf("project install firehose status=%d, want %d", got, http.StatusForbidden)
+	}
+	if got := request(globalToken, "/app-events/routes-auth-test/nested"); got != http.StatusUnauthorized {
+		t.Fatalf("nested event route status=%d, want %d", got, http.StatusUnauthorized)
+	}
+}
+
 func TestLegacyAppTokenIsLoopbackOnly(t *testing.T) {
 	s := newTestServer(t)
 	installID := seedSecurityAppInstall(t, s)

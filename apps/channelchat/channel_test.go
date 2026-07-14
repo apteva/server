@@ -1,8 +1,10 @@
 package channelchat
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -119,6 +121,141 @@ func TestChatChannelCurrentStatusUpsertsAndStaysOutOfChat(t *testing.T) {
 	}
 	if len(statuses) != 1 || statuses[0].State != "completed" || statuses[0].Stale {
 		t.Fatalf("old completed status should remain visible and completed: %#v", statuses)
+	}
+}
+
+func TestCurrentStatusWaitsForParallelMessageWriter(t *testing.T) {
+	db := openChannelContentionTestDB(t)
+	defer db.Close()
+	st := newStore(db)
+	chatID := defaultChatID(285)
+	if _, err := st.EnsureDefaultChat(285); err != nil {
+		t.Fatal(err)
+	}
+	components := []framework.ChatComponent{{
+		App: "channel-chat", Name: "status-card", Props: map[string]any{"title": "Starting", "state": "working"},
+	}}
+	first, err := st.UpsertCurrentStatus(chatID, "Status: Starting", components)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	writer, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	if _, err := writer.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.ExecContext(ctx, `
+		INSERT INTO channel_chat_messages
+			(chat_id, role, content, thread_id, status, components_json, attachments_json)
+		VALUES (?, 'agent', 'Visible reply', 'main', 'final', '[]', '[]')`, chatID); err != nil {
+		_, _ = writer.ExecContext(ctx, `ROLLBACK`)
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		updated := []framework.ChatComponent{{
+			App: "channel-chat", Name: "status-card", Props: map[string]any{"title": "Done", "state": "completed"},
+		}}
+		result, err := st.UpsertCurrentStatus(chatID, "Status: Done", updated)
+		if err == nil && result.ID != first.ID {
+			err = fmt.Errorf("status row changed from %d to %d", first.ID, result.ID)
+		}
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		_, _ = writer.ExecContext(ctx, `ROLLBACK`)
+		t.Fatalf("status update returned before parallel message committed: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if _, err := writer.ExecContext(ctx, `COMMIT`); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("status update after parallel message: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("status update did not resume after parallel message committed")
+	}
+
+	var statusRows, visibleRows int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM channel_chat_messages WHERE chat_id=? AND components_json LIKE '%"status-card"%'`, chatID).Scan(&statusRows); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM channel_chat_messages WHERE chat_id=? AND content='Visible reply'`, chatID).Scan(&visibleRows); err != nil {
+		t.Fatal(err)
+	}
+	if statusRows != 1 || visibleRows != 1 {
+		t.Fatalf("status rows=%d visible rows=%d, want 1 each", statusRows, visibleRows)
+	}
+}
+
+func TestChatChannelSuppressesImmediateDuplicateRetry(t *testing.T) {
+	db := openChannelContentionTestDB(t)
+	defer db.Close()
+	st := newStore(db)
+	chatID := defaultChatID(285)
+	if _, err := st.EnsureDefaultChat(285); err != nil {
+		t.Fatal(err)
+	}
+	h := newHub()
+	chatEvents, _, cancelChat := h.subscribe(chatID)
+	defer cancelChat()
+	userEvents, _, cancelUser := h.subscribeUser(99)
+	defer cancelUser()
+	ch := &chatChannel{chatID: chatID, threadID: "main", agentID: 285, userID: 99, store: st, hub: h}
+	const reply = "Done. The weekly report requirement is restored."
+
+	if err := ch.Send(reply); err != nil {
+		t.Fatal(err)
+	}
+	firstChat := readUserMessage(t, chatEvents)
+	firstUser := readUserMessage(t, userEvents)
+	if firstChat.ID != firstUser.ID {
+		t.Fatalf("chat event id=%d user event id=%d", firstChat.ID, firstUser.ID)
+	}
+
+	if err := ch.Send(reply); err != nil {
+		t.Fatal(err)
+	}
+	assertNoChannelMessage(t, chatEvents, "per-chat stream")
+	assertNoChannelMessage(t, userEvents, "user stream")
+	rows, err := st.ListRecentMessages(chatID, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("immediate retry persisted %d visible rows, want 1", len(rows))
+	}
+
+	// The same text is legitimate after a new user turn and must not be
+	// swallowed by the retry guard.
+	if _, err := st.Append(chatID, "user", "Please confirm again", nil, "main", "final", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := ch.Send(reply); err != nil {
+		t.Fatal(err)
+	}
+	secondChat := readUserMessage(t, chatEvents)
+	secondUser := readUserMessage(t, userEvents)
+	if secondChat.ID == firstChat.ID || secondUser.ID != secondChat.ID {
+		t.Fatalf("new-turn reply ids first=%d chat=%d user=%d", firstChat.ID, secondChat.ID, secondUser.ID)
+	}
+	rows, err = st.ListRecentMessages(chatID, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("new user turn rows=%d, want agent+user+agent", len(rows))
 	}
 }
 
@@ -249,6 +386,23 @@ func openChannelTestDB(t *testing.T, withAgents bool) *sql.DB {
 	return db
 }
 
+func openChannelContentionTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "channel-chat.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(2000)&_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	db.SetMaxOpenConns(4)
+	for _, migration := range []string{migration001, migration002, migration003, migration004, migration005, migration006} {
+		if _, err := db.Exec(migration); err != nil {
+			db.Close()
+			t.Fatalf("apply channel migration: %v", err)
+		}
+	}
+	return db
+}
+
 func readUserMessage(t *testing.T, ch <-chan Message) Message {
 	t.Helper()
 	select {
@@ -257,5 +411,14 @@ func readUserMessage(t *testing.T, ch <-chan Message) Message {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for user-stream message")
 		return Message{}
+	}
+}
+
+func assertNoChannelMessage(t *testing.T, ch <-chan Message, stream string) {
+	t.Helper()
+	select {
+	case m := <-ch:
+		t.Fatalf("%s received duplicate message id=%d content=%q", stream, m.ID, m.Content)
+	case <-time.After(75 * time.Millisecond):
 	}
 }

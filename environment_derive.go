@@ -2,11 +2,9 @@ package main
 
 // environment_derive.go — build a Environment from an agent's app bindings.
 //
-// "Create eval for this agent → environment built from its bindings." The agent's
-// app_agent_bindings (written in the wizard, see instances.go create) are the
-// source of truth for which apps it uses. This turns them into a EnvironmentSpec the
-// Environment supervisor installs from local source — so the eval's environment is
-// derived from the agent, not hand-listed.
+// The agent's app_agent_bindings are the source of truth for which apps it uses.
+// This turns them into an EnvironmentSpec installed from local source, so the
+// environment is derived from the agent rather than hand-listed.
 //
 // Today it derives the directly-bound apps. Sibling deps (manifest
 // requires.apps, e.g. social→storage/jobs) are a documented follow-up; the
@@ -80,7 +78,7 @@ func (s *Server) DeriveEnvironmentSpecForAgent(agent *Agent, environmentID strin
 }
 
 // CreateEnvironmentForAgent derives a environment spec from the agent's bindings and
-// stands it up. The eval path's entry point for "environment from this agent".
+// stands it up.
 func (s *Server) CreateEnvironmentForAgent(agent *Agent, environmentID string) (*Environment, error) {
 	spec, err := s.DeriveEnvironmentSpecForAgent(agent, environmentID)
 	if err != nil {

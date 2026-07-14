@@ -10,12 +10,12 @@ import (
 
 // Streamer turns the LLM's incremental tool-argument deltas (emitted
 // as `llm.tool_chunk` telemetry events when the model is composing a
-// `channels_send(kind="message")` or legacy `channels_respond` call
+// `channels_send` or legacy `channels_respond` call
 // on a chat-capable thread) into ephemeral
 // "streaming" frames on the chat SSE stream.
 //
 // Why this exists:
-//   - The agent calls channels_send(channel="apteva", kind="message",
+//   - The agent calls channels_send(channel="apteva",
 //     text="long answer") to
 //     reply. Without streaming, the user waits for the entire LLM
 //     generation to finish, then sees the message land all at once.

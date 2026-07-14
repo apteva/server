@@ -117,7 +117,7 @@ func TestStreamerIngest_ChannelsSendMessageStreams(t *testing.T) {
 		"llm.tool_chunk",
 		42,
 		"main",
-		`{"name":"channels_send","call_id":"call-send","delta":"{\"kind\":\"message\",\"channel\":\"current\",\"text\":\"Hi"}`,
+		`{"name":"channels_send","call_id":"call-send","delta":"{\"channel\":\"current\",\"text\":\"Hi"}`,
 		time.Now(),
 	)
 
@@ -148,7 +148,7 @@ func TestStreamerIngest_ChannelsSendAptevaMessageStreams(t *testing.T) {
 		"tool.call",
 		42,
 		"main",
-		`{"tool":"channels_send","tool_call_id":"call-apteva","arguments":{"kind":"message","channel":"apteva","text":"Saved for you."}}`,
+		`{"tool":"channels_send","tool_call_id":"call-apteva","arguments":{"channel":"apteva","text":"Saved for you."}}`,
 		time.Now(),
 	)
 
@@ -168,7 +168,7 @@ func TestStreamerIngest_ChannelsSendAptevaMessageStreams(t *testing.T) {
 	}
 }
 
-func TestStreamerIngest_ChannelsSendArtifactDoesNotStreamAsChat(t *testing.T) {
+func TestStreamerIngest_ChannelsPublishArtifactDoesNotStreamAsChat(t *testing.T) {
 	h := newHub()
 	st := newStreamer(h)
 	chatID := defaultChatID(42)
@@ -179,7 +179,7 @@ func TestStreamerIngest_ChannelsSendArtifactDoesNotStreamAsChat(t *testing.T) {
 		"tool.call",
 		42,
 		"main",
-		`{"tool":"channels_send","tool_call_id":"call-approval","arguments":{"kind":"approval","channel":"apteva","title":"Approve","body":"Proceed?"}}`,
+		`{"tool":"channels_publish","tool_call_id":"call-approval","arguments":{"kind":"approval","title":"Approve","content":"Proceed?"}}`,
 		time.Now(),
 	)
 
@@ -288,10 +288,10 @@ func TestFormatAgentChatEventIncludesReplyContract(t *testing.T) {
 	for _, want := range []string{
 		"[chat]",
 		"Thoughts are not visible to the user",
-		"channels_send with kind=\"message\" and channel=\"current\"",
+		"channels_send with channel=\"current\" or channel=\"apteva\" and complete text",
 		"wakes you again",
 		"schedule yourself with pace",
-		"send another channels_send kind=\"message\" with the outcome",
+		"send another channels_send with the outcome text",
 		"User message:",
 		"What can you do?",
 		"Dashboard context:",
