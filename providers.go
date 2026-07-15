@@ -833,11 +833,7 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 		if providerKey == openAICodexAuthProvider {
 			_, hasCapabilities := data["model_capabilities"]
 			needsCatalog := !hasCapabilities || strings.TrimSpace(stringValue(data["model_large"])) == "" ||
-				strings.TrimSpace(stringValue(data["model_medium"])) == "" || strings.TrimSpace(stringValue(data["model_small"])) == "" ||
-				!codexRuntimeModelAllowed(stringValue(data["model_large"])) ||
-				!codexRuntimeModelAllowed(stringValue(data["model_medium"])) ||
-				!codexRuntimeModelAllowed(stringValue(data["model_small"])) ||
-				codexStateHasNonTerra56Selection(data)
+				strings.TrimSpace(stringValue(data["model_medium"])) == "" || strings.TrimSpace(stringValue(data["model_small"])) == ""
 			if needsCatalog {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				models, fetchErr := fetchCodexModelCatalog(ctx,

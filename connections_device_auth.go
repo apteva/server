@@ -267,7 +267,7 @@ func executeOpenAICodexIntegrationTool(app *AppTemplate, tool *AppToolDef, crede
 	for key, value := range input {
 		resolvedInput[key] = value
 	}
-	if model := strings.TrimSpace(fmt.Sprint(resolvedInput["model"])); model == "" || model == "<nil>" || model == "kimi-k2.6" || !codexRuntimeModelAllowed(model) {
+	if model := strings.TrimSpace(fmt.Sprint(resolvedInput["model"])); model == "" || model == "<nil>" || model == "kimi-k2.6" {
 		model = "gpt-5.5"
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		if models, err := fetchCodexModelCatalog(ctx, accessToken, credentials["account_id"], false); err == nil {

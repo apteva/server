@@ -42,7 +42,7 @@ func writeTestCodexCatalog(t *testing.T, w http.ResponseWriter) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"models": []map[string]any{
 		{
 			"slug": "gpt-5.6-luna", "display_name": "GPT-5.6 Luna", "visibility": "list", "priority": 30,
-			"supported_in_api": false, "context_window": 320000, "max_context_window": 400000,
+			"supported_in_api": true, "context_window": 272000, "max_context_window": 272000,
 			"effective_context_window_percent": 90, "default_reasoning_level": "low",
 			"supported_reasoning_levels": []map[string]string{{"effort": "low"}, {"effort": "medium"}},
 			"input_modalities":           []string{"text", "image"}, "supports_parallel_tool_calls": parallel,
@@ -82,13 +82,11 @@ func TestFetchCodexModelCatalogFiltersAndCachesPerAccount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetchCodexModelCatalog: %v", err)
 	}
-	if len(models) != 2 || models[0].ID != "gpt-5.6-sol" || models[1].ID != "gpt-5.6-terra" {
+	if len(models) != 3 || models[0].ID != "gpt-5.6-sol" || models[1].ID != "gpt-5.6-terra" || models[2].ID != "gpt-5.6-luna" {
 		t.Fatalf("models = %#v", models)
 	}
-	for _, model := range models {
-		if model.ID == "gpt-5.6-luna" {
-			t.Fatal("Luna should be excluded from the executable Codex catalog")
-		}
+	if models[2].SupportedAPI == nil || !*models[2].SupportedAPI || models[2].Capabilities.ContextWindow != 272000 {
+		t.Fatalf("Luna capabilities = %#v", models[2])
 	}
 	if _, err := fetchCodexModelCatalog(context.Background(), "token-a", "account-a", false); err != nil {
 		t.Fatal(err)
@@ -140,8 +138,8 @@ func TestFetchCodexModelCatalogCoalescesConcurrentAccountRequests(t *testing.T) 
 		go func() {
 			defer wg.Done()
 			models, err := fetchCodexModelCatalog(context.Background(), "token-a", "account-a", false)
-			if err == nil && len(models) != 2 {
-				err = &unexpectedModelCountError{got: len(models), want: 2}
+			if err == nil && len(models) != 3 {
+				err = &unexpectedModelCountError{got: len(models), want: 3}
 			}
 			errs <- err
 		}()
@@ -167,18 +165,19 @@ func (e *unexpectedModelCountError) Error() string {
 	return "model count mismatch: got " + jsonNumber(int64(e.got)) + ", want " + jsonNumber(int64(e.want))
 }
 
-func TestApplyCodexCatalogToStatePinsAllRolesToTerra(t *testing.T) {
+func TestApplyCodexCatalogToStatePreservesAvailableSelections(t *testing.T) {
 	models := []ModelInfo{
 		{ID: "gpt-5.6-sol", Capabilities: ProviderModelCapabilities{ContextWindow: 400000}},
 		{ID: "gpt-5.6-terra", Capabilities: ProviderModelCapabilities{ContextWindow: 400000}},
+		{ID: "gpt-5.6-luna", Capabilities: ProviderModelCapabilities{ContextWindow: 272000}},
 	}
-	state := map[string]any{"model_large": "gpt-5.6-sol", "model_medium": "removed-model"}
+	state := map[string]any{"model_large": "gpt-5.6-luna", "model_medium": "gpt-5.6-sol", "model_small": "removed-model"}
 	applyCodexCatalogToState(state, models)
-	if state["model_large"] != "gpt-5.6-terra" || state["model_medium"] != "gpt-5.6-terra" || state["model_small"] != "gpt-5.6-terra" {
+	if state["model_large"] != "gpt-5.6-luna" || state["model_medium"] != "gpt-5.6-sol" || state["model_small"] != "gpt-5.6-terra" {
 		t.Fatalf("selected models = %#v", state)
 	}
 	caps, ok := state["model_capabilities"].(map[string]ProviderModelCapabilities)
-	if !ok || len(caps) != 1 || caps["gpt-5.6-terra"].ContextWindow != 400000 {
+	if !ok || len(caps) != 3 || caps["gpt-5.6-luna"].ContextWindow != 272000 {
 		t.Fatalf("model capabilities = %#v", state["model_capabilities"])
 	}
 }
@@ -253,15 +252,15 @@ func TestSaveCodexProviderModelsPreservesOAuthState(t *testing.T) {
 	if err := json.Unmarshal([]byte(plaintext), &saved); err != nil {
 		t.Fatal(err)
 	}
-	if stringFromNested(saved, "credentials", "refresh_token") != "refresh-secret" || saved["model_large"] != "gpt-5.6-terra" || saved["model_small"] != "gpt-5.6-terra" {
+	if stringFromNested(saved, "credentials", "refresh_token") != "refresh-secret" || saved["model_large"] != "gpt-5.6-sol" || saved["model_small"] != "gpt-5.6-terra" {
 		t.Fatalf("saved state = %#v", saved)
 	}
-	if caps := stateMap(saved, "model_capabilities"); len(caps) != 1 {
+	if caps := stateMap(saved, "model_capabilities"); len(caps) != 2 {
 		t.Fatalf("model_capabilities = %#v", saved["model_capabilities"])
 	}
 }
 
-func TestGetProviderPoolBackfillsCodexDefaultsAndCapabilities(t *testing.T) {
+func TestGetProviderPoolPreservesConfiguredCodexModels(t *testing.T) {
 	installTestCodexCatalog(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeTestCodexCatalog(t, w)
 	}))
@@ -288,15 +287,15 @@ func TestGetProviderPoolBackfillsCodexDefaultsAndCapabilities(t *testing.T) {
 	if len(pool) != 1 {
 		t.Fatalf("pool = %#v", pool)
 	}
-	if pool[0].ModelLarge != "gpt-5.6-terra" || pool[0].ModelMedium != "gpt-5.6-terra" || pool[0].ModelSmall != "gpt-5.6-terra" {
+	if pool[0].ModelLarge != "gpt-5.6-sol" || pool[0].ModelMedium != "gpt-5.6-terra" || pool[0].ModelSmall != "gpt-5.6-terra" {
 		t.Fatalf("models = %#v", pool[0])
 	}
-	if pool[0].ModelCapabilities["gpt-5.6-terra"].ContextWindow != 400000 {
+	if pool[0].ModelCapabilities["gpt-5.6-sol"].ContextWindow != 372000 || pool[0].ModelCapabilities["gpt-5.6-terra"].ContextWindow != 372000 {
 		t.Fatalf("model capabilities = %#v", pool[0].ModelCapabilities)
 	}
 }
 
-func TestOpenAICodexIntegrationUsesAccountCatalogDefault(t *testing.T) {
+func TestOpenAICodexIntegrationPassesExplicitCatalogModel(t *testing.T) {
 	oldTransport := http.DefaultTransport
 	oldCatalogClient := codexModelCatalogClient
 	oldBaseURL := codexModelCatalogBaseURL
@@ -339,7 +338,7 @@ func TestOpenAICodexIntegrationUsesAccountCatalogDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Success || responseModel != "gpt-5.6-terra" {
+	if !result.Success || responseModel != "gpt-5.6-luna" {
 		t.Fatalf("result = %#v, response model = %q", result, responseModel)
 	}
 }

@@ -187,8 +187,7 @@ func fetchCodexModelCatalog(ctx context.Context, accessToken, accountID string, 
 	}
 	models := make([]ModelInfo, 0, len(payload.Models))
 	for _, model := range payload.Models {
-		if strings.TrimSpace(model.Slug) == "" || !strings.EqualFold(strings.TrimSpace(model.Visibility), "list") ||
-			!codexRuntimeModelAllowed(model.Slug) {
+		if strings.TrimSpace(model.Slug) == "" || !strings.EqualFold(strings.TrimSpace(model.Visibility), "list") {
 			continue
 		}
 		name := strings.TrimSpace(model.DisplayName)
@@ -233,14 +232,6 @@ func fetchCodexModelCatalog(ctx context.Context, accessToken, accountID string, 
 	return cloneModelInfos(models), nil
 }
 
-// Luna is advertised by the account catalog but the Codex Responses backend
-// currently rejects it with model_not_found for accounts where Sol and Terra
-// work. Keep the restriction at the server boundary so UI selections, agent
-// defaults, and app calls all share the same executable model set.
-func codexRuntimeModelAllowed(modelID string) bool {
-	return !strings.EqualFold(strings.TrimSpace(modelID), "gpt-5.6-luna")
-}
-
 func codexDefaultModel(models []ModelInfo, tier string) string {
 	preferences := map[string][]string{
 		"large":  {"gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.5", "gpt-5.4"},
@@ -270,19 +261,11 @@ func applyCodexCatalogToState(state map[string]any, models []ModelInfo) {
 	for _, model := range models {
 		byID[model.ID] = model
 	}
-	// Keep the temporary GPT-5.6 rollout conservative: when Terra is
-	// available for this account, use it for every role even if Sol was
-	// previously selected. Accounts without Terra retain the normal
-	// account-aware fallback below.
-	_, pinTerra := byID["gpt-5.6-terra"]
 	selectedCaps := map[string]ProviderModelCapabilities{}
 	for _, tier := range []string{"large", "medium", "small"} {
 		key := "model_" + tier
 		selected := strings.TrimSpace(stringValue(state[key]))
-		if pinTerra {
-			selected = "gpt-5.6-terra"
-			state[key] = selected
-		} else if _, ok := byID[selected]; !ok {
+		if _, ok := byID[selected]; !ok {
 			selected = codexDefaultModel(models, tier)
 			state[key] = selected
 		}
@@ -291,16 +274,6 @@ func applyCodexCatalogToState(state map[string]any, models []ModelInfo) {
 		}
 	}
 	state["model_capabilities"] = selectedCaps
-}
-
-func codexStateHasNonTerra56Selection(state map[string]any) bool {
-	for _, tier := range []string{"large", "medium", "small"} {
-		model := strings.ToLower(strings.TrimSpace(stringValue(state["model_"+tier])))
-		if strings.HasPrefix(model, "gpt-5.6-") && model != "gpt-5.6-terra" {
-			return true
-		}
-	}
-	return false
 }
 
 func codexAccountIDFromState(state map[string]any) string {
