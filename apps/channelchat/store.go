@@ -84,6 +84,8 @@ type CurrentStatusMessage struct {
 	Detail    string   `json:"detail,omitempty"`
 	State     string   `json:"state"`
 	Progress  *float64 `json:"progress,omitempty"`
+	Next      string   `json:"next,omitempty"`
+	NextAt    string   `json:"next_at,omitempty"`
 	Stale     bool     `json:"stale"`
 }
 
@@ -872,12 +874,12 @@ func (s *store) ListCurrentStatuses(ownerIDs []int64, projectID string) ([]Curre
 		}
 		m.Components = decodeComponents(componentsJSON.String)
 		m.Attachments = decodeAttachments(attachmentsJSON.String)
-		title, detail, state, progress, ok := currentStatusSummary(m.Components)
+		title, detail, state, progress, next, nextAt, ok := currentStatusSummary(m.Components)
 		if !ok {
 			continue
 		}
 		row.Message = m
-		row.Title, row.Detail, row.State, row.Progress = title, detail, state, progress
+		row.Title, row.Detail, row.State, row.Progress, row.Next, row.NextAt = title, detail, state, progress, next, nextAt
 		row.Stale = state != "completed" && now.Sub(m.CreatedAt) > 30*time.Minute
 		out = append(out, row)
 	}
@@ -935,7 +937,7 @@ func alertSummary(components []framework.ChatComponent) (title, body, severity s
 	return "", "", "", false, false
 }
 
-func currentStatusSummary(components []framework.ChatComponent) (title, detail, state string, progress *float64, ok bool) {
+func currentStatusSummary(components []framework.ChatComponent) (title, detail, state string, progress *float64, next, nextAt string, ok bool) {
 	for _, c := range components {
 		if c.App != "channel-chat" || c.Name != "status-card" {
 			continue
@@ -949,9 +951,11 @@ func currentStatusSummary(components []framework.ChatComponent) (title, detail, 
 		if value, exists := c.Props["progress"].(float64); exists {
 			progress = &value
 		}
-		return title, detail, state, progress, true
+		next, _ = c.Props["next"].(string)
+		nextAt, _ = c.Props["next_at"].(string)
+		return title, detail, state, progress, next, nextAt, true
 	}
-	return "", "", "", nil, false
+	return "", "", "", nil, "", "", false
 }
 
 func componentDismissed(props map[string]any) bool {

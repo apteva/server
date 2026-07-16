@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -149,6 +150,388 @@ func TestChannelChat_RealLLM_OpenCodeGLM52_AllChannelKindsExactlyOnce(t *testing
 	runRealChannelKindsExactlyOnce(t, h)
 }
 
+func TestChannelChat_RealLLM_XAI_AllChannelKindsExactlyOnce(t *testing.T) {
+	h := setupXAIChannelChatHarnessWithDirective(t, "channel-kinds-xai-under-test", channelCoverageDirective())
+	runRealChannelKindsExactlyOnce(t, h)
+}
+
+// These two provider tests force core's discovery path even though the
+// fixture has a small tool surface. Channels is configured as always-loaded,
+// so the model must call channels_send directly without search_tools or a
+// model-created worker. The deterministic core test separately covers the
+// automatic >60-tool threshold with decoy schemas.
+func TestChannelChat_RealLLM_Codex_AlwaysLoadedChannelsAvoidDiscovery(t *testing.T) {
+	t.Setenv("APTEVA_TOOL_SEARCH", "on")
+	h := setupRealChannelChatHarness(t, "channels-always-codex-under-test", channelsAlwaysLoadedDirective(),
+		`{"include_apteva_server":false,"include_channels":true}`)
+	runRealAlwaysLoadedChannels(t, h)
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_AlwaysLoadedChannelsAvoidDiscovery(t *testing.T) {
+	t.Setenv("APTEVA_TOOL_SEARCH", "on")
+	h := setupOpenCodeChannelChatHarnessWithDirective(t, "channels-always-glm52-under-test", "glm-5.2", channelsAlwaysLoadedDirective())
+	runRealAlwaysLoadedChannels(t, h)
+}
+
+func TestChannelChat_RealLLM_XAI_AlwaysLoadedChannelsAvoidDiscovery(t *testing.T) {
+	t.Setenv("APTEVA_TOOL_SEARCH", "on")
+	h := setupXAIChannelChatHarnessWithDirective(t, "channels-always-xai-under-test", channelsAlwaysLoadedDirective())
+	runRealAlwaysLoadedChannels(t, h)
+}
+
+func channelsAlwaysLoadedDirective() string {
+	return strings.Join([]string{
+		"# Role",
+		"You answer brief dashboard-chat checks directly through the visible channels_send tool.",
+		"# Rules",
+		"Do not call search_tools or spawn to communicate with the operator.",
+		"For the readiness probe, send exactly CHANNELS ALWAYS READY to the current channel and do nothing else.",
+	}, "\n")
+}
+
+func runRealAlwaysLoadedChannels(t *testing.T, h *realChannelChatHarness) {
+	t.Helper()
+	h.post(t, "Run the readiness probe now.")
+
+	deadline := time.Now().Add(90 * time.Second)
+	var calls []string
+	var reply string
+	for time.Now().Before(deadline) {
+		events, err := h.server.store.QueryTelemetry(h.agent.ID, "tool.call", time.Time{}, 100)
+		if err == nil {
+			calls = toolNames(events)
+		}
+		reply = latestAgentChatReply(t, h.server, h.chatID)
+		// Chat persistence and telemetry ingestion are separate writes. Wait
+		// until both sides of the same successful send are observable before
+		// evaluating the call sequence.
+		if strings.Contains(reply, "CHANNELS ALWAYS READY") && containsTool(calls, "channels_send") {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if !strings.Contains(reply, "CHANNELS ALWAYS READY") {
+		t.Fatalf("always-loaded Channels probe did not produce the visible reply; calls=%v reply=%q", calls, reply)
+	}
+	if !containsTool(calls, "channels_send") {
+		t.Fatalf("probe reply was not delivered through channels_send; calls=%v", calls)
+	}
+	if containsTool(calls, "search_tools") || containsTool(calls, "spawn") {
+		t.Fatalf("always-loaded Channels caused discovery/delegation; calls=%v", calls)
+	}
+	if containsTool(calls, "channels_set_status") {
+		t.Fatalf("brief channel message incorrectly created work status; calls=%v", calls)
+	}
+}
+
+// TestChannelChat_RealLLM_OpenCodeGLM52_StatusNextAction verifies that a real
+// model maps a natural-language scheduled responsibility onto the optional
+// next/next_at status fields without publishing an Inbox item or chat message.
+func TestChannelChat_RealLLM_OpenCodeGLM52_StatusNextAction(t *testing.T) {
+	h := setupOpenCodeChannelChatHarnessWithDirective(t, "status-next-glm52-under-test", "glm-5.2", statusOnlyDirective())
+	runRealStatusOnly(t, h, strings.Join([]string{
+		"The daily affiliate sync just completed after importing 124 conversions.",
+		"Record a completed current status with 100% progress.",
+		"The nearest next responsibility must be exactly: Generate weekly performance report.",
+		"It is due at 2026-07-20T09:00:00Z.",
+		"This is monitoring state only; do not send a chat message or create an Inbox item.",
+	}, "\n"), "Generate weekly performance report", "2026-07-20T09:00:00Z")
+}
+
+// TestChannelChat_RealLLM_OpenCodeGLM52_StatusWithoutNextAction verifies that
+// the model leaves optional next fields empty when a one-off task has no
+// meaningful planned follow-up.
+func TestChannelChat_RealLLM_OpenCodeGLM52_StatusWithoutNextAction(t *testing.T) {
+	h := setupOpenCodeChannelChatHarnessWithDirective(t, "status-no-next-glm52-under-test", "glm-5.2", statusOnlyDirective())
+	runRealStatusOnly(t, h, strings.Join([]string{
+		"A one-off cleanup of temporary test records just completed successfully.",
+		"Record a completed current status with 100% progress.",
+		"There is no follow-up responsibility and nothing else is scheduled or planned, so do not invent a next action or next time.",
+		"This is monitoring state only; do not send a chat message or create an Inbox item.",
+	}, "\n"), "", "")
+}
+
+// TestChannelChat_RealLLM_OpenCodeGLM52_RoutineWorkDoesNotPublishReport
+// reproduces the Personal Agent pattern that previously produced one report
+// after every hourly inbox cleanup. Routine daytime work should update mutable
+// status, while the default unsolicited report remains an end-of-day digest.
+func TestChannelChat_RealLLM_OpenCodeGLM52_RoutineWorkDoesNotPublishReport(t *testing.T) {
+	directive := strings.Join([]string{
+		"# Role",
+		"You are a personal assistant responsible for routine Gmail hygiene.",
+		"# Gmail Routine",
+		"Check unread email about once every hour and mark only obvious promotional noise read.",
+		"Report concise summaries of unread or important messages only when the operator asks.",
+	}, "\n")
+	h := setupOpenCodeChannelChatHarnessWithDirective(t, "routine-no-report-glm52-under-test", "glm-5.2", directive)
+	runRealWithoutReport(t, h, strings.Join([]string{
+		"It is 09:00, not the end of the operator's day.",
+		"The hourly Gmail check just completed: two promotional messages were marked read and three actionable messages were preserved.",
+		"No operator requested a report and the directive defines no scheduled report cadence.",
+		"Follow the Channels guidance for this routine result, then return to idle.",
+	}, "\n"))
+}
+
+func statusOnlyDirective() string {
+	return strings.Join([]string{
+		"# Role",
+		"You maintain concise operator-visible monitoring status for meaningful work units.",
+		"# Rules",
+		"Use the injected Channels capability guidance exactly.",
+		"When asked only to record monitoring status, do not send chat messages or publish Inbox artifacts.",
+		"Never repeat a successful status call.",
+	}, "\n")
+}
+
+func TestChannelChat_RealLLM_Codex_StatusWorkSemantics(t *testing.T) {
+	h := setupRealChannelChatHarness(t, "status-semantics-codex-under-test", statusSemanticsDirective(),
+		`{"include_apteva_server":false,"include_channels":true}`)
+	runRealStatusWorkSemantics(t, h)
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_StatusWorkSemantics(t *testing.T) {
+	h := setupOpenCodeChannelChatHarnessWithDirective(t, "status-semantics-glm52-under-test", "glm-5.2", statusSemanticsDirective())
+	runRealStatusWorkSemantics(t, h)
+}
+
+func TestChannelChat_RealLLM_XAI_StatusWorkSemantics(t *testing.T) {
+	h := setupXAIChannelChatHarnessWithDirective(t, "status-semantics-xai-under-test", statusSemanticsDirective())
+	runRealStatusWorkSemantics(t, h)
+}
+
+func TestChannelChat_RealLLM_OpenCodeKimiK27Code_StatusWorkSemantics(t *testing.T) {
+	h := setupOpenCodeChannelChatHarnessWithDirective(t, "status-semantics-kimi-under-test", "kimi-k2.7-code", statusSemanticsDirective())
+	runRealStatusWorkSemantics(t, h)
+}
+
+func TestChannelChat_RealLLM_OpenCodeMiniMaxM3_StatusWorkSemantics(t *testing.T) {
+	h := setupOpenCodeChannelChatHarnessWithDirective(t, "status-semantics-minimax-under-test", "minimax-m3", statusSemanticsDirective())
+	runRealStatusWorkSemantics(t, h)
+}
+
+func statusSemanticsDirective() string {
+	return strings.Join([]string{
+		"# Role",
+		"You maintain operator-visible state while carrying out requested work.",
+		"# Status protocol",
+		"Apply the injected Channels capability guidance exactly.",
+		"Use status only for meaningful operator-relevant work units, not your own administration or future-only scheduling.",
+		"Do not send chat messages or Inbox artifacts during these monitoring scenarios.",
+		"Never repeat a successful status call.",
+	}, "\n")
+}
+
+func runRealStatusWorkSemantics(t *testing.T, h *realChannelChatHarness) {
+	t.Helper()
+	waitForInitialAgentTurn(t, h)
+
+	t.Run("directive-and-future-schedule-are-not-work", func(t *testing.T) {
+		calls := runRealStatusSemanticTurn(t, h, strings.Join([]string{
+			"An internal directive update just completed: the directive now says to run a CRM check every day at 09:00 UTC.",
+			"No CRM check is active or completed as part of this event. Apply the Channels guidance, then return idle.",
+		}, "\n"))
+		assertNoStatusCalls(t, calls)
+	})
+
+	t.Run("completed-recurring-work-stays-completed", func(t *testing.T) {
+		calls := runRealStatusSemanticTurn(t, h, strings.Join([]string{
+			"You just finished a meaningful multi-step daily CRM check and found no unresolved conversations.",
+			"Update operator monitoring for that completed work.",
+			"The nearest next responsibility is exactly: Run the next daily CRM check.",
+			"That next responsibility is due at 2026-07-20T09:00:00Z.",
+		}, "\n"))
+		call := assertSingleStatusCall(t, calls, "completed")
+		assertProgress(t, call, 100, false)
+		if call.Next != "Run the next daily CRM check." || call.NextAt != "2026-07-20T09:00:00Z" {
+			t.Fatalf("completed recurring status next=%q next_at=%q, want exact scheduled responsibility; call=%+v", call.Next, call.NextAt, call)
+		}
+		assertTitleDoesNotDescribeFutureOrWait(t, call.Title)
+	})
+
+	t.Run("approval-pauses-the-current-work-unit", func(t *testing.T) {
+		calls := runRealStatusSemanticTurn(t, h, strings.Join([]string{
+			"A customer update is drafted as part of an unfinished publication workflow.",
+			"The workflow cannot continue until the operator approves publication.",
+			"Update operator monitoring. The nearest next responsibility is exactly: Publish customer update after approval.",
+			"There is no deadline.",
+		}, "\n"))
+		call := assertSingleStatusCall(t, calls, "waiting")
+		assertProgress(t, call, 100, true)
+		if call.Next != "Publish customer update after approval." || call.NextAt != "" {
+			t.Fatalf("approval status next=%q next_at=%q, want next without invented deadline; call=%+v", call.Next, call.NextAt, call)
+		}
+		assertTitleDoesNotDescribeFutureOrWait(t, call.Title)
+		if strings.TrimSpace(call.Detail) != "" && !containsAnyFold(call.Detail, "approval", "approve") {
+			t.Fatalf("waiting status detail does not name approval dependency: %+v", call)
+		}
+	})
+
+	t.Run("failed-prerequisite-is-blocked", func(t *testing.T) {
+		calls := runRealStatusSemanticTurn(t, h, strings.Join([]string{
+			"A CRM contact import stopped because authentication expired.",
+			"The same import cannot continue until the CRM integration is reconnected.",
+			"Update operator monitoring for the unfinished import.",
+		}, "\n"))
+		call := assertSingleStatusCall(t, calls, "blocked")
+		if strings.Contains(strings.ToLower(call.Title), "blocked") {
+			t.Fatalf("blocked status title describes the condition instead of the work unit: %+v", call)
+		}
+		if !containsAnyFold(call.Detail, "auth", "expired", "reconnect") {
+			t.Fatalf("blocked status detail does not explain the prerequisite failure: %+v", call)
+		}
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_StatusExtendedSemantics(t *testing.T) {
+	h := setupOpenCodeChannelChatHarnessWithDirective(t, "status-extended-glm52-under-test", "glm-5.2", statusSemanticsDirective())
+	waitForInitialAgentTurn(t, h)
+
+	t.Run("read-only-lookup-has-no-status", func(t *testing.T) {
+		calls := runRealStatusSemanticTurn(t, h, "Read your current directive and verify whether it mentions CRM. Do not change anything, then return idle.")
+		assertNoStatusCalls(t, calls)
+	})
+
+	t.Run("delayed-current-work-is-waiting", func(t *testing.T) {
+		calls := runRealStatusSemanticTurn(t, h, strings.Join([]string{
+			"A requested notification is an active unfinished work unit and must be sent at 2026-07-20T10:00:00Z.",
+			"It has not been sent yet. Update operator monitoring.",
+			"The nearest next responsibility is exactly: Send requested notification.",
+		}, "\n"))
+		call := assertSingleStatusCall(t, calls, "waiting")
+		assertProgress(t, call, 100, true)
+		if call.Next != "Send requested notification." || call.NextAt != "2026-07-20T10:00:00Z" {
+			t.Fatalf("delayed status did not preserve exact next action/time: %+v", call)
+		}
+		assertTitleDoesNotDescribeFutureOrWait(t, call.Title)
+	})
+
+	t.Run("one-off-completion-clears-next", func(t *testing.T) {
+		calls := runRealStatusSemanticTurn(t, h, strings.Join([]string{
+			"A one-off cleanup of temporary test records just completed successfully.",
+			"Update operator monitoring for the completed work. There is no follow-up responsibility or planned work.",
+		}, "\n"))
+		call := assertSingleStatusCall(t, calls, "completed")
+		assertProgress(t, call, 100, false)
+		if call.Next != "" || call.NextAt != "" {
+			t.Fatalf("one-off completion invented next metadata: %+v", call)
+		}
+	})
+}
+
+func runRealStatusOnly(t *testing.T, h *realChannelChatHarness, prompt, wantNext, wantNextAt string) {
+	t.Helper()
+	h.post(t, prompt)
+
+	deadline := time.Now().Add(90 * time.Second)
+	var snapshot channelCoverageSnapshot
+	var persistedState, persistedNext, persistedNextAt string
+	var persistedProgress float64
+	found := false
+	for time.Now().Before(deadline) {
+		snapshot = readChannelCoverageSnapshot(t, h.server, h.agent.ID, h.chatID)
+		err := h.server.store.db.QueryRow(`
+			SELECT
+				COALESCE(json_extract(components_json, '$[0].props.state'), ''),
+				COALESCE(json_extract(components_json, '$[0].props.progress'), -1),
+				COALESCE(json_extract(components_json, '$[0].props.next'), ''),
+				COALESCE(json_extract(components_json, '$[0].props.next_at'), '')
+			FROM channel_chat_messages
+			WHERE chat_id=? AND components_json LIKE '%"status-card"%'
+			LIMIT 1`, h.chatID).Scan(&persistedState, &persistedProgress, &persistedNext, &persistedNextAt)
+		if err == nil && persistedState == "completed" {
+			found = true
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if !found {
+		t.Fatalf("GLM-5.2 did not persist the completed status before timeout: %s", snapshot.summary())
+	}
+	// Keep observing beyond the late-retry window from the production duplicate
+	// incident before asserting the final call and row counts.
+	time.Sleep(8 * time.Second)
+	snapshot = readChannelCoverageSnapshot(t, h.server, h.agent.ID, h.chatID)
+	if snapshot.failedResults != 0 || len(snapshot.calls) != 1 || snapshot.callCount("status", "completed") != 1 {
+		t.Fatalf("status call was not exactly once and successful: %s", snapshot.summary())
+	}
+	if snapshot.normalMessages != 0 || snapshot.reportRows != 0 || snapshot.approvalRows != 0 || snapshot.alertRows != 0 {
+		t.Fatalf("status-only request leaked into chat or Inbox: %s", snapshot.summary())
+	}
+	if snapshot.statusRows != 1 || persistedState != "completed" || persistedProgress != 100 ||
+		normalizeStatusNextFixture(persistedNext) != normalizeStatusNextFixture(wantNext) || persistedNextAt != wantNextAt {
+		t.Fatalf("persisted status state=%q progress=%v next=%q next_at=%q snapshot=%s",
+			persistedState, persistedProgress, persistedNext, persistedNextAt, snapshot.summary())
+	}
+}
+
+// Status next is operator-facing natural language, not an identifier. Models
+// may render the same action phrase as a sentence, so the real-LLM fixture
+// ignores one terminal sentence mark while keeping every semantic field exact.
+func normalizeStatusNextFixture(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	switch value[len(value)-1] {
+	case '.', '!', '?':
+		return strings.TrimSpace(value[:len(value)-1])
+	default:
+		return value
+	}
+}
+
+func TestNormalizeStatusNextFixture(t *testing.T) {
+	for input, want := range map[string]string{
+		"Generate weekly report":    "Generate weekly report",
+		"Generate weekly report.":   "Generate weekly report",
+		" Generate weekly report! ": "Generate weekly report",
+		"":                          "",
+	} {
+		if got := normalizeStatusNextFixture(input); got != want {
+			t.Fatalf("normalizeStatusNextFixture(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func runRealWithoutReport(t *testing.T, h *realChannelChatHarness, prompt string) {
+	t.Helper()
+	h.post(t, prompt)
+
+	deadline := time.Now().Add(150 * time.Second)
+	processed := false
+	for time.Now().Before(deadline) {
+		errors, err := h.server.store.QueryTelemetry(h.agent.ID, "llm.error", time.Time{}, 20)
+		if err != nil {
+			t.Fatalf("query LLM errors: %v", err)
+		}
+		if len(errors) > 0 {
+			t.Fatalf("GLM-5.2 returned an LLM error: %s", string(errors[len(errors)-1].Data))
+		}
+		done, err := h.server.store.QueryTelemetry(h.agent.ID, "llm.done", time.Time{}, 20)
+		if err != nil {
+			t.Fatalf("query LLM completion: %v", err)
+		}
+		if len(done) > 0 {
+			processed = true
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if !processed {
+		t.Fatal("GLM-5.2 did not complete an LLM turn before timeout")
+	}
+	// Reports are normally chosen in the completed turn. Keep observing past
+	// the duplicate retry window in case another Channels result wakes the agent.
+	time.Sleep(8 * time.Second)
+	snapshot := readChannelCoverageSnapshot(t, h.server, h.agent.ID, h.chatID)
+	if snapshot.failedResults != 0 {
+		t.Fatalf("routine work produced failed channel calls: %s", snapshot.summary())
+	}
+	if snapshot.callCount("report", "") != 0 || snapshot.reportRows != 0 {
+		t.Fatalf("routine daytime work incorrectly produced a report: %s", snapshot.summary())
+	}
+}
+
 // TestChannelChat_RealLLM_OpenCodeKimiK27Code_AllChannelKindsExactlyOnce runs
 // the same contract through Kimi K2.7 Code, pinned across every model tier.
 func TestChannelChat_RealLLM_OpenCodeKimiK27Code_AllChannelKindsExactlyOnce(t *testing.T) {
@@ -179,20 +562,36 @@ func TestChannelChat_RealLLM_OpenCodeMiMoV25Pro_AllChannelKindsExactlyOnce(t *te
 
 func setupOpenCodeChannelChatHarness(t *testing.T, agentName, model string) *realChannelChatHarness {
 	t.Helper()
-	requireRealLLMTests(t)
-	key := strings.TrimSpace(os.Getenv("OPENCODE_GO_API_KEY"))
-	if key == "" {
-		t.Skip("set OPENCODE_GO_API_KEY to run the OpenCode Go channel test")
-	}
+	return setupOpenCodeChannelChatHarnessWithDirective(t, agentName, model, channelCoverageDirective())
+}
+
+func setupOpenCodeChannelChatHarnessWithDirective(t *testing.T, agentName, model, directive string) *realChannelChatHarness {
+	t.Helper()
+	key := loadOpenCodeGoAPIKey(t)
 	providerState := map[string]any{
 		"OPENCODE_GO_API_KEY": key,
 		"model_large":         model,
 		"model_medium":        model,
 		"model_small":         model,
 	}
-	return setupRealChannelChatHarnessWithProvider(t, agentName, channelCoverageDirective(),
+	return setupRealChannelChatHarnessWithProvider(t, agentName, directive,
 		`{"include_apteva_server":false,"include_channels":true}`,
 		13, "llm", "OpenCode Go", providerState)
+}
+
+func setupXAIChannelChatHarnessWithDirective(t *testing.T, agentName, directive string) *realChannelChatHarness {
+	t.Helper()
+	model := strings.TrimSpace(os.Getenv("XAI_TEST_MODEL"))
+	if model == "" {
+		model = "grok-4.3"
+	}
+	providerState := map[string]any{
+		"XAI_API_KEY": loadXAIAPIKey(t),
+		"model_large": model, "model_medium": model, "model_small": model,
+	}
+	return setupRealChannelChatHarnessWithProvider(t, agentName, directive,
+		`{"include_apteva_server":false,"include_channels":true}`,
+		17, "llm", "xAI", providerState)
 }
 
 func channelCoverageDirective() string {
@@ -332,11 +731,16 @@ func (h *realChannelChatHarness) post(t *testing.T, content string) {
 }
 
 type channelSendCall struct {
-	ID    string
-	Time  time.Time
-	Kind  string
-	State string
-	Text  string
+	ID       string
+	Time     time.Time
+	Kind     string
+	State    string
+	Text     string
+	Title    string
+	Detail   string
+	Next     string
+	NextAt   string
+	Progress *float64
 }
 
 type channelSendResult struct {
@@ -370,9 +774,14 @@ func readChannelCoverageSnapshot(t *testing.T, s *Server, agentID int64, chatID 
 			ID   string `json:"id"`
 			Name string `json:"name"`
 			Args struct {
-				Kind  string `json:"kind"`
-				State string `json:"state"`
-				Text  string `json:"text"`
+				Kind     string `json:"kind"`
+				State    string `json:"state"`
+				Text     string `json:"text"`
+				Title    string `json:"title"`
+				Detail   string `json:"detail"`
+				Next     string `json:"next"`
+				NextAt   string `json:"next_at"`
+				Progress any    `json:"progress"`
 			} `json:"args"`
 		}
 		if json.Unmarshal(ev.Data, &data) == nil {
@@ -382,6 +791,8 @@ func readChannelCoverageSnapshot(t *testing.T, s *Server, agentID int64, chatID 
 			}
 			out.calls = append(out.calls, channelSendCall{
 				ID: data.ID, Time: ev.Time, Kind: kind, State: data.Args.State, Text: data.Args.Text,
+				Title: data.Args.Title, Detail: data.Args.Detail, Next: data.Args.Next, NextAt: data.Args.NextAt,
+				Progress: numericStatusProgress(data.Args.Progress),
 			})
 		}
 	}
@@ -422,6 +833,222 @@ func readChannelCoverageSnapshot(t *testing.T, s *Server, agentID int64, chatID 
 		WHERE chat_id=? AND components_json LIKE '%"status-card"%'
 		ORDER BY id DESC LIMIT 1`, chatID).Scan(&out.statusState)
 	return out
+}
+
+func runRealStatusSemanticTurn(t *testing.T, h *realChannelChatHarness, prompt string) []channelSendCall {
+	t.Helper()
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	h.post(t, prompt)
+	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
+	return newChannelCalls(t, h.server, h.agent.ID, baselineCalls)
+}
+
+func waitForInitialAgentTurn(t *testing.T, h *realChannelChatHarness) {
+	t.Helper()
+	waitForAgentTurnSettled(t, h, map[string]bool{}, map[string]bool{}, 3*time.Second)
+}
+
+func waitForAgentTurnSettled(t *testing.T, h *realChannelChatHarness, baselineDone, baselineResults map[string]bool, quietFor time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(150 * time.Second)
+	var stableSince time.Time
+	lastSignature := ""
+	for time.Now().Before(deadline) {
+		done := newTelemetryEvents(t, h.server, h.agent.ID, "llm.done", baselineDone)
+		results := newChannelResultEvents(t, h.server, h.agent.ID, baselineResults)
+		ready := len(done) > 0
+		if ready && len(results) > 0 {
+			ready = !done[0].Time.Before(results[0].Time)
+		}
+		signature := telemetryEventSignature(done) + ":" + telemetryEventSignature(results)
+		if !ready || signature != lastSignature {
+			stableSince = time.Time{}
+			lastSignature = signature
+		} else if stableSince.IsZero() {
+			stableSince = time.Now()
+		} else if time.Since(stableSince) >= quietFor {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatalf("agent turn did not settle: done=%s results=%s",
+		telemetryEventSignature(newTelemetryEvents(t, h.server, h.agent.ID, "llm.done", baselineDone)),
+		telemetryEventSignature(newChannelResultEvents(t, h.server, h.agent.ID, baselineResults)))
+}
+
+func telemetryEventIDs(t *testing.T, s *Server, agentID int64, eventType string) map[string]bool {
+	t.Helper()
+	events, err := s.store.QueryTelemetry(agentID, eventType, time.Time{}, 1000)
+	if err != nil {
+		t.Fatalf("query %s telemetry: %v", eventType, err)
+	}
+	ids := make(map[string]bool, len(events))
+	for _, event := range events {
+		ids[event.ID] = true
+	}
+	return ids
+}
+
+func newTelemetryEvents(t *testing.T, s *Server, agentID int64, eventType string, baseline map[string]bool) []TelemetryEvent {
+	t.Helper()
+	events, err := s.store.QueryTelemetry(agentID, eventType, time.Time{}, 1000)
+	if err != nil {
+		t.Fatalf("query %s telemetry: %v", eventType, err)
+	}
+	out := make([]TelemetryEvent, 0, len(events))
+	for _, event := range events {
+		if !baseline[event.ID] {
+			out = append(out, event)
+		}
+	}
+	return out
+}
+
+func newChannelResultEvents(t *testing.T, s *Server, agentID int64, baseline map[string]bool) []TelemetryEvent {
+	t.Helper()
+	events := newTelemetryEvents(t, s, agentID, "tool.result", baseline)
+	out := make([]TelemetryEvent, 0, len(events))
+	for _, event := range events {
+		var data struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(event.Data, &data) == nil && isChannelCoverageTool(data.Name) {
+			out = append(out, event)
+		}
+	}
+	return out
+}
+
+func telemetryEventSignature(events []TelemetryEvent) string {
+	if len(events) == 0 {
+		return "0"
+	}
+	return fmt.Sprintf("%d:%s:%s", len(events), events[0].ID, events[0].Time.UTC().Format(time.RFC3339Nano))
+}
+
+func newChannelCalls(t *testing.T, s *Server, agentID int64, baseline map[string]bool) []channelSendCall {
+	t.Helper()
+	events, err := s.store.QueryTelemetry(agentID, "tool.call", time.Time{}, 1000)
+	if err != nil {
+		t.Fatalf("query channel calls: %v", err)
+	}
+	var calls []channelSendCall
+	for _, event := range events {
+		if baseline[event.ID] {
+			continue
+		}
+		var data struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+			Args struct {
+				Kind     string `json:"kind"`
+				State    string `json:"state"`
+				Text     string `json:"text"`
+				Title    string `json:"title"`
+				Detail   string `json:"detail"`
+				Next     string `json:"next"`
+				NextAt   string `json:"next_at"`
+				Progress any    `json:"progress"`
+			} `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil {
+			continue
+		}
+		kind, ok := channelCoverageToolKind(data.Name, data.Args.Kind)
+		if !ok {
+			continue
+		}
+		calls = append(calls, channelSendCall{
+			ID: data.ID, Time: event.Time, Kind: kind, State: data.Args.State, Text: data.Args.Text,
+			Title: data.Args.Title, Detail: data.Args.Detail, Next: data.Args.Next, NextAt: data.Args.NextAt,
+			Progress: numericStatusProgress(data.Args.Progress),
+		})
+	}
+	return calls
+}
+
+func numericStatusProgress(value any) *float64 {
+	var progress float64
+	switch typed := value.(type) {
+	case float64:
+		progress = typed
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err != nil {
+			return nil
+		}
+		progress = parsed
+	default:
+		return nil
+	}
+	return &progress
+}
+
+func assertNoStatusCalls(t *testing.T, calls []channelSendCall) {
+	t.Helper()
+	for _, call := range calls {
+		if call.Kind == "status" {
+			t.Fatalf("scenario incorrectly created work status: %+v (all calls=%+v)", call, calls)
+		}
+	}
+}
+
+func assertSingleStatusCall(t *testing.T, calls []channelSendCall, wantState string) channelSendCall {
+	t.Helper()
+	var statuses []channelSendCall
+	for _, call := range calls {
+		if call.Kind == "status" {
+			statuses = append(statuses, call)
+		}
+	}
+	if len(statuses) != 1 {
+		t.Fatalf("status calls=%d, want exactly one %q status: %+v", len(statuses), wantState, calls)
+	}
+	if statuses[0].State != wantState {
+		t.Fatalf("status state=%q, want %q: %+v", statuses[0].State, wantState, statuses[0])
+	}
+	if strings.TrimSpace(statuses[0].Title) == "" {
+		t.Fatalf("status has empty title: %+v", statuses[0])
+	}
+	return statuses[0]
+}
+
+func assertProgress(t *testing.T, call channelSendCall, value float64, mustBeLess bool) {
+	t.Helper()
+	if call.Progress == nil {
+		return
+	}
+	if mustBeLess {
+		if *call.Progress >= value {
+			t.Fatalf("status progress=%v, must be less than %v for unfinished work: %+v", *call.Progress, value, call)
+		}
+		return
+	}
+	if *call.Progress != value {
+		t.Fatalf("status progress=%v, want %v: %+v", *call.Progress, value, call)
+	}
+}
+
+func assertTitleDoesNotDescribeFutureOrWait(t *testing.T, title string) {
+	t.Helper()
+	lower := strings.ToLower(title)
+	for _, forbidden := range []string{"waiting", "awaiting", "scheduled", "tomorrow", "next "} {
+		if strings.Contains(lower, forbidden) {
+			t.Fatalf("status title describes future work or waiting condition: %q", title)
+		}
+	}
+}
+
+func containsAnyFold(value string, candidates ...string) bool {
+	lower := strings.ToLower(value)
+	for _, candidate := range candidates {
+		if strings.Contains(lower, strings.ToLower(candidate)) {
+			return true
+		}
+	}
+	return false
 }
 
 func channelCoverageToolKind(name, advertisedKind string) (string, bool) {

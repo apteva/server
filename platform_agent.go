@@ -217,7 +217,7 @@ func (s *Server) ensureMetaAgentRunning(userID int64) (*Agent, error) {
 	// Environment control tools before Start so core merges them into
 	// config.json.
 	s.ensureEnvironmentMCPOnHelper(helper)
-	if err := s.agents.Start(helper, providerEnv, s.port, pool, s.instanceSecret); err != nil {
+	if _, err := s.startManagedAgent(helper, providerEnv, pool); err != nil {
 		return nil, fmt.Errorf("start meta-agent: %w", err)
 	}
 	// Persist new port + pid + status so future restarts pick it up.

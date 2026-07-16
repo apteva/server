@@ -203,6 +203,8 @@ type CurrentStatusRequest struct {
 	Detail   string   `json:"detail,omitempty"`
 	State    string   `json:"state"` // working | waiting | blocked | completed
 	Progress *float64 `json:"progress,omitempty"`
+	Next     string   `json:"next,omitempty"`
+	NextAt   string   `json:"next_at,omitempty"`
 }
 
 type CurrentStatusResult struct {

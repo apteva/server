@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -78,6 +79,11 @@ func (hr *HostRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			stripped = stripped[:i]
 		}
 		if strings.EqualFold(stripped, hr.server.primaryHost) {
+			if envTruthy(os.Getenv("APTEVA_INGRESS_ENABLED")) && r.TLS == nil && r.Header.Get("X-Forwarded-Proto") != "https" {
+				httpsHost := stripHostPort(r.Host)
+				http.Redirect(w, r, "https://"+httpsHost+r.URL.RequestURI(), http.StatusMovedPermanently)
+				return
+			}
 			hr.next.ServeHTTP(w, r)
 			return
 		}

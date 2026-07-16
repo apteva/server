@@ -570,11 +570,16 @@ type JSONAPIRelationship struct {
 }
 
 type ResponseTransformDef struct {
-	Type     string            `json:"type"`
-	Source   string            `json:"source,omitempty"`
-	Target   string            `json:"target,omitempty"`
-	Encoding string            `json:"encoding,omitempty"`
-	Fields   map[string]string `json:"fields,omitempty"`
+	Type            string            `json:"type"`
+	Source          string            `json:"source,omitempty"`
+	Target          string            `json:"target,omitempty"`
+	Encoding        string            `json:"encoding,omitempty"`
+	Fields          map[string]string `json:"fields,omitempty"`
+	BodyModeParam   string            `json:"body_mode_param,omitempty"`
+	MaxCharsParam   string            `json:"max_chars_param,omitempty"`
+	DefaultBodyMode string            `json:"default_body_mode,omitempty"`
+	DefaultMaxChars int               `json:"default_max_chars,omitempty"`
+	MaxCharsLimit   int               `json:"max_chars_limit,omitempty"`
 }
 
 // ToolSigningConfig — per-tool override of the app-level signer chain.

@@ -1,14 +1,15 @@
 {
   "slug": "mux",
   "name": "Mux Video",
-  "description": "Mux Video — managed video infrastructure. Ingest source URLs as Assets, get HLS playback URLs back, request MP4 static renditions, run live streams. Strong on transcode + delivery + thumbnails; this integration covers the Video v1 API surface most useful as a render executor for the media app.",
+  "description": "Mux Video API for on-demand assets, direct uploads, playback IDs, static renditions, tracks and generated subtitles, live streams and simulcasting, playback restrictions, transcription vocabularies, DRM configuration lookup, delivery usage, and signing keys. Public HLS playback uses https://stream.mux.com/{PLAYBACK_ID}.m3u8; thumbnails use https://image.mux.com/{PLAYBACK_ID}/thumbnail.jpg.",
   "logo": "https://www.google.com/s2/favicons?domain=mux.com&sz=128",
   "categories": ["video", "streaming", "media", "live", "transcoding"],
   "base_url": "https://api.mux.com",
   "auth": {
     "types": ["basic"],
     "headers": {
-      "Authorization": "Basic {{basic_auth}}"
+      "Authorization": "Basic {{basic_auth}}",
+      "Content-Type": "application/json"
     },
     "credential_fields": [
       {
@@ -26,6 +27,10 @@
         "type": "password"
       }
     ]
+  },
+  "health_check": {
+    "tool": "list_assets",
+    "input": { "limit": 1 }
   },
   "tools": [
     {
@@ -52,8 +57,19 @@
           },
           "playback_policies": {
             "type": "array",
-            "description": "Playback access modes. Use [\"public\"] for unsigned playback, [\"signed\"] when you need per-viewer JWTs. Required for the asset to be playable.",
+            "description": "Playback access modes. Use [\"public\"] for unsigned playback, [\"signed\"] when you need per-viewer JWTs, or omit this to create an asset without a playback ID.",
             "items": { "type": "string", "enum": ["public", "signed", "drm"] }
+          },
+          "advanced_playback_policies": {
+            "type": "array",
+            "description": "Use instead of playback_policies when creating a DRM playback ID.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "policy": { "type": "string", "enum": ["public", "signed", "drm"] },
+                "drm_configuration_id": { "type": "string" }
+              }
+            }
           },
           "video_quality": {
             "type": "string",
@@ -68,9 +84,31 @@
           "normalize_audio": { "type": "boolean" },
           "passthrough": { "type": "string", "description": "Free-form metadata Mux echoes back in webhooks. Good for round-tripping our render_id." },
           "master_access": { "type": "string", "enum": ["none", "temporary"] },
+          "max_resolution_tier": { "type": "string", "enum": ["1080p", "1440p", "2160p"] },
+          "meta": {
+            "type": "object",
+            "description": "Non-sensitive metadata that may be visible through the player.",
+            "properties": {
+              "title": { "type": "string", "maxLength": 512 },
+              "external_id": { "type": "string", "maxLength": 128 },
+              "creator_id": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "static_renditions": {
+            "type": "array",
+            "description": "Static MP4/M4A renditions to generate. Do not combine with deprecated mp4_support.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "resolution": { "type": "string", "enum": ["highest", "audio-only", "2160p", "1440p", "1080p", "720p", "540p", "480p", "360p", "270p"] },
+                "passthrough": { "type": "string", "maxLength": 255 }
+              },
+              "required": ["resolution"]
+            }
+          },
           "test": { "type": "boolean", "description": "Asset is purged after 24h; useful for development without burning storage." }
         },
-        "required": ["inputs", "playback_policies"]
+        "required": ["inputs"]
       }
     },
     {
@@ -82,7 +120,10 @@
         "type": "object",
         "properties": {
           "limit": { "type": "integer", "default": 25, "maximum": 100 },
-          "page": { "type": "integer", "default": 1 }
+          "page": { "type": "integer", "default": 1 },
+          "cursor": { "type": "string", "description": "Pagination cursor returned by Mux." },
+          "live_stream_id": { "type": "string" },
+          "upload_id": { "type": "string" }
         }
       }
     },
@@ -119,7 +160,8 @@
         "type": "object",
         "properties": {
           "ASSET_ID": { "type": "string" },
-          "policy": { "type": "string", "enum": ["public", "signed"] }
+          "policy": { "type": "string", "enum": ["public", "signed", "drm"] },
+          "drm_configuration_id": { "type": "string", "description": "Required only when policy is drm." }
         },
         "required": ["ASSET_ID", "policy"]
       }
@@ -135,7 +177,7 @@
           "ASSET_ID": { "type": "string" },
           "resolution": {
             "type": "string",
-            "enum": ["highest", "audio-only", "2160p", "1440p", "1080p", "720p", "540p", "360p", "270p"],
+            "enum": ["highest", "audio-only", "2160p", "1440p", "1080p", "720p", "540p", "480p", "360p", "270p"],
             "description": "Output resolution. `highest` matches the source."
           },
           "passthrough": { "type": "string" }
@@ -145,7 +187,7 @@
     },
     {
       "name": "create_direct_upload",
-      "description": "Provision a one-time signed PUT URL the client can use to upload bytes directly to Mux's storage, bypassing your server. Returns {url, asset_id}; client uploads to `url`, Mux ingests into `asset_id`.",
+      "description": "Provision a one-time signed PUT URL for direct media upload. PUT the raw file bytes to the returned url without Mux Basic auth, then poll get_direct_upload; after upload succeeds, its asset_id identifies the created asset.",
       "method": "POST",
       "path": "/video/v1/uploads",
       "input_schema": {
@@ -153,7 +195,59 @@
         "properties": {
           "new_asset_settings": {
             "type": "object",
-            "description": "Same shape as create_asset's body (minus `inputs`, since the upload IS the input). At minimum needs `playback_policies`."
+            "description": "Asset settings applied after upload. Optional.",
+            "properties": {
+              "playback_policies": { "type": "array", "items": { "type": "string", "enum": ["public", "signed", "drm"] } },
+              "advanced_playback_policies": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "policy": { "type": "string", "enum": ["public", "signed", "drm"] },
+                    "drm_configuration_id": { "type": "string" }
+                  }
+                }
+              },
+              "inputs": {
+                "type": "array",
+                "description": "Optional input settings; the first item may omit url to configure generated subtitles for the uploaded media.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "url": { "type": "string" },
+                    "type": { "type": "string", "enum": ["video", "audio", "text"] },
+                    "language_code": { "type": "string" },
+                    "name": { "type": "string" },
+                    "text_type": { "type": "string", "enum": ["subtitles"] },
+                    "generated_subtitles": { "type": "array", "items": { "type": "object" } }
+                  }
+                }
+              },
+              "video_quality": { "type": "string", "enum": ["basic", "plus", "premium"] },
+              "max_resolution_tier": { "type": "string", "enum": ["1080p", "1440p", "2160p"] },
+              "master_access": { "type": "string", "enum": ["none", "temporary"] },
+              "normalize_audio": { "type": "boolean" },
+              "passthrough": { "type": "string", "maxLength": 255 },
+              "meta": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string" },
+                  "external_id": { "type": "string" },
+                  "creator_id": { "type": "string" }
+                }
+              },
+              "static_renditions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "resolution": { "type": "string", "enum": ["highest", "audio-only", "2160p", "1440p", "1080p", "720p", "540p", "480p", "360p", "270p"] },
+                    "passthrough": { "type": "string" }
+                  },
+                  "required": ["resolution"]
+                }
+              }
+            }
           },
           "cors_origin": {
             "type": "string",
@@ -166,7 +260,7 @@
           },
           "test": { "type": "boolean" }
         },
-        "required": ["new_asset_settings"]
+        "required": ["cors_origin"]
       }
     },
     {
@@ -178,24 +272,644 @@
         "type": "object",
         "properties": {
           "playback_policies": { "type": "array", "items": { "type": "string" } },
-          "new_asset_settings": { "type": "object", "description": "Settings for the recorded asset Mux creates from the stream." },
+          "advanced_playback_policies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "policy": { "type": "string", "enum": ["public", "signed", "drm"] },
+                "drm_configuration_id": { "type": "string" }
+              }
+            }
+          },
+          "new_asset_settings": {
+            "type": "object",
+            "description": "Settings for each recorded asset created from the stream.",
+            "properties": {
+              "playback_policies": { "type": "array", "items": { "type": "string", "enum": ["public", "signed", "drm"] } },
+              "video_quality": { "type": "string", "enum": ["basic", "plus", "premium"] },
+              "master_access": { "type": "string", "enum": ["none", "temporary"] },
+              "passthrough": { "type": "string" },
+              "meta": { "type": "object" },
+              "static_renditions": { "type": "array", "items": { "type": "object" } }
+            }
+          },
           "reconnect_window": { "type": "integer", "description": "Seconds Mux waits for the stream to come back before ending it. 0 disables." },
           "latency_mode": { "type": "string", "enum": ["standard", "low", "reduced"] },
+          "max_continuous_duration": { "type": "integer", "description": "Maximum continuous live duration in seconds." },
+          "passthrough": { "type": "string", "maxLength": 255 },
+          "meta": { "type": "object", "properties": { "title": { "type": "string", "maxLength": 512 } } },
+          "reconnect_slate_url": { "type": "string" },
+          "use_slate_for_standard_latency": { "type": "boolean" },
           "test": { "type": "boolean" }
         }
       }
     },
     {
       "name": "list_live_streams",
+      "description": "List live streams, optionally filtered by state or exact stream key.",
       "method": "GET",
       "path": "/video/v1/live-streams",
       "input_schema": {
         "type": "object",
         "properties": {
           "limit": { "type": "integer", "default": 25 },
-          "page": { "type": "integer", "default": 1 }
+          "page": { "type": "integer", "default": 1 },
+          "status": { "type": "string", "enum": ["active", "idle", "disabled"] },
+          "stream_key": { "type": "string" }
         }
       }
+    },
+    {
+      "name": "update_asset",
+      "description": "Update an asset's passthrough value or structured metadata. Asset media content itself is immutable.",
+      "method": "PATCH",
+      "path": "/video/v1/assets/{ASSET_ID}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ASSET_ID": { "type": "string" },
+          "passthrough": { "type": "string", "maxLength": 255 },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "title": { "type": "string", "maxLength": 512 },
+              "external_id": { "type": "string", "maxLength": 128 },
+              "creator_id": { "type": "string", "maxLength": 128 }
+            }
+          }
+        },
+        "required": ["ASSET_ID"]
+      }
+    },
+    {
+      "name": "get_asset_input_info",
+      "description": "Get the input sources and ingest settings used to create an asset.",
+      "method": "GET",
+      "path": "/video/v1/assets/{ASSET_ID}/input-info",
+      "input_schema": { "type": "object", "properties": { "ASSET_ID": { "type": "string" } }, "required": ["ASSET_ID"] }
+    },
+    {
+      "name": "get_asset_playback_id",
+      "description": "Get one playback ID attached to an asset, including its policy and optional DRM configuration.",
+      "method": "GET",
+      "path": "/video/v1/assets/{ASSET_ID}/playback-ids/{PLAYBACK_ID}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "ASSET_ID": { "type": "string" }, "PLAYBACK_ID": { "type": "string" } },
+        "required": ["ASSET_ID", "PLAYBACK_ID"]
+      }
+    },
+    {
+      "name": "delete_asset_playback_id",
+      "description": "Revoke a playback ID from an asset. Existing viewers may retain temporary access through cached manifests.",
+      "method": "DELETE",
+      "path": "/video/v1/assets/{ASSET_ID}/playback-ids/{PLAYBACK_ID}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "ASSET_ID": { "type": "string" }, "PLAYBACK_ID": { "type": "string" } },
+        "required": ["ASSET_ID", "PLAYBACK_ID"]
+      }
+    },
+    {
+      "name": "create_asset_track",
+      "description": "Add a subtitle or alternate-audio track to a ready asset from a public SRT, VTT, M4A, WAV, or MP3 URL.",
+      "method": "POST",
+      "path": "/video/v1/assets/{ASSET_ID}/tracks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ASSET_ID": { "type": "string" },
+          "url": { "type": "string" },
+          "type": { "type": "string", "enum": ["text", "audio"] },
+          "language_code": { "type": "string", "description": "BCP 47 language code, such as en or en-US." },
+          "name": { "type": "string" },
+          "text_type": { "type": "string", "enum": ["subtitles"] },
+          "closed_captions": { "type": "boolean" },
+          "passthrough": { "type": "string" }
+        },
+        "required": ["ASSET_ID", "url", "type", "language_code"]
+      }
+    },
+    {
+      "name": "delete_asset_track",
+      "description": "Remove an added text or alternate-audio track. Primary video and primary audio tracks cannot be deleted.",
+      "method": "DELETE",
+      "path": "/video/v1/assets/{ASSET_ID}/tracks/{TRACK_ID}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "ASSET_ID": { "type": "string" }, "TRACK_ID": { "type": "string" } },
+        "required": ["ASSET_ID", "TRACK_ID"]
+      }
+    },
+    {
+      "name": "generate_asset_subtitles",
+      "description": "Generate one or more subtitle tracks from an asset audio track using Mux automatic speech recognition.",
+      "method": "POST",
+      "path": "/video/v1/assets/{ASSET_ID}/tracks/{TRACK_ID}/generate-subtitles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ASSET_ID": { "type": "string" },
+          "TRACK_ID": { "type": "string" },
+          "generated_subtitles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "language_code": { "type": "string", "description": "Supported language code or auto." },
+                "name": { "type": "string" },
+                "passthrough": { "type": "string" }
+              }
+            }
+          }
+        },
+        "required": ["ASSET_ID", "TRACK_ID", "generated_subtitles"]
+      }
+    },
+    {
+      "name": "delete_static_rendition",
+      "description": "Delete one generated static MP4 or M4A rendition from an asset.",
+      "method": "DELETE",
+      "path": "/video/v1/assets/{ASSET_ID}/static-renditions/{STATIC_RENDITION_ID}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "ASSET_ID": { "type": "string" }, "STATIC_RENDITION_ID": { "type": "string" } },
+        "required": ["ASSET_ID", "STATIC_RENDITION_ID"]
+      }
+    },
+    {
+      "name": "update_asset_master_access",
+      "description": "Enable temporary 24-hour access to the source-quality master file or disable master access.",
+      "method": "PUT",
+      "path": "/video/v1/assets/{ASSET_ID}/master-access",
+      "input_schema": {
+        "type": "object",
+        "properties": { "ASSET_ID": { "type": "string" }, "master_access": { "type": "string", "enum": ["temporary", "none"] } },
+        "required": ["ASSET_ID", "master_access"]
+      }
+    },
+    {
+      "name": "update_asset_mp4_support",
+      "description": "Legacy MP4 support switch. Prefer create_static_rendition for new workflows; setting none removes legacy MP4 files.",
+      "method": "PUT",
+      "path": "/video/v1/assets/{ASSET_ID}/mp4-support",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ASSET_ID": { "type": "string" },
+          "mp4_support": { "type": "string", "enum": ["none", "standard", "capped-1080p", "audio-only", "audio-only,capped-1080p"] }
+        },
+        "required": ["ASSET_ID", "mp4_support"]
+      }
+    },
+    {
+      "name": "get_direct_upload",
+      "description": "Get direct-upload status and the resulting asset ID after upload processing begins.",
+      "method": "GET",
+      "path": "/video/v1/uploads/{UPLOAD_ID}",
+      "input_schema": { "type": "object", "properties": { "UPLOAD_ID": { "type": "string" } }, "required": ["UPLOAD_ID"] }
+    },
+    {
+      "name": "list_direct_uploads",
+      "description": "List direct uploads and their waiting, asset_created, errored, cancelled, or timed_out states.",
+      "method": "GET",
+      "path": "/video/v1/uploads",
+      "input_schema": {
+        "type": "object",
+        "properties": { "limit": { "type": "integer", "maximum": 100 }, "page": { "type": "integer", "minimum": 1 } }
+      }
+    },
+    {
+      "name": "cancel_direct_upload",
+      "description": "Cancel a direct upload that is still waiting for bytes to be uploaded.",
+      "method": "PUT",
+      "path": "/video/v1/uploads/{UPLOAD_ID}/cancel",
+      "input_schema": { "type": "object", "properties": { "UPLOAD_ID": { "type": "string" } }, "required": ["UPLOAD_ID"] }
+    },
+    {
+      "name": "get_playback_id",
+      "description": "Resolve a playback ID globally to its object type and associated asset or live-stream metadata.",
+      "method": "GET",
+      "path": "/video/v1/playback-ids/{PLAYBACK_ID}",
+      "input_schema": { "type": "object", "properties": { "PLAYBACK_ID": { "type": "string" } }, "required": ["PLAYBACK_ID"] }
+    },
+    {
+      "name": "get_live_stream",
+      "description": "Get a live stream's state, stream key, playback IDs, recent asset IDs, and configuration.",
+      "method": "GET",
+      "path": "/video/v1/live-streams/{LIVE_STREAM_ID}",
+      "input_schema": { "type": "object", "properties": { "LIVE_STREAM_ID": { "type": "string" } }, "required": ["LIVE_STREAM_ID"] }
+    },
+    {
+      "name": "update_live_stream",
+      "description": "Update latency, reconnect behavior, metadata, passthrough, and future recorded-asset settings.",
+      "method": "PATCH",
+      "path": "/video/v1/live-streams/{LIVE_STREAM_ID}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "LIVE_STREAM_ID": { "type": "string" },
+          "latency_mode": { "type": "string", "enum": ["standard", "reduced", "low"] },
+          "max_continuous_duration": { "type": "integer" },
+          "reconnect_window": { "type": "integer" },
+          "reconnect_slate_url": { "type": "string" },
+          "use_slate_for_standard_latency": { "type": "boolean" },
+          "passthrough": { "type": "string", "maxLength": 255 },
+          "meta": { "type": "object", "properties": { "title": { "type": "string", "maxLength": 512 } } },
+          "new_asset_settings": {
+            "type": "object",
+            "properties": {
+              "master_access": { "type": "string", "enum": ["temporary", "none"] },
+              "video_quality": { "type": "string", "enum": ["plus", "premium"] },
+              "mp4_support": { "type": "string", "enum": ["none", "standard", "capped-1080p", "audio-only", "audio-only,capped-1080p"] },
+              "meta": { "type": "object" }
+            }
+          }
+        },
+        "required": ["LIVE_STREAM_ID"]
+      }
+    },
+    {
+      "name": "delete_live_stream",
+      "description": "Permanently delete an idle live-stream configuration.",
+      "method": "DELETE",
+      "path": "/video/v1/live-streams/{LIVE_STREAM_ID}",
+      "input_schema": { "type": "object", "properties": { "LIVE_STREAM_ID": { "type": "string" } }, "required": ["LIVE_STREAM_ID"] }
+    },
+    {
+      "name": "complete_live_stream",
+      "description": "Immediately end an active stream and complete its current recorded asset.",
+      "method": "PUT",
+      "path": "/video/v1/live-streams/{LIVE_STREAM_ID}/complete",
+      "input_schema": { "type": "object", "properties": { "LIVE_STREAM_ID": { "type": "string" } }, "required": ["LIVE_STREAM_ID"] }
+    },
+    {
+      "name": "enable_live_stream",
+      "description": "Enable a disabled live stream so its stream key can accept broadcasts again.",
+      "method": "PUT",
+      "path": "/video/v1/live-streams/{LIVE_STREAM_ID}/enable",
+      "input_schema": { "type": "object", "properties": { "LIVE_STREAM_ID": { "type": "string" } }, "required": ["LIVE_STREAM_ID"] }
+    },
+    {
+      "name": "disable_live_stream",
+      "description": "Disable a live stream. An active broadcast is disconnected and no new broadcast is accepted until enabled.",
+      "method": "PUT",
+      "path": "/video/v1/live-streams/{LIVE_STREAM_ID}/disable",
+      "input_schema": { "type": "object", "properties": { "LIVE_STREAM_ID": { "type": "string" } }, "required": ["LIVE_STREAM_ID"] }
+    },
+    {
+      "name": "reset_live_stream_key",
+      "description": "Rotate a live stream's ingest key. The previous key stops working immediately.",
+      "method": "POST",
+      "path": "/video/v1/live-streams/{LIVE_STREAM_ID}/reset-stream-key",
+      "input_schema": { "type": "object", "properties": { "LIVE_STREAM_ID": { "type": "string" } }, "required": ["LIVE_STREAM_ID"] }
+    },
+    {
+      "name": "create_live_stream_playback_id",
+      "description": "Create an additional public, signed, or DRM playback ID for a live stream.",
+      "method": "POST",
+      "path": "/video/v1/live-streams/{LIVE_STREAM_ID}/playback-ids",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "LIVE_STREAM_ID": { "type": "string" },
+          "policy": { "type": "string", "enum": ["public", "signed", "drm"] },
+          "drm_configuration_id": { "type": "string", "description": "Required only when policy is drm." }
+        },
+        "required": ["LIVE_STREAM_ID", "policy"]
+      }
+    },
+    {
+      "name": "get_live_stream_playback_id",
+      "description": "Get one playback ID attached to a live stream.",
+      "method": "GET",
+      "path": "/video/v1/live-streams/{LIVE_STREAM_ID}/playback-ids/{PLAYBACK_ID}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "LIVE_STREAM_ID": { "type": "string" }, "PLAYBACK_ID": { "type": "string" } },
+        "required": ["LIVE_STREAM_ID", "PLAYBACK_ID"]
+      }
+    },
+    {
+      "name": "delete_live_stream_playback_id",
+      "description": "Revoke one playback ID from a live stream.",
+      "method": "DELETE",
+      "path": "/video/v1/live-streams/{LIVE_STREAM_ID}/playback-ids/{PLAYBACK_ID}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "LIVE_STREAM_ID": { "type": "string" }, "PLAYBACK_ID": { "type": "string" } },
+        "required": ["LIVE_STREAM_ID", "PLAYBACK_ID"]
+      }
+    },
+    {
+      "name": "create_simulcast_target",
+      "description": "Forward a live stream to an RTMP, RTMPS, or SRT destination such as YouTube Live or another CDN.",
+      "method": "POST",
+      "path": "/video/v1/live-streams/{LIVE_STREAM_ID}/simulcast-targets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "LIVE_STREAM_ID": { "type": "string" },
+          "url": { "type": "string", "description": "RTMP(S) application URL or complete SRT connection string." },
+          "stream_key": { "type": "string", "description": "Destination stream key for RTMP(S)." },
+          "passthrough": { "type": "string" }
+        },
+        "required": ["LIVE_STREAM_ID", "url"]
+      }
+    },
+    {
+      "name": "get_simulcast_target",
+      "description": "Get one simulcast destination and its current status.",
+      "method": "GET",
+      "path": "/video/v1/live-streams/{LIVE_STREAM_ID}/simulcast-targets/{SIMULCAST_TARGET_ID}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "LIVE_STREAM_ID": { "type": "string" }, "SIMULCAST_TARGET_ID": { "type": "string" } },
+        "required": ["LIVE_STREAM_ID", "SIMULCAST_TARGET_ID"]
+      }
+    },
+    {
+      "name": "delete_simulcast_target",
+      "description": "Stop forwarding to and remove a simulcast destination.",
+      "method": "DELETE",
+      "path": "/video/v1/live-streams/{LIVE_STREAM_ID}/simulcast-targets/{SIMULCAST_TARGET_ID}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "LIVE_STREAM_ID": { "type": "string" }, "SIMULCAST_TARGET_ID": { "type": "string" } },
+        "required": ["LIVE_STREAM_ID", "SIMULCAST_TARGET_ID"]
+      }
+    },
+    {
+      "name": "update_live_embedded_subtitles",
+      "description": "Replace the CEA-608 embedded-caption configuration for future assets recorded from a live stream.",
+      "method": "PUT",
+      "path": "/video/v1/live-streams/{LIVE_STREAM_ID}/embedded-subtitles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "LIVE_STREAM_ID": { "type": "string" },
+          "embedded_subtitles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "language_channel": { "type": "string", "enum": ["cc1", "cc2", "cc3", "cc4"] },
+                "language_code": { "type": "string" },
+                "name": { "type": "string" },
+                "passthrough": { "type": "string" }
+              }
+            }
+          }
+        },
+        "required": ["LIVE_STREAM_ID", "embedded_subtitles"]
+      }
+    },
+    {
+      "name": "update_live_generated_subtitles",
+      "description": "Replace automatic live-caption settings, optionally using transcription vocabularies.",
+      "method": "PUT",
+      "path": "/video/v1/live-streams/{LIVE_STREAM_ID}/generated-subtitles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "LIVE_STREAM_ID": { "type": "string" },
+          "generated_subtitles": {
+            "type": "array",
+            "maxItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "language_code": { "type": "string", "enum": ["en", "en-US", "es", "fr", "de", "pt", "it"] },
+                "name": { "type": "string" },
+                "passthrough": { "type": "string" },
+                "transcription_vocabulary_ids": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "required": ["LIVE_STREAM_ID", "generated_subtitles"]
+      }
+    },
+    {
+      "name": "update_live_static_renditions",
+      "description": "Replace the static MP4/M4A renditions generated for new assets recorded from a live stream.",
+      "method": "PUT",
+      "path": "/video/v1/live-streams/{LIVE_STREAM_ID}/new-asset-settings/static-renditions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "LIVE_STREAM_ID": { "type": "string" },
+          "static_renditions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "resolution": { "type": "string", "enum": ["highest", "audio-only", "2160p", "1440p", "1080p", "720p", "540p", "480p", "360p", "270p"] },
+                "passthrough": { "type": "string" }
+              },
+              "required": ["resolution"]
+            }
+          }
+        },
+        "required": ["LIVE_STREAM_ID", "static_renditions"]
+      }
+    },
+    {
+      "name": "delete_live_static_renditions",
+      "description": "Remove static-rendition settings so future assets recorded from this live stream do not generate MP4/M4A renditions.",
+      "method": "DELETE",
+      "path": "/video/v1/live-streams/{LIVE_STREAM_ID}/new-asset-settings/static-renditions",
+      "input_schema": { "type": "object", "properties": { "LIVE_STREAM_ID": { "type": "string" } }, "required": ["LIVE_STREAM_ID"] }
+    },
+    {
+      "name": "create_playback_restriction",
+      "description": "Create domain/referrer and user-agent rules that can be enforced by signed playback JWTs.",
+      "method": "POST",
+      "path": "/video/v1/playback-restrictions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "referrer": {
+            "type": "object",
+            "properties": {
+              "allowed_domains": { "type": "array", "maxItems": 10, "items": { "type": "string" } },
+              "allow_no_referrer": { "type": "boolean" }
+            },
+            "required": ["allowed_domains"]
+          },
+          "user_agent": {
+            "type": "object",
+            "properties": {
+              "allow_high_risk_user_agent": { "type": "boolean" },
+              "allow_no_user_agent": { "type": "boolean" }
+            }
+          }
+        },
+        "required": ["referrer", "user_agent"]
+      }
+    },
+    {
+      "name": "list_playback_restrictions",
+      "description": "List playback restriction policies.",
+      "method": "GET",
+      "path": "/video/v1/playback-restrictions",
+      "input_schema": { "type": "object", "properties": { "limit": { "type": "integer" }, "page": { "type": "integer" } } }
+    },
+    {
+      "name": "get_playback_restriction",
+      "description": "Get one playback restriction policy.",
+      "method": "GET",
+      "path": "/video/v1/playback-restrictions/{PLAYBACK_RESTRICTION_ID}",
+      "input_schema": { "type": "object", "properties": { "PLAYBACK_RESTRICTION_ID": { "type": "string" } }, "required": ["PLAYBACK_RESTRICTION_ID"] }
+    },
+    {
+      "name": "update_playback_restriction_referrer",
+      "description": "Replace the complete allowed-domain list and no-referrer behavior of a restriction.",
+      "method": "PUT",
+      "path": "/video/v1/playback-restrictions/{PLAYBACK_RESTRICTION_ID}/referrer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PLAYBACK_RESTRICTION_ID": { "type": "string" },
+          "allowed_domains": { "type": "array", "maxItems": 10, "items": { "type": "string" } },
+          "allow_no_referrer": { "type": "boolean" }
+        },
+        "required": ["PLAYBACK_RESTRICTION_ID", "allowed_domains"]
+      }
+    },
+    {
+      "name": "update_playback_restriction_user_agent",
+      "description": "Replace user-agent validation behavior for a playback restriction.",
+      "method": "PUT",
+      "path": "/video/v1/playback-restrictions/{PLAYBACK_RESTRICTION_ID}/user_agent",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PLAYBACK_RESTRICTION_ID": { "type": "string" },
+          "allow_high_risk_user_agent": { "type": "boolean" },
+          "allow_no_user_agent": { "type": "boolean" }
+        },
+        "required": ["PLAYBACK_RESTRICTION_ID", "allow_high_risk_user_agent", "allow_no_user_agent"]
+      }
+    },
+    {
+      "name": "delete_playback_restriction",
+      "description": "Permanently delete a playback restriction policy.",
+      "method": "DELETE",
+      "path": "/video/v1/playback-restrictions/{PLAYBACK_RESTRICTION_ID}",
+      "input_schema": { "type": "object", "properties": { "PLAYBACK_RESTRICTION_ID": { "type": "string" } }, "required": ["PLAYBACK_RESTRICTION_ID"] }
+    },
+    {
+      "name": "create_transcription_vocabulary",
+      "description": "Create a reusable vocabulary that improves recognition of names, jargon, and uncommon phrases in generated live subtitles.",
+      "method": "POST",
+      "path": "/video/v1/transcription-vocabularies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "phrases": { "type": "array", "items": { "type": "string" } },
+          "name": { "type": "string" },
+          "passthrough": { "type": "string", "maxLength": 255 }
+        },
+        "required": ["phrases"]
+      }
+    },
+    {
+      "name": "list_transcription_vocabularies",
+      "description": "List reusable transcription vocabularies.",
+      "method": "GET",
+      "path": "/video/v1/transcription-vocabularies",
+      "input_schema": { "type": "object", "properties": { "limit": { "type": "integer" }, "page": { "type": "integer" } } }
+    },
+    {
+      "name": "get_transcription_vocabulary",
+      "description": "Get one transcription vocabulary and its phrases.",
+      "method": "GET",
+      "path": "/video/v1/transcription-vocabularies/{TRANSCRIPTION_VOCABULARY_ID}",
+      "input_schema": { "type": "object", "properties": { "TRANSCRIPTION_VOCABULARY_ID": { "type": "string" } }, "required": ["TRANSCRIPTION_VOCABULARY_ID"] }
+    },
+    {
+      "name": "update_transcription_vocabulary",
+      "description": "Replace a transcription vocabulary's phrases and optionally update its name and passthrough metadata.",
+      "method": "PUT",
+      "path": "/video/v1/transcription-vocabularies/{TRANSCRIPTION_VOCABULARY_ID}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TRANSCRIPTION_VOCABULARY_ID": { "type": "string" },
+          "phrases": { "type": "array", "items": { "type": "string" } },
+          "name": { "type": "string" },
+          "passthrough": { "type": "string", "maxLength": 255 }
+        },
+        "required": ["TRANSCRIPTION_VOCABULARY_ID", "phrases"]
+      }
+    },
+    {
+      "name": "delete_transcription_vocabulary",
+      "description": "Delete a transcription vocabulary and disassociate it from future live caption sessions.",
+      "method": "DELETE",
+      "path": "/video/v1/transcription-vocabularies/{TRANSCRIPTION_VOCABULARY_ID}",
+      "input_schema": { "type": "object", "properties": { "TRANSCRIPTION_VOCABULARY_ID": { "type": "string" } }, "required": ["TRANSCRIPTION_VOCABULARY_ID"] }
+    },
+    {
+      "name": "list_drm_configurations",
+      "description": "List available Mux DRM configurations for advanced DRM playback policies.",
+      "method": "GET",
+      "path": "/video/v1/drm-configurations",
+      "input_schema": { "type": "object", "properties": { "limit": { "type": "integer" }, "page": { "type": "integer" } } }
+    },
+    {
+      "name": "get_drm_configuration",
+      "description": "Get one DRM configuration by ID.",
+      "method": "GET",
+      "path": "/video/v1/drm-configurations/{DRM_CONFIGURATION_ID}",
+      "input_schema": { "type": "object", "properties": { "DRM_CONFIGURATION_ID": { "type": "string" } }, "required": ["DRM_CONFIGURATION_ID"] }
+    },
+    {
+      "name": "list_delivery_usage",
+      "description": "Report delivered seconds by resolution tier for an asset, live stream, or Unix-time window. Do not combine asset_id and live_stream_id.",
+      "method": "GET",
+      "path": "/video/v1/delivery-usage",
+      "query_param_aliases": { "timeframe": "timeframe[]" },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_id": { "type": "string" },
+          "live_stream_id": { "type": "string" },
+          "timeframe": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "string" }, "description": "Start and end Unix timestamps." },
+          "limit": { "type": "integer" },
+          "page": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "create_signing_key",
+      "description": "Create an RSA signing key for signed playback JWTs. Save the returned private_key immediately; Mux returns it only once.",
+      "method": "POST",
+      "path": "/system/v1/signing-keys",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_signing_keys",
+      "description": "List signing-key IDs. Private keys are never returned by this operation.",
+      "method": "GET",
+      "path": "/system/v1/signing-keys",
+      "input_schema": { "type": "object", "properties": { "limit": { "type": "integer" }, "page": { "type": "integer" } } }
+    },
+    {
+      "name": "get_signing_key",
+      "description": "Get signing-key metadata. The private key is not returned after creation.",
+      "method": "GET",
+      "path": "/system/v1/signing-keys/{SIGNING_KEY_ID}",
+      "input_schema": { "type": "object", "properties": { "SIGNING_KEY_ID": { "type": "string" } }, "required": ["SIGNING_KEY_ID"] }
+    },
+    {
+      "name": "delete_signing_key",
+      "description": "Delete a signing key and immediately invalidate tokens that depend on it. Rotate keys before deleting an active one.",
+      "method": "DELETE",
+      "path": "/system/v1/signing-keys/{SIGNING_KEY_ID}",
+      "input_schema": { "type": "object", "properties": { "SIGNING_KEY_ID": { "type": "string" } }, "required": ["SIGNING_KEY_ID"] }
     }
   ]
 }

@@ -126,13 +126,13 @@ func requestTransformSlice(value any) []any {
 	}
 }
 
-func buildResponseTransformData(transform *ResponseTransformDef, data any) (any, bool, error) {
+func buildResponseTransformData(transform *ResponseTransformDef, data any, input map[string]any) (any, bool, error) {
 	if transform == nil {
 		return data, false, nil
 	}
 	switch transform.Type {
 	case "email_message":
-		return normalizeEmailMessage(data), true, nil
+		return normalizeEmailMessageWithOptions(data, transform, input), true, nil
 	case "email_thread":
 		return normalizeEmailThread(data, transform), true, nil
 	case "base64_field_decode":
@@ -222,6 +222,10 @@ func compactEmailMessage(m map[string]any) map[string]any {
 }
 
 func normalizeEmailMessage(data any) any {
+	return normalizeEmailMessageWithOptions(data, nil, nil)
+}
+
+func normalizeEmailMessageWithOptions(data any, transform *ResponseTransformDef, input map[string]any) any {
 	m, ok := data.(map[string]any)
 	if !ok {
 		return data
@@ -230,7 +234,7 @@ func normalizeEmailMessage(data any) any {
 	headers := headersObject(payload["headers"])
 	bodies := collectEmailBodies(payload)
 	internalDate := parseGmailInternalDate(m["internalDate"])
-	return map[string]any{
+	normalized := map[string]any{
 		"id":           m["id"],
 		"threadId":     m["threadId"],
 		"labelIds":     m["labelIds"],
@@ -249,9 +253,155 @@ func normalizeEmailMessage(data any) any {
 		"messageId":    pickEmailHeader(headers, "message-id"),
 		"inReplyTo":    pickEmailHeader(headers, "in-reply-to"),
 		"references":   pickEmailHeader(headers, "references"),
-		"text":         strings.TrimSpace(strings.Join(bodies.Text, "\n\n")),
-		"html":         strings.TrimSpace(strings.Join(bodies.HTML, "\n\n")),
 		"attachments":  bodies.Attachments,
+	}
+	return selectEmailBodies(normalized, bodies, transform, input)
+}
+
+func responseTransformLocalParams(transform *ResponseTransformDef) map[string]bool {
+	params := map[string]bool{}
+	if transform != nil && transform.Type == "email_message" {
+		if transform.BodyModeParam != "" {
+			params[transform.BodyModeParam] = true
+		}
+		if transform.MaxCharsParam != "" {
+			params[transform.MaxCharsParam] = true
+		}
+	}
+	return params
+}
+
+func selectEmailBodies(normalized map[string]any, bodies emailBodies, transform *ResponseTransformDef, input map[string]any) map[string]any {
+	textBody := strings.TrimSpace(strings.Join(bodies.Text, "\n\n"))
+	htmlBody := strings.TrimSpace(strings.Join(bodies.HTML, "\n\n"))
+	mode := "both"
+	maxChars := -1
+	maxCharsLimit := 0
+	if transform != nil {
+		if transform.DefaultBodyMode != "" {
+			mode = transform.DefaultBodyMode
+		}
+		if transform.DefaultMaxChars > 0 {
+			maxChars = transform.DefaultMaxChars
+		}
+		maxCharsLimit = transform.MaxCharsLimit
+		if transform.BodyModeParam != "" {
+			if requested := fmt.Sprint(input[transform.BodyModeParam]); validEmailBodyMode(requested) {
+				mode = requested
+			}
+		}
+		if transform.MaxCharsParam != "" {
+			if requested, ok := positiveInt(input[transform.MaxCharsParam]); ok {
+				maxChars = requested
+			}
+		}
+	}
+	if !validEmailBodyMode(mode) {
+		mode = "both"
+	}
+	if maxChars > 0 && maxCharsLimit > 0 && maxChars > maxCharsLimit {
+		maxChars = maxCharsLimit
+	}
+
+	type selectedBody struct {
+		key   string
+		value string
+	}
+	selected := []selectedBody{}
+	switch mode {
+	case "compact":
+		value := textBody
+		mimeType := "text/plain"
+		if value == "" {
+			value = htmlBody
+			mimeType = "text/html"
+		}
+		if value == "" {
+			mimeType = ""
+		}
+		normalized["bodyMimeType"] = mimeType
+		selected = append(selected, selectedBody{key: "body", value: value})
+	case "text":
+		selected = append(selected, selectedBody{key: "text", value: textBody})
+	case "html":
+		selected = append(selected, selectedBody{key: "html", value: htmlBody})
+	case "both":
+		selected = append(selected, selectedBody{key: "text", value: textBody}, selectedBody{key: "html", value: htmlBody})
+	}
+
+	remaining := maxChars
+	returnedChars := 0
+	selectedChars := 0
+	for _, item := range selected {
+		chars := []rune(item.value)
+		selectedChars += len(chars)
+		if remaining >= 0 && len(chars) > remaining {
+			chars = chars[:remaining]
+		}
+		normalized[item.key] = string(chars)
+		returnedChars += len(chars)
+		if remaining >= 0 {
+			remaining -= len(chars)
+		}
+	}
+
+	normalized["bodyMode"] = mode
+	normalized["bodyAvailableChars"] = map[string]any{
+		"text": len([]rune(textBody)),
+		"html": len([]rune(htmlBody)),
+	}
+	normalized["bodyReturnedChars"] = returnedChars
+	normalized["bodyTruncated"] = returnedChars < selectedChars
+	return normalized
+}
+
+func validEmailBodyMode(mode string) bool {
+	switch mode {
+	case "compact", "text", "html", "both", "none":
+		return true
+	default:
+		return false
+	}
+}
+
+func positiveInt(value any) (int, bool) {
+	if value == nil {
+		return 0, false
+	}
+	var parsed int
+	if _, err := fmt.Sscanf(fmt.Sprint(value), "%d", &parsed); err != nil || parsed <= 0 {
+		return 0, false
+	}
+	return parsed, true
+}
+
+func normalizeIntegrationHTTPError(status int, data any) any {
+	if status != 404 {
+		return data
+	}
+	message := "The requested resource was not found."
+	switch value := data.(type) {
+	case string:
+		if strings.TrimSpace(value) != "" {
+			message = strings.TrimSpace(value)
+		}
+	case map[string]any:
+		if candidate, ok := value["message"].(string); ok && candidate != "" {
+			message = candidate
+		}
+		if providerError, ok := value["error"].(map[string]any); ok {
+			if candidate, ok := providerError["message"].(string); ok && candidate != "" {
+				message = candidate
+			}
+		}
+	}
+	return map[string]any{
+		"error":          "not_found",
+		"status":         status,
+		"retryable":      false,
+		"message":        message,
+		"instruction":    "Do not retry the same resource ID. List or search for the resource again and use a current ID.",
+		"provider_error": data,
 	}
 }
 

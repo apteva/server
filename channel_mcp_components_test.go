@@ -138,6 +138,100 @@ func TestChannelMCPAdvertisesUnconditionalSchemas(t *testing.T) {
 	}
 	assertEnum(publishProps, "kind", []string{"approval", "report", "alert"})
 	assertEnum(statusProps, "state", []string{"working", "waiting", "blocked", "completed"})
+	if _, ok := statusProps["next"]; !ok {
+		t.Fatal("set_status schema missing optional next field")
+	}
+	nextAt, ok := statusProps["next_at"].(map[string]any)
+	if !ok {
+		t.Fatalf("set_status next_at schema = %#v, want object", statusProps["next_at"])
+	}
+	if _, exists := nextAt["format"]; exists {
+		t.Fatalf("set_status next_at schema unexpectedly advertises a format hint: %#v", nextAt)
+	}
+	for _, legacy := range []string{"next_action", "next_action_due_at", "planned_action", "planned_action_deadline"} {
+		if _, exists := statusProps[legacy]; exists {
+			t.Fatalf("set_status schema still advertises legacy field %q", legacy)
+		}
+	}
+	statusDescription, _ := byName["set_status"]["description"].(string)
+	titleDescription, _ := statusProps["title"].(map[string]any)["description"].(string)
+	progressDescription, _ := statusProps["progress"].(map[string]any)["description"].(string)
+	nextDescription, _ := statusProps["next"].(map[string]any)["description"].(string)
+	nextAtDescription, _ := nextAt["description"].(string)
+	for _, want := range []string{
+		"meaningful operator-relevant work",
+		"multi-step, long-running, or cannot currently continue",
+		"always call this tool at meaningful phase changes",
+		"do not merely describe the state in thoughts or chat",
+		"even when no other action tool remains",
+		"expected pause in that same unfinished work unit",
+		"operator approval",
+		"do not use blocked for ordinary approval or a scheduled delay",
+		"future recurring task does not make completed work waiting",
+		"never a future action or waiting/blocking condition",
+		`title="Customer update publication" over "Waiting for approval"`,
+		`title="CRM contact import" over "CRM import blocked"`,
+		"never use waiting with 100 percent",
+		"directive or memory edits",
+		"channel messages or publications",
+		"merely sleeping until future recurring work",
+		"nearest distinct operator-relevant responsibility",
+		"must not replace the current title or detail",
+		"No pending work",
+		"completed recurring task may remain completed",
+		`"state":"completed"`,
+		`"state":"waiting"`,
+		`"state":"blocked"`,
+		"SAME tool call also contains a non-empty next",
+		"Never invent or estimate it from [CURRENT TIME]",
+	} {
+		if !strings.Contains(statusDescription, want) {
+			t.Fatalf("set_status description missing %q: %s", want, statusDescription)
+		}
+	}
+	for _, want := range []string{
+		"same call contains a non-empty next",
+		"RFC3339 deadline for next",
+		"estimate it from current time",
+	} {
+		if !strings.Contains(nextAtDescription, want) {
+			t.Fatalf("set_status next_at description missing %q: %s", want, nextAtDescription)
+		}
+	}
+	for label, pair := range map[string][2]string{
+		"title":    {titleDescription, "Never use a future action, waiting condition, or internal agent administration"},
+		"progress": {progressDescription, "Never use waiting with 100 percent"},
+		"next":     {nextDescription, "No pending work"},
+	} {
+		if !strings.Contains(pair[0], pair[1]) {
+			t.Fatalf("set_status %s description missing %q: %s", label, pair[1], pair[0])
+		}
+	}
+	if strings.Contains(statusDescription, "substantive external action") {
+		t.Fatalf("set_status description still treats isolated external actions as status-worthy: %s", statusDescription)
+	}
+}
+
+func TestChannelMCPSetStatusDescriptionSeparatesCurrentWorkFromFutureSchedule(t *testing.T) {
+	desc := buildSetStatusDescription()
+	for _, want := range []string{
+		"Status answers: what meaningful operator-relevant work",
+		"Use waiting only for an expected pause in that same unfinished work unit",
+		"A future recurring task does not make completed work waiting",
+		"title names the current work unit or completed outcome",
+		"never a future action or waiting/blocking condition",
+		"never use waiting with 100 percent",
+		"Skip status for directive or memory edits",
+		"status maintenance itself",
+		"isolated quick actions",
+		"merely sleeping until future recurring work",
+		"Do not set a status just to announce what you may do later",
+		"A completed recurring task may remain completed while next and next_at describe its next scheduled run",
+	} {
+		if !strings.Contains(desc, want) {
+			t.Fatalf("set_status description missing %q:\n%s", want, desc)
+		}
+	}
 }
 
 func TestChannelMCPAdvertisesSeparatedTools(t *testing.T) {
@@ -257,6 +351,7 @@ func TestChannelMCPSetStatusUsesAptevaCurrentStatus(t *testing.T) {
 		"arguments": map[string]any{
 			"title":  "Rendering clips",
 			"detail": "Three of five complete", "state": "working", "progress": 60,
+			"next": "Publish the finished reel", "next_at": "2026-07-20T09:00:00Z",
 		},
 	})
 	out, rpcErr := s.handleToolCall(params)
@@ -264,12 +359,107 @@ func TestChannelMCPSetStatusUsesAptevaCurrentStatus(t *testing.T) {
 		t.Fatalf("rpcErr: %#v", rpcErr)
 	}
 	if ch.currentStatus.Title != "Rendering clips" || ch.currentStatus.State != "working" ||
-		ch.currentStatus.Progress == nil || *ch.currentStatus.Progress != 60 {
+		ch.currentStatus.Progress == nil || *ch.currentStatus.Progress != 60 ||
+		ch.currentStatus.Next != "Publish the finished reel" || ch.currentStatus.NextAt != "2026-07-20T09:00:00Z" {
 		t.Fatalf("status request = %#v", ch.currentStatus)
 	}
 	b, _ := json.Marshal(out)
 	if !strings.Contains(string(b), "current status updated") {
 		t.Fatalf("unexpected result: %s", b)
+	}
+}
+
+func TestChannelMCPSetStatusAcceptsLegacyNextAliases(t *testing.T) {
+	reg := NewChannelRegistry()
+	ch := &captureChannel{id: "apteva"}
+	reg.Register(ch)
+	s := &channelMCPServer{registry: reg}
+	params, _ := json.Marshal(map[string]any{
+		"name": "set_status",
+		"arguments": map[string]any{
+			"title": "Legacy status", "state": "waiting",
+			"next": "Resume import", "next_at": "2026-07-20T09:00:00Z",
+		},
+	})
+	out, rpcErr := s.handleToolCall(params)
+	if rpcErr != nil {
+		t.Fatalf("rpcErr: %#v", rpcErr)
+	}
+	if ch.currentStatus.Next != "Resume import" || ch.currentStatus.NextAt != "2026-07-20T09:00:00Z" {
+		t.Fatalf("legacy status request = %#v", ch.currentStatus)
+	}
+	b, _ := json.Marshal(out)
+	if !strings.Contains(string(b), "current status updated") {
+		t.Fatalf("unexpected legacy result: %s", b)
+	}
+}
+
+func TestChannelMCPSetStatusAcceptsPreviousNextActionAliases(t *testing.T) {
+	reg := NewChannelRegistry()
+	ch := &captureChannel{id: "apteva"}
+	reg.Register(ch)
+	s := &channelMCPServer{registry: reg}
+	params, _ := json.Marshal(map[string]any{
+		"name": "set_status",
+		"arguments": map[string]any{
+			"title": "Previous schema status", "state": "waiting",
+			"next_action": "Resume import", "next_action_due_at": "2026-07-20T09:00:00Z",
+		},
+	})
+	out, rpcErr := s.handleToolCall(params)
+	if rpcErr != nil {
+		t.Fatalf("rpcErr: %#v", rpcErr)
+	}
+	if ch.currentStatus.Next != "Resume import" || ch.currentStatus.NextAt != "2026-07-20T09:00:00Z" {
+		t.Fatalf("previous-schema status request = %#v", ch.currentStatus)
+	}
+	b, _ := json.Marshal(out)
+	if !strings.Contains(string(b), "current status updated") {
+		t.Fatalf("unexpected previous-schema result: %s", b)
+	}
+}
+
+func TestChannelMCPSetStatusAcceptsPreviousPlannedActionAliases(t *testing.T) {
+	reg := NewChannelRegistry()
+	ch := &captureChannel{id: "apteva"}
+	reg.Register(ch)
+	s := &channelMCPServer{registry: reg}
+	params, _ := json.Marshal(map[string]any{
+		"name": "set_status",
+		"arguments": map[string]any{
+			"title": "Experimental schema status", "state": "waiting",
+			"planned_action": "Resume import", "planned_action_deadline": "2026-07-20T09:00:00Z",
+		},
+	})
+	out, rpcErr := s.handleToolCall(params)
+	if rpcErr != nil {
+		t.Fatalf("rpcErr: %#v", rpcErr)
+	}
+	if ch.currentStatus.Next != "Resume import" || ch.currentStatus.NextAt != "2026-07-20T09:00:00Z" {
+		t.Fatalf("experimental-schema status request = %#v", ch.currentStatus)
+	}
+	b, _ := json.Marshal(out)
+	if !strings.Contains(string(b), "current status updated") {
+		t.Fatalf("unexpected experimental-schema result: %s", b)
+	}
+}
+
+func TestChannelMCPSetStatusRejectsConflictingRenamedAliases(t *testing.T) {
+	s := &channelMCPServer{registry: NewChannelRegistry()}
+	params, _ := json.Marshal(map[string]any{
+		"name": "set_status",
+		"arguments": map[string]any{
+			"title": "Conflicting status", "state": "waiting",
+			"planned_action": "New action", "next": "Legacy action",
+		},
+	})
+	out, rpcErr := s.handleToolCall(params)
+	if rpcErr != nil {
+		t.Fatalf("rpcErr: %#v", rpcErr)
+	}
+	b, _ := json.Marshal(out)
+	if !strings.Contains(string(b), "conflicting next and planned_action values") {
+		t.Fatalf("unexpected conflict result: %s", b)
 	}
 }
 
@@ -316,11 +506,38 @@ func TestChannelMCPPublishDescriptionRequiresSubstantiveReportContent(t *testing
 	for _, want := range []string{
 		"Every call requires kind, title, and content",
 		"content must still stand alone",
-		`{"kind":"report","title":"Import completed","content":"Imported 842 contacts; 17 invalid rows were skipped and saved for review."`,
-		"what actually happened",
+		`{"kind":"report","title":"Daily work summary","content":"Imported 842 contacts, cleared 12 routine inbox items`,
+		"concrete outcomes",
 	} {
 		if !strings.Contains(desc, want) {
 			t.Fatalf("publish description missing %q:\n%s", want, desc)
+		}
+	}
+}
+
+func TestChannelMCPPublishDescriptionDefaultsReportsToOneDailyDigest(t *testing.T) {
+	desc := buildPublishDescription()
+	for _, want := range []string{
+		"Reports are not action receipts",
+		"Do not publish a report after each check, tool call, cleanup, or completed task",
+		"use set_status for work state and send for a requested task's direct outcome",
+		"Follow an explicit operator request or directive when it defines report timing",
+		"at most one unsolicited report per day",
+		"near the end of the operator's day",
+		"Combine that day's work into one digest",
+		"use period=today",
+		"If no meaningful work was done, publish no report",
+	} {
+		if !strings.Contains(desc, want) {
+			t.Fatalf("publish description missing daily-digest guidance %q:\n%s", want, desc)
+		}
+	}
+	for _, unwanted := range []string{
+		"scheduled summaries, significant completed work",
+		`"title":"Import completed"`,
+	} {
+		if strings.Contains(desc, unwanted) {
+			t.Fatalf("publish description retained action-report guidance %q:\n%s", unwanted, desc)
 		}
 	}
 }

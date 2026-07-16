@@ -218,6 +218,8 @@ func (c *chatChannel) SetCurrentStatus(req framework.CurrentStatusRequest) (fram
 	req.Title = strings.TrimSpace(req.Title)
 	req.Detail = strings.TrimSpace(req.Detail)
 	req.State = strings.ToLower(strings.TrimSpace(req.State))
+	req.Next = strings.TrimSpace(req.Next)
+	req.NextAt = strings.TrimSpace(req.NextAt)
 	if req.Title == "" {
 		return framework.CurrentStatusResult{}, fmt.Errorf("title required")
 	}
@@ -232,6 +234,16 @@ func (c *chatChannel) SetCurrentStatus(req framework.CurrentStatusRequest) (fram
 	if req.Progress != nil && (*req.Progress < 0 || *req.Progress > 100) {
 		return framework.CurrentStatusResult{}, fmt.Errorf("progress must be between 0 and 100")
 	}
+	if req.NextAt != "" && req.Next == "" {
+		return framework.CurrentStatusResult{}, fmt.Errorf("next_at requires next")
+	}
+	if req.NextAt != "" {
+		nextAt, err := time.Parse(time.RFC3339, req.NextAt)
+		if err != nil {
+			return framework.CurrentStatusResult{}, fmt.Errorf("next_at must be an RFC3339 timestamp")
+		}
+		req.NextAt = nextAt.UTC().Format(time.RFC3339)
+	}
 	props := map[string]any{
 		"agent_id":   c.agentID,
 		"title":      req.Title,
@@ -241,6 +253,12 @@ func (c *chatChannel) SetCurrentStatus(req framework.CurrentStatusRequest) (fram
 	}
 	if req.Progress != nil {
 		props["progress"] = *req.Progress
+	}
+	if req.Next != "" {
+		props["next"] = req.Next
+	}
+	if req.NextAt != "" {
+		props["next_at"] = req.NextAt
 	}
 	components := []framework.ChatComponent{{App: "channel-chat", Name: "status-card", Props: props}}
 	m, err := c.store.UpsertCurrentStatus(c.chatID, "Status: "+req.Title, components)

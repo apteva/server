@@ -270,14 +270,16 @@ func (s *channelMCPServer) toolsList() map[string]any {
 					"type":     "object",
 					"required": []string{"title", "state"},
 					"properties": map[string]any{
-						"title": map[string]any{"type": "string", "description": "Concise current work headline."},
+						"title": map[string]any{"type": "string", "description": "Concise current work unit or completed outcome. Never use a future action, waiting condition, or internal agent administration as the title."},
 						"state": map[string]any{
 							"type":        "string",
 							"enum":        []string{"working", "waiting", "blocked", "completed"},
-							"description": "Required current state: working, waiting, blocked, or completed.",
+							"description": "Required state. waiting is an expected pause with a known resume condition such as time, approval, or an external job. blocked is an unexpected failure, missing access, or missing capability requiring corrective action.",
 						},
-						"detail":   map[string]any{"type": "string", "description": "Optional concise detail about the current phase or result."},
-						"progress": map[string]any{"type": "number", "minimum": 0, "maximum": 100, "description": "Optional completion percentage."},
+						"detail":   map[string]any{"type": "string", "description": "Optional concise current phase, concrete result, dependency, or blocker for this work unit."},
+						"progress": map[string]any{"type": "number", "minimum": 0, "maximum": 100, "description": "Optional completion percentage for this work unit. Never use waiting with 100 percent."},
+						"next":     map[string]any{"type": "string", "description": "Optional nearest distinct operator-relevant responsibility after this work or phase. Do not use placeholders such as No pending work, restate the title, or record internal pacing."},
+						"next_at":  map[string]any{"type": "string", "description": "Optional explicit or externally derived RFC3339 deadline for next. Include only when the same call contains a non-empty next. Never estimate it from current time, expected duration, the current work phase, or internal pacing."},
 					},
 				},
 			},
@@ -435,23 +437,36 @@ func buildPublishDescription() string {
 	return `Publish one durable structured artifact to the Apteva operator Inbox. This is not chat and not current work status.
 
 Every call requires kind, title, and content. Build one complete call; never publish placeholders or duplicates. The content field is always the artifact's substantive operator-facing text:
-- report: a compact factual summary of what actually happened, the result, important evidence or metrics, and any blocker or next step. Do not describe what a report is. Omit greetings, chat/connect/disconnect events, idle time, and internal reasoning. Add sections for useful detail, but content must still stand alone.
+- report: a periodic digest of meaningful work across its reporting period, with concrete outcomes, important evidence or metrics, blockers, and next steps. Reports are not action receipts. Do not publish a report after each check, tool call, cleanup, or completed task; use set_status for work state and send for a requested task's direct outcome. Omit greetings, chat/connect/disconnect events, idle time, and internal reasoning. Add sections for useful detail, but content must still stand alone.
 - approval: the exact decision needed, why it is needed, and the consequence of approving or denying it.
 - alert: what went wrong, its impact, and the relevant next action.
 
-Correct report example: {"kind":"report","title":"Import completed","content":"Imported 842 contacts; 17 invalid rows were skipped and saved for review.","period":"today"}
+Correct report example: {"kind":"report","title":"Daily work summary","content":"Imported 842 contacts, cleared 12 routine inbox items, and preserved 3 messages requiring review. Seventeen invalid contact rows remain for follow-up.","period":"today"}
 Correct approval example: {"kind":"approval","title":"Approve production deploy","content":"Deploy version 1.4 now; this will restart two API workers."}
 Correct alert example: {"kind":"alert","title":"CRM authentication expired","content":"Lead synchronization stopped after the CRM token expired; reconnect the integration to resume.","severity":"error"}
 
-Use reports for requested delayed/background checks, scheduled summaries, significant completed work, and results the operator asked to review later. Use approvals only when a decision is genuinely required. Use alerts only for important problems requiring attention.`
+Follow an explicit operator request or directive when it defines report timing. Otherwise publish at most one unsolicited report per day, near the end of the operator's day, and only when meaningful work was completed since the previous report. Combine that day's work into one digest and use period=today. If no meaningful work was done, publish no report. Use approvals only when a decision is genuinely required. Use alerts only for important problems requiring attention.`
 }
 
 func buildSetStatusDescription() string {
 	return `Set the agent's single mutable current-work status. Status is operational state: it replaces the previous status and never appears in chat or the Inbox. Every call requires both title and state.
 
-Set working before meaningful multi-step work or a substantive external action. When work can start immediately, call set_status and the first action tool in the same parallel batch. Use waiting for time or an external dependency, blocked when progress cannot continue, and completed after the action result or work finishes.
+Status answers: what meaningful operator-relevant work is this agent actively doing, waiting on, blocked by, or most recently completed? Use it only for a work unit that is multi-step, long-running, or cannot currently continue. When qualifying work can start immediately, call set_status and the first action tool in the same parallel batch.
 
-Emit at most one status per work phase. If the request or directive already specifies a status call, that call satisfies this rule; never add a separate preliminary status. Skip status for read-only lookups, brief answers, internal pacing, and individual tool calls within one phase.`
+For qualifying work, always call this tool at meaningful phase changes; do not merely describe the state in thoughts or chat. If an event reports that qualifying work you performed has completed, begun waiting, or become blocked, update status even when no other action tool remains.
+
+Use working while the work unit is actively executing. Use waiting only for an expected pause in that same unfinished work unit whose resume condition is known, including a scheduled time, operator approval, or an external job. Use blocked for an unexpected failure, missing access, or missing capability that requires corrective action before work can resume; do not use blocked for ordinary approval or a scheduled delay. Use completed after the meaningful work unit finishes. A future recurring task does not make completed work waiting.
+
+The title names the current work unit or completed outcome, never a future action or waiting/blocking condition. Put the current phase, concrete result, dependency, or blocker in detail. Prefer title="Customer update publication" over "Waiting for approval", title="Delayed notification" over "Notification scheduled", and title="CRM contact import" over "CRM import blocked". Progress measures only this work unit; never use waiting with 100 percent.
+
+Use next for only the nearest distinct operator-relevant responsibility after this work or phase. It is secondary metadata and must not replace the current title or detail. Never use placeholders such as "No pending work", restate the title, or record internal pacing. next_at is its optional deadline and is valid only when the SAME tool call also contains a non-empty next; never send next_at alone. Use it only for an RFC3339 deadline explicitly stated by the operator or directive, or obtained from an external system. Never invent or estimate it from [CURRENT TIME], expected duration, the current work phase, or internal pacing. A completed recurring task may remain completed while next and next_at describe its next scheduled run. If the responsibility has no known deadline, send next without next_at. If nothing meaningful is planned, omit both. Replacing a status without them clears the previous next action.
+
+Examples:
+- Completed recurring work: {"title":"Daily CRM check completed","state":"completed","detail":"No unresolved conversations found.","progress":100,"next":"Run the next daily CRM check.","next_at":"2026-07-20T09:00:00Z"}
+- Expected approval: {"title":"Customer update publication","state":"waiting","detail":"Draft is ready and requires operator approval.","progress":70,"next":"Publish customer update after approval."}
+- Corrective failure: {"title":"CRM contact import","state":"blocked","detail":"Authentication expired; reconnect the integration to resume."}
+
+Emit at most one status per work phase. If the request already specifies a status call, that call satisfies this rule; never add a separate preliminary status. Skip status for directive or memory edits, thread management, internal configuration, planning, pacing, retries, tool discovery, chat connectivity, channel messages or publications, status maintenance itself, read-only lookups, brief answers, isolated quick actions, individual tools within one phase, and merely sleeping until future recurring work. Do not set a status just to announce what you may do later.`
 }
 
 func canonicalChannelIDs(ids []string) []string {
@@ -703,6 +718,31 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		title, _ := call.Arguments["title"].(string)
 		detail, _ := call.Arguments["detail"].(string)
 		state, _ := call.Arguments["state"].(string)
+		resolveRenamedArg := func(current string, aliases ...string) (string, string) {
+			selectedName := ""
+			selectedValue := ""
+			for _, name := range append([]string{current}, aliases...) {
+				value, _ := call.Arguments[name].(string)
+				value = strings.TrimSpace(value)
+				if value == "" {
+					continue
+				}
+				if selectedValue != "" && value != selectedValue {
+					return "", fmt.Sprintf("conflicting %s and %s values", selectedName, name)
+				}
+				selectedName = name
+				selectedValue = value
+			}
+			return selectedValue, ""
+		}
+		next, aliasErr := resolveRenamedArg("next", "next_action", "planned_action")
+		if aliasErr != "" {
+			return textToolError(aliasErr)
+		}
+		nextAt, aliasErr := resolveRenamedArg("next_at", "next_action_due_at", "planned_action_deadline")
+		if aliasErr != "" {
+			return textToolError(aliasErr)
+		}
 		var progress *float64
 		if value, ok := call.Arguments["progress"].(float64); ok {
 			progress = &value
@@ -716,7 +756,7 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 			return textToolError(fmt.Sprintf("channel %q does not support current status", channel))
 		}
 		result, err := sender.SetCurrentStatus(framework.CurrentStatusRequest{
-			Title: title, Detail: detail, State: state, Progress: progress,
+			Title: title, Detail: detail, State: state, Progress: progress, Next: next, NextAt: nextAt,
 		})
 		if err != nil {
 			return textToolError(err.Error())

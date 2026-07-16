@@ -104,6 +104,88 @@ func readLocalOpenAICodexProviderState(dataDir string) (map[string]any, bool) {
 	return state, true
 }
 
+func loadOpenCodeGoAPIKey(t *testing.T) string {
+	t.Helper()
+	requireRealLLMTests(t)
+	if key := strings.TrimSpace(os.Getenv("OPENCODE_GO_API_KEY")); key != "" {
+		return key
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("cannot resolve home dir for local OpenCode Go provider: %v", err)
+	}
+	for _, dataDir := range []string{filepath.Join(home, ".apteva"), filepath.Join(home, ".apteva-prod")} {
+		secret, err := LoadSecret(dataDir)
+		if err != nil {
+			continue
+		}
+		db, err := sql.Open("sqlite", "file:"+filepath.Join(dataDir, "apteva.db")+"?mode=ro")
+		if err != nil {
+			continue
+		}
+		var encrypted string
+		err = db.QueryRow(`SELECT encrypted_data FROM providers WHERE name='OpenCode Go' OR provider_type_id=13 ORDER BY updated_at DESC, id DESC LIMIT 1`).Scan(&encrypted)
+		_ = db.Close()
+		if err != nil {
+			continue
+		}
+		plain, err := Decrypt(secret, encrypted)
+		if err != nil {
+			continue
+		}
+		var state map[string]any
+		if json.Unmarshal([]byte(plain), &state) != nil {
+			continue
+		}
+		if key, _ := state["OPENCODE_GO_API_KEY"].(string); strings.TrimSpace(key) != "" {
+			return strings.TrimSpace(key)
+		}
+	}
+	t.Skip("OpenCode Go provider auth not found in the environment or local Apteva provider stores")
+	return ""
+}
+
+func loadXAIAPIKey(t *testing.T) string {
+	t.Helper()
+	requireRealLLMTests(t)
+	if key := strings.TrimSpace(os.Getenv("XAI_API_KEY")); key != "" {
+		return key
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("cannot resolve home dir for local xAI provider: %v", err)
+	}
+	for _, dataDir := range []string{filepath.Join(home, ".apteva"), filepath.Join(home, ".apteva-prod")} {
+		secret, err := LoadSecret(dataDir)
+		if err != nil {
+			continue
+		}
+		db, err := sql.Open("sqlite", "file:"+filepath.Join(dataDir, "apteva.db")+"?mode=ro")
+		if err != nil {
+			continue
+		}
+		var encrypted string
+		err = db.QueryRow(`SELECT encrypted_data FROM providers WHERE name='xAI' OR provider_type_id=17 ORDER BY updated_at DESC, id DESC LIMIT 1`).Scan(&encrypted)
+		_ = db.Close()
+		if err != nil {
+			continue
+		}
+		plain, err := Decrypt(secret, encrypted)
+		if err != nil {
+			continue
+		}
+		var state map[string]any
+		if json.Unmarshal([]byte(plain), &state) != nil {
+			continue
+		}
+		if key, _ := state["XAI_API_KEY"].(string); strings.TrimSpace(key) != "" {
+			return strings.TrimSpace(key)
+		}
+	}
+	t.Skip("xAI provider auth not found in the environment or local Apteva provider stores")
+	return ""
+}
+
 func setupRealServerWithProviderState(t *testing.T, corePath, agentName, agentDirective string, providerTypeID int64, providerType, providerName string, providerData map[string]any) (*Server, int64, *Agent) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

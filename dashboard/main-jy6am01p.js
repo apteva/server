@@ -1,5 +1,0 @@
-import{ia as M}from"./main-bfqg7fza.js";import{createContext as X,useContext as Z,useState as H,useEffect as $}from"react";import{jsx as k}from"react/jsx-runtime";var N=X({projects:[],currentProject:null,setCurrentProject:()=>{},reload:()=>{}}),q="apteva_project_id";function b(){if(typeof window>"u")return null;return window.sessionStorage.getItem(q)||window.localStorage.getItem(q)||null}function A({children:Q}){let[U,V]=H([]),[F,y]=H(null),G=()=>{M.list().then((g)=>{V(g||[]);let z=b();if(z&&g?.find((B)=>B.id===z))y(g.find((B)=>B.id===z)||null);else if(!F&&g?.length>0)y(g[0]),window.sessionStorage.setItem(q,g[0].id),window.localStorage.setItem(q,g[0].id)}).catch(()=>{})};$(()=>{G()},[]);let W=(g)=>{if(y(g),g)window.sessionStorage.setItem(q,g.id),window.localStorage.setItem(q,g.id);else window.sessionStorage.removeItem(q),window.localStorage.removeItem(q)};return k(N.Provider,{value:{projects:U,currentProject:F,setCurrentProject:W,reload:G},children:Q})}function D(){return Z(N)}
-export{A as N,D as O};
-
-//# debugId=86800BF6FEBE7D0F64756E2164756E21
-//# sourceMappingURL=main-jy6am01p.js.map

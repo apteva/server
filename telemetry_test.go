@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,6 +22,45 @@ func makeTelemetryEvent(eventType, threadID string, data map[string]any) Telemet
 		Type:     eventType,
 		Time:     time.Now(),
 		Data:     json.RawMessage(d),
+	}
+}
+
+func TestTelemetryBroadcasterReplaysLiveChannelOverflow(t *testing.T) {
+	b := NewTelemetryBroadcaster()
+	ch, cursor := b.SubscribeAllCursor()
+	defer b.UnsubscribeAll(ch)
+	if cursor != 0 {
+		t.Fatalf("initial cursor = %d, want 0", cursor)
+	}
+
+	b.Broadcast([]TelemetryEvent{{ID: "first", AgentID: 1, Type: "llm.start"}})
+	first := <-ch
+	if first.Seq != 1 {
+		t.Fatalf("first seq = %d, want 1", first.Seq)
+	}
+	last := first.Seq
+	for i := 0; i < 260; i++ {
+		b.Broadcast([]TelemetryEvent{{ID: fmt.Sprintf("chunk-%d", i), AgentID: 1, Type: "llm.chunk"}})
+	}
+	for {
+		select {
+		case ev := <-ch:
+			last = ev.Seq
+		default:
+			goto drained
+		}
+	}
+
+drained:
+	replay, reset := b.ReplaySince(last)
+	if reset {
+		t.Fatal("recent overflow unexpectedly expired the replay cursor")
+	}
+	if len(replay) == 0 {
+		t.Fatal("expected dropped live suffix to be recoverable from replay ring")
+	}
+	if got := replay[len(replay)-1].Seq; got != 261 {
+		t.Fatalf("last replay seq = %d, want 261", got)
 	}
 }
 
@@ -167,6 +207,13 @@ func TestTelemetryProjectStreamForwardsPlatformHelperEvents(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("stream status=%d", resp.StatusCode)
 	}
+	if got := resp.Header.Get("X-Accel-Buffering"); got != "no" {
+		t.Fatalf("X-Accel-Buffering = %q, want no", got)
+	}
+	// The stream flushes its initial comment immediately, so publish once
+	// more after the client is definitely subscribed. Older behavior only
+	// returned the response after a telemetry frame happened to arrive.
+	s.broadcaster.Broadcast([]TelemetryEvent{ev})
 
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
@@ -183,6 +230,62 @@ func TestTelemetryProjectStreamForwardsPlatformHelperEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Fatal("helper telemetry event was not forwarded on project stream")
+}
+
+func TestTelemetryProjectStreamReplaysSinceCursor(t *testing.T) {
+	s := newTestServer(t)
+	user, err := s.store.CreateUser("telemetry-replay@test.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, err := s.store.CreateAgent(user.ID, "replay agent", "d", "autonomous", "{}", "project-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := "telemetry-replay-session"
+	if err := s.store.CreateSession(token, user.ID, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	s.broadcaster.Broadcast([]TelemetryEvent{
+		{ID: "one", AgentID: agent.ID, ThreadID: "main", Type: "llm.start", Time: time.Now().UTC(), Data: json.RawMessage(`{}`)},
+		{ID: "two", AgentID: agent.ID, ThreadID: "main", Type: "llm.chunk", Time: time.Now().UTC(), Data: json.RawMessage(`{"text":"hello"}`)},
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(s.authMiddleware(s.handleTelemetryStream)))
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"?all=1&project_id=project-a&since=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if got := resp.Header.Get("X-Accel-Buffering"); got != "no" {
+		t.Fatalf("X-Accel-Buffering = %q, want no", got)
+	}
+	scanner := bufio.NewScanner(resp.Body)
+	var sawID, sawEvent bool
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "id: 2" {
+			sawID = true
+		}
+		if strings.HasPrefix(line, "data: ") && strings.Contains(line, `"id":"two"`) {
+			sawEvent = true
+		}
+		if sawID && sawEvent {
+			return
+		}
+	}
+	if err := scanner.Err(); err != nil && ctx.Err() == nil {
+		t.Fatal(err)
+	}
+	t.Fatalf("replay missing: id=%v event=%v", sawID, sawEvent)
 }
 
 func TestTelemetryStats(t *testing.T) {
@@ -489,5 +592,51 @@ func TestTelemetryDuplicateIgnored(t *testing.T) {
 	results, _ := s.store.QueryTelemetry(1, "", time.Time{}, 100)
 	if len(results) != 1 {
 		t.Errorf("expected 1 (duplicate ignored), got %d", len(results))
+	}
+}
+
+func TestTelemetryIngestBoundsToolResultAndPreservesSizeMetadata(t *testing.T) {
+	s := newTestServer(t)
+	secretTail := "SENSITIVE_FULL_RESULT_TAIL"
+	fullResult := strings.Repeat("a", 4000) + secretTail
+	event := makeTelemetryEvent("tool.result", "main", map[string]any{
+		"id":                    "call-large",
+		"name":                  "large_tool",
+		"success":               true,
+		"result":                fullResult,
+		"result_original_bytes": len(fullResult),
+		"result_context_bytes":  len(fullResult),
+		"result_preview_bytes":  len(fullResult),
+		"result_truncated":      false,
+	})
+	body, _ := json.Marshal([]TelemetryEvent{event})
+	req := httptest.NewRequest(http.MethodPost, "/telemetry", bytes.NewReader(body))
+	req.Header.Set("X-Agent-Secret", s.instanceSecret)
+	rec := httptest.NewRecorder()
+	s.handleIngestTelemetry(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ingest status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	events, err := s.store.QueryTelemetry(1, "tool.result", time.Time{}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("stored events=%d, want 1", len(events))
+	}
+	var data map[string]any
+	if err := json.Unmarshal(events[0].Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	preview, _ := data["result"].(string)
+	if len(preview) > storedToolResultPreviewBytes+3 || strings.Contains(preview, secretTail) {
+		t.Fatalf("stored result was not safely bounded: len=%d", len(preview))
+	}
+	if data["result_original_bytes"] != float64(len(fullResult)) || data["result_context_bytes"] != float64(len(fullResult)) {
+		t.Fatalf("size metadata changed: %#v", data)
+	}
+	if data["result_preview_bytes"] != float64(len(preview)) || data["result_truncated"] != true {
+		t.Fatalf("preview metadata incorrect: %#v", data)
 	}
 }

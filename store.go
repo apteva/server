@@ -939,6 +939,19 @@ func (s *Store) migrate() error {
 			    runtime_status='available',
 			    capabilities='["llm","subscription","subscription_usage","codex_responses","streaming","native_tools"]'
 			WHERE id=15 AND auth_provider='openai-codex'`)
+	s.db.Exec(`INSERT OR IGNORE INTO provider_types
+			(id, type, name, description, fields, requires_credentials, auth_type, auth_provider, runtime_status, capabilities, sort_order)
+			VALUES
+			(17, 'llm', 'xAI', 'Grok language models through the xAI OpenAI-compatible API.', '["XAI_API_KEY"]', 1, 'api_key', 'xai', 'available', '["llm","streaming","native_tools","reasoning","vision"]', 18)`)
+	s.db.Exec(`UPDATE provider_types
+			SET description='Grok language models through the xAI OpenAI-compatible API.',
+			    fields='["XAI_API_KEY"]',
+			    auth_type='api_key',
+			    auth_provider='xai',
+			    runtime_status='available',
+			    capabilities='["llm","streaming","native_tools","reasoning","vision"]',
+			    sort_order=18
+			WHERE id=17 AND name='xAI'`)
 
 	// Fix historical row 8: it was seeded with type='browser' but its
 	// fields / name describe Browserbase. Flip the type to 'browserbase'
@@ -1936,10 +1949,16 @@ func (s *Store) UpdateAgent(inst *Agent) error {
 		inst.Port = 0
 		inst.Pid = 0
 		inst.CoreAPIKey = ""
+		inst.CoreStartedAt = ""
 	}
 	_, err := s.db.Exec(
-		"UPDATE agents SET name=?, directive=?, mode=?, config=?, port=?, pid=?, core_api_key=?, status=?, project_id=? WHERE id=?",
-		inst.Name, inst.Directive, inst.Mode, inst.Config, inst.Port, inst.Pid, inst.CoreAPIKey, inst.Status, inst.ProjectID, inst.ID,
+		`UPDATE agents
+		    SET name=?, directive=?, mode=?, config=?, port=?, pid=?, core_api_key=?,
+		        status=?, project_id=?,
+		        core_started_at=CASE WHEN LOWER(?)='stopped' THEN NULL ELSE core_started_at END
+		  WHERE id=?`,
+		inst.Name, inst.Directive, inst.Mode, inst.Config, inst.Port, inst.Pid, inst.CoreAPIKey,
+		inst.Status, inst.ProjectID, inst.Status, inst.ID,
 	)
 	return err
 }
@@ -1958,6 +1977,73 @@ func (s *Store) UpdateAgentCoreRuntime(agentID int64, version, buildTime string,
 	return err
 }
 
+// SetAgentRuntimeRunning persists the complete identity of one live core in a
+// single statement. Keeping pid/port/key and version/start metadata together
+// prevents readers from observing a partially activated runtime.
+func (s *Store) SetAgentRuntimeRunning(inst *Agent, startedAt time.Time) error {
+	if inst == nil {
+		return fmt.Errorf("agent is nil")
+	}
+	if inst.Pid <= 0 || inst.Port <= 0 || inst.CoreAPIKey == "" {
+		return fmt.Errorf("agent %d has incomplete process metadata", inst.ID)
+	}
+	if strings.TrimSpace(inst.CoreVersion) == "" || startedAt.IsZero() {
+		return fmt.Errorf("agent %d has incomplete core runtime metadata", inst.ID)
+	}
+	started := startedAt.UTC().Format(time.RFC3339Nano)
+	res, err := s.db.Exec(
+		`UPDATE agents
+		    SET status='running', pid=?, port=?, core_api_key=?,
+		        core_version=?, core_build_time=?, core_started_at=?
+		  WHERE id=?`,
+		inst.Pid, inst.Port, inst.CoreAPIKey,
+		inst.CoreVersion, inst.CoreBuildTime, started, inst.ID,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return fmt.Errorf("agent %d runtime update affected %d rows", inst.ID, rows)
+	}
+	inst.Status = "running"
+	inst.CoreStartedAt = started
+	return nil
+}
+
+// SetAgentRuntimeStopped clears metadata that identifies a live process while
+// preserving the last observed core version/build for update diagnostics.
+func (s *Store) SetAgentRuntimeStopped(inst *Agent) error {
+	if inst == nil {
+		return fmt.Errorf("agent is nil")
+	}
+	res, err := s.db.Exec(
+		`UPDATE agents
+		    SET status='stopped', pid=0, port=0, core_api_key='', core_started_at=NULL
+		  WHERE id=?`,
+		inst.ID,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return fmt.Errorf("agent %d runtime clear affected %d rows", inst.ID, rows)
+	}
+	inst.Status = "stopped"
+	inst.Pid = 0
+	inst.Port = 0
+	inst.CoreAPIKey = ""
+	inst.CoreStartedAt = ""
+	return nil
+}
+
 // MarkPlatformAgentsStoppedForShutdown records a clean server shutdown for
 // platform-owned helpers before child cores are terminated. User agents keep
 // status='running' so the next boot can resume agents the operator explicitly
@@ -1966,7 +2052,7 @@ func (s *Store) UpdateAgentCoreRuntime(agentID int64, version, buildTime string,
 func (s *Store) MarkPlatformAgentsStoppedForShutdown() (int64, error) {
 	res, err := s.db.Exec(
 		`UPDATE agents
-		    SET status='stopped', port=0, pid=0, core_api_key=''
+		    SET status='stopped', port=0, pid=0, core_api_key='', core_started_at=NULL
 		  WHERE status='running'
 		    AND COALESCE(kind, 'user') != 'user'`,
 	)

@@ -3,14 +3,82 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestExecuteIntegrationTool_RequestTransformDeleteBody(t *testing.T) {
+	var capturedBody map[string]any
+	var capturedAccept string
+	var capturedVersion string
+	var queryMessage string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Fatalf("method=%s", r.Method)
+		}
+		capturedAccept = r.Header.Get("Accept")
+		capturedVersion = r.Header.Get("X-GitHub-Api-Version")
+		queryMessage = r.URL.Query().Get("message")
+		raw, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(raw, &capturedBody); err != nil {
+			t.Fatalf("unmarshal DELETE body: %v\n%s", err, string(raw))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"commit":{"sha":"new-sha"}}`))
+	}))
+	defer ts.Close()
+
+	app := &AppTemplate{
+		Slug:    "github",
+		BaseURL: ts.URL,
+		Auth: AppAuthConfig{Headers: map[string]string{
+			"Authorization":        "Bearer {{token}}",
+			"Accept":               "application/vnd.github+json",
+			"X-GitHub-Api-Version": "2022-11-28",
+		}},
+	}
+	tool := &AppToolDef{
+		Name:   "delete_file",
+		Method: http.MethodDelete,
+		Path:   "/repos/{owner}/{repo}/contents/{path}",
+		RequestTransform: &RequestTransformDef{
+			Type:   "json_wrap",
+			Fields: []string{"message", "sha", "branch", "committer", "author"},
+		},
+	}
+	res, err := executeIntegrationTool(app, tool, map[string]string{"token": "github-token"}, map[string]any{
+		"owner": "octocat", "repo": "hello-world", "path": "docs/old.md",
+		"message": "Remove obsolete documentation", "sha": "blob-sha", "branch": "main",
+	}, "")
+	if err != nil || res == nil || !res.Success {
+		t.Fatalf("execute result=%+v err=%v", res, err)
+	}
+	if queryMessage != "" {
+		t.Fatalf("DELETE commit message leaked into query: %q", queryMessage)
+	}
+	if capturedAccept != "application/vnd.github+json" {
+		t.Fatalf("Accept=%q", capturedAccept)
+	}
+	if capturedVersion != "2022-11-28" {
+		t.Fatalf("X-GitHub-Api-Version=%q", capturedVersion)
+	}
+	want := map[string]any{
+		"message": "Remove obsolete documentation",
+		"sha":     "blob-sha",
+		"branch":  "main",
+	}
+	if !reflect.DeepEqual(capturedBody, want) {
+		t.Fatalf("DELETE body=%#v want=%#v", capturedBody, want)
+	}
+}
 
 func TestExecuteIntegrationTool_HeaderAndRepeatedMultipartFields(t *testing.T) {
 	var modelHeader string
@@ -311,6 +379,107 @@ func TestExecuteIntegrationTool_ResponseTransformEmailThread(t *testing.T) {
 	first, ok := messages[0].(map[string]any)
 	if !ok || first["id"] != "msg-1" || first["snippet"] != "First" || first["text"] != nil || first["html"] != nil {
 		t.Fatalf("first compact message = %#v", messages[0])
+	}
+}
+
+func TestExecuteIntegrationTool_EmailMessageLocalBodyControls(t *testing.T) {
+	var requestedQuery url.Values
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedQuery = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(gmailMessageFixture())
+	}))
+	defer ts.Close()
+
+	app := &AppTemplate{Slug: "test-mail", BaseURL: ts.URL, Auth: AppAuthConfig{Types: []string{"bearer"}}}
+	tool := &AppToolDef{
+		Name:   "get_message",
+		Method: "GET",
+		Path:   "/messages/{messageId}",
+		ResponseTransform: &ResponseTransformDef{
+			Type:            "email_message",
+			BodyModeParam:   "body_mode",
+			MaxCharsParam:   "max_chars",
+			DefaultBodyMode: "compact",
+			DefaultMaxChars: 20_000,
+			MaxCharsLimit:   100_000,
+		},
+	}
+	res, err := executeIntegrationTool(app, tool, nil, map[string]any{
+		"messageId": "msg-1",
+		"format":    "full",
+		"body_mode": "compact",
+		"max_chars": 5,
+	}, "")
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if requestedQuery.Get("format") != "full" {
+		t.Fatalf("format query = %q", requestedQuery.Get("format"))
+	}
+	if requestedQuery.Has("body_mode") || requestedQuery.Has("max_chars") {
+		t.Fatalf("local response controls leaked into query: %v", requestedQuery)
+	}
+	data, ok := res.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("data shape = %#v", res.Data)
+	}
+	if data["body"] != "Plain" || data["bodyMimeType"] != "text/plain" {
+		t.Fatalf("compact body = %#v mime=%#v", data["body"], data["bodyMimeType"])
+	}
+	if data["text"] != nil || data["html"] != nil {
+		t.Fatalf("compact mode returned duplicate bodies: text=%#v html=%#v", data["text"], data["html"])
+	}
+	if data["bodyReturnedChars"] != 5 || data["bodyTruncated"] != true {
+		t.Fatalf("body budget metadata = returned=%#v truncated=%#v", data["bodyReturnedChars"], data["bodyTruncated"])
+	}
+	available, ok := data["bodyAvailableChars"].(map[string]any)
+	if !ok || available["text"] != 10 || available["html"] != 16 {
+		t.Fatalf("bodyAvailableChars = %#v", data["bodyAvailableChars"])
+	}
+}
+
+func TestExecuteIntegrationTool_NotFoundSkipsSuccessTransform(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{
+				"code": 404, "message": "Requested entity was not found.", "status": "NOT_FOUND",
+			},
+		})
+	}))
+	defer ts.Close()
+
+	app := &AppTemplate{Slug: "test-mail", BaseURL: ts.URL}
+	tool := &AppToolDef{
+		Name:              "get_thread",
+		Method:            "GET",
+		Path:              "/threads/{threadId}",
+		ResponseTransform: &ResponseTransformDef{Type: "email_thread"},
+	}
+	res, err := executeIntegrationTool(app, tool, nil, map[string]any{"threadId": "stale-thread"}, "")
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if res.Success || res.Status != http.StatusNotFound {
+		t.Fatalf("result = %+v", res)
+	}
+	data, ok := res.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("data shape = %#v", res.Data)
+	}
+	if data["error"] != "not_found" || data["retryable"] != false {
+		t.Fatalf("not_found data = %#v", data)
+	}
+	if data["message"] != "Requested entity was not found." {
+		t.Fatalf("message = %#v", data["message"])
+	}
+	if _, exists := data["messages"]; exists {
+		t.Fatalf("404 was incorrectly transformed into a thread: %#v", data)
+	}
+	if !strings.Contains(fmt.Sprint(data["instruction"]), "Do not retry the same resource ID") {
+		t.Fatalf("instruction = %#v", data["instruction"])
 	}
 }
 

@@ -297,6 +297,13 @@ func TestStore_UpdateAgentClearsRuntimeMetadataWhenStopped(t *testing.T) {
 	inst.Port = 3211
 	inst.Pid = 12345
 	inst.CoreAPIKey = "core_test"
+	inst.CoreVersion = "0.25.8"
+	inst.CoreBuildTime = "build"
+	inst.CoreStartedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	if err := store.SetAgentRuntimeRunning(inst, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	inst.Status = "stopped"
 	if err := store.UpdateAgent(inst); err != nil {
 		t.Fatal(err)
 	}
@@ -304,6 +311,12 @@ func TestStore_UpdateAgentClearsRuntimeMetadataWhenStopped(t *testing.T) {
 	updated, _ := store.GetAgent(user.ID, inst.ID)
 	if updated.Port != 0 || updated.Pid != 0 || updated.CoreAPIKey != "" {
 		t.Fatalf("stopped agent should not keep runtime metadata: port=%d pid=%d key=%q", updated.Port, updated.Pid, updated.CoreAPIKey)
+	}
+	if updated.CoreStartedAt != "" {
+		t.Fatalf("stopped agent should not keep core_started_at: %q", updated.CoreStartedAt)
+	}
+	if updated.CoreVersion != "0.25.8" || updated.CoreBuildTime != "build" {
+		t.Fatalf("stopped agent should preserve last core build: %+v", updated)
 	}
 }
 

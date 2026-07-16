@@ -795,7 +795,7 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 
 	isLLMKey := func(k string) bool {
 		switch k {
-		case "fireworks", "openai", "openai-codex", "anthropic", "google", "ollama", "nvidia", "opencode-go", "venice":
+		case "fireworks", "openai", "openai-codex", "anthropic", "google", "ollama", "nvidia", "opencode-go", "venice", "xai":
 			return true
 		}
 		return false
@@ -1064,6 +1064,35 @@ func (s *Server) handleSaveProviderModels(w http.ResponseWriter, r *http.Request
 			}
 		}
 		applyCodexCatalogToState(state, models)
+	} else if providerKey == "xai" {
+		apiKey := strings.TrimSpace(stringValue(state["XAI_API_KEY"]))
+		if apiKey == "" {
+			http.Error(w, "xAI provider is missing XAI_API_KEY", http.StatusBadRequest)
+			return
+		}
+		models, fetchErr := FetchModels(providerKey, apiKey)
+		if fetchErr != nil {
+			http.Error(w, fmt.Sprintf("failed to validate xAI models: %v", fetchErr), http.StatusBadGateway)
+			return
+		}
+		available := make(map[string]ModelInfo, len(models))
+		for _, model := range models {
+			available[model.ID] = model
+		}
+		selectedCapabilities := map[string]ProviderModelCapabilities{}
+		for tier, selected := range map[string]string{"large": body.Large, "medium": body.Medium, "small": body.Small} {
+			selected = strings.TrimSpace(selected)
+			if selected == "" {
+				continue
+			}
+			model, ok := available[selected]
+			if !ok {
+				http.Error(w, fmt.Sprintf("%s model %q is not available for this xAI account", tier, selected), http.StatusBadRequest)
+				return
+			}
+			selectedCapabilities[selected] = model.Capabilities
+		}
+		state["model_capabilities"] = selectedCapabilities
 	}
 	next, err := marshalEncryptProviderState(s.secret, state)
 	if err != nil {

@@ -71,6 +71,17 @@ func TestIngressExposeRoute_UpsertsRouteCacheAndRejectsConflictingOwner(t *testi
 	}
 }
 
+func TestIngressAllowsCertificateForConfiguredPrimaryHost(t *testing.T) {
+	s := newTestServer(t)
+	s.primaryHost = "Agents.Example.com"
+	if !s.ingressAllowsCertificate("agents.example.com:443") {
+		t.Fatal("configured primary host was not certificate eligible")
+	}
+	if s.ingressAllowsCertificate("other.example.com") {
+		t.Fatal("unregistered non-primary host was certificate eligible")
+	}
+}
+
 func TestCallbackIngress_RequiresPermissionAndScopesOwner(t *testing.T) {
 	s := newTestServer(t)
 	s.routeCache = NewRouteCache()

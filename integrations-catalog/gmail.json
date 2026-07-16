@@ -227,7 +227,7 @@
     },
     {
       "name": "get_message",
-      "description": "Get full email message details including headers, body, and attachment metadata",
+      "description": "Retrieve one Gmail message by message ID. For efficient agent reading, the default body_mode=compact returns one bounded body field (plain text when available, otherwise HTML) plus headers and attachment metadata. Use body_mode=text or html only when that representation is specifically needed; use both sparingly because both representations often duplicate the same content. Use body_mode=none for headers/attachment metadata only. Start with gmail_get_thread to choose the relevant message ID. If this tool returns error=not_found and retryable=false, the ID is stale or deleted: do not retry it; list/search again for a current ID.",
       "method": "GET",
       "path": "/users/me/messages/{messageId}",
       "input_schema": {
@@ -235,11 +235,11 @@
         "properties": {
           "messageId": {
             "type": "string",
-            "description": "Message ID to retrieve"
+            "description": "Gmail message ID selected from gmail_get_thread or gmail_list_messages. Do not retry this ID after a non-retryable not_found response."
           },
           "format": {
             "type": "string",
-            "description": "Response format",
+            "description": "Gmail API response format. Use full when reading a body, metadata or minimal when only headers/state are needed. Avoid raw for normal agent reading.",
             "enum": [
               "minimal",
               "full",
@@ -254,6 +254,25 @@
               "type": "string"
             },
             "description": "Headers to include when format is 'metadata' (e.g. ['From', 'To', 'Subject', 'Date'])"
+          },
+          "body_mode": {
+            "type": "string",
+            "description": "Local response mode; never sent to Gmail. compact returns one body field, preferring text/plain and falling back to text/html. text returns only text, html only HTML, both returns both within one shared max_chars budget, and none omits bodies.",
+            "enum": [
+              "compact",
+              "text",
+              "html",
+              "both",
+              "none"
+            ],
+            "default": "compact"
+          },
+          "max_chars": {
+            "type": "integer",
+            "description": "Maximum total characters returned across selected body fields. Local response control; never sent to Gmail. If truncated, bodyTruncated is true and bodyAvailableChars reports the original text/HTML sizes.",
+            "minimum": 256,
+            "maximum": 100000,
+            "default": 20000
           }
         },
         "required": [
@@ -301,7 +320,12 @@
         "internalDate": "1747908000000"
       },
       "response_transform": {
-        "type": "email_message"
+        "type": "email_message",
+        "body_mode_param": "body_mode",
+        "max_chars_param": "max_chars",
+        "default_body_mode": "compact",
+        "default_max_chars": 20000,
+        "max_chars_limit": 100000
       }
     },
     {
@@ -462,7 +486,7 @@
     },
     {
       "name": "list_threads",
-      "description": "List email thread IDs with optional search. Returns thread IDs and snippets. Use gmail_get_thread first to inspect a compact latest-message summary, then fetch a specific message with gmail_get_message only when body text is needed.",
+      "description": "List email thread IDs with optional Gmail search. Returns IDs and snippets, not message bodies. Use gmail_get_thread on a selected current ID, then gmail_get_message only for the specific message body needed. When a saved ID later returns a non-retryable not_found error, run this list/search again instead of retrying the stale ID.",
       "method": "GET",
       "path": "/users/me/threads",
       "input_schema": {
@@ -509,7 +533,7 @@
     },
     {
       "name": "get_thread",
-      "description": "Get a compact email thread index. Output includes thread id, history id, messageCount, messageIds, and messages with compact per-message metadata/snippet only. It intentionally does not return message bodies, HTML, or attachments. Use this first to choose which message IDs matter, then call gmail_get_message for the specific body/content needed.",
+      "description": "Get a compact email thread index. Output includes thread id, history id, messageCount, messageIds, and compact per-message metadata/snippets only; it never returns message bodies, HTML, or attachments. Use this first to choose the relevant message ID, then call gmail_get_message once for that message. If error=not_found and retryable=false, the thread ID is stale or deleted: do not retry it; call gmail_list_threads or gmail_list_messages with a Gmail q search for a current ID.",
       "method": "GET",
       "path": "/users/me/threads/{threadId}",
       "input_schema": {
@@ -517,7 +541,7 @@
         "properties": {
           "threadId": {
             "type": "string",
-            "description": "Thread ID to retrieve"
+            "description": "Current Gmail thread ID from gmail_list_threads or a message result. Do not retry this ID after a non-retryable not_found response."
           },
           "format": {
             "type": "string",

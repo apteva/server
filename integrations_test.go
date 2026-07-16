@@ -25,6 +25,7 @@ func createTestCatalog(t *testing.T) *AppCatalog {
 		"slug": "pushover",
 		"name": "Pushover",
 		"description": "Push notifications",
+		"logo": "https://example.com/pushover.png",
 		"categories": ["notifications"],
 		"base_url": "https://api.pushover.net/1",
 		"auth": {
@@ -110,6 +111,55 @@ func TestCatalogLoad(t *testing.T) {
 
 	if catalog.Count() != 2 {
 		t.Fatalf("expected 2 apps, got %d", catalog.Count())
+	}
+}
+
+func TestEmbeddedGitHubCatalogAgentCoverage(t *testing.T) {
+	raw, err := integrationsCatalogFS.ReadFile("integrations-catalog/github.json")
+	if err != nil {
+		t.Fatalf("read embedded GitHub catalog: %v", err)
+	}
+	var app AppTemplate
+	if err := json.Unmarshal(raw, &app); err != nil {
+		t.Fatalf("decode GitHub catalog: %v", err)
+	}
+	if got, want := len(app.Tools), 103; got != want {
+		t.Fatalf("GitHub tool count=%d want=%d", got, want)
+	}
+	if got := app.Auth.Headers["Accept"]; got != "application/vnd.github+json" {
+		t.Fatalf("GitHub Accept header=%q", got)
+	}
+	if got := app.Auth.Headers["X-GitHub-Api-Version"]; got != "2022-11-28" {
+		t.Fatalf("GitHub API version=%q", got)
+	}
+
+	wantTools := map[string]bool{
+		"list_root_contents":      false,
+		"create_git_commit":       false,
+		"delete_file":             false,
+		"upload_release_asset":    false,
+		"list_webhook_deliveries": false,
+	}
+	for i := range app.Tools {
+		tool := &app.Tools[i]
+		if _, wanted := wantTools[tool.Name]; wanted {
+			wantTools[tool.Name] = true
+		}
+		if tool.Name == "delete_file" {
+			if tool.RequestTransform == nil || tool.RequestTransform.Type != "json_wrap" {
+				t.Fatalf("delete_file missing JSON DELETE transform: %#v", tool.RequestTransform)
+			}
+		}
+		if tool.Name == "upload_release_asset" {
+			if tool.BaseURL != "https://uploads.github.com" || tool.BodyBinaryParam != "file" {
+				t.Fatalf("upload_release_asset config=%+v", tool)
+			}
+		}
+	}
+	for name, found := range wantTools {
+		if !found {
+			t.Fatalf("embedded GitHub catalog missing %s", name)
+		}
 	}
 }
 
@@ -409,6 +459,9 @@ func TestConnectionHTTPHandler(t *testing.T) {
 	}
 	if conns[0]["tool_count"].(float64) != 1 {
 		t.Errorf("expected 1 tool, got %v", conns[0]["tool_count"])
+	}
+	if conns[0]["logo"] != "https://example.com/pushover.png" {
+		t.Errorf("expected catalog logo, got %v", conns[0]["logo"])
 	}
 
 	// Get tools

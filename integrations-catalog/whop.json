@@ -1,42 +1,112 @@
 {
   "slug": "whop",
   "name": "Whop",
-  "description": "Whop commerce API for products, plans, checkout configurations, payments, refunds, memberships, and leads. Use Whop to sell access to audio products, communities, or apps; Whop's public API does not directly upload and host audio files.",
+  "description": "Whop marketplace and commerce API for creating sellable products, pricing and checkout, managing customers and payments, and building hosted courses with chapters, lessons, files, quizzes, and progress tracking. Typical course flow: find the native Courses app, create an experience, create and attach a product, create a course and its lessons, then create a visible one-time or renewal plan.",
   "logo": "https://www.google.com/s2/favicons?domain=whop.com&sz=128",
-  "categories": ["payments", "commerce", "creator-economy", "digital-products", "memberships", "checkout"],
+  "categories": ["marketplace", "courses", "payments", "commerce", "creator-economy", "digital-products", "memberships", "checkout"],
   "base_url": "https://api.whop.com/api/v1",
   "auth": {
     "types": ["bearer"],
     "headers": {
       "Authorization": "Bearer {{token}}",
       "Content-Type": "application/json",
-      "Api-Version-Date": "2026-06-20"
+      "Api-Version-Date": "2026-07-08-1"
     },
     "credential_fields": [
       {
         "name": "token",
-        "label": "API Key",
-        "description": "Whop API key for the company/app you want to manage."
+        "label": "Company API Key",
+        "description": "Whop company API key with the scopes needed for the tools you intend to use. Create it from the Whop developer dashboard. Course management requires courses:read/courses:update; commerce tools require the corresponding product, plan, payment, membership, and experience scopes."
       }
     ]
   },
+  "health_check": { "tool": "list_companies", "input": { "first": 1 } },
   "tools": [
     {
+      "name": "list_companies",
+      "description": "List Whop companies accessible to this API key. Use the returned biz_ ID as company_id/account_id in product, plan, experience, and checkout calls.",
+      "method": "GET",
+      "path": "/companies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "parent_company_id": { "type": "string", "description": "Optional parent platform company when listing connected accounts." },
+          "created_before": { "type": "string", "description": "ISO-8601 timestamp." },
+          "created_after": { "type": "string", "description": "ISO-8601 timestamp." },
+          "direction": { "type": "string", "enum": ["asc", "desc"] },
+          "first": { "type": "integer", "minimum": 1 },
+          "after": { "type": "string" },
+          "last": { "type": "integer", "minimum": 1 },
+          "before": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_current_account",
+      "description": "Retrieve the Whop business account associated with the current company API key.",
+      "method": "GET",
+      "path": "/accounts/me",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_apps",
+      "description": "Search Whop apps. Search for Courses and use the native Courses app ID when creating a course experience.",
+      "method": "GET",
+      "path": "/apps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "App-name search, for example Courses." },
+          "company_id": { "type": "string" },
+          "app_type": { "type": "string" },
+          "view_type": { "type": "string" },
+          "verified_apps_only": { "type": "boolean" },
+          "direction": { "type": "string", "enum": ["asc", "desc"] },
+          "order": { "type": "string" },
+          "first": { "type": "integer", "minimum": 1 },
+          "after": { "type": "string" },
+          "last": { "type": "integer", "minimum": 1 },
+          "before": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "create_file",
+      "description": "Create a Whop file record and receive upload_url plus upload_headers for a direct presigned upload. After uploading bytes to that URL, poll get_file until upload_status=ready, then use the file ID for thumbnails, PDFs, and lesson attachments. The presigned PUT is storage-plane traffic, not an authenticated Whop API route.",
+      "method": "POST",
+      "path": "/files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filename": { "type": "string", "description": "Filename including extension, such as cover.jpg or workbook.pdf." },
+          "visibility": { "type": "string", "enum": ["public", "private"], "default": "public" }
+        },
+        "required": ["filename"]
+      }
+    },
+    {
+      "name": "get_file",
+      "description": "Retrieve a Whop file and its processing status. Poll after uploading to the presigned URL returned by create_file.",
+      "method": "GET",
+      "path": "/files/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string", "description": "file_ identifier." } }, "required": ["id"] }
+    },
+    {
       "name": "list_products",
-      "description": "List Whop products for a company. Use this before creating plans or checkout configurations.",
+      "description": "List sellable Whop products for a company.",
       "method": "GET",
       "path": "/products",
       "input_schema": {
         "type": "object",
         "properties": {
-          "company_id": { "type": "string" },
-          "visibilities": { "type": "array", "items": { "type": "string" } },
+          "company_id": { "type": "string", "description": "biz_ company ID." },
+          "visibilities": { "type": "array", "items": { "type": "string", "enum": ["visible", "hidden", "archived", "quick_link"] } },
           "access_pass_types": { "type": "array", "items": { "type": "string" } },
-          "direction": { "type": "string" },
+          "direction": { "type": "string", "enum": ["asc", "desc"] },
           "order": { "type": "string" },
-          "first": { "type": "integer" },
+          "first": { "type": "integer", "minimum": 1, "maximum": 100 },
           "after": { "type": "string" },
-          "last": { "type": "integer" },
+          "last": { "type": "integer", "minimum": 1, "maximum": 100 },
           "before": { "type": "string" }
         },
         "required": ["company_id"]
@@ -44,136 +114,229 @@
     },
     {
       "name": "get_product",
-      "description": "Retrieve one Whop product.",
+      "description": "Retrieve one Whop product, including its public route and attached experiences/plans where returned.",
       "method": "GET",
-      "path": "/products/{product_id}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "product_id": { "type": "string" }
-        },
-        "required": ["product_id"]
-      }
+      "path": "/products/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string", "description": "prod_ identifier." } }, "required": ["id"] }
     },
     {
       "name": "create_product",
-      "description": "Create a Whop product. Body must follow Whop's current product create schema. For audio products, this creates the sellable access product; store the audio in your app/storage and deliver it after purchase.",
+      "description": "Create a hosted Whop product page. Attach a course experience separately with attach_experience, then create a visible plan to sell access.",
       "method": "POST",
       "path": "/products",
-      "body_root_param": "body",
       "input_schema": {
         "type": "object",
         "properties": {
-          "body": { "type": "object", "description": "Raw Whop product create payload." }
+          "company_id": { "type": "string", "description": "biz_ company ID." },
+          "title": { "type": "string", "maxLength": 80 },
+          "headline": { "type": "string" },
+          "description": { "type": "string" },
+          "route": { "type": "string", "description": "Public product URL slug." },
+          "visibility": { "type": "string", "enum": ["visible", "hidden", "archived", "quick_link"], "default": "hidden" },
+          "redirect_purchase_url": { "type": "string", "format": "uri" },
+          "custom_cta": { "type": "string" },
+          "custom_cta_url": { "type": "string", "format": "uri" },
+          "custom_statement_descriptor": { "type": "string", "description": "Bank descriptor beginning with WHOP*." },
+          "collect_shipping_address": { "type": "boolean" },
+          "send_welcome_message": { "type": "boolean" },
+          "global_affiliate_status": { "type": "string" },
+          "global_affiliate_percentage": { "type": "number", "minimum": 0, "maximum": 100 },
+          "member_affiliate_status": { "type": "string" },
+          "member_affiliate_percentage": { "type": "number", "minimum": 0, "maximum": 100 },
+          "product_tax_code_id": { "type": "string" },
+          "metadata": { "type": "object", "additionalProperties": true }
         },
-        "required": ["body"]
+        "required": ["company_id", "title"]
       }
     },
     {
       "name": "update_product",
-      "description": "Update a Whop product using Whop's product update schema.",
+      "description": "Update customer-facing product metadata and visibility.",
       "method": "PATCH",
-      "path": "/products/{product_id}",
-      "body_root_param": "body",
+      "path": "/products/{id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "product_id": { "type": "string" },
-          "body": { "type": "object", "description": "Raw Whop product update payload." }
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "headline": { "type": "string" },
+          "description": { "type": "string" },
+          "visibility": { "type": "string", "enum": ["visible", "hidden", "archived", "quick_link"] },
+          "send_welcome_message": { "type": "boolean" },
+          "product_tax_code_id": { "type": "string" },
+          "metadata": { "type": "object", "additionalProperties": true }
         },
-        "required": ["product_id", "body"]
+        "required": ["id"]
       }
     },
     {
       "name": "delete_product",
-      "description": "Delete a Whop product.",
+      "description": "Permanently delete a Whop product. Use only after confirming it is not needed by active customers.",
       "method": "DELETE",
-      "path": "/products/{product_id}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "product_id": { "type": "string" }
-        },
-        "required": ["product_id"]
-      }
+      "path": "/products/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
     },
     {
       "name": "list_plans",
-      "description": "List Whop plans. Filter by company or product before creating checkout configurations.",
+      "description": "List pricing plans for an account, optionally filtered to one or more products.",
       "method": "GET",
       "path": "/plans",
       "input_schema": {
         "type": "object",
         "properties": {
-          "company_id": { "type": "string" },
-          "product_id": { "type": "string" },
-          "direction": { "type": "string" },
-          "order": { "type": "string" },
-          "first": { "type": "integer" },
+          "account_id": { "type": "string", "description": "biz_ account ID." },
+          "product_ids": { "type": "array", "items": { "type": "string" } },
+          "plan_types": { "type": "array", "items": { "type": "string", "enum": ["one_time", "renewal"] } },
+          "release_methods": { "type": "array", "items": { "type": "string" } },
+          "visibilities": { "type": "array", "items": { "type": "string", "enum": ["visible", "hidden", "archived", "quick_link"] } },
+          "created_before": { "type": "string" },
+          "created_after": { "type": "string" },
+          "direction": { "type": "string", "enum": ["asc", "desc"] },
+          "order": { "type": "string", "enum": ["id", "active_members_count", "created_at", "internal_notes", "expiration_days"] },
+          "first": { "type": "integer", "minimum": 1, "maximum": 100 },
           "after": { "type": "string" },
-          "last": { "type": "integer" },
+          "last": { "type": "integer", "minimum": 1, "maximum": 100 },
           "before": { "type": "string" }
-        }
+        },
+        "required": ["account_id"]
       }
     },
     {
       "name": "get_plan",
-      "description": "Retrieve one Whop plan.",
+      "description": "Retrieve one Whop pricing plan and its purchase_url.",
       "method": "GET",
-      "path": "/plans/{plan_id}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "plan_id": { "type": "string" }
-        },
-        "required": ["plan_id"]
-      }
+      "path": "/plans/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string", "description": "plan_ identifier." } }, "required": ["id"] }
     },
     {
       "name": "create_plan",
-      "description": "Create a Whop plan. Body must follow Whop's plan create schema, including product/company, pricing, currency, and billing fields.",
+      "description": "Create pricing for a product. For a single course purchase use plan_type=one_time and initial_price. For subscriptions use plan_type=renewal, renewal_price, and billing_period. The response includes a purchase_url.",
       "method": "POST",
       "path": "/plans",
-      "body_root_param": "body",
       "input_schema": {
         "type": "object",
         "properties": {
-          "body": { "type": "object", "description": "Raw Whop plan create payload." }
+          "account_id": { "type": "string", "description": "biz_ account ID." },
+          "product_id": { "type": "string", "description": "prod_ product receiving this plan." },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "plan_type": { "type": "string", "enum": ["one_time", "renewal"] },
+          "currency": { "type": "string", "description": "Three-letter lowercase currency such as usd or eur.", "default": "usd" },
+          "initial_price": { "type": "number", "minimum": 0, "description": "Initial or one-time price in major currency units." },
+          "renewal_price": { "type": "number", "minimum": 0, "description": "Recurring price in major currency units." },
+          "billing_period": { "type": "integer", "minimum": 1, "description": "Days between renewal charges, e.g. 30." },
+          "expiration_days": { "type": "integer", "minimum": 1 },
+          "trial_period_days": { "type": "integer", "minimum": 0 },
+          "release_method": { "type": "string", "enum": ["buy_now", "waitlist"], "default": "buy_now" },
+          "visibility": { "type": "string", "enum": ["visible", "hidden", "archived", "quick_link"], "default": "visible" },
+          "unlimited_stock": { "type": "boolean", "default": true },
+          "stock": { "type": "integer", "minimum": 0 },
+          "split_pay_required_payments": { "type": "integer", "minimum": 2 },
+          "adaptive_pricing_enabled": { "type": "boolean" },
+          "three_ds_level": { "type": "string", "enum": ["mandate_challenge", "frictionless"] },
+          "internal_notes": { "type": "string" },
+          "metadata": { "type": "object", "additionalProperties": true },
+          "payment_method_configuration": {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "array", "items": { "type": "string" } },
+              "disabled": { "type": "array", "items": { "type": "string" } },
+              "include_platform_defaults": { "type": "boolean" }
+            }
+          },
+          "custom_fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "field_type": { "type": "string", "enum": ["text"] },
+                "placeholder": { "type": "string" },
+                "required": { "type": "boolean" },
+                "order": { "type": "integer" }
+              },
+              "required": ["name", "field_type"]
+            }
+          }
         },
-        "required": ["body"]
+        "required": ["account_id", "product_id", "plan_type", "currency"]
       }
     },
     {
       "name": "update_plan",
-      "description": "Update a Whop plan using Whop's plan update schema.",
+      "description": "Update an existing Whop plan's price, billing, visibility, stock, trial, and checkout configuration.",
       "method": "PATCH",
-      "path": "/plans/{plan_id}",
-      "body_root_param": "body",
+      "path": "/plans/{id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "plan_id": { "type": "string" },
-          "body": { "type": "object", "description": "Raw Whop plan update payload." }
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "currency": { "type": "string" },
+          "initial_price": { "type": "number", "minimum": 0 },
+          "renewal_price": { "type": "number", "minimum": 0 },
+          "billing_period": { "type": "integer", "minimum": 1 },
+          "expiration_days": { "type": "integer", "minimum": 1 },
+          "trial_period_days": { "type": "integer", "minimum": 0 },
+          "visibility": { "type": "string", "enum": ["visible", "hidden", "archived", "quick_link"] },
+          "unlimited_stock": { "type": "boolean" },
+          "stock": { "type": "integer", "minimum": 0 },
+          "adaptive_pricing_enabled": { "type": "boolean" },
+          "offer_cancel_discount": { "type": "boolean" },
+          "strike_through_initial_price": { "type": "number", "minimum": 0 },
+          "strike_through_renewal_price": { "type": "number", "minimum": 0 },
+          "three_ds_level": { "type": "string", "enum": ["mandate_challenge", "frictionless"] },
+          "internal_notes": { "type": "string" },
+          "metadata": { "type": "object", "additionalProperties": true },
+          "payment_method_configuration": {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "array", "items": { "type": "string" } },
+              "disabled": { "type": "array", "items": { "type": "string" } },
+              "include_platform_defaults": { "type": "boolean" }
+            }
+          }
         },
-        "required": ["plan_id", "body"]
+        "required": ["id"]
       }
     },
     {
       "name": "delete_plan",
-      "description": "Delete a Whop plan.",
+      "description": "Delete a Whop pricing plan.",
       "method": "DELETE",
-      "path": "/plans/{plan_id}",
+      "path": "/plans/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "calculate_plan_tax",
+      "description": "Estimate tax for a Whop plan using a buyer address or IP address.",
+      "method": "POST",
+      "path": "/plans/{id}/calculate_tax",
       "input_schema": {
         "type": "object",
         "properties": {
-          "plan_id": { "type": "string" }
+          "id": { "type": "string" },
+          "ip_address": { "type": "string" },
+          "address": {
+            "type": "object",
+            "properties": {
+              "country": { "type": "string" },
+              "state": { "type": "string" },
+              "city": { "type": "string" },
+              "postal_code": { "type": "string" },
+              "line1": { "type": "string" },
+              "line2": { "type": "string" }
+            }
+          },
+          "tax_ids": { "type": "array", "maxItems": 1, "items": { "type": "object", "properties": { "type": { "type": "string" }, "value": { "type": "string" } }, "required": ["type", "value"] } }
         },
-        "required": ["plan_id"]
+        "required": ["id"]
       }
     },
     {
       "name": "list_checkout_configurations",
-      "description": "List Whop checkout configurations, optionally filtered by company or plan.",
+      "description": "List hosted Whop checkout configurations for a company or plan.",
       "method": "GET",
       "path": "/checkout_configurations",
       "input_schema": {
@@ -181,69 +344,432 @@
         "properties": {
           "company_id": { "type": "string" },
           "plan_id": { "type": "string" },
-          "direction": { "type": "string" },
-          "order": { "type": "string" },
-          "first": { "type": "integer" },
-          "after": { "type": "string" },
-          "last": { "type": "integer" },
-          "before": { "type": "string" }
-        }
+          "created_before": { "type": "integer", "description": "Unix timestamp." },
+          "created_after": { "type": "integer", "description": "Unix timestamp." },
+          "order": { "type": "string", "enum": ["created_at"] },
+          "direction": { "type": "string", "enum": ["asc", "desc"] },
+          "first": { "type": "integer", "minimum": 1 },
+          "after": { "type": "string" }
+        },
+        "required": ["company_id"]
       }
     },
     {
       "name": "get_checkout_configuration",
-      "description": "Retrieve one Whop checkout configuration.",
+      "description": "Retrieve one Whop checkout configuration and its checkout URL.",
       "method": "GET",
-      "path": "/checkout_configurations/{checkout_configuration_id}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "checkout_configuration_id": { "type": "string" }
-        },
-        "required": ["checkout_configuration_id"]
-      }
+      "path": "/checkout_configurations/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
     },
     {
       "name": "create_checkout_configuration",
-      "description": "Create a Whop checkout configuration. Use the returned checkout configuration data/link in your app or agent flow to sell a plan.",
+      "description": "Create a hosted checkout configuration for an existing plan. Use setup mode only to save payment details without charging.",
       "method": "POST",
       "path": "/checkout_configurations",
-      "body_root_param": "body",
       "input_schema": {
         "type": "object",
         "properties": {
-          "body": { "type": "object", "description": "Raw Whop checkout configuration create payload." }
+          "company_id": { "type": "string" },
+          "plan_id": { "type": "string" },
+          "mode": { "type": "string", "enum": ["payment", "setup"], "default": "payment" },
+          "currency": { "type": "string" },
+          "affiliate_code": { "type": "string" },
+          "redirect_url": { "type": "string", "format": "uri" },
+          "three_ds_level": { "type": "string" },
+          "metadata": { "type": "object", "additionalProperties": true },
+          "payment_method_configuration": {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "array", "items": { "type": "string" } },
+              "disabled": { "type": "array", "items": { "type": "string" } },
+              "include_platform_defaults": { "type": "boolean" }
+            }
+          }
         },
-        "required": ["body"]
+        "required": ["company_id", "plan_id"]
       }
     },
     {
       "name": "delete_checkout_configuration",
       "description": "Delete a Whop checkout configuration.",
       "method": "DELETE",
-      "path": "/checkout_configurations/{checkout_configuration_id}",
+      "path": "/checkout_configurations/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "list_experiences",
+      "description": "List Whop experiences for a company. A course experience is the hosted content area attached to sellable products.",
+      "method": "GET",
+      "path": "/experiences",
       "input_schema": {
         "type": "object",
         "properties": {
-          "checkout_configuration_id": { "type": "string" }
+          "company_id": { "type": "string" },
+          "product_id": { "type": "string" },
+          "app_id": { "type": "string" },
+          "created_before": { "type": "string" },
+          "created_after": { "type": "string" },
+          "first": { "type": "integer", "minimum": 1 },
+          "after": { "type": "string" },
+          "last": { "type": "integer", "minimum": 1 },
+          "before": { "type": "string" }
         },
-        "required": ["checkout_configuration_id"]
+        "required": ["company_id"]
+      }
+    },
+    {
+      "name": "get_experience",
+      "description": "Retrieve one Whop experience and its attached products.",
+      "method": "GET",
+      "path": "/experiences/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "create_experience",
+      "description": "Create a hosted Whop experience. For courses, first use list_apps to find the native Courses app_id.",
+      "method": "POST",
+      "path": "/experiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "company_id": { "type": "string" },
+          "app_id": { "type": "string", "description": "Native Courses app ID returned by list_apps." },
+          "name": { "type": "string" },
+          "is_public": { "type": "boolean", "description": "Usually false for paid courses." },
+          "section_id": { "type": "string" },
+          "logo": { "type": "object", "properties": { "id": { "type": "string", "description": "Existing file_ ID." } }, "required": ["id"] }
+        },
+        "required": ["company_id", "app_id"]
+      }
+    },
+    {
+      "name": "update_experience",
+      "description": "Update a Whop experience's name, access, section, order, or logo.",
+      "method": "PATCH",
+      "path": "/experiences/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "is_public": { "type": "boolean" },
+          "access_level": { "type": "string", "enum": ["public", "private"] },
+          "section_id": { "type": "string" },
+          "order": { "type": "string" },
+          "logo": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "attach_experience",
+      "description": "Attach a course experience to a sellable product so purchasers receive access to the hosted course.",
+      "method": "POST",
+      "path": "/experiences/{id}/attach",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string", "description": "exp_ experience ID." }, "product_id": { "type": "string", "description": "prod_ product ID." } }, "required": ["id", "product_id"] }
+    },
+    {
+      "name": "detach_experience",
+      "description": "Detach an experience from a product, removing that product's access relationship.",
+      "method": "POST",
+      "path": "/experiences/{id}/detach",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "product_id": { "type": "string" } }, "required": ["id", "product_id"] }
+    },
+    {
+      "name": "duplicate_experience",
+      "description": "Duplicate a Whop experience and its configuration.",
+      "method": "POST",
+      "path": "/experiences/{id}/duplicate",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "delete_experience",
+      "description": "Delete a Whop experience. Confirm product attachments and customer access first.",
+      "method": "DELETE",
+      "path": "/experiences/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "list_courses",
+      "description": "List hosted Whop courses by experience or company.",
+      "method": "GET",
+      "path": "/courses",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "experience_id": { "type": "string" },
+          "company_id": { "type": "string" },
+          "first": { "type": "integer", "minimum": 1 },
+          "after": { "type": "string" },
+          "last": { "type": "integer", "minimum": 1 },
+          "before": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_course",
+      "description": "Retrieve a Whop course with its ordered chapters and lessons.",
+      "method": "GET",
+      "path": "/courses/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string", "description": "cors_ course ID." } }, "required": ["id"] }
+    },
+    {
+      "name": "create_course",
+      "description": "Create a hosted course inside a Courses experience. Start hidden, add chapters and lessons, then update visibility to visible when ready.",
+      "method": "POST",
+      "path": "/courses",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "experience_id": { "type": "string" },
+          "title": { "type": "string" },
+          "tagline": { "type": "string" },
+          "visibility": { "type": "string", "enum": ["visible", "hidden"], "default": "hidden" },
+          "certificate_after_completion_enabled": { "type": "boolean" },
+          "require_completing_lessons_in_order": { "type": "boolean" },
+          "order": { "type": "string", "description": "Decimal ordering value." },
+          "thumbnail": { "type": "object", "properties": { "id": { "type": "string", "description": "Existing file_ ID." } }, "required": ["id"] }
+        },
+        "required": ["experience_id", "title"]
+      }
+    },
+    {
+      "name": "update_course",
+      "description": "Update course metadata, publication visibility, certificate/order settings, or reorder chapters and lessons in one call.",
+      "method": "PATCH",
+      "path": "/courses/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "tagline": { "type": "string" },
+          "description": { "type": "string" },
+          "language": { "type": "string", "enum": ["en", "es", "it", "pt", "de", "fr", "pl", "ru", "nl", "ca", "tr", "sv", "uk", "no", "fi", "sk", "el", "cs", "hr", "da", "ro", "bg"] },
+          "visibility": { "type": "string", "enum": ["visible", "hidden"] },
+          "certificate_after_completion_enabled": { "type": "boolean" },
+          "require_completing_lessons_in_order": { "type": "boolean" },
+          "order": { "type": "string" },
+          "thumbnail": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] },
+          "chapters": {
+            "type": "array",
+            "description": "Complete chapter/lesson order payload when reordering.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "title": { "type": "string" },
+                "order": { "type": "integer" },
+                "lessons": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": { "id": { "type": "string" }, "chapter_id": { "type": "string" }, "title": { "type": "string" }, "order": { "type": "integer" } },
+                    "required": ["id", "chapter_id", "title", "order"]
+                  }
+                }
+              },
+              "required": ["id", "title", "order"]
+            }
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "delete_course",
+      "description": "Delete a hosted Whop course.",
+      "method": "DELETE",
+      "path": "/courses/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "list_course_chapters",
+      "description": "List chapters in a Whop course.",
+      "method": "GET",
+      "path": "/course_chapters",
+      "input_schema": { "type": "object", "properties": { "course_id": { "type": "string" }, "first": { "type": "integer" }, "after": { "type": "string" }, "last": { "type": "integer" }, "before": { "type": "string" } }, "required": ["course_id"] }
+    },
+    {
+      "name": "get_course_chapter",
+      "description": "Retrieve one Whop course chapter.",
+      "method": "GET",
+      "path": "/course_chapters/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "create_course_chapter",
+      "description": "Create a chapter/module in a Whop course.",
+      "method": "POST",
+      "path": "/course_chapters",
+      "input_schema": { "type": "object", "properties": { "course_id": { "type": "string" }, "title": { "type": "string" } }, "required": ["course_id"] }
+    },
+    {
+      "name": "update_course_chapter",
+      "description": "Rename a Whop course chapter.",
+      "method": "PATCH",
+      "path": "/course_chapters/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "title": { "type": "string" } }, "required": ["id", "title"] }
+    },
+    {
+      "name": "delete_course_chapter",
+      "description": "Delete a Whop course chapter and confirm dependent lessons first.",
+      "method": "DELETE",
+      "path": "/course_chapters/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "list_course_lessons",
+      "description": "List lessons across a course or within one chapter.",
+      "method": "GET",
+      "path": "/course_lessons",
+      "input_schema": { "type": "object", "properties": { "course_id": { "type": "string" }, "chapter_id": { "type": "string" }, "first": { "type": "integer" }, "after": { "type": "string" }, "last": { "type": "integer" }, "before": { "type": "string" } } }
+    },
+    {
+      "name": "get_course_lesson",
+      "description": "Retrieve one lesson, including text, hosted-video metadata, PDF, attachments, and assessment questions.",
+      "method": "GET",
+      "path": "/course_lessons/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "create_course_lesson",
+      "description": "Create a text, video, PDF, mixed, quiz, or knowledge-check lesson. YouTube and Loom embeds can be assigned immediately; hosted Mux assets, PDFs, attachments, visibility, and quiz questions are added with update_course_lesson.",
+      "method": "POST",
+      "path": "/course_lessons",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chapter_id": { "type": "string" },
+          "lesson_type": { "type": "string", "enum": ["text", "video", "pdf", "multi", "quiz", "knowledge_check"] },
+          "title": { "type": "string" },
+          "content": { "type": "string", "description": "Markdown lesson body." },
+          "embed_type": { "type": "string", "enum": ["youtube", "loom"] },
+          "embed_id": { "type": "string", "description": "YouTube video ID or Loom share ID." },
+          "days_from_course_start_until_unlock": { "type": "integer", "minimum": 0 },
+          "thumbnail": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+        },
+        "required": ["chapter_id", "lesson_type"]
+      }
+    },
+    {
+      "name": "update_course_lesson",
+      "description": "Update lesson content and visibility; attach uploaded files/PDFs or an existing Whop Mux asset; and define quiz questions plus passing requirements.",
+      "method": "PATCH",
+      "path": "/course_lessons/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "lesson_type": { "type": "string", "enum": ["text", "video", "pdf", "multi", "quiz", "knowledge_check"] },
+          "visibility": { "type": "string", "enum": ["visible", "hidden"] },
+          "content": { "type": "string", "description": "Markdown lesson body." },
+          "embed_type": { "type": "string", "enum": ["youtube", "loom"] },
+          "embed_id": { "type": "string" },
+          "mux_asset_id": { "type": "string", "description": "Existing mux_ asset ID for a Whop-hosted video." },
+          "days_from_course_start_until_unlock": { "type": "integer", "minimum": 0 },
+          "max_attempts": { "type": "integer", "minimum": 1 },
+          "thumbnail": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] },
+          "main_pdf": { "type": "object", "properties": { "id": { "type": "string", "description": "Ready file_ ID." } }, "required": ["id"] },
+          "attachments": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] } },
+          "assessment_completion_requirement": {
+            "type": "object",
+            "properties": {
+              "minimum_grade_percent": { "type": "number", "minimum": 0, "maximum": 100 },
+              "minimum_questions_correct": { "type": "integer", "minimum": 0 }
+            },
+            "description": "Set only one passing criterion."
+          },
+          "assessment_questions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "description": "Existing question ID when updating." },
+                "question_text": { "type": "string" },
+                "question_type": { "type": "string", "enum": ["short_answer", "true_false", "multiple_choice", "multiple_select"] },
+                "correct_answer": { "type": "string", "description": "Required by Whop; used directly for short-answer questions." },
+                "image": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] },
+                "options": {
+                  "type": "array",
+                  "items": { "type": "object", "properties": { "id": { "type": "string" }, "option_text": { "type": "string" }, "is_correct": { "type": "boolean" } }, "required": ["option_text", "is_correct"] }
+                }
+              },
+              "required": ["question_text", "question_type", "correct_answer"]
+            }
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "delete_course_lesson",
+      "description": "Delete a Whop course lesson.",
+      "method": "DELETE",
+      "path": "/course_lessons/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "start_course_lesson",
+      "description": "Record that the current Whop user started a lesson. This user-context endpoint is mainly for custom learner experiences.",
+      "method": "POST",
+      "path": "/course_lessons/{lesson_id}/start",
+      "input_schema": { "type": "object", "properties": { "lesson_id": { "type": "string" } }, "required": ["lesson_id"] }
+    },
+    {
+      "name": "complete_course_lesson",
+      "description": "Mark a lesson completed for the current Whop user.",
+      "method": "POST",
+      "path": "/course_lessons/{lesson_id}/mark_as_completed",
+      "input_schema": { "type": "object", "properties": { "lesson_id": { "type": "string" } }, "required": ["lesson_id"] }
+    },
+    {
+      "name": "submit_course_assessment",
+      "description": "Submit answers for a quiz or knowledge-check lesson and receive a graded result.",
+      "method": "POST",
+      "path": "/course_lessons/{lesson_id}/submit_assessment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lesson_id": { "type": "string" },
+          "answers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "question_id": { "type": "string" },
+                "answer_text": { "type": "string" },
+                "selected_option_ids": { "type": "array", "items": { "type": "string" } }
+              },
+              "required": ["question_id"]
+            }
+          }
+        },
+        "required": ["lesson_id", "answers"]
       }
     },
     {
       "name": "list_payments",
-      "description": "List Whop payments for reconciliation, customer support, and fulfillment checks.",
+      "description": "List Whop payments for sales reporting, reconciliation, and support.",
       "method": "GET",
       "path": "/payments",
       "input_schema": {
         "type": "object",
         "properties": {
           "company_id": { "type": "string" },
-          "product_id": { "type": "string" },
-          "plan_id": { "type": "string" },
-          "membership_id": { "type": "string" },
-          "status": { "type": "string" },
-          "direction": { "type": "string" },
+          "product_ids": { "type": "array", "items": { "type": "string" } },
+          "plan_ids": { "type": "array", "items": { "type": "string" } },
+          "statuses": { "type": "array", "items": { "type": "string" } },
+          "currencies": { "type": "array", "items": { "type": "string" } },
+          "billing_reasons": { "type": "array", "items": { "type": "string" } },
+          "include_free": { "type": "boolean" },
+          "query": { "type": "string" },
+          "created_before": { "type": "string" },
+          "created_after": { "type": "string" },
+          "updated_before": { "type": "string" },
+          "updated_after": { "type": "string" },
+          "direction": { "type": "string", "enum": ["asc", "desc"] },
           "order": { "type": "string" },
           "first": { "type": "integer" },
           "after": { "type": "string" },
@@ -256,57 +782,47 @@
       "name": "get_payment",
       "description": "Retrieve one Whop payment.",
       "method": "GET",
-      "path": "/payments/{payment_id}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "payment_id": { "type": "string" }
-        },
-        "required": ["payment_id"]
-      }
-    },
-    {
-      "name": "create_payment",
-      "description": "Create a Whop payment using Whop's payment create schema when your Whop app flow requires server-side payment creation.",
-      "method": "POST",
-      "path": "/payments",
-      "body_root_param": "body",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "body": { "type": "object", "description": "Raw Whop payment create payload." }
-        },
-        "required": ["body"]
-      }
+      "path": "/payments/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
     },
     {
       "name": "refund_payment",
-      "description": "Refund a Whop payment. Body may include provider-supported refund fields such as amount, reason, or metadata.",
+      "description": "Refund all or part of a Whop payment. Omit partial_amount for a full refund.",
       "method": "POST",
-      "path": "/payments/{payment_id}/refund",
-      "body_root_param": "body",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "payment_id": { "type": "string" },
-          "body": { "type": "object", "description": "Raw Whop refund payload." }
-        },
-        "required": ["payment_id", "body"]
-      }
+      "path": "/payments/{id}/refund",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "partial_amount": { "type": "number", "minimum": 0, "description": "Refund in major charge-currency units." } }, "required": ["id"] }
+    },
+    {
+      "name": "retry_payment",
+      "description": "Retry collection for a failed Whop payment.",
+      "method": "POST",
+      "path": "/payments/{id}/retry",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "void_payment",
+      "description": "Void an eligible Whop payment so it is no longer collected.",
+      "method": "POST",
+      "path": "/payments/{id}/void",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
     },
     {
       "name": "list_memberships",
-      "description": "List Whop memberships for fulfillment and access checks.",
+      "description": "List product-access memberships for fulfillment and subscriber support.",
       "method": "GET",
       "path": "/memberships",
       "input_schema": {
         "type": "object",
         "properties": {
           "company_id": { "type": "string" },
-          "product_id": { "type": "string" },
-          "user_id": { "type": "string" },
-          "status": { "type": "string" },
-          "direction": { "type": "string" },
+          "product_ids": { "type": "array", "items": { "type": "string" } },
+          "plan_ids": { "type": "array", "items": { "type": "string" } },
+          "user_ids": { "type": "array", "items": { "type": "string" } },
+          "statuses": { "type": "array", "items": { "type": "string" } },
+          "cancel_options": { "type": "array", "items": { "type": "string" } },
+          "created_before": { "type": "string" },
+          "created_after": { "type": "string" },
+          "direction": { "type": "string", "enum": ["asc", "desc"] },
           "order": { "type": "string" },
           "first": { "type": "integer" },
           "after": { "type": "string" },
@@ -317,48 +833,93 @@
     },
     {
       "name": "get_membership",
-      "description": "Retrieve one Whop membership.",
+      "description": "Retrieve one Whop membership by membership ID or license key.",
       "method": "GET",
-      "path": "/memberships/{membership_id}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "membership_id": { "type": "string" }
-        },
-        "required": ["membership_id"]
-      }
+      "path": "/memberships/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "update_membership",
+      "description": "Replace custom metadata on a Whop membership.",
+      "method": "PATCH",
+      "path": "/memberships/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "metadata": { "type": "object", "additionalProperties": true } }, "required": ["id", "metadata"] }
+    },
+    {
+      "name": "add_membership_free_days",
+      "description": "Extend a membership by 1 to 1095 free days.",
+      "method": "POST",
+      "path": "/memberships/{id}/add_free_days",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "free_days": { "type": "integer", "minimum": 1, "maximum": 1095 } }, "required": ["id", "free_days"] }
+    },
+    {
+      "name": "cancel_membership",
+      "description": "Cancel a Whop membership immediately or at the end of its current billing period.",
+      "method": "POST",
+      "path": "/memberships/{id}/cancel",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "cancellation_mode": { "type": "string", "enum": ["at_period_end", "immediate"], "default": "at_period_end" } }, "required": ["id"] }
+    },
+    {
+      "name": "pause_membership",
+      "description": "Pause a Whop membership, optionally voiding outstanding past-due payments.",
+      "method": "POST",
+      "path": "/memberships/{id}/pause",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "void_payments": { "type": "boolean" } }, "required": ["id"] }
+    },
+    {
+      "name": "resume_membership",
+      "description": "Resume a paused Whop membership.",
+      "method": "POST",
+      "path": "/memberships/{id}/resume",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "uncancel_membership",
+      "description": "Remove a scheduled cancellation from a Whop membership.",
+      "method": "POST",
+      "path": "/memberships/{id}/uncancel",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
     },
     {
       "name": "list_leads",
-      "description": "List Whop leads captured for a company or product.",
+      "description": "List marketplace/product leads captured by Whop.",
       "method": "GET",
       "path": "/leads",
       "input_schema": {
         "type": "object",
         "properties": {
           "company_id": { "type": "string" },
-          "product_id": { "type": "string" },
-          "direction": { "type": "string" },
-          "order": { "type": "string" },
+          "product_ids": { "type": "array", "items": { "type": "string" } },
+          "created_before": { "type": "string" },
+          "created_after": { "type": "string" },
           "first": { "type": "integer" },
           "after": { "type": "string" },
           "last": { "type": "integer" },
           "before": { "type": "string" }
-        }
+        },
+        "required": ["company_id"]
       }
     },
     {
       "name": "get_lead",
       "description": "Retrieve one Whop lead.",
       "method": "GET",
-      "path": "/leads/{lead_id}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "lead_id": { "type": "string" }
-        },
-        "required": ["lead_id"]
-      }
+      "path": "/leads/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "create_lead",
+      "description": "Create a Whop lead for a company and optional product.",
+      "method": "POST",
+      "path": "/leads",
+      "input_schema": { "type": "object", "properties": { "company_id": { "type": "string" }, "product_id": { "type": "string" }, "user_id": { "type": "string" }, "referrer": { "type": "string" }, "metadata": { "type": "object", "additionalProperties": true } }, "required": ["company_id"] }
+    },
+    {
+      "name": "update_lead",
+      "description": "Replace a lead's referrer or metadata.",
+      "method": "PATCH",
+      "path": "/leads/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" }, "referrer": { "type": "string" }, "metadata": { "type": "object", "additionalProperties": true } }, "required": ["id"] }
     }
   ]
 }

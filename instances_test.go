@@ -275,6 +275,65 @@ func TestAgentShutdownPolicy(t *testing.T) {
 	}
 }
 
+func assertAlwaysLoadedChannelsEntry(t *testing.T, servers []any) {
+	t.Helper()
+	for _, raw := range servers {
+		entry, _ := raw.(map[string]any)
+		if entry["name"] != "channels" {
+			continue
+		}
+		if entry["no_spawn"] != true {
+			t.Fatalf("channels no_spawn = %#v, want true", entry["no_spawn"])
+		}
+		loading, _ := entry["tool_loading"].(map[string]any)
+		if loading["default"] != "always" {
+			t.Fatalf("channels tool_loading = %#v, want default=always", entry["tool_loading"])
+		}
+		return
+	}
+	t.Fatalf("channels entry missing from %#v", servers)
+}
+
+func TestChannelsMCPConfigIsAlwaysLoadedAndMainOnly(t *testing.T) {
+	entry := channelsMCPConfig("http://127.0.0.1:9999")
+	assertAlwaysLoadedChannelsEntry(t, []any{entry})
+	if entry["url"] != "http://127.0.0.1:9999" || entry["transport"] != "http" {
+		t.Fatalf("channels connection fields = %#v", entry)
+	}
+}
+
+func TestAgentManagerStartInjectsAlwaysLoadedChannels(t *testing.T) {
+	dir := t.TempDir()
+	core := filepath.Join(dir, "fake-core")
+	script := `#!/bin/sh
+trap 'exit 0' TERM INT
+while :; do sleep 1 & wait $!; done
+`
+	if err := os.WriteFile(core, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	im := NewAgentManager(filepath.Join(dir, "agents"), core)
+	inst := &Agent{
+		ID: 78, UserID: 1, Name: "channels-policy", Mode: "autonomous",
+		Config: "{}", Kind: "user",
+	}
+	if err := im.Start(inst, nil, "5280", nil, "agent-secret"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { im.Stop(inst.ID) })
+
+	raw, err := os.ReadFile(filepath.Join(im.InstanceDir(inst.ID), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	servers, _ := cfg["mcp_servers"].([]any)
+	assertAlwaysLoadedChannelsEntry(t, servers)
+}
+
 func TestAgentManagerStartPassesCodexRuntimeRefreshEnv(t *testing.T) {
 	dir := t.TempDir()
 	envFile := filepath.Join(dir, "core-env.txt")
@@ -449,6 +508,7 @@ func TestAgentManagerReattachRefreshesChannelsConfig(t *testing.T) {
 			t.Fatalf("missing %s from refreshed config: %#v", name, sawConfig)
 		}
 	}
+	assertAlwaysLoadedChannelsEntry(t, servers)
 }
 
 func TestResumeRunningInstancesManualModeSkipsSpawn(t *testing.T) {

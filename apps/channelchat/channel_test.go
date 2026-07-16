@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -121,6 +122,97 @@ func TestChatChannelCurrentStatusUpsertsAndStaysOutOfChat(t *testing.T) {
 	}
 	if len(statuses) != 1 || statuses[0].State != "completed" || statuses[0].Stale {
 		t.Fatalf("old completed status should remain visible and completed: %#v", statuses)
+	}
+}
+
+func TestChatChannelCurrentStatusPersistsNormalizesAndClearsNextAction(t *testing.T) {
+	db := openChannelTestDB(t, true)
+	defer db.Close()
+	st := newStore(db)
+	if _, err := db.Exec(`INSERT INTO agents (id, user_id, name, project_id) VALUES (285, 99, 'Media Agent', 'default')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EnsureDefaultChat(285); err != nil {
+		t.Fatal(err)
+	}
+	h := newHub()
+	userCh, _, cancel := h.subscribeUser(99)
+	defer cancel()
+	ch := &chatChannel{chatID: defaultChatID(285), agentID: 285, userID: 99, store: st, hub: h}
+
+	first, err := ch.SetCurrentStatus(framework.CurrentStatusRequest{
+		Title:  "Daily sync completed",
+		State:  "completed",
+		Next:   "Generate the weekly report",
+		NextAt: "2026-07-20T11:00:00+02:00",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = readUserMessage(t, userCh)
+	statuses, err := st.ListCurrentStatuses([]int64{285}, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 1 || statuses[0].Next != "Generate the weekly report" || statuses[0].NextAt != "2026-07-20T09:00:00Z" {
+		t.Fatalf("current statuses = %#v", statuses)
+	}
+
+	second, err := ch.SetCurrentStatus(framework.CurrentStatusRequest{
+		Title: "No further work planned",
+		State: "completed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = readUserMessage(t, userCh)
+	if second.MessageID != first.MessageID {
+		t.Fatalf("status row appended instead of replaced: first=%d second=%d", first.MessageID, second.MessageID)
+	}
+	statuses, err = st.ListCurrentStatuses([]int64{285}, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 1 || statuses[0].Next != "" || statuses[0].NextAt != "" {
+		t.Fatalf("replacement retained stale next action: %#v", statuses)
+	}
+}
+
+func TestChatChannelCurrentStatusValidatesNextAction(t *testing.T) {
+	db := openChannelTestDB(t, false)
+	defer db.Close()
+	st := newStore(db)
+	if _, err := st.EnsureDefaultChat(285); err != nil {
+		t.Fatal(err)
+	}
+	ch := &chatChannel{chatID: defaultChatID(285), store: st, hub: newHub()}
+	for _, tc := range []struct {
+		name string
+		req  framework.CurrentStatusRequest
+		want string
+	}{
+		{
+			name: "timestamp without action",
+			req:  framework.CurrentStatusRequest{Title: "Waiting", State: "waiting", NextAt: "2026-07-20T09:00:00Z"},
+			want: "next_at requires next",
+		},
+		{
+			name: "invalid timestamp",
+			req:  framework.CurrentStatusRequest{Title: "Waiting", State: "waiting", Next: "Run report", NextAt: "Monday morning"},
+			want: "next_at must be an RFC3339 timestamp",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ch.SetCurrentStatus(tc.req)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error=%v, want %q", err, tc.want)
+			}
+		})
+	}
+	if _, err := ch.SetCurrentStatus(framework.CurrentStatusRequest{
+		Title: "Importing contacts", State: "working", Next: "Validate rejected rows",
+	}); err != nil {
+		t.Fatalf("next without next_at should be accepted: %v", err)
 	}
 }
 

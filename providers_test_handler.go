@@ -127,6 +127,11 @@ var providerProbes = map[string]providerProbe{
 		headers:        map[string]string{"Authorization": "Bearer {NVIDIA_API_KEY}"},
 		modelCountPath: "data",
 	},
+	"xAI": {
+		url:            "https://api.x.ai/v1/language-models",
+		headers:        map[string]string{"Authorization": "Bearer {XAI_API_KEY}"},
+		modelCountPath: "models",
+	},
 	"Ollama": {
 		// Local-only; the operator points OLLAMA_HOST at their
 		// daemon. No auth header. /api/tags lists pulled models.

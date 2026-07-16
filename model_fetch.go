@@ -12,15 +12,20 @@ import (
 )
 
 type ModelInfo struct {
-	ID           string                    `json:"id"`
-	Name         string                    `json:"name"`
-	Description  string                    `json:"description,omitempty"`
-	ContextSize  int                       `json:"context_size,omitempty"`
-	Priority     int                       `json:"priority,omitempty"`
-	SupportedAPI *bool                     `json:"supported_in_api,omitempty"`
-	Capabilities ProviderModelCapabilities `json:"capabilities,omitempty"`
-	InputCost    float64                   `json:"input_cost,omitempty"`  // per 1M tokens
-	OutputCost   float64                   `json:"output_cost,omitempty"` // per 1M tokens
+	ID                         string                    `json:"id"`
+	Name                       string                    `json:"name"`
+	Description                string                    `json:"description,omitempty"`
+	ContextSize                int                       `json:"context_size,omitempty"`
+	Priority                   int                       `json:"priority,omitempty"`
+	SupportedAPI               *bool                     `json:"supported_in_api,omitempty"`
+	Capabilities               ProviderModelCapabilities `json:"capabilities,omitempty"`
+	InputCost                  float64                   `json:"input_cost,omitempty"`        // per 1M tokens
+	CachedInputCost            float64                   `json:"cached_input_cost,omitempty"` // per 1M tokens
+	OutputCost                 float64                   `json:"output_cost,omitempty"`       // per 1M tokens
+	LongContextThreshold       int                       `json:"long_context_threshold,omitempty"`
+	LongContextInputCost       float64                   `json:"long_context_input_cost,omitempty"`        // per 1M tokens
+	LongContextCachedInputCost float64                   `json:"long_context_cached_input_cost,omitempty"` // per 1M tokens
+	LongContextOutputCost      float64                   `json:"long_context_output_cost,omitempty"`       // per 1M tokens
 }
 
 // modelCache stores fetched models with TTL.
@@ -76,6 +81,8 @@ func FetchModels(providerType, apiKey string) ([]ModelInfo, error) {
 		// context_length, capabilities). Use the dedicated fetcher so
 		// the picker can show "GLM 5.1 (200K)" rather than a bare slug.
 		models, err = fetchVeniceModels(apiKey)
+	case "xai":
+		models, err = fetchXAIModels(apiKey)
 	default:
 		return nil, fmt.Errorf("unknown provider type: %s", providerType)
 	}
@@ -93,6 +100,121 @@ func FetchModels(providerType, apiKey string) ([]ModelInfo, error) {
 	globalModelCache.mu.Unlock()
 
 	return models, nil
+}
+
+var xAILanguageModelsURL = "https://api.x.ai/v1/language-models"
+
+// fetchXAIModels uses the language-only catalog rather than /v1/models so
+// image/video generation models never appear in an agent's LLM picker. xAI's
+// price units are USD cents per 100 million tokens; ModelInfo uses USD per
+// million tokens, hence the /10,000 conversion.
+func fetchXAIModels(apiKey string) ([]ModelInfo, error) {
+	data, err := apiGet(xAILanguageModelsURL, map[string]string{
+		"Authorization": "Bearer " + apiKey,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return parseXAILanguageModels(data)
+}
+
+func parseXAILanguageModels(data []byte) ([]ModelInfo, error) {
+	var response struct {
+		Models []struct {
+			ID                              string   `json:"id"`
+			Aliases                         []string `json:"aliases"`
+			ContextLength                   int      `json:"context_length"`
+			InputModalities                 []string `json:"input_modalities"`
+			OutputModalities                []string `json:"output_modalities"`
+			PromptTextTokenPrice            int64    `json:"prompt_text_token_price"`
+			CachedPromptTextTokenPrice      int64    `json:"cached_prompt_text_token_price"`
+			CompletionTextTokenPrice        int64    `json:"completion_text_token_price"`
+			LongContextThreshold            int      `json:"long_context_threshold"`
+			PromptTextTokenPriceLongContext int64    `json:"prompt_text_token_price_long_context"`
+			CompletionTokenPriceLongContext int64    `json:"completion_text_token_price_long_context"`
+			CachedPromptPriceLongContext    int64    `json:"cached_prompt_text_token_price_long_context"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, err
+	}
+
+	parallel := true
+	models := make([]ModelInfo, 0, len(response.Models))
+	for _, model := range response.Models {
+		id := strings.TrimSpace(model.ID)
+		if id == "" || !containsStringFold(model.OutputModalities, "text") {
+			continue
+		}
+		capabilities := ProviderModelCapabilities{
+			ContextWindow:             model.ContextLength,
+			MaxContextWindow:          model.ContextLength,
+			InputModalities:           append([]string(nil), model.InputModalities...),
+			SupportsParallelToolCalls: &parallel,
+		}
+		applyXAIReasoningCapabilities(id, &capabilities)
+
+		description := ""
+		if len(model.Aliases) > 0 {
+			description = "Aliases: " + strings.Join(model.Aliases, ", ")
+		}
+		models = append(models, ModelInfo{
+			ID:                         id,
+			Name:                       id,
+			Description:                description,
+			ContextSize:                model.ContextLength,
+			Capabilities:               capabilities,
+			InputCost:                  xAIPricePerMillion(model.PromptTextTokenPrice),
+			CachedInputCost:            xAIPricePerMillion(model.CachedPromptTextTokenPrice),
+			OutputCost:                 xAIPricePerMillion(model.CompletionTextTokenPrice),
+			LongContextThreshold:       model.LongContextThreshold,
+			LongContextInputCost:       xAIPricePerMillion(model.PromptTextTokenPriceLongContext),
+			LongContextCachedInputCost: xAIPricePerMillion(model.CachedPromptPriceLongContext),
+			LongContextOutputCost:      xAIPricePerMillion(model.CompletionTokenPriceLongContext),
+		})
+	}
+	sort.SliceStable(models, func(i, j int) bool {
+		return models[i].ID < models[j].ID
+	})
+	return models, nil
+}
+
+func xAIPricePerMillion(centsPerHundredMillion int64) float64 {
+	return float64(centsPerHundredMillion) / 10_000
+}
+
+func containsStringFold(values []string, want string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), want) {
+			return true
+		}
+	}
+	return false
+}
+
+func applyXAIReasoningCapabilities(modelID string, capabilities *ProviderModelCapabilities) {
+	if capabilities == nil {
+		return
+	}
+	id := strings.ToLower(strings.TrimSpace(modelID))
+	levels := func(values ...string) []ModelReasoningLevel {
+		out := make([]ModelReasoningLevel, 0, len(values))
+		for _, value := range values {
+			out = append(out, ModelReasoningLevel{Effort: value})
+		}
+		return out
+	}
+	switch {
+	case strings.Contains(id, "grok-4.5"):
+		capabilities.DefaultReasoningLevel = "high"
+		capabilities.SupportedReasoningLevels = levels("low", "medium", "high")
+		reasoningSummaries := true
+		capabilities.SupportsReasoningSummaries = &reasoningSummaries
+	case strings.Contains(id, "multi-agent"):
+		capabilities.SupportedReasoningLevels = levels("low", "medium", "high", "xhigh")
+	case strings.Contains(id, "grok-4.3"):
+		capabilities.SupportedReasoningLevels = levels("none", "low", "medium", "high")
+	}
 }
 
 func apiGet(url string, headers map[string]string) ([]byte, error) {
@@ -500,6 +622,14 @@ var modelPricingTable = map[string]modelPricing{
 	"accounts/fireworks/routers/kimi-k2p5-turbo": {0.99, 0.16, 4.94},
 	"accounts/fireworks/models/minimax-m2p7":     {0.30, 0.06, 1.20},
 	"accounts/fireworks/models/minimax-m2p5":     {0.30, 0.03, 1.20},
+
+	// xAI direct API (https://docs.x.ai/developers/pricing)
+	"grok-4.5":                     {2.00, 0.50, 6.00},
+	"grok-4.3":                     {1.25, 0.20, 2.50},
+	"grok-build-0.1":               {1.00, 0.20, 2.00},
+	"grok-4.20-0309-reasoning":     {1.25, 0.20, 2.50},
+	"grok-4.20-0309-non-reasoning": {1.25, 0.20, 2.50},
+	"grok-4.20-multi-agent-0309":   {1.25, 0.20, 2.50},
 
 	// OpenCode Go (https://opencode.ai/docs/go/) — flat-rate
 	// subscription, NOT per-token. Costs left at 0/0/0 so the

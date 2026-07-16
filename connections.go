@@ -1315,7 +1315,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			var data any
 			_ = json.Unmarshal(tool.MockResponse, &data)
 			if tool.ResponseTransform != nil && data != nil {
-				transformed, _, err := buildResponseTransformData(tool.ResponseTransform, data)
+				transformed, _, err := buildResponseTransformData(tool.ResponseTransform, data, input)
 				if err != nil {
 					return nil, err
 				}
@@ -1390,7 +1390,11 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		}
 		headers[headerName] = fmt.Sprint(v)
 	}
-	headers["Accept"] = "application/json"
+	if _, set := headers["Accept"]; !set {
+		if _, lowerSet := headers["accept"]; !lowerSet {
+			headers["Accept"] = "application/json"
+		}
+	}
 
 	// Tool-level query_params: a set of input field names that must be
 	// sent in the URL query string regardless of HTTP method. Required
@@ -1403,16 +1407,26 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	// and behavior is identical to before — which is why this change is
 	// safe for the other 261 templates that don't use the field.
 	toolQuerySet := make(map[string]bool, len(tool.QueryParams)+len(tool.QueryParamAliases))
+	localResponseParams := responseTransformLocalParams(tool.ResponseTransform)
 	for _, name := range tool.QueryParams {
+		if localResponseParams[name] {
+			continue
+		}
 		toolQuerySet[name] = true
 	}
 	for name := range tool.QueryParamAliases {
+		if localResponseParams[name] {
+			continue
+		}
 		toolQuerySet[name] = true
 	}
 	// Collect tool-declared query params from input. Skip empty-string
 	// values so optional fields don't become noisy ?foo= in the URL.
 	toolQuery := neturl.Values{}
 	for _, name := range tool.QueryParams {
+		if localResponseParams[name] {
+			continue
+		}
 		v, ok := input[name]
 		if !ok || v == nil {
 			continue
@@ -1423,6 +1437,9 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		addQueryValue(toolQuery, name, v)
 	}
 	for inputName, queryName := range tool.QueryParamAliases {
+		if localResponseParams[inputName] {
+			continue
+		}
 		if queryName == "" {
 			continue
 		}
@@ -1583,6 +1600,9 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 				if toolQuerySet[k] {
 					continue
 				}
+				if localResponseParams[k] {
+					continue
+				}
 				if _, isHeaderParam := tool.HeaderParams[k]; isHeaderParam {
 					continue
 				}
@@ -1628,6 +1648,9 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 				continue
 			}
 			if toolQuerySet[k] {
+				continue
+			}
+			if localResponseParams[k] {
 				continue
 			}
 			if _, isHeaderParam := tool.HeaderParams[k]; isHeaderParam {
@@ -1765,6 +1788,18 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		data = string(respBody)
 	}
 
+	// Success transforms describe provider success payloads. Applying them
+	// to errors can erase the provider's error object and make failures look
+	// like empty resources (notably Gmail thread 404 responses).
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return &ExecuteResult{
+			Success: false,
+			Status:  resp.StatusCode,
+			Data:    normalizeIntegrationHTTPError(resp.StatusCode, data),
+			Headers: hdrs,
+		}, nil
+	}
+
 	// Apply response_path extraction
 	if tool.ResponsePath != nil && data != nil {
 		if m, ok := data.(map[string]any); ok {
@@ -1773,7 +1808,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	}
 
 	if tool.ResponseTransform != nil && data != nil && !binary {
-		transformed, _, err := buildResponseTransformData(tool.ResponseTransform, data)
+		transformed, _, err := buildResponseTransformData(tool.ResponseTransform, data, input)
 		if err != nil {
 			return nil, err
 		}
@@ -2475,6 +2510,7 @@ func (s *Server) handleListConnections(w http.ResponseWriter, r *http.Request) {
 	type ConnectionWithTools struct {
 		Connection
 		ToolCount         int    `json:"tool_count"`
+		Logo              string `json:"logo,omitempty"`
 		GroupID           string `json:"group_id,omitempty"`
 		IsGroupChild      bool   `json:"is_group_child,omitempty"`
 		ExternalProjectID string `json:"external_project_id,omitempty"`
@@ -2488,14 +2524,18 @@ func (s *Server) handleListConnections(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		tc := 0
+		logo := ""
 		var groupID string
 		if app := s.catalog.Get(c.AppSlug); app != nil {
 			tc = len(app.Tools)
+			if app.Logo != nil {
+				logo = *app.Logo
+			}
 			if app.CredentialGroup != nil {
 				groupID = app.CredentialGroup.ID
 			}
 		}
-		row := ConnectionWithTools{Connection: c, ToolCount: tc, GroupID: groupID}
+		row := ConnectionWithTools{Connection: c, ToolCount: tc, Logo: logo, GroupID: groupID}
 		// Detect child rows cheaply by peeking at the decrypted blob.
 		// We only need `_type` + `_project_id` so this is a light JSON
 		// parse per connection — acceptable for the N ~ 100 case.

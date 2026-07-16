@@ -257,9 +257,8 @@ func (s *Server) updateAgentCore(ctx context.Context, agentID int64) error {
 	// cancellation prevents the next agent, but never strands this one between
 	// Stop and Start.
 	s.agents.Stop(inst.ID)
-	if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.loadChannelConfigs(inst.ID)...); err != nil {
-		inst.Status = "stopped"
-		_ = s.store.UpdateAgent(inst)
+	info, err := s.startManagedAgent(inst, providerEnv, pool, s.loadChannelConfigs(inst.ID)...)
+	if err != nil {
 		return fmt.Errorf("start updated core: %w", err)
 	}
 	_ = s.store.UpdateAgent(inst)
@@ -267,15 +266,6 @@ func (s *Server) updateAgentCore(ctx context.Context, agentID int64) error {
 	s.restoreEmailForInstance(inst)
 	s.notifyAgentSubscriptionStartup(inst)
 
-	info, err := s.waitForAgentCoreHealthy(context.Background(), inst.ID, 30*time.Second)
-	if err != nil {
-		return err
-	}
-	started := time.Now().UTC()
-	if info.UptimeSeconds > 0 {
-		started = started.Add(-time.Duration(info.UptimeSeconds) * time.Second)
-	}
-	_ = s.store.UpdateAgentCoreRuntime(inst.ID, info.Version, info.BuildTime, started)
 	if CoreVersion != "dev" && info.Version != "" && info.Version != CoreVersion {
 		return fmt.Errorf("updated core reported version %s, target is %s", info.Version, CoreVersion)
 	}
@@ -296,6 +286,79 @@ func (s *Server) waitForAgentCoreHealthy(ctx context.Context, agentID int64, tim
 		time.Sleep(250 * time.Millisecond)
 	}
 	return coreRuntimeInfo{}, fmt.Errorf("agent %d core did not become healthy within %s", agentID, timeout)
+}
+
+const agentRuntimeStartupTimeout = 30 * time.Second
+
+func coreRuntimeStartedAt(info coreRuntimeInfo) time.Time {
+	startedAt := time.Now().UTC()
+	if info.UptimeSeconds > 0 {
+		startedAt = startedAt.Add(-time.Duration(info.UptimeSeconds) * time.Second)
+	}
+	return startedAt
+}
+
+// syncAgentRuntime makes process activation durable only after the core's
+// authenticated status endpoint reports its real build metadata. The store
+// writes the complete runtime snapshot atomically.
+func (s *Server) syncAgentRuntime(inst *Agent, timeout time.Duration, requireUptime bool) (coreRuntimeInfo, error) {
+	if inst == nil {
+		return coreRuntimeInfo{}, errors.New("agent is nil")
+	}
+	info, err := s.waitForAgentCoreHealthy(context.Background(), inst.ID, timeout)
+	if err != nil {
+		return coreRuntimeInfo{}, err
+	}
+	if strings.TrimSpace(info.Version) == "" {
+		return coreRuntimeInfo{}, fmt.Errorf("agent %d core status omitted core_version", inst.ID)
+	}
+	if requireUptime && info.UptimeSeconds <= 0 {
+		return coreRuntimeInfo{}, fmt.Errorf("agent %d adopted core status omitted uptime", inst.ID)
+	}
+	inst.CoreVersion = info.Version
+	inst.CoreBuildTime = info.BuildTime
+	if err := s.store.SetAgentRuntimeRunning(inst, coreRuntimeStartedAt(info)); err != nil {
+		return coreRuntimeInfo{}, fmt.Errorf("persist agent %d runtime: %w", inst.ID, err)
+	}
+	return info, nil
+}
+
+func (s *Server) abandonUnsyncedAgentRuntime(inst *Agent) {
+	if inst == nil {
+		return
+	}
+	s.agents.Stop(inst.ID)
+	if err := s.store.SetAgentRuntimeStopped(inst); err != nil {
+		log.Printf("[RUNTIME] clear unsynced agent=%d: %v", inst.ID, err)
+	}
+}
+
+// startManagedAgent is the only server-owned path for launching a core. It
+// does not report success while the process exists only in memory.
+func (s *Server) startManagedAgent(inst *Agent, providerEnv map[string]string, pool []ProviderInfo, channelConfigs ...ChannelConfig) (coreRuntimeInfo, error) {
+	if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, channelConfigs...); err != nil {
+		return coreRuntimeInfo{}, err
+	}
+	info, err := s.syncAgentRuntime(inst, agentRuntimeStartupTimeout, false)
+	if err != nil {
+		s.abandonUnsyncedAgentRuntime(inst)
+		return coreRuntimeInfo{}, err
+	}
+	return info, nil
+}
+
+// reattachManagedAgent applies the same durable activation contract when a
+// replacement server adopts a core that survived the old server process.
+func (s *Server) reattachManagedAgent(inst *Agent, channelConfigs ...ChannelConfig) (coreRuntimeInfo, error) {
+	if err := s.agents.Reattach(inst, s.port, channelConfigs...); err != nil {
+		return coreRuntimeInfo{}, err
+	}
+	info, err := s.syncAgentRuntime(inst, agentRuntimeStartupTimeout, true)
+	if err != nil {
+		s.abandonUnsyncedAgentRuntime(inst)
+		return coreRuntimeInfo{}, err
+	}
+	return info, nil
 }
 
 func (s *Server) rolloutCandidates(projectID string, all bool, ids []int64) ([]int64, map[int64]string, error) {

@@ -232,7 +232,7 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		teardown()
 		return nil, fmt.Errorf("seed environment agent config: %w", err)
 	}
-	if err := s.agents.Start(wAgent, providerEnv, s.port, pool, s.instanceSecret); err != nil {
+	if _, err := s.startManagedAgent(wAgent, providerEnv, pool); err != nil {
 		teardown()
 		return nil, fmt.Errorf("spawn environment core: %w", err)
 	}

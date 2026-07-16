@@ -247,6 +247,22 @@ func extractMCPNames(config map[string]any) []string {
 	return out
 }
 
+// channelsMCPConfig is the single source of truth for the host-owned
+// Channels entry used by both fresh starts and core reattachment. Channels
+// remains an ordinary HTTP MCP server; tool_loading only pins its four small,
+// user-facing schemas in the authorized model context.
+func channelsMCPConfig(url string) map[string]any {
+	return map[string]any{
+		"name":      "channels",
+		"url":       url,
+		"transport": "http",
+		"no_spawn":  true,
+		"tool_loading": map[string]any{
+			"default": "always",
+		},
+	}
+}
+
 func NewAgentManager(dataDir, coreCmd string) *AgentManager {
 	os.MkdirAll(dataDir, 0755)
 	return &AgentManager{
@@ -551,18 +567,10 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	channelsEntry := map[string]any{
-		"name":      "channels",
-		"url":       channelsMCP.url(),
-		"transport": "http",
-		// Outbound user-facing chat bridge — main only. A worker that
-		// could attach channels would be able to reply to end users
-		// directly, which we don't want. Core's per-thread
-		// scaffolding includes channels.respond as an always-loaded
-		// tool, so the bridge is reachable without searching even
-		// when the channels MCP itself is hidden from sub-threads.
-		"no_spawn": true,
-	}
+	// Outbound user-facing chat bridge — main only. All four schemas are
+	// pinned for main so replying, publishing, and status updates never need a
+	// search_tools round-trip. no_spawn remains the worker privilege boundary.
+	channelsEntry := channelsMCPConfig(channelsMCP.url())
 
 	// Read the opt-in flags for the auto-injected system MCPs. These
 	// live in the instance's DB record (inst.Config JSON blob) rather
@@ -834,12 +842,7 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 		"args":     []string{"--mcp-gateway", fmt.Sprintf("--user-id=%d", inst.UserID)},
 		"no_spawn": true,
 	}
-	channelsEntry := map[string]any{
-		"name":      "channels",
-		"url":       channelsMCP.url(),
-		"transport": "http",
-		"no_spawn":  true,
-	}
+	channelsEntry := channelsMCPConfig(channelsMCP.url())
 
 	includeGateway := false
 	includeChannels := true
@@ -1241,20 +1244,25 @@ func (s *Server) enrichAgentRuntime(inst *Agent) {
 	}
 	versionChanged := info.Version != "" && info.Version != inst.CoreVersion
 	buildChanged := info.BuildTime != "" && info.BuildTime != inst.CoreBuildTime
-	shouldPersist := versionChanged || buildChanged || inst.CoreStartedAt == ""
-	var startedAt time.Time
+	startedAt := coreRuntimeStartedAt(info)
+	startChanged := inst.CoreStartedAt == ""
+	if existing, err := parseTime(inst.CoreStartedAt); err != nil || existing.Sub(startedAt).Abs() > 2*time.Second {
+		startChanged = true
+	}
+	shouldPersist := versionChanged || buildChanged || startChanged
 	if info.Version != "" {
 		inst.CoreVersion = info.Version
 	}
 	if info.BuildTime != "" {
 		inst.CoreBuildTime = info.BuildTime
 	}
-	if info.UptimeSeconds > 0 && shouldPersist {
-		startedAt = time.Now().Add(-time.Duration(info.UptimeSeconds) * time.Second).UTC()
+	if shouldPersist {
 		inst.CoreStartedAt = startedAt.Format(time.RFC3339Nano)
 	}
-	if shouldPersist && (inst.CoreVersion != "" || inst.CoreBuildTime != "") {
-		_ = s.store.UpdateAgentCoreRuntime(inst.ID, inst.CoreVersion, inst.CoreBuildTime, startedAt)
+	if shouldPersist && inst.CoreVersion != "" {
+		if err := s.store.SetAgentRuntimeRunning(inst, startedAt); err != nil {
+			log.Printf("[RUNTIME] reconcile agent=%d: %v", inst.ID, err)
+		}
 	}
 	inst.CoreUpdateAvailable = coreVersionOutdated(inst.CoreVersion, CoreVersion)
 }
@@ -1487,7 +1495,7 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.loadChannelConfigs(inst.ID)...); err != nil {
+		if _, err := s.startManagedAgent(inst, providerEnv, pool, s.loadChannelConfigs(inst.ID)...); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -1817,7 +1825,7 @@ func (s *Server) ResumeRunningInstances() {
 			continue
 		}
 		if reattachEnabled && inst.CoreAPIKey != "" && inst.Port > 0 && inst.Pid > 0 {
-			if err := s.agents.Reattach(inst, s.port, s.loadChannelConfigs(inst.ID)...); err == nil {
+			if _, err := s.reattachManagedAgent(inst, s.loadChannelConfigs(inst.ID)...); err == nil {
 				s.restoreSlackForInstance(inst)
 				s.restoreEmailForInstance(inst)
 				log.Printf("[RESUME] instance %d (%s): reattached existing core on port %d pid %d", inst.ID, inst.Name, inst.Port, inst.Pid)
@@ -1839,12 +1847,10 @@ func (s *Server) ResumeRunningInstances() {
 		}
 		pool := s.GetProviderPool(inst.UserID, inst.ProjectID)
 
-		if err := s.agents.Start(
+		if _, err := s.startManagedAgent(
 			inst,
 			providerEnv,
-			s.port,
 			pool,
-			s.instanceSecret,
 			s.loadChannelConfigs(inst.ID)...,
 		); err != nil {
 			// "already running" is a benign race with another start
@@ -1867,9 +1873,6 @@ func (s *Server) ResumeRunningInstances() {
 		s.restoreEmailForInstance(inst)
 		s.notifyAgentSubscriptionStartup(inst)
 		log.Printf("[RESUME] instance %d (%s): resumed on port %d pid %d", inst.ID, inst.Name, inst.Port, inst.Pid)
-		if _, err := s.waitForAgentCoreHealthy(context.Background(), inst.ID, 30*time.Second); err != nil {
-			log.Printf("[RESUME] instance %d (%s): %v", inst.ID, inst.Name, err)
-		}
 		if mode == "staggered" && i < len(rows)-1 {
 			time.Sleep(s.agentBootResumeDelay())
 		}
@@ -1981,7 +1984,7 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.loadChannelConfigs(inst.ID)...); err != nil {
+	if _, err := s.startManagedAgent(inst, providerEnv, pool, s.loadChannelConfigs(inst.ID)...); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -2970,9 +2973,7 @@ func (s *Server) handleBackgroundMemory(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, "no LLM provider configured", http.StatusBadRequest)
 			return
 		}
-		if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, s.loadChannelConfigs(inst.ID)...); err != nil {
-			inst.Status = "stopped"
-			_ = s.store.UpdateAgent(inst)
+		if _, err := s.startManagedAgent(inst, providerEnv, pool, s.loadChannelConfigs(inst.ID)...); err != nil {
 			http.Error(w, "restart agent: "+err.Error(), http.StatusInternalServerError)
 			return
 		}

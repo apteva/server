@@ -12,7 +12,7 @@ import (
 const (
 	channelsCapabilityMemoryID        = "system_channels_v1"
 	channelsCapabilityTag             = "capability:channels"
-	channelsCapabilityVersionTag      = "capability-version:channels:v1"
+	channelsCapabilityVersionTag      = "capability-version:channels:v5"
 	channelsCapabilityHashTagPrefix   = "capability-hash:"
 	channelsCapabilitySystemTag       = "system"
 	channelsCapabilityMemoryReason    = "channels capability sync"
@@ -30,16 +30,29 @@ The Apteva channel is the durable internal operator chat. Messages and Inbox art
 
 - ` + "`channels_send(channel, text, components?)`" + ` sends one ordinary visible message. Thoughts and plain assistant output are invisible. Use it for conversation, immediate progress, and final outcomes.
 - ` + "`channels_publish(kind, title, content, ...)`" + ` creates one durable Apteva Inbox artifact. kind is approval, report, or alert. title and content are required for every publication.
-- ` + "`channels_set_status(title, state, detail?, progress?)`" + ` replaces the single current monitoring status. title and state are required. It is not chat and never appears in the Inbox.
+- ` + "`channels_set_status(title, state, detail?, progress?, next?, next_at?)`" + ` replaces the single current monitoring status. title and state are required. It is not chat and never appears in the Inbox.
 - ` + "`channels_list_channels()`" + ` lists available communication targets. Use it instead of a send call to inspect availability.
 
 Build every tool call once with all required fields. Never emit placeholder, preflight, partial, or duplicate calls. If one call in a parallel batch fails, retry only that failed call.
 
 ## Status
 
-Set status to working before meaningful multi-step work or a substantive external action such as create, update, delete, send, publish, or trigger. When work can start immediately, call ` + "`channels_set_status`" + ` and the first action tool in the same parallel batch. Do not wait for the status result and do not parallelize past an approval or prerequisite.
+Status answers: what meaningful operator-relevant work is this agent actively doing, waiting on, blocked by, or most recently completed? Use it for a work unit that is multi-step, long-running, or cannot currently continue. When qualifying work can start immediately, call ` + "`channels_set_status`" + ` and the first action tool in the same parallel batch. Do not wait for the status result and do not parallelize past an approval or prerequisite.
 
-Always pass state explicitly: working while acting, waiting for time or an external dependency, blocked when progress cannot continue, and completed after the action result or work finishes. Emit at most one status per work phase. If the request already specifies a status call, that call satisfies the rule; do not add a preliminary status. Skip status for read-only lookups, brief answers, internal pacing, and individual tools within one phase.
+For qualifying work, always call ` + "`channels_set_status`" + ` at meaningful phase changes; do not merely describe the state in thoughts or chat. If an event reports that qualifying work you performed has completed, begun waiting, or become blocked, update status even when no other action tool remains.
+
+Always pass state explicitly. Use working while the work unit is actively executing. Use waiting only for an expected pause in that same unfinished work unit whose resume condition is known, including a scheduled time, operator approval, or an external job. Use blocked for an unexpected failure, missing access, or missing capability that requires corrective action before work can resume; do not use blocked for ordinary approval or a scheduled delay. Use completed after the meaningful work unit finishes. A future recurring task does not make completed work waiting.
+
+The title names the current work unit or completed outcome, not a future action or a waiting/blocking condition. Put the current phase, concrete result, dependency, or blocker in detail. Prefer title="Customer update publication" over "Waiting for approval", title="Delayed notification" over "Notification scheduled", and title="CRM contact import" over "CRM import blocked". Progress measures only this work unit; never use waiting with 100 percent. Emit at most one status per work phase. If the request already specifies a status call, that call satisfies this rule; do not add a preliminary status.
+
+Skip status for directive or memory edits, thread management, internal configuration, planning, pacing, retries, tool discovery, chat connectivity, channel messages or publications, status maintenance itself, read-only lookups, brief answers, isolated quick actions, and merely sleeping until future recurring work. Do not set a status just to announce what you may do later.
+
+Use next for only the nearest distinct operator-relevant responsibility after this work or phase. It is secondary metadata and must not replace the current title or detail. Never use placeholders such as "No pending work", restate the title, or record internal pacing. Add next_at only for an explicit or externally derived RFC3339 deadline for next. Never send next_at without next, and never estimate it from current time. A completed recurring task may remain completed while next and next_at describe its next scheduled run. Omit both when nothing meaningful is planned; a replacement without them clears the previous next action.
+
+Examples:
+- Completed recurring work: ` + "`channels_set_status(title=\"Daily CRM check completed\", state=\"completed\", detail=\"No unresolved conversations found.\", progress=100, next=\"Run the next daily CRM check.\", next_at=\"2026-07-20T09:00:00Z\")`" + `
+- Expected approval: ` + "`channels_set_status(title=\"Customer update publication\", state=\"waiting\", detail=\"Draft is ready and requires operator approval.\", progress=70, next=\"Publish customer update after approval.\")`" + `
+- Corrective failure: ` + "`channels_set_status(title=\"CRM contact import\", state=\"blocked\", detail=\"Authentication expired; reconnect the integration to resume.\")`" + `
 
 ## Inbox Publications
 
@@ -47,16 +60,16 @@ Approval content states the exact decision needed, why, and the consequence. Use
 
 Alert content states what went wrong, its impact, and the relevant next action. Use alerts for important repeated failures, authentication problems, external outages, data risk, or blocked work; not routine progress or successful work.
 
-Report content is the report summary. Draft it before calling the tool. It must stand alone and say what actually happened: completed work, concrete results, failures or blockers, important evidence or metrics, and the next action when relevant. Never publish a title-only report, a generic description of the report, or an empty "nothing happened" report. Omit greetings, dashboard chat, connect/disconnect events, idle pacing, and internal reasoning.
+Report content is a periodic digest of meaningful work across its reporting period. Draft it before calling the tool. It must stand alone and combine completed work, concrete results, failures or blockers, important evidence or metrics, and the next action when relevant. Reports are not action receipts: never publish one after each check, tool call, cleanup, or completed task. Use ` + "`channels_set_status`" + ` for work state and ` + "`channels_send`" + ` for a requested task's direct outcome. Never publish a title-only report, a generic description of the report, or an empty "nothing happened" report. Omit greetings, dashboard chat, connect/disconnect events, idle pacing, and internal reasoning.
 
 Correct report call:
-` + "`channels_publish(kind=\"report\", title=\"Import completed\", content=\"Imported 842 contacts; 17 invalid rows were skipped and saved for review.\", period=\"today\")`" + `
+` + "`channels_publish(kind=\"report\", title=\"Daily work summary\", content=\"Imported 842 contacts, cleared 12 routine inbox items, and preserved 3 messages requiring review. Seventeen invalid contact rows remain for follow-up.\", period=\"today\")`" + `
 
-Use reports when requested, when a directive requires a daily/weekly report, after a delayed/background check, or after significant completed work the operator should review later. Daily reports cover meaningful recent outcomes. Weekly reports add trends, metrics, recurring issues, decisions, unresolved blockers, and recommended next actions. Before reporting, use available read-only tools when possible to reconstruct facts from activity, telemetry, task/app state, files, records, or the monitored external system.
+Follow an explicit operator request or directive when it defines report timing. Otherwise publish at most one unsolicited report per day, near the end of the operator's day, and only when meaningful work was completed since the previous report. Combine the day's work into one digest with period=today; if no meaningful work was done, publish no report. Daily reports summarize meaningful outcomes across the day. Weekly reports add trends, metrics, recurring issues, decisions, unresolved blockers, and recommended next actions. Before reporting, use available read-only tools when possible to reconstruct facts from activity, telemetry, task/app state, files, records, or the monitored external system.
 
 ## Presence
 
-When an operator is actively chatting, use ` + "`channels_send`" + ` for replies and final outcomes. Do not create reports or alerts for normal live progress unless asked or genuinely important. If work finishes after the operator disconnects, publish a report when the result was requested for later review. If a live request creates an approval, report, or alert, also send a short chat confirmation.`
+When an operator is actively chatting, use ` + "`channels_send`" + ` for replies and final outcomes. The Apteva chat is durable, so use ` + "`channels_send`" + ` for a requested outcome even if the operator disconnected before work finished. Do not turn offline completion into a report automatically. Do not create reports or alerts for normal live progress unless asked or genuinely important. If a live request creates an approval, report, or alert, also send a short chat confirmation.`
 }
 
 func channelsCapabilityPayload() pushPayload {

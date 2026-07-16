@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"sort"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // TelemetryBroadcaster fans out events to SSE subscribers.
@@ -19,11 +21,19 @@ type TelemetryBroadcaster struct {
 	mu          sync.Mutex
 	subscribers map[int64][]chan TelemetryEvent // instanceID → channels
 	nextID      int64
+	nextSeq     uint64
+	replay      []TelemetryEvent
+	replayHead  int
+	replaySize  int
+	dropped     uint64
 }
+
+const telemetryReplayCap = 8192
 
 func NewTelemetryBroadcaster() *TelemetryBroadcaster {
 	return &TelemetryBroadcaster{
 		subscribers: make(map[int64][]chan TelemetryEvent),
+		replay:      make([]TelemetryEvent, telemetryReplayCap),
 	}
 }
 
@@ -63,6 +73,25 @@ func (b *TelemetryBroadcaster) SubscribeAll() chan TelemetryEvent {
 	return ch
 }
 
+// SubscribeAllCursor atomically subscribes and returns the latest sequence.
+// A fresh SSE connection uses the returned cursor as its live starting point;
+// reconnects instead ask ReplaySince for everything after their prior cursor.
+func (b *TelemetryBroadcaster) SubscribeAllCursor() (chan TelemetryEvent, uint64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	ch := make(chan TelemetryEvent, 200)
+	b.subscribers[-1] = append(b.subscribers[-1], ch)
+	return ch, b.nextSeq
+}
+
+func (b *TelemetryBroadcaster) SubscribeCursor(instanceID int64) (chan TelemetryEvent, uint64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	ch := make(chan TelemetryEvent, 100)
+	b.subscribers[instanceID] = append(b.subscribers[instanceID], ch)
+	return ch, b.nextSeq
+}
+
 // UnsubscribeAll removes a channel previously returned by SubscribeAll.
 // Mirrors Unsubscribe but with the -1 sentinel key.
 func (b *TelemetryBroadcaster) UnsubscribeAll(ch chan TelemetryEvent) {
@@ -83,11 +112,20 @@ func (b *TelemetryBroadcaster) UnsubscribeAll(ch chan TelemetryEvent) {
 func (b *TelemetryBroadcaster) Broadcast(events []TelemetryEvent) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for _, ev := range events {
+	for _, input := range events {
+		b.nextSeq++
+		ev := input
+		ev.Seq = b.nextSeq
+		b.replay[b.replayHead] = ev
+		b.replayHead = (b.replayHead + 1) % telemetryReplayCap
+		if b.replaySize < telemetryReplayCap {
+			b.replaySize++
+		}
 		for _, ch := range b.subscribers[ev.AgentID] {
 			select {
 			case ch <- ev:
 			default:
+				b.recordDrop(ev, "agent")
 			}
 		}
 		// Fan out to "all" subscribers
@@ -95,9 +133,45 @@ func (b *TelemetryBroadcaster) Broadcast(events []TelemetryEvent) {
 			select {
 			case ch <- ev:
 			default:
+				b.recordDrop(ev, "all")
 			}
 		}
 	}
+}
+
+func (b *TelemetryBroadcaster) recordDrop(ev TelemetryEvent, lane string) {
+	b.dropped++
+	if b.dropped%100 == 1 {
+		log.Printf("[TELEMETRY] subscriber buffer full lane=%s agent=%d seq=%d total_drops=%d (replay ring will reconcile)",
+			lane, ev.AgentID, ev.Seq, b.dropped)
+	}
+}
+
+// ReplaySince returns an ordered copy of recent events newer than since.
+// reset is true when the cursor belongs to an older server process or fell
+// behind the bounded ring; callers should tell clients that only the retained
+// suffix can be replayed. since=0 intentionally means "live from subscribe".
+func (b *TelemetryBroadcaster) ReplaySince(since uint64) (events []TelemetryEvent, reset bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if since == 0 || b.replaySize == 0 {
+		return nil, since > b.nextSeq
+	}
+	start := 0
+	if b.replaySize == telemetryReplayCap {
+		start = b.replayHead
+	}
+	oldest := b.replay[start].Seq
+	if since > b.nextSeq || since+1 < oldest {
+		reset = true
+	}
+	for i := 0; i < b.replaySize; i++ {
+		ev := b.replay[(start+i)%telemetryReplayCap]
+		if reset || ev.Seq > since {
+			events = append(events, ev)
+		}
+	}
+	return events, reset
 }
 
 // TelemetryEvent is the unified event format.
@@ -108,6 +182,7 @@ type TelemetryEvent struct {
 	Type     string          `json:"type"`
 	Time     time.Time       `json:"time"`
 	Data     json.RawMessage `json:"data"`
+	Seq      uint64          `json:"seq,omitempty"`
 }
 
 // TelemetryStats holds aggregated statistics.
@@ -543,6 +618,7 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "telemetry batch too large", http.StatusRequestEntityTooLarge)
 		return
 	}
+	sanitizeStoredToolResultTelemetry(events)
 
 	// Enrich llm.done events with server-side cost calculation.
 	// Pricing data lives here, not in core — core emits raw token
@@ -576,6 +652,42 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 	// This endpoint is for DB persistence only.
 
 	writeJSON(w, map[string]int{"inserted": len(events)})
+}
+
+const storedToolResultPreviewBytes = 1000
+
+// sanitizeStoredToolResultTelemetry is a defensive server-side bound. New
+// cores already send a preview plus exact size metadata, but this also keeps
+// inline results from older cores from persisting an unbounded payload.
+func sanitizeStoredToolResultTelemetry(events []TelemetryEvent) {
+	for i := range events {
+		if events[i].Type != "tool.result" || len(events[i].Data) == 0 {
+			continue
+		}
+		var data map[string]any
+		if json.Unmarshal(events[i].Data, &data) != nil {
+			continue
+		}
+		result, ok := data["result"].(string)
+		if !ok {
+			continue
+		}
+		alreadyTruncated, _ := data["result_truncated"].(bool)
+		if len(result) > storedToolResultPreviewBytes && !(alreadyTruncated && len(result) <= storedToolResultPreviewBytes+3) {
+			end := storedToolResultPreviewBytes
+			for end > 0 && !utf8.ValidString(result[:end]) {
+				end--
+			}
+			result = result[:end] + "..."
+			data["result"] = result
+			alreadyTruncated = true
+		}
+		data["result_preview_bytes"] = len(result)
+		data["result_truncated"] = alreadyTruncated
+		if raw, err := json.Marshal(data); err == nil {
+			events[i].Data = raw
+		}
+	}
 }
 
 func (s *Server) applyTelemetryRestores(events []TelemetryEvent) ([]TelemetryEvent, error) {
@@ -741,6 +853,12 @@ func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	since, _ := strconv.ParseUint(r.URL.Query().Get("since"), 10, 64)
+	if since == 0 {
+		since, _ = strconv.ParseUint(r.Header.Get("Last-Event-ID"), 10, 64)
+	}
 
 	// Mode 2: all-instances stream, scoped to the caller's agents.
 	if q.Get("all") == "1" {
@@ -751,8 +869,44 @@ func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ch := s.broadcaster.SubscribeAll()
+		ch, liveCursor := s.broadcaster.SubscribeAllCursor()
 		defer s.broadcaster.UnsubscribeAll(ch)
+		lastSeq := since
+		if lastSeq == 0 {
+			lastSeq = liveCursor
+		}
+
+		writeAvailable := func() {
+			replay, reset := s.broadcaster.ReplaySince(lastSeq)
+			if reset {
+				fmt.Fprintf(w, "event: reset\ndata: {\"reason\":\"cursor_expired\"}\n\n")
+				lastSeq = 0
+			}
+			for _, ev := range replay {
+				if ev.Seq <= lastSeq {
+					continue
+				}
+				lastSeq = ev.Seq
+				if !allowed[ev.AgentID] {
+					if refreshed, err := s.store.ListTelemetryAgentIDs(userID, projectID); err == nil {
+						allowed = refreshed
+					}
+					if !allowed[ev.AgentID] {
+						continue
+					}
+				}
+				writeTelemetrySSE(w, ev)
+			}
+			flusher.Flush()
+		}
+		if since > 0 {
+			writeAvailable()
+		}
+		// Commit the SSE response immediately even when the project is quiet.
+		// Without an initial frame, proxies and browsers may leave EventSource
+		// in CONNECTING until the first telemetry event or heartbeat arrives.
+		fmt.Fprint(w, ": connected\n\n")
+		flusher.Flush()
 
 		// Heartbeat so browsers / proxies don't time the stream out
 		// when traffic is sparse. SSE comments (`: ping`) are ignored
@@ -766,9 +920,22 @@ func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				// A slow writer may overflow its live channel. The replay ring is
+				// authoritative for short gaps, so every heartbeat reconciles it.
+				writeAvailable()
 				fmt.Fprintf(w, ": ping\n\n")
 				flusher.Flush()
 			case ev := <-ch:
+				if ev.Seq <= lastSeq {
+					continue
+				}
+				if lastSeq > 0 && ev.Seq > lastSeq+1 {
+					writeAvailable()
+					if ev.Seq <= lastSeq {
+						continue
+					}
+				}
+				lastSeq = ev.Seq
 				if !allowed[ev.AgentID] {
 					// New instance created mid-stream — refresh allowed
 					// set lazily before dropping. This catches "user starts
@@ -780,8 +947,7 @@ func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
 						continue
 					}
 				}
-				data, _ := json.Marshal(ev)
-				fmt.Fprintf(w, "data: %s\n\n", data)
+				writeTelemetrySSE(w, ev)
 				flusher.Flush()
 			}
 		}
@@ -799,8 +965,35 @@ func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ch := s.broadcaster.Subscribe(instanceID)
+	ch, liveCursor := s.broadcaster.SubscribeCursor(instanceID)
 	defer s.broadcaster.Unsubscribe(instanceID, ch)
+	lastSeq := since
+	if lastSeq == 0 {
+		lastSeq = liveCursor
+	}
+	writeAvailable := func() {
+		replay, reset := s.broadcaster.ReplaySince(lastSeq)
+		if reset {
+			fmt.Fprintf(w, "event: reset\ndata: {\"reason\":\"cursor_expired\"}\n\n")
+			lastSeq = 0
+		}
+		for _, ev := range replay {
+			if ev.Seq <= lastSeq {
+				continue
+			}
+			lastSeq = ev.Seq
+			if ev.AgentID != instanceID {
+				continue
+			}
+			writeTelemetrySSE(w, ev)
+		}
+		flusher.Flush()
+	}
+	if since > 0 {
+		writeAvailable()
+	}
+	fmt.Fprint(w, ": connected\n\n")
+	flusher.Flush()
 
 	// Track CLI channel connection so the agent knows a user is listening.
 	if ic := s.agents.GetChannels(instanceID); ic != nil && ic.cli != nil {
@@ -817,14 +1010,32 @@ func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			writeAvailable()
 			fmt.Fprintf(w, ": ping\n\n")
 			flusher.Flush()
 		case ev := <-ch:
-			data, _ := json.Marshal(ev)
-			fmt.Fprintf(w, "data: %s\n\n", data)
+			if ev.Seq <= lastSeq {
+				continue
+			}
+			if lastSeq > 0 && ev.Seq > lastSeq+1 {
+				writeAvailable()
+				if ev.Seq <= lastSeq {
+					continue
+				}
+			}
+			lastSeq = ev.Seq
+			writeTelemetrySSE(w, ev)
 			flusher.Flush()
 		}
 	}
+}
+
+func writeTelemetrySSE(w io.Writer, ev TelemetryEvent) {
+	data, _ := json.Marshal(ev)
+	if ev.Seq > 0 {
+		fmt.Fprintf(w, "id: %d\n", ev.Seq)
+	}
+	fmt.Fprintf(w, "data: %s\n\n", data)
 }
 
 // GET /telemetry?agent_id=1&type=llm.done&since=...&limit=100
