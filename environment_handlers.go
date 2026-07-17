@@ -60,6 +60,7 @@ type createEnvironmentRequest struct {
 	AllowSuffixes       []string                      `json:"allow_suffixes"`
 	Mocks               []HTTPMock                    `json:"mocks"`
 	IntegrationFixtures []IntegrationFixture          `json:"integration_fixtures"`
+	IntegrationBindings []RuntimeIntegrationBinding    `json:"integration_bindings"`
 	Subscriptions       []EnvironmentSubscriptionSpec `json:"subscriptions"`
 	SeedPlan            []SeedCall                    `json:"seed_plan"`
 	SeedBaseDir         string                        `json:"seed_base_dir"`
@@ -590,6 +591,12 @@ func (s *Server) createEnvironmentRuntime(req createEnvironmentRequest, userID i
 	if err != nil {
 		return nil, err
 	}
+	if len(req.IntegrationBindings) > 0 {
+		if err := s.bindEnvironmentIntegrationMocks(userID, environment, req.IntegrationBindings); err != nil {
+			s.environments.Destroy(environment.ID)
+			return nil, fmt.Errorf("bind environment integration mocks: %w", err)
+		}
+	}
 	if len(req.SeedPlan) > 0 {
 		if _, err := s.ExecuteSeedPlanWithBaseDir(environment, req.SeedPlan, req.SeedBaseDir); err != nil {
 			log.Printf("[ENVIRONMENT] seed failed env=%s err=%v edge_calls=%s",
@@ -799,6 +806,18 @@ func (s *Server) handleEnvironmentByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.handleEnvironmentAgent(w, r, environment, strings.TrimPrefix(strings.TrimPrefix(sub, "agent"), "/"))
+		return
+	}
+
+	if sub == "check" {
+		if !s.requireEnvironmentPermission(w, r, sdk.PermEnvironmentsCall, sdk.PermEnvironmentsManage) {
+			return
+		}
+		if !live {
+			http.Error(w, "environment is not running: "+id, http.StatusConflict)
+			return
+		}
+		s.handleEnvironmentFinalStateChecks(w, r, environment)
 		return
 	}
 
@@ -1084,6 +1103,31 @@ func (s *Server) handleEnvironmentAssert(w http.ResponseWriter, r *http.Request,
 	writeJSON(w, map[string]any{"all_pass": allPass, "results": results})
 }
 
+// handleEnvironmentFinalStateChecks evaluates the same read-only contracts
+// used by benchmark runs, without exposing app data directories or SQL.
+func (s *Server) handleEnvironmentFinalStateChecks(w http.ResponseWriter, r *http.Request, environment *Environment) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Checks []EnvironmentStateCheck `json:"checks"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	verdict, err := s.evaluateEnvironmentStateChecks(environment, req.Checks)
+	if err != nil {
+		http.Error(w, "evaluate final state: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if verdict == nil {
+		verdict = &DeterministicVerdict{Overall: "pass", Checks: []DeterministicCheckResult{}}
+	}
+	writeJSON(w, verdict)
+}
+
 type seedRequest struct {
 	Calls       []SeedCall `json:"calls"`
 	SeedBaseDir string     `json:"seed_base_dir"`
@@ -1323,6 +1367,11 @@ type spawnEnvironmentAgentRequest struct {
 	SourceAgentID int64  `json:"source_agent_id"`
 	Directive     string `json:"directive"`
 	Alias         string `json:"alias"`
+	// Provider and Model pin a disposable environment agent without changing
+	// the source agent's configured provider pool.
+	Provider    string `json:"provider,omitempty"`
+	Model       string `json:"model,omitempty"`
+	StartPaused bool   `json:"start_paused,omitempty"`
 }
 
 // handleEnvironmentAgent spawns/stops/drives the default agent copy in a environment.
@@ -1362,6 +1411,9 @@ func (s *Server) handleEnvironmentAgent(w http.ResponseWriter, r *http.Request, 
 			Source:            src,
 			DirectiveOverride: req.Directive,
 			Alias:             firstNonEmpty(req.Alias, "main"),
+			Provider:          req.Provider,
+			Model:             req.Model,
+			StartPaused:       req.StartPaused,
 		})
 		if err != nil {
 			http.Error(w, "spawn environment agent: "+err.Error(), http.StatusBadGateway)
@@ -1411,6 +1463,9 @@ func (s *Server) handleEnvironmentAgents(w http.ResponseWriter, r *http.Request,
 				Source:            src,
 				DirectiveOverride: req.Directive,
 				Alias:             req.Alias,
+				Provider:          req.Provider,
+				Model:             req.Model,
+				StartPaused:       req.StartPaused,
 			})
 			if err != nil {
 				http.Error(w, "spawn environment agent: "+err.Error(), http.StatusBadGateway)
@@ -1433,6 +1488,24 @@ func (s *Server) handleEnvironmentAgents(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	if len(parts) == 2 {
+		if parts[1] == "wait" {
+			if r.Method != http.MethodPost {
+				http.Error(w, "POST only", http.StatusMethodNotAllowed)
+				return
+			}
+			var req sdk.RuntimeAgentWaitRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid JSON", http.StatusBadRequest)
+				return
+			}
+			execution, err := s.waitRuntimeAgent(r.Context(), wa, req)
+			if err != nil {
+				http.Error(w, "wait environment agent: "+err.Error(), http.StatusBadGateway)
+				return
+			}
+			writeJSON(w, execution)
+			return
+		}
 		s.proxyToEnvironmentCore(w, r, wa, parts[1])
 		return
 	}
