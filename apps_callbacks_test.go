@@ -44,6 +44,46 @@ func seedInstallWithBindings(t *testing.T, s *Server, appName string, manifest s
 	return id
 }
 
+func TestCallbackAgentForInstallEnforcesOwnerAndProject(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	if _, err := s.store.db.Exec(`INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (2, 'other@test.local', 'x')`); err != nil {
+		t.Fatal(err)
+	}
+	inProject, err := s.store.CreateAgent(1, "in-project", "answer calls", "autonomous", "{}", "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherProject, err := s.store.CreateAgent(1, "other-project", "answer calls", "autonomous", "{}", "proj-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherOwner, err := s.store.CreateAgent(2, "other-owner", "answer calls", "autonomous", "{}", "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	installID := seedInstallWithBindings(t, s, "telephony-auth-test", sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "telephony-auth-test"}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/apps/callback/threads/spawn-realtime", nil)
+	req.Header.Set("X-User-ID", "1")
+
+	if _, err := s.callbackAgentForInstall(req, installID, inProject.ID); err != nil {
+		t.Fatalf("matching owner and project rejected: %v", err)
+	}
+	if _, err := s.callbackAgentForInstall(req, installID, otherProject.ID); err == nil {
+		t.Fatal("agent from another project accepted")
+	}
+	if _, err := s.callbackAgentForInstall(req, installID, otherOwner.ID); err == nil {
+		t.Fatal("agent from another owner accepted")
+	}
+
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET project_id='' WHERE id=?`, installID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.callbackAgentForInstall(req, installID, otherProject.ID); err != nil {
+		t.Fatalf("global install rejected an agent owned by its user: %v", err)
+	}
+}
+
 // --- /callback/projects ---------------------------------------------
 
 // Project-scoped install — singleton listing of the install's own

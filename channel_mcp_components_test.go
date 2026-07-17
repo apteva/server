@@ -67,6 +67,11 @@ func TestBuildSendDescription_MessageWakesAgain(t *testing.T) {
 		"successful send wakes you again",
 		"continue with the needed tools or pace",
 		"send the actual outcome before going idle",
+		"Every direct [chat] turn requires at least one successful call to this tool",
+		"turn is incomplete until you send its visible answer",
+		"read-only lookup results",
+		"After any tool result used for the request",
+		"never leave it only in thoughts or plain assistant output",
 		"Use publish for approvals/reports/alerts",
 		"set_status for mutable work state",
 	} {

@@ -7,6 +7,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -545,22 +546,25 @@ func (r *serverResolver) SpawnThread(inst framework.InstanceInfo, threadID, dire
 
 // SpawnRealtimeThread POSTs to core's /threads/{id} with realtime:true.
 // Core creates the realtime sub-thread, issues a single-use audio
-// token, and returns it alongside the spawn status. Caller composes
-// the audio bridge URL from public_url + token.
+// token, and returns it alongside the spawn status. The callback layer
+// wraps that token in the server's public WebSocket proxy URL.
 func (r *serverResolver) SpawnRealtimeThread(inst framework.InstanceInfo, req sdk.RealtimeSpawnRequest) (*sdk.RealtimeSpawnResult, error) {
 	if inst.Port == 0 {
 		return nil, fmt.Errorf("instance %d has no core port — is it running?", inst.ID)
 	}
 	body, _ := json.Marshal(map[string]any{
-		"directive": req.Directive,
-		"voice":     req.Voice,
-		"provider":  req.Provider,
-		"tools":     req.Tools,
-		"mcp":       req.MCP,
-		"realtime":  true,
+		"directive":                     req.Directive,
+		"voice":                         req.Voice,
+		"provider":                      req.Provider,
+		"tools":                         req.Tools,
+		"mcp":                           req.MCP,
+		"ephemeral":                     req.Ephemeral,
+		"initial_message":               req.InitialMessage,
+		"bridge_disconnect_ttl_seconds": req.BridgeDisconnectTTLSeconds,
+		"realtime":                      true,
 	})
-	url := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, req.ThreadID)
-	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	coreURL := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, url.PathEscape(req.ThreadID))
+	httpReq, err := http.NewRequest("POST", coreURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -568,7 +572,7 @@ func (r *serverResolver) SpawnRealtimeThread(inst framework.InstanceInfo, req sd
 	if inst.CoreAPIKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
 	}
-	resp, err := http.DefaultClient.Do(httpReq)
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(httpReq)
 	if err != nil {
 		return nil, err
 	}
@@ -593,6 +597,39 @@ func (r *serverResolver) SpawnRealtimeThread(inst framework.InstanceInfo, req sd
 	}, nil
 }
 
+func (r *serverResolver) RenewRealtimeAudioBridge(inst framework.InstanceInfo, threadID string) (*sdk.RealtimeSpawnResult, error) {
+	if inst.Port == 0 {
+		return nil, fmt.Errorf("instance %d has no core port — is it running?", inst.ID)
+	}
+	coreURL := fmt.Sprintf("http://127.0.0.1:%d/threads/%s/audio-token", inst.Port, url.PathEscape(threadID))
+	httpReq, err := http.NewRequest(http.MethodPost, coreURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	if inst.CoreAPIKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
+	}
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		buf := make([]byte, 1024)
+		n, _ := resp.Body.Read(buf)
+		return nil, fmt.Errorf("renew realtime audio for thread %q: HTTP %d %s", threadID, resp.StatusCode, string(buf[:n]))
+	}
+	var coreResp struct {
+		Status     string `json:"status"`
+		ID         string `json:"id"`
+		AudioToken string `json:"audio_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&coreResp); err != nil {
+		return nil, fmt.Errorf("decode realtime audio renewal: %w", err)
+	}
+	return &sdk.RealtimeSpawnResult{Status: coreResp.Status, ThreadID: coreResp.ID, AudioToken: coreResp.AudioToken}, nil
+}
+
 // KillThread DELETEs core's /threads/{id}. Idempotent — 404 is success
 // (the caller's intent, "no live thread by this name", is satisfied
 // either way).
@@ -600,15 +637,15 @@ func (r *serverResolver) KillThread(inst framework.InstanceInfo, threadID string
 	if inst.Port == 0 {
 		return fmt.Errorf("instance %d has no core port — is it running?", inst.ID)
 	}
-	url := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, threadID)
-	req, err := http.NewRequest("DELETE", url, nil)
+	coreURL := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, url.PathEscape(threadID))
+	req, err := http.NewRequest(http.MethodDelete, coreURL, nil)
 	if err != nil {
 		return err
 	}
 	if inst.CoreAPIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
 	if err != nil {
 		return err
 	}

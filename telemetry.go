@@ -503,36 +503,39 @@ func (s *Store) TelemetryStats(instanceID int64, since time.Time) (*TelemetrySta
 		instanceID, sinceStr,
 	).Scan(&stats.TotalEvents)
 
-	// LLM calls + token/cost aggregation from llm.done data
+	// Model calls + token/cost aggregation. Realtime responses emit their
+	// own usage shape because audio tokens are priced separately by core.
 	rows, err := s.db.Query(
-		"SELECT data FROM telemetry WHERE agent_id = ? AND type = 'llm.done' AND time >= ?",
+		"SELECT type, data FROM telemetry WHERE agent_id = ? AND type IN ('llm.done','realtime.usage') AND time >= ?",
 		instanceID, sinceStr,
 	)
 	if err == nil {
 		defer rows.Close()
 		var totalDuration float64
+		var durationCalls int
 		for rows.Next() {
-			var dataStr string
-			rows.Scan(&dataStr)
+			var eventType, dataStr string
+			rows.Scan(&eventType, &dataStr)
 			var d map[string]any
 			if json.Unmarshal([]byte(dataStr), &d) == nil {
 				stats.LLMCalls++
-				if v, ok := d["tokens_in"].(float64); ok {
-					stats.TotalTokensIn += int(v)
-				}
-				if v, ok := d["tokens_out"].(float64); ok {
-					stats.TotalTokensOut += int(v)
-				}
-				if v, ok := d["cost_usd"].(float64); ok {
-					stats.TotalCost += v
+				if eventType == "realtime.usage" {
+					stats.TotalTokensIn += jsonInt(d, "text_input_tokens") + jsonInt(d, "audio_input_tokens")
+					stats.TotalTokensOut += jsonInt(d, "text_output_tokens") + jsonInt(d, "audio_output_tokens")
+					stats.TotalCost += jsonFloat(d, "cost")
+				} else {
+					stats.TotalTokensIn += jsonInt(d, "tokens_in")
+					stats.TotalTokensOut += jsonInt(d, "tokens_out")
+					stats.TotalCost += jsonFloat(d, "cost_usd")
 				}
 				if v, ok := d["duration_ms"].(float64); ok {
 					totalDuration += v
+					durationCalls++
 				}
 			}
 		}
-		if stats.LLMCalls > 0 {
-			stats.AvgDurationMs = totalDuration / float64(stats.LLMCalls)
+		if durationCalls > 0 {
+			stats.AvgDurationMs = totalDuration / float64(durationCalls)
 		}
 	}
 
@@ -560,6 +563,15 @@ func (s *Store) TelemetryStats(instanceID int64, since time.Time) (*TelemetrySta
 	).Scan(&stats.Errors)
 
 	return stats, nil
+}
+
+func jsonFloat(data map[string]any, key string) float64 {
+	value, _ := data[key].(float64)
+	return value
+}
+
+func jsonInt(data map[string]any, key string) int {
+	return int(jsonFloat(data, key))
 }
 
 func (s *Store) CleanOldTelemetry(maxAge time.Duration) (int64, error) {
@@ -1211,7 +1223,7 @@ func (s *Store) TelemetryTimeline(instanceID int64, since time.Time, bucketMinut
 	return result, nil
 }
 
-// TelemetryStatsByProject aggregates llm.done / tool.call / *.error
+// TelemetryStatsByProject aggregates llm.done / realtime.usage / tool.call / *.error
 // events across every instance in (userID, projectID) since `since`.
 // Returns one InstanceStats per instance that has at least one event
 // in the window, with zero-count instances omitted so the caller can
@@ -1242,7 +1254,7 @@ func (s *Store) TelemetryStatsByProject(userID int64, projectID string, since ti
 	args := append([]any{}, ids...)
 	args = append(args, since.UTC().Format(time.RFC3339))
 	q := fmt.Sprintf(
-		"SELECT agent_id, thread_id, type, data FROM telemetry WHERE agent_id IN (%s) AND time >= ? AND type IN ('llm.done','tool.call','llm.error','tool.error')",
+		"SELECT agent_id, thread_id, type, data FROM telemetry WHERE agent_id IN (%s) AND time >= ? AND type IN ('llm.done','realtime.usage','tool.call','llm.error','tool.error','realtime.error')",
 		strings.Join(placeholders, ","),
 	)
 	rows, err := s.db.Query(q, args...)
@@ -1257,6 +1269,7 @@ func (s *Store) TelemetryStatsByProject(userID int64, projectID string, since ti
 	// because the spawn event is optional in older runs.
 	threadSeen := map[int64]map[string]struct{}{}
 	durationByInstance := map[int64]float64{}
+	durationCallsByInstance := map[int64]int{}
 
 	for rows.Next() {
 		var instanceID int64
@@ -1295,11 +1308,29 @@ func (s *Store) TelemetryStatsByProject(userID int64, projectID string, since ti
 				}
 				if v, ok := d["duration_ms"].(float64); ok {
 					durationByInstance[instanceID] += v
+					durationCallsByInstance[instanceID]++
 				}
+			}
+		case "realtime.usage":
+			agg.LLMCalls++
+			if threadID != "" {
+				seen, ok := threadSeen[instanceID]
+				if !ok {
+					seen = map[string]struct{}{}
+					threadSeen[instanceID] = seen
+				}
+				seen[threadID] = struct{}{}
+			}
+			var d map[string]any
+			if json.Unmarshal([]byte(dataStr), &d) == nil {
+				agg.TokensIn += jsonInt(d, "text_input_tokens") + jsonInt(d, "audio_input_tokens")
+				agg.TokensOut += jsonInt(d, "text_output_tokens") + jsonInt(d, "audio_output_tokens")
+				agg.TokensCached += jsonInt(d, "text_cached_tokens") + jsonInt(d, "audio_cached_tokens")
+				agg.Cost += jsonFloat(d, "cost")
 			}
 		case "tool.call":
 			agg.ToolCalls++
-		case "llm.error", "tool.error":
+		case "llm.error", "tool.error", "realtime.error":
 			agg.Errors++
 		}
 	}
@@ -1309,8 +1340,8 @@ func (s *Store) TelemetryStatsByProject(userID int64, projectID string, since ti
 		}
 	}
 	for id, total := range durationByInstance {
-		if agg, ok := byID[id]; ok && agg.LLMCalls > 0 {
-			agg.AvgDurationMs = total / float64(agg.LLMCalls)
+		if agg, ok := byID[id]; ok && durationCallsByInstance[id] > 0 {
+			agg.AvgDurationMs = total / float64(durationCallsByInstance[id])
 		}
 	}
 
@@ -1327,7 +1358,7 @@ func (s *Store) TelemetryStatsByProject(userID int64, projectID string, since ti
 	return out, nil
 }
 
-// TelemetryTimelineByProject buckets llm.done events by time and
+// TelemetryTimelineByProject buckets model usage events by time and
 // instance, so the dashboard can render a stacked chart of spend over
 // time with one stack per instance. bucketMinutes controls the slice
 // width. Instances with zero events in the window are omitted from
@@ -1349,7 +1380,7 @@ func (s *Store) TelemetryTimelineByProject(userID int64, projectID string, since
 	args := append([]any{}, ids...)
 	args = append(args, since.UTC().Format(time.RFC3339))
 	q := fmt.Sprintf(
-		"SELECT agent_id, type, time, data FROM telemetry WHERE agent_id IN (%s) AND time >= ? AND type IN ('llm.done','llm.error','tool.error') ORDER BY time",
+		"SELECT agent_id, type, time, data FROM telemetry WHERE agent_id IN (%s) AND time >= ? AND type IN ('llm.done','realtime.usage','llm.error','tool.error','realtime.error') ORDER BY time",
 		strings.Join(placeholders, ","),
 	)
 	rows, err := s.db.Query(q, args...)
@@ -1393,6 +1424,17 @@ func (s *Store) TelemetryTimelineByProject(userID int64, projectID string, since
 					b.Cost += v
 					b.CostByInstance[instKey] += v
 				}
+			}
+		case "realtime.usage":
+			b.LLMCalls++
+			b.CallsByInstance[instKey]++
+			var d map[string]any
+			if json.Unmarshal([]byte(dataStr), &d) == nil {
+				b.TokensIn += jsonInt(d, "text_input_tokens") + jsonInt(d, "audio_input_tokens")
+				b.TokensOut += jsonInt(d, "text_output_tokens") + jsonInt(d, "audio_output_tokens")
+				cost := jsonFloat(d, "cost")
+				b.Cost += cost
+				b.CostByInstance[instKey] += cost
 			}
 		case "llm.error", "tool.error":
 			b.Errors++

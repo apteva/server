@@ -98,7 +98,7 @@ func TestXAIProviderTypeEnvironmentAndPool(t *testing.T) {
 		t.Fatalf("XAI_API_KEY = %q", env["XAI_API_KEY"])
 	}
 	pool := s.GetProviderPool(1)
-	if len(pool) != 1 || pool[0].Type != "xai" {
+	if len(pool) != 2 || pool[0].Type != "xai" || pool[1].Type != "xai-realtime" {
 		t.Fatalf("provider pool = %#v", pool)
 	}
 	if pool[0].ModelLarge != "grok-4.5" || pool[0].ModelMedium != "grok-4.3" || pool[0].ModelSmall != "grok-4.3" {
@@ -106,6 +106,9 @@ func TestXAIProviderTypeEnvironmentAndPool(t *testing.T) {
 	}
 	if pool[0].ModelCapabilities["grok-4.5"].ContextWindow != 500_000 {
 		t.Fatalf("pool capabilities = %#v", pool[0].ModelCapabilities)
+	}
+	if pool[1].ModelLarge != "grok-voice-latest" || pool[1].ModelMedium != "grok-voice-latest" || pool[1].ModelSmall != "grok-voice-latest" || pool[1].RealtimeVoice != "eve" {
+		t.Fatalf("realtime companion = %#v", pool[1])
 	}
 }
 

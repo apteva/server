@@ -480,19 +480,24 @@ func (s *Server) handleCallbackInstances(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
+	installID, err := requireInstallID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	agent, err := s.callbackAgentForInstall(r, installID, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 	if len(parts) == 1 {
 		if r.Method != http.MethodGet {
 			http.Error(w, "GET only", http.StatusMethodNotAllowed)
 			return
 		}
-		inst, err := s.store.GetAgentByID(id)
-		if err != nil || inst == nil {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
 		writeJSON(w, sdk.PlatformInstance{
-			ID: inst.ID, Name: inst.Name, Status: inst.Status,
-			Mode: inst.Mode, ProjectID: inst.ProjectID,
+			ID: agent.ID, Name: agent.Name, Status: agent.Status,
+			Mode: agent.Mode, ProjectID: agent.ProjectID,
 		})
 		return
 	}
@@ -1175,6 +1180,8 @@ func (s *Server) handleCallbackThreads(w http.ResponseWriter, r *http.Request, p
 		s.handleCallbackSpawnRealtime(w, r, installID)
 	case len(parts) == 1 && parts[0] != "" && r.Method == http.MethodDelete:
 		s.handleCallbackKillThread(w, r, installID, parts[0])
+	case len(parts) == 2 && parts[0] != "" && parts[1] == "audio-token" && r.Method == http.MethodPost:
+		s.handleCallbackRenewRealtimeAudio(w, r, installID, parts[0])
 	default:
 		http.Error(w, "unsupported threads operation", http.StatusNotFound)
 	}
@@ -1194,10 +1201,9 @@ func (s *Server) handleCallbackSpawnRealtime(w http.ResponseWriter, r *http.Requ
 	// Authorize: the install's owning user must also own the target
 	// agent. Prevents enumeration of other users' agents via
 	// well-known thread ids.
-	userID := getUserID(r)
-	agent, err := s.store.GetAgent(userID, body.AgentID)
-	if err != nil || agent == nil {
-		http.Error(w, "agent not found or not owned by this user", http.StatusForbidden)
+	agent, err := s.callbackAgentForInstall(r, installID, body.AgentID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -1215,15 +1221,17 @@ func (s *Server) handleCallbackSpawnRealtime(w http.ResponseWriter, r *http.Requ
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	// Compose the audio bridge URL. v1 targets single-host installs
-	// where sidecars are colocated with apteva-core, so we hand back a
-	// 127.0.0.1:<core_port> URL — the lowest-latency path and the one
-	// that needs no server-side WebSocket proxy. Production multi-host
-	// deployments will need a public_url + /api/agents/{id}/realtime/audio
-	// proxy route to ride; tracked as v2.
+	// Return the server's public, token-scoped proxy URL. Sidecars run in
+	// separate containers, where 127.0.0.1 is not the host/core process.
+	// The proxy authenticates to core without exposing its long-lived key.
 	if res.AudioToken != "" && inst.Port != 0 {
-		res.AudioBridgeURL = fmt.Sprintf("ws://127.0.0.1:%d/realtime/audio?thread=%s&token=%s",
-			inst.Port, body.ThreadID, res.AudioToken)
+		baseURL := callbackReachableBaseURL(s.publicBaseURL(), r)
+		bridgeURL, parseErr := publicRealtimeAudioURL(baseURL, body.AgentID, body.ThreadID, res.AudioToken)
+		if parseErr != nil {
+			http.Error(w, "invalid public server URL", http.StatusInternalServerError)
+			return
+		}
+		res.AudioBridgeURL = bridgeURL
 	}
 	log.Printf("[REALTIME-SPAWN] install=%d agent=%d thread=%q status=%s",
 		installID, body.AgentID, body.ThreadID, res.Status)
@@ -1245,10 +1253,9 @@ func (s *Server) handleCallbackKillThread(w http.ResponseWriter, r *http.Request
 		http.Error(w, "invalid agent_id", http.StatusBadRequest)
 		return
 	}
-	userID := getUserID(r)
-	agent, err := s.store.GetAgent(userID, agentID)
-	if err != nil || agent == nil {
-		http.Error(w, "agent not found or not owned by this user", http.StatusForbidden)
+	agent, err := s.callbackAgentForInstall(r, installID, agentID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 	inst := framework.InstanceInfo{
@@ -1261,6 +1268,53 @@ func (s *Server) handleCallbackKillThread(w http.ResponseWriter, r *http.Request
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleCallbackRenewRealtimeAudio(w http.ResponseWriter, r *http.Request, installID int64, threadID string) {
+	agentID, err := strconv.ParseInt(r.URL.Query().Get("agent_id"), 10, 64)
+	if err != nil || agentID <= 0 {
+		http.Error(w, "valid agent_id query param required", http.StatusBadRequest)
+		return
+	}
+	agent, err := s.callbackAgentForInstall(r, installID, agentID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	inst := framework.InstanceInfo{
+		ID: agent.ID, Name: agent.Name, UserID: agent.UserID, ProjectID: agent.ProjectID,
+		Port: s.agents.GetPort(agent.ID), CoreAPIKey: s.agents.GetCoreAPIKey(agent.ID),
+	}
+	res, err := s.resolver().RenewRealtimeAudioBridge(inst, threadID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if res.AudioToken != "" {
+		baseURL := callbackReachableBaseURL(s.publicBaseURL(), r)
+		bridgeURL, parseErr := publicRealtimeAudioURL(baseURL, agentID, threadID, res.AudioToken)
+		if parseErr != nil {
+			http.Error(w, "invalid public server URL", http.StatusInternalServerError)
+			return
+		}
+		res.AudioBridgeURL = bridgeURL
+	}
+	writeJSON(w, res)
+}
+
+func (s *Server) callbackAgentForInstall(r *http.Request, installID, agentID int64) (*Agent, error) {
+	agent, err := s.store.GetAgent(getUserID(r), agentID)
+	if err != nil || agent == nil {
+		return nil, errors.New("agent not found or not owned by this user")
+	}
+	var installProject string
+	if err := s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&installProject); err != nil {
+		return nil, errors.New("app installation not found")
+	}
+	if installProject != "" && installProject != agent.ProjectID {
+		return nil, errors.New("agent does not belong to the app installation project")
+	}
+	return agent, nil
 }
 
 // resolver returns the canonical serverResolver used for forwarding

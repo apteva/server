@@ -298,6 +298,12 @@ func TestTelemetryStats(t *testing.T) {
 		makeTelemetryEvent("llm.done", "main", map[string]any{
 			"tokens_in": 200, "tokens_out": 80, "cost_usd": 0.002, "duration_ms": 2000,
 		}),
+		makeTelemetryEvent("realtime.usage", "dashboard-voice-test", map[string]any{
+			"text_input_tokens": 20, "audio_input_tokens": 300,
+			"text_output_tokens": 10, "audio_output_tokens": 120,
+			"text_cached_tokens": 5, "audio_cached_tokens": 50,
+			"cost": 0.004,
+		}),
 		makeTelemetryEvent("thread.spawn", "worker-1", map[string]any{}),
 		makeTelemetryEvent("thread.done", "worker-1", map[string]any{}),
 		makeTelemetryEvent("tool.call", "main", map[string]any{"name": "web"}),
@@ -312,20 +318,20 @@ func TestTelemetryStats(t *testing.T) {
 		t.Fatalf("TelemetryStats: %v", err)
 	}
 
-	if stats.TotalEvents != 7 {
-		t.Errorf("expected 7 events, got %d", stats.TotalEvents)
+	if stats.TotalEvents != 8 {
+		t.Errorf("expected 8 events, got %d", stats.TotalEvents)
 	}
-	if stats.LLMCalls != 2 {
-		t.Errorf("expected 2 llm calls, got %d", stats.LLMCalls)
+	if stats.LLMCalls != 3 {
+		t.Errorf("expected 3 model calls, got %d", stats.LLMCalls)
 	}
-	if stats.TotalTokensIn != 300 {
-		t.Errorf("expected 300 tokens in, got %d", stats.TotalTokensIn)
+	if stats.TotalTokensIn != 620 {
+		t.Errorf("expected 620 tokens in, got %d", stats.TotalTokensIn)
 	}
-	if stats.TotalTokensOut != 130 {
-		t.Errorf("expected 130 tokens out, got %d", stats.TotalTokensOut)
+	if stats.TotalTokensOut != 260 {
+		t.Errorf("expected 260 tokens out, got %d", stats.TotalTokensOut)
 	}
-	if stats.TotalCost < 0.002 || stats.TotalCost > 0.004 {
-		t.Errorf("expected ~0.003 cost, got %f", stats.TotalCost)
+	if stats.TotalCost < 0.006 || stats.TotalCost > 0.008 {
+		t.Errorf("expected ~0.007 cost, got %f", stats.TotalCost)
 	}
 	if stats.AvgDurationMs < 1700 || stats.AvgDurationMs > 1800 {
 		t.Errorf("expected ~1750 avg duration, got %f", stats.AvgDurationMs)

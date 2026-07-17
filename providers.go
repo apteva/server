@@ -881,7 +881,33 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 		}
 		pool = append(pool, info)
 	}
-	return append(pool, codexPool...)
+	combined := append(pool, codexPool...)
+	// Realtime adapters reuse their text provider's credential but remain
+	// separate core session types. Inject companions without synthetic DB rows.
+	var realtimeCompanions []ProviderInfo
+	for _, info := range combined {
+		switch info.Type {
+		case "openai":
+			realtimeCompanions = append(realtimeCompanions, ProviderInfo{
+				Type: "openai-realtime", ModelLarge: "gpt-realtime-2.1",
+				ModelMedium: "gpt-realtime-2.1-mini", ModelSmall: "gpt-realtime-2.1-mini",
+				RealtimeVoice: "marin",
+			})
+		case "xai":
+			realtimeCompanions = append(realtimeCompanions, ProviderInfo{
+				Type: "xai-realtime", ModelLarge: "grok-voice-latest",
+				ModelMedium: "grok-voice-latest", ModelSmall: "grok-voice-latest",
+				RealtimeVoice: "eve",
+			})
+		case "google":
+			realtimeCompanions = append(realtimeCompanions, ProviderInfo{
+				Type: "google-realtime", ModelLarge: "gemini-3.1-flash-live-preview",
+				ModelMedium: "gemini-3.1-flash-live-preview", ModelSmall: "gemini-3.1-flash-live-preview",
+				RealtimeVoice: "Kore",
+			})
+		}
+	}
+	return append(combined, realtimeCompanions...)
 }
 
 // GET /providers/:id/models — fetch live model list

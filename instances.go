@@ -336,6 +336,7 @@ type ProviderInfo struct {
 	ModelLarge        string
 	ModelMedium       string
 	ModelSmall        string
+	RealtimeVoice     string
 	BuiltinTools      []string
 	ModelCapabilities map[string]ProviderModelCapabilities
 }
@@ -466,12 +467,7 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 			if pi.Type == "" {
 				continue
 			}
-			isDefault := false
-			if defaultProvider != "" {
-				isDefault = pi.Type == defaultProvider
-			} else {
-				isDefault = i == 0 // fallback: first = default
-			}
+			isDefault := providerIsDefault(pi.Type, defaultProvider, i)
 			entry := map[string]any{
 				"name": pi.Type,
 				"models": map[string]string{
@@ -480,6 +476,9 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 					"small":  pi.ModelSmall,
 				},
 				"default": isDefault,
+			}
+			if pi.RealtimeVoice != "" {
+				entry["realtime_voice"] = pi.RealtimeVoice
 			}
 			if len(pi.ModelCapabilities) > 0 {
 				entry["model_capabilities"] = pi.ModelCapabilities
@@ -494,6 +493,9 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 			delete(config, "provider") // remove legacy single-provider field
 		}
 	}
+	// Realtime is capability-gated but should work out of the box when a
+	// realtime provider is present. Preserve an explicit disk false.
+	enableRealtimeByDefault(config, providerPool)
 
 	// Core no longer owns browser sessions. Strip any stale legacy
 	// browser config so old instance files cannot register duplicate
@@ -741,6 +743,31 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	}()
 
 	return nil
+}
+
+func providerIsDefault(providerType, configuredDefault string, index int) bool {
+	providerType = strings.ToLower(strings.TrimSpace(providerType))
+	configuredDefault = strings.ToLower(strings.TrimSpace(configuredDefault))
+	if configuredDefault == "" {
+		return index == 0
+	}
+	if providerType == configuredDefault {
+		return true
+	}
+	baseProvider := strings.TrimSuffix(providerType, "-realtime")
+	return baseProvider != providerType && baseProvider == configuredDefault
+}
+
+func enableRealtimeByDefault(config map[string]any, providers []ProviderInfo) {
+	if _, explicitlyConfigured := config["realtime_enabled"]; explicitlyConfigured {
+		return
+	}
+	for _, provider := range providers {
+		if strings.HasSuffix(strings.ToLower(strings.TrimSpace(provider.Type)), "-realtime") {
+			config["realtime_enabled"] = true
+			return
+		}
+	}
 }
 
 func coreHealthOK(port int, coreAPIKey string, timeout time.Duration) bool {
@@ -2187,7 +2214,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		// rawBody was decoded above; re-use it for the surface-level
 		// fields the client may set. If a key is absent in the request
 		// we keep whatever disk already held.
-		for _, k := range []string{"mcp_servers", "providers", "threads", "unconscious", "execution_control"} {
+		for _, k := range []string{"mcp_servers", "providers", "threads", "unconscious", "execution_control", "realtime_enabled", "realtime_voice", "realtime_voice_mcp"} {
 			if v, ok := rawBody[k]; ok {
 				cfg[k] = v
 			}
@@ -2523,6 +2550,9 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 						"directive":   t["directive"],
 						"tools":       t["tools"],
 						"mcp_names":   t["mcp_names"],
+						"realtime":    t["realtime"],
+						"voice":       t["voice"],
+						"provider":    t["provider"],
 						"iteration":   0,
 						"rate":        "stopped",
 						"model":       "",
@@ -2569,13 +2599,16 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 		// config had them; the MCP pane showed empty for every
 		// stopped agent.
 		out := map[string]any{
-			"directive":         directive,
-			"mode":              mode,
-			"mcp_servers":       config["mcp_servers"],
-			"providers":         config["providers"],
-			"threads":           config["threads"],
-			"unconscious":       config["unconscious"],
-			"execution_control": config["execution_control"],
+			"directive":          directive,
+			"mode":               mode,
+			"mcp_servers":        config["mcp_servers"],
+			"providers":          config["providers"],
+			"threads":            config["threads"],
+			"unconscious":        config["unconscious"],
+			"execution_control":  config["execution_control"],
+			"realtime_enabled":   config["realtime_enabled"],
+			"realtime_voice":     config["realtime_voice"],
+			"realtime_voice_mcp": config["realtime_voice_mcp"],
 		}
 		if out["mcp_servers"] == nil {
 			out["mcp_servers"] = []any{}

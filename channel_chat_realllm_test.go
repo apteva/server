@@ -129,6 +129,146 @@ func TestChannelChat_RealLLM_Codex_ActionBeforeReply(t *testing.T) {
 	}
 }
 
+// TestChannelChat_RealLLM_Codex_DirectChatReplyAfterLookup reproduces the
+// agent 327 failure: a read-only lookup produces an ambiguous result, so the
+// agent must send a visible clarification instead of leaving it in plain model
+// output and pacing.
+func TestChannelChat_RealLLM_Codex_DirectChatReplyAfterLookup(t *testing.T) {
+	runRealDirectChatReplyAfterLookup(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealChannelChatHarness(t, "chat-reply-after-lookup-codex-under-test", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_DirectChatReplyAfterLookup(t *testing.T) {
+	runRealDirectChatReplyAfterLookup(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "chat-reply-after-lookup-glm52-under-test", "glm-5.2", directive, config)
+	})
+}
+
+func runRealDirectChatReplyAfterLookup(t *testing.T, setupHarness func(*testing.T, string, string) *realChannelChatHarness) {
+	t.Helper()
+	var listed atomic.Int64
+	var lookupResultAtNano atomic.Int64
+	scheduleMCP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		respond := func(result any, errMsg string) {
+			response := map[string]any{"jsonrpc": "2.0", "id": req.ID}
+			if errMsg != "" {
+				response["error"] = map[string]any{"code": -32603, "message": errMsg}
+			} else {
+				response["result"] = result
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(response)
+		}
+		switch req.Method {
+		case "initialize":
+			respond(map[string]any{
+				"protocolVersion": "2025-03-26",
+				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"serverInfo":      map[string]string{"name": "schedule", "version": "1.0.0"},
+			}, "")
+		case "tools/list":
+			respond(map[string]any{"tools": []map[string]any{{
+				"name":        "scheduled_posts_list",
+				"description": "List scheduled social posts. If multiple posts match, do not guess; ask the operator which item in a visible reply.",
+				"inputSchema": map[string]any{
+					"type":       "object",
+					"properties": map[string]any{"date": map[string]any{"type": "string"}},
+				},
+			}}}, "")
+		case "tools/call":
+			var params struct {
+				Name string `json:"name"`
+			}
+			_ = json.Unmarshal(req.Params, &params)
+			if params.Name != "scheduled_posts_list" {
+				respond(nil, "unknown tool: "+params.Name)
+				return
+			}
+			listed.Add(1)
+			lookupResultAtNano.Store(time.Now().UnixNano())
+			respond(map[string]any{"content": []map[string]any{{
+				"type": "text",
+				"text": `{"posts":[{"id":"post-10","time":"10:00 UTC","channels":["instagram"],"title":"Morning studio update"},{"id":"post-16","time":"16:00 UTC","channels":["instagram","linkedin"],"title":"Afternoon launch note"}]}`,
+			}}}, "")
+		default:
+			respond(nil, "method not found: "+req.Method)
+		}
+	}))
+	t.Cleanup(scheduleMCP.Close)
+
+	directive := strings.Join([]string{
+		"# Role",
+		"You manage scheduled social posts requested by the operator.",
+		"# Rules",
+		"Inspect scheduled posts before changing them.",
+		"Never guess when multiple posts match; ask which post the operator means.",
+	}, "\n")
+	config := fmt.Sprintf(`{"include_apteva_server":false,"include_channels":true,"mcp_servers":[{"name":"schedule","transport":"http","url":%q}]}`, scheduleMCP.URL)
+	h := setupHarness(t, directive, config)
+	waitForInitialAgentTurn(t, h)
+
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	var baselineMessageID int64
+	_ = h.server.store.db.QueryRow(`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID).Scan(&baselineMessageID)
+
+	h.post(t, "Unschedule the Instagram post planned today.")
+	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
+
+	if listed.Load() == 0 {
+		t.Fatal("agent did not inspect the ambiguous scheduled posts")
+	}
+	lookupAt := lookupResultAtNano.Load()
+	if lookupAt == 0 {
+		t.Fatal("schedule MCP did not record its lookup result time")
+	}
+	callEvents := newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls)
+	visibleAfterLookup := false
+	for _, event := range callEvents {
+		var data struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(event.Data, &data) == nil &&
+			(data.Name == "channels_send" || strings.HasSuffix(data.Name, "_channels_send")) &&
+			event.Time.UnixNano() > lookupAt {
+			visibleAfterLookup = true
+			break
+		}
+	}
+	if !visibleAfterLookup {
+		t.Fatalf("agent did not call channels_send after the lookup result; calls=%v", toolNames(callEvents))
+	}
+
+	var reply string
+	err := h.server.store.db.QueryRow(`
+		SELECT content FROM channel_chat_messages
+		WHERE chat_id=? AND role='agent' AND id>?
+		ORDER BY id DESC LIMIT 1`, h.chatID, baselineMessageID).Scan(&reply)
+	if err != nil {
+		t.Fatalf("visible chat reply was not persisted after lookup: %v", err)
+	}
+	lower := strings.ToLower(reply)
+	if !strings.Contains(lower, "which") && !strings.Contains(lower, "clarif") &&
+		!(strings.Contains(lower, "10:00") && strings.Contains(lower, "16:00")) {
+		t.Fatalf("visible reply does not clarify the two matches: %q", reply)
+	}
+}
+
 // TestChannelChat_RealLLM_Codex_AllChannelKindsExactlyOnce covers the complete
 // Apteva operator-channel contract with a real core and Codex call. In
 // particular, the final status and visible message are deliberately sent in a
@@ -567,6 +707,12 @@ func setupOpenCodeChannelChatHarness(t *testing.T, agentName, model string) *rea
 
 func setupOpenCodeChannelChatHarnessWithDirective(t *testing.T, agentName, model, directive string) *realChannelChatHarness {
 	t.Helper()
+	return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, agentName, model, directive,
+		`{"include_apteva_server":false,"include_channels":true}`)
+}
+
+func setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t *testing.T, agentName, model, directive, config string) *realChannelChatHarness {
+	t.Helper()
 	key := loadOpenCodeGoAPIKey(t)
 	providerState := map[string]any{
 		"OPENCODE_GO_API_KEY": key,
@@ -575,7 +721,7 @@ func setupOpenCodeChannelChatHarnessWithDirective(t *testing.T, agentName, model
 		"model_small":         model,
 	}
 	return setupRealChannelChatHarnessWithProvider(t, agentName, directive,
-		`{"include_apteva_server":false,"include_channels":true}`,
+		config,
 		13, "llm", "OpenCode Go", providerState)
 }
 

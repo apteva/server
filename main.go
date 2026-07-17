@@ -684,6 +684,9 @@ func main() {
 	// kind and the route is future-proof for any new trigger backend.
 	mux.HandleFunc("/webhooks/email", s.handleEmailWebhook)
 	mux.HandleFunc("/webhooks/", s.handleWebhook)
+	// Token-authenticated realtime audio bridge. Mounted outside the regular
+	// dashboard auth middleware so telephony sidecars can connect.
+	mux.HandleFunc("/api/realtime/audio", s.handleRealtimeAudioProxy)
 
 	// Local OAuth2 callback (unauthenticated — upstream providers redirect here).
 	// Stays at root because the redirect URI is registered with the provider.

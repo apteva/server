@@ -1335,15 +1335,21 @@
     },
     {
       "name": "get_analytics",
-      "description": "Get post analytics from Zernio.",
+      "description": "Get normalized post analytics. With postId, accepts a Zernio post ID or external platform post ID and returns one post; without postId, returns a paginated analytics list.",
       "method": "GET",
       "path": "/analytics",
       "query_params": [
         "postId",
         "accountId",
         "platform",
+        "profileId",
+        "source",
         "fromDate",
-        "toDate"
+        "toDate",
+        "limit",
+        "page",
+        "sortBy",
+        "order"
       ],
       "input_schema": {
         "type": "object",
@@ -1357,13 +1363,53 @@
           "platform": {
             "type": "string"
           },
+          "profileId": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": ["all", "late", "external"]
+          },
           "fromDate": {
             "type": "string"
           },
           "toDate": {
             "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sortBy": {
+            "type": "string",
+            "enum": ["date", "engagement", "impressions", "reach", "likes", "comments", "shares", "saves", "clicks", "views", "follows"]
+          },
+          "order": {
+            "type": "string",
+            "enum": ["asc", "desc"]
           }
         }
+      }
+    },
+    {
+      "name": "get_post_timeline",
+      "description": "Get daily analytics history for one post. postId accepts a Zernio post ID, ExternalPost ID, or platform post ID.",
+      "method": "GET",
+      "path": "/analytics/post-timeline",
+      "query_params": ["postId", "fromDate", "toDate"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": { "type": "string" },
+          "fromDate": { "type": "string" },
+          "toDate": { "type": "string" }
+        },
+        "required": ["postId"]
       }
     },
     {
@@ -1377,7 +1423,8 @@
         "platform",
         "fromDate",
         "toDate",
-        "metrics"
+        "source",
+        "attribution"
       ],
       "input_schema": {
         "type": "object",
@@ -1397,9 +1444,14 @@
           "toDate": {
             "type": "string"
           },
-          "metrics": {
+          "source": {
             "type": "string",
-            "description": "Comma-separated metric names when supported."
+            "enum": ["all", "late", "external"]
+          },
+          "attribution": {
+            "type": "string",
+            "enum": ["publish", "received"],
+            "description": "Attribute lifetime totals to publish date or bucket engagement gains on the day they were received."
           }
         }
       }
@@ -1435,12 +1487,63 @@
           "granularity": {
             "type": "string",
             "enum": [
-              "day",
-              "week",
-              "month"
+              "daily",
+              "weekly",
+              "monthly"
             ]
           }
         }
+      }
+    },
+    {
+      "name": "get_linkedin_post_analytics",
+      "description": "Get analytics for one LinkedIn post by URN. Supports personal and organization accounts; personal posts must have been published through Zernio.",
+      "method": "GET",
+      "path": "/accounts/{accountId}/linkedin-post-analytics",
+      "query_params": ["urn"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": { "type": "string" },
+          "urn": { "type": "string" }
+        },
+        "required": ["accountId", "urn"]
+      }
+    },
+    {
+      "name": "get_linkedin_aggregate_analytics",
+      "description": "Get aggregate LinkedIn analytics for a personal account. Use aggregation=DAILY for time series; requires LinkedIn member analytics permissions.",
+      "method": "GET",
+      "path": "/accounts/{accountId}/linkedin-aggregate-analytics",
+      "query_params": ["aggregation", "startDate", "endDate", "metrics"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": { "type": "string" },
+          "aggregation": { "type": "string", "enum": ["TOTAL", "DAILY"] },
+          "startDate": { "type": "string" },
+          "endDate": { "type": "string" },
+          "metrics": { "type": "string" }
+        },
+        "required": ["accountId"]
+      }
+    },
+    {
+      "name": "get_linkedin_org_aggregate_analytics",
+      "description": "Get aggregate or time-series analytics for a LinkedIn organization page.",
+      "method": "GET",
+      "path": "/analytics/linkedin/org-aggregate-analytics",
+      "query_params": ["accountId", "metrics", "since", "until", "metricType"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": { "type": "string" },
+          "metrics": { "type": "string" },
+          "since": { "type": "string" },
+          "until": { "type": "string" },
+          "metricType": { "type": "string", "enum": ["time_series", "total_value"] }
+        },
+        "required": ["accountId"]
       }
     },
     {

@@ -355,6 +355,30 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	if len(parts) == 2 {
 		tail = "/" + parts[1]
 	}
+	// External streaming providers do not consistently preserve query strings
+	// on WebSocket URLs (Twilio explicitly forbids them on <Stream url>). Allow
+	// an install to be selected in the path instead:
+	//
+	//   /api/apps/<name>/_install/<id>/<app route>
+	//
+	// The selector is removed before route authorization and proxying, so the
+	// sidecar still sees its declared path such as /media/twilio/....
+	var pathInstallID int64
+	if strings.HasPrefix(tail, "/_install/") {
+		selected := strings.TrimPrefix(tail, "/_install/")
+		selectedParts := strings.SplitN(selected, "/", 2)
+		if len(selectedParts) != 2 || selectedParts[0] == "" || selectedParts[1] == "" {
+			http.Error(w, "install path must include an install id and app route", http.StatusBadRequest)
+			return
+		}
+		var err error
+		pathInstallID, err = strconv.ParseInt(selectedParts[0], 10, 64)
+		if err != nil || pathInstallID <= 0 {
+			http.Error(w, "invalid install id in app path", http.StatusBadRequest)
+			return
+		}
+		tail = "/" + selectedParts[1]
+	}
 	// Project-aware dispatch. /api/apps/<name>/...?project_id=<X>
 	// must route to the install of <name> in project X (or the
 	// global install if no project-X install exists). Without this,
@@ -403,7 +427,17 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var entry *InstalledApp
-	if installIDRaw := rawQuery.Get("install_id"); installIDRaw != "" {
+	if pathInstallID > 0 {
+		if installIDRaw := rawQuery.Get("install_id"); installIDRaw != "" && installIDRaw != strconv.FormatInt(pathInstallID, 10) {
+			http.Error(w, "install_id query does not match app path", http.StatusBadRequest)
+			return
+		}
+		entry = s.installedApps.Get(pathInstallID)
+		if entry != nil && entry.AppName != appName {
+			http.Error(w, "install path does not match app: "+appName, http.StatusBadRequest)
+			return
+		}
+	} else if installIDRaw := rawQuery.Get("install_id"); installIDRaw != "" {
 		installID, err := strconv.ParseInt(installIDRaw, 10, 64)
 		if err != nil || installID <= 0 {
 			http.Error(w, "invalid install_id query param", http.StatusBadRequest)

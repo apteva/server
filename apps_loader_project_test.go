@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	sdk "github.com/apteva/app-sdk"
 )
 
 func newAppProxyProjectUser(t *testing.T, role ProjectRole) (*Server, int64, string) {
@@ -217,6 +219,38 @@ func TestAppProxyDerivesEffectiveProjectFromInstallAndDelegatedKey(t *testing.T)
 	}
 	if seenProjectID != projectID || seenQueryProjectID != projectID {
 		t.Fatalf("delegated project header=%q query=%q want %q", seenProjectID, seenQueryProjectID, projectID)
+	}
+}
+
+func TestAppProxyInstallPathRoutesPublicWebSocketWithoutQuery(t *testing.T) {
+	s, _, projectID := newAppProxyProjectUser(t, ProjectViewer)
+	var seenPath, seenProject string
+	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenPath = r.URL.Path
+		seenProject = r.Header.Get("X-Apteva-Project-ID")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer sidecar.Close()
+	s.installedApps.Add(&InstalledApp{
+		InstallID: 708, AppName: "telephony", ProjectID: projectID, SidecarURL: sidecar.URL,
+		Manifest: sdk.Manifest{Provides: sdk.Provides{HTTPRoutes: []sdk.RouteSpec{{Prefix: "/media/", NoAuth: true}}}},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/apps/telephony/_install/708/media/twilio/call/token", nil)
+	rec := httptest.NewRecorder()
+	s.handleAppProxy(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if seenPath != "/media/twilio/call/token" || seenProject != projectID {
+		t.Fatalf("sidecar path=%q project=%q", seenPath, seenProject)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/apps/telephony/_install/708/media/twilio/call/token?install_id=709", nil)
+	rec = httptest.NewRecorder()
+	s.handleAppProxy(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("conflicting selector status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -1084,16 +1084,17 @@ func formatDashboardContext(v any) string {
 func formatAgentChatEvent(text string, context any) string {
 	var b strings.Builder
 	b.WriteString("[chat]\n")
-	b.WriteString("A user is talking to you in dashboard chat. Thoughts are not visible to the user. ")
-	b.WriteString("Use channels_send with channel=\"current\" or channel=\"apteva\" and complete text for visible Apteva operator messages. ")
+	b.WriteString("A user is talking to you in dashboard chat. Every direct chat turn requires at least one visible channels_send reply before you pace, finish, or go idle. Thoughts and plain assistant output are not visible to the user and do not count as a reply. ")
+	b.WriteString("Use channels_send with channel=\"current\" or channel=\"apteva\" and complete text. Reply visibly even to ask a clarifying question, report a read-only lookup, explain that you cannot act, or say no action was needed. ")
 	b.WriteString("A successful channels_send message wakes you again. If you promised work, continue after the tool result: call the needed tools, schedule yourself with pace, or explain why blocked. ")
-	b.WriteString("After action tool results arrive, send another channels_send with the outcome text before pacing or going idle.\n\n")
+	b.WriteString("After any tool result used for this request, including a read-only lookup, send the outcome, clarification, blocker, or next question through channels_send before pacing or going idle.\n\n")
 	if ctx := formatDashboardContext(context); ctx != "" {
 		b.WriteString(ctx)
 		b.WriteString("\n\n")
 	}
 	b.WriteString("User message:\n")
 	b.WriteString(strings.TrimSpace(text))
+	b.WriteString("\n\nCHAT COMPLETION REQUIREMENT: Before ending this turn, call channels_send with the user-visible answer, result, or clarification. Do not call pace first; thoughts and plain assistant output do not complete this chat turn.")
 	return b.String()
 }
 
@@ -1103,13 +1104,14 @@ func formatPlatformHelperChatEvent(text string, context any) string {
 	b.WriteString("TASK TYPE: platform_assistant (NOT eval grading)\n\n")
 	b.WriteString("You are Apteva Helper in the dashboard. Help the operator understand the current page, design agents, and turn rough goals into concrete next steps. ")
 	b.WriteString("When the operator wants to create or manage agents, ask briefly for missing details, then use the apteva-server MCP tools such as agents_create, agents_list, agents_start, agents_stop, and agents_update when appropriate. ")
-	b.WriteString("Do not grade anything. Do not return judge JSON. Use channels_send with channel=\"current\" or channel=\"apteva\" and complete text for visible Apteva operator messages; if you promised tool work, continue after the send result and then send another channels_send message with the outcome.\n\n")
+	b.WriteString("Do not grade anything. Do not return judge JSON. Every direct chat turn requires at least one visible channels_send with channel=\"current\" or channel=\"apteva\" before pacing or going idle; thoughts and plain assistant output do not count. Reply visibly for clarifications, read-only results, blockers, and no-op outcomes. If you promised tool work, continue after the send result and then send another channels_send message with the outcome.\n\n")
 	if ctx := formatDashboardContext(context); ctx != "" {
 		b.WriteString(ctx)
 		b.WriteString("\n\n")
 	}
 	b.WriteString("User message:\n")
 	b.WriteString(strings.TrimSpace(text))
+	b.WriteString("\n\nCHAT COMPLETION REQUIREMENT: Before ending this turn, call channels_send with the user-visible answer, result, or clarification. Do not call pace first; thoughts and plain assistant output do not complete this chat turn.")
 	return b.String()
 }
 

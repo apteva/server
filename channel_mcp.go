@@ -424,7 +424,8 @@ func buildSendDescription(channelIDs []string, components []componentEntry) stri
 	return fmt.Sprintf(
 		"Send one complete user-visible message through a communication channel. Thoughts and plain assistant output are INVISIBLE; only this tool delivers chat text. Use publish for approvals/reports/alerts and set_status for mutable work state.\n\n"+
 			"channel=\"current\" replies where the event originated. For dashboard chat it resolves to apteva. channel=\"apteva\" is durable and saves messages even while the operator is offline.\n"+
-			"A successful send wakes you again. If you promised work, continue with the needed tools or pace; after action results, send the actual outcome before going idle. Build one complete call and never send placeholder or duplicate messages.\n\n"+
+			"Every direct [chat] turn requires at least one successful call to this tool before pace, done, or going idle. The turn is incomplete until you send its visible answer. This also applies to clarifications, read-only lookup results, blockers, failures, and no-op outcomes. After any tool result used for the request, send the outcome or next question here before pacing; never leave it only in thoughts or plain assistant output.\n"+
+			"A successful send wakes you again. If you promised work, continue with the needed tools or pace; after results, send the actual outcome before going idle. Build one complete call and never send placeholder or duplicate messages.\n\n"+
 			"KNOWN CHANNELS (valid values for channel): [%s].\n"+
 			"Routing — match the event prefix to the channel: %s.\n\n"+
 			"If the gate rejects your message channel as unknown, retry with a channel from the list above — NOT to fall silent. Do NOT default to \"cli\" from training-data prior; use exactly the names listed.\n\n"+

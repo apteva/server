@@ -12,7 +12,7 @@ import (
 const (
 	channelsCapabilityMemoryID        = "system_channels_v1"
 	channelsCapabilityTag             = "capability:channels"
-	channelsCapabilityVersionTag      = "capability-version:channels:v5"
+	channelsCapabilityVersionTag      = "capability-version:channels:v6"
 	channelsCapabilityHashTagPrefix   = "capability-hash:"
 	channelsCapabilitySystemTag       = "system"
 	channelsCapabilityMemoryReason    = "channels capability sync"
@@ -69,7 +69,11 @@ Follow an explicit operator request or directive when it defines report timing. 
 
 ## Presence
 
-When an operator is actively chatting, use ` + "`channels_send`" + ` for replies and final outcomes. The Apteva chat is durable, so use ` + "`channels_send`" + ` for a requested outcome even if the operator disconnected before work finished. Do not turn offline completion into a report automatically. Do not create reports or alerts for normal live progress unless asked or genuinely important. If a live request creates an approval, report, or alert, also send a short chat confirmation.`
+Every direct ` + "`[chat]`" + ` turn requires at least one successful ` + "`channels_send`" + ` before you call pace, finish, or otherwise go idle. The turn is incomplete until its user-visible answer is sent. Thoughts and plain assistant output do not count. Reply visibly even when you only need to ask a clarifying question, report a read-only lookup, explain that you cannot act, or say no action was needed.
+
+After any tool result used for the request, including a read-only lookup, send the outcome, clarification, blocker, or next question through ` + "`channels_send`" + ` before pacing. Never leave the user-facing answer only in thoughts.
+
+The Apteva chat is durable, so use ` + "`channels_send`" + ` for a requested outcome even if the operator disconnected before work finished. Do not turn offline completion into a report automatically. Do not create reports or alerts for normal live progress unless asked or genuinely important. If a live request creates an approval, report, or alert, also send a short chat confirmation.`
 }
 
 func channelsCapabilityPayload() pushPayload {
