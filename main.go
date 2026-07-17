@@ -1542,6 +1542,13 @@ func main() {
 		startIngressTLSListener(httpsIngressAddr, hostRouter, s.ingressCerts)
 	}
 
+	if !quarantined {
+		// Restore persisted app routes and credentials before any sidecar is
+		// allowed to process OnMount work. Without this preload, an app that
+		// starts before one of its dependencies observes a false 403 "app not
+		// bound" even though the binding is present in the database.
+		s.LoadInstalledApps()
+	}
 	if quarantined {
 		if err := s.PrepareCloneLocalRuntimes(); err != nil {
 			log.Printf("[CLONE-QUARANTINE] runtime preparation failed: %v", err)
@@ -1550,6 +1557,7 @@ func main() {
 		}
 	} else {
 		s.ResumeLocalInstalls()
+		s.PruneInactiveInstalledApps()
 		s.PruneInstalledAppVersions()
 		s.ResumePendingLocalInstalls()
 	}

@@ -898,8 +898,8 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 	// of the target exist. Using the bound install_id directly
 	// keeps the call inside the project context the operator
 	// originally wired up.
-	targetInstallID := installBoundAppID(s, installID, targetAppName)
-	if targetInstallID == 0 {
+	targetInstallID, staticallyBound := configuredBoundAppID(s, installID, targetAppName)
+	if !staticallyBound {
 		// No static binding — try the dynamic bypass for callers
 		// that declare requires.dynamic_app_calls and are identified
 		// as official (apps_dynamic_call.go). resolveDynamicTarget
@@ -915,7 +915,10 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 	}
 	target := s.installedApps.Get(targetInstallID)
 	if target == nil {
-		http.Error(w, "target app not running: "+targetAppName, http.StatusBadGateway)
+		log.Printf("[APPS] runtime binding not ready caller_install=%d target_app=%s target_install=%d route=call",
+			installID, targetAppName, targetInstallID)
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, fmt.Sprintf("target app not ready: %s (bound install %d)", targetAppName, targetInstallID), http.StatusServiceUnavailable)
 		return
 	}
 	if target.SidecarURL == "" {
@@ -976,13 +979,20 @@ func (s *Server) handleCallbackAppProxy(w http.ResponseWriter, r *http.Request, 
 		http.Error(w, "missing permission: "+string(sdk.PermAppsCall), http.StatusForbidden)
 		return
 	}
-	targetInstallID := installBoundAppID(s, callerInstallID, targetAppName)
-	if targetInstallID == 0 {
+	targetInstallID, staticallyBound := configuredBoundAppID(s, callerInstallID, targetAppName)
+	if !staticallyBound {
 		http.Error(w, "target app is not bound: "+targetAppName, http.StatusForbidden)
 		return
 	}
 	target := s.installedApps.Get(targetInstallID)
-	if target == nil || target.SidecarURL == "" {
+	if target == nil {
+		log.Printf("[APPS] runtime binding not ready caller_install=%d target_app=%s target_install=%d route=proxy",
+			callerInstallID, targetAppName, targetInstallID)
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, fmt.Sprintf("target app not ready: %s (bound install %d)", targetAppName, targetInstallID), http.StatusServiceUnavailable)
+		return
+	}
+	if target.SidecarURL == "" {
 		http.Error(w, "target app not reachable: "+targetAppName, http.StatusBadGateway)
 		return
 	}
@@ -1400,22 +1410,24 @@ func installBoundApp(s *Server, installID int64, appName string) bool {
 	return installBoundAppID(s, installID, appName) != 0
 }
 
-// installBoundAppID is the binding-aware sister to installBoundApp:
-// returns the install_id of the target app the caller is bound to,
-// or 0 when no binding (or the bound install isn't running). Used by
-// handleCallbackApps to dispatch app→app calls to the EXACT bound
-// install — last-wins GetByName misroutes when multiple project-
-// scoped installs of the target exist.
-func installBoundAppID(s *Server, installID int64, appName string) int64 {
+// configuredBoundAppID resolves a persisted app binding without requiring the
+// target to have reached the in-memory runtime registry yet. The distinction
+// matters during server boot: configured authorization is already valid while
+// the dependency sidecar may still be starting. Callers can then report a
+// retryable 503 instead of the misleading, permanent-looking 403 "not bound".
+//
+// The database app-name check keeps a malformed or stale numeric binding from
+// authorizing a call to an install of a different app.
+func configuredBoundAppID(s *Server, installID int64, appName string) (int64, bool) {
 	m, err := installManifest(s, installID)
 	if err != nil || m == nil {
-		return 0
+		return 0, false
 	}
 	bindings := bindingsForInstall(s, installID)
-	resolve := func(key string) int64 {
+	resolve := func(key string) (int64, bool) {
 		raw, ok := bindings[key]
 		if !ok || raw == nil {
-			return 0
+			return 0, false
 		}
 		ids, defaultID := appBindingIDs(raw)
 		boundInstallID := defaultID
@@ -1423,31 +1435,49 @@ func installBoundAppID(s *Server, installID int64, appName string) int64 {
 			boundInstallID = ids[0]
 		}
 		if boundInstallID == 0 {
-			return 0
+			return 0, false
 		}
-		e := s.installedApps.Get(boundInstallID)
-		if e == nil || e.AppName != appName {
-			return 0
+		var boundAppName string
+		if err := s.store.db.QueryRow(
+			`SELECT a.name FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`,
+			boundInstallID,
+		).Scan(&boundAppName); err != nil || boundAppName != appName {
+			return 0, false
 		}
-		return boundInstallID
+		return boundInstallID, true
 	}
 	for _, dep := range m.Requires.Apps {
-		if dep.Name != appName {
-			continue
-		}
-		if id := resolve(dep.Name); id != 0 {
-			return id
+		if dep.Name == appName {
+			return resolve(dep.Name)
 		}
 	}
 	for _, dep := range m.Requires.Integrations {
 		if dep.Kind != "app" {
 			continue
 		}
-		if id := resolve(dep.Role); id != 0 {
-			return id
+		if id, ok := resolve(dep.Role); ok {
+			return id, true
 		}
 	}
-	return 0
+	return 0, false
+}
+
+// installBoundAppID is the binding-aware sister to installBoundApp:
+// returns the install_id of the target app the caller is bound to,
+// or 0 when no binding (or the bound install isn't running). Used by
+// handleCallbackApps to dispatch app→app calls to the EXACT bound
+// install — last-wins GetByName misroutes when multiple project-
+// scoped installs of the target exist.
+func installBoundAppID(s *Server, installID int64, appName string) int64 {
+	boundInstallID, ok := configuredBoundAppID(s, installID, appName)
+	if !ok {
+		return 0
+	}
+	e := s.installedApps.Get(boundInstallID)
+	if e == nil || e.AppName != appName {
+		return 0
+	}
+	return boundInstallID
 }
 
 func contains(xs []string, v string) bool {

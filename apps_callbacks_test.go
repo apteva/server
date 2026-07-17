@@ -551,6 +551,87 @@ func TestCallback_AppProxy_StreamsThroughExactBinding(t *testing.T) {
 	}
 }
 
+func TestCallback_AppCall_ConfiguredBindingRecoversWhenRuntimeAppears(t *testing.T) {
+	s := newTestServer(t)
+	s.installedApps = NewInstalledAppsRegistry()
+	ensureTestAdmin(t, s)
+
+	instancesManifest := sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "instances"}
+	instancesID := seedInstallWithBindings(t, s, "instances", instancesManifest, nil)
+	mediaManifest := sdk.Manifest{
+		Schema: sdk.SchemaCurrent,
+		Name:   "media",
+		Requires: sdk.Requires{
+			Permissions: []sdk.Permission{sdk.PermAppsCall},
+			Apps:        []sdk.RequiredAppRef{{Name: "instances", Optional: true}},
+		},
+	}
+	mediaID := seedInstallWithBindings(t, s, "media", mediaManifest, map[string]any{"instances": instancesID})
+
+	call := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/apps/callback/apps/instances/call",
+			strings.NewReader(`{"tool":"instance_run_command","input":{"id":1,"cmd":"true"}}`))
+		req.Header.Set("X-Apteva-App-Install-ID", itoa(mediaID))
+		req.Header.Set("X-User-ID", "1")
+		rec := httptest.NewRecorder()
+		s.handleAppCallback(rec, req)
+		return rec
+	}
+
+	// The binding is valid in the database, but startup has not populated the
+	// target runtime yet. This must be retryable, not an authorization 403.
+	rec := call()
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "target app not ready") {
+		t.Fatalf("configured target before runtime = %d %q, want retryable 503", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Retry-After"); got != "1" {
+		t.Fatalf("Retry-After = %q, want 1", got)
+	}
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"ok\":true}"}]}}`)
+	}))
+	defer upstream.Close()
+	s.installedApps.Add(&InstalledApp{
+		InstallID: instancesID, AppName: "instances", ProjectID: "proj-1",
+		Manifest: instancesManifest, SidecarURL: upstream.URL, Token: "instances-token",
+	})
+
+	rec = call()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("same persisted binding after runtime registration = %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCallback_AppProxy_ConfiguredBindingReturnsServiceUnavailable(t *testing.T) {
+	s := newTestServer(t)
+	s.installedApps = NewInstalledAppsRegistry()
+	ensureTestAdmin(t, s)
+	storageID := seedInstallWithBindings(t, s, "storage",
+		sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "storage"}, nil)
+	mediaManifest := sdk.Manifest{
+		Schema: sdk.SchemaCurrent, Name: "media",
+		Requires: sdk.Requires{
+			Permissions: []sdk.Permission{sdk.PermAppsCall},
+			Apps:        []sdk.RequiredAppRef{{Name: "storage"}},
+		},
+	}
+	mediaID := seedInstallWithBindings(t, s, "media", mediaManifest, map[string]any{"storage": storageID})
+	req := httptest.NewRequest(http.MethodGet,
+		"/apps/callback/apps/storage/proxy/files/1?project_id=proj-1", nil)
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(mediaID))
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "target app not ready") {
+		t.Fatalf("configured proxy target before runtime = %d %q, want retryable 503", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Retry-After"); got != "1" {
+		t.Fatalf("Retry-After = %q, want 1", got)
+	}
+}
+
 func TestCallback_AppProxy_RejectsUnboundAndCrossProject(t *testing.T) {
 	s := newTestServer(t)
 	s.installedApps = NewInstalledAppsRegistry()

@@ -273,6 +273,34 @@ func (s *Server) LoadInstalledApps() {
 	log.Printf("[APPS] loaded %d installed apps", count)
 }
 
+// PruneInactiveInstalledApps removes preloaded runtime entries whose persisted
+// install stopped being "running" while sidecars were resumed. Server boot
+// intentionally preloads the registry before spawning sidecars so app-to-app
+// authorization and routing exist from the first callback; a failed resume
+// must not leave that optimistic entry behind afterward.
+func (s *Server) PruneInactiveInstalledApps() {
+	rows, err := s.store.db.Query(`SELECT id FROM app_installs WHERE status='running'`)
+	if err != nil {
+		log.Printf("[APPS] prune inactive installs: %v", err)
+		return
+	}
+	running := make(map[int64]struct{})
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err == nil {
+			running[id] = struct{}{}
+		}
+	}
+	_ = rows.Close()
+	for _, entry := range s.installedApps.List() {
+		if _, ok := running[entry.InstallID]; ok {
+			continue
+		}
+		s.installedApps.Remove(entry.InstallID)
+		log.Printf("[APPS] pruned inactive runtime entry install=%d app=%s", entry.InstallID, entry.AppName)
+	}
+}
+
 // resolveSidecarURL asks the orchestrator where the named service is
 // running and returns http://<ip>:<host_port>. Empty string if the
 // orchestrator can't tell us — callers fall back gracefully.

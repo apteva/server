@@ -106,3 +106,33 @@ func TestAppProxy_PrivateRouteStillUsesInstallAuthorization(t *testing.T) {
 		t.Fatalf("X-Apteva-App-Token = %q, want empty on private route", seenAppToken)
 	}
 }
+
+func TestStartupRegistryPreloadAndPruneFailedResume(t *testing.T) {
+	s := newTestServer(t)
+	s.installedApps = NewInstalledAppsRegistry()
+	manifest := sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "instances", Version: "0.4.19"}
+	installID := seedInstallWithBindings(t, s, "instances", manifest, nil)
+	if _, err := s.store.db.Exec(
+		`UPDATE app_installs SET sidecar_url_override='http://127.0.0.1:45678' WHERE id=?`,
+		installID,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// Boot preloads persisted routes before sidecars resume, so an earlier
+	// caller can distinguish "starting" from "not bound".
+	s.LoadInstalledApps()
+	entry := s.installedApps.Get(installID)
+	if entry == nil || entry.AppName != "instances" || entry.SidecarURL != "http://127.0.0.1:45678" {
+		t.Fatalf("preloaded entry = %+v", entry)
+	}
+
+	// If the actual process resume fails, the optimistic route is removed.
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET status='error' WHERE id=?`, installID); err != nil {
+		t.Fatal(err)
+	}
+	s.PruneInactiveInstalledApps()
+	if got := s.installedApps.Get(installID); got != nil {
+		t.Fatalf("failed runtime remained registered: %+v", got)
+	}
+}
