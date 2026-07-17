@@ -36,7 +36,7 @@ func TestResolveDynamicTarget_ThirdPartyWithFlag_StaysBlocked(t *testing.T) {
 	caller := seedRunningInstall(t, s, "evil-fn", "proj-1", thirdPartyManifest("evil-fn", true), nil)
 	seedRunningInstall(t, s, "tables", "proj-1", sdk.Manifest{Name: "tables"}, nil)
 
-	id, msg, ok := s.resolveDynamicTarget(caller, "tables")
+	id, msg, ok := s.resolveDynamicTarget(caller, "tables", "")
 	if ok || id != 0 {
 		t.Fatalf("expected reject, got id=%d ok=%v", id, ok)
 	}
@@ -52,7 +52,7 @@ func TestResolveDynamicTarget_OfficialNoFlag_StaysBlocked(t *testing.T) {
 	caller := seedRunningInstall(t, s, "functions", "proj-1", officialManifest("functions", false), nil)
 	seedRunningInstall(t, s, "tables", "proj-1", sdk.Manifest{Name: "tables"}, nil)
 
-	id, msg, ok := s.resolveDynamicTarget(caller, "tables")
+	id, msg, ok := s.resolveDynamicTarget(caller, "tables", "")
 	if ok || id != 0 {
 		t.Fatalf("expected reject (no flag), got id=%d ok=%v", id, ok)
 	}
@@ -67,7 +67,7 @@ func TestResolveDynamicTarget_OfficialWithFlag_SameProject(t *testing.T) {
 	caller := seedRunningInstall(t, s, "functions", "proj-1", officialManifest("functions", true), nil)
 	target := seedRunningInstall(t, s, "tables", "proj-1", sdk.Manifest{Name: "tables"}, nil)
 
-	id, msg, ok := s.resolveDynamicTarget(caller, "tables")
+	id, msg, ok := s.resolveDynamicTarget(caller, "tables", "")
 	if !ok {
 		t.Fatalf("expected resolve, got msg=%q", msg)
 	}
@@ -83,9 +83,34 @@ func TestResolveDynamicTarget_OfficialWithFlag_GlobalFallback(t *testing.T) {
 	caller := seedRunningInstall(t, s, "functions", "proj-1", officialManifest("functions", true), nil)
 	target := seedRunningInstall(t, s, "tables", "" /* global */, sdk.Manifest{Name: "tables"}, nil)
 
-	id, _, ok := s.resolveDynamicTarget(caller, "tables")
+	id, _, ok := s.resolveDynamicTarget(caller, "tables", "")
 	if !ok || id != target {
 		t.Errorf("global-fallback failed; id=%d ok=%v", id, ok)
+	}
+}
+
+// A global official caller can delegate the current worker project. Target
+// resolution must prefer that project's install before the global fallback.
+func TestResolveDynamicTarget_GlobalCallerUsesDelegatedProject(t *testing.T) {
+	s := newTestServer(t)
+	caller := seedRunningInstall(t, s, "functions", "", officialManifest("functions", true), nil)
+	globalTarget := seedRunningInstall(t, s, "tables", "", sdk.Manifest{Name: "tables"}, nil)
+	var appID int64
+	if err := s.store.db.QueryRow(`SELECT app_id FROM app_installs WHERE id=?`, globalTarget).Scan(&appID); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.store.db.Exec(`INSERT INTO app_installs (app_id, project_id, status, installed_by) VALUES (?, 'proj-1', 'running', 1)`, appID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, _ := res.LastInsertId()
+
+	id, msg, ok := s.resolveDynamicTarget(caller, "tables", "proj-1")
+	if !ok {
+		t.Fatalf("expected resolve, got msg=%q", msg)
+	}
+	if id != target {
+		t.Errorf("id = %d, want delegated-project target %d", id, target)
 	}
 }
 
@@ -96,7 +121,7 @@ func TestResolveDynamicTarget_TargetAbsent_DistinctError(t *testing.T) {
 	s := newTestServer(t)
 	caller := seedRunningInstall(t, s, "functions", "proj-1", officialManifest("functions", true), nil)
 
-	id, msg, ok := s.resolveDynamicTarget(caller, "deploy")
+	id, msg, ok := s.resolveDynamicTarget(caller, "deploy", "")
 	if ok || id != 0 {
 		t.Fatalf("expected reject (no target), got id=%d ok=%v", id, ok)
 	}
@@ -112,7 +137,7 @@ func TestResolveDynamicTarget_CrossProject_Blocked(t *testing.T) {
 	caller := seedRunningInstall(t, s, "functions", "proj-A", officialManifest("functions", true), nil)
 	seedRunningInstall(t, s, "tables", "proj-B", sdk.Manifest{Name: "tables"}, nil)
 
-	id, msg, ok := s.resolveDynamicTarget(caller, "tables")
+	id, msg, ok := s.resolveDynamicTarget(caller, "tables", "")
 	if ok || id != 0 {
 		t.Fatalf("cross-project leak: id=%d ok=%v", id, ok)
 	}

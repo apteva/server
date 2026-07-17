@@ -364,20 +364,12 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	// The selector is removed before route authorization and proxying, so the
 	// sidecar still sees its declared path such as /media/twilio/....
 	var pathInstallID int64
-	if strings.HasPrefix(tail, "/_install/") {
-		selected := strings.TrimPrefix(tail, "/_install/")
-		selectedParts := strings.SplitN(selected, "/", 2)
-		if len(selectedParts) != 2 || selectedParts[0] == "" || selectedParts[1] == "" {
-			http.Error(w, "install path must include an install id and app route", http.StatusBadRequest)
-			return
-		}
-		var err error
-		pathInstallID, err = strconv.ParseInt(selectedParts[0], 10, 64)
-		if err != nil || pathInstallID <= 0 {
-			http.Error(w, "invalid install id in app path", http.StatusBadRequest)
-			return
-		}
-		tail = "/" + selectedParts[1]
+	if strippedPath, installID, hasSelector, err := splitAppInstallSelector(tail); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	} else if hasSelector {
+		tail = strippedPath
+		pathInstallID = installID
 	}
 	// Project-aware dispatch. /api/apps/<name>/...?project_id=<X>
 	// must route to the install of <name> in project X (or the
@@ -555,6 +547,22 @@ func appProxyRouteIsNoAuth(entry *InstalledApp, path, method string) bool {
 		}
 	}
 	return false
+}
+
+func splitAppInstallSelector(appPath string) (strippedPath string, installID int64, hasSelector bool, err error) {
+	if !strings.HasPrefix(appPath, "/_install/") {
+		return appPath, 0, false, nil
+	}
+	selected := strings.TrimPrefix(appPath, "/_install/")
+	parts := strings.SplitN(selected, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", 0, true, fmt.Errorf("install path must include an install id and app route")
+	}
+	installID, err = strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || installID <= 0 {
+		return "", 0, true, fmt.Errorf("invalid install id in app path")
+	}
+	return "/" + parts[1], installID, true, nil
 }
 
 func installIDFromDevAPIKey(apiKey string) int64 {

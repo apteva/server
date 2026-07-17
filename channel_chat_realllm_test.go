@@ -269,6 +269,92 @@ func runRealDirectChatReplyAfterLookup(t *testing.T, setupHarness func(*testing.
 	}
 }
 
+// TestChannelChat_RealLLM_Codex_FinalReplyNotRepeatedAfterWake covers the
+// sequential duplicate-reply failure mode: channels_send succeeds, its
+// wake-on-result starts another reasoning iteration, and that iteration must
+// settle without sending the same final answer again.
+func TestChannelChat_RealLLM_Codex_FinalReplyNotRepeatedAfterWake(t *testing.T) {
+	directive := strings.Join([]string{
+		"# Role",
+		"You answer brief dashboard-chat requests through channels_send.",
+		"# Rules",
+		"For the final-delivery probe, send exactly FINAL DELIVERY ACKNOWLEDGED to the current channel.",
+		"That message fully completes the request; do not perform other work for the probe.",
+	}, "\n")
+	h := setupRealChannelChatHarness(t, "chat-final-reply-once-under-test", directive,
+		`{"include_apteva_server":false,"include_channels":true}`)
+	waitForInitialAgentTurn(t, h)
+
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	var baselineMessageID int64
+	if err := h.server.store.db.QueryRow(
+		`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID,
+	).Scan(&baselineMessageID); err != nil {
+		t.Fatalf("query baseline chat message: %v", err)
+	}
+
+	h.post(t, "Run the final-delivery probe now.")
+	// Production duplicates were observed a few seconds after the successful
+	// send. Waiting for a quiet period after the post-result LLM iteration makes
+	// the assertion cover that wake rather than racing the first persisted row.
+	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
+
+	calls := newChannelCalls(t, h.server, h.agent.ID, baselineCalls)
+	var sends []channelSendCall
+	for _, call := range calls {
+		if call.Kind == "message" {
+			sends = append(sends, call)
+		}
+	}
+	if len(sends) != 1 {
+		t.Fatalf("channels_send calls=%d, want exactly one after successful delivery: %+v", len(sends), calls)
+	}
+	if got := strings.TrimSpace(strings.TrimRight(strings.TrimSpace(sends[0].Text), ".!?")); got != "FINAL DELIVERY ACKNOWLEDGED" {
+		t.Fatalf("channels_send text=%q, want final-delivery marker", sends[0].Text)
+	}
+
+	resultEvents := newChannelResultEvents(t, h.server, h.agent.ID, baselineResults)
+	resultSucceeded := false
+	for _, event := range resultEvents {
+		var data struct {
+			ID      string `json:"id"`
+			Success bool   `json:"success"`
+		}
+		if json.Unmarshal(event.Data, &data) == nil && data.ID == sends[0].ID && data.Success {
+			resultSucceeded = true
+			break
+		}
+	}
+	if !resultSucceeded {
+		t.Fatalf("channels_send %q has no successful correlated result", sends[0].ID)
+	}
+
+	rows, err := h.server.store.db.Query(`
+		SELECT content FROM channel_chat_messages
+		WHERE chat_id=? AND role='agent' AND id>?
+		ORDER BY id`, h.chatID, baselineMessageID)
+	if err != nil {
+		t.Fatalf("query final chat replies: %v", err)
+	}
+	defer rows.Close()
+	var replies []string
+	for rows.Next() {
+		var reply string
+		if err := rows.Scan(&reply); err != nil {
+			t.Fatalf("scan final chat reply: %v", err)
+		}
+		replies = append(replies, reply)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate final chat replies: %v", err)
+	}
+	if len(replies) != 1 {
+		t.Fatalf("persisted agent replies=%d, want exactly one: %q", len(replies), replies)
+	}
+}
+
 // TestChannelChat_RealLLM_Codex_AllChannelKindsExactlyOnce covers the complete
 // Apteva operator-channel contract with a real core and Codex call. In
 // particular, the final status and visible message are deliberately sent in a
@@ -807,13 +893,29 @@ func setupRealChannelChatHarness(t *testing.T, agentName, directive, config stri
 func setupRealChannelChatHarnessWithProvider(t *testing.T, agentName, directive, config string,
 	providerTypeID int64, providerType, providerName string, providerState map[string]any,
 ) *realChannelChatHarness {
+	return setupRealChannelChatHarnessWithProviderPrepared(t, agentName, directive, config,
+		providerTypeID, providerType, providerName, providerState, nil)
+}
+
+func setupRealChannelChatHarnessWithProviderPrepared(t *testing.T, agentName, directive, config string,
+	providerTypeID int64, providerType, providerName string, providerState map[string]any,
+	prepare func(*Server, int64, *Agent),
+) *realChannelChatHarness {
 	t.Helper()
 	corePath := findCoreBinary(t)
 	s, userID, agent := setupRealServerWithProviderState(t, corePath, agentName, directive,
 		providerTypeID, providerType, providerName, providerState)
+	if prepare != nil {
+		prepare(s, userID, agent)
+	}
 	agent.Config = config
 	if err := s.store.UpdateAgent(agent); err != nil {
 		t.Fatalf("update agent config: %v", err)
+	}
+	var configFlags map[string]any
+	_ = json.Unmarshal([]byte(config), &configFlags)
+	if enabled, _ := configFlags["include_apteva_server"].(bool); enabled {
+		configureRealAptevaServerGateway(t, s)
 	}
 
 	appMux := http.NewServeMux()
@@ -833,7 +935,7 @@ func setupRealChannelChatHarnessWithProvider(t *testing.T, agentName, directive,
 	if err != nil {
 		t.Fatalf("provider env: %v", err)
 	}
-	if err := s.agents.Start(agent, providerEnv, s.port, s.GetProviderPool(userID, agent.ProjectID), s.instanceSecret); err != nil {
+	if _, err := s.startManagedAgent(agent, providerEnv, s.GetProviderPool(userID, agent.ProjectID)); err != nil {
 		t.Fatalf("start agent: %v", err)
 	}
 	if !waitForCoreListening(s.agents.GetPort(agent.ID), 30*time.Second) {

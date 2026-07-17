@@ -167,7 +167,10 @@ func (s *Server) waitRuntimeAgent(ctx context.Context, agent *EnvironmentAgent, 
 				window = postToolIdle
 			}
 			if time.Since(lastActivity) >= window {
-				break
+				active, err := s.runtimeAgentLLMActive(ctx, agent)
+				if err != nil || !active {
+					break
+				}
 			}
 		}
 
@@ -183,6 +186,20 @@ func (s *Server) waitRuntimeAgent(ctx context.Context, agent *EnvironmentAgent, 
 	finished := time.Now().UTC()
 	metrics := s.runtimeAgentMetrics(agent, agent.CreatedAt)
 	return &sdk.RuntimeAgentExecution{Status: status, Reason: reason, ThreadID: threadID, Turns: turns, StartedAt: started, FinishedAt: finished, Trace: trace, Metrics: metrics}, nil
+}
+
+func (s *Server) runtimeAgentLLMActive(ctx context.Context, agent *EnvironmentAgent) (bool, error) {
+	raw, err := runtimeCoreRequest(ctx, agent, http.MethodGet, "/status", nil)
+	if err != nil {
+		return false, err
+	}
+	var status struct {
+		LLMActive bool `json:"llm_active"`
+	}
+	if err := json.Unmarshal(raw, &status); err != nil {
+		return false, err
+	}
+	return status.LLMActive, nil
 }
 
 func (s *Server) runtimeAgentMessages(ctx context.Context, agent *EnvironmentAgent, threadID string, cursor int64, contextCount int, history bool) ([]runtimeThreadMessage, int64, bool, error) {

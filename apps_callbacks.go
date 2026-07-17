@@ -885,12 +885,15 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 	if body.Input == nil {
 		body.Input = map[string]any{}
 	}
-	var callerProjectID string
-	_ = s.store.db.QueryRow(
-		`SELECT COALESCE(project_id, '') FROM app_installs WHERE id = ?`,
-		installID,
-	).Scan(&callerProjectID)
-	injectProjectArgAny(body.Input, callerProjectID)
+	requestedProjectID, err := appCallProjectArg(body.Input)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	effectiveProjectID, ok := s.appCallProject(w, installID, requestedProjectID)
+	if !ok {
+		return
+	}
 	// Resolve the binding's target install_id. The binding is
 	// authoritative — last-wins GetByName(targetAppName) silently
 	// dispatches to whichever install was registered last in
@@ -906,7 +909,7 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		// returns the correct 403 message on failure so consumers
 		// can tell "not eligible" apart from "eligible but target
 		// absent".
-		id, msg, ok := s.resolveDynamicTarget(installID, targetAppName)
+		id, msg, ok := s.resolveDynamicTarget(installID, targetAppName, effectiveProjectID)
 		if !ok {
 			http.Error(w, msg, http.StatusForbidden)
 			return
@@ -922,6 +925,24 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		http.Error(w, "target app has no sidecar URL", http.StatusBadGateway)
 		return
 	}
+	if target.ProjectID != "" {
+		if effectiveProjectID == "" {
+			// Compatibility for global callers with an exact binding to a
+			// project-scoped target. Older SDKs did not send _project_id;
+			// the binding itself makes the intended project unambiguous.
+			effectiveProjectID, ok = s.appCallProject(w, installID, target.ProjectID)
+			if !ok {
+				return
+			}
+		} else if effectiveProjectID != target.ProjectID {
+			http.Error(w, "project_id does not match target app install", http.StatusForbidden)
+			return
+		}
+	}
+	// Replace rather than preserve routing metadata. The value above is
+	// pinned by the caller install or validated against its owning user.
+	delete(body.Input, "_project_id")
+	injectProjectArgAny(body.Input, effectiveProjectID)
 
 	// Construct an MCP tools/call JSON-RPC request and POST to the
 	// target's /mcp. The target's withTokenAuth requires its own
@@ -952,6 +973,58 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(respBody)
+}
+
+// appCallProjectArg reads the SDK's delegated project routing field. It is
+// accepted only as a string and is never forwarded until appCallProject has
+// pinned or authorized it.
+func appCallProjectArg(input map[string]any) (string, error) {
+	raw, present := input["_project_id"]
+	if !present || raw == nil {
+		return "", nil
+	}
+	projectID, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("_project_id must be a string")
+	}
+	return strings.TrimSpace(projectID), nil
+}
+
+// appCallProject resolves the effective project for an authenticated app
+// callback. Project installs are pinned to their installation project. Global
+// installs may delegate a project only when their owning user can access it.
+// An empty project remains valid for genuinely global app tools.
+func (s *Server) appCallProject(w http.ResponseWriter, installID int64, requestedProjectID string) (string, bool) {
+	var (
+		installProjectID string
+		ownerUserID      int64
+	)
+	if err := s.store.db.QueryRow(
+		`SELECT COALESCE(project_id,''), COALESCE(installed_by,0) FROM app_installs WHERE id=?`,
+		installID,
+	).Scan(&installProjectID, &ownerUserID); err != nil || ownerUserID == 0 {
+		http.Error(w, "install not found", http.StatusUnauthorized)
+		return "", false
+	}
+	requestedProjectID = strings.TrimSpace(requestedProjectID)
+	if installProjectID != "" {
+		if requestedProjectID != "" && requestedProjectID != installProjectID {
+			http.Error(w, "app install is scoped to another project", http.StatusForbidden)
+			return "", false
+		}
+		return installProjectID, true
+	}
+	if requestedProjectID == "" {
+		return "", true
+	}
+	if s.store.GetPlatformRole(ownerUserID) != PlatformAdmin {
+		role, err := s.store.GetProjectRole(requestedProjectID, ownerUserID)
+		if err != nil || role.Rank() < ProjectViewer.Rank() {
+			http.Error(w, "insufficient role on project", http.StatusForbidden)
+			return "", false
+		}
+	}
+	return requestedProjectID, true
 }
 
 // handleCallbackAppProxy is the streaming counterpart to CallApp.

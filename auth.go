@@ -328,8 +328,19 @@ func appTokenQueryAllowed(r *http.Request) bool {
 
 func (s *Server) anonymousAppRouteAllowed(r *http.Request) bool {
 	appName, appPath, ok := splitAppProxyPath(r.URL.Path)
-	if !ok || isAppManagementRoute(appName) {
+	if !ok || isAppManagementRoute(appName) || s == nil || s.installedApps == nil {
 		return false
+	}
+	strippedPath, installID, hasInstallSelector, err := splitAppInstallSelector(appPath)
+	if err != nil {
+		return false
+	}
+	if hasInstallSelector {
+		entry := s.installedApps.Get(installID)
+		if entry == nil || entry.AppName != appName {
+			return false
+		}
+		return appProxyRouteIsNoAuth(entry, strippedPath, r.Method)
 	}
 	return s.anonymousAppNoAuthRouteAllowed(r, appName, appPath)
 }
@@ -372,18 +383,7 @@ func (s *Server) anonymousAppNoAuthRouteAllowed(r *http.Request, appName, appPat
 	if entry == nil {
 		return false
 	}
-	for _, route := range entry.Manifest.Provides.HTTPRoutes {
-		if !route.NoAuth {
-			continue
-		}
-		if route.Method != "" && !strings.EqualFold(route.Method, r.Method) {
-			continue
-		}
-		if appRouteMatches(route.Prefix, appPath) {
-			return true
-		}
-	}
-	return false
+	return appProxyRouteIsNoAuth(entry, appPath, r.Method)
 }
 
 func (s *Server) installedAppForRequest(appName string, r *http.Request) *InstalledApp {

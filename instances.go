@@ -122,6 +122,7 @@ type AgentManager struct {
 	processes map[int64]*runningAgent // instanceID → running process + port
 	dataDir   string
 	coreCmd   string // path to core binary
+	serverCmd string // optional apteva-server binary override for the stdio management gateway
 
 	// PostChannelsInit is invoked right after an instance's
 	// ChannelRegistry is created and the CLI bridge is registered,
@@ -272,6 +273,14 @@ func NewAgentManager(dataDir, coreCmd string) *AgentManager {
 	}
 }
 
+func (im *AgentManager) gatewayCommand() string {
+	if strings.TrimSpace(im.serverCmd) != "" {
+		return im.serverCmd
+	}
+	serverBin, _ := os.Executable()
+	return serverBin
+}
+
 // allocPort asks the OS for a free ephemeral port by binding to :0 and
 // immediately closing the listener. The kernel returns a high-numbered
 // port that's guaranteed free at the instant of the Listen call. We
@@ -372,8 +381,8 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	port := im.allocPort()
 	dir := im.instanceDir(inst.ID)
 
-	// Get server binary path for MCP gateway
-	serverBin, _ := os.Executable()
+	// Get server binary path for MCP gateway.
+	serverBin := im.gatewayCommand()
 
 	// Build config.json — restore saved config from DB, then ensure directive/mode/gateway are current
 	mode := inst.Mode
@@ -828,7 +837,7 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 	im.mu.Unlock()
 
 	dir := im.instanceDir(inst.ID)
-	serverBin, _ := os.Executable()
+	serverBin := im.gatewayCommand()
 	config := map[string]any{}
 	if diskConfig, err := os.ReadFile(filepath.Join(dir, "config.json")); err == nil {
 		_ = json.Unmarshal(diskConfig, &config)

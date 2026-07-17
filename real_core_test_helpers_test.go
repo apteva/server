@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -47,6 +48,25 @@ func findCoreBinary(t *testing.T) string {
 		}
 	}
 	t.Skip("apteva-core binary not found")
+	return ""
+}
+
+func findServerBinary(t *testing.T) string {
+	t.Helper()
+	if path := os.Getenv("APTEVA_SERVER_BIN"); path != "" {
+		if _, err := os.Stat(path); err == nil {
+			absolute, _ := filepath.Abs(path)
+			return absolute
+		}
+		t.Skipf("APTEVA_SERVER_BIN=%s does not exist", path)
+	}
+	for _, candidate := range []string{"apteva-server", filepath.Join(".", "apteva-server")} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			absolute, _ := filepath.Abs(candidate)
+			return absolute
+		}
+	}
+	t.Skip("apteva-server binary not found; build it or set APTEVA_SERVER_BIN")
 	return ""
 }
 
@@ -220,6 +240,7 @@ func setupRealServerWithProviderState(t *testing.T, corePath, agentName, agentDi
 	apiMux.HandleFunc("/telemetry/live", s.handleLiveTelemetry)
 	apiMux.HandleFunc("/telemetry", s.handleIngestTelemetry)
 	s.registerAppRuntimeRoutes(apiMux)
+	registerRealManagementRoutes(s, apiMux)
 	mux := http.NewServeMux()
 	mux.Handle("/api/", http.StripPrefix("/api", apiMux))
 	mux.HandleFunc("/mcp/", s.handleMCPEndpoint)
@@ -248,4 +269,62 @@ func setupRealServerWithProviderState(t *testing.T, corePath, agentName, agentDi
 	}
 	t.Cleanup(func() { s.agents.Stop(agent.ID) })
 	return s, user.ID, agent
+}
+
+func registerRealManagementRoutes(s *Server, apiMux *http.ServeMux) {
+	agentsCollection := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.handleListInstances(w, r)
+		case http.MethodPost:
+			s.handleCreateInstance(w, r)
+		default:
+			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
+		}
+	})
+	apiMux.HandleFunc("/agents", agentsCollection)
+	apiMux.HandleFunc("/agents/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		r.URL.Path = "/instances/" + strings.TrimPrefix(r.URL.Path, "/agents/")
+		path := strings.TrimPrefix(r.URL.Path, "/instances/")
+		switch {
+		case strings.HasSuffix(path, "/config"):
+			s.handleUpdateConfig(w, r)
+		case strings.HasSuffix(path, "/start"):
+			s.handleStartInstance(w, r)
+		case strings.HasSuffix(path, "/stop"):
+			s.handleStopInstance(w, r)
+		default:
+			s.handleInstance(w, r)
+		}
+	}))
+	apiMux.HandleFunc("/apps", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
+		s.handleListApps(w, r)
+	}))
+	apiMux.HandleFunc("/apps/marketplace", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
+		s.handleMarketplace(w, r)
+	}))
+	apiMux.HandleFunc("/apps/install", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		s.handleInstallApp(w, r)
+	}))
+}
+
+func configureRealAptevaServerGateway(t *testing.T, s *Server) {
+	t.Helper()
+	s.agents.serverCmd = findServerBinary(t)
+	t.Setenv("DB_PATH", filepath.Join(s.dataDir, "apteva.db"))
+	t.Setenv("DATA_DIR", s.dataDir)
+	t.Setenv("SERVER_SECRET", hex.EncodeToString(s.secret))
+	t.Setenv("APTEVA_INTERNAL_SERVER_URL", "http://127.0.0.1:"+s.port)
 }

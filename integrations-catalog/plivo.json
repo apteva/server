@@ -56,6 +56,53 @@
   },
   "tools": [
     {
+      "name": "search_phone_numbers",
+      "description": "Search Plivo phone-number inventory by country, type, capability, region, city, or number pattern.",
+      "method": "GET",
+      "path": "/PhoneNumber/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country_iso": { "type": "string", "description": "ISO alpha-2 country code." },
+          "type": { "type": "string", "enum": ["local", "mobile", "national", "tollfree"] },
+          "services": { "type": "string", "description": "Required capabilities, e.g. voice or voice,sms." },
+          "pattern": { "type": "string", "description": "Optional number pattern." },
+          "region": { "type": "string" },
+          "city": { "type": "string" },
+          "limit": { "type": "integer", "default": 20 },
+          "offset": { "type": "integer", "default": 0 }
+        },
+        "required": ["country_iso"]
+      }
+    },
+    {
+      "name": "get_number_pricing",
+      "description": "Retrieve Plivo account pricing for number rental, setup, and inbound voice in one country.",
+      "method": "GET",
+      "path": "/Pricing/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country_iso": { "type": "string", "description": "ISO alpha-2 country code." }
+        },
+        "required": ["country_iso"]
+      }
+    },
+    {
+      "name": "buy_phone_number",
+      "description": "Rent an available Plivo phone number. This creates a recurring charge.",
+      "method": "POST",
+      "path": "/PhoneNumber/{number}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "number": { "type": "string", "description": "Available phone number from search results." },
+          "app_id": { "type": "string", "description": "Optional Plivo application id to assign." }
+        },
+        "required": ["number"]
+      }
+    },
+    {
       "name": "make_call",
       "description": "Place an outbound Plivo call. For AI voice agents, answer_url should return Plivo XML with a bidirectional <Stream> element pointing to the Telephony WebSocket.",
       "method": "POST",

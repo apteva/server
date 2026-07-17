@@ -225,7 +225,9 @@ func TestAppProxyDerivesEffectiveProjectFromInstallAndDelegatedKey(t *testing.T)
 func TestAppProxyInstallPathRoutesPublicWebSocketWithoutQuery(t *testing.T) {
 	s, _, projectID := newAppProxyProjectUser(t, ProjectViewer)
 	var seenPath, seenProject string
+	var sidecarCalls int
 	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sidecarCalls++
 		seenPath = r.URL.Path
 		seenProject = r.Header.Get("X-Apteva-Project-ID")
 		w.WriteHeader(http.StatusNoContent)
@@ -235,22 +237,48 @@ func TestAppProxyInstallPathRoutesPublicWebSocketWithoutQuery(t *testing.T) {
 		InstallID: 708, AppName: "telephony", ProjectID: projectID, SidecarURL: sidecar.URL,
 		Manifest: sdk.Manifest{Provides: sdk.Provides{HTTPRoutes: []sdk.RouteSpec{{Prefix: "/media/", NoAuth: true}}}},
 	})
+	s.installedApps.Add(&InstalledApp{
+		InstallID: 709, AppName: "other-app", ProjectID: projectID, SidecarURL: sidecar.URL,
+		Manifest: sdk.Manifest{Provides: sdk.Provides{HTTPRoutes: []sdk.RouteSpec{{Prefix: "/media/", NoAuth: true}}}},
+	})
 
+	apiMux := http.NewServeMux()
+	s.registerAppRuntimeRoutes(apiMux)
 	req := httptest.NewRequest(http.MethodGet, "/apps/telephony/_install/708/media/twilio/call/token", nil)
 	rec := httptest.NewRecorder()
-	s.handleAppProxy(rec, req)
+	apiMux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	if seenPath != "/media/twilio/call/token" || seenProject != projectID {
 		t.Fatalf("sidecar path=%q project=%q", seenPath, seenProject)
 	}
+	if sidecarCalls != 1 {
+		t.Fatalf("sidecar calls=%d want 1", sidecarCalls)
+	}
 
 	req = httptest.NewRequest(http.MethodGet, "/apps/telephony/_install/708/media/twilio/call/token?install_id=709", nil)
 	rec = httptest.NewRecorder()
-	s.handleAppProxy(rec, req)
+	apiMux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("conflicting selector status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	for _, path := range []string{
+		"/apps/telephony/_install/not-a-number/media/twilio/call/token",
+		"/apps/telephony/_install/999/media/twilio/call/token",
+		"/apps/telephony/_install/709/media/twilio/call/token",
+		"/apps/telephony/_install/708/private/call/token",
+	} {
+		req = httptest.NewRequest(http.MethodGet, path, nil)
+		rec = httptest.NewRecorder()
+		apiMux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("path=%q status=%d body=%s", path, rec.Code, rec.Body.String())
+		}
+	}
+	if sidecarCalls != 1 {
+		t.Fatalf("rejected selectors reached sidecar: calls=%d", sidecarCalls)
 	}
 }
 

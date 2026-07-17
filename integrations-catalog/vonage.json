@@ -31,6 +31,19 @@
         "name": "phone_number",
         "label": "Default From Number",
         "description": "Default Vonage phone number to call from, in E.164 format without leading '+'."
+      },
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Vonage account API key used by number inventory and purchase endpoints.",
+        "required": false
+      },
+      {
+        "name": "api_secret",
+        "label": "API Secret",
+        "description": "Vonage account API secret used by number inventory and purchase endpoints.",
+        "type": "password",
+        "required": false
       }
     ]
   },
@@ -376,7 +389,8 @@
       "name": "numbers_search",
       "description": "Search for available phone numbers to purchase by country, type, and features",
       "method": "GET",
-      "path": "/numbers-search",
+      "base_url": "https://rest.nexmo.com",
+      "path": "/number/search?api_key={{credential.api_key}}&api_secret={{credential.api_secret}}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -429,8 +443,12 @@
     {
       "name": "number_buy",
       "description": "Purchase a phone number for your Vonage account",
-      "method": "GET",
-      "path": "/number-buy",
+      "method": "POST",
+      "base_url": "https://rest.nexmo.com",
+      "path": "/number/buy?api_key={{credential.api_key}}&api_secret={{credential.api_secret}}",
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -453,7 +471,8 @@
       "name": "numbers_list",
       "description": "List all phone numbers owned by your Vonage account",
       "method": "GET",
-      "path": "/numbers-list",
+      "base_url": "https://rest.nexmo.com",
+      "path": "/account/numbers?api_key={{credential.api_key}}&api_secret={{credential.api_secret}}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -484,8 +503,12 @@
     {
       "name": "number_cancel",
       "description": "Cancel/release a phone number from your Vonage account",
-      "method": "GET",
-      "path": "/number-cancel",
+      "method": "POST",
+      "base_url": "https://rest.nexmo.com",
+      "path": "/number/cancel?api_key={{credential.api_key}}&api_secret={{credential.api_secret}}",
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
       "input_schema": {
         "type": "object",
         "properties": {

@@ -442,6 +442,281 @@
       }
     },
     {
+      "name": "list_addresses",
+      "description": "List regulatory addresses available for assigning to Twilio phone numbers.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Addresses.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CustomerName": {
+            "type": "string",
+            "description": "Optional exact customer name filter."
+          },
+          "IsoCountry": {
+            "type": "string",
+            "description": "Optional ISO alpha-2 country filter."
+          },
+          "PageSize": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of results (max 1000)."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_address",
+      "description": "Create and validate a Twilio regulatory address for phone-number ownership.",
+      "method": "POST",
+      "path": "/Accounts/{{account_sid}}/Addresses.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CustomerName": { "type": "string", "description": "Individual or business name associated with the address." },
+          "Street": { "type": "string" },
+          "StreetSecondary": { "type": "string" },
+          "City": { "type": "string" },
+          "Region": { "type": "string", "description": "State, province, or region." },
+          "PostalCode": { "type": "string" },
+          "IsoCountry": { "type": "string", "description": "ISO alpha-2 address country." },
+          "FriendlyName": { "type": "string" },
+          "AutoCorrectAddress": { "type": "boolean", "default": true }
+        },
+        "required": ["CustomerName", "Street", "City", "Region", "PostalCode", "IsoCountry"]
+      }
+    },
+    {
+      "name": "get_address",
+      "description": "Fetch one Twilio address by Address SID.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Addresses/{AddressSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "AddressSid": { "type": "string" } },
+        "required": ["AddressSid"]
+      }
+    },
+    {
+      "name": "list_regulations",
+      "description": "Discover Twilio regulatory requirements. Regulations must be queried dynamically because requirements can change.",
+      "method": "GET",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Regulations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "IsoCountry": { "type": "string" },
+          "NumberType": { "type": "string", "enum": ["local", "mobile", "national", "toll-free"] },
+          "EndUserType": { "type": "string", "enum": ["individual", "business"] },
+          "IncludeConstraints": { "type": "boolean", "default": true },
+          "PageSize": { "type": "integer", "default": 50, "maximum": 1000 }
+        }
+      }
+    },
+    {
+      "name": "get_regulation",
+      "description": "Fetch one Twilio regulation with its current end-user and supporting-document requirements.",
+      "method": "GET",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Regulations/{RegulationSid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "RegulationSid": { "type": "string" },
+          "IncludeConstraints": { "type": "boolean", "default": true }
+        },
+        "required": ["RegulationSid"]
+      }
+    },
+    {
+      "name": "list_regulatory_bundles",
+      "description": "List Twilio regulatory bundles, including draft, pending, rejected, and approved bundles.",
+      "method": "GET",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Bundles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Status": { "type": "string" },
+          "IsoCountry": { "type": "string" },
+          "NumberType": { "type": "string" },
+          "EndUserType": { "type": "string", "enum": ["individual", "business"] },
+          "FriendlyName": { "type": "string" },
+          "PageSize": { "type": "integer", "default": 50, "maximum": 1000 }
+        }
+      }
+    },
+    {
+      "name": "get_regulatory_bundle",
+      "description": "Fetch one Twilio regulatory bundle by Bundle SID.",
+      "method": "GET",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Bundles/{BundleSid}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "BundleSid": { "type": "string" } },
+        "required": ["BundleSid"]
+      }
+    },
+    {
+      "name": "create_regulatory_bundle",
+      "description": "Create a draft Twilio regulatory bundle from a Regulation SID or country, number type, and end-user type.",
+      "method": "POST",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Bundles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FriendlyName": { "type": "string" },
+          "Email": { "type": "string" },
+          "RegulationSid": { "type": "string" },
+          "IsoCountry": { "type": "string" },
+          "NumberType": { "type": "string", "enum": ["local", "mobile", "national", "toll-free"] },
+          "EndUserType": { "type": "string", "enum": ["individual", "business"] },
+          "StatusCallback": { "type": "string" }
+        },
+        "required": ["FriendlyName", "Email"]
+      }
+    },
+    {
+      "name": "update_regulatory_bundle",
+      "description": "Update a draft bundle or submit it for review by setting Status to pending-review.",
+      "method": "POST",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Bundles/{BundleSid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "BundleSid": { "type": "string" },
+          "Status": { "type": "string", "enum": ["draft", "pending-review"] },
+          "FriendlyName": { "type": "string" },
+          "Email": { "type": "string" },
+          "StatusCallback": { "type": "string" }
+        },
+        "required": ["BundleSid"]
+      }
+    },
+    {
+      "name": "list_regulatory_end_users",
+      "description": "List reusable Twilio regulatory end users.",
+      "method": "GET",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/EndUsers",
+      "input_schema": {
+        "type": "object",
+        "properties": { "PageSize": { "type": "integer", "default": 50, "maximum": 1000 } }
+      }
+    },
+    {
+      "name": "create_regulatory_end_user",
+      "description": "Create a reusable individual or business for Twilio regulatory bundles. Attributes must match the selected Regulation.",
+      "method": "POST",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/EndUsers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FriendlyName": { "type": "string" },
+          "Type": { "type": "string", "enum": ["individual", "business"] },
+          "Attributes": { "type": "string", "description": "JSON object encoded as a string using fields returned by list_regulations." }
+        },
+        "required": ["FriendlyName", "Type", "Attributes"]
+      }
+    },
+    {
+      "name": "list_regulatory_documents",
+      "description": "List reusable Twilio regulatory supporting documents.",
+      "method": "GET",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/SupportingDocuments",
+      "input_schema": {
+        "type": "object",
+        "properties": { "PageSize": { "type": "integer", "default": 50, "maximum": 1000 } }
+      }
+    },
+    {
+      "name": "create_regulatory_document",
+      "description": "Create a Twilio supporting-document record without a file, such as an address validation document.",
+      "method": "POST",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/SupportingDocuments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FriendlyName": { "type": "string" },
+          "Type": { "type": "string", "description": "Accepted document type returned by the Regulation, such as address." },
+          "Attributes": { "type": "string", "description": "JSON object encoded as a string; address documents normally use address_sids." }
+        },
+        "required": ["FriendlyName", "Type", "Attributes"]
+      }
+    },
+    {
+      "name": "upload_regulatory_document",
+      "description": "Create a Twilio supporting document and upload its JPEG, PNG, or PDF proof (maximum 5 MB).",
+      "method": "POST",
+      "base_url": "https://numbers-upload.twilio.com/v2",
+      "path": "/RegulatoryCompliance/SupportingDocuments",
+      "timeout_ms": 120000,
+      "multipart_form": {
+        "field_names": ["FriendlyName", "Type", "Attributes"],
+        "file_fields": { "File": "File" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FriendlyName": { "type": "string" },
+          "Type": { "type": "string" },
+          "Attributes": { "type": "string", "description": "JSON object encoded as a string." },
+          "File": { "type": "string", "description": "JPEG, PNG, or PDF as base64, data URL, blob reference, or binary envelope." },
+          "File_filename": { "type": "string", "description": "Original filename including extension." }
+        },
+        "required": ["FriendlyName", "Type", "Attributes", "File"]
+      }
+    },
+    {
+      "name": "list_bundle_items",
+      "description": "List end users and supporting documents assigned to a Twilio regulatory bundle.",
+      "method": "GET",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Bundles/{BundleSid}/ItemAssignments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "BundleSid": { "type": "string" },
+          "PageSize": { "type": "integer", "default": 50, "maximum": 1000 }
+        },
+        "required": ["BundleSid"]
+      }
+    },
+    {
+      "name": "assign_bundle_item",
+      "description": "Assign a Twilio End User (IT...) or Supporting Document (RD...) to a regulatory bundle.",
+      "method": "POST",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Bundles/{BundleSid}/ItemAssignments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "BundleSid": { "type": "string" },
+          "ObjectSid": { "type": "string" }
+        },
+        "required": ["BundleSid", "ObjectSid"]
+      }
+    },
+    {
+      "name": "evaluate_regulatory_bundle",
+      "description": "Synchronously evaluate a Twilio regulatory bundle and return granular missing or invalid requirements.",
+      "method": "POST",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Bundles/{BundleSid}/Evaluations",
+      "input_schema": {
+        "type": "object",
+        "properties": { "BundleSid": { "type": "string" } },
+        "required": ["BundleSid"]
+      }
+    },
+    {
       "name": "list_phone_numbers",
       "description": "List all phone numbers in your Twilio account with their capabilities and configuration.",
       "method": "GET",
@@ -480,6 +755,14 @@
           "FriendlyName": {
             "type": "string",
             "description": "Friendly name for the number"
+          },
+          "AddressSid": {
+            "type": "string",
+            "description": "Twilio Address SID required for regulated phone numbers."
+          },
+          "BundleSid": {
+            "type": "string",
+            "description": "Approved Twilio Regulatory Bundle SID required for regulated phone numbers."
           },
           "SmsUrl": {
             "type": "string",
@@ -685,6 +968,44 @@
             "type": "integer",
             "default": 20,
             "description": "Number of results"
+          }
+        },
+        "required": [
+          "Country"
+        ]
+      }
+    },
+    {
+      "name": "get_phone_number_pricing",
+      "description": "Retrieve current account-specific monthly phone number prices for a country, grouped by local, mobile, national, and toll-free type.",
+      "method": "GET",
+      "base_url": "https://pricing.twilio.com/v1",
+      "path": "/PhoneNumbers/Countries/{Country}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Country": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code, e.g. US, EE, or DE."
+          }
+        },
+        "required": [
+          "Country"
+        ]
+      }
+    },
+    {
+      "name": "get_voice_pricing",
+      "description": "Retrieve current account-specific inbound and outbound Programmable Voice prices for a country.",
+      "method": "GET",
+      "base_url": "https://pricing.twilio.com/v2",
+      "path": "/Voice/Countries/{Country}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Country": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code, e.g. US, EE, or DE."
           }
         },
         "required": [

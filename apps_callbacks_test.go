@@ -471,6 +471,138 @@ func TestCallback_AppCall_RejectsMissingPermission(t *testing.T) {
 	}
 }
 
+func TestCallback_AppCall_GlobalCallerPreservesValidatedProject(t *testing.T) {
+	s := newTestServer(t)
+	s.installedApps = NewInstalledAppsRegistry()
+	if _, err := s.store.db.Exec(`INSERT OR IGNORE INTO users (id,email,password_hash,role) VALUES (1,'caller@test.local','hash','user')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.db.Exec(`UPDATE users SET role='user' WHERE id=1`); err != nil {
+		t.Fatal(err)
+	}
+	project, err := s.store.CreateProject(1, "Delegated", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var gotArguments map[string]any
+	targetHTTP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var rpc struct {
+			Params struct {
+				Arguments map[string]any `json:"arguments"`
+			} `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&rpc); err != nil {
+			t.Errorf("decode target request: %v", err)
+		}
+		gotArguments = rpc.Params.Arguments
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"ok\":true}"}]}}`)
+	}))
+	defer targetHTTP.Close()
+
+	targetManifest := sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "crm-project-context-test"}
+	targetID := seedInstallWithBindings(t, s, "crm-project-context-test", targetManifest, nil)
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET project_id='' WHERE id=?`, targetID); err != nil {
+		t.Fatal(err)
+	}
+	target := &InstalledApp{
+		InstallID: targetID, AppName: "crm-project-context-test", ProjectID: "",
+		Manifest: targetManifest, SidecarURL: targetHTTP.URL, Token: "target-token",
+	}
+	s.installedApps.Add(target)
+
+	callerManifest := sdk.Manifest{
+		Schema: sdk.SchemaCurrent,
+		Name:   "messaging-project-context-test",
+		Requires: sdk.Requires{
+			Permissions: []sdk.Permission{sdk.PermAppsCall},
+			Apps:        []sdk.RequiredAppRef{{Name: "crm-project-context-test"}},
+		},
+	}
+	callerID := seedInstallWithBindings(t, s, "messaging-project-context-test", callerManifest,
+		map[string]any{"crm-project-context-test": targetID})
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET project_id='' WHERE id=?`, callerID); err != nil {
+		t.Fatal(err)
+	}
+
+	call := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/apps/callback/apps/crm-project-context-test/call", strings.NewReader(body))
+		req.Header.Set("X-Apteva-App-Install-ID", itoa(callerID))
+		rec := httptest.NewRecorder()
+		s.handleAppCallback(rec, req)
+		return rec
+	}
+
+	rec := call(`{"tool":"messaging_inbound_receive","input":{"_project_id":"` + project.ID + `","message_id":1062}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delegated call status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if gotArguments["_project_id"] != project.ID {
+		t.Fatalf("delegated _project_id=%v, want %s", gotArguments["_project_id"], project.ID)
+	}
+
+	// Preserve compatibility with global callers bound directly to a
+	// project-scoped target, even when an older SDK omits _project_id.
+	target.ProjectID = project.ID
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET project_id=? WHERE id=?`, project.ID, targetID); err != nil {
+		t.Fatal(err)
+	}
+	gotArguments = nil
+	rec = call(`{"tool":"messaging_inbound_receive","input":{"message_id":1063}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("inferred call status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if gotArguments["_project_id"] != project.ID {
+		t.Fatalf("inferred _project_id=%v, want %s", gotArguments["_project_id"], project.ID)
+	}
+}
+
+func TestCallback_AppCall_RejectsSpoofedOrUnauthorizedProject(t *testing.T) {
+	s := newTestServer(t)
+	if _, err := s.store.db.Exec(`INSERT OR IGNORE INTO users (id,email,password_hash,role) VALUES (1,'caller@test.local','hash','user')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.db.Exec(`UPDATE users SET role='user' WHERE id=1`); err != nil {
+		t.Fatal(err)
+	}
+	manifest := sdk.Manifest{
+		Schema: sdk.SchemaCurrent, Name: "project-auth-test",
+		Requires: sdk.Requires{Permissions: []sdk.Permission{sdk.PermAppsCall}},
+	}
+	callerID := seedInstallWithBindings(t, s, "project-auth-test", manifest, nil)
+
+	// A project-scoped install cannot replace its pinned project.
+	req := httptest.NewRequest(http.MethodPost, "/apps/callback/apps/crm/call",
+		strings.NewReader(`{"tool":"x","input":{"_project_id":"proj-2"}}`))
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(callerID))
+	rec := httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "scoped to another project") {
+		t.Fatalf("scoped spoof status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// A global install can delegate only to projects visible to its owner.
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET project_id='' WHERE id=?`, callerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.db.Exec(`INSERT OR IGNORE INTO users (id,email,password_hash,role) VALUES (2,'owner@test.local','hash','user')`); err != nil {
+		t.Fatal(err)
+	}
+	foreignProject, err := s.store.CreateProject(2, "Foreign", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/apps/callback/apps/crm/call",
+		strings.NewReader(`{"tool":"x","input":{"_project_id":"`+foreignProject.ID+`"}}`))
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(callerID))
+	rec = httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "insufficient role") {
+		t.Fatalf("foreign project status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestCallback_AppProxy_StreamsThroughExactBinding(t *testing.T) {
 	s := newTestServer(t)
 	s.installedApps = NewInstalledAppsRegistry()

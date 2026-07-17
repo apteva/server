@@ -135,7 +135,7 @@ func (s *Server) resolveDynamicIntegration(callerInstallID, connID int64, connPr
 // failure, returns the appropriate 403 message so the consumer's
 // error distinguishes "not eligible" from "eligible but target
 // absent".
-func (s *Server) resolveDynamicTarget(callerInstallID int64, targetAppName string) (int64, string, bool) {
+func (s *Server) resolveDynamicTarget(callerInstallID int64, targetAppName, delegatedProjectID string) (int64, string, bool) {
 	callerMan, err := installManifest(s, callerInstallID)
 	if err != nil || callerMan == nil {
 		return 0, "app not bound: " + targetAppName, false
@@ -144,6 +144,9 @@ func (s *Server) resolveDynamicTarget(callerInstallID int64, targetAppName strin
 		return 0, "app not bound: " + targetAppName, false
 	}
 	callerProject := installProjectID(s, callerInstallID)
+	if callerProject == "" {
+		callerProject = strings.TrimSpace(delegatedProjectID)
+	}
 	id, ok := s.findInstalledApp(targetAppName, callerProject)
 	if !ok || id == 0 {
 		scope := "globally"
