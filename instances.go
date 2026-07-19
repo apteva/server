@@ -453,50 +453,21 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		config["mode"] = mode
 	}
 
-	// Read default_provider from instance config
-	defaultProvider := ""
-	if instCfg, ok := config["_instance_config"].(string); ok {
+	// Read default_provider from instance config. The disk metadata branch is
+	// retained for old installations; current servers persist it in the agent
+	// DB config so every restart resolves the same provider.
+	defaultProvider := configuredAgentDefaultProvider(inst.Config)
+	if instCfg, ok := config["_instance_config"].(string); defaultProvider == "" && ok {
 		var ic map[string]any
 		json.Unmarshal([]byte(instCfg), &ic)
-		defaultProvider, _ = ic["default_provider"].(string)
-	}
-	// Also check from the raw instance config field
-	if defaultProvider == "" {
-		var ic map[string]any
-		json.Unmarshal([]byte(inst.Config), &ic)
-		if ic != nil {
-			defaultProvider, _ = ic["default_provider"].(string)
+		if diskDefault, _ := ic["default_provider"].(string); strings.TrimSpace(diskDefault) != "" {
+			defaultProvider = providerKeyFromName(diskDefault)
 		}
 	}
 
 	// Inject providers array into config (core reads "providers" field)
 	if len(providerPool) > 0 {
-		var provArray []map[string]any
-		for i, pi := range providerPool {
-			if pi.Type == "" {
-				continue
-			}
-			isDefault := providerIsDefault(pi.Type, defaultProvider, i)
-			entry := map[string]any{
-				"name": pi.Type,
-				"models": map[string]string{
-					"large":  pi.ModelLarge,
-					"medium": pi.ModelMedium,
-					"small":  pi.ModelSmall,
-				},
-				"default": isDefault,
-			}
-			if pi.RealtimeVoice != "" {
-				entry["realtime_voice"] = pi.RealtimeVoice
-			}
-			if len(pi.ModelCapabilities) > 0 {
-				entry["model_capabilities"] = pi.ModelCapabilities
-			}
-			if len(pi.BuiltinTools) > 0 {
-				entry["builtin_tools"] = pi.BuiltinTools
-			}
-			provArray = append(provArray, entry)
-		}
+		provArray := buildAgentCoreProviderConfigs(providerPool, inst.Config, defaultProvider)
 		if len(provArray) > 0 {
 			config["providers"] = provArray
 			delete(config, "provider") // remove legacy single-provider field
@@ -765,6 +736,177 @@ func providerIsDefault(providerType, configuredDefault string, index int) bool {
 	}
 	baseProvider := strings.TrimSuffix(providerType, "-realtime")
 	return baseProvider != providerType && baseProvider == configuredDefault
+}
+
+func isRealtimeProviderType(providerType string) bool {
+	return strings.HasSuffix(providerKeyFromName(providerType), "-realtime")
+}
+
+func configuredAgentDefaultProvider(configJSON string) string {
+	var config map[string]any
+	if json.Unmarshal([]byte(configJSON), &config) != nil {
+		return ""
+	}
+	value, _ := config["default_provider"].(string)
+	return providerKeyFromName(value)
+}
+
+func configuredAgentModelOverride(configJSON, providerName string) string {
+	var config map[string]any
+	if json.Unmarshal([]byte(configJSON), &config) != nil {
+		return ""
+	}
+	override, _ := config["model_override"].(map[string]any)
+	provider, _ := override["provider"].(string)
+	model, _ := override["model"].(string)
+	if providerKeyFromName(provider) != providerKeyFromName(providerName) {
+		return ""
+	}
+	return strings.TrimSpace(model)
+}
+
+// effectiveProviderDefault resolves an explicit agent pin against the current
+// text-provider pool. Missing or stale pins fall back deterministically to the
+// first text provider supplied by GetProviderPool.
+func effectiveProviderDefault(pool []ProviderInfo, configured string) string {
+	configured = providerKeyFromName(configured)
+	if configured != "" {
+		for _, provider := range pool {
+			name := providerKeyFromName(provider.Type)
+			if !isRealtimeProviderType(name) && name == configured {
+				return name
+			}
+		}
+	}
+	for _, provider := range pool {
+		name := providerKeyFromName(provider.Type)
+		if name != "" && !isRealtimeProviderType(name) {
+			return name
+		}
+	}
+	return ""
+}
+
+func buildCoreProviderConfigs(pool []ProviderInfo, configuredDefault string) []map[string]any {
+	defaultProvider := effectiveProviderDefault(pool, configuredDefault)
+	providers := make([]map[string]any, 0, len(pool))
+	for i, provider := range pool {
+		name := providerKeyFromName(provider.Type)
+		if name == "" {
+			continue
+		}
+		entry := map[string]any{
+			"name": name,
+			"models": map[string]string{
+				"large":  provider.ModelLarge,
+				"medium": provider.ModelMedium,
+				"small":  provider.ModelSmall,
+			},
+			"default": providerIsDefault(name, defaultProvider, i),
+		}
+		if provider.RealtimeVoice != "" {
+			entry["realtime_voice"] = provider.RealtimeVoice
+		}
+		if len(provider.ModelCapabilities) > 0 {
+			entry["model_capabilities"] = provider.ModelCapabilities
+		}
+		if len(provider.BuiltinTools) > 0 {
+			entry["builtin_tools"] = provider.BuiltinTools
+		}
+		providers = append(providers, entry)
+	}
+	return providers
+}
+
+func applyAgentModelOverride(providers []map[string]any, providerName, model string) {
+	providerName = providerKeyFromName(providerName)
+	model = strings.TrimSpace(model)
+	if providerName == "" || model == "" {
+		return
+	}
+	for _, provider := range providers {
+		name, _ := provider["name"].(string)
+		if providerKeyFromName(name) != providerName {
+			continue
+		}
+		provider["models"] = map[string]string{
+			"large":  model,
+			"medium": model,
+			"small":  model,
+		}
+		return
+	}
+}
+
+func buildAgentCoreProviderConfigs(pool []ProviderInfo, configJSON string, fallbackDefault ...string) []map[string]any {
+	configuredDefault := configuredAgentDefaultProvider(configJSON)
+	if configuredDefault == "" && len(fallbackDefault) > 0 {
+		configuredDefault = providerKeyFromName(fallbackDefault[0])
+	}
+	providers := buildCoreProviderConfigs(pool, configuredDefault)
+	effectiveDefault := effectiveProviderDefault(pool, configuredDefault)
+	applyAgentModelOverride(providers, effectiveDefault, configuredAgentModelOverride(configJSON, effectiveDefault))
+	return providers
+}
+
+func requestedTextProviderDefault(providers []map[string]any) (string, error) {
+	selected := ""
+	for _, provider := range providers {
+		isDefault, _ := provider["default"].(bool)
+		if !isDefault {
+			continue
+		}
+		name, _ := provider["name"].(string)
+		name = providerKeyFromName(name)
+		if name == "" || isRealtimeProviderType(name) {
+			continue
+		}
+		if selected != "" && selected != name {
+			return "", fmt.Errorf("multiple default LLM providers requested")
+		}
+		selected = name
+	}
+	return selected, nil
+}
+
+// hydrateCoreProviderConfigs turns the dashboard's intentionally narrow
+// {name, default} selection into the complete provider configuration expected
+// by Core. Explicit per-agent overrides remain supported for API clients.
+func hydrateCoreProviderConfigs(pool []ProviderInfo, configuredDefault string, requested []map[string]any) ([]map[string]any, string, error) {
+	requestedDefault, err := requestedTextProviderDefault(requested)
+	if err != nil {
+		return nil, "", err
+	}
+	if requestedDefault == "" {
+		requestedDefault = configuredDefault
+	}
+	effectiveDefault := effectiveProviderDefault(pool, requestedDefault)
+	if effectiveDefault == "" {
+		return nil, "", fmt.Errorf("no LLM provider configured")
+	}
+	if requestedDefault != "" && providerKeyFromName(requestedDefault) != effectiveDefault {
+		return nil, "", fmt.Errorf("LLM provider %q is not configured for this project", requestedDefault)
+	}
+
+	providers := buildCoreProviderConfigs(pool, effectiveDefault)
+	byName := make(map[string]map[string]any, len(requested))
+	for _, provider := range requested {
+		name, _ := provider["name"].(string)
+		name = providerKeyFromName(name)
+		if name != "" {
+			byName[name] = provider
+		}
+	}
+	for _, provider := range providers {
+		name, _ := provider["name"].(string)
+		override := byName[name]
+		for _, field := range []string{"models", "model_capabilities", "builtin_tools", "realtime_voice"} {
+			if value, ok := override[field]; ok {
+				provider[field] = value
+			}
+		}
+	}
+	return providers, effectiveDefault, nil
 }
 
 func enableRealtimeByDefault(config map[string]any, providers []ProviderInfo) {
@@ -2109,24 +2251,56 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, _ := io.ReadAll(r.Body)
 
 	var body struct {
-		Directive string           `json:"directive"`
-		Mode      string           `json:"mode"`
-		Config    string           `json:"config"`
-		Providers []map[string]any `json:"providers"`
+		Directive     string           `json:"directive"`
+		Mode          string           `json:"mode"`
+		Config        string           `json:"config"`
+		Providers     []map[string]any `json:"providers"`
+		ModelOverride *string          `json:"model_override"`
 	}
-	json.Unmarshal(bodyBytes, &body)
+	if err := json.Unmarshal(bodyBytes, &body); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
 
 	var rawBody map[string]any
-	if err := json.Unmarshal(bodyBytes, &rawBody); err == nil && rawBody != nil {
-		if _, ok := rawBody["computer"]; ok {
-			http.Error(w, "core computer config has been removed; use the Computer app instead", http.StatusGone)
+	if err := json.Unmarshal(bodyBytes, &rawBody); err != nil || rawBody == nil {
+		http.Error(w, "invalid JSON object", http.StatusBadRequest)
+		return
+	}
+	if _, ok := rawBody["computer"]; ok {
+		http.Error(w, "core computer config has been removed; use the Computer app instead", http.StatusGone)
+		return
+	}
+	normalizeAppMCPProjectURLs(rawBody, inst.ProjectID)
+
+	effectiveDefault := ""
+	if len(body.Providers) > 0 {
+		pool := s.GetProviderPool(inst.UserID, inst.ProjectID)
+		configuredDefault := configuredAgentDefaultProvider(inst.Config)
+		if body.Config != "" {
+			configuredDefault = configuredAgentDefaultProvider(body.Config)
+		}
+		hydrated, selected, err := hydrateCoreProviderConfigs(pool, configuredDefault, body.Providers)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if normalizeAppMCPProjectURLs(rawBody, inst.ProjectID) {
-			if newBytes, err := json.Marshal(rawBody); err == nil {
-				bodyBytes = newBytes
-			}
+		modelOverride := configuredAgentModelOverride(inst.Config, selected)
+		if body.ModelOverride != nil {
+			modelOverride = strings.TrimSpace(*body.ModelOverride)
 		}
+		applyAgentModelOverride(hydrated, selected, modelOverride)
+		rawBody["providers"] = hydrated
+		effectiveDefault = selected
+	}
+	// model_override is server-owned agent metadata. Core receives the
+	// resulting per-provider model map, not this persistence envelope.
+	delete(rawBody, "model_override")
+	if encoded, err := json.Marshal(rawBody); err == nil {
+		bodyBytes = encoded
+	} else {
+		http.Error(w, "encode provider configuration", http.StatusInternalServerError)
+		return
 	}
 
 	if body.Directive != "" {
@@ -2138,24 +2312,33 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if body.Config != "" {
 		inst.Config = body.Config
 	}
-	// Save default provider to instance config
-	if len(body.Providers) > 0 {
-		for _, p := range body.Providers {
-			if def, _ := p["default"].(bool); def {
-				name, _ := p["name"].(string)
-				if name != "" {
-					var cfg map[string]any
-					json.Unmarshal([]byte(inst.Config), &cfg)
-					if cfg == nil {
-						cfg = map[string]any{}
-					}
-					cfg["default_provider"] = name
-					cfgBytes, _ := json.Marshal(cfg)
-					inst.Config = string(cfgBytes)
-				}
-				break
+	// Save the validated effective provider rather than relying on whichever
+	// order SQLite or the dashboard happened to return.
+	if effectiveDefault != "" {
+		var cfg map[string]any
+		if strings.TrimSpace(inst.Config) != "" {
+			if err := json.Unmarshal([]byte(inst.Config), &cfg); err != nil {
+				http.Error(w, "invalid stored agent config", http.StatusInternalServerError)
+				return
 			}
 		}
+		if cfg == nil {
+			cfg = map[string]any{}
+		}
+		cfg["default_provider"] = effectiveDefault
+		if body.ModelOverride != nil {
+			model := strings.TrimSpace(*body.ModelOverride)
+			if model == "" {
+				delete(cfg, "model_override")
+			} else {
+				cfg["model_override"] = map[string]string{
+					"provider": effectiveDefault,
+					"model":    model,
+				}
+			}
+		}
+		cfgBytes, _ := json.Marshal(cfg)
+		inst.Config = string(cfgBytes)
 	}
 	// Channels-MCP opt-out persistence: when the client sends an
 	// mcp_servers list, detect whether the channels entry the server
@@ -2186,7 +2369,10 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.store.UpdateAgent(inst)
+	if err := s.store.UpdateAgent(inst); err != nil {
+		http.Error(w, "persist agent config", http.StatusInternalServerError)
+		return
+	}
 
 	// Forward the FULL body to core (includes mcp_servers, providers, etc.)
 	if port > 0 {
@@ -2600,6 +2786,13 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 		mode, _ := config["mode"].(string)
 		if mode == "" {
 			mode = inst.Mode
+		}
+		// Provider credentials and catalogs can change while an agent is
+		// stopped. Rebuild the same effective provider surface Start will
+		// inject so the dashboard never guesses from a differently ordered
+		// provider list or displays stale disk defaults.
+		if pool := s.GetProviderPool(inst.UserID, inst.ProjectID); len(pool) > 0 {
+			config["providers"] = buildAgentCoreProviderConfigs(pool, inst.Config)
 		}
 		// Return the full persisted config surface — mcp_servers,
 		// providers, threads — so the stopped-instance UI

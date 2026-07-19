@@ -163,6 +163,71 @@ func TestEmbeddedGitHubCatalogAgentCoverage(t *testing.T) {
 	}
 }
 
+func TestEmbedded3DPrintingCatalogProductionContracts(t *testing.T) {
+	readApp := func(slug string) AppTemplate {
+		t.Helper()
+		raw, err := integrationsCatalogFS.ReadFile("integrations-catalog/" + slug + ".json")
+		if err != nil {
+			t.Fatalf("read embedded %s catalog: %v", slug, err)
+		}
+		var app AppTemplate
+		if err := json.Unmarshal(raw, &app); err != nil {
+			t.Fatalf("decode embedded %s catalog: %v", slug, err)
+		}
+		return app
+	}
+	findTool := func(app AppTemplate, name string) AppToolDef {
+		t.Helper()
+		for _, tool := range app.Tools {
+			if tool.Name == name {
+				return tool
+			}
+		}
+		t.Fatalf("%s catalog missing %s", app.Slug, name)
+		return AppToolDef{}
+	}
+
+	treatstock := readApp("treatstock")
+	if got := treatstock.Auth.QueryParams["private-key"]; got != "{{private_key}}" {
+		t.Fatalf("Treatstock private-key auth=%q", got)
+	}
+	if upload := findTool(treatstock, "create_printable_pack"); upload.MultipartForm == nil || upload.MultipartForm.FileFields["files"] != "files[]" {
+		t.Fatalf("Treatstock upload multipart config=%+v", upload.MultipartForm)
+	}
+
+	slant := readApp("slant3d")
+	presigned := findTool(slant, "upload_presigned_file")
+	if presigned.Path != "{uploadUrl}" || presigned.BodyBinaryParam != "file" || len(presigned.OmitAuthHeaders) != 1 || presigned.OmitAuthHeaders[0] != "Authorization" {
+		t.Fatalf("Slant presigned upload config=%+v", presigned)
+	}
+	if estimate := findTool(slant, "estimate_file_price"); estimate.Path != "/api/files/{publicFileServiceId}/estimate" {
+		t.Fatalf("Slant estimate path=%q", estimate.Path)
+	}
+
+	shapeways := readApp("shapeways")
+	modelUpload := findTool(shapeways, "upload_model")
+	if modelUpload.MultipartForm != nil {
+		t.Fatal("Shapeways model upload must be JSON/base64, not multipart")
+	}
+	required, _ := modelUpload.InputSchema["required"].([]any)
+	requiredSet := map[string]bool{}
+	for _, value := range required {
+		if name, ok := value.(string); ok {
+			requiredSet[name] = true
+		}
+	}
+	for _, name := range []string{"file", "fileName", "hasRightsToModel", "acceptTermsAndConditions"} {
+		if !requiredSet[name] {
+			t.Fatalf("Shapeways upload missing required field %s", name)
+		}
+	}
+
+	sculpteo := readApp("sculpteo")
+	if upload := findTool(sculpteo, "upload_design"); upload.MultipartForm == nil || upload.MultipartForm.FileFields["file"] != "file" {
+		t.Fatalf("Sculpteo upload multipart config=%+v", upload.MultipartForm)
+	}
+}
+
 func TestOpenAICodexCatalogDoesNotPinLegacyDefaultModel(t *testing.T) {
 	raw, err := integrationsCatalogFS.ReadFile("integrations-catalog/openai-codex.json")
 	if err != nil {

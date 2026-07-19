@@ -32,6 +32,35 @@ type chatChannel struct {
 // to "apteva" for compatibility.
 func (c *chatChannel) ID() string { return "apteva" }
 
+func (c *chatChannel) ForConversationContext(contextID string) framework.Channel {
+	if c.store == nil || strings.TrimSpace(contextID) == "" {
+		return c
+	}
+	chat, err := c.store.ChatForAgentThread(c.agentID, contextID)
+	if err != nil {
+		// A chat-* caller context claims ownership of one concrete durable
+		// conversation. Never fall it back to the primary chat: the Channels
+		// MCP will return a visible tool error for deleted, forged, or stale
+		// contexts instead of crossing conversation boundaries.
+		if strings.HasPrefix(strings.TrimSpace(contextID), "chat-") {
+			return nil
+		}
+		// Non-chat workers legitimately have no conversation mapping. Preserve
+		// the historical artifact/status behavior for non-conversational tools;
+		// ordinary channels_send is independently blocked at the MCP boundary.
+		copy := *c
+		copy.threadID = contextID
+		return &copy
+	}
+	copy := *c
+	copy.chatID = chat.ID
+	copy.threadID = contextID
+	if chat.OwnerUserID != 0 {
+		copy.userID = chat.OwnerUserID
+	}
+	return &copy
+}
+
 // Send inserts a final agent message and fans it out.
 func (c *chatChannel) Send(text string) error {
 	return c.SendWithComponents(text, nil)
@@ -42,17 +71,26 @@ func (c *chatChannel) Send(text string) error {
 // looks for this method when the agent's respond call carries a
 // `components` arg.
 func (c *chatChannel) SendWithComponents(text string, components []framework.ChatComponent) error {
+	_, err := c.SendWithReceipt(text, components)
+	return err
+}
+
+// SendWithReceipt exposes whether the durable row was newly inserted or an
+// immediate exact retry was suppressed. The ordinary Channel methods retain
+// their error-only compatibility for external channel consumers.
+func (c *chatChannel) SendWithReceipt(text string, components []framework.ChatComponent) (framework.MessageDeliveryReceipt, error) {
 	if c.store == nil {
-		return fmt.Errorf("channel-chat: store not initialised")
+		return framework.MessageDeliveryReceipt{}, fmt.Errorf("channel-chat: store not initialised")
 	}
-	m, inserted, err := c.store.AppendAgentMessageOnce(c.chatID, text, c.threadID, components)
+	m, inserted, err := c.store.AppendAgentMessageOnce(c.chatID, text, c.threadID, c.agentID, components)
 	if err != nil {
 		log.Printf("[CHAT] Send DB append failed chatID=%s err=%v", c.chatID, err)
-		return err
+		return framework.MessageDeliveryReceipt{}, err
 	}
+	receipt := framework.MessageDeliveryReceipt{MessageID: m.ID, Inserted: inserted}
 	if !inserted {
 		log.Printf("[CHAT-DEBUG] suppressed immediate duplicate chat=%s messageID=%d", c.chatID, m.ID)
-		return nil
+		return receipt, nil
 	}
 	chatSubs, userSubs := c.hub.subscriberCounts(c.chatID, c.userID)
 	log.Printf("[CHAT-DEBUG] Send chat=%s user=%d msgID=%d components=%d chatSubs=%d userSubs=%d",
@@ -62,7 +100,7 @@ func (c *chatChannel) SendWithComponents(text string, components []framework.Cha
 	if c.bus != nil {
 		c.bus.Publish("chat.message", "channel-chat", *m)
 	}
-	return nil
+	return receipt, nil
 }
 
 func (c *chatChannel) RequestApproval(req framework.ApprovalRequest) (framework.ApprovalResult, error) {
@@ -98,7 +136,7 @@ func (c *chatChannel) RequestApproval(req framework.ApprovalRequest) (framework.
 		Props: props,
 	}}
 	content := "Approval requested: " + req.Title
-	m, err := c.store.Append(c.chatID, "agent", content, nil, c.threadID, "final", components)
+	m, err := c.store.AppendAgentArtifact(c.chatID, content, c.agentID, c.threadID, components)
 	if err != nil {
 		return framework.ApprovalResult{}, err
 	}
@@ -162,7 +200,7 @@ func (c *chatChannel) SendReport(req framework.ReportRequest) (framework.ReportR
 		Props: props,
 	}}
 	content := "Report: " + req.Title
-	m, err := c.store.Append(c.chatID, "agent", content, nil, c.threadID, "final", components)
+	m, err := c.store.AppendAgentArtifact(c.chatID, content, c.agentID, c.threadID, components)
 	if err != nil {
 		return framework.ReportResult{}, err
 	}
@@ -195,7 +233,7 @@ func (c *chatChannel) Status(text, level string) error {
 		Name:  "alert-card",
 		Props: props,
 	}}
-	m, err := c.store.Append(c.chatID, "agent", "Alert: "+props["title"].(string), nil, c.threadID, "final", components)
+	m, err := c.store.AppendAgentArtifact(c.chatID, "Alert: "+props["title"].(string), c.agentID, c.threadID, components)
 	if err != nil {
 		return err
 	}
@@ -261,7 +299,7 @@ func (c *chatChannel) SetCurrentStatus(req framework.CurrentStatusRequest) (fram
 		props["next_at"] = req.NextAt
 	}
 	components := []framework.ChatComponent{{App: "channel-chat", Name: "status-card", Props: props}}
-	m, err := c.store.UpsertCurrentStatus(c.chatID, "Status: "+req.Title, components)
+	m, err := c.store.UpsertCurrentStatus(c.chatID, c.agentID, c.threadID, "Status: "+req.Title, components)
 	if err != nil {
 		return framework.CurrentStatusResult{}, err
 	}
@@ -289,10 +327,10 @@ func (c *chatChannel) IsActive() bool { return true }
 
 // --- Factory ----------------------------------------------------------
 
-// chatChannelFactory builds one chatChannel per instance with the
-// default chat id. Multi-chat per instance would return multiple
-// factories or one factory that returns multiple channels; for v1 we
-// ship the single-default case.
+// chatChannelFactory builds the internal operator channel for an agent. Its
+// default-* storage record is an inbox/status sink for main, not a dashboard
+// conversation. Explicit conv-* conversations get scoped channel contexts
+// through the conversation delivery path.
 type chatChannelFactory struct {
 	store *store
 	hub   *hub

@@ -65,15 +65,22 @@ func TestBuildSendDescription_MessageWakesAgain(t *testing.T) {
 	desc := buildSendDescription([]string{"apteva"}, nil)
 	for _, want := range []string{
 		"successful send wakes you again",
-		"continue with the needed tools or pace",
-		"send the actual outcome before going idle",
+		"result is only the delivery receipt",
+		"Never repeat it",
+		"Continue only concrete unfinished work",
 		"Every direct [chat] turn requires at least one successful call to this tool",
 		"turn is incomplete until you send its visible answer",
 		"read-only lookup results",
-		"After any tool result used for the request",
+		"After any non-channel tool result used for the request",
 		"never leave it only in thoughts or plain assistant output",
 		"Use publish for approvals/reports/alerts",
 		"set_status for mutable work state",
+		"later outcome of work explicitly requested in that chat",
+		"Do NOT send ordinary chat for autonomous or scheduled checks",
+		"unchanged or no-op results",
+		`"send a status update" or "update the status" means set_status`,
+		"call pace for the next due check, and remain silent",
+		"status next_at does not schedule a wake",
 	} {
 		if !strings.Contains(desc, want) {
 			t.Fatalf("respond description missing %q:\n%s", want, desc)
@@ -130,6 +137,24 @@ func TestChannelMCPAdvertisesUnconditionalSchemas(t *testing.T) {
 	sendProps := assertRequired("send", []string{"channel", "text"})
 	if _, exists := sendProps["kind"]; exists {
 		t.Fatal("new send schema must not advertise legacy kind")
+	}
+	sendDescription, _ := byName["send"]["description"].(string)
+	for _, want := range []string{
+		"including dashboard conversation threads",
+		"prefer a short visible acknowledgement before beginning tool work",
+		"strong guidance, not a hard requirement",
+		"wait for this send to succeed before action tools",
+		"never parallelize the acknowledgement with them",
+		"the acknowledgement never replaces it",
+		"tool-work turn has either one final message or two intentional messages",
+		"acknowledgement then final",
+		"never more",
+		"prefer acknowledgement before send(main)",
+		"never both",
+	} {
+		if !strings.Contains(sendDescription, want) {
+			t.Fatalf("send description missing %q: %s", want, sendDescription)
+		}
 	}
 	publishProps := assertRequired("publish", []string{"kind", "title", "content"})
 	statusProps := assertRequired("set_status", []string{"title", "state"})
@@ -232,6 +257,10 @@ func TestChannelMCPSetStatusDescriptionSeparatesCurrentWorkFromFutureSchedule(t 
 		"merely sleeping until future recurring work",
 		"Do not set a status just to announce what you may do later",
 		"A completed recurring task may remain completed while next and next_at describe its next scheduled run",
+		`"send a status update" or "update the status"`,
+		"must not also create an ordinary chat message",
+		"call pace for the next due check",
+		"next_at is display metadata and does not schedule a wake",
 	} {
 		if !strings.Contains(desc, want) {
 			t.Fatalf("set_status description missing %q:\n%s", want, desc)
@@ -261,15 +290,16 @@ func TestChannelMCPAdvertisesSeparatedTools(t *testing.T) {
 	}
 }
 
-func TestChannelMCPRespondResultDoesNotForbidFinalOutcome(t *testing.T) {
+func TestLegacyChannelMCPRespondResultClosesDeliveredReply(t *testing.T) {
 	reg := NewChannelRegistry()
 	reg.Register(&captureChannel{id: "apteva"})
 	s := &channelMCPServer{registry: reg}
 	params, _ := json.Marshal(map[string]any{
 		"name": "respond",
 		"arguments": map[string]any{
-			"channel": "chat",
-			"text":    "On it.",
+			"channel":                "chat",
+			"text":                   "On it.",
+			"_apteva_caller_context": "chat-default-1",
 		},
 	})
 	out, rpcErr := s.handleToolCall(params)
@@ -278,11 +308,38 @@ func TestChannelMCPRespondResultDoesNotForbidFinalOutcome(t *testing.T) {
 	}
 	b, _ := json.Marshal(out)
 	got := string(b)
-	if strings.Contains(got, "do NOT send another respond") {
-		t.Fatalf("respond result forbids final outcome: %s", got)
+	if !strings.Contains(got, "satisfies the current chat turn") || !strings.Contains(got, "Do not repeat") {
+		t.Fatalf("respond result missing unambiguous delivery receipt: %s", got)
 	}
-	if !strings.Contains(got, "Continue promised work") {
-		t.Fatalf("respond result missing continuation reminder: %s", got)
+}
+
+func TestChannelMCPSendReportsSuppressedDuplicateAsSuccessfulReceipt(t *testing.T) {
+	reg := NewChannelRegistry()
+	ch := &receiptCaptureChannel{
+		captureChannel: captureChannel{id: "apteva", active: true},
+		receipt:        framework.MessageDeliveryReceipt{MessageID: 42, Inserted: false},
+	}
+	reg.Register(ch)
+	s := &channelMCPServer{registry: reg, ic: &AgentChannels{registry: reg}}
+	params, _ := json.Marshal(map[string]any{
+		"name": "send",
+		"arguments": map[string]any{
+			"channel":                "current",
+			"text":                   "Understood — I’ll wait.",
+			"_apteva_caller_context": "chat-default-1",
+		},
+	})
+	out, rpcErr := s.handleToolCall(params)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	raw, _ := json.Marshal(out)
+	got := string(raw)
+	if !strings.Contains(got, "duplicate_suppressed") || !strings.Contains(got, "message_id=42") || !strings.Contains(got, "Do not send it again") {
+		t.Fatalf("duplicate receipt was ambiguous: %s", got)
+	}
+	if strings.Contains(got, `"isError":true`) {
+		t.Fatalf("idempotent suppression must remain a successful tool result: %s", got)
 	}
 }
 
@@ -294,8 +351,9 @@ func TestChannelMCPSendMessageCurrentUsesLiveChat(t *testing.T) {
 	params, _ := json.Marshal(map[string]any{
 		"name": "send",
 		"arguments": map[string]any{
-			"channel": "current",
-			"text":    "On it.",
+			"channel":                "current",
+			"text":                   "On it.",
+			"_apteva_caller_context": "chat-default-1",
 		},
 	})
 	out, rpcErr := s.handleToolCall(params)
@@ -308,6 +366,87 @@ func TestChannelMCPSendMessageCurrentUsesLiveChat(t *testing.T) {
 	b, _ := json.Marshal(out)
 	if !strings.Contains(string(b), "delivered") {
 		t.Fatalf("unexpected result: %s", string(b))
+	}
+}
+
+func TestChannelMCPSendRejectsInternalAptevaReplyFromMain(t *testing.T) {
+	reg := NewChannelRegistry()
+	ch := &captureChannel{id: "apteva", active: true}
+	reg.Register(ch)
+	s := &channelMCPServer{registry: reg, ic: &AgentChannels{registry: reg}}
+	params, _ := json.Marshal(map[string]any{
+		"name": "send",
+		"arguments": map[string]any{
+			"channel":                "current",
+			"text":                   "This must not enter primary chat",
+			"_apteva_caller_context": "main",
+		},
+	})
+	out, rpcErr := s.handleToolCall(params)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	raw, _ := json.Marshal(out)
+	got := string(raw)
+	if !strings.Contains(got, `"isError":true`) || !strings.Contains(got, "originating conversation thread") {
+		t.Fatalf("main rejection=%s", got)
+	}
+	if ch.sent != "" {
+		t.Fatalf("main internal message was delivered: %q", ch.sent)
+	}
+}
+
+func TestChannelMCPSendStillAllowsExplicitExternalChannelFromMain(t *testing.T) {
+	reg := NewChannelRegistry()
+	ch := &captureChannel{id: "slack", active: true}
+	reg.Register(ch)
+	s := &channelMCPServer{registry: reg, ic: &AgentChannels{registry: reg}}
+	params, _ := json.Marshal(map[string]any{
+		"name": "send",
+		"arguments": map[string]any{
+			"channel":                "slack",
+			"text":                   "External notification",
+			"_apteva_caller_context": "main",
+		},
+	})
+	out, rpcErr := s.handleToolCall(params)
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	raw, _ := json.Marshal(out)
+	if strings.Contains(string(raw), `"isError":true`) {
+		t.Fatalf("external main send failed: %s", raw)
+	}
+	if ch.sent != "External notification" {
+		t.Fatalf("external message=%q", ch.sent)
+	}
+}
+
+func TestChannelMCPSendScopesAptevaChannelToCallerConversation(t *testing.T) {
+	reg := NewChannelRegistry()
+	target := &captureChannel{id: "apteva", active: true}
+	base := &scopedCaptureChannel{captureChannel: captureChannel{id: "apteva", active: true}, target: target}
+	reg.Register(base)
+	s := &channelMCPServer{registry: reg, ic: &AgentChannels{registry: reg}}
+	params, _ := json.Marshal(map[string]any{
+		"name": "send",
+		"arguments": map[string]any{
+			"channel":                "current",
+			"text":                   "Room answer",
+			"_apteva_caller_context": "chat-conv-123",
+		},
+	})
+	if _, rpcErr := s.handleToolCall(params); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	if base.contextID != "chat-conv-123" {
+		t.Fatalf("context=%q", base.contextID)
+	}
+	if base.sent != "" {
+		t.Fatalf("base channel received scoped message: %q", base.sent)
+	}
+	if target.sent != "Room answer" {
+		t.Fatalf("target sent=%q", target.sent)
 	}
 }
 
@@ -642,6 +781,27 @@ type captureChannel struct {
 	approvals     int
 	reports       int
 	currentStatus framework.CurrentStatusRequest
+}
+
+type scopedCaptureChannel struct {
+	captureChannel
+	contextID string
+	target    framework.Channel
+}
+
+type receiptCaptureChannel struct {
+	captureChannel
+	receipt framework.MessageDeliveryReceipt
+}
+
+func (c *receiptCaptureChannel) SendWithReceipt(text string, _ []framework.ChatComponent) (framework.MessageDeliveryReceipt, error) {
+	c.sent = text
+	return c.receipt, nil
+}
+
+func (c *scopedCaptureChannel) ForConversationContext(contextID string) framework.Channel {
+	c.contextID = contextID
+	return c.target
 }
 
 func (c *captureChannel) ID() string { return c.id }

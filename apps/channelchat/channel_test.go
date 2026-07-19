@@ -61,7 +61,7 @@ func TestChatChannelCurrentStatusUpsertsAndStaysOutOfChat(t *testing.T) {
 	h := newHub()
 	userCh, _, cancel := h.subscribeUser(99)
 	defer cancel()
-	ch := &chatChannel{chatID: defaultChatID(285), agentID: 285, userID: 99, store: st, hub: h}
+	ch := &chatChannel{chatID: defaultChatID(285), threadID: "main", agentID: 285, userID: 99, store: st, hub: h}
 	progress := 25.0
 	first, err := ch.SetCurrentStatus(framework.CurrentStatusRequest{
 		Title: "Rendering clips", Detail: "One of four complete", State: "working", Progress: &progress,
@@ -93,7 +93,7 @@ func TestChatChannelCurrentStatusUpsertsAndStaysOutOfChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(statuses) != 1 || statuses[0].Detail != "Three of four complete" ||
-		statuses[0].Progress == nil || *statuses[0].Progress != 75 {
+		statuses[0].Progress == nil || *statuses[0].Progress != 75 || statuses[0].Message.ThreadID != "main" {
 		t.Fatalf("current statuses = %#v", statuses)
 	}
 	if _, err := db.Exec(`UPDATE channel_chat_messages SET created_at=datetime('now', '-48 hours') WHERE id=?`, first.MessageID); err != nil {
@@ -138,7 +138,7 @@ func TestChatChannelCurrentStatusPersistsNormalizesAndClearsNextAction(t *testin
 	h := newHub()
 	userCh, _, cancel := h.subscribeUser(99)
 	defer cancel()
-	ch := &chatChannel{chatID: defaultChatID(285), agentID: 285, userID: 99, store: st, hub: h}
+	ch := &chatChannel{chatID: defaultChatID(285), threadID: "main", agentID: 285, userID: 99, store: st, hub: h}
 
 	first, err := ch.SetCurrentStatus(framework.CurrentStatusRequest{
 		Title:  "Daily sync completed",
@@ -154,7 +154,7 @@ func TestChatChannelCurrentStatusPersistsNormalizesAndClearsNextAction(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(statuses) != 1 || statuses[0].Next != "Generate the weekly report" || statuses[0].NextAt != "2026-07-20T09:00:00Z" {
+	if len(statuses) != 1 || statuses[0].Next != "Generate the weekly report" || statuses[0].NextAt != "2026-07-20T09:00:00Z" || statuses[0].Message.ThreadID != "main" {
 		t.Fatalf("current statuses = %#v", statuses)
 	}
 
@@ -227,7 +227,7 @@ func TestCurrentStatusWaitsForParallelMessageWriter(t *testing.T) {
 	components := []framework.ChatComponent{{
 		App: "channel-chat", Name: "status-card", Props: map[string]any{"title": "Starting", "state": "working"},
 	}}
-	first, err := st.UpsertCurrentStatus(chatID, "Status: Starting", components)
+	first, err := st.UpsertCurrentStatus(chatID, 285, "main", "Status: Starting", components)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestCurrentStatusWaitsForParallelMessageWriter(t *testing.T) {
 		updated := []framework.ChatComponent{{
 			App: "channel-chat", Name: "status-card", Props: map[string]any{"title": "Done", "state": "completed"},
 		}}
-		result, err := st.UpsertCurrentStatus(chatID, "Status: Done", updated)
+		result, err := st.UpsertCurrentStatus(chatID, 285, "main", "Status: Done", updated)
 		if err == nil && result.ID != first.ID {
 			err = fmt.Errorf("status row changed from %d to %d", first.ID, result.ID)
 		}
@@ -307,8 +307,12 @@ func TestChatChannelSuppressesImmediateDuplicateRetry(t *testing.T) {
 	ch := &chatChannel{chatID: chatID, threadID: "main", agentID: 285, userID: 99, store: st, hub: h}
 	const reply = "Done. The weekly report requirement is restored."
 
-	if err := ch.Send(reply); err != nil {
+	firstReceipt, err := ch.SendWithReceipt(reply, nil)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !firstReceipt.Inserted || firstReceipt.MessageID == 0 {
+		t.Fatalf("first receipt=%+v, want newly inserted message", firstReceipt)
 	}
 	firstChat := readUserMessage(t, chatEvents)
 	firstUser := readUserMessage(t, userEvents)
@@ -316,8 +320,12 @@ func TestChatChannelSuppressesImmediateDuplicateRetry(t *testing.T) {
 		t.Fatalf("chat event id=%d user event id=%d", firstChat.ID, firstUser.ID)
 	}
 
-	if err := ch.Send(reply); err != nil {
+	duplicateReceipt, err := ch.SendWithReceipt(reply, nil)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if duplicateReceipt.Inserted || duplicateReceipt.MessageID != firstReceipt.MessageID {
+		t.Fatalf("duplicate receipt=%+v, want suppressed message %d", duplicateReceipt, firstReceipt.MessageID)
 	}
 	assertNoChannelMessage(t, chatEvents, "per-chat stream")
 	assertNoChannelMessage(t, userEvents, "user stream")
@@ -348,6 +356,86 @@ func TestChatChannelSuppressesImmediateDuplicateRetry(t *testing.T) {
 	}
 	if len(rows) != 3 {
 		t.Fatalf("new user turn rows=%d, want agent+user+agent", len(rows))
+	}
+}
+
+func TestChatChannelSuppressesImmediateReorderedFinalButKeepsAcknowledgement(t *testing.T) {
+	db := openChannelContentionTestDB(t)
+	defer db.Close()
+	st := newStore(db)
+	chatID := defaultChatID(285)
+	if _, err := st.EnsureDefaultChat(285); err != nil {
+		t.Fatal(err)
+	}
+	ch := &chatChannel{chatID: chatID, threadID: "chat-" + chatID, agentID: 285, userID: 99, store: st, hub: newHub()}
+
+	ack := "I’m updating the daily notification to 10:00 UTC and will confirm once the change is applied."
+	firstFinal := "Updated: the notification will now be sent daily at 10:00 UTC, with the exact text: Daily check-in."
+	reorderedFinal := "Updated: the daily notification will now be sent at 10:00 UTC with the exact text: Daily check-in."
+	if err := ch.Send(ack); err != nil {
+		t.Fatal(err)
+	}
+	firstReceipt, err := ch.SendWithReceipt(firstFinal, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !firstReceipt.Inserted {
+		t.Fatal("distinct final was incorrectly suppressed as its acknowledgement")
+	}
+	duplicateReceipt, err := ch.SendWithReceipt(reorderedFinal, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if duplicateReceipt.Inserted || duplicateReceipt.MessageID != firstReceipt.MessageID {
+		t.Fatalf("reordered final receipt=%+v, want suppressed message %d", duplicateReceipt, firstReceipt.MessageID)
+	}
+
+	// Exact output observed from Codex: a receipt turn changed only the
+	// presentation verb and daily/every-day phrasing.
+	confirmedFinal := "Confirmed: “Daily check-in.” will now be sent daily at 10:00 UTC."
+	updatedFinal := "Updated: “Daily check-in.” will now be sent every day at 10:00 UTC."
+	if _, err := st.Append(chatID, "user", "Change the schedule again", nil, "", "final", nil); err != nil {
+		t.Fatal(err)
+	}
+	confirmedReceipt, err := ch.SendWithReceipt(confirmedFinal, nil)
+	if err != nil || !confirmedReceipt.Inserted {
+		t.Fatalf("confirmed final receipt=%+v err=%v", confirmedReceipt, err)
+	}
+	updatedReceipt, err := ch.SendWithReceipt(updatedFinal, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updatedReceipt.Inserted || updatedReceipt.MessageID != confirmedReceipt.MessageID {
+		t.Fatalf("daily/every-day receipt=%+v, want suppressed message %d", updatedReceipt, confirmedReceipt.MessageID)
+	}
+
+	rows, err := st.ListRecentMessages(chatID, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := make([]string, 0, len(rows))
+	for _, row := range rows {
+		contents = append(contents, row.Content)
+	}
+	if len(contents) != 4 || contents[0] != ack || contents[1] != firstFinal || contents[2] != "Change the schedule again" || contents[3] != confirmedFinal {
+		t.Fatalf("visible messages=%q, want one final per user turn", contents)
+	}
+}
+
+func TestHubKeepsChannelActiveAcrossShortRefreshGap(t *testing.T) {
+	h := newHub()
+	h.subscriberGrace = 20 * time.Millisecond
+	_, _, cancel := h.subscribe("default-285")
+	if !h.hasSubscribers("default-285") {
+		t.Fatal("subscribed chat should be active")
+	}
+	cancel()
+	if !h.hasSubscribers("default-285") {
+		t.Fatal("refresh grace should keep chat active briefly")
+	}
+	time.Sleep(30 * time.Millisecond)
+	if h.hasSubscribers("default-285") {
+		t.Fatal("closed tab should become inactive after grace")
 	}
 }
 
@@ -432,11 +520,17 @@ func TestListRecentMessagesReturnsNewestPageChronologically(t *testing.T) {
 
 func openChannelTestDB(t *testing.T, withAgents bool) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "channel-chat-test.db")+"?_pragma=busy_timeout(2000)")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	if _, err := db.Exec(`
+		CREATE TABLE agents (
+			id INTEGER PRIMARY KEY,
+			user_id INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			project_id TEXT NOT NULL DEFAULT ''
+		);
 		CREATE TABLE channel_chat_chats (
 			id TEXT PRIMARY KEY,
 			agent_id INTEGER NOT NULL,
@@ -444,7 +538,18 @@ func openChannelTestDB(t *testing.T, withAgents bool) *sql.DB {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			last_seen_id INTEGER NOT NULL DEFAULT 0,
-			thread_id TEXT NOT NULL DEFAULT ''
+			thread_id TEXT NOT NULL DEFAULT '',
+			project_id TEXT NOT NULL DEFAULT '',
+			owner_user_id INTEGER NOT NULL DEFAULT 0,
+			kind TEXT NOT NULL DEFAULT 'direct',
+			archived_at DATETIME
+		);
+		CREATE TABLE channel_chat_participants (
+			chat_id TEXT NOT NULL,
+			agent_id INTEGER NOT NULL,
+			is_lead INTEGER NOT NULL DEFAULT 0,
+			joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (chat_id, agent_id)
 		);
 		CREATE TABLE channel_chat_messages (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -452,29 +557,30 @@ func openChannelTestDB(t *testing.T, withAgents bool) *sql.DB {
 			role TEXT NOT NULL,
 			content TEXT NOT NULL,
 			user_id INTEGER,
+			agent_id INTEGER,
 			thread_id TEXT,
 			status TEXT NOT NULL DEFAULT 'final',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			components_json TEXT NOT NULL DEFAULT '[]',
-			attachments_json TEXT NOT NULL DEFAULT '[]'
+			attachments_json TEXT NOT NULL DEFAULT '[]',
+			metadata_json TEXT NOT NULL DEFAULT '{}',
+			client_message_id TEXT NOT NULL DEFAULT ''
+		);
+		CREATE TABLE channel_chat_deliveries (
+			message_id INTEGER NOT NULL,
+			agent_id INTEGER NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			attempts INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT NOT NULL DEFAULT '',
+			delivered_at DATETIME,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (message_id, agent_id)
 		);
 	`); err != nil {
 		db.Close()
 		t.Fatalf("create schema: %v", err)
 	}
-	if withAgents {
-		if _, err := db.Exec(`
-			CREATE TABLE agents (
-				id INTEGER PRIMARY KEY,
-				user_id INTEGER NOT NULL,
-				name TEXT NOT NULL,
-				project_id TEXT NOT NULL
-			);
-		`); err != nil {
-			db.Close()
-			t.Fatalf("create agents schema: %v", err)
-		}
-	}
+	_ = withAgents
 	return db
 }
 
@@ -486,11 +592,17 @@ func openChannelContentionTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	db.SetMaxOpenConns(4)
-	for _, migration := range []string{migration001, migration002, migration003, migration004, migration005, migration006} {
-		if _, err := db.Exec(migration); err != nil {
-			db.Close()
-			t.Fatalf("apply channel migration: %v", err)
-		}
+	if _, err := db.Exec(`CREATE TABLE agents (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, name TEXT NOT NULL, project_id TEXT NOT NULL DEFAULT '')`); err != nil {
+		db.Close()
+		t.Fatalf("create agents schema: %v", err)
+	}
+	if err := framework.RunMigrations(db, "channel-chat", New(nil).Migrations()); err != nil {
+		db.Close()
+		t.Fatalf("apply channel migrations: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO agents (id, user_id, name, project_id) VALUES (285, 99, 'Test Agent', 'default')`); err != nil {
+		db.Close()
+		t.Fatalf("seed agent: %v", err)
 	}
 	return db
 }

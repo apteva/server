@@ -18,6 +18,7 @@
       }
     ]
   },
+  "health_check": { "tool": "list_filaments" },
   "tools": [
     {
       "name": "list_filaments",
@@ -27,22 +28,6 @@
       "input_schema": { "type": "object", "properties": {} }
     },
     {
-      "name": "upload_file_from_url",
-      "description": "Register an accessible STL file URL with Slant 3D. Use the returned publicFileServiceId for estimates and orders.",
-      "method": "POST",
-      "path": "/api/files",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "fileURL": { "type": "string", "description": "Publicly accessible URL to an STL file." },
-          "filename": { "type": "string", "description": "Optional display filename." },
-          "ownerId": { "type": "string", "description": "Optional owner/customer id." },
-          "platformId": { "type": "string", "description": "Optional Slant platform id." }
-        },
-        "required": ["fileURL"]
-      }
-    },
-    {
       "name": "create_direct_upload",
       "description": "Create a presigned direct-upload slot for an STL file. Upload the bytes to the returned URL, then call confirm_direct_upload.",
       "method": "POST",
@@ -50,29 +35,52 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "filename": { "type": "string" },
-          "contentType": { "type": "string", "description": "Usually model/stl or application/sla." },
+          "name": { "type": "string", "description": "STL filename." },
           "ownerId": { "type": "string" },
           "platformId": { "type": "string" }
         },
-        "required": ["filename"]
+        "required": ["name", "platformId"]
+      }
+    },
+    {
+      "name": "upload_presigned_file",
+      "description": "PUT the STL bytes to the uploadUrl returned by create_direct_upload. This calls the absolute presigned storage URL without the Slant bearer token. On success, call confirm_direct_upload with the original filePlaceholder.",
+      "method": "PUT",
+      "path": "{uploadUrl}",
+      "omit_auth_headers": ["Authorization"],
+      "body_binary_param": "file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "uploadUrl": { "type": "string", "format": "uri", "description": "Exact presigned upload URL returned by create_direct_upload." },
+          "file": { "type": "string", "description": "STL bytes as a blobref:// handle or runtime binary envelope. Do not inline large base64 manually." }
+        },
+        "required": ["uploadUrl", "file"]
       }
     },
     {
       "name": "confirm_direct_upload",
-      "description": "Confirm a previously completed direct upload so Slant 3D can process the STL.",
+      "description": "Confirm a completed presigned upload. Pass the complete filePlaceholder object returned by create_direct_upload after the PUT to its presigned URL succeeds.",
       "method": "POST",
       "path": "/api/files/confirm-upload",
       "input_schema": {
         "type": "object",
         "properties": {
-          "uploadId": { "type": "string" },
-          "key": { "type": "string" },
-          "filename": { "type": "string" },
-          "ownerId": { "type": "string" },
-          "platformId": { "type": "string" }
+          "filePlaceholder": {
+            "type": "object",
+            "description": "Unmodified filePlaceholder object from create_direct_upload.",
+            "properties": {
+              "publicFileServiceId": { "type": "string" },
+              "ownerId": { "type": "string" },
+              "type": { "type": "string" },
+              "platformId": { "type": "string" },
+              "name": { "type": "string" },
+              "fileURL": { "type": "string" }
+            },
+            "required": ["publicFileServiceId", "platformId", "name"]
+          }
         },
-        "required": ["uploadId"]
+        "required": ["filePlaceholder"]
       }
     },
     {
@@ -90,20 +98,20 @@
     },
     {
       "name": "list_files",
-      "description": "List uploaded files. Supports optional owner/platform/search pagination filters.",
+      "description": "List uploaded files using Slant 3D's documented platform, owner, public-id, date, pagination, and sorting filters.",
       "method": "GET",
       "path": "/api/files",
-      "query_params": ["ownerId", "platformId", "search", "limit", "offset", "sortBy", "order"],
+      "query_params": ["platformId", "ownerId", "publicId", "startDate", "endDate", "page", "limit"],
       "input_schema": {
         "type": "object",
         "properties": {
           "ownerId": { "type": "string" },
           "platformId": { "type": "string" },
-          "search": { "type": "string" },
-          "limit": { "type": "integer" },
-          "offset": { "type": "integer" },
-          "sortBy": { "type": "string" },
-          "order": { "type": "string", "enum": ["asc", "desc"] }
+          "publicId": { "type": "string" },
+          "startDate": { "type": "string", "format": "date-time" },
+          "endDate": { "type": "string", "format": "date-time" },
+          "page": { "type": "integer", "minimum": 1, "default": 1 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
         }
       }
     },
@@ -115,30 +123,43 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "publicFileServiceIds": {
+          "publicIds": {
             "type": "array",
             "items": { "type": "string" }
           }
         },
-        "required": ["publicFileServiceIds"]
+        "required": ["publicIds"]
+      }
+    },
+    {
+      "name": "delete_file",
+      "description": "Permanently delete an uploaded Slant 3D file. Inspect it with get_file first and do not delete files referenced by active orders.",
+      "method": "DELETE",
+      "path": "/api/files/{publicFileServiceId}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "publicFileServiceId": { "type": "string" } },
+        "required": ["publicFileServiceId"]
       }
     },
     {
       "name": "estimate_file_price",
-      "description": "Estimate printing price for a processed file. Defaults to Slant's default filament/profile if no filament is provided.",
+      "description": "Estimate the printing price for a processed file. Pass a filament id from list_filaments in options; this endpoint does not create or charge an order.",
       "method": "POST",
-      "path": "/api/files/{publicFileServiceId}",
+      "path": "/api/files/{publicFileServiceId}/estimate",
       "input_schema": {
         "type": "object",
         "properties": {
           "publicFileServiceId": { "type": "string" },
-          "quantity": { "type": "integer", "default": 1 },
-          "filament": { "type": "string", "description": "Filament/profile name, for example PLA BLACK." },
-          "ship_to_zip": { "type": "string" },
-          "ship_to_country_as_iso": { "type": "string" },
-          "options": { "type": "object", "description": "Provider-specific slicer/order options." }
+          "options": {
+            "type": "object",
+            "properties": {
+              "filamentId": { "type": "string", "description": "Filament id from list_filaments; defaults to Slant's PLA black profile." },
+              "quantity": { "type": "integer", "minimum": 1, "default": 1 }
+            }
+          }
         },
-        "required": ["publicFileServiceId"]
+        "required": ["publicFileServiceId", "options"]
       }
     },
     {
@@ -149,13 +170,9 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "code": { "type": "string", "description": "OpenSCAD source code." },
-          "filename": { "type": "string" },
-          "parameters": { "type": "object" },
-          "ownerId": { "type": "string" },
-          "platformId": { "type": "string" }
+          "scadCode": { "type": "string", "description": "Complete OpenSCAD source code." }
         },
-        "required": ["code"]
+        "required": ["scadCode"]
       }
     },
     {
@@ -166,35 +183,92 @@
       "input_schema": { "type": "object", "properties": {} }
     },
     {
+      "name": "list_stationery",
+      "description": "List stationery/inserts available for STATIONERY order items.",
+      "method": "GET",
+      "path": "/api/stationery",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_usage",
+      "description": "Get current Slant 3D API-key usage and request-limit information for operational monitoring.",
+      "method": "GET",
+      "path": "/api/usage",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
       "name": "create_draft_order",
-      "description": "Create a draft print order. Put customer, address, line items, and metadata in body using Slant 3D's v2 order shape.",
+      "description": "Create and price a draft order without charging it. Use PRINT items for files, COMPONENT for stocked components, and STATIONERY for inserts. Inspect the returned totals before process_order.",
       "method": "POST",
       "path": "/api/orders",
       "input_schema": {
         "type": "object",
         "properties": {
-          "customer": { "type": "object" },
-          "shippingAddress": { "type": "object" },
-          "billingAddress": { "type": "object" },
-          "items": { "type": "array", "items": { "type": "object" } },
-          "metadata": { "type": "object" },
-          "platformId": { "type": "string" },
-          "ownerId": { "type": "string" }
+          "platformId": { "type": "string", "description": "Platform created with create_platform." },
+          "ownerId": { "type": "string", "description": "Optional application user/customer id." },
+          "customer": {
+            "type": "object",
+            "properties": {
+              "publicPaymentServiceId": { "type": "string", "description": "Optional customer payment id; omit to use the account payment method." },
+              "details": {
+                "type": "object",
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "address": {
+                    "type": "object",
+                    "properties": {
+                      "name": { "type": "string" }, "line1": { "type": "string" }, "line2": { "type": "string" },
+                      "city": { "type": "string" }, "state": { "type": "string" }, "zip": { "type": "string" },
+                      "country": { "type": "string", "description": "ISO 3166 two-letter country code." }
+                    },
+                    "required": ["name", "line1", "city", "zip", "country"]
+                  }
+                },
+                "required": ["email", "address"]
+              }
+            },
+            "required": ["details"]
+          },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": { "type": "string", "enum": ["PRINT", "COMPONENT", "STATIONERY"] },
+                "publicFileServiceId": { "type": "string", "description": "Required for PRINT." },
+                "filamentId": { "type": "string", "description": "Required for PRINT." },
+                "componentId": { "type": "string", "description": "Required for COMPONENT." },
+                "stationeryId": { "type": "string", "description": "Required for STATIONERY." },
+                "imageUrl": { "type": "string", "format": "uri", "description": "4x6 inch black-and-white JPEG/PNG URL for STATIONERY." },
+                "quantity": { "type": "integer", "minimum": 1 },
+                "name": { "type": "string" },
+                "SKU": { "type": "string" },
+                "options": {
+                  "type": "object",
+                  "properties": {
+                    "slicerOptions": { "type": "object", "properties": { "support_enable": { "type": "boolean" } } }
+                  }
+                }
+              },
+              "required": ["type", "quantity"]
+            }
+          },
+          "options": { "type": "object", "description": "Optional account-enabled order options." },
+          "metadata": { "type": "object", "description": "At most 10 fields and 3 levels deep; some keys are reserved by Slant 3D." }
         },
-        "required": ["items"]
+        "required": ["platformId", "customer", "items"]
       }
     },
     {
       "name": "process_order",
-      "description": "Submit/process an existing draft order.",
+      "description": "Charge and submit a validated draft order to production. This is billable and cannot be treated as a retry-safe operation; call get_order after an ambiguous response before retrying.",
       "method": "POST",
       "path": "/api/orders/{publicOrderId}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "publicOrderId": { "type": "string" },
-          "paymentMethodId": { "type": "string" },
-          "metadata": { "type": "object" }
+          "publicOrderId": { "type": "string" }
         },
         "required": ["publicOrderId"]
       }
@@ -214,22 +288,33 @@
     },
     {
       "name": "list_orders",
-      "description": "List Slant 3D orders with optional owner/platform/status/search pagination filters.",
+      "description": "List Slant 3D orders using documented platform, owner, status, date, and pagination filters.",
       "method": "GET",
       "path": "/api/orders",
-      "query_params": ["ownerId", "platformId", "status", "search", "limit", "offset", "sortBy", "order"],
+      "query_params": ["platformId", "ownerId", "status", "startDate", "endDate", "page", "limit"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "ownerId": { "type": "string" },
           "platformId": { "type": "string" },
+          "ownerId": { "type": "string" },
           "status": { "type": "string" },
-          "search": { "type": "string" },
-          "limit": { "type": "integer" },
-          "offset": { "type": "integer" },
-          "sortBy": { "type": "string" },
-          "order": { "type": "string", "enum": ["asc", "desc"] }
+          "startDate": { "type": "string", "format": "date-time" },
+          "endDate": { "type": "string", "format": "date-time" },
+          "page": { "type": "integer", "minimum": 1, "default": 1 },
+          "limit": { "type": "integer", "minimum": 1, "default": 50 }
         }
+      }
+    },
+    {
+      "name": "search_orders",
+      "description": "Search Slant 3D orders using the provider's dedicated free-text search route.",
+      "method": "GET",
+      "path": "/api/orders/search",
+      "query_params": ["query"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "query": { "type": "string" } },
+        "required": ["query"]
       }
     },
     {
@@ -240,17 +325,17 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "publicOrderIds": {
+          "public_ids": {
             "type": "array",
             "items": { "type": "string" }
           }
         },
-        "required": ["publicOrderIds"]
+        "required": ["public_ids"]
       }
     },
     {
       "name": "cancel_order",
-      "description": "Cancel/delete a Slant 3D order when the upstream state still allows it.",
+      "description": "Cancel an order and request its refund when possible. This is destructive; if the order already shipped, Slant documents that only the refund can occur. Inspect get_order first and do not retry a successful cancellation.",
       "method": "DELETE",
       "path": "/api/orders/{publicOrderId}",
       "input_schema": {
@@ -269,6 +354,13 @@
       "input_schema": { "type": "object", "properties": {} }
     },
     {
+      "name": "get_platform_stripe_public_key",
+      "description": "Get Slant 3D's Stripe public key for platform customer-payment setup. This is public configuration, not a secret key.",
+      "method": "GET",
+      "path": "/api/platforms/stripe/public-key",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
       "name": "create_platform",
       "description": "Create a Slant 3D platform configuration.",
       "method": "POST",
@@ -276,10 +368,12 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "name": { "type": "string" },
-          "metadata": { "type": "object" }
+          "name": { "type": "string", "maxLength": 100 },
+          "url": { "type": "string", "format": "uri" },
+          "webhookURL": { "type": "string", "format": "uri", "description": "HTTPS endpoint for Slant order and payment events." },
+          "description": { "type": "string", "maxLength": 500 }
         },
-        "required": ["name"]
+        "required": ["name", "url"]
       }
     },
     {
@@ -302,8 +396,10 @@
         "type": "object",
         "properties": {
           "platformId": { "type": "string" },
-          "name": { "type": "string" },
-          "metadata": { "type": "object" }
+          "name": { "type": "string", "maxLength": 100 },
+          "url": { "type": "string", "format": "uri" },
+          "webhookURL": { "type": "string", "format": "uri", "description": "Set to an empty string to remove webhook delivery." },
+          "description": { "type": "string", "maxLength": 500 }
         },
         "required": ["platformId"]
       }

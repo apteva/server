@@ -1,18 +1,26 @@
 {
   "slug": "browserless",
   "name": "Browserless",
-  "description": "Hosted Chrome / Puppeteer / Playwright as a service. Single-endpoint REST APIs for screenshots, PDFs, scraping, function execution, and full browser automation. Use this when you need more control than a screenshot-only API but don't want to run your own browser farm.",
+  "description": "Managed or self-hosted browser infrastructure with REST rendering, BrowserQL, persistent sessions, authenticated profiles, stealth, proxies, replay, and CDP handoff. Set the endpoint to a Browserless cloud region or your own Browserless deployment.",
   "logo": "https://www.google.com/s2/favicons?domain=browserless.io&sz=128",
   "categories": ["browser", "screenshots", "rendering", "automation", "pdf", "scraping"],
-  "base_url": "https://chrome.browserless.io",
+  "base_url": "{{credential.endpoint}}",
   "auth": {
     "types": ["api_key"],
-    "headers": {},
+    "headers": {
+      "Content-Type": "application/json"
+    },
     "query_params": {
       "token": "{{api_key}}"
     },
     "credential_fields": [
-      { "name": "api_key", "label": "Browserless API token" }
+      { "name": "api_key", "label": "Browserless API token" },
+      {
+        "name": "endpoint",
+        "label": "Browserless Endpoint",
+        "description": "Full HTTPS endpoint without a trailing slash. Cloud examples: https://production-sfo.browserless.io, https://production-lon.browserless.io, or https://production-ams.browserless.io. Self-hosted deployments may use their own URL.",
+        "type": "text"
+      }
     ]
   },
   "tools": [
@@ -264,6 +272,165 @@
       "method": "GET",
       "path": "/stats",
       "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "service_status",
+      "description": "Check whether the configured Browserless deployment is active. Returns HTTP 204 when healthy.",
+      "method": "GET",
+      "path": "/active",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_service_metadata",
+      "description": "Get Browserless deployment metadata, including the current core API and browser versions.",
+      "method": "GET",
+      "path": "/meta",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_session",
+      "description": "Create a persistent browser session. Returns id, connect (CDP WebSocket URL), stop URL, and BrowserQL URL. Use connect with a CDP client. Session replay is opt-in and defaults to false.",
+      "method": "POST",
+      "path": "/session",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ttl": { "type": "integer", "minimum": 1, "description": "Required session lifetime in milliseconds." },
+          "processKeepAlive": { "type": "integer", "minimum": 0, "default": 0, "description": "Milliseconds to keep the browser process alive after disconnect for fast reconnection." },
+          "browser": { "type": "string", "enum": ["chrome", "chromium", "stealth"], "default": "chromium" },
+          "stealth": { "type": "boolean", "default": false },
+          "headless": { "type": "boolean", "default": true },
+          "blockAds": { "type": "boolean", "default": false },
+          "blockAdsInclude": { "type": "string", "description": "Optional comma-separated uBlock ruleset IDs." },
+          "args": { "type": "array", "items": { "type": "string" }, "description": "Browser command-line arguments." },
+          "url": { "type": "string", "format": "uri", "description": "Optional initial target URL." },
+          "proxy": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["datacenter", "residential"] },
+              "sticky": { "type": "boolean", "default": true },
+              "country": { "type": "string" },
+              "state": { "type": "string" },
+              "city": { "type": "string" },
+              "preset": { "type": "string" }
+            }
+          },
+          "replay": { "type": "boolean", "default": false, "description": "Enable rrweb session replay. Disabled unless explicitly true." },
+          "extensions": { "type": "array", "items": { "type": "string" }, "description": "Previously uploaded extension IDs." },
+          "profile": { "type": "string", "description": "Authenticated profile name to restore." },
+          "integrationId": { "type": "string", "description": "Optional Browserless 1Password integration ID." },
+          "credentials": { "type": "object", "description": "Alias to op:// reference map for the selected 1Password integration." },
+          "allowedDomains": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["ttl"]
+      }
+    },
+    {
+      "name": "run_session_bql",
+      "description": "Execute a BrowserQL query against an existing persistent session. BrowserQL session execution is available for stealth sessions.",
+      "method": "POST",
+      "path": "/session/bql/{session_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" },
+          "query": { "type": "string", "description": "BrowserQL GraphQL query or mutation." },
+          "variables": { "type": "object" }
+        },
+        "required": ["session_id", "query"]
+      }
+    },
+    {
+      "name": "delete_session",
+      "description": "Stop and permanently delete a persistent Browserless session and its stored data.",
+      "method": "DELETE",
+      "path": "/session/{session_id}",
+      "query_params": ["force"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" },
+          "force": { "type": "boolean", "description": "Force termination when a client remains connected." }
+        },
+        "required": ["session_id"]
+      }
+    },
+    {
+      "name": "create_profile_session",
+      "description": "Launch a temporary browser used to author an authenticated profile. Connect using the returned WebSocket, log in, call Browserless.saveProfile over CDP, then disconnect. The profile is not saved automatically.",
+      "method": "POST",
+      "path": "/profile",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "Unique profile name." },
+          "browser": { "type": "string", "enum": ["chrome", "chromium", "stealth"], "default": "stealth" },
+          "stealth": { "type": "boolean", "default": false },
+          "args": { "type": "array", "items": { "type": "string" } },
+          "proxy": { "type": "object", "description": "Browserless proxy configuration with type, sticky, country, state, city, or preset." },
+          "integrationId": { "type": "string" },
+          "credentials": { "type": "object" },
+          "allowedDomains": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "list_profiles",
+      "description": "List authenticated profiles owned by the current Browserless token.",
+      "method": "GET",
+      "path": "/profiles",
+      "query_params": ["limit", "offset"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 100 },
+          "offset": { "type": "integer", "minimum": 0, "default": 0 }
+        }
+      }
+    },
+    {
+      "name": "get_profile",
+      "description": "Get metadata for one authenticated profile, including cookie/origin counts and timestamps. Does not return secret browser state.",
+      "method": "GET",
+      "path": "/profile/{name}",
+      "input_schema": { "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"] }
+    },
+    {
+      "name": "rename_profile",
+      "description": "Rename an authenticated profile.",
+      "method": "PUT",
+      "path": "/profile/{current_name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "current_name": { "type": "string" },
+          "name": { "type": "string", "description": "New unique profile name." }
+        },
+        "required": ["current_name", "name"]
+      }
+    },
+    {
+      "name": "delete_profile",
+      "description": "Delete an authenticated profile and its captured browser state.",
+      "method": "DELETE",
+      "path": "/profile/{name}",
+      "input_schema": { "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"] }
+    },
+    {
+      "name": "upload_profile",
+      "description": "Create an authenticated profile from a previously captured Browserless state object containing cookies and per-origin storage.",
+      "method": "POST",
+      "path": "/profile/upload",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "state": { "type": "object", "description": "Captured state with cookies and origins arrays." }
+        },
+        "required": ["name", "state"]
+      }
     }
-  ]
+  ],
+  "health_check": { "tool": "service_status", "expect_status": [204] }
 }

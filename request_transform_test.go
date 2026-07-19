@@ -154,6 +154,59 @@ func TestExecuteIntegrationTool_HeaderAndRepeatedMultipartFields(t *testing.T) {
 	}
 }
 
+func TestExecuteIntegrationTool_PresignedBinaryUploadOmitsProviderAuth(t *testing.T) {
+	var authorization string
+	var contentType string
+	var body []byte
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Fatalf("method=%s", r.Method)
+		}
+		authorization = r.Header.Get("Authorization")
+		contentType = r.Header.Get("Content-Type")
+		body, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ts.Close()
+
+	app := &AppTemplate{
+		Slug:    "slant3d",
+		BaseURL: "https://slant3dapi.com/v2",
+		Auth: AppAuthConfig{Headers: map[string]string{
+			"Authorization": "Bearer {{api_key}}",
+		}},
+	}
+	tool := &AppToolDef{
+		Name:            "upload_presigned_file",
+		Method:          http.MethodPut,
+		Path:            "{uploadUrl}",
+		BodyBinaryParam: "file",
+		OmitAuthHeaders: []string{"Authorization"},
+		InputSchema:     map[string]any{"type": "object", "required": []any{"uploadUrl", "file"}},
+	}
+	res, err := executeIntegrationTool(app, tool, map[string]string{"api_key": "secret"}, map[string]any{
+		"uploadUrl": ts.URL,
+		"file": map[string]any{
+			"_binary":  true,
+			"base64":   base64.StdEncoding.EncodeToString([]byte("solid test\nendsolid test\n")),
+			"mimeType": "model/stl",
+		},
+	}, "")
+	if err != nil || res == nil || !res.Success {
+		t.Fatalf("execute result=%+v err=%v", res, err)
+	}
+	if authorization != "" {
+		t.Fatalf("presigned request leaked provider Authorization header: %q", authorization)
+	}
+	if contentType != "model/stl" {
+		t.Fatalf("Content-Type=%q", contentType)
+	}
+	if got, want := string(body), "solid test\nendsolid test\n"; got != want {
+		t.Fatalf("body=%q want=%q", got, want)
+	}
+}
+
 func TestExecuteIntegrationTool_RequestTransformMimeEmail(t *testing.T) {
 	var capturedBody map[string]any
 	var capturedContentType string

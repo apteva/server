@@ -101,9 +101,10 @@ func (s *Streamer) Ingest(eventType string, agentID int64, threadID, dataJSON st
 	case strings.HasPrefix(threadID, "chat-"):
 		// Per-chat thread mode: the thread id encodes the chat id.
 		chatID = strings.TrimPrefix(threadID, "chat-")
-	case threadID == "main" || threadID == "":
-		// Default mode routes chat messages through main. v1 has one
-		// default chat per agent, so agent id gives a stable chat id.
+	case (threadID == "main" || threadID == "") && !perThreadEnabled():
+		// Legacy rollback mode routes the default chat through main. In normal
+		// per-thread mode, main cannot emit internal chat and must not leak a
+		// transient tool-argument stream into the default conversation.
 		if agentID > 0 {
 			chatID = defaultChatID(agentID)
 		}
@@ -113,25 +114,25 @@ func (s *Streamer) Ingest(eventType string, agentID int64, threadID, dataJSON st
 	}
 	switch eventType {
 	case "llm.tool_chunk":
-		s.onChunk(threadID, chatID, dataJSON, eventTime)
+		s.onChunk(agentID, threadID, chatID, dataJSON, eventTime)
 	case "tool.call":
 		// LLM finished composing args, executor is about to run.
 		// We still want the user to see the (now complete) text
 		// momentarily — the DB row lands within the tool call's
 		// execution time, which is usually <100ms but can be more.
-		s.onFinalArgs(threadID, chatID, dataJSON, eventTime)
+		s.onFinalArgs(agentID, threadID, chatID, dataJSON, eventTime)
 	case "tool.result":
 		// Tool finished. The DB row exists or is about to; tell the
 		// UI to drop the streaming bubble. The next real message
 		// arriving for this chat would do the same, but this is the
 		// authoritative signal.
-		s.onToolEnd(threadID, chatID, dataJSON, eventTime)
+		s.onToolEnd(agentID, threadID, chatID, dataJSON, eventTime)
 	}
 }
 
 // onChunk accumulates a streaming delta and republishes if the
 // extracted text changed.
-func (s *Streamer) onChunk(threadID, chatID, dataJSON string, ts time.Time) {
+func (s *Streamer) onChunk(agentID int64, threadID, chatID, dataJSON string, ts time.Time) {
 	// Telemetry payload for llm.tool_chunk is {"tool": "...", "id":
 	// "...", "chunk": "..."}. callID is the event's own correlator —
 	// we re-extract from the data because the tap delivers the
@@ -158,7 +159,7 @@ func (s *Streamer) onChunk(threadID, chatID, dataJSON string, ts time.Time) {
 	if callID == "" {
 		return
 	}
-	key := threadID + "\x00" + callID
+	key := streamCallKey(agentID, threadID, callID)
 	s.mu.Lock()
 	st, ok := s.buffers[key]
 	if !ok {
@@ -195,7 +196,7 @@ func (s *Streamer) onChunk(threadID, chatID, dataJSON string, ts time.Time) {
 // onFinalArgs is the "tool.call" event: the LLM has finished writing
 // args. Telemetry payload includes the parsed args, so this is where
 // we can guarantee a clean final text extraction.
-func (s *Streamer) onFinalArgs(threadID, chatID, dataJSON string, ts time.Time) {
+func (s *Streamer) onFinalArgs(agentID int64, threadID, chatID, dataJSON string, ts time.Time) {
 	var d struct {
 		Name       string          `json:"name"`
 		Tool       string          `json:"tool"`
@@ -224,7 +225,7 @@ func (s *Streamer) onFinalArgs(threadID, chatID, dataJSON string, ts time.Time) 
 		// Tool call targeted a different channel — not our problem.
 		return
 	}
-	key := threadID + "\x00" + callID
+	key := streamCallKey(agentID, threadID, callID)
 	s.mu.Lock()
 	last := s.lastEmit[key]
 	s.mu.Unlock()
@@ -247,7 +248,7 @@ func (s *Streamer) onFinalArgs(threadID, chatID, dataJSON string, ts time.Time) 
 // onToolEnd clears state when the respond tool has run. The real DB
 // message landing on the normal SSE path is still what the UI swaps
 // in; Done is only a cleanup signal for stale ephemeral bubbles.
-func (s *Streamer) onToolEnd(threadID, chatID, dataJSON string, ts time.Time) {
+func (s *Streamer) onToolEnd(agentID int64, threadID, chatID, dataJSON string, ts time.Time) {
 	var d struct {
 		Name       string `json:"name"`
 		Tool       string `json:"tool"`
@@ -266,7 +267,7 @@ func (s *Streamer) onToolEnd(threadID, chatID, dataJSON string, ts time.Time) {
 		// tool_chunk for a new call id.
 		return
 	}
-	key := threadID + "\x00" + callID
+	key := streamCallKey(agentID, threadID, callID)
 	s.mu.Lock()
 	delete(s.buffers, key)
 	delete(s.lastEmit, key)
@@ -279,6 +280,14 @@ func (s *Streamer) onToolEnd(threadID, chatID, dataJSON string, ts time.Time) {
 		Done:      true,
 		CreatedAt: ts,
 	})
+}
+
+func streamCallKey(agentID int64, threadID, callID string) string {
+	// Provider call IDs are only guaranteed inside one model response. Scope
+	// them by agent and thread before touching shared streamer state so two
+	// cores using the same call ID cannot suppress, append to, or clear each
+	// other's visible chat stream.
+	return strconv.FormatInt(agentID, 10) + "\x00" + threadID + "\x00" + callID
 }
 
 func firstNonEmpty(values ...string) string {

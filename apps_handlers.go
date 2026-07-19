@@ -1161,6 +1161,41 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
+	receipt := struct {
+		Status      string `json:"status"`
+		AppName     string `json:"app_name"`
+		DisplayName string `json:"display_name"`
+		InstallID   int64  `json:"install_id"`
+		AppID       int64  `json:"app_id"`
+		ProjectID   string `json:"project_id"`
+		Version     string `json:"version"`
+	}{Status: "uninstalled"}
+	err = s.store.db.QueryRow(`
+		SELECT ai.id, ai.app_id, a.name,
+		       COALESCE(NULLIF(json_extract(COALESCE(NULLIF(ai.manifest_json, ''), a.manifest_json), '$.display_name'), ''), a.name),
+		       COALESCE(ai.project_id, ''), COALESCE(ai.version, '')
+		FROM app_installs ai
+		JOIN apps a ON a.id = ai.app_id
+		WHERE ai.id = ?`, installID).Scan(
+		&receipt.InstallID,
+		&receipt.AppID,
+		&receipt.AppName,
+		&receipt.DisplayName,
+		&receipt.ProjectID,
+		&receipt.Version,
+	)
+	if err == sql.ErrNoRows {
+		http.Error(w, "app install not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "load app install: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if requestedProjectID := strings.TrimSpace(r.URL.Query().Get("project_id")); requestedProjectID != "" && requestedProjectID != receipt.ProjectID {
+		http.Error(w, "app install does not belong to requested project", http.StatusNotFound)
+		return
+	}
 	// Reverse-dependency check: refuse if uninstalling this app would
 	// orphan another running install whose manifest hard-requires it.
 	// Operators can override with ?force=1 (CLI / scripted uninstalls);
@@ -1259,7 +1294,7 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 	// Removed install may both eliminate options AND newly satisfy
 	// other installs' optional deps if it was bound somewhere.
 	s.recomputePendingOptions()
-	writeJSON(w, map[string]string{"status": "uninstalled"})
+	writeJSON(w, receipt)
 }
 
 // PUT /api/apps/installs/:id/status — operator-side status flip.

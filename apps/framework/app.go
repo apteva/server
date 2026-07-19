@@ -84,12 +84,14 @@ type UISlot struct {
 	Entry string `json:"entry,omitempty"` // stage 2+ module URL
 }
 
-// Migration is one SQL script. Apps supply them in order; the runner
-// tracks the highest applied version per slug.
+// Migration is one schema change. Apps normally provide SQL; Apply is for
+// migrations that must inspect an existing schema before changing it. The
+// runner executes the change and records its version in one transaction.
 type Migration struct {
 	Version int
 	Name    string
 	SQL     string
+	Apply   func(*MigrationTx) error
 }
 
 // Route is one HTTP handler mounted at /api/apps/<slug><Path>.
@@ -138,6 +140,26 @@ type ChatComponent struct {
 // working everywhere.
 type RichSender interface {
 	SendWithComponents(text string, components []ChatComponent) error
+}
+
+// MessageDeliveryReceipt lets a durable channel distinguish a new visible
+// message from an idempotently suppressed retry. Generic external channels do
+// not need to implement this; channel-chat uses it so the channels MCP can
+// give the model an unambiguous post-send result.
+type MessageDeliveryReceipt struct {
+	MessageID int64
+	Inserted  bool
+}
+
+type ReceiptSender interface {
+	SendWithReceipt(text string, components []ChatComponent) (MessageDeliveryReceipt, error)
+}
+
+// ConversationScopedChannel lets a durable internal channel resolve an
+// outbound tool call to the conversation that originated the current agent
+// execution. Other channels ignore this optional capability.
+type ConversationScopedChannel interface {
+	ForConversationContext(contextID string) Channel
 }
 
 // ApprovalAction is one operator choice rendered by the built-in

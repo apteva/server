@@ -1,7 +1,7 @@
 {
   "slug": "plivo",
   "name": "Plivo",
-  "description": "Plivo Voice API for outbound calls, call control, and bidirectional audio streaming over WebSockets for AI voice-agent backends.",
+  "description": "Plivo Voice API for inbound and outbound AI calls, phone-number inventory, Voice Applications, signed call control, bidirectional audio streaming, and cloud recordings.",
   "logo": "https://www.google.com/s2/favicons?domain=plivo.com&sz=128",
   "categories": [
     "voice",
@@ -9,6 +9,7 @@
     "telephony",
     "phone",
     "communications",
+    "numbers",
     "ai"
   ],
   "base_url": "https://api.plivo.com/v1/Account/{{auth_id}}",
@@ -103,6 +104,91 @@
       }
     },
     {
+      "name": "list_owned_phone_numbers",
+      "description": "List phone numbers rented by this Plivo account, including their assigned Voice applications.",
+      "method": "GET",
+      "path": "/Number/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "number_startswith": { "type": "string" },
+          "subaccount": { "type": "string" },
+          "services": { "type": "string" },
+          "type": { "type": "string" },
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "get_owned_phone_number",
+      "description": "Retrieve one phone number rented by this Plivo account.",
+      "method": "GET",
+      "path": "/Number/{number}/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "number": { "type": "string" } },
+        "required": ["number"]
+      }
+    },
+    {
+      "name": "update_owned_phone_number",
+      "description": "Assign a Plivo Application or alias to a rented phone number.",
+      "method": "POST",
+      "path": "/Number/{number}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "number": { "type": "string" },
+          "app_id": { "type": "string" },
+          "alias": { "type": "string" },
+          "subaccount": { "type": "string" }
+        },
+        "required": ["number"]
+      }
+    },
+    {
+      "name": "create_application",
+      "description": "Create a Plivo Voice Application for inbound call control.",
+      "method": "POST",
+      "path": "/Application/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_name": { "type": "string" },
+          "answer_url": { "type": "string" },
+          "answer_method": { "type": "string", "enum": ["GET", "POST"] },
+          "hangup_url": { "type": "string" },
+          "hangup_method": { "type": "string", "enum": ["GET", "POST"] },
+          "fallback_answer_url": { "type": "string" },
+          "fallback_method": { "type": "string", "enum": ["GET", "POST"] }
+        },
+        "required": ["app_name", "answer_url"]
+      }
+    },
+    {
+      "name": "get_application",
+      "description": "Retrieve a Plivo Voice Application.",
+      "method": "GET",
+      "path": "/Application/{app_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "app_id": { "type": "string" } },
+        "required": ["app_id"]
+      }
+    },
+    {
+      "name": "delete_application",
+      "description": "Delete a Plivo Voice Application.",
+      "method": "DELETE",
+      "path": "/Application/{app_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "app_id": { "type": "string" } },
+        "required": ["app_id"]
+      }
+    },
+    {
       "name": "make_call",
       "description": "Place an outbound Plivo call. For AI voice agents, answer_url should return Plivo XML with a bidirectional <Stream> element pointing to the Telephony WebSocket.",
       "method": "POST",
@@ -134,6 +220,18 @@
             "type": "string"
           },
           "hangup_method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST"
+          },
+          "ring_url": {
+            "type": "string",
+            "description": "HTTPS callback invoked when the destination starts ringing; includes the live CallUUID."
+          },
+          "ring_method": {
             "type": "string",
             "enum": [
               "GET",
@@ -310,6 +408,42 @@
             "type": "integer"
           }
         }
+      }
+    },
+    {
+      "name": "list_recordings",
+      "description": "List Plivo call recordings, optionally filtered by call UUID.",
+      "method": "GET",
+      "path": "/Recording/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_uuid": { "type": "string" },
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "get_recording",
+      "description": "Retrieve a Plivo call recording and its media URL.",
+      "method": "GET",
+      "path": "/Recording/{recording_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "recording_id": { "type": "string" } },
+        "required": ["recording_id"]
+      }
+    },
+    {
+      "name": "delete_recording",
+      "description": "Delete a Plivo call recording.",
+      "method": "DELETE",
+      "path": "/Recording/{recording_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "recording_id": { "type": "string" } },
+        "required": ["recording_id"]
       }
     }
   ]

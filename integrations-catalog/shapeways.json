@@ -1,23 +1,32 @@
 {
   "slug": "shapeways",
   "name": "Shapeways",
-  "description": "Shapeways API for 3D model management, material lookup, fulfillment orders, and shipping options.",
+  "description": "Shapeways OAuth2 API for JSON/base64 model uploads, printability and material pricing, shipping options, fulfillment orders, and shipment tracking.",
   "logo": "https://www.google.com/s2/favicons?domain=shapeways.com&sz=128",
   "categories": ["3d-printing", "shapeways", "marketplace", "materials", "orders"],
   "base_url": "https://api.shapeways.com",
   "auth": {
-    "types": ["bearer"],
+    "types": ["bearer", "oauth2"],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json"
     },
     "credential_fields": [
       {
         "name": "token",
         "label": "Access Token",
-        "description": "Shapeways OAuth2 access token."
+        "description": "Shapeways OAuth2 access token. Tokens normally expire after one hour; prefer Authorize so refresh tokens are managed automatically."
       }
-    ]
+    ],
+    "oauth2": {
+      "authorize_url": "https://api.shapeways.com/oauth2/authorize",
+      "token_url": "https://api.shapeways.com/oauth2/token",
+      "scopes": [],
+      "client_id_required": true,
+      "pkce": false
+    }
   },
+  "health_check": { "tool": "list_materials" },
   "tools": [
     {
       "name": "list_materials",
@@ -41,26 +50,29 @@
     },
     {
       "name": "upload_model",
-      "description": "Upload a model to Shapeways. The API expects model file data plus fileName and uploadScale for STL/OBJ/VOX.",
+      "description": "Upload a model as a JSON body. Pass base64-encoded model bytes in file, explicitly confirm model rights and terms, then poll get_model until printability and per-material prices are available. uploadScale is required for STL, OBJ, and VOX files.",
       "method": "POST",
       "path": "/models/v1",
-      "multipart_form": {
-        "file_fields": {
-          "file": "file"
-        },
-        "field_names": ["fileName", "uploadScale", "title", "description", "isPublic"]
-      },
       "input_schema": {
         "type": "object",
         "properties": {
-          "file": { "type": "string", "description": "Model file bytes as base64, data URL, or raw string." },
+          "file": { "type": "string", "description": "Base64-encoded model file data. Do not pass a public URL or raw binary." },
           "fileName": { "type": "string", "description": "Filename with extension." },
           "uploadScale": { "type": "number", "description": "Scale in meters. Required by Shapeways for STL, OBJ, and VOX files." },
+          "hasRightsToModel": { "type": "boolean", "description": "Must be true only when the caller owns or is authorized to use this model." },
+          "acceptTermsAndConditions": { "type": "boolean", "description": "Must be true to accept the current Shapeways terms for this upload." },
           "title": { "type": "string" },
           "description": { "type": "string" },
-          "isPublic": { "type": "boolean" }
+          "isPublic": { "type": "boolean", "default": false },
+          "isClaimable": { "type": "boolean", "default": false },
+          "isForSale": { "type": "boolean", "default": false },
+          "isDownloadable": { "type": "boolean", "default": false },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "materials": { "type": "object", "description": "Optional material-id keyed settings containing markup and isActive." },
+          "defaultMaterialId": { "type": "integer" },
+          "categories": { "type": "array", "items": { "type": "integer" } }
         },
-        "required": ["file", "fileName"]
+        "required": ["file", "fileName", "hasRightsToModel", "acceptTermsAndConditions"]
       }
     },
     {
@@ -68,12 +80,11 @@
       "description": "List authenticated user's Shapeways models.",
       "method": "GET",
       "path": "/models/v1",
-      "query_params": ["page", "limit"],
+      "query_params": ["page"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "page": { "type": "integer" },
-          "limit": { "type": "integer" }
+          "page": { "type": "integer", "minimum": 1, "description": "One-based page; Shapeways returns 36 models per page." }
         }
       }
     },
@@ -92,7 +103,7 @@
     },
     {
       "name": "delete_model",
-      "description": "Delete a Shapeways model.",
+      "description": "Permanently delete a Shapeways model. Resolve and inspect the model with get_model first; do not retry a successful deletion.",
       "method": "DELETE",
       "path": "/models/{modelId}/v1",
       "input_schema": {
@@ -105,32 +116,64 @@
     },
     {
       "name": "place_order",
-      "description": "Place a Shapeways fulfillment order.",
+      "description": "Create and charge a Shapeways fulfillment order. This is a billable action: obtain shipping choices first, verify every model/material with get_model, and confirm the address and quantities before calling.",
       "method": "POST",
       "path": "/orders/v1",
-      "body_root_param": "body",
       "input_schema": {
         "type": "object",
         "properties": {
-          "body": {
-            "type": "object",
-            "description": "Shapeways order payload: items/models/materials, shipping address, shipping option, and checkout fields."
+          "firstName": { "type": "string" },
+          "lastName": { "type": "string" },
+          "country": { "type": "string", "description": "Country name or ISO 3166 two-letter code." },
+          "state": { "type": "string", "description": "State/region; use the two-letter abbreviation in the US." },
+          "city": { "type": "string" },
+          "address1": { "type": "string" },
+          "address2": { "type": "string" },
+          "address3": { "type": "string", "description": "Company or c/o line." },
+          "zipCode": { "type": "string" },
+          "phoneNumber": { "type": "string" },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "modelId": { "type": "integer" },
+                "materialId": { "type": "integer" },
+                "quantity": { "type": "integer", "minimum": 1 }
+              },
+              "required": ["modelId", "materialId", "quantity"]
+            }
+          },
+          "incentives": { "type": "array", "items": { "type": "string" } },
+          "paymentVerificationId": { "type": "string", "description": "Shapeways-issued payment authorization id when required for the application." },
+          "paymentMethod": { "type": "string", "enum": ["credit_card"] },
+          "shippingOption": { "type": "string", "enum": ["Cheapest", "Fastest"] },
+          "manufacturingSpeed": { "type": "string", "enum": ["Economy", "Priority"] },
+          "refNumber": { "type": "string", "maxLength": 20, "description": "Reference printed on the packing slip and invoice." },
+          "metadata": {
+            "type": "array",
+            "description": "Application-specific metadata, available only to approved applications.",
+            "items": {
+              "type": "object",
+              "properties": { "modelId": { "type": "integer" }, "name": { "type": "string" }, "value": { "type": "string" } },
+              "required": ["modelId", "name", "value"]
+            }
           }
         },
-        "required": ["body"]
+        "required": ["firstName", "lastName", "country", "state", "city", "address1", "zipCode", "phoneNumber", "items", "paymentMethod", "shippingOption"]
       }
     },
     {
       "name": "list_orders",
-      "description": "List Shapeways orders for the authenticated account.",
+      "description": "List Shapeways orders and their fulfillment status. Optionally restrict the response to a comma-separated set of order ids.",
       "method": "GET",
       "path": "/orders/v1",
-      "query_params": ["page", "limit"],
+      "query_params": ["orderIds"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "page": { "type": "integer" },
-          "limit": { "type": "integer" }
+          "orderIds": { "type": "string", "description": "Comma-separated Shapeways order ids." }
         }
       }
     },

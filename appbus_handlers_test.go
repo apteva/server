@@ -507,6 +507,64 @@ func TestStreamHandler_RequiresLogin(t *testing.T) {
 	}
 }
 
+func TestStreamHandler_ProjectAllRequiresLogin(t *testing.T) {
+	s := newBusServer(t)
+	seedProject(t, s, "p1")
+	req := httptest.NewRequest("GET", "/app-events/_all?project_id=p1", nil)
+	rec := httptest.NewRecorder()
+	s.handleAppEventStream(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 without login, got %d", rec.Code)
+	}
+}
+
+func TestStreamHandler_ProjectAllDeliversMultipleApps(t *testing.T) {
+	s := newBusServer(t)
+	seedProject(t, s, "p1")
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/app-events/", func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Set("X-User-ID", "1")
+		s.handleAppEventStream(w, r)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", ts.URL+"/app-events/_all?project_id=p1", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		s.appBus.Publish("storage", "p1", 1, "file.added", json.RawMessage(`{}`))
+		s.appBus.Publish("social", "p1", 2, "post.added", json.RawMessage(`{}`))
+		s.appBus.Publish("media", "p2", 3, "asset.added", json.RawMessage(`{}`))
+	}()
+
+	br := bufio.NewReader(resp.Body)
+	for i, wantApp := range []string{"storage", "social"} {
+		frame, err := readSSEFrame(br, time.Second)
+		if err != nil {
+			t.Fatalf("read frame %d: %v", i, err)
+		}
+		var ev AppEvent
+		if err := json.Unmarshal([]byte(frame.data), &ev); err != nil {
+			t.Fatalf("decode frame %d: %v", i, err)
+		}
+		if ev.App != wantApp || ev.ProjectID != "p1" || ev.Seq != uint64(i+1) {
+			t.Fatalf("frame %d mismatch: %+v", i, ev)
+		}
+	}
+}
+
 func TestStreamHandler_DeliversFrameOverSSE(t *testing.T) {
 	s := newBusServer(t)
 	seedProject(t, s, "p1")

@@ -4,14 +4,18 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/apteva/server/apps/framework"
 )
 
 // TestChannelChat_RealLLM_Codex_ActionBeforeReply is the critical
@@ -27,6 +31,19 @@ import (
 //
 //	APTEVA_RUN_REAL_LLM_TESTS=1 go test -run TestChannelChat_RealLLM_Codex_ActionBeforeReply -v -timeout 180s
 func TestChannelChat_RealLLM_Codex_ActionBeforeReply(t *testing.T) {
+	runRealActionBeforeReply(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealChannelChatHarness(t, "chat-action-codex-under-test", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_ActionBeforeReply(t *testing.T) {
+	runRealActionBeforeReply(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "chat-action-glm52-under-test", "glm-5.2", directive, config)
+	})
+}
+
+func runRealActionBeforeReply(t *testing.T, setupHarness func(*testing.T, string, string) *realChannelChatHarness) {
+	t.Helper()
 	var marked atomic.Int64
 	todoMCP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -101,7 +118,7 @@ func TestChannelChat_RealLLM_Codex_ActionBeforeReply(t *testing.T) {
 		"When the user asks you to mark a todo done, call the todo tool first, then reply in chat with the result.",
 		"Do not only acknowledge action requests.",
 	}, "\n")
-	h := setupRealChannelChatHarness(t, "chat-action-under-test", directive,
+	h := setupHarness(t, directive,
 		fmt.Sprintf(`{"include_apteva_server":false,"include_channels":true,"mcp_servers":[{"name":"todo","transport":"http","url":%q}]}`, todoMCP.URL))
 	s, agent, chatID := h.server, h.agent, h.chatID
 	h.post(t, "Mark todo alpha done now. Do not just acknowledge; complete it and tell me the result.")
@@ -137,6 +154,1095 @@ func TestChannelChat_RealLLM_Codex_DirectChatReplyAfterLookup(t *testing.T) {
 	runRealDirectChatReplyAfterLookup(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
 		return setupRealChannelChatHarness(t, "chat-reply-after-lookup-codex-under-test", directive, config)
 	})
+}
+
+// TestChannelChat_RealLLM_Codex_PlatformHelperSequentialReplyAfterLookup covers
+// the Build-page regression where Apteva Helper emitted duplicate answers
+// around apps_list. Dashboard chat permits one concrete acknowledgement before
+// the lookup, but still requires exactly one final reply after it.
+func TestChannelChat_RealLLM_Codex_PlatformHelperSequentialReplyAfterLookup(t *testing.T) {
+	runRealDirectChatReplyAfterLookup(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealPlatformHelperChannelChatHarness(t, "platform-helper-sequential-reply-under-test", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_PlatformHelperSequentialReplyAfterLookup(t *testing.T) {
+	runRealDirectChatReplyAfterLookup(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodePlatformHelperChannelChatHarness(t, "platform-helper-sequential-reply-glm52-under-test", "glm-5.2", directive, config)
+	})
+}
+
+// TestChannelChat_RealLLM_Codex_PlatformHelperUsesDashboardProject verifies
+// the model-facing half of project scoping. The same Helper process can serve
+// several project conversations, so the dashboard context—not the process
+// identity—must supply the exact project_id used by a mutation tool.
+func TestChannelChat_RealLLM_Codex_PlatformHelperUsesDashboardProject(t *testing.T) {
+	runRealPlatformHelperUsesDashboardProject(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealPlatformHelperChannelChatHarness(t, "platform-helper-project-scope-codex-under-test", directive, config)
+	})
+}
+
+// TestChannelChat_RealLLM_Codex_PlatformHelperUpdatesAgentDirectiveDirectly
+// covers the Build-page regression where a Helper conversation handed an
+// atomic agents_update operation to Helper main. The conversation already has
+// the authoritative apteva-server tool, so it must inspect and mutate the
+// target directly, then publish one final reply without a core send handoff.
+// A single acknowledgement may precede those tools.
+func TestChannelChat_RealLLM_Codex_PlatformHelperUpdatesAgentDirectiveDirectly(t *testing.T) {
+	h := setupRealPlatformHelperChannelChatHarness(t,
+		"platform-helper-direct-agent-update-codex-under-test",
+		platformHelperSystemPrompt,
+		`{"include_apteva_server":true,"include_channels":true}`)
+	waitForInitialAgentTurn(t, h)
+
+	project, err := h.server.store.CreateProject(h.agent.UserID, "Helper Direct Update", "", "")
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	targetDirective := strings.Join([]string{
+		"# Role",
+		"You are Directive Target.",
+		"# Goals",
+		"Carry out explicit operator requests.",
+		"# Schedule",
+		"- Every day at 09:00 UTC, send exactly: Daily check-in.",
+	}, "\n")
+	target, err := h.server.store.CreateAgent(h.agent.UserID, "Directive Target", targetDirective, "autonomous", `{}`, project.ID)
+	if err != nil {
+		t.Fatalf("create target agent: %v", err)
+	}
+	createBody, _ := json.Marshal(map[string]any{
+		"project_id":    project.ID,
+		"title":         "Edit target schedule",
+		"agent_ids":     []int64{h.agent.ID},
+		"lead_agent_id": h.agent.ID,
+	})
+	createReq, _ := http.NewRequest(http.MethodPost, h.url+"/apps/channel-chat/conversations", bytes.NewReader(createBody))
+	createReq.Header.Set("Authorization", "Bearer "+h.apiKey)
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("create Build conversation: %v", err)
+	}
+	createResponseBody, readErr := io.ReadAll(createResp.Body)
+	_ = createResp.Body.Close()
+	var conversation struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	decodeErr := json.Unmarshal(createResponseBody, &conversation)
+	if createResp.StatusCode != http.StatusOK || readErr != nil || decodeErr != nil || conversation.ID == "" {
+		t.Fatalf("create Build conversation status=%d read=%v decode=%v body=%s",
+			createResp.StatusCode, readErr, decodeErr, createResponseBody)
+	}
+	h.chatID = conversation.ID
+
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	var baselineMessageID int64
+	_ = h.server.store.db.QueryRow(`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID).Scan(&baselineMessageID)
+
+	h.postWithContext(t, fmt.Sprintf(
+		"Inspect agent Directive Target (ID %d), remove all of its scheduled behavior while preserving its other sections, and tell me when it is done.", target.ID,
+	), map[string]any{
+		"source":       "dashboard-build",
+		"route":        "/build?session=" + conversation.ID,
+		"title":        conversation.Title,
+		"project_id":   project.ID,
+		"project_name": project.Name,
+		"page_kind":    "build",
+	})
+	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
+
+	updated, err := h.server.store.GetAgent(h.agent.UserID, target.ID)
+	if err != nil {
+		t.Fatalf("reload target agent: %v", err)
+	}
+	if strings.Contains(updated.Directive, "09:00") || strings.Contains(updated.Directive, "Daily check-in") {
+		t.Fatalf("scheduled behavior remains in target directive: %s", updated.Directive)
+	}
+	for _, preserved := range []string{"# Role", "You are Directive Target.", "# Goals", "Carry out explicit operator requests."} {
+		if !strings.Contains(updated.Directive, preserved) {
+			t.Fatalf("target directive lost %q: %s", preserved, updated.Directive)
+		}
+	}
+
+	conversationThreadID := "chat-" + conversation.ID
+	var getAt, updateAt time.Time
+	var visibleAt []time.Time
+	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+		var data struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil {
+			continue
+		}
+		switch {
+		case data.Name == "send" && event.ThreadID == conversationThreadID:
+			t.Fatalf("Helper conversation incorrectly handed atomic agents_update to main: %s", event.Data)
+		case strings.HasSuffix(data.Name, "agents_get"):
+			if event.ThreadID != conversationThreadID {
+				t.Fatalf("agents_get ran on %q, want %q", event.ThreadID, conversationThreadID)
+			}
+			getAt = event.Time
+		case strings.HasSuffix(data.Name, "agents_update"):
+			if event.ThreadID != conversationThreadID {
+				t.Fatalf("agents_update ran on %q, want %q", event.ThreadID, conversationThreadID)
+			}
+			updateAt = event.Time
+		case data.Name == "channels_send" || strings.HasSuffix(data.Name, "_channels_send"):
+			if event.ThreadID == conversationThreadID {
+				visibleAt = append(visibleAt, event.Time)
+			}
+		}
+	}
+	sort.Slice(visibleAt, func(i, j int) bool { return visibleAt[i].Before(visibleAt[j]) })
+	if getAt.IsZero() || updateAt.IsZero() || len(visibleAt) == 0 {
+		t.Fatalf("missing direct Helper sequence get=%v update=%v visible=%v calls=%v",
+			getAt, updateAt, visibleAt, toolNames(newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls)))
+	}
+	finalAt := visibleAt[len(visibleAt)-1]
+	if !getAt.Before(updateAt) || !updateAt.Before(finalAt) {
+		t.Fatalf("Helper sequence out of order: get=%s update=%s final=%s", getAt, updateAt, finalAt)
+	}
+	if len(visibleAt) < 1 || len(visibleAt) > 2 {
+		t.Fatalf("Helper visible replies=%d, want optional acknowledgement plus exactly one final", len(visibleAt))
+	}
+	if len(visibleAt) == 2 && !visibleAt[0].Before(getAt) {
+		t.Fatalf("Helper acknowledgement did not precede action tools: acknowledgement=%s get=%s", visibleAt[0], getAt)
+	}
+
+	rows, err := h.server.store.db.Query(`
+		SELECT content FROM channel_chat_messages
+		WHERE chat_id=? AND role='agent' AND id>?
+		ORDER BY id`, h.chatID, baselineMessageID)
+	if err != nil {
+		t.Fatalf("query Helper replies: %v", err)
+	}
+	defer rows.Close()
+	var replies []string
+	for rows.Next() {
+		var reply string
+		if err := rows.Scan(&reply); err != nil {
+			t.Fatalf("scan Helper reply: %v", err)
+		}
+		replies = append(replies, reply)
+	}
+	if len(replies) < 1 || len(replies) > 2 || !containsAnyFold(replies[len(replies)-1], "removed", "no scheduled") {
+		t.Fatalf("Helper replies=%q, want optional acknowledgement then one completed schedule-removal result", replies)
+	}
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_PlatformHelperUsesDashboardProject(t *testing.T) {
+	runRealPlatformHelperUsesDashboardProject(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodePlatformHelperChannelChatHarness(t, "platform-helper-project-scope-glm52-under-test", "glm-5.2", directive, config)
+	})
+}
+
+// TestChannelChat_RealLLM_Codex_PlatformHelperIsolatesTwoProjects keeps one
+// global Helper core alive while two saved Build conversations address it from
+// different projects. This catches context leakage that a one-project fixture
+// cannot detect: each tool call must carry its conversation's project_id.
+func TestChannelChat_RealLLM_Codex_PlatformHelperIsolatesTwoProjects(t *testing.T) {
+	type markerCall struct {
+		Name      string `json:"name"`
+		ProjectID string `json:"project_id"`
+	}
+	calls := make(chan markerCall, 4)
+	markerMCP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		respond := func(result any, errMsg string) {
+			response := map[string]any{"jsonrpc": "2.0", "id": req.ID}
+			if errMsg != "" {
+				response["error"] = map[string]any{"code": -32603, "message": errMsg}
+			} else {
+				response["result"] = result
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(response)
+		}
+		switch req.Method {
+		case "initialize":
+			respond(map[string]any{
+				"protocolVersion": "2025-03-26",
+				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"serverInfo":      map[string]string{"name": "project-markers", "version": "1.0.0"},
+			}, "")
+		case "tools/list":
+			respond(map[string]any{"tools": []map[string]any{{
+				"name":        "project_marker_create",
+				"description": "Create a named marker in the exact current dashboard project. Always pass the authoritative project_id from conversation context and report the successful receipt once.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"name":       map[string]any{"type": "string"},
+						"project_id": map[string]any{"type": "string"},
+					},
+					"required": []string{"name", "project_id"},
+				},
+			}}}, "")
+		case "tools/call":
+			var params struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			}
+			_ = json.Unmarshal(req.Params, &params)
+			if params.Name != "project_marker_create" {
+				respond(nil, "unknown tool: "+params.Name)
+				return
+			}
+			var call markerCall
+			_ = json.Unmarshal(params.Arguments, &call)
+			calls <- call
+			receipt, _ := json.Marshal(map[string]any{
+				"status": "created", "name": call.Name, "project_id": call.ProjectID,
+			})
+			respond(map[string]any{"content": []map[string]any{{"type": "text", "text": string(receipt)}}}, "")
+		default:
+			respond(nil, "method not found: "+req.Method)
+		}
+	}))
+	t.Cleanup(markerMCP.Close)
+
+	directive := strings.Join([]string{
+		"# Role",
+		"You are Apteva Helper. Help the operator with the project identified by each dashboard conversation.",
+		"# Rules",
+		"Treat each conversation's project_id as authoritative and never reuse project context from another conversation.",
+		"For project mutations, call the matching tool and then report its receipt once in the current conversation.",
+	}, "\n")
+	h := setupRealPlatformHelperChannelChatHarness(t, "platform-helper-two-project-isolation-codex-under-test", directive,
+		fmt.Sprintf(`{"include_apteva_server":false,"include_channels":true,"mcp_servers":[{"name":"project-markers","transport":"http","url":%q}]}`, markerMCP.URL))
+	waitForInitialAgentTurn(t, h)
+	originalPort := h.server.agents.GetPort(h.agent.ID)
+
+	projectA, err := h.server.store.CreateProject(h.agent.UserID, "North Project", "", "")
+	if err != nil {
+		t.Fatalf("create project A: %v", err)
+	}
+	projectB, err := h.server.store.CreateProject(h.agent.UserID, "South Project", "", "")
+	if err != nil {
+		t.Fatalf("create project B: %v", err)
+	}
+
+	type projectCase struct {
+		project *Project
+		marker  string
+		chatID  string
+	}
+	cases := []projectCase{
+		{project: projectA, marker: "north-marker"},
+		{project: projectB, marker: "south-marker"},
+	}
+	for i := range cases {
+		testCase := &cases[i]
+		createBody, _ := json.Marshal(map[string]any{
+			"project_id": testCase.project.ID,
+			"title":      "Build " + testCase.project.Name,
+			"agent_ids":  []int64{h.agent.ID},
+		})
+		req, _ := http.NewRequest(http.MethodPost, h.url+"/apps/channel-chat/conversations", bytes.NewReader(createBody))
+		req.Header.Set("Authorization", "Bearer "+h.apiKey)
+		req.Header.Set("Content-Type", "application/json")
+		resp, requestErr := http.DefaultClient.Do(req)
+		if requestErr != nil {
+			t.Fatalf("create %s conversation: %v", testCase.project.Name, requestErr)
+		}
+		responseBody, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		var created struct {
+			ID        string `json:"id"`
+			Title     string `json:"title"`
+			ProjectID string `json:"project_id"`
+		}
+		decodeErr := json.Unmarshal(responseBody, &created)
+		if resp.StatusCode != http.StatusOK || decodeErr != nil || created.ID == "" {
+			t.Fatalf("create %s conversation status=%d read=%v decode=%v body=%s", testCase.project.Name, resp.StatusCode, readErr, decodeErr, responseBody)
+		}
+		if created.ProjectID != testCase.project.ID {
+			t.Fatalf("conversation project=%q want %q", created.ProjectID, testCase.project.ID)
+		}
+		testCase.chatID = created.ID
+		h.chatID = created.ID
+		baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+		baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+		h.postWithContext(t, "Create a project marker named "+testCase.marker+" and tell me when it is done.", map[string]any{
+			"source":       "dashboard-build",
+			"route":        "/build?session=" + created.ID,
+			"title":        created.Title,
+			"project_id":   testCase.project.ID,
+			"project_name": testCase.project.Name,
+			"page_kind":    "build",
+		})
+
+		select {
+		case call := <-calls:
+			if call.Name != testCase.marker || call.ProjectID != testCase.project.ID {
+				t.Fatalf("%s tool call=%+v, want marker=%q project_id=%q", testCase.project.Name, call, testCase.marker, testCase.project.ID)
+			}
+		case <-time.After(90 * time.Second):
+			t.Fatalf("%s conversation never called project_marker_create", testCase.project.Name)
+		}
+		waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
+		reply := latestAgentChatReply(t, h.server, created.ID)
+		if !strings.Contains(strings.ToLower(reply), strings.ToLower(testCase.marker)) {
+			t.Fatalf("%s conversation did not receive its own receipt: %q", testCase.project.Name, reply)
+		}
+	}
+
+	if got := h.server.agents.GetPort(h.agent.ID); got != originalPort {
+		t.Fatalf("Helper core changed across project conversations: port before=%d after=%d", originalPort, got)
+	}
+	for _, testCase := range cases {
+		other := cases[0]
+		if other.chatID == testCase.chatID {
+			other = cases[1]
+		}
+		reply := latestAgentChatReply(t, h.server, testCase.chatID)
+		if strings.Contains(strings.ToLower(reply), strings.ToLower(other.marker)) {
+			t.Fatalf("project conversation %s leaked the other project's marker in reply %q", testCase.project.Name, reply)
+		}
+	}
+}
+
+func runRealPlatformHelperUsesDashboardProject(t *testing.T, setupHarness func(*testing.T, string, string) *realChannelChatHarness) {
+	t.Helper()
+	const projectID = "project-storefront"
+	var uninstallCalls atomic.Int64
+	var uninstallAtNano atomic.Int64
+	called := make(chan struct {
+		InstallID string `json:"install_id"`
+		ProjectID string `json:"project_id"`
+	}, 2)
+	appsMCP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		respond := func(result any, errMsg string) {
+			response := map[string]any{"jsonrpc": "2.0", "id": req.ID}
+			if errMsg != "" {
+				response["error"] = map[string]any{"code": -32603, "message": errMsg}
+			} else {
+				response["result"] = result
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(response)
+		}
+		switch req.Method {
+		case "initialize":
+			respond(map[string]any{
+				"protocolVersion": "2025-03-26",
+				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"serverInfo":      map[string]string{"name": "apteva-apps", "version": "1.0.0"},
+			}, "")
+		case "tools/list":
+			respond(map[string]any{"tools": []map[string]any{{
+				"name":        "apps_uninstall",
+				"description": "Uninstall an app from the explicitly named project. The successful result is an authoritative receipt; do not re-list or reinterpret it.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"install_id": map[string]any{"type": "string"},
+						"project_id": map[string]any{"type": "string", "description": "Must be the exact current dashboard project_id."},
+					},
+					"required": []string{"install_id", "project_id"},
+				},
+			}}}, "")
+		case "tools/call":
+			var params struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			}
+			_ = json.Unmarshal(req.Params, &params)
+			if params.Name != "apps_uninstall" {
+				respond(nil, "unknown tool: "+params.Name)
+				return
+			}
+			var args struct {
+				InstallID string `json:"install_id"`
+				ProjectID string `json:"project_id"`
+			}
+			_ = json.Unmarshal(params.Arguments, &args)
+			uninstallCalls.Add(1)
+			uninstallAtNano.Store(time.Now().UnixNano())
+			select {
+			case called <- args:
+			default:
+			}
+			respond(map[string]any{"content": []map[string]any{{
+				"type": "text",
+				"text": `{"status":"uninstalled","app_name":"torrent","display_name":"Torrent","install_id":71,"app_id":31,"project_id":"project-storefront","version":"0.1.16"}`,
+			}}}, "")
+		default:
+			respond(nil, "method not found: "+req.Method)
+		}
+	}))
+	t.Cleanup(appsMCP.Close)
+
+	directive := strings.Join([]string{
+		"# Role",
+		"You are Apteva Helper. Help the operator manage the project identified by dashboard context.",
+		"# Rules",
+		"Use project-aware tools with the exact project_id supplied by dashboard context.",
+		"After a mutation returns a successful authoritative receipt, report that result once without second-guessing it.",
+	}, "\n")
+	config := fmt.Sprintf(`{"include_apteva_server":false,"include_channels":true,"mcp_servers":[{"name":"apteva-apps","transport":"http","url":%q}]}`, appsMCP.URL)
+	h := setupHarness(t, directive, config)
+	waitForInitialAgentTurn(t, h)
+
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	var baselineMessageID int64
+	_ = h.server.store.db.QueryRow(`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID).Scan(&baselineMessageID)
+
+	h.postWithContext(t, "Uninstall Torrent install 71 from this project and tell me when it is done.", map[string]any{
+		"source":       "dashboard-build",
+		"title":        "Build Storefront",
+		"route":        "/build",
+		"project_name": "Storefront",
+		"project_id":   projectID,
+		"page_kind":    "build",
+	})
+	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
+
+	select {
+	case args := <-called:
+		if args.InstallID != "71" || args.ProjectID != projectID {
+			t.Fatalf("apps_uninstall args=%+v, want install_id=71 project_id=%s", args, projectID)
+		}
+	default:
+		t.Fatal("Helper did not call apps_uninstall")
+	}
+	if uninstallCalls.Load() != 1 {
+		t.Fatalf("apps_uninstall calls=%d, want exactly one", uninstallCalls.Load())
+	}
+
+	toolAt := uninstallAtNano.Load()
+	if toolAt == 0 {
+		t.Fatal("apps_uninstall did not record its call time")
+	}
+	visibleBeforeTool := 0
+	visibleAfterTool := 0
+	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+		var data struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(event.Data, &data) == nil && (data.Name == "channels_send" || strings.HasSuffix(data.Name, "_channels_send")) {
+			if event.Time.UnixNano() < toolAt {
+				visibleBeforeTool++
+			} else {
+				visibleAfterTool++
+			}
+		}
+	}
+	if visibleBeforeTool > 1 || visibleAfterTool != 1 {
+		t.Fatalf("channels_send sequence before_tool=%d after_tool=%d, want at most one acknowledgement before and one final after the tool", visibleBeforeTool, visibleAfterTool)
+	}
+	rows, err := h.server.store.db.Query(`
+		SELECT content FROM channel_chat_messages
+		WHERE chat_id=? AND role='agent' AND id>?
+		ORDER BY id`, h.chatID, baselineMessageID)
+	if err != nil {
+		t.Fatalf("query Helper replies: %v", err)
+	}
+	defer rows.Close()
+	var replies []string
+	for rows.Next() {
+		var reply string
+		if err := rows.Scan(&reply); err != nil {
+			t.Fatalf("scan Helper reply: %v", err)
+		}
+		replies = append(replies, reply)
+	}
+	if len(replies) != visibleBeforeTool+1 {
+		t.Fatalf("Helper replies=%d, want optional acknowledgement plus exactly one final: %q", len(replies), replies)
+	}
+	reply := replies[len(replies)-1]
+	lower := strings.ToLower(reply)
+	if !strings.Contains(lower, "torrent") || (!strings.Contains(lower, "uninstall") && !strings.Contains(lower, "removed")) {
+		t.Fatalf("Helper did not report the authoritative uninstall receipt: %q", reply)
+	}
+	if strings.Contains(lower, "nothing to remove") || strings.Contains(lower, "not installed") {
+		t.Fatalf("Helper contradicted the successful uninstall receipt: %q", reply)
+	}
+}
+
+// TestChannelChat_RealLLM_Codex_NonPrimaryConversationReply verifies the
+// runtime provenance path added for durable conversations: a Channels MCP
+// reply from a custom chat context must land in that conversation, never the
+// agent's permanent primary chat.
+func TestChannelChat_RealLLM_Codex_NonPrimaryConversationReply(t *testing.T) {
+	runRealNonPrimaryConversationReply(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealChannelChatHarness(t, "conversation-routing-codex-under-test", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_NonPrimaryConversationReply(t *testing.T) {
+	runRealNonPrimaryConversationReply(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "conversation-routing-glm52-under-test", "glm-5.2", directive, config)
+	})
+}
+
+// TestChannelChat_RealLLM_Codex_NonPrimaryConversationDurableHandoff proves
+// that an owner command which must outlive a custom conversation is handed to
+// main, persisted in main's directive, acknowledged back to the originating
+// chat thread, and not persisted into the disposable conversation thread.
+// The notification MCP is local and must not be called during configuration.
+func TestChannelChat_RealLLM_Codex_NonPrimaryConversationDurableHandoff(t *testing.T) {
+	runRealNonPrimaryConversationDurableHandoff(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealChannelChatHarness(t, "conversation-durable-handoff-codex-under-test", directive, config)
+	}, true, false)
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_NonPrimaryConversationDurableHandoff(t *testing.T) {
+	runRealNonPrimaryConversationDurableHandoff(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "conversation-durable-handoff-glm52-under-test", "glm-5.2", directive, config)
+	}, false, false)
+}
+
+// This narrower test owns one invariant independently from the end-to-end UX
+// test above: a disposable chat thread must recognize durable work as main's
+// responsibility. It may acknowledge and hand off, but it must neither evolve
+// itself nor execute the future notification. Main must perform the evolve.
+func TestChannelChat_RealLLM_Codex_ConversationDelegatesDurableWorkToMain(t *testing.T) {
+	runRealNonPrimaryConversationDurableHandoff(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealChannelChatHarness(t, "conversation-ownership-boundary-codex-under-test", directive, config)
+	}, false, true)
+}
+
+func runRealNonPrimaryConversationDurableHandoff(t *testing.T, setupHarness func(*testing.T, string, string) *realChannelChatHarness, verifyScheduleChange, ownershipOnly bool) {
+	t.Helper()
+	var notificationCalls atomic.Int64
+	notificationsMCP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		respond := func(result any, errMsg string) {
+			response := map[string]any{"jsonrpc": "2.0", "id": req.ID}
+			if errMsg != "" {
+				response["error"] = map[string]any{"code": -32603, "message": errMsg}
+			} else {
+				response["result"] = result
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(response)
+		}
+		switch req.Method {
+		case "initialize":
+			respond(map[string]any{
+				"protocolVersion": "2025-03-26",
+				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"serverInfo":      map[string]string{"name": "notifications", "version": "1.0.0"},
+			}, "")
+		case "tools/list":
+			respond(map[string]any{"tools": []map[string]any{{
+				"name":        "send_notification",
+				"description": "Send a notification immediately. Call only when the notification is currently due; configuring future recurring behavior must not call this tool early.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"text": map[string]any{"type": "string"},
+					},
+					"required": []string{"text"},
+				},
+			}}}, "")
+		case "tools/call":
+			var params struct {
+				Name string `json:"name"`
+			}
+			_ = json.Unmarshal(req.Params, &params)
+			if params.Name != "send_notification" {
+				respond(nil, "unknown tool: "+params.Name)
+				return
+			}
+			notificationCalls.Add(1)
+			respond(map[string]any{"content": []map[string]any{{
+				"type": "text", "text": `{"status":"sent"}`,
+			}}}, "")
+		default:
+			respond(nil, "method not found: "+req.Method)
+		}
+	}))
+	t.Cleanup(notificationsMCP.Close)
+
+	directive := strings.Join([]string{
+		"# Role",
+		"You help the operator manage reminders and notifications.",
+		"# Operating Rules",
+		"Send notifications only when they are currently due; never send a future notification early.",
+	}, "\n")
+	config := fmt.Sprintf(`{"include_apteva_server":false,"include_channels":true,"mcp_servers":[{"name":"notifications","transport":"http","url":%q}]}`, notificationsMCP.URL)
+	h := setupHarness(t, directive, config)
+	waitForInitialAgentTurn(t, h)
+
+	createBody, _ := json.Marshal(map[string]any{
+		"project_id": h.agent.ProjectID,
+		"title":      "Daily notification setup",
+		"agent_ids":  []int64{h.agent.ID},
+	})
+	createReq, _ := http.NewRequest(http.MethodPost, h.url+"/apps/channel-chat/conversations", bytes.NewReader(createBody))
+	createReq.Header.Set("Authorization", "Bearer "+h.apiKey)
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("create durable-handoff conversation: %v", err)
+	}
+	defer createResp.Body.Close()
+	if createResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(createResp.Body)
+		t.Fatalf("create durable-handoff conversation status=%d body=%s", createResp.StatusCode, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil || created.ID == "" {
+		t.Fatalf("decode durable-handoff conversation: id=%q err=%v", created.ID, err)
+	}
+	h.chatID = created.ID
+	conversationThreadID := "chat-" + created.ID
+
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineAll := telemetryEventIDs(t, h.server, h.agent.ID, "")
+	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	var baselineMessageID int64
+	_ = h.server.store.db.QueryRow(`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID).Scan(&baselineMessageID)
+
+	h.post(t, "From now on, every day at 09:00 UTC, send me a notification saying exactly: Daily check-in.")
+
+	resolver := &serverResolver{srv: h.server}
+	inst, err := resolver.OwnedInstance(h.agent.UserID, h.agent.ID)
+	if err != nil {
+		t.Fatalf("resolve live agent: %v", err)
+	}
+	var mainDirective, visibleReply string
+	var childToMain, mainEvolved, mainToChild, childEvolved bool
+	childParentSends := map[string]bool{}
+	type visibleCall struct {
+		At   time.Time
+		Text string
+	}
+	childVisibleCalls := map[string]visibleCall{}
+	var childHandoffAt, mainReplyAt time.Time
+	deadline := time.Now().Add(120 * time.Second)
+	for time.Now().Before(deadline) {
+		mainDirective, _ = resolver.MainDirective(inst)
+		visibleReply = latestAgentChatReply(t, h.server, h.chatID)
+		for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+			var data struct {
+				Name string         `json:"name"`
+				Args map[string]any `json:"args"`
+			}
+			if json.Unmarshal(event.Data, &data) != nil {
+				continue
+			}
+			target, _ := data.Args["id"].(string)
+			if event.ThreadID == conversationThreadID &&
+				(data.Name == "channels_send" || strings.HasSuffix(data.Name, "_channels_send")) {
+				text, _ := data.Args["text"].(string)
+				childVisibleCalls[event.ID] = visibleCall{At: event.Time, Text: text}
+			}
+			if event.ThreadID == conversationThreadID && data.Name == "send" && (target == "main" || target == "parent") {
+				childParentSends[event.ID] = true
+			}
+			switch {
+			case event.ThreadID == conversationThreadID && data.Name == "send" && target == "main":
+				childToMain = true
+				childHandoffAt = event.Time
+			case event.ThreadID == "main" && data.Name == "evolve":
+				mainEvolved = true
+			case event.ThreadID == "main" && data.Name == "send" && target == conversationThreadID:
+				mainToChild = true
+				mainReplyAt = event.Time
+			case event.ThreadID == conversationThreadID && data.Name == "evolve":
+				childEvolved = true
+			}
+		}
+		directiveReady := strings.Contains(strings.ToLower(mainDirective), "daily check-in") && strings.Contains(mainDirective, "09:00")
+		replyReady := strings.Contains(strings.ToLower(visibleReply), "daily") || strings.Contains(visibleReply, "09:00")
+		if ownershipOnly && childToMain && mainEvolved && directiveReady {
+			break
+		}
+		if !ownershipOnly && childToMain && mainEvolved && mainToChild && directiveReady && replyReady {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
+	// Re-read after the quiet window so a late visible message or
+	// post-confirmation parent acknowledgement cannot escape the assertions.
+	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+		var data struct {
+			Name string         `json:"name"`
+			Args map[string]any `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil {
+			continue
+		}
+		target, _ := data.Args["id"].(string)
+		if event.ThreadID == conversationThreadID &&
+			(data.Name == "channels_send" || strings.HasSuffix(data.Name, "_channels_send")) {
+			text, _ := data.Args["text"].(string)
+			childVisibleCalls[event.ID] = visibleCall{At: event.Time, Text: text}
+		}
+		if event.ThreadID == conversationThreadID && data.Name == "send" && (target == "main" || target == "parent") {
+			childParentSends[event.ID] = true
+			childHandoffAt = event.Time
+		}
+		if event.ThreadID == "main" && data.Name == "send" && target == conversationThreadID {
+			mainReplyAt = event.Time
+		}
+	}
+	ownershipFailed := !childToMain || !mainEvolved || childEvolved || len(childParentSends) != 1 || notificationCalls.Load() != 0
+	fullSequenceFailed := !ownershipOnly && (!mainToChild || len(childVisibleCalls) < 1 || len(childVisibleCalls) > 2)
+	if ownershipFailed || fullSequenceFailed {
+		t.Logf("durable handoff state child_to_main=%v main_evolved=%v main_to_child=%v child_evolved=%v directive=%q visible_reply=%q",
+			childToMain, mainEvolved, mainToChild, childEvolved, mainDirective, visibleReply)
+		events, queryErr := h.server.store.QueryTelemetry(h.agent.ID, "", time.Time{}, 1000)
+		if queryErr != nil {
+			t.Logf("query durable handoff telemetry: %v", queryErr)
+		} else {
+			for i := len(events) - 1; i >= 0; i-- {
+				event := events[i]
+				if baselineAll[event.ID] {
+					continue
+				}
+				switch event.Type {
+				case "event.received", "llm.thinking", "llm.chunk", "llm.done", "llm.error", "tool.call", "tool.result", "thread.message", "thread.done":
+					t.Logf("handoff trace time=%s thread=%s type=%s data=%s", event.Time.Format(time.RFC3339Nano), event.ThreadID, event.Type, event.Data)
+				}
+			}
+		}
+	}
+
+	if !childToMain {
+		t.Fatal("conversation thread did not hand the durable owner request to main")
+	}
+	if !mainEvolved {
+		t.Fatal("main did not persist the recurring responsibility with evolve")
+	}
+	if childEvolved {
+		t.Fatal("conversation thread incorrectly persisted the recurring responsibility into itself")
+	}
+	if !mainToChild {
+		t.Fatal("main did not send configuration confirmation back to the originating conversation thread")
+	}
+	if len(childParentSends) != 1 {
+		t.Fatalf("conversation thread sent %d main/parent messages, want exactly one durable handoff", len(childParentSends))
+	}
+	if !strings.Contains(strings.ToLower(mainDirective), "daily check-in") || !strings.Contains(mainDirective, "09:00") {
+		t.Fatalf("main directive missing durable daily notification responsibility:\n%s", mainDirective)
+	}
+	if notificationCalls.Load() != 0 {
+		t.Fatalf("notification tool calls=%d, want zero while configuring future work", notificationCalls.Load())
+	}
+	if ownershipOnly {
+		return
+	}
+	visibleSequence := make([]visibleCall, 0, len(childVisibleCalls))
+	for _, call := range childVisibleCalls {
+		visibleSequence = append(visibleSequence, call)
+	}
+	sort.Slice(visibleSequence, func(i, j int) bool { return visibleSequence[i].At.Before(visibleSequence[j].At) })
+	if len(visibleSequence) < 1 || len(visibleSequence) > 2 {
+		t.Fatalf("conversation emitted %d visible channel messages, want optional acknowledgement then final: %+v", len(visibleSequence), visibleSequence)
+	}
+	finalVisible := visibleSequence[len(visibleSequence)-1]
+	if mainReplyAt.IsZero() || !finalVisible.At.After(mainReplyAt) {
+		t.Fatalf("final visible result was not delivered after main replied: main_reply=%s final=%s sequence=%+v",
+			mainReplyAt.Format(time.RFC3339Nano), finalVisible.At.Format(time.RFC3339Nano), visibleSequence)
+	}
+	if len(visibleSequence) == 2 {
+		acknowledgement := visibleSequence[0]
+		if childHandoffAt.IsZero() || mainReplyAt.IsZero() || !acknowledgement.At.Before(mainReplyAt) {
+			t.Fatalf("visible acknowledgement was not delivered before main's result: acknowledgement=%s handoff=%s main_reply=%s sequence=%+v",
+				acknowledgement.At.Format(time.RFC3339Nano), childHandoffAt.Format(time.RFC3339Nano), mainReplyAt.Format(time.RFC3339Nano), visibleSequence)
+		}
+		acknowledgementLower := strings.ToLower(strings.TrimSpace(acknowledgement.Text))
+		if acknowledgementLower == "" ||
+			(!strings.Contains(acknowledgementLower, "daily") && !strings.Contains(acknowledgementLower, "notification")) {
+			t.Fatalf("durable handoff acknowledgement was not concrete: %q", acknowledgement.Text)
+		}
+		for _, premature := range []string{"confirmed", "has been scheduled", "is scheduled", "completed"} {
+			if strings.Contains(acknowledgementLower, premature) {
+				t.Fatalf("durable handoff acknowledgement claimed completion before main acted (%q): %q", premature, acknowledgement.Text)
+			}
+		}
+	}
+	visibleReplyLower := strings.ToLower(visibleReply)
+	if !strings.Contains(visibleReplyLower, "daily check-in") || !strings.Contains(visibleReply, "09:00") {
+		t.Fatalf("originating conversation confirmation was not clear about the schedule: %q", visibleReply)
+	}
+	for _, internal := range []string{"main agent", "parent thread", "conversation thread", "directive", "handoff"} {
+		if strings.Contains(visibleReplyLower, internal) {
+			t.Fatalf("originating conversation exposed internal coordination %q: %q", internal, visibleReply)
+		}
+	}
+	var replyCount int
+	if err := h.server.store.db.QueryRow(`
+		SELECT COUNT(*) FROM channel_chat_messages
+		WHERE chat_id=? AND role='agent' AND id>?`, created.ID, baselineMessageID).Scan(&replyCount); err != nil {
+		t.Fatalf("count durable-handoff conversation replies: %v", err)
+	}
+	if replyCount < 1 || replyCount > 2 {
+		t.Fatalf("conversation produced %d visible replies, want optional acknowledgement plus exactly one final", replyCount)
+	}
+	if verifyScheduleChange {
+		verifyRealScheduleChange(t, h, resolver, inst, conversationThreadID, notificationCalls.Load)
+		mainDirective, err = resolver.MainDirective(inst)
+		if err != nil {
+			t.Fatalf("read changed main directive: %v", err)
+		}
+	}
+
+	deleteReq, _ := http.NewRequest(http.MethodDelete, h.url+"/apps/channel-chat/conversation?id="+created.ID, nil)
+	deleteReq.Header.Set("Authorization", "Bearer "+h.apiKey)
+	deleteResp, err := http.DefaultClient.Do(deleteReq)
+	if err != nil {
+		t.Fatalf("delete durable-handoff conversation: %v", err)
+	}
+	defer deleteResp.Body.Close()
+	if deleteResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(deleteResp.Body)
+		t.Fatalf("delete durable-handoff conversation status=%d body=%s", deleteResp.StatusCode, body)
+	}
+	mainDirectiveAfterDelete, err := resolver.MainDirective(inst)
+	if err != nil {
+		t.Fatalf("read main directive after conversation deletion: %v", err)
+	}
+	wantSchedule := "09:00"
+	if verifyScheduleChange {
+		wantSchedule = "10:00"
+	}
+	if !strings.Contains(strings.ToLower(mainDirectiveAfterDelete), "daily check-in") || !strings.Contains(mainDirectiveAfterDelete, wantSchedule) {
+		t.Fatalf("durable responsibility disappeared with conversation deletion:\n%s", mainDirectiveAfterDelete)
+	}
+}
+
+// verifyRealScheduleChange exercises the natural follow-up users actually send:
+// no restatement of the durable-handoff protocol and no hint about evolve/main.
+// The disposable conversation must hand the revision to main, main must replace
+// the old time, and the originating conversation must receive acknowledgement
+// followed by one final confirmation.
+func verifyRealScheduleChange(t *testing.T, h *realChannelChatHarness, resolver *serverResolver, inst framework.InstanceInfo, conversationThreadID string, notificationCount func() int64) {
+	t.Helper()
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	var baselineMessageID int64
+	_ = h.server.store.db.QueryRow(`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID).Scan(&baselineMessageID)
+
+	h.post(t, "Change that schedule to 10:00 UTC instead.")
+
+	type visibleCall struct {
+		At   time.Time
+		Text string
+	}
+	parentSends := map[string]bool{}
+	visibleCalls := map[string]visibleCall{}
+	var mainEvolved, mainReplied bool
+	var directive string
+	deadline := time.Now().Add(120 * time.Second)
+	for time.Now().Before(deadline) {
+		directive, _ = resolver.MainDirective(inst)
+		for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+			var data struct {
+				Name string         `json:"name"`
+				Args map[string]any `json:"args"`
+			}
+			if json.Unmarshal(event.Data, &data) != nil {
+				continue
+			}
+			target, _ := data.Args["id"].(string)
+			switch {
+			case event.ThreadID == conversationThreadID && data.Name == "send" && (target == "main" || target == "parent"):
+				parentSends[event.ID] = true
+			case event.ThreadID == "main" && data.Name == "evolve":
+				mainEvolved = true
+			case event.ThreadID == "main" && data.Name == "send" && target == conversationThreadID:
+				mainReplied = true
+			case event.ThreadID == conversationThreadID && (data.Name == "channels_send" || strings.HasSuffix(data.Name, "_channels_send")):
+				text, _ := data.Args["text"].(string)
+				visibleCalls[event.ID] = visibleCall{At: event.Time, Text: text}
+			}
+		}
+		if len(parentSends) == 1 && mainEvolved && mainReplied && len(visibleCalls) >= 2 &&
+			strings.Contains(directive, "10:00") && !strings.Contains(directive, "09:00") {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
+	// Re-read after the quiet window. Some models may attempt a paraphrased
+	// third channels_send after their final receipt; the channel boundary must
+	// suppress it so the user still sees exactly acknowledgement + final.
+	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+		var data struct {
+			Name string         `json:"name"`
+			Args map[string]any `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil {
+			continue
+		}
+		target, _ := data.Args["id"].(string)
+		switch {
+		case event.ThreadID == conversationThreadID && data.Name == "send" && (target == "main" || target == "parent"):
+			parentSends[event.ID] = true
+		case event.ThreadID == "main" && data.Name == "evolve":
+			mainEvolved = true
+		case event.ThreadID == "main" && data.Name == "send" && target == conversationThreadID:
+			mainReplied = true
+		case event.ThreadID == conversationThreadID && (data.Name == "channels_send" || strings.HasSuffix(data.Name, "_channels_send")):
+			text, _ := data.Args["text"].(string)
+			visibleCalls[event.ID] = visibleCall{At: event.Time, Text: text}
+		}
+	}
+
+	if len(parentSends) != 1 {
+		t.Fatalf("schedule change produced %d main/parent handoffs, want exactly one", len(parentSends))
+	}
+	if !mainEvolved || !mainReplied {
+		t.Fatalf("schedule change did not complete through main: evolved=%v replied=%v directive=%q", mainEvolved, mainReplied, directive)
+	}
+	if !strings.Contains(strings.ToLower(directive), "daily check-in") || !strings.Contains(directive, "10:00") || strings.Contains(directive, "09:00") {
+		t.Fatalf("main did not replace 09:00 with 10:00 in the durable schedule:\n%s", directive)
+	}
+	if notificationCount() != 0 {
+		t.Fatalf("notification was sent while only changing its future schedule")
+	}
+
+	sequence := make([]visibleCall, 0, len(visibleCalls))
+	for _, call := range visibleCalls {
+		sequence = append(sequence, call)
+	}
+	sort.Slice(sequence, func(i, j int) bool { return sequence[i].At.Before(sequence[j].At) })
+	if len(sequence) < 1 || len(sequence) > 3 {
+		t.Fatalf("schedule change attempted %d visible replies, want optional acknowledgement + final with at most one boundary-suppressed paraphrase: %+v", len(sequence), sequence)
+	}
+	var finalText string
+	for i := len(sequence) - 1; i >= 0; i-- {
+		if strings.Contains(sequence[i].Text, "10:00") {
+			finalText = sequence[i].Text
+			break
+		}
+	}
+	finalLower := strings.ToLower(finalText)
+	if finalText == "" ||
+		(!strings.Contains(finalLower, "changed") && !strings.Contains(finalLower, "updated") &&
+			!strings.Contains(finalLower, "scheduled") && !strings.Contains(finalLower, "now")) {
+		t.Fatalf("schedule-change final confirmation is unclear: %q", finalText)
+	}
+	rows, err := h.server.store.db.Query(`
+		SELECT content FROM channel_chat_messages
+		WHERE chat_id=? AND role='agent' AND id>? ORDER BY id`, h.chatID, baselineMessageID)
+	if err != nil {
+		t.Fatalf("query schedule-change replies: %v", err)
+	}
+	defer rows.Close()
+	var persistedReplies []string
+	for rows.Next() {
+		var reply string
+		if err := rows.Scan(&reply); err != nil {
+			t.Fatalf("scan schedule-change reply: %v", err)
+		}
+		persistedReplies = append(persistedReplies, reply)
+	}
+	if len(persistedReplies) < 1 || len(persistedReplies) > 2 {
+		t.Fatalf("schedule change persisted %d replies, want optional acknowledgement plus exactly one final: %q", len(persistedReplies), persistedReplies)
+	}
+}
+
+func runRealNonPrimaryConversationReply(t *testing.T, setupHarness func(*testing.T, string, string) *realChannelChatHarness) {
+	t.Helper()
+	h := setupHarness(t, strings.Join([]string{
+		"# Role",
+		"You answer operator messages through the current Apteva channel.",
+		"# Rules",
+		"For a direct chat request, send exactly the requested reply once through channels_send(channel=\"current\", ...), then return idle.",
+	}, "\n"), `{"include_apteva_server":false,"include_channels":true}`)
+	waitForInitialAgentTurn(t, h)
+
+	createBody, _ := json.Marshal(map[string]any{
+		"project_id": h.agent.ProjectID,
+		"title":      "Provider routing room",
+		"agent_ids":  []int64{h.agent.ID},
+	})
+	req, _ := http.NewRequest(http.MethodPost, h.url+"/apps/channel-chat/conversations", bytes.NewReader(createBody))
+	req.Header.Set("Authorization", "Bearer "+h.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("create conversation status=%d body=%s", resp.StatusCode, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil || created.ID == "" {
+		t.Fatalf("decode conversation: id=%q err=%v", created.ID, err)
+	}
+
+	primaryID := h.chatID
+	primaryBefore := ordinaryAgentMessageCount(t, h.server, primaryID)
+	h.chatID = created.ID
+	baselineAll := telemetryEventIDs(t, h.server, h.agent.ID, "")
+	h.post(t, "Reply exactly CUSTOM CONVERSATION ACKNOWLEDGED. Do not perform any other work.")
+	deadline := time.Now().Add(90 * time.Second)
+	var reply string
+	for time.Now().Before(deadline) {
+		reply = latestAgentChatReply(t, h.server, created.ID)
+		if strings.Contains(reply, "CUSTOM CONVERSATION ACKNOWLEDGED") {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if !strings.Contains(reply, "CUSTOM CONVERSATION ACKNOWLEDGED") {
+		events, queryErr := h.server.store.QueryTelemetry(h.agent.ID, "", time.Time{}, 1000)
+		if queryErr != nil {
+			t.Logf("query custom conversation telemetry: %v", queryErr)
+		} else {
+			for i := len(events) - 1; i >= 0; i-- {
+				event := events[i]
+				if baselineAll[event.ID] {
+					continue
+				}
+				switch event.Type {
+				case "event.received", "llm.thinking", "llm.chunk", "llm.done", "llm.error", "tool.call", "tool.result":
+					t.Logf("custom conversation trace time=%s thread=%s type=%s data=%s", event.Time.Format(time.RFC3339Nano), event.ThreadID, event.Type, event.Data)
+				}
+			}
+		}
+		t.Fatalf("custom conversation reply missing: %q", reply)
+	}
+	if got := ordinaryAgentMessageCount(t, h.server, primaryID); got != primaryBefore {
+		t.Fatalf("custom reply leaked to primary conversation: before=%d after=%d", primaryBefore, got)
+	}
 }
 
 func TestChannelChat_RealLLM_OpenCodeGLM52_DirectChatReplyAfterLookup(t *testing.T) {
@@ -238,30 +1344,52 @@ func runRealDirectChatReplyAfterLookup(t *testing.T, setupHarness func(*testing.
 		t.Fatal("schedule MCP did not record its lookup result time")
 	}
 	callEvents := newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls)
-	visibleAfterLookup := false
+	visibleBeforeLookup := 0
+	visibleAfterLookup := 0
 	for _, event := range callEvents {
 		var data struct {
 			Name string `json:"name"`
 		}
-		if json.Unmarshal(event.Data, &data) == nil &&
-			(data.Name == "channels_send" || strings.HasSuffix(data.Name, "_channels_send")) &&
-			event.Time.UnixNano() > lookupAt {
-			visibleAfterLookup = true
-			break
+		if json.Unmarshal(event.Data, &data) != nil ||
+			(data.Name != "channels_send" && !strings.HasSuffix(data.Name, "_channels_send")) {
+			continue
+		}
+		if event.Time.UnixNano() > lookupAt {
+			visibleAfterLookup++
+		} else {
+			visibleBeforeLookup++
 		}
 	}
-	if !visibleAfterLookup {
+	if visibleAfterLookup != 1 {
 		t.Fatalf("agent did not call channels_send after the lookup result; calls=%v", toolNames(callEvents))
 	}
+	if visibleBeforeLookup > 1 {
+		t.Fatalf("channels_send calls before lookup=%d, want at most one acknowledgement; calls=%v", visibleBeforeLookup, toolNames(callEvents))
+	}
 
-	var reply string
-	err := h.server.store.db.QueryRow(`
+	rows, err := h.server.store.db.Query(`
 		SELECT content FROM channel_chat_messages
 		WHERE chat_id=? AND role='agent' AND id>?
-		ORDER BY id DESC LIMIT 1`, h.chatID, baselineMessageID).Scan(&reply)
+		ORDER BY id`, h.chatID, baselineMessageID)
 	if err != nil {
-		t.Fatalf("visible chat reply was not persisted after lookup: %v", err)
+		t.Fatalf("query visible chat replies after lookup: %v", err)
 	}
+	defer rows.Close()
+	var replies []string
+	for rows.Next() {
+		var reply string
+		if err := rows.Scan(&reply); err != nil {
+			t.Fatalf("scan visible chat reply after lookup: %v", err)
+		}
+		replies = append(replies, reply)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate visible chat replies after lookup: %v", err)
+	}
+	if len(replies) != visibleBeforeLookup+1 || visibleAfterLookup != 1 {
+		t.Fatalf("persisted agent replies=%d, want optional acknowledgement plus exactly one final after lookup: %q", len(replies), replies)
+	}
+	reply := replies[len(replies)-1]
 	lower := strings.ToLower(reply)
 	if !strings.Contains(lower, "which") && !strings.Contains(lower, "clarif") &&
 		!(strings.Contains(lower, "10:00") && strings.Contains(lower, "16:00")) {
@@ -274,14 +1402,27 @@ func runRealDirectChatReplyAfterLookup(t *testing.T, setupHarness func(*testing.
 // wake-on-result starts another reasoning iteration, and that iteration must
 // settle without sending the same final answer again.
 func TestChannelChat_RealLLM_Codex_FinalReplyNotRepeatedAfterWake(t *testing.T) {
+	runRealFinalReplyNotRepeatedAfterWake(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealChannelChatHarness(t, "chat-final-reply-once-codex-under-test", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_FinalReplyNotRepeatedAfterWake(t *testing.T) {
+	runRealFinalReplyNotRepeatedAfterWake(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "chat-final-reply-once-glm52-under-test", "glm-5.2", directive, config)
+	})
+}
+
+func runRealFinalReplyNotRepeatedAfterWake(t *testing.T, setupHarness func(*testing.T, string, string) *realChannelChatHarness) {
+	t.Helper()
 	directive := strings.Join([]string{
 		"# Role",
-		"You answer brief dashboard-chat requests through channels_send.",
+		"You are a helpful social assistant speaking with the operator in dashboard chat.",
 		"# Rules",
-		"For the final-delivery probe, send exactly FINAL DELIVERY ACKNOWLEDGED to the current channel.",
-		"That message fully completes the request; do not perform other work for the probe.",
+		"Answer naturally and follow the injected Channels capability guidance.",
+		"Do not perform unrelated work when the operator asks you to wait.",
 	}, "\n")
-	h := setupRealChannelChatHarness(t, "chat-final-reply-once-under-test", directive,
+	h := setupHarness(t, directive,
 		`{"include_apteva_server":false,"include_channels":true}`)
 	waitForInitialAgentTurn(t, h)
 
@@ -295,7 +1436,7 @@ func TestChannelChat_RealLLM_Codex_FinalReplyNotRepeatedAfterWake(t *testing.T) 
 		t.Fatalf("query baseline chat message: %v", err)
 	}
 
-	h.post(t, "Run the final-delivery probe now.")
+	h.post(t, "Wait for now.")
 	// Production duplicates were observed a few seconds after the successful
 	// send. Waiting for a quiet period after the post-result LLM iteration makes
 	// the assertion cover that wake rather than racing the first persisted row.
@@ -311,8 +1452,8 @@ func TestChannelChat_RealLLM_Codex_FinalReplyNotRepeatedAfterWake(t *testing.T) 
 	if len(sends) != 1 {
 		t.Fatalf("channels_send calls=%d, want exactly one after successful delivery: %+v", len(sends), calls)
 	}
-	if got := strings.TrimSpace(strings.TrimRight(strings.TrimSpace(sends[0].Text), ".!?")); got != "FINAL DELIVERY ACKNOWLEDGED" {
-		t.Fatalf("channels_send text=%q, want final-delivery marker", sends[0].Text)
+	if strings.TrimSpace(sends[0].Text) == "" {
+		t.Fatal("channels_send produced an empty acknowledgement")
 	}
 
 	resultEvents := newChannelResultEvents(t, h.server, h.agent.ID, baselineResults)
@@ -352,6 +1493,18 @@ func TestChannelChat_RealLLM_Codex_FinalReplyNotRepeatedAfterWake(t *testing.T) 
 	}
 	if len(replies) != 1 {
 		t.Fatalf("persisted agent replies=%d, want exactly one: %q", len(replies), replies)
+	}
+	var deliveryAttempts int
+	if err := h.server.store.db.QueryRow(`
+		SELECT d.attempts
+		FROM channel_chat_deliveries d
+		JOIN channel_chat_messages m ON m.id=d.message_id
+		WHERE m.chat_id=? AND m.role='user' AND m.id>?
+		ORDER BY m.id DESC LIMIT 1`, h.chatID, baselineMessageID).Scan(&deliveryAttempts); err != nil {
+		t.Fatalf("query inbound chat delivery: %v", err)
+	}
+	if deliveryAttempts != 1 {
+		t.Fatalf("inbound user event attempts=%d, want one", deliveryAttempts)
 	}
 }
 
@@ -498,6 +1651,103 @@ func TestChannelChat_RealLLM_OpenCodeGLM52_RoutineWorkDoesNotPublishReport(t *te
 	}, "\n"))
 }
 
+// TestChannelChat_RealLLM_Codex_OfflineReplyAndAutonomousSilence validates the
+// durable-chat boundary through Codex.
+func TestChannelChat_RealLLM_Codex_OfflineReplyAndAutonomousSilence(t *testing.T) {
+	h := setupRealChannelChatHarness(t, "offline-autonomous-silence-codex-under-test",
+		offlineAutonomousSilenceDirective(), `{"include_apteva_server":false,"include_channels":true}`)
+	runRealOfflineReplyAndAutonomousSilence(t, h)
+}
+
+// TestChannelChat_RealLLM_OpenCodeGLM52_OfflineReplyAndAutonomousSilence runs
+// the identical durable-reply and autonomous-silence contract through GLM-5.2.
+func TestChannelChat_RealLLM_OpenCodeGLM52_OfflineReplyAndAutonomousSilence(t *testing.T) {
+	h := setupOpenCodeChannelChatHarnessWithDirective(t,
+		"offline-autonomous-silence-glm52-under-test", "glm-5.2", offlineAutonomousSilenceDirective())
+	runRealOfflineReplyAndAutonomousSilence(t, h)
+}
+
+func offlineAutonomousSilenceDirective() string {
+	return strings.Join([]string{
+		"# Role",
+		"You monitor CRM activity when an explicit scheduled event arrives.",
+		"# Rules",
+		"Wait for events; do not run the CRM check merely because the agent started.",
+		"Follow the injected Channels capability guidance exactly.",
+		"Do not convert routine unchanged monitoring into operator chat.",
+	}, "\n")
+}
+
+// runRealOfflineReplyAndAutonomousSilence asserts that a requested chat outcome
+// remains durable after the UI stream disconnects, while a later autonomous
+// no-change check updates status, paces, and avoids ordinary chat entirely.
+func runRealOfflineReplyAndAutonomousSilence(t *testing.T, h *realChannelChatHarness) {
+	t.Helper()
+	waitForInitialAgentTurn(t, h)
+	h.closeChatStream(t)
+
+	// A direct chat request remains replyable even though no SSE subscriber is
+	// listening by the time the agent handles it.
+	directBaselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	directBaselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	directBaselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	ordinaryBeforeDirect := ordinaryAgentMessageCount(t, h.server, h.chatID)
+	h.post(t, "Reply exactly OFFLINE CHAT ACKNOWLEDGED. Do not perform any other work.")
+	waitForAgentTurnSettled(t, h, directBaselineDone, directBaselineResults, 8*time.Second)
+
+	var directMessages []channelSendCall
+	for _, call := range newChannelCalls(t, h.server, h.agent.ID, directBaselineCalls) {
+		if call.Kind == "message" {
+			directMessages = append(directMessages, call)
+		}
+	}
+	if len(directMessages) != 1 || normalizeStatusNextFixture(directMessages[0].Text) != "OFFLINE CHAT ACKNOWLEDGED" {
+		t.Fatalf("offline direct chat messages=%+v, want one durable acknowledgement", directMessages)
+	}
+	if got := ordinaryAgentMessageCount(t, h.server, h.chatID); got != ordinaryBeforeDirect+1 {
+		t.Fatalf("ordinary messages after offline direct reply=%d, want %d", got, ordinaryBeforeDirect+1)
+	}
+
+	// The next input is an autonomous scheduler event, not a chat turn. It
+	// should replace monitoring status once and set the next wake without
+	// adding an ordinary message or Inbox artifact.
+	autonomousBaselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	autonomousBaselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	autonomousBaselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	ordinaryBeforeAutonomous := ordinaryAgentMessageCount(t, h.server, h.chatID)
+	nextAt := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Second).Format(time.RFC3339)
+	event := strings.Join([]string{
+		"[system] [scheduled]",
+		"This is an autonomous scheduled event. No direct [chat] turn or requested chat outcome is pending, and no operator is connected.",
+		"A meaningful multi-step daily CRM check has just completed. It inspected conversations, opportunities, and pipeline health.",
+		"The CRM state is unchanged and there is no alert, approval, report, or operator decision to communicate.",
+		"The nearest next responsibility is exactly: Run the next daily CRM check.",
+		"That next check is due in 24 hours at " + nextAt + ".",
+		"Apply the injected Channels guidance, record monitoring state if appropriate, and return idle.",
+	}, "\n")
+	if err := postCoreEvent(t.Context(), h.server.agents.GetPort(h.agent.ID),
+		h.server.agents.GetCoreAPIKey(h.agent.ID), "main", event); err != nil {
+		t.Fatalf("post autonomous event: %v", err)
+	}
+	waitForAgentTurnSettled(t, h, autonomousBaselineDone, autonomousBaselineResults, 8*time.Second)
+
+	autonomousCalls := newChannelCalls(t, h.server, h.agent.ID, autonomousBaselineCalls)
+	status := assertSingleStatusCall(t, autonomousCalls, "completed")
+	if normalizeStatusNextFixture(status.Next) != "Run the next daily CRM check" || status.NextAt != nextAt {
+		t.Fatalf("autonomous status next=%q next_at=%q, want daily check at %s: %+v",
+			status.Next, status.NextAt, nextAt, status)
+	}
+	for _, call := range autonomousCalls {
+		if call.Kind != "status" {
+			t.Fatalf("autonomous no-change check emitted %s instead of remaining silent: %+v", call.Kind, autonomousCalls)
+		}
+	}
+	if got := ordinaryAgentMessageCount(t, h.server, h.chatID); got != ordinaryBeforeAutonomous {
+		t.Fatalf("autonomous no-change check added ordinary chat: before=%d after=%d", ordinaryBeforeAutonomous, got)
+	}
+	assertSinglePaceSleep(t, newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", autonomousBaselineCalls), "24h")
+}
+
 func statusOnlyDirective() string {
 	return strings.Join([]string{
 		"# Role",
@@ -513,6 +1763,121 @@ func TestChannelChat_RealLLM_Codex_StatusWorkSemantics(t *testing.T) {
 	h := setupRealChannelChatHarness(t, "status-semantics-codex-under-test", statusSemanticsDirective(),
 		`{"include_apteva_server":false,"include_channels":true}`)
 	runRealStatusWorkSemantics(t, h)
+}
+
+// TestChannelChat_RealLLM_Codex_MainPersistsAutonomousStatus proves the
+// main-thread monitoring path independently from dashboard conversations. A
+// meaningful autonomous result must create one mutable status from main,
+// persist it in the internal status sink, expose it through the status API,
+// and leave the visible conversation list/history untouched.
+func TestChannelChat_RealLLM_Codex_MainPersistsAutonomousStatus(t *testing.T) {
+	h := setupRealChannelChatHarness(t, "main-status-codex-under-test",
+		offlineAutonomousSilenceDirective(), `{"include_apteva_server":false,"include_channels":true}`)
+	waitForInitialAgentTurn(t, h)
+
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	ordinaryBefore := ordinaryAgentMessageCount(t, h.server, h.chatID)
+	var visibleBefore int
+	if err := h.server.store.db.QueryRow(`
+		SELECT COUNT(*) FROM channel_chat_chats
+		WHERE owner_user_id=? AND id <> printf('default-%d', agent_id)`, h.agent.UserID).Scan(&visibleBefore); err != nil {
+		t.Fatalf("count visible conversations before status: %v", err)
+	}
+
+	nextAt := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Second).Format(time.RFC3339)
+	event := strings.Join([]string{
+		"[system] [scheduled]",
+		"This is an autonomous scheduled event on the agent's main thread; no direct chat request is pending.",
+		"A meaningful multi-step daily CRM check has completed after inspecting conversations, opportunities, and pipeline health.",
+		"The CRM state is unchanged and there is no alert, approval, report, or operator decision to communicate.",
+		"The nearest next responsibility is exactly: Run the next daily CRM check.",
+		"That next check is due at " + nextAt + ".",
+		"Apply the injected Channels guidance, record monitoring state if appropriate, and return idle.",
+	}, "\n")
+	if err := postCoreEvent(t.Context(), h.server.agents.GetPort(h.agent.ID),
+		h.server.agents.GetCoreAPIKey(h.agent.ID), "main", event); err != nil {
+		t.Fatalf("post autonomous main event: %v", err)
+	}
+	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
+
+	status := assertSingleStatusCall(t, newChannelCalls(t, h.server, h.agent.ID, baselineCalls), "completed")
+	if normalizeStatusNextFixture(status.Next) != "Run the next daily CRM check" || status.NextAt != nextAt {
+		t.Fatalf("main status next=%q next_at=%q, want daily check at %s: %+v", status.Next, status.NextAt, nextAt, status)
+	}
+	statusCallsOnMain := 0
+	for _, telemetry := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+		var data struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(telemetry.Data, &data) == nil &&
+			(data.Name == "channels_set_status" || strings.HasSuffix(data.Name, "_channels_set_status")) {
+			if telemetry.ThreadID != "main" {
+				t.Fatalf("status call originated from thread %q, want main", telemetry.ThreadID)
+			}
+			statusCallsOnMain++
+		}
+	}
+	if statusCallsOnMain != 1 {
+		t.Fatalf("main status calls=%d, want exactly one", statusCallsOnMain)
+	}
+
+	var persistedChatID, persistedThreadID, componentsJSON string
+	if err := h.server.store.db.QueryRow(`
+		SELECT chat_id, COALESCE(thread_id, ''), components_json
+		FROM channel_chat_messages
+		WHERE agent_id=? AND components_json LIKE '%"status-card"%'
+		ORDER BY id DESC LIMIT 1`, h.agent.ID).Scan(&persistedChatID, &persistedThreadID, &componentsJSON); err != nil {
+		t.Fatalf("read persisted main status: %v", err)
+	}
+	if persistedChatID != "default-"+itoa64(h.agent.ID) || persistedThreadID != "main" {
+		t.Fatalf("persisted status chat=%q thread=%q, want internal default on main", persistedChatID, persistedThreadID)
+	}
+	if !strings.Contains(componentsJSON, `"state":"completed"`) || !strings.Contains(componentsJSON, nextAt) {
+		t.Fatalf("persisted status missing completed state or next_at: %s", componentsJSON)
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, h.url+"/apps/channel-chat/current-statuses", nil)
+	req.Header.Set("Authorization", "Bearer "+h.apiKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("get current statuses: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("current statuses status=%d body=%s", resp.StatusCode, body)
+	}
+	var statuses []struct {
+		AgentID int64  `json:"instance_id"`
+		State   string `json:"state"`
+		NextAt  string `json:"next_at"`
+		Message struct {
+			ChatID   string `json:"chat_id"`
+			ThreadID string `json:"thread_id"`
+		} `json:"message"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&statuses); err != nil {
+		t.Fatalf("decode current statuses: %v", err)
+	}
+	if len(statuses) != 1 || statuses[0].AgentID != h.agent.ID || statuses[0].State != "completed" ||
+		statuses[0].NextAt != nextAt || statuses[0].Message.ChatID != persistedChatID || statuses[0].Message.ThreadID != "main" {
+		t.Fatalf("current statuses API did not return persisted main status: %+v", statuses)
+	}
+
+	var visibleAfter int
+	if err := h.server.store.db.QueryRow(`
+		SELECT COUNT(*) FROM channel_chat_chats
+		WHERE owner_user_id=? AND id <> printf('default-%d', agent_id)`, h.agent.UserID).Scan(&visibleAfter); err != nil {
+		t.Fatalf("count visible conversations after status: %v", err)
+	}
+	if visibleAfter != visibleBefore {
+		t.Fatalf("main status changed visible conversations: before=%d after=%d", visibleBefore, visibleAfter)
+	}
+	if got := ordinaryAgentMessageCount(t, h.server, h.chatID); got != ordinaryBefore {
+		t.Fatalf("main status leaked into chat history: before=%d after=%d", ordinaryBefore, got)
+	}
 }
 
 func TestChannelChat_RealLLM_OpenCodeGLM52_StatusWorkSemantics(t *testing.T) {
@@ -625,7 +1990,7 @@ func TestChannelChat_RealLLM_OpenCodeGLM52_StatusExtendedSemantics(t *testing.T)
 		}, "\n"))
 		call := assertSingleStatusCall(t, calls, "waiting")
 		assertProgress(t, call, 100, true)
-		if call.Next != "Send requested notification." || call.NextAt != "2026-07-20T10:00:00Z" {
+		if normalizeStatusNextFixture(call.Next) != normalizeStatusNextFixture("Send requested notification.") || call.NextAt != "2026-07-20T10:00:00Z" {
 			t.Fatalf("delayed status did not preserve exact next action/time: %+v", call)
 		}
 		assertTitleDoesNotDescribeFutureOrWait(t, call.Title)
@@ -634,7 +1999,8 @@ func TestChannelChat_RealLLM_OpenCodeGLM52_StatusExtendedSemantics(t *testing.T)
 	t.Run("one-off-completion-clears-next", func(t *testing.T) {
 		calls := runRealStatusSemanticTurn(t, h, strings.Join([]string{
 			"A one-off cleanup of temporary test records just completed successfully.",
-			"Update operator monitoring for the completed work. There is no follow-up responsibility or planned work.",
+			"The previously requested delayed notification has been cancelled and is no longer pending.",
+			"Update operator monitoring for the completed work. There is no follow-up responsibility or other planned work.",
 		}, "\n"))
 		call := assertSingleStatusCall(t, calls, "completed")
 		assertProgress(t, call, 100, false)
@@ -876,11 +2242,12 @@ func runRealChannelKindsExactlyOnce(t *testing.T, h *realChannelChatHarness) {
 }
 
 type realChannelChatHarness struct {
-	server *Server
-	agent  *Agent
-	chatID string
-	url    string
-	apiKey string
+	server     *Server
+	agent      *Agent
+	chatID     string
+	url        string
+	apiKey     string
+	streamBody io.ReadCloser
 }
 
 func setupRealChannelChatHarness(t *testing.T, agentName, directive, config string) *realChannelChatHarness {
@@ -888,6 +2255,37 @@ func setupRealChannelChatHarness(t *testing.T, agentName, directive, config stri
 	providerState := loadOpenAICodexProviderState(t)
 	return setupRealChannelChatHarnessWithProvider(t, agentName, directive, config,
 		15, "llm", "OpenAI Codex", providerState)
+}
+
+func setupRealPlatformHelperChannelChatHarness(t *testing.T, agentName, directive, config string) *realChannelChatHarness {
+	t.Helper()
+	providerState := loadOpenAICodexProviderState(t)
+	return setupRealChannelChatHarnessWithProviderPrepared(t, agentName, directive, config,
+		15, "llm", "OpenAI Codex", providerState,
+		func(s *Server, _ int64, agent *Agent) {
+			agent.Kind = "platform_helper"
+			if _, err := s.store.db.Exec(`UPDATE agents SET kind='platform_helper' WHERE id=?`, agent.ID); err != nil {
+				t.Fatalf("persist platform helper kind: %v", err)
+			}
+		})
+}
+
+func setupOpenCodePlatformHelperChannelChatHarness(t *testing.T, agentName, model, directive, config string) *realChannelChatHarness {
+	t.Helper()
+	providerState := map[string]any{
+		"OPENCODE_GO_API_KEY": loadOpenCodeGoAPIKey(t),
+		"model_large":         model,
+		"model_medium":        model,
+		"model_small":         model,
+	}
+	return setupRealChannelChatHarnessWithProviderPrepared(t, agentName, directive, config,
+		13, "llm", "OpenCode Go", providerState,
+		func(s *Server, _ int64, agent *Agent) {
+			agent.Kind = "platform_helper"
+			if _, err := s.store.db.Exec(`UPDATE agents SET kind='platform_helper' WHERE id=?`, agent.ID); err != nil {
+				t.Fatalf("persist platform helper kind: %v", err)
+			}
+		})
 }
 
 func setupRealChannelChatHarnessWithProvider(t *testing.T, agentName, directive, config string,
@@ -942,7 +2340,30 @@ func setupRealChannelChatHarnessWithProviderPrepared(t *testing.T, agentName, di
 		t.Fatalf("agent core did not listen on port %d", s.agents.GetPort(agent.ID))
 	}
 
-	chatID := fmt.Sprintf("default-%d", agent.ID)
+	createBody, _ := json.Marshal(map[string]any{"agent_id": agent.ID, "title": "Test conversation"})
+	createReq, _ := http.NewRequest(http.MethodPost, appSrv.URL+"/apps/channel-chat/chats", bytes.NewReader(createBody))
+	createReq.Header.Set("Authorization", "Bearer "+apiKey)
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("create explicit test conversation: %v", err)
+	}
+	if createResp.StatusCode != http.StatusOK {
+		body, _ := readAll(createResp)
+		t.Fatalf("create explicit test conversation status=%d body=%s", createResp.StatusCode, body)
+	}
+	var createdConversation struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(createResp.Body).Decode(&createdConversation); err != nil {
+		_ = createResp.Body.Close()
+		t.Fatalf("decode explicit test conversation: %v", err)
+	}
+	_ = createResp.Body.Close()
+	chatID := createdConversation.ID
+	if !strings.HasPrefix(chatID, "conv-") {
+		t.Fatalf("explicit test conversation id=%q, want conv-*", chatID)
+	}
 	streamReq, _ := http.NewRequest(http.MethodGet, appSrv.URL+"/apps/channel-chat/stream?chat_id="+chatID, nil)
 	streamReq.Header.Set("Authorization", "Bearer "+apiKey)
 	streamResp, err := http.DefaultClient.Do(streamReq)
@@ -955,14 +2376,36 @@ func setupRealChannelChatHarnessWithProviderPrepared(t *testing.T, agentName, di
 	}
 	t.Cleanup(func() { _ = streamResp.Body.Close() })
 	time.Sleep(100 * time.Millisecond)
-	return &realChannelChatHarness{server: s, agent: agent, chatID: chatID, url: appSrv.URL, apiKey: apiKey}
+	return &realChannelChatHarness{
+		server: s, agent: agent, chatID: chatID, url: appSrv.URL, apiKey: apiKey, streamBody: streamResp.Body,
+	}
+}
+
+func (h *realChannelChatHarness) closeChatStream(t *testing.T) {
+	t.Helper()
+	if h.streamBody == nil {
+		return
+	}
+	if err := h.streamBody.Close(); err != nil {
+		t.Fatalf("close chat stream: %v", err)
+	}
+	h.streamBody = nil
 }
 
 func (h *realChannelChatHarness) post(t *testing.T, content string) {
 	t.Helper()
+	h.postWithContext(t, content, map[string]any{
+		"source": "dashboard-floating",
+		"title":  "Test",
+		"route":  "/agents/" + itoa64(h.agent.ID),
+	})
+}
+
+func (h *realChannelChatHarness) postWithContext(t *testing.T, content string, context map[string]any) {
+	t.Helper()
 	body, _ := json.Marshal(map[string]any{
 		"content": content,
-		"context": map[string]any{"source": "dashboard-floating", "title": "Test", "route": "/agents/" + itoa64(h.agent.ID)},
+		"context": context,
 	})
 	req, _ := http.NewRequest(http.MethodPost, h.url+"/apps/channel-chat/messages?chat_id="+h.chatID, bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+h.apiKey)
@@ -1215,6 +2658,36 @@ func newChannelCalls(t *testing.T, s *Server, agentID int64, baseline map[string
 		})
 	}
 	return calls
+}
+
+func ordinaryAgentMessageCount(t *testing.T, s *Server, chatID string) int {
+	t.Helper()
+	var count int
+	if err := s.store.db.QueryRow(`
+		SELECT COUNT(*) FROM channel_chat_messages
+		WHERE chat_id=? AND role='agent' AND COALESCE(components_json, '[]')='[]'`, chatID).Scan(&count); err != nil {
+		t.Fatalf("count ordinary agent messages: %v", err)
+	}
+	return count
+}
+
+func assertSinglePaceSleep(t *testing.T, events []TelemetryEvent, wantSleep string) {
+	t.Helper()
+	var sleeps []string
+	for _, event := range events {
+		var data struct {
+			Name string `json:"name"`
+			Args struct {
+				Sleep string `json:"sleep"`
+			} `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) == nil && data.Name == "pace" {
+			sleeps = append(sleeps, data.Args.Sleep)
+		}
+	}
+	if len(sleeps) != 1 || sleeps[0] != wantSleep {
+		t.Fatalf("pace sleeps=%v, want exactly [%s]", sleeps, wantSleep)
+	}
 }
 
 func numericStatusProgress(value any) *float64 {

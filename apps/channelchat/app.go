@@ -1,14 +1,16 @@
 // Package channelchat implements the first Apteva App — a DB-backed
 // chat channel. Agent-facing, it plugs into the existing Channel
-// interface so channels_respond(channel="chat", ...) just works.
+// interface so channels_send(channel="current", ...) persists replies.
 // Dashboard-facing, it exposes a REST+SSE surface keyed on chat_id so
 // the UI can fetch history and subscribe to live messages without
 // reconstructing state from telemetry events.
 package channelchat
 
 import (
+	"context"
 	_ "embed"
 	"net/http"
+	"time"
 
 	"github.com/apteva/server/apps/framework"
 )
@@ -30,6 +32,9 @@ var migration005 string
 
 //go:embed migrations/006_attachments.sql
 var migration006 string
+
+//go:embed migrations/007_conversations.sql
+var migration007 string
 
 // New constructs the app, ready to be loaded into a framework.Registry.
 // The InstanceResolver lets the HTTP handlers authorize per-chat and
@@ -80,6 +85,7 @@ func (a *App) Migrations() []framework.Migration {
 		{Version: 4, Name: "add components_json column", SQL: migration004},
 		{Version: 5, Name: "add per-chat thread_id column", SQL: migration005},
 		{Version: 6, Name: "add user attachments", SQL: migration006},
+		{Version: 7, Name: "add project conversations and agent participants", Apply: applyMigration007},
 	}
 }
 
@@ -88,6 +94,12 @@ func (a *App) OnMount(ctx *framework.AppCtx) error {
 	// Phase 1 catch-up rename — channel_chat_chats.instance_id →
 	// agent_id on DBs that pre-date the rename. Idempotent.
 	a.store.renameInstanceIDToAgentID()
+	if err := a.store.CleanupOrphanedAgentData(); err != nil {
+		return err
+	}
+	if err := a.store.CleanupLegacyMainConversationData(); err != nil {
+		return err
+	}
 	a.hub = newHub()
 	a.bus = ctx.Bus
 	a.streamer = newStreamer(a.hub)
@@ -96,6 +108,20 @@ func (a *App) OnMount(ctx *framework.AppCtx) error {
 		hub:       a.hub,
 		bus:       ctx.Bus,
 		instances: a.resolver,
+	}
+	if removed, err := a.handlers.cleanupOrphanConversationThreads(); err != nil {
+		if ctx.Logger != nil {
+			ctx.Logger.Warn("conversation thread reconciliation incomplete", "removed", removed, "err", err)
+		}
+	} else if removed > 0 && ctx.Logger != nil {
+		ctx.Logger.Info("removed orphaned conversation threads", "count", removed)
+	}
+	if removed, err := a.handlers.cleanupUnusedConversationThreads(); err != nil {
+		if ctx.Logger != nil {
+			ctx.Logger.Warn("unused conversation thread cleanup incomplete", "removed", removed, "err", err)
+		}
+	} else if removed > 0 && ctx.Logger != nil {
+		ctx.Logger.Info("removed unused conversation threads", "count", removed)
 	}
 	a.factories = []framework.ChannelFactory{
 		&chatChannelFactory{store: a.store, hub: a.hub, bus: ctx.Bus},
@@ -109,6 +135,9 @@ func (a *App) HTTPRoutes() []framework.Route {
 	return []framework.Route{
 		{Method: "GET", Path: "/chats", Handler: a.wrap(a.handlers.listChats)},
 		{Method: "POST", Path: "/chats", Handler: a.wrap(a.handlers.createChat)},
+		{Method: "", Path: "/conversations", Handler: a.wrap(a.handlers.conversations)},
+		{Method: "", Path: "/conversation", Handler: a.wrap(a.handlers.conversation)},
+		{Method: "", Path: "/participants", Handler: a.wrap(a.handlers.participants)},
 		// /messages handles GET, POST, DELETE internally — framework's
 		// per-route Method filter would force three separate entries,
 		// so we leave Method empty for this one.
@@ -141,25 +170,45 @@ func (a *App) wrap(fn func(http.ResponseWriter, *http.Request, *framework.AppCtx
 func (a *App) Channels() []framework.ChannelFactory { return a.factories }
 
 // MCPTools: v1 doesn't need any. The agent reaches chat through the
-// existing channels_respond(channel="chat", ...) tool that's already
-// mounted by the channelMCPServer. Future tools (chat_read for
+// existing channels_send(channel="current", ...) tool mounted by the
+// channelMCPServer. The server retains respond only as a cached-schema legacy
+// alias. Future tools (chat_read for
 // explicit backfill, chat_list for multi-chat) can slot in here.
 func (a *App) MCPTools() []framework.MCPTool { return nil }
 
-func (a *App) Workers() []framework.Worker             { return nil }
+func (a *App) Workers() []framework.Worker {
+	return []framework.Worker{{
+		Name: "conversation-delivery-retry",
+		Run: func(ctx context.Context, appCtx *framework.AppCtx) error {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-ticker.C:
+					if a.handlers != nil {
+						if err := a.handlers.retryPendingDeliveries(); err != nil && appCtx.Logger != nil {
+							appCtx.Logger.Warn("conversation delivery retry failed", "err", err)
+						}
+					}
+				}
+			}
+		},
+	}}
+}
 func (a *App) EventHandlers() []framework.EventHandler { return nil }
 
-// Per-instance attach: ensure the default chat row exists so the SSE
-// stream has something to backfill against on the dashboard's first
-// fetch. The framework separately calls each ChannelFactory's Build,
-// which also calls EnsureDefaultChat — idempotent INSERT OR IGNORE,
-// so safe to do twice.
+// Per-instance attach: ensure the internal operator-inbox row exists for
+// reports, alerts, approvals, and status. It is never listed as a dashboard
+// conversation. ChannelFactory.Build also ensures it idempotently.
 func (a *App) OnInstanceAttach(_ *framework.AppCtx, inst framework.InstanceInfo) error {
 	_, err := a.store.EnsureDefaultChat(inst.ID)
 	return err
 }
 
-func (a *App) OnInstanceDetach(_ *framework.AppCtx, _ framework.InstanceInfo) error {
-	// Chat rows persist across instance restarts — no detach work.
-	return nil
+func (a *App) OnInstanceDetach(_ *framework.AppCtx, inst framework.InstanceInfo) error {
+	// The server currently emits detach only for permanent deletion. Normal
+	// stops and restarts do not pass through this hook, so their history stays.
+	return a.store.DeleteAgentData(inst.ID)
 }

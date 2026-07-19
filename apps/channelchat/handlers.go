@@ -20,44 +20,86 @@ import (
 	"github.com/apteva/server/apps/framework"
 )
 
-// perThreadEnabled gates the "one core thread per chat" routing. Off
-// by default — chat messages route to main, matching the rest of the
-// agent's durable context. Set CHANNELCHAT_PER_THREAD=1 to opt into a
-// dedicated per-chat core thread later without a schema or handler
-// rewrite.
+// Every internal conversation uses an isolated runtime context by default,
+// including the primary/default chat and platform-helper conversations.
+// CHANNELCHAT_PER_THREAD=0 is the temporary rollback switch.
 func perThreadEnabled() bool {
-	return os.Getenv("CHANNELCHAT_PER_THREAD") == "1"
+	return strings.TrimSpace(os.Getenv("CHANNELCHAT_PER_THREAD")) != "0"
 }
 
 // chatThreadDirectiveSuffix is appended to main's directive when
-// spawning a per-chat thread. Tells the chat thread it's the
-// user-facing front and to delegate state-changing work to main via
-// `send`. Kept in one place so the wording can be tuned without
-// chasing call sites.
+// spawning an ordinary agent's per-chat thread. It makes the thread the
+// user-facing front and delegates genuinely ongoing durable work to main via
+// `send`. Platform Helper extends this with its direct control-plane policy
+// below. Kept here so the two roles share one conversation protocol.
 const chatThreadDirectiveSuffix = "\n\n---\n" +
 	"You're handling a live chat with the user. You ARE the agent — use the tools attached " +
 	"(see your tool list) and reply via channels_send(channel=\"current\", text=...). " +
 	"Just act — if the user asks for something you can do with your tools, do it and reply " +
 	"with the result. Don't ask for clarification on obvious requests; pick sensible " +
-	"defaults and ship.\n\n" +
+	"defaults and ship. Before beginning work that requires tools, prefer one short visible " +
+	"acknowledgement through channels_send that names the concrete next action. This is strong " +
+	"guidance, not a hard requirement: skip it when you can give the complete answer immediately " +
+	"or when it would be empty or repetitive. If you acknowledge, wait for its successful delivery " +
+	"receipt before calling action tools; never run it in parallel with them. After tool work, send " +
+	"exactly one complete final outcome.\n\n" +
 	"For work that should outlive this chat (scheduled tasks, behavior changes, multi-turn " +
 	"plans, anything the agent should keep doing when the user disconnects), " +
-	"send(id=\"main\", text=\"...\") to hand it off. End your message with this exact " +
+	"after the optional acknowledgement, send(id=\"main\", message=\"...\") to hand it off. Wait for " +
+	"that successful delivery receipt. If you skipped the acknowledgement before the handoff, you may " +
+	"then send one brief visible acknowledgement describing the concrete thing you handed off and that " +
+	"you are waiting for confirmation; never send acknowledgements both before and after the handoff. " +
+	"End the handoff with this exact " +
 	"instruction so main doesn't drop you on the floor: \"Reply to me at this thread before " +
 	"going idle — the user is waiting on a confirmation. Send back with the result of what " +
 	"you did, even for terminal actions like kill/stop.\" The user-facing risk if you skip " +
 	"this is silence after a hand-off, which is the WORST UX. Main sees your thread id in " +
 	"its from-field and will reply via send.\n\n" +
-
-	"If you delegated and main hasn't replied within a turn or two, follow up: " +
-	"send(id=\"main\", text=\"Still waiting on the result of <task> — the user wants " +
-	"confirmation.\"). Don't let the user hang in silence.\n\n" +
-
-	"When main does reply, relay the useful parts to the user naturally.\n\n" +
+	"For an immediate answer that requires no tool work, do not send a report to main/parent. " +
+	"Deliver the answer once through channels_send, then pace. A preliminary acknowledgement " +
+	"that promises unfinished tool work is not the final answer; continue the promised work.\n\n" +
+	"After any non-channel tool result used for the current user request, a visible reply is still owed. " +
+	"Call channels_send with the outcome, clarification, blocker, or next question before pace or done; " +
+	"pace is invalid while that reply is pending. Thoughts and plain assistant output do not count.\n\n" +
+	"Any acknowledgement is the only progress message: do not claim completion and do not send " +
+	"another progress update or resend the handoff while waiting. When main does reply, relay the useful parts to the user " +
+	"naturally in exactly one final channels_send. For this live chat " +
+	"thread, this overrides the generic worker rule that a final report to parent is mandatory: " +
+	"the durable handoff was already your report. After relaying main's result once through " +
+	"channels_send, do NOT send main/parent an acknowledgement, confirmation, completion report, " +
+	"or any other follow-up. Pace and wait for the next user message.\n\n" +
 	"Never expose internals to the user: no mention of \"main\", \"thread\", \"directive\", " +
 	"\"concierge\", \"idle\", \"waiting for configuration\", or your operating state. If your " +
 	"directive is a placeholder, ignore it. You can't evolve yourself or persist memory — " +
 	"send those to main."
+
+// Platform Helper owns an authoritative control-plane tool surface. Durable
+// mutations performed through those tools are already complete and persisted;
+// routing them through Helper main adds latency, hides useful tool activity
+// from the conversation, and creates another opportunity for duplicate replies.
+// Keep this separate from the ordinary-agent handoff policy above.
+const platformHelperChatThreadDirectiveSuffix = chatThreadDirectiveSuffix + "\n\n" +
+	"[PLATFORM HELPER CONVERSATION POLICY]\n" +
+	"Use the Apteva control-plane tools attached to this conversation directly. If an available " +
+	"tool can complete the operator's request now, follow the shared optional acknowledgement guidance, " +
+	"call it here, and report its authoritative receipt in exactly one final message. This includes " +
+	"agents_get, agents_update (including directive and schedule edits), agent " +
+	"lifecycle actions, apps, integrations, connections, and MCP-server configuration. An atomic " +
+	"tool mutation is already durable and MUST NOT be handed to main merely because it changes " +
+	"persistent behavior. For an agent directive edit, inspect the target when needed, call " +
+	"agents_update directly, then send exactly one complete final channels_send outcome. An optional " +
+	"acknowledgement before those tools does not replace that final outcome. Do not call core " +
+	"send(id=\"main\") for work that an attached Apteva tool can finish in this conversation. Only " +
+	"hand off genuinely ongoing work that cannot finish in this turn, a change to Apteva Helper's own " +
+	"durable directive, or work requiring a capability unavailable here. A successful final " +
+	"channels_send receipt ends the user turn: pace and never send a second paraphrase."
+
+func chatThreadDirectiveFor(inst framework.InstanceInfo) string {
+	if inst.Kind == "platform_helper" {
+		return platformHelperChatThreadDirectiveSuffix
+	}
+	return chatThreadDirectiveSuffix
+}
 
 // chatThreadTools is the local tool set the chat thread gets at
 // spawn time. `send` is essential for handing durable work off to
@@ -75,13 +117,10 @@ var chatThreadTools = []string{"send", "pace"}
 // reply at all.
 var fallbackChatThreadMCPs = []string{"channels"}
 
-// spawnedChatThreads remembers which (instance, chat) pairs we've
-// already spawned the thread for in this process AND the directive
-// hash they were spawned/updated with. The hash lets us detect when
-// main's directive has drifted (UI edit / evolve) and push the new
-// directive into the live thread via UpdateThread instead of leaving
-// it stale until a restart. Reset on restart, which is fine — a fresh
-// process re-spawns on the first message.
+// spawnedChatThreads remembers the last directive hash applied to each
+// (instance, chat) pair. It is only a drift-detection optimization: every
+// delivery still issues an idempotent SpawnThread ensure, so a core child
+// restart cannot leave this server cache pointing at a missing thread.
 var spawnedChatThreads sync.Map // key: "instID/chatID" → directiveHash string
 
 // REST + SSE surface. Mounted at /api/apps/channel-chat/<path>. Every
@@ -94,7 +133,29 @@ type handlers struct {
 	hub       *hub
 	bus       *framework.AppBus
 	instances InstanceResolver
+
+	presenceMu     sync.Mutex
+	presenceStates map[string]*chatPresenceState
+	presenceGrace  time.Duration
+	shutdownGrace  time.Duration
 }
+
+type chatPresenceState struct {
+	inst        framework.InstanceInfo
+	subscribers int
+	connected   bool
+	generation  uint64
+	timer       *time.Timer
+}
+
+const defaultChatPresenceGrace = 3 * time.Second
+const defaultConversationShutdownGrace = 15 * time.Second
+
+const conversationClosingEvent = "[chat.session_closing] This conversation was permanently deleted. " +
+	"Do not call channels_send, channels_respond, or publish anything to the deleted conversation. " +
+	"Call done exactly once now. Use done(message=...) to give main a concise final handoff with " +
+	"meaningful decisions, completed actions, and pending durable work from this conversation. " +
+	"If there is no durable handoff, say that plainly. Do not continue working after done."
 
 // InstanceResolver is the small callback the app needs from
 // apteva-server to answer "does this chat belong to an instance the
@@ -130,11 +191,22 @@ type InstanceResolver interface {
 	// have to round-trip through main.
 	ListMCPNames(inst framework.InstanceInfo) ([]string, error)
 
-	// UpdateThread pushes a new directive (as directive_suffix, same
-	// shape as SpawnThread) into a LIVE core thread without killing it
-	// — PUT /threads/:id. Keeps the chat thread's directive in sync
-	// with main's after an edit / evolve while preserving its session.
-	UpdateThread(inst framework.InstanceInfo, threadID, directiveSuffix string, tools []string) error
+	// UpdateThread pushes only a new directive (as directive_suffix, same
+	// shape as SpawnThread) into a LIVE core thread without killing it.
+	// It intentionally cannot replace tools: doing so would strip the scoped
+	// MCP tools preloaded by SpawnThread.
+	UpdateThread(inst framework.InstanceInfo, threadID, directiveSuffix string) error
+
+	// KillThread permanently removes a non-main core thread. It must be
+	// idempotent and also remove the persisted thread definition when the
+	// agent is stopped. Conversation deletion uses it as the bounded fallback
+	// when a chat thread does not honor its graceful done instruction.
+	KillThread(inst framework.InstanceInfo, threadID string) error
+
+	// ListThreadIDs returns live or persisted core thread definitions for an
+	// agent. Channel-chat uses it at mount to remove chat-conv-* definitions
+	// whose authoritative conversation row no longer exists.
+	ListThreadIDs(inst framework.InstanceInfo) ([]string, error)
 
 	// MainDirective returns the agent's current live main-thread
 	// directive (read from the same core /config surface ListMCPNames
@@ -178,10 +250,9 @@ func (h *handlers) listChats(w http.ResponseWriter, r *http.Request, _ *framewor
 }
 
 // POST /api/apps/channel-chat/chats {agent_id, title?}
-// Creates (or returns existing default) chat for an agent. v1 always
-// returns the default chat; multi-chat creation is a later UI. Body
-// also accepts the legacy `instance_id` field during the rename
-// deprecation window.
+// Legacy explicit single-agent conversation creation. Unlike the internal
+// default-* inbox record, the returned conv-* conversation is user-visible
+// and can be archived or deleted. Body also accepts the legacy instance_id.
 func (h *handlers) createChat(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
 	userID := h.instances.LookupUserID(r)
 	var body struct {
@@ -196,16 +267,238 @@ func (h *handlers) createChat(w http.ResponseWriter, r *http.Request, _ *framewo
 	if body.AgentID == 0 {
 		body.AgentID = body.LegacyID
 	}
-	if _, err := h.instances.OwnedInstance(userID, body.AgentID); err != nil {
+	inst, err := h.instances.OwnedInstance(userID, body.AgentID)
+	if err != nil {
 		http.Error(w, "agent not found", http.StatusNotFound)
 		return
 	}
-	chat, err := h.store.EnsureDefaultChat(body.AgentID)
+	title := strings.TrimSpace(body.Title)
+	if title == "" {
+		title = inst.Name
+	}
+	chat, err := h.store.CreateConversation(userID, inst.ProjectID, title, []int64{body.AgentID}, body.AgentID)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, chat)
+}
+
+// conversations is the project-level collection used by the dashboard. The
+// legacy /chats collection now exposes the same explicit conv-* records for a
+// single agent; internal default-* inbox records are never returned.
+func (h *handlers) conversations(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
+	switch r.Method {
+	case http.MethodGet:
+		userID := h.instances.LookupUserID(r)
+		projectID := strings.TrimSpace(r.URL.Query().Get("project_id"))
+		if userID == 0 || projectID == "" {
+			http.Error(w, "project_id required", http.StatusBadRequest)
+			return
+		}
+		rows, err := h.store.ListConversations(userID, projectID, r.URL.Query().Get("archived") == "1", "")
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, rows)
+	case http.MethodPost:
+		userID := h.instances.LookupUserID(r)
+		var body struct {
+			ProjectID   string  `json:"project_id"`
+			Title       string  `json:"title"`
+			AgentIDs    []int64 `json:"agent_ids"`
+			LeadAgentID int64   `json:"lead_agent_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.AgentIDs) == 0 {
+			http.Error(w, "agent_ids required", http.StatusBadRequest)
+			return
+		}
+		if len(body.AgentIDs) > 8 || len([]rune(strings.TrimSpace(body.Title))) > 120 {
+			http.Error(w, "conversation supports up to 8 agents and a 120 character title", http.StatusBadRequest)
+			return
+		}
+		projectID, agents, ok := h.validateConversationAgents(w, userID, body.ProjectID, body.AgentIDs)
+		if !ok {
+			return
+		}
+		if body.LeadAgentID == 0 {
+			body.LeadAgentID = body.AgentIDs[0]
+		}
+		leadFound := false
+		for _, id := range body.AgentIDs {
+			if id == body.LeadAgentID {
+				leadFound = true
+				break
+			}
+		}
+		if !leadFound {
+			http.Error(w, "lead_agent_id must be a participant", http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(body.Title) == "" {
+			if len(agents) == 1 {
+				body.Title = agents[0].Name
+			} else {
+				body.Title = "New conversation"
+			}
+		}
+		chat, err := h.store.CreateConversation(userID, projectID, body.Title, body.AgentIDs, body.LeadAgentID)
+		if err != nil {
+			log.Printf("[CHAT] create conversation: %v", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, chat)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (h *handlers) conversation(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
+	chat, _, ok := h.authorizeConversation(w, r)
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, chat)
+	case http.MethodPatch:
+		var body struct {
+			Title    string `json:"title"`
+			Archived *bool  `json:"archived"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		if len([]rune(strings.TrimSpace(body.Title))) > 120 {
+			http.Error(w, "title is too long", http.StatusBadRequest)
+			return
+		}
+		if body.Archived != nil && *body.Archived && chat.ID == defaultChatID(chat.AgentID) {
+			http.Error(w, "primary conversation cannot be archived", http.StatusConflict)
+			return
+		}
+		updated, err := h.store.UpdateConversation(chat.ID, body.Title, body.Archived)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, updated)
+	case http.MethodDelete:
+		if chat.ID == defaultChatID(chat.AgentID) {
+			http.Error(w, "primary conversation cannot be deleted", http.StatusConflict)
+			return
+		}
+		if err := h.store.DeleteConversation(chat.ID); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		h.stopConversationPresence(chat.ID)
+		h.shutdownConversationThreads(chat)
+		writeJSON(w, map[string]bool{"deleted": true})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (h *handlers) participants(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
+	chat, _, ok := h.authorizeConversation(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		AgentID int64 `json:"agent_id"`
+	}
+	if r.Method == http.MethodDelete {
+		body.AgentID, _ = strconv.ParseInt(r.URL.Query().Get("agent_id"), 10, 64)
+	} else if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if body.AgentID == 0 {
+		http.Error(w, "agent_id required", http.StatusBadRequest)
+		return
+	}
+	inst, err := h.instances.OwnedInstance(chat.OwnerUserID, body.AgentID)
+	if err != nil || inst.ProjectID != chat.ProjectID {
+		http.Error(w, "agent not found in conversation project", http.StatusNotFound)
+		return
+	}
+	switch r.Method {
+	case http.MethodPost:
+		if chat.ID == defaultChatID(chat.AgentID) {
+			http.Error(w, "primary conversation participants cannot be changed", http.StatusConflict)
+			return
+		}
+		if len(chat.AgentIDs) >= 8 {
+			for _, existingID := range chat.AgentIDs {
+				if existingID == body.AgentID {
+					updated, getErr := h.store.GetChat(chat.ID)
+					if getErr != nil {
+						http.Error(w, "internal error", http.StatusInternalServerError)
+						return
+					}
+					writeJSON(w, updated)
+					return
+				}
+			}
+			http.Error(w, "conversation supports up to 8 agents", http.StatusConflict)
+			return
+		}
+		err = h.store.AddParticipant(chat.ID, body.AgentID)
+	case http.MethodDelete:
+		if chat.ID == defaultChatID(chat.AgentID) {
+			http.Error(w, "primary conversation participants cannot be changed", http.StatusConflict)
+			return
+		}
+		err = h.store.RemoveParticipant(chat.ID, body.AgentID)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	updated, err := h.store.GetChat(chat.ID)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, updated)
+}
+
+func (h *handlers) validateConversationAgents(w http.ResponseWriter, userID int64, requestedProject string, agentIDs []int64) (string, []framework.InstanceInfo, bool) {
+	seen := map[int64]bool{}
+	agents := make([]framework.InstanceInfo, 0, len(agentIDs))
+	projectID := strings.TrimSpace(requestedProject)
+	for _, id := range agentIDs {
+		if id == 0 || seen[id] {
+			http.Error(w, "invalid or duplicate agent_ids", http.StatusBadRequest)
+			return "", nil, false
+		}
+		seen[id] = true
+		inst, err := h.instances.OwnedInstance(userID, id)
+		if err != nil {
+			http.Error(w, "agent not found", http.StatusNotFound)
+			return "", nil, false
+		}
+		if projectID == "" {
+			projectID = inst.ProjectID
+		}
+		// The platform helper is one user-owned, global agent. Allow it to
+		// participate in an explicitly scoped project conversation without
+		// moving the singleton helper row into that project.
+		globalPlatformHelper := inst.Kind == "platform_helper" && inst.ProjectID == "" && projectID != ""
+		if inst.ProjectID != projectID && !globalPlatformHelper {
+			http.Error(w, "all agents must belong to the same project", http.StatusBadRequest)
+			return "", nil, false
+		}
+		agents = append(agents, inst)
+	}
+	return projectID, agents, true
 }
 
 // --- Messages ---------------------------------------------------------
@@ -227,11 +520,10 @@ func (h *handlers) messages(w http.ResponseWriter, r *http.Request, ctx *framewo
 }
 
 func (h *handlers) listMessages(w http.ResponseWriter, r *http.Request) {
-	chatID, inst, ok := h.authorizeChat(w, r)
+	chatID, _, ok := h.authorizeChat(w, r)
 	if !ok {
 		return
 	}
-	_ = inst
 	since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	var msgs []Message
@@ -254,14 +546,17 @@ func (h *handlers) listMessages(w http.ResponseWriter, r *http.Request) {
 // UI, /event forward for the agent. Both happen before the response
 // so the caller can't race the agent's first reaction.
 func (h *handlers) postMessage(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
-	chatID, inst, ok := h.authorizeChat(w, r)
+	chat, _, ok := h.authorizeConversation(w, r)
 	if !ok {
 		return
 	}
+	chatID := chat.ID
 	var body struct {
-		Content     string           `json:"content"`
-		Attachments []ChatAttachment `json:"attachments"`
-		Context     any              `json:"context"`
+		Content        string           `json:"content"`
+		Attachments    []ChatAttachment `json:"attachments"`
+		Context        any              `json:"context"`
+		TargetAgentIDs []int64          `json:"target_agent_ids"`
+		ClientID       string           `json:"client_message_id"`
 	}
 	// Accept chat_id in body too for POST ergonomics; query param wins
 	// (we already parsed it in authorizeChat).
@@ -289,15 +584,31 @@ func (h *handlers) postMessage(w http.ResponseWriter, r *http.Request, _ *framew
 	}
 
 	userID := h.instances.LookupUserID(r)
-	uid := userID
 	eventAttachments, persistedAttachments, err := validateChatAttachments(body.Attachments)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	m, err := h.store.AppendFull(chatID, "user", body.Content, &uid, "", "final", nil, persistedAttachments)
+	targets, err := h.resolveConversationTargets(chat, body.Content, body.TargetAgentIDs)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	targetIDs := make([]int64, 0, len(targets))
+	for _, target := range targets {
+		targetIDs = append(targetIDs, target.ID)
+	}
+	metadata := map[string]any{"target_agent_ids": targetIDs}
+	if body.Context != nil {
+		metadata["context"] = body.Context
+	}
+	m, inserted, err := h.store.AppendUserMessageWithDeliveries(chatID, body.Content, userID, persistedAttachments, metadata, body.ClientID, targetIDs)
 	if err != nil {
 		http.Error(w, "insert failed", http.StatusInternalServerError)
+		return
+	}
+	if !inserted {
+		writeJSON(w, m)
 		return
 	}
 	h.hub.publish(*m)
@@ -315,30 +626,110 @@ func (h *handlers) postMessage(w http.ResponseWriter, r *http.Request, _ *framew
 	// log loudly AND drop a system row into the chat so the user sees
 	// "agent unreachable, will see the message when it's running again"
 	// instead of an indefinite quiet.
-	go func(inst framework.InstanceInfo, text string, chatID string, attachments []ChatAttachment) {
-		evText := formatAgentChatEvent(text, body.Context)
-		if inst.Kind == "platform_helper" {
-			evText = formatPlatformHelperChatEvent(text, body.Context)
+	go func(targets []framework.InstanceInfo, text string, chat Chat, attachments []ChatAttachment, messageID int64, context any) {
+		participantNames := make([]string, 0, len(targets))
+		for _, target := range targets {
+			participantNames = append(participantNames, target.Name)
 		}
-		var eventMessage any = evText
-		if len(attachments) > 0 {
-			eventMessage = buildCoreContentParts(evText, attachments)
-		}
-		threadID := h.resolveChatThread(inst, chatID)
-		if err := h.instances.ForwardEvent(inst, eventMessage, threadID); err != nil {
-			log.Printf("[CHAT] ForwardEvent FAILED chat=%s instance=%d thread=%s: %v",
-				chatID, inst.ID, threadID, err)
-			// Surface the failure to the user inline. The system row
-			// goes through the same hub/SSE path as a regular message
-			// so the chat panel renders it next to the user's input.
-			notice := fmt.Sprintf("(could not reach agent — your message is saved and will be delivered when the agent is running. err: %v)", err)
-			if sm, sErr := h.store.Append(chatID, "system", notice, nil, "", "final", nil); sErr == nil {
+		for _, inst := range targets {
+			deliveryErr := h.deliverConversationMessage(inst, chat, text, attachments, context, participantNames)
+			_ = h.store.MarkDelivery(messageID, inst.ID, deliveryErr == nil, deliveryErr)
+			if deliveryErr == nil {
+				continue
+			}
+			log.Printf("[CHAT] ForwardEvent FAILED chat=%s instance=%d: %v", chat.ID, inst.ID, deliveryErr)
+			notice := fmt.Sprintf("(could not reach %s — your message is saved. err: %v)", inst.Name, deliveryErr)
+			if sm, sErr := h.store.Append(chat.ID, "system", notice, nil, "", "final", nil); sErr == nil {
 				h.hub.publish(*sm)
 			}
 		}
-	}(inst, body.Content, chatID, eventAttachments)
+	}(targets, body.Content, *chat, eventAttachments, m.ID, body.Context)
 
 	writeJSON(w, m)
+}
+
+func (h *handlers) deliverConversationMessage(inst framework.InstanceInfo, chat Chat, text string, attachments []ChatAttachment, context any, addressedNames []string) error {
+	evText := formatAgentChatEvent(text, context)
+	if inst.Kind == "platform_helper" {
+		evText = formatPlatformHelperChatEvent(text, context)
+	}
+	if chat.Kind == "room" {
+		evText += fmt.Sprintf("\nConversation: %s. Addressed agent: %s. Other addressed agents: %s. Reply to this same conversation using channels_send(channel=\"current\", ...).",
+			chat.Title, inst.Name, strings.Join(addressedNames, ", "))
+	}
+	var eventMessage any = evText
+	if len(attachments) > 0 {
+		eventMessage = buildCoreContentParts(evText, attachments)
+	}
+	_, err := h.forwardConversationEvent(inst, chat.ID, eventMessage)
+	return err
+}
+
+func (h *handlers) retryPendingDeliveries() error {
+	pending, err := h.store.ListPendingDeliveries(25)
+	if err != nil {
+		return err
+	}
+	for _, delivery := range pending {
+		inst, err := h.instances.OwnedInstance(delivery.Chat.OwnerUserID, delivery.AgentID)
+		if err == nil {
+			context := delivery.Message.Metadata["context"]
+			names := make([]string, 0, len(delivery.Chat.AgentIDs))
+			for _, agentID := range delivery.Chat.AgentIDs {
+				participant, lookupErr := h.instances.OwnedInstance(delivery.Chat.OwnerUserID, agentID)
+				if lookupErr == nil {
+					names = append(names, participant.Name)
+				}
+			}
+			err = h.deliverConversationMessage(inst, delivery.Chat, delivery.Message.Content, delivery.Message.Attachments, context, names)
+		}
+		_ = h.store.MarkDelivery(delivery.Message.ID, delivery.AgentID, err == nil, err)
+	}
+	return nil
+}
+
+func (h *handlers) resolveConversationTargets(chat *Chat, text string, explicit []int64) ([]framework.InstanceInfo, error) {
+	participants := map[int64]framework.InstanceInfo{}
+	for _, agentID := range chat.AgentIDs {
+		inst, err := h.instances.OwnedInstance(chat.OwnerUserID, agentID)
+		if err != nil {
+			return nil, fmt.Errorf("conversation participant %d is unavailable", agentID)
+		}
+		participants[agentID] = inst
+	}
+	selected := []int64{}
+	if len(explicit) > 0 {
+		selected = append(selected, explicit...)
+	} else if chat.Kind == "room" {
+		lower := strings.ToLower(text)
+		if strings.Contains(lower, "@all") {
+			selected = append(selected, chat.AgentIDs...)
+		} else {
+			for _, id := range chat.AgentIDs {
+				inst := participants[id]
+				if strings.Contains(lower, "@"+strings.ToLower(inst.Name)) {
+					selected = append(selected, id)
+				}
+			}
+		}
+	}
+	if len(selected) == 0 {
+		selected = []int64{chat.AgentID}
+	}
+	seen := map[int64]bool{}
+	out := make([]framework.InstanceInfo, 0, len(selected))
+	for _, id := range selected {
+		inst, exists := participants[id]
+		if !exists {
+			return nil, fmt.Errorf("agent %d is not a conversation participant", id)
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, inst)
+	}
+	return out, nil
 }
 
 func (h *handlers) deleteMessages(w http.ResponseWriter, r *http.Request) {
@@ -370,7 +761,7 @@ func (h *handlers) stream(w http.ResponseWriter, r *http.Request, _ *framework.A
 		h.streamUser(w, r)
 		return
 	}
-	chatID, _, ok := h.authorizeChat(w, r)
+	chatID, inst, ok := h.authorizeChat(w, r)
 	if !ok {
 		return
 	}
@@ -391,6 +782,8 @@ func (h *handlers) stream(w http.ResponseWriter, r *http.Request, _ *framework.A
 	defer cancel()
 	streamCh, _, streamCancel := h.hub.subscribeStream(chatID)
 	defer streamCancel()
+	h.chatStreamOpened(chatID, inst)
+	defer h.chatStreamClosed(chatID)
 
 	// Backfill from DB — every page since the client's checkpoint. The old
 	// one-shot LIMIT 1000 query silently skipped the rest of a large gap.
@@ -417,7 +810,7 @@ func (h *handlers) stream(w http.ResponseWriter, r *http.Request, _ *framework.A
 	}
 
 	// Parallel stream-frame subscription. Ephemeral LLM-args chunks
-	// for in-progress `channels_respond` calls land here. Separate
+	// for in-progress `channels_send` calls (and legacy respond calls) land here. Separate
 	// from the Message channel so reverting streaming = delete this
 	// block (no Message-path side effects).
 	// Keepalive ping every 15s prevents intermediary proxies from
@@ -705,7 +1098,14 @@ func (h *handlers) messageAction(w http.ResponseWriter, r *http.Request, _ *fram
 
 	threadID := msg.ThreadID
 	if threadID == "" {
-		threadID = h.resolveChatThread(inst, msg.ChatID)
+		threadID, err = h.ensureChatThread(inst, msg.ChatID)
+		if err != nil {
+			log.Printf("[CHAT] approval thread resolution message=%d agent=%d: %v", updated.ID, inst.ID, err)
+			writeJSON(w, map[string]any{
+				"message": updated, "status": approval["status"], "forwarded": false, "delivery_error": err.Error(),
+			})
+			return
+		}
 	}
 	evText := formatApprovalResultEvent(updated.ID, body.ActionID, approval, body.Note)
 	forwardErr := h.instances.ForwardEvent(inst, evText, threadID)
@@ -946,10 +1346,10 @@ func (h *handlers) markSeen(w http.ResponseWriter, r *http.Request, _ *framework
 	writeJSON(w, map[string]int64{"last_seen_id": current})
 }
 
-// presence forwards a "[chat] user connected/disconnected" event to
-// the agent. Routes via resolveChatThread so presence lands on the
-// same thread as the chat's messages — chat thread when the feature
-// is on, main when off (single-flag revert).
+// presence handles explicit Connect/Disconnect requests from compatible
+// clients. Normal connected state is derived from the actual SSE subscription
+// in stream: a short grace period makes refresh/remount invisible while a real
+// tab close still becomes a disconnected event.
 //
 // Used to live in the dashboard as a direct call to /agents/:id/event
 // with thread_id="main" hardcoded, which bypassed the per-chat
@@ -968,12 +1368,9 @@ func (h *handlers) presence(w http.ResponseWriter, r *http.Request, _ *framework
 		http.Error(w, "chat_id required", http.StatusBadRequest)
 		return
 	}
-	var evText string
 	switch body.Action {
 	case "connected":
-		evText = "[chat] user connected to chat"
 	case "disconnected":
-		evText = "[chat] user disconnected from chat"
 	default:
 		http.Error(w, "action must be \"connected\" or \"disconnected\"", http.StatusBadRequest)
 		return
@@ -993,15 +1390,298 @@ func (h *handlers) presence(w http.ResponseWriter, r *http.Request, _ *framework
 		http.Error(w, "chat not found", http.StatusNotFound)
 		return
 	}
-	threadID := h.resolveChatThread(inst, body.ChatID)
-	if err := h.instances.ForwardEvent(inst, evText, threadID); err != nil {
-		log.Printf("[CHAT] presence forward chat=%s thread=%s action=%s: %v",
-			body.ChatID, threadID, body.Action, err)
-		// Don't fail the request — presence is fire-and-forget for the
-		// client, and a transient core unavailability shouldn't surface
-		// as a noisy error in the chat UI.
+	shouldForward := h.applyExplicitPresence(body.ChatID, inst, body.Action)
+	threadID, exists := h.existingConversationThread(chat)
+	if shouldForward {
+		if err := h.forwardPresenceToExistingThread(inst, threadID, exists, body.Action); err != nil {
+			log.Printf("[CHAT] presence forward chat=%s thread=%s action=%s: %v",
+				body.ChatID, threadID, body.Action, err)
+		}
 	}
 	writeJSON(w, map[string]string{"status": "ok", "thread_id": threadID})
+}
+
+func (h *handlers) chatStreamOpened(chatID string, inst framework.InstanceInfo) {
+	h.presenceMu.Lock()
+	if h.presenceStates == nil {
+		h.presenceStates = make(map[string]*chatPresenceState)
+	}
+	state := h.presenceStates[chatID]
+	if state == nil {
+		state = &chatPresenceState{}
+		h.presenceStates[chatID] = state
+	}
+	state.inst = inst
+	state.subscribers++
+	state.generation++
+	if state.timer != nil {
+		state.timer.Stop()
+		state.timer = nil
+	}
+	shouldForward := !state.connected
+	state.connected = true
+	h.presenceMu.Unlock()
+	if shouldForward {
+		go func() {
+			if err := h.forwardPresence(inst, chatID, "connected"); err != nil {
+				log.Printf("[CHAT] stream presence connect chat=%s agent=%d: %v", chatID, inst.ID, err)
+			}
+		}()
+	}
+}
+
+func (h *handlers) chatStreamClosed(chatID string) {
+	h.presenceMu.Lock()
+	state := h.presenceStates[chatID]
+	if state == nil {
+		h.presenceMu.Unlock()
+		return
+	}
+	if state.subscribers > 0 {
+		state.subscribers--
+	}
+	if state.subscribers > 0 || !state.connected {
+		h.presenceMu.Unlock()
+		return
+	}
+	state.generation++
+	generation := state.generation
+	grace := h.presenceGrace
+	if grace <= 0 {
+		grace = defaultChatPresenceGrace
+	}
+	state.timer = time.AfterFunc(grace, func() {
+		h.presenceMu.Lock()
+		current := h.presenceStates[chatID]
+		if current == nil || current.generation != generation || current.subscribers > 0 || !current.connected {
+			h.presenceMu.Unlock()
+			return
+		}
+		current.connected = false
+		current.timer = nil
+		inst := current.inst
+		h.presenceMu.Unlock()
+		if err := h.forwardPresence(inst, chatID, "disconnected"); err != nil {
+			log.Printf("[CHAT] stream presence disconnect chat=%s agent=%d: %v", chatID, inst.ID, err)
+		}
+	})
+	h.presenceMu.Unlock()
+}
+
+// stopConversationPresence prevents a stream-close timer from resolving a
+// deleted chat and falling back to main. Existing SSE handlers may still run
+// their deferred chatStreamClosed call, which becomes a harmless no-op after
+// the state is removed here.
+func (h *handlers) stopConversationPresence(chatID string) {
+	h.presenceMu.Lock()
+	defer h.presenceMu.Unlock()
+	state := h.presenceStates[chatID]
+	if state != nil && state.timer != nil {
+		state.timer.Stop()
+	}
+	delete(h.presenceStates, chatID)
+}
+
+// shutdownConversationThreads gives every participant's dedicated chat
+// thread one last event in which to hand useful state to main and call done.
+// The database row has already been deleted, so a late channels_send cannot
+// write to this conversation or be rerouted to a different one. Deletion is
+// intentionally not held open while an LLM finishes: the force-kill timer is
+// the bounded reliability backstop and KillThread is idempotent if done wins.
+func (h *handlers) shutdownConversationThreads(chat *Chat) {
+	if chat == nil {
+		return
+	}
+	threadID := strings.TrimSpace(chat.ThreadID)
+	if threadID == "" || threadID == "main" {
+		return
+	}
+	grace := h.shutdownGrace
+	if grace <= 0 {
+		grace = defaultConversationShutdownGrace
+	}
+	for _, agentID := range chat.AgentIDs {
+		inst, err := h.instances.OwnedInstance(chat.OwnerUserID, agentID)
+		if err != nil {
+			log.Printf("[CHAT] delete conversation=%s resolve agent=%d: %v", chat.ID, agentID, err)
+			continue
+		}
+		cacheKey := fmt.Sprintf("%d/%s", inst.ID, chat.ID)
+		spawnedChatThreads.Delete(cacheKey)
+
+		// Schedule the hard cleanup before forwarding so a stuck core request
+		// cannot leave the runtime thread alive forever.
+		time.AfterFunc(grace, func() {
+			if err := h.instances.KillThread(inst, threadID); err != nil {
+				log.Printf("[CHAT] force-kill deleted conversation=%s agent=%d thread=%s: %v", chat.ID, inst.ID, threadID, err)
+			}
+		})
+		go func() {
+			if err := h.instances.ForwardEvent(inst, conversationClosingEvent, threadID); err != nil {
+				log.Printf("[CHAT] notify deleted conversation=%s agent=%d thread=%s: %v", chat.ID, inst.ID, threadID, err)
+			}
+		}()
+	}
+}
+
+// cleanupOrphanConversationThreads reconciles persisted Core conversation
+// threads with channel-chat's authoritative database. A server process can
+// stop during the graceful deletion window, before its force-kill timer fires;
+// without this mount-time sweep that deleted conversation would return on the
+// next Core restart and remain forever. Only the reserved chat-conv-* namespace
+// is touched. Default chats and unrelated worker/realtime threads are ignored.
+func (h *handlers) cleanupOrphanConversationThreads() (int, error) {
+	if h == nil || h.store == nil || h.instances == nil {
+		return 0, nil
+	}
+	owners, err := h.store.AgentConversationThreads()
+	if err != nil {
+		return 0, err
+	}
+	removed := 0
+	var cleanupErrs []error
+	for _, owner := range owners {
+		inst, err := h.instances.OwnedInstance(owner.UserID, owner.AgentID)
+		if err != nil {
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("resolve agent %d: %w", owner.AgentID, err))
+			continue
+		}
+		threadIDs, err := h.instances.ListThreadIDs(inst)
+		if err != nil {
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("list agent %d threads: %w", owner.AgentID, err))
+			continue
+		}
+		for _, threadID := range threadIDs {
+			threadID = strings.TrimSpace(threadID)
+			if !strings.HasPrefix(threadID, "chat-conv-") {
+				continue
+			}
+			if _, exists := owner.ThreadIDs[threadID]; exists {
+				continue
+			}
+			if err := h.instances.KillThread(inst, threadID); err != nil {
+				cleanupErrs = append(cleanupErrs, fmt.Errorf("kill orphan agent %d thread %s: %w", owner.AgentID, threadID, err))
+				continue
+			}
+			spawnedChatThreads.Delete(fmt.Sprintf("%d/%s", owner.AgentID, strings.TrimPrefix(threadID, "chat-")))
+			removed++
+		}
+	}
+	return removed, errors.Join(cleanupErrs...)
+}
+
+// cleanupUnusedConversationThreads removes runtime threads produced by older
+// passive-presence behavior. It deliberately keeps the conversation database
+// row so agent-detail routing and explicitly created empty conversations still
+// exist; the first real user message will assign and spawn a fresh thread.
+func (h *handlers) cleanupUnusedConversationThreads() (int, error) {
+	if h == nil || h.store == nil || h.instances == nil {
+		return 0, nil
+	}
+	chats, err := h.store.UnusedConversationThreads()
+	if err != nil {
+		return 0, err
+	}
+	removed := 0
+	var cleanupErrs []error
+	for i := range chats {
+		chat := &chats[i]
+		threadID := strings.TrimSpace(chat.ThreadID)
+		if threadID == "" || threadID == "main" {
+			continue
+		}
+		allRemoved := true
+		for _, agentID := range chat.AgentIDs {
+			inst, err := h.instances.OwnedInstance(chat.OwnerUserID, agentID)
+			if err != nil {
+				allRemoved = false
+				cleanupErrs = append(cleanupErrs, fmt.Errorf("resolve unused chat %s agent %d: %w", chat.ID, agentID, err))
+				continue
+			}
+			if err := h.instances.KillThread(inst, threadID); err != nil {
+				allRemoved = false
+				cleanupErrs = append(cleanupErrs, fmt.Errorf("kill unused chat %s agent %d thread %s: %w", chat.ID, agentID, threadID, err))
+				continue
+			}
+			spawnedChatThreads.Delete(fmt.Sprintf("%d/%s", agentID, chat.ID))
+		}
+		if !allRemoved {
+			continue
+		}
+		if err := h.store.ClearUnusedConversationThread(chat.ID, threadID); err != nil {
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("clear unused chat %s thread: %w", chat.ID, err))
+			continue
+		}
+		removed++
+	}
+	return removed, errors.Join(cleanupErrs...)
+}
+
+func (h *handlers) applyExplicitPresence(chatID string, inst framework.InstanceInfo, action string) bool {
+	h.presenceMu.Lock()
+	defer h.presenceMu.Unlock()
+	if h.presenceStates == nil {
+		h.presenceStates = make(map[string]*chatPresenceState)
+	}
+	state := h.presenceStates[chatID]
+	if state == nil {
+		state = &chatPresenceState{inst: inst}
+		h.presenceStates[chatID] = state
+	}
+	state.inst = inst
+	state.generation++
+	if state.timer != nil {
+		state.timer.Stop()
+		state.timer = nil
+	}
+	if action == "connected" {
+		changed := !state.connected
+		state.connected = true
+		return changed
+	}
+	changed := state.connected
+	state.connected = false
+	return changed
+}
+
+func (h *handlers) forwardPresence(inst framework.InstanceInfo, chatID, action string) error {
+	if !perThreadEnabled() {
+		return h.forwardPresenceToExistingThread(inst, "main", true, action)
+	}
+	if h.store == nil {
+		return nil
+	}
+	chat, err := h.store.GetChat(chatID)
+	if err != nil {
+		return err
+	}
+	threadID, exists := h.existingConversationThread(chat)
+	return h.forwardPresenceToExistingThread(inst, threadID, exists, action)
+}
+
+// Passive dashboard activity must never create a Core conversation thread.
+// Presence is useful only after the user has already started the conversation;
+// the first user message remains the sole path that calls ensureChatThread.
+func (h *handlers) existingConversationThread(chat *Chat) (string, bool) {
+	if !perThreadEnabled() {
+		return "main", true
+	}
+	if chat == nil {
+		return "", false
+	}
+	threadID := strings.TrimSpace(chat.ThreadID)
+	return threadID, threadID != ""
+}
+
+func (h *handlers) forwardPresenceToExistingThread(inst framework.InstanceInfo, threadID string, exists bool, action string) error {
+	if !exists {
+		return nil
+	}
+	evText := "[chat] user connected to chat"
+	if action == "disconnected" {
+		evText = "[chat] user disconnected from chat"
+	}
+	return h.instances.ForwardEvent(inst, evText, threadID)
 }
 
 // --- Helpers ----------------------------------------------------------
@@ -1010,27 +1690,48 @@ func (h *handlers) presence(w http.ResponseWriter, r *http.Request, _ *framework
 // belongs to an instance the caller owns, and returns the pair.
 // Writes an HTTP error + returns ok=false on failure.
 func (h *handlers) authorizeChat(w http.ResponseWriter, r *http.Request) (string, framework.InstanceInfo, bool) {
+	chat, inst, ok := h.authorizeConversation(w, r)
+	if !ok {
+		return "", framework.InstanceInfo{}, false
+	}
+	return chat.ID, inst, true
+}
+
+func (h *handlers) authorizeConversation(w http.ResponseWriter, r *http.Request) (*Chat, framework.InstanceInfo, bool) {
 	chatID := r.URL.Query().Get("chat_id")
 	if chatID == "" {
+		chatID = r.URL.Query().Get("id")
+	}
+	// default-* identifies the private main-thread inbox/status sink. It is
+	// intentionally not addressable as a dashboard conversation.
+	if strings.HasPrefix(chatID, "default-") {
+		http.Error(w, "chat not found", http.StatusNotFound)
+		return nil, framework.InstanceInfo{}, false
+	}
+	if chatID == "" {
 		http.Error(w, "chat_id required", http.StatusBadRequest)
-		return "", framework.InstanceInfo{}, false
+		return nil, framework.InstanceInfo{}, false
 	}
 	chat, err := h.store.GetChat(chatID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			http.Error(w, "chat not found", http.StatusNotFound)
-			return "", framework.InstanceInfo{}, false
+			return nil, framework.InstanceInfo{}, false
 		}
 		http.Error(w, "internal error", http.StatusInternalServerError)
-		return "", framework.InstanceInfo{}, false
+		return nil, framework.InstanceInfo{}, false
 	}
 	userID := h.instances.LookupUserID(r)
+	if chat.OwnerUserID != 0 && chat.OwnerUserID != userID {
+		http.Error(w, "chat not found", http.StatusNotFound)
+		return nil, framework.InstanceInfo{}, false
+	}
 	inst, err := h.instances.OwnedInstance(userID, chat.AgentID)
 	if err != nil {
 		http.Error(w, "chat not found", http.StatusNotFound)
-		return "", framework.InstanceInfo{}, false
+		return nil, framework.InstanceInfo{}, false
 	}
-	return chatID, inst, true
+	return chat, inst, true
 }
 
 func formatDashboardContext(v any) string {
@@ -1038,7 +1739,8 @@ func formatDashboardContext(v any) string {
 	if !ok || len(ctx) == 0 {
 		return ""
 	}
-	if source, _ := ctx["source"].(string); source != "dashboard-floating" {
+	source, _ := ctx["source"].(string)
+	if source != "dashboard-floating" && source != "dashboard-build" {
 		return ""
 	}
 	pick := func(key string) string {
@@ -1078,41 +1780,34 @@ func formatDashboardContext(v any) string {
 	if len(lines) == 1 {
 		return ""
 	}
+	if projectID := pick("project_id"); projectID != "" {
+		lines = append(lines, "Project scope rule: This conversation is authoritatively scoped to project_id "+projectID+". Pass this exact project_id to every project-aware read or mutation tool. Do not use another project or global scope unless the operator explicitly asks to change scope.")
+	}
 	return strings.Join(lines, "\n")
 }
 
 func formatAgentChatEvent(text string, context any) string {
 	var b strings.Builder
 	b.WriteString("[chat]\n")
-	b.WriteString("A user is talking to you in dashboard chat. Every direct chat turn requires at least one visible channels_send reply before you pace, finish, or go idle. Thoughts and plain assistant output are not visible to the user and do not count as a reply. ")
-	b.WriteString("Use channels_send with channel=\"current\" or channel=\"apteva\" and complete text. Reply visibly even to ask a clarifying question, report a read-only lookup, explain that you cannot act, or say no action was needed. ")
-	b.WriteString("A successful channels_send message wakes you again. If you promised work, continue after the tool result: call the needed tools, schedule yourself with pace, or explain why blocked. ")
-	b.WriteString("After any tool result used for this request, including a read-only lookup, send the outcome, clarification, blocker, or next question through channels_send before pacing or going idle.\n\n")
+	b.WriteString("A user is talking to you in dashboard chat. Answer an immediate question with one complete channels_send call. If the request requires tools, prefer to first send one short visible acknowledgement through channels_send with channel=\"current\" or channel=\"apteva\" naming the concrete next action. This is strong guidance, not a hard requirement: skip it when the complete answer can be sent immediately or when an acknowledgement would be empty or repetitive. If you acknowledge, wait for its successful delivery receipt before calling action tools and never parallelize it with them. After tool work, send exactly one complete final result, clarification, blocker, or no-op outcome through channels_send. Do not send any additional placeholder or progress message. DURABLE HANDOFF: if this request must outlive this conversation and therefore must be handed to main with send, normally acknowledge first, wait for that receipt, then call send to main. If you skipped the acknowledgement before the handoff, you may send one brief visible acknowledgement after the successful main delivery receipt; never acknowledge both before and after the handoff. The main receipt confirms delivery only, not completion. When main replies, send exactly one complete final result through channels_send. ")
+	b.WriteString("Thoughts and plain assistant output are not visible to the user and do not count as a reply. Never send the same answer twice after a successful delivery receipt. For genuinely long work, use status updates at meaningful phase changes without adding ordinary chat progress messages.\n\n")
 	if ctx := formatDashboardContext(context); ctx != "" {
 		b.WriteString(ctx)
 		b.WriteString("\n\n")
 	}
 	b.WriteString("User message:\n")
 	b.WriteString(strings.TrimSpace(text))
-	b.WriteString("\n\nCHAT COMPLETION REQUIREMENT: Before ending this turn, call channels_send with the user-visible answer, result, or clarification. Do not call pace first; thoughts and plain assistant output do not complete this chat turn.")
+	b.WriteString("\n\nDASHBOARD CHAT COMPLETION REQUIREMENT: A tool-work turn has either one complete final message or two intentional messages in order: one optional acknowledgement before action tools, then exactly one complete final outcome after them. Direct answers that need no tools use one complete message. After any non-channel tool result, channels_send is the required next completion action; an earlier acknowledgement does not satisfy it, and pace or done is invalid until the visible outcome, clarification, blocker, or next question is delivered. For a durable main handoff, prefer acknowledgement before send(main); if it was skipped, at most one acknowledgement may follow the successful handoff receipt. Exactly one final outcome follows main's reply. After the final delivery succeeds, pace or go idle and do not repeat it.")
 	return b.String()
 }
 
 func formatPlatformHelperChatEvent(text string, context any) string {
-	var b strings.Builder
-	b.WriteString("[chat]\n")
-	b.WriteString("TASK TYPE: platform_assistant (NOT eval grading)\n\n")
-	b.WriteString("You are Apteva Helper in the dashboard. Help the operator understand the current page, design agents, and turn rough goals into concrete next steps. ")
-	b.WriteString("When the operator wants to create or manage agents, ask briefly for missing details, then use the apteva-server MCP tools such as agents_create, agents_list, agents_start, agents_stop, and agents_update when appropriate. ")
-	b.WriteString("Do not grade anything. Do not return judge JSON. Every direct chat turn requires at least one visible channels_send with channel=\"current\" or channel=\"apteva\" before pacing or going idle; thoughts and plain assistant output do not count. Reply visibly for clarifications, read-only results, blockers, and no-op outcomes. If you promised tool work, continue after the send result and then send another channels_send message with the outcome.\n\n")
-	if ctx := formatDashboardContext(context); ctx != "" {
-		b.WriteString(ctx)
-		b.WriteString("\n\n")
-	}
-	b.WriteString("User message:\n")
-	b.WriteString(strings.TrimSpace(text))
-	b.WriteString("\n\nCHAT COMPLETION REQUIREMENT: Before ending this turn, call channels_send with the user-visible answer, result, or clarification. Do not call pace first; thoughts and plain assistant output do not complete this chat turn.")
-	return b.String()
+	return formatAgentChatEvent(text, context) + "\n\nPLATFORM HELPER TURN REQUIREMENT: " +
+		"When an attached Apteva tool can finish this request now, use it directly in this conversation. " +
+		"A persistent agents_update or other atomic control-plane mutation does not require a main handoff. " +
+		"The shared optional acknowledgement-before-tools guidance applies here too. After the tool's " +
+		"successful receipt, send exactly one final channels_send response and then pace; never " +
+		"send(id=\"main\") for the same work and never repeat the final response after its delivery receipt."
 }
 
 type coreContentPart struct {
@@ -1218,24 +1913,27 @@ func isAllowedImageMime(mimeType string) bool {
 	}
 }
 
-// resolveChatThread decides which core thread the chat's events
-// should target. Flag off → "main" (legacy behavior). Platform-helper
-// chat also stays on "main" so the dashboard widget and agent detail
-// page use the same request path, and so the meta-agent cannot leave
-// behind autonomous per-chat worker threads. Flag on for normal agents
-// → look up (or assign) the chat's persisted thread id and spawn it
-// idempotently on first use this process. Falls back to "main" on any
-// error so a transient DB/network glitch can't drop messages.
-func (h *handlers) resolveChatThread(inst framework.InstanceInfo, chatID string) string {
-	if inst.Kind == "platform_helper" || !perThreadEnabled() {
-		return "main"
+// ensureChatThread resolves and idempotently ensures the full core thread
+// specification for an internal conversation. The spawn cache is only a
+// directive-drift optimization; it is never proof that the core child still
+// has the thread after a restart. Consequently SpawnThread is called on every
+// delivery. Internal conversations never fall back to main.
+func (h *handlers) ensureChatThread(inst framework.InstanceInfo, chatID string) (string, error) {
+	if !perThreadEnabled() {
+		return "main", nil
+	}
+	if h.store == nil {
+		return "", fmt.Errorf("conversation store unavailable")
 	}
 	threadID, err := h.store.EnsureChatThread(chatID)
-	if err != nil || threadID == "" {
-		log.Printf("[CHAT] EnsureChatThread chat=%s: %v — falling back to main", chatID, err)
-		return "main"
+	if err != nil {
+		return "", fmt.Errorf("ensure conversation thread id for %s: %w", chatID, err)
+	}
+	if threadID == "" {
+		return "", fmt.Errorf("ensure conversation thread id for %s returned empty id", chatID)
 	}
 	cacheKey := fmt.Sprintf("%d/%s", inst.ID, chatID)
+	threadDirective := chatThreadDirectiveFor(inst)
 
 	// Compute the directive hash to compare against what the chat
 	// thread was last spawned/updated with. The hash covers main's
@@ -1246,21 +1944,16 @@ func (h *handlers) resolveChatThread(inst framework.InstanceInfo, chatID string)
 	// "already current" path it's the only round-trip we make.
 	wantHash := ""
 	if dir, derr := h.instances.MainDirective(inst); derr == nil {
-		wantHash = directiveHash(dir + chatThreadDirectiveSuffix)
+		wantHash = directiveHash(dir + threadDirective)
 	} else {
 		log.Printf("[CHAT] MainDirective inst=%d: %v — skipping drift check", inst.ID, derr)
 	}
 
 	prev, alreadySpawned := spawnedChatThreads.Load(cacheKey)
-	// Already spawned AND current (or we couldn't compute a hash to
-	// compare against) → reuse as-is.
-	if alreadySpawned && (wantHash == "" || prev.(string) == wantHash) {
-		return threadID
-	}
 
 	// We're going to either spawn (first time) or update (drifted).
 	// Both want main's MCP surface. "channels" is always required —
-	// the chat thread needs channels_respond to reply at all; the
+	// the chat thread needs channels_send to reply at all; the
 	// rest mirrors the instance's effective MCP list so quick
 	// reads/lookups can be served without round-tripping through main.
 	mcps, err := h.instances.ListMCPNames(inst)
@@ -1271,27 +1964,60 @@ func (h *handlers) resolveChatThread(inst framework.InstanceInfo, chatID string)
 		mcps = ensureChannels(mcps)
 	}
 
-	if alreadySpawned {
-		// Directive drifted — update the LIVE thread in place so its
-		// session (conversation history) survives. The chat thread
-		// answers the user's next message under the new directive.
-		if err := h.instances.UpdateThread(inst, threadID, chatThreadDirectiveSuffix, chatThreadTools); err != nil {
-			log.Printf("[CHAT] UpdateThread chat=%s thread=%s: %v — keeping stale directive", chatID, threadID, err)
-			return threadID // stale but functional; better than dropping the message
-		}
-		spawnedChatThreads.Store(cacheKey, wantHash)
-		return threadID
+	// POST is intentionally unconditional and idempotent. Besides creating a
+	// missing thread, the core persistence contract backfills an older live
+	// thread whose Config.Threads record is absent.
+	if err := h.instances.SpawnThread(inst, threadID, threadDirective, chatThreadTools, mcps); err != nil {
+		return "", fmt.Errorf("ensure core conversation thread %s: %w", threadID, err)
 	}
 
-	// First spawn this process. The "directive" arg flows into core as
-	// directive_suffix: the thread inherits main's directive verbatim
-	// and appends this chat-handling hint.
-	if err := h.instances.SpawnThread(inst, threadID, chatThreadDirectiveSuffix, chatThreadTools, mcps); err != nil {
-		log.Printf("[CHAT] SpawnThread chat=%s thread=%s: %v — falling back to main", chatID, threadID, err)
-		return "main"
+	// A server restart loses the local hash while core may restore a persisted
+	// thread created under an older main directive or suffix. Update on that
+	// first ensure, and whenever the live main directive subsequently drifts.
+	drifted := !alreadySpawned
+	if alreadySpawned && wantHash != "" {
+		drifted = prev.(string) != wantHash
+	}
+	if drifted {
+		if err := h.instances.UpdateThread(inst, threadID, threadDirective); err != nil {
+			return "", fmt.Errorf("update core conversation thread %s: %w", threadID, err)
+		}
 	}
 	spawnedChatThreads.Store(cacheKey, wantHash)
-	return threadID
+	return threadID, nil
+}
+
+// forwardConversationEvent ensures the conversation thread and forwards one
+// event. A typed missing-thread response is recovered once; all other errors
+// are returned to the durable delivery queue without redirecting to main.
+func (h *handlers) forwardConversationEvent(inst framework.InstanceInfo, chatID string, message any) (string, error) {
+	threadID, err := h.ensureChatThread(inst, chatID)
+	if err != nil {
+		return "", err
+	}
+	if err := h.instances.ForwardEvent(inst, message, threadID); err != nil {
+		if !isMissingCoreThread(err) || threadID == "main" {
+			return threadID, err
+		}
+		spawnedChatThreads.Delete(fmt.Sprintf("%d/%s", inst.ID, chatID))
+		threadID, ensureErr := h.ensureChatThread(inst, chatID)
+		if ensureErr != nil {
+			return "", ensureErr
+		}
+		if retryErr := h.instances.ForwardEvent(inst, message, threadID); retryErr != nil {
+			return threadID, retryErr
+		}
+	}
+	return threadID, nil
+}
+
+type missingCoreThreadError interface {
+	ThreadMissing() bool
+}
+
+func isMissingCoreThread(err error) bool {
+	var target missingCoreThreadError
+	return errors.As(err, &target) && target.ThreadMissing()
 }
 
 // directiveHash is a cheap stable fingerprint of a chat thread's

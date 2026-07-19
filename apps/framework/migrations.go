@@ -1,9 +1,30 @@
 package framework
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 )
+
+// MigrationTx is a transaction pinned to one SQLite connection. Migrations
+// begin with BEGIN IMMEDIATE so schema inspection followed by DDL cannot lose
+// a lock-upgrade race to other server startup writers.
+type MigrationTx struct {
+	ctx  context.Context
+	conn *sql.Conn
+}
+
+func (tx *MigrationTx) Exec(query string, args ...any) (sql.Result, error) {
+	return tx.conn.ExecContext(tx.ctx, query, args...)
+}
+
+func (tx *MigrationTx) Query(query string, args ...any) (*sql.Rows, error) {
+	return tx.conn.QueryContext(tx.ctx, query, args...)
+}
+
+func (tx *MigrationTx) QueryRow(query string, args ...any) *sql.Row {
+	return tx.conn.QueryRowContext(tx.ctx, query, args...)
+}
 
 // RunMigrations applies every migration for the app in version order,
 // skipping any that are already applied. Idempotent.
@@ -31,16 +52,57 @@ func RunMigrations(db *sql.DB, slug string, migs []Migration) error {
 		if m.Version <= applied {
 			continue
 		}
-		if _, err := db.Exec(m.SQL); err != nil {
+		ctx := context.Background()
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			return fmt.Errorf("%s acquire connection for v%d: %w", slug, m.Version, err)
+		}
+		if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+			_ = conn.Close()
+			return fmt.Errorf("%s begin v%d: %w", slug, m.Version, err)
+		}
+		tx := &MigrationTx{ctx: ctx, conn: conn}
+		var current sql.NullInt64
+		if err := tx.QueryRow(
+			`SELECT MAX(version) FROM framework_app_versions WHERE app_slug = ?`, slug,
+		).Scan(&current); err != nil {
+			_, _ = conn.ExecContext(ctx, `ROLLBACK`)
+			_ = conn.Close()
+			return fmt.Errorf("%s recheck v%d: %w", slug, m.Version, err)
+		}
+		if current.Valid && int(current.Int64) >= m.Version {
+			_, _ = conn.ExecContext(ctx, `ROLLBACK`)
+			_ = conn.Close()
+			applied = int(current.Int64)
+			continue
+		}
+		if m.Apply != nil {
+			err = m.Apply(tx)
+		} else {
+			_, err = tx.Exec(m.SQL)
+		}
+		if err != nil {
+			_, _ = conn.ExecContext(ctx, `ROLLBACK`)
+			_ = conn.Close()
 			return fmt.Errorf("%s migration v%d (%s): %w", slug, m.Version, m.Name, err)
 		}
-		_, err := db.Exec(
+		_, err = tx.Exec(
 			`INSERT INTO framework_app_versions (app_slug, version, name) VALUES (?, ?, ?)`,
 			slug, m.Version, m.Name,
 		)
 		if err != nil {
+			_, _ = conn.ExecContext(ctx, `ROLLBACK`)
+			_ = conn.Close()
 			return fmt.Errorf("%s record v%d: %w", slug, m.Version, err)
 		}
+		if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+			_ = conn.Close()
+			return fmt.Errorf("%s commit v%d: %w", slug, m.Version, err)
+		}
+		if err := conn.Close(); err != nil {
+			return fmt.Errorf("%s close migration connection v%d: %w", slug, m.Version, err)
+		}
+		applied = m.Version
 	}
 	return nil
 }

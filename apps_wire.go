@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	sdk "github.com/apteva/app-sdk"
@@ -361,17 +363,18 @@ func (r *serverResolver) LookupUserID(req *http.Request) int64 {
 	return getUserID(req)
 }
 
-// InstanceIDsForUser fans across every project the user owns. Used by
-// channel-chat's notifications-tray endpoints to scope global SSE +
-// unread-summary to "this user's chats".
+// InstanceIDsForUser returns every chat-capable agent the user owns,
+// including the global platform helper. Normal agent listings deliberately
+// hide platform helpers, but using that filtered listing here made Helper
+// conversations disappear from unread summaries and the user-wide SSE.
 func (r *serverResolver) InstanceIDsForUser(userID int64) ([]int64, error) {
-	insts, err := r.srv.store.ListAgents(userID, "")
+	allowed, err := r.srv.store.ListTelemetryAgentIDs(userID, "")
 	if err != nil {
 		return nil, err
 	}
-	ids := make([]int64, 0, len(insts))
-	for _, inst := range insts {
-		ids = append(ids, inst.ID)
+	ids := make([]int64, 0, len(allowed))
+	for id := range allowed {
+		ids = append(ids, id)
 	}
 	return ids, nil
 }
@@ -482,13 +485,13 @@ func (r *serverResolver) MainDirective(inst framework.InstanceInfo) (string, err
 // but without killing the thread, so its session survives. Used by
 // channelchat's drift-detection to keep the chat thread current with
 // main's directive.
-func (r *serverResolver) UpdateThread(inst framework.InstanceInfo, threadID, directiveSuffix string, tools []string) error {
+func (r *serverResolver) UpdateThread(inst framework.InstanceInfo, threadID, directiveSuffix string) error {
 	if inst.Port == 0 {
 		return fmt.Errorf("instance %d has no core port — is it running?", inst.ID)
 	}
 	body, _ := json.Marshal(map[string]any{
 		"directive_suffix": directiveSuffix,
-		"tools":            tools,
+		"conversation":     true,
 	})
 	url := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, threadID)
 	req, err := http.NewRequest("PUT", url, bytes.NewReader(body))
@@ -523,6 +526,7 @@ func (r *serverResolver) SpawnThread(inst framework.InstanceInfo, threadID, dire
 		"directive_suffix": directive,
 		"tools":            tools,
 		"mcp":              mcp,
+		"conversation":     true,
 	})
 	url := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, threadID)
 	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
@@ -634,8 +638,26 @@ func (r *serverResolver) RenewRealtimeAudioBridge(inst framework.InstanceInfo, t
 // (the caller's intent, "no live thread by this name", is satisfied
 // either way).
 func (r *serverResolver) KillThread(inst framework.InstanceInfo, threadID string) error {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" || threadID == "main" {
+		return fmt.Errorf("cannot kill main or empty thread")
+	}
+	startedWithoutManagedPort := inst.Port == 0
+	if startedWithoutManagedPort {
+		// During server boot, a detached Core can still be healthy even though
+		// the new AgentManager has not reattached it yet. Prefer deleting from
+		// that live runtime so the in-memory thread cannot rewrite itself.
+		if stored, err := r.srv.store.GetAgentByID(inst.ID); err == nil &&
+			stored.Status == "running" && stored.Port > 0 && stored.CoreAPIKey != "" {
+			inst.Port = stored.Port
+			inst.CoreAPIKey = stored.CoreAPIKey
+		}
+	}
 	if inst.Port == 0 {
-		return fmt.Errorf("instance %d has no core port — is it running?", inst.ID)
+		// Stopped agents still have their sub-threads in config.json. Removing
+		// that definition is the stopped equivalent of core DELETE /threads/:id
+		// and prevents a deleted conversation from coming back on next start.
+		return r.removePersistedThreadDefinition(inst.ID, threadID)
 	}
 	coreURL := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, url.PathEscape(threadID))
 	req, err := http.NewRequest(http.MethodDelete, coreURL, nil)
@@ -645,8 +667,15 @@ func (r *serverResolver) KillThread(inst framework.InstanceInfo, threadID string
 	if inst.CoreAPIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
 	}
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	timeout := 15 * time.Second
+	if startedWithoutManagedPort {
+		timeout = 2 * time.Second
+	}
+	resp, err := (&http.Client{Timeout: timeout}).Do(req)
 	if err != nil {
+		if startedWithoutManagedPort {
+			return r.removePersistedThreadDefinition(inst.ID, threadID)
+		}
 		return err
 	}
 	defer resp.Body.Close()
@@ -654,9 +683,97 @@ func (r *serverResolver) KillThread(inst framework.InstanceInfo, threadID string
 		return nil
 	}
 	if resp.StatusCode >= 300 {
+		if startedWithoutManagedPort {
+			return r.removePersistedThreadDefinition(inst.ID, threadID)
+		}
 		return fmt.Errorf("kill thread %q: HTTP %d", threadID, resp.StatusCode)
 	}
 	return nil
+}
+
+func (r *serverResolver) removePersistedThreadDefinition(instanceID int64, threadID string) error {
+	return r.srv.writeStoppedConfigAtomic(instanceID, func(cfg map[string]any) error {
+		raw, _ := cfg["threads"].([]any)
+		kept := make([]any, 0, len(raw))
+		for _, candidate := range raw {
+			if row, ok := candidate.(map[string]any); ok {
+				if id, _ := row["id"].(string); id == threadID {
+					continue
+				}
+			}
+			kept = append(kept, candidate)
+		}
+		if len(kept) == 0 {
+			delete(cfg, "threads")
+		} else {
+			cfg["threads"] = kept
+		}
+		return nil
+	})
+}
+
+type threadIDRow struct {
+	ID string `json:"id"`
+}
+
+// ListThreadIDs reads the same authoritative thread collection regardless of
+// agent state: live Core owns it while running, and config.json owns it while
+// stopped. It deliberately returns main too; callers select their namespace.
+func (r *serverResolver) ListThreadIDs(inst framework.InstanceInfo) ([]string, error) {
+	var rows []threadIDRow
+	if inst.Port == 0 {
+		// At mount time the new process manager has not reattached detached
+		// cores yet. Read disk first: it is fast, covers every persisted
+		// conversation, and avoids serial network timeouts delaying boot.
+		path := filepath.Join(r.srv.agents.dataDir, fmt.Sprintf("instance_%d", inst.ID), "config.json")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		var cfg struct {
+			Threads []threadIDRow `json:"threads"`
+		}
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("decode stopped agent %d threads: %w", inst.ID, err)
+		}
+		return threadRowIDs(cfg.Threads), nil
+	}
+	if inst.Port > 0 {
+		coreURL := fmt.Sprintf("http://127.0.0.1:%d/threads", inst.Port)
+		req, err := http.NewRequest(http.MethodGet, coreURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		if inst.CoreAPIKey != "" {
+			req.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
+		}
+		resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("list threads: HTTP %d", resp.StatusCode)
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+			return nil, err
+		}
+		return threadRowIDs(rows), nil
+	}
+	return nil, nil
+}
+
+func threadRowIDs(rows []threadIDRow) []string {
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if id := strings.TrimSpace(row.ID); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // seedBuiltinInstalls writes one apps + app_installs row per inventory-visible

@@ -1,14 +1,15 @@
 {
   "slug": "sculpteo",
   "name": "Sculpteo",
-  "description": "Sculpteo WebAPI for uploading designs, listing public designs/materials, pricing designs, ordering designs, and tracking orders.",
+  "description": "Sculpteo WebAPI for multipart model uploads, material discovery, print pricing, invoice-enabled production orders, notifications, and tracking.",
   "logo": "https://www.google.com/s2/favicons?domain=sculpteo.com&sz=128",
   "categories": ["3d-printing", "sculpteo", "manufacturing", "prototyping", "materials"],
   "base_url": "https://www.sculpteo.com",
   "auth": {
     "types": ["api_key"],
     "headers": {
-      "Content-Type": "application/x-www-form-urlencoded"
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Requested-With": "XMLHttpRequest"
     },
     "body_params": {
       "login": "{{login}}",
@@ -65,15 +66,19 @@
       }
     },
     {
-      "name": "upload_design_base64",
-      "description": "Upload a design using Sculpteo's direct upload endpoint with urlsafe base64 file data. For multipart uploads, use Sculpteo directly because the generic runner does not yet send multipart bodies.",
+      "name": "upload_design",
+      "description": "Upload a model with Sculpteo's documented multipart endpoint. file may be base64, a data URL, or raw bytes represented as a string; use a ZIP when the design references textures. The maximum documented upload size is 500 MB.",
       "method": "POST",
       "path": "/{language}/upload_design/a/3D/",
+      "multipart_form": {
+        "file_fields": { "file": "file" },
+        "field_names": ["name", "description", "keywords", "share", "print_authorization", "customizable", "unit", "scale", "materials", "sizes", "trackid"]
+      },
       "input_schema": {
         "type": "object",
         "properties": {
           "language": { "type": "string", "enum": ["en", "fr"], "default": "en" },
-          "file": { "type": "string", "description": "URL-safe base64 model data, using - and _ instead of + and /." },
+          "file": { "type": "string", "description": "Model or ZIP file data as base64, a data URL, or raw string bytes." },
           "filename": { "type": "string", "description": "Filename with extension." },
           "name": { "type": "string", "description": "Design name." },
           "description": { "type": "string" },
@@ -83,7 +88,9 @@
           "customizable": { "type": "integer", "enum": [0, 1], "default": 0 },
           "unit": { "type": "string", "enum": ["mm", "cm", "in", "ft", "yd"], "default": "cm" },
           "scale": { "type": "number", "default": 1 },
-          "materials": { "type": "string", "description": "Comma-separated material ids to allow." }
+          "materials": { "type": "string", "description": "Comma-separated material ids to allow." },
+          "sizes": { "type": "string", "description": "Comma-separated allowed scale factors, for example 0.5,1,2." },
+          "trackid": { "type": "string", "description": "Optional Sculpteo design-tracking UUID configured on the account." }
         },
         "required": ["language", "file", "filename", "name"]
       }
@@ -110,7 +117,7 @@
     },
     {
       "name": "create_order",
-      "description": "Order Sculpteo designs by UUID. The API uses form keys item[0], item[1], etc. Each item value is '<uuid>:<qty>:<scale>:<unit>:<material>'. Invoice ordering must be enabled by Sculpteo.",
+      "description": "Create a Sculpteo production order using documented form keys item[0], item[1], etc. Each item is '<uuid>:<qty>:<scale>:<unit>:<material>'. This is billable unless fake=1, and invoice payment must first be enabled by Sculpteo. Confirm price, address, and item strings before calling.",
       "method": "POST",
       "path": "/{language}/api/store/3D/order/",
       "input_schema": {

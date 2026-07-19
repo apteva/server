@@ -3,7 +3,10 @@ package channelchat
 import (
 	"sync"
 	"sync/atomic"
+	"time"
 )
+
+const chatSubscriberGrace = 3 * time.Second
 
 // hub is the per-app live-push dispatcher. When a message is written
 // (via the Channel.Send path, the HTTP POST path, or any other insert)
@@ -13,15 +16,15 @@ import (
 //
 // Two subscription scopes coexist:
 //
-//   subs    — keyed by chatID. Drives the per-chat-panel SSE stream
-//             AND the IsActive() gate that tells the agent whether
-//             chat is being watched.
+//	subs    — keyed by chatID. Drives the per-chat-panel SSE stream
+//	          AND the IsActive() gate that tells the agent whether
+//	          chat is being watched.
 //
-//   userSub — keyed by userID. Drives the dashboard's global
-//             notifications tray: one connection per tab, fans out
-//             every message for any chat the user owns. Does NOT
-//             count toward IsActive — the agent's channel-selection
-//             logic stays scoped to "is someone watching this chat".
+//	userSub — keyed by userID. Drives the dashboard's global
+//	          notifications tray: one connection per tab, fans out
+//	          every message for any chat the user owns. Does NOT
+//	          count toward IsActive — the agent's channel-selection
+//	          logic stays scoped to "is someone watching this chat".
 type hub struct {
 	mu       sync.RWMutex
 	subs     map[string]map[uint64]chan Message // chatID → subID → channel
@@ -31,15 +34,18 @@ type hub struct {
 	// existing Message lifecycle is untouched — reverting streaming
 	// = remove this map, publishStream, and the SSE handler's stream
 	// case. No regression risk on the message path.
-	streamSubs map[string]map[uint64]chan StreamFrame
-	next       atomic.Uint64
+	streamSubs      map[string]map[uint64]chan StreamFrame
+	recentUntil     map[string]time.Time
+	subscriberGrace time.Duration
+	next            atomic.Uint64
 }
 
 func newHub() *hub {
 	return &hub{
-		subs:       make(map[string]map[uint64]chan Message),
-		userSubs:   make(map[int64]map[uint64]chan Message),
-		streamSubs: make(map[string]map[uint64]chan StreamFrame),
+		subs:        make(map[string]map[uint64]chan Message),
+		userSubs:    make(map[int64]map[uint64]chan Message),
+		streamSubs:  make(map[string]map[uint64]chan StreamFrame),
+		recentUntil: make(map[string]time.Time),
 	}
 }
 
@@ -51,9 +57,17 @@ func newHub() *hub {
 // connected (which then looks wrong when e.g. an inject/admin event
 // gets a chat reply nobody asked for).
 func (h *hub) hasSubscribers(chatID string) bool {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return len(h.subs[chatID]) > 0
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.subs[chatID]) > 0 {
+		return true
+	}
+	until := h.recentUntil[chatID]
+	if !until.IsZero() && time.Now().Before(until) {
+		return true
+	}
+	delete(h.recentUntil, chatID)
+	return false
 }
 
 // subscribe adds a listener for one chat. Returns the channel, the
@@ -69,6 +83,7 @@ func (h *hub) subscribe(chatID string) (chan Message, uint64, func()) {
 		h.subs[chatID] = make(map[uint64]chan Message)
 	}
 	h.subs[chatID][id] = ch
+	delete(h.recentUntil, chatID)
 	h.mu.Unlock()
 	cancel := func() { h.unsubscribe(chatID, id) }
 	return ch, id, cancel
@@ -84,6 +99,11 @@ func (h *hub) unsubscribe(chatID string, id uint64) {
 		}
 		if len(m) == 0 {
 			delete(h.subs, chatID)
+			grace := h.subscriberGrace
+			if grace <= 0 {
+				grace = chatSubscriberGrace
+			}
+			h.recentUntil[chatID] = time.Now().Add(grace)
 		}
 	}
 }

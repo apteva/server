@@ -13,6 +13,8 @@ package main
 //     Auth: user (cookie/API key). SSE stream of events for the
 //     given (app, project_id). Replays from ring on connect when
 //     since= is given, then live-tails. 15s keepalive ping.
+//     Use app=_all with a project_id to multiplex every app in that
+//     project over one browser connection.
 
 import (
 	"encoding/json"
@@ -117,10 +119,15 @@ func (s *Server) handleAppEventStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	projectID := r.URL.Query().Get("project_id")
-	// The all-apps firehose (app=_all) is inherently cross-project +
-	// cross-app: global-scoped sidecars only, project_id ignored.
-	if app == allAppsLaneKey {
-		projectID = ""
+	// _all has two safe modes: with project_id it is the dashboard's
+	// project-scoped multiplexer; without project_id it remains the
+	// trusted global cross-project firehose for sidecars.
+	if app == allAppsLaneKey && projectID != "" {
+		if err := s.checkProjectAccess(r, projectID); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+	} else if app == allAppsLaneKey {
 		if err := s.checkFirehoseAccess(r); err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return

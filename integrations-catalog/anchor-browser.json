@@ -1,173 +1,374 @@
 {
   "slug": "anchor-browser",
   "name": "Anchor Browser",
-  "description": "Anchor Browser cloud automation API for AI agents. Spin up browser sessions and persist authenticated state via reusable Profiles (cookies, localStorage, auth tokens) so agents stay logged in across runs.",
+  "description": "Cloud browsers for authentication-heavy automation. Create CDP sessions with interactive live view, reusable profiles, managed identities, proxies, stealth, extensions, downloads, optional MP4 recording, and REST browser controls.",
   "logo": "https://www.google.com/s2/favicons?domain=anchorbrowser.io&sz=128",
-  "categories": [
-    "browser-automation",
-    "ai-agents",
-    "headless-browser",
-    "scraping",
-    "authentication"
-  ],
+  "categories": ["browser-automation", "ai-agents", "headless-browser", "scraping", "authentication"],
   "base_url": "https://api.anchorbrowser.io/v1",
   "auth": {
-    "types": [
-      "bearer"
-    ],
+    "types": ["api_key"],
     "headers": {
-      "anchor-api-key": "{{token}}",
+      "anchor-api-key": "{{api_key}}",
       "Content-Type": "application/json"
     },
     "credential_fields": [
       {
-        "name": "token",
+        "name": "api_key",
         "label": "API Key",
-        "description": "Anchor API key from https://app.anchorbrowser.io (Settings > API Keys)."
+        "description": "Anchor Browser API key from the Anchor dashboard."
       }
     ]
   },
   "tools": [
     {
       "name": "create_session",
-      "description": "Create a new browser session. Returns a session ID, websocket connection URL for Playwright/Puppeteer, and a live-view URL. Optionally attach a saved Profile to start the session already logged in.",
+      "description": "Create a browser session and return data.id, data.cdp_url, and data.live_view_url. Anchor records by default upstream, so pass session.recording.active=false unless recording is explicitly needed.",
       "method": "POST",
       "path": "/sessions",
       "input_schema": {
         "type": "object",
         "properties": {
-          "profile": {
-            "type": "string",
-            "description": "Name of a saved profile to load. The session inherits that profile's cookies, localStorage, and auth tokens."
-          },
-          "recording": {
+          "session": {
             "type": "object",
-            "description": "Recording options: { active: boolean }."
+            "description": "Session configuration. Set recording.active=false for normal agent runs.",
+            "properties": {
+              "initial_url": { "type": "string", "format": "uri" },
+              "tags": { "type": "array", "items": { "type": "string" } },
+              "recording": {
+                "type": "object",
+                "properties": { "active": { "type": "boolean", "default": false, "description": "Enable MP4 recording. Prefer false unless a recording is required." } },
+                "required": ["active"]
+              },
+              "proxy": {
+                "type": "object",
+                "description": "Anchor or custom proxy configuration.",
+                "properties": {
+                  "active": { "type": "boolean" },
+                  "type": { "type": "string", "enum": ["anchor_proxy", "custom"] },
+                  "country_code": { "type": "string" },
+                  "region": { "type": "string" },
+                  "city": { "type": "string" },
+                  "server": { "type": "string" },
+                  "username": { "type": "string" },
+                  "password": { "type": "string" }
+                },
+                "required": ["active"]
+              },
+              "timeout": {
+                "type": "object",
+                "properties": {
+                  "max_duration": { "type": "integer", "description": "Maximum duration in minutes; -1 disables." },
+                  "idle_timeout": { "type": "integer", "description": "Idle timeout in minutes; -1 disables." }
+                }
+              },
+              "live_view": {
+                "type": "object",
+                "properties": {
+                  "read_only": { "type": "boolean", "default": false },
+                  "one_time_url": { "type": "boolean", "default": false }
+                }
+              }
+            },
+            "required": ["recording"]
           },
-          "proxy": {
+          "browser": {
             "type": "object",
-            "description": "Proxy config: { active: boolean, type: 'anchor_residential' | 'custom', url, username, password }."
+            "properties": {
+              "profile": {
+                "type": "object",
+                "properties": { "name": { "type": "string" }, "persist": { "type": "boolean", "default": false } },
+                "required": ["name"]
+              },
+              "adblock": { "type": "object", "properties": { "active": { "type": "boolean" } } },
+              "popup_blocker": { "type": "object", "properties": { "active": { "type": "boolean" } } },
+              "captcha_solver": { "type": "object", "properties": { "active": { "type": "boolean", "default": false } } },
+              "headless": { "type": "object", "properties": { "active": { "type": "boolean", "default": false } } },
+              "viewport": { "type": "object", "properties": { "width": { "type": "integer" }, "height": { "type": "integer" } } },
+              "fullscreen": { "type": "object", "properties": { "active": { "type": "boolean" } } },
+              "pdf_viewer": { "type": "object", "properties": { "active": { "type": "boolean" } } },
+              "p2p_download": { "type": "object", "properties": { "active": { "type": "boolean", "default": false } } },
+              "extensions": { "type": "array", "items": { "type": "string" }, "description": "Uploaded extension IDs." },
+              "extra_stealth": { "type": "object", "properties": { "active": { "type": "boolean", "default": false } } },
+              "disable_web_security": { "type": "object", "properties": { "active": { "type": "boolean", "default": false } } },
+              "disable_dialogs": { "type": "object", "properties": { "active": { "type": "boolean", "default": false } } },
+              "web_bot_auth": { "type": "object", "properties": { "active": { "type": "boolean", "default": false } } },
+              "tracing": { "type": "object", "properties": { "active": { "type": "boolean" }, "snapshots": { "type": "boolean" }, "sources": { "type": "boolean" } } }
+            }
           },
-          "max_duration": {
-            "type": "integer",
-            "description": "Maximum session duration in seconds."
-          },
-          "idle_timeout": {
-            "type": "integer",
-            "description": "Idle-shutdown timeout in seconds."
-          },
-          "viewport": {
-            "type": "object",
-            "description": "Viewport size: { width, height }."
-          }
-        }
+          "integrations": { "type": "array", "items": { "type": "object" }, "description": "Previously created Anchor integrations such as 1Password." },
+          "identities": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }, "description": "Managed identities to authenticate in this session." }
+        },
+        "required": ["session"]
       }
     },
     {
       "name": "list_sessions",
-      "description": "List browser sessions for the account.",
+      "description": "List session history with pagination, sorting, and operational filters.",
       "method": "GET",
       "path": "/sessions",
+      "query_params": ["page", "limit", "sort_by", "sort_order", "search", "status", "tags", "domains", "created_from", "created_to", "batch_id", "task_initiated", "playground", "proxy", "extra_stealth", "profile_name"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "status": {
-            "type": "string",
-            "description": "Filter by session status."
-          },
-          "limit": {
-            "type": "integer"
-          }
+          "page": { "type": "integer", "minimum": 1, "default": 1 },
+          "limit": { "type": "integer", "enum": [10, 20, 50], "default": 10 },
+          "sort_by": { "type": "string", "default": "created_at" },
+          "sort_order": { "type": "string", "enum": ["asc", "desc"], "default": "desc" },
+          "search": { "type": "string" },
+          "status": { "type": "string" },
+          "tags": { "type": "string", "description": "Comma-separated tags." },
+          "domains": { "type": "string", "description": "Comma-separated domains." },
+          "created_from": { "type": "string", "format": "date-time" },
+          "created_to": { "type": "string", "format": "date-time" },
+          "batch_id": { "type": "string" },
+          "task_initiated": { "type": "boolean" },
+          "playground": { "type": "boolean" },
+          "proxy": { "type": "boolean" },
+          "extra_stealth": { "type": "boolean" },
+          "profile_name": { "type": "string" }
         }
       }
     },
     {
       "name": "get_session",
-      "description": "Get details for a specific session: status, ws URL, live-view URL, recording URL when available.",
+      "description": "Get detailed information for a browser session.",
       "method": "GET",
       "path": "/sessions/{session_id}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "session_id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "session_id"
-        ]
-      }
+      "input_schema": { "type": "object", "properties": { "session_id": { "type": "string" } }, "required": ["session_id"] }
     },
     {
       "name": "end_session",
-      "description": "End a live browser session and release its resources.",
+      "description": "Terminate a browser session and release resources. Persisted profile changes are saved as the session ends.",
       "method": "DELETE",
       "path": "/sessions/{session_id}",
+      "input_schema": { "type": "object", "properties": { "session_id": { "type": "string" } }, "required": ["session_id"] }
+    },
+    {
+      "name": "list_session_downloads",
+      "description": "List metadata and download URLs for files downloaded during a session.",
+      "method": "GET",
+      "path": "/sessions/{session_id}/downloads",
+      "input_schema": { "type": "object", "properties": { "session_id": { "type": "string" } }, "required": ["session_id"] }
+    },
+    {
+      "name": "navigate",
+      "description": "Navigate an active session to a URL using Anchor's REST browser control.",
+      "method": "POST",
+      "path": "/sessions/{sessionId}/goto",
+      "input_schema": {
+        "type": "object",
+        "properties": { "sessionId": { "type": "string" }, "url": { "type": "string", "format": "uri" } },
+        "required": ["sessionId", "url"]
+      }
+    },
+    {
+      "name": "take_screenshot",
+      "description": "Capture the current session viewport as a PNG binary response.",
+      "method": "GET",
+      "path": "/sessions/{sessionId}/screenshot",
+      "input_schema": { "type": "object", "properties": { "sessionId": { "type": "string" } }, "required": ["sessionId"] }
+    },
+    {
+      "name": "click",
+      "description": "Click by x/y coordinates or by CSS selector. Supply coordinates or selector, not both.",
+      "method": "POST",
+      "path": "/sessions/{sessionId}/mouse/click",
       "input_schema": {
         "type": "object",
         "properties": {
-          "session_id": {
-            "type": "string"
-          }
+          "sessionId": { "type": "string" },
+          "x": { "type": "number" },
+          "y": { "type": "number" },
+          "selector": { "type": "string" },
+          "button": { "type": "string", "enum": ["left", "middle", "right"], "default": "left" },
+          "timeout": { "type": "number", "description": "Selector wait timeout in milliseconds." },
+          "index": { "type": "integer", "minimum": 0, "default": 0 }
         },
-        "required": [
-          "session_id"
-        ]
+        "required": ["sessionId"]
+      }
+    },
+    {
+      "name": "type_text",
+      "description": "Type text at the current focus with an optional delay between keystrokes.",
+      "method": "POST",
+      "path": "/sessions/{sessionId}/keyboard/type",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sessionId": { "type": "string" },
+          "text": { "type": "string" },
+          "delay": { "type": "integer", "minimum": 0, "description": "Delay between keystrokes in milliseconds." }
+        },
+        "required": ["sessionId", "text"]
       }
     },
     {
       "name": "create_profile",
-      "description": "Save the current state of a browser session as a reusable Profile. Profiles capture cookies, localStorage, sessionStorage, and IndexedDB — i.e. everything that defines an authenticated identity. Future sessions can load this profile to skip login.",
+      "description": "Create a reusable profile from a running session. The profile is stored after the source session terminates.",
       "method": "POST",
       "path": "/profiles",
       "input_schema": {
         "type": "object",
         "properties": {
-          "name": {
-            "type": "string",
-            "description": "Profile name (used to reference it in create_session.profile)."
-          },
-          "session_id": {
-            "type": "string",
-            "description": "Session to capture state from. The session must still be live."
-          },
-          "description": {
-            "type": "string"
-          }
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "source": { "type": "string", "enum": ["session"], "default": "session" },
+          "session_id": { "type": "string" },
+          "dedicated_sticky_ip": { "type": "boolean", "default": false }
         },
-        "required": [
-          "name",
-          "session_id"
-        ]
+        "required": ["name", "source", "session_id"]
       }
     },
     {
       "name": "list_profiles",
-      "description": "List saved profiles for the account.",
+      "description": "List saved browser profiles.",
       "method": "GET",
       "path": "/profiles",
-      "input_schema": {
-        "type": "object",
-        "properties": {}
-      }
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_profile",
+      "description": "Get profile metadata by name.",
+      "method": "GET",
+      "path": "/profiles/{name}",
+      "input_schema": { "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"] }
     },
     {
       "name": "delete_profile",
-      "description": "Delete a saved profile. Sessions that referenced it will no longer be able to load it but already-live sessions are unaffected.",
+      "description": "Delete a profile by name.",
       "method": "DELETE",
       "path": "/profiles/{name}",
+      "input_schema": { "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"] }
+    },
+    {
+      "name": "list_recordings",
+      "description": "List MP4 recordings and URLs for a session.",
+      "method": "GET",
+      "path": "/sessions/{session_id}/recordings",
+      "input_schema": { "type": "object", "properties": { "session_id": { "type": "string" } }, "required": ["session_id"] }
+    },
+    {
+      "name": "download_recording",
+      "description": "Download the primary MP4 recording as binary data.",
+      "method": "GET",
+      "path": "/sessions/{session_id}/recordings/primary/fetch",
+      "input_schema": { "type": "object", "properties": { "session_id": { "type": "string" } }, "required": ["session_id"] }
+    },
+    {
+      "name": "pause_recording",
+      "description": "Pause recording for an active session.",
+      "method": "POST",
+      "path": "/sessions/{session_id}/recordings/pause",
+      "input_schema": { "type": "object", "properties": { "session_id": { "type": "string" } }, "required": ["session_id"] }
+    },
+    {
+      "name": "resume_recording",
+      "description": "Resume recording for an active session.",
+      "method": "POST",
+      "path": "/sessions/{session_id}/recordings/resume",
+      "input_schema": { "type": "object", "properties": { "session_id": { "type": "string" } }, "required": ["session_id"] }
+    },
+    {
+      "name": "delete_recording",
+      "description": "Delete a session recording. Use recording_id='primary' for the primary recording.",
+      "method": "DELETE",
+      "path": "/sessions/{session_id}/recordings/{recording_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "session_id": { "type": "string" }, "recording_id": { "type": "string" } },
+        "required": ["session_id", "recording_id"]
+      }
+    },
+    {
+      "name": "upload_extension",
+      "description": "Upload and validate a Chrome extension ZIP. Returns an ID for create_session.browser.extensions.",
+      "method": "POST",
+      "path": "/extensions",
+      "multipart_form": {
+        "field_names": ["name"],
+        "file_fields": { "file": "file" }
+      },
       "input_schema": {
         "type": "object",
         "properties": {
-          "name": {
-            "type": "string",
-            "description": "Profile name to delete."
-          }
+          "name": { "type": "string" },
+          "file": { "type": "string", "description": "Extension ZIP as a blobref:// handle, base64, or data URL." },
+          "filename": { "type": "string" }
         },
-        "required": [
-          "name"
-        ]
+        "required": ["name", "file"]
       }
+    },
+    {
+      "name": "list_extensions",
+      "description": "List uploaded extensions.",
+      "method": "GET",
+      "path": "/extensions",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_extension",
+      "description": "Get extension details by ID.",
+      "method": "GET",
+      "path": "/extensions/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "delete_extension",
+      "description": "Delete an uploaded extension.",
+      "method": "DELETE",
+      "path": "/extensions/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "create_identity",
+      "description": "Create a managed identity for a login source. Credentials may contain username_password, authenticator, or custom entries.",
+      "method": "POST",
+      "path": "/identities",
+      "query_params": ["validateAsync"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "validateAsync": { "type": "boolean", "default": true },
+          "name": { "type": "string" },
+          "source": { "type": "string", "format": "uri" },
+          "credentials": { "type": "array", "items": { "type": "object" }, "description": "Typed credential objects such as {type:'username_password',username,password}." },
+          "metadata": { "type": "object" },
+          "applicationName": { "type": "string" },
+          "applicationDescription": { "type": "string" }
+        },
+        "required": ["source"]
+      }
+    },
+    {
+      "name": "get_identity",
+      "description": "Get a managed identity by ID without exposing secret credentials.",
+      "method": "GET",
+      "path": "/identities/{identityId}",
+      "input_schema": { "type": "object", "properties": { "identityId": { "type": "string" } }, "required": ["identityId"] }
+    },
+    {
+      "name": "update_identity",
+      "description": "Update an identity's name, metadata, or credentials.",
+      "method": "PUT",
+      "path": "/identities/{identityId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "identityId": { "type": "string" },
+          "name": { "type": "string" },
+          "metadata": { "type": "object" },
+          "credentials": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["identityId"]
+      }
+    },
+    {
+      "name": "delete_identity",
+      "description": "Delete a managed identity.",
+      "method": "DELETE",
+      "path": "/identities/{identityId}",
+      "input_schema": { "type": "object", "properties": { "identityId": { "type": "string" } }, "required": ["identityId"] }
     }
-  ]
+  ],
+  "health_check": { "tool": "list_sessions", "input": { "page": 1, "limit": 10 } }
 }

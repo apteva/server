@@ -138,12 +138,14 @@ func (s *Store) ListProviders(userID int64, projectID ...string) ([]Provider, er
 	var err error
 	if len(projectID) > 0 && projectID[0] != "" {
 		rows, err = s.db.Query(
-			`SELECT `+cols+` FROM providers WHERE user_id = ? AND (project_id = ? OR project_id = '')`,
-			userID, projectID[0],
+			`SELECT `+cols+` FROM providers
+			 WHERE user_id = ? AND (project_id = ? OR project_id = '')
+			 ORDER BY CASE WHEN project_id = ? THEN 0 ELSE 1 END, id ASC`,
+			userID, projectID[0], projectID[0],
 		)
 	} else {
 		rows, err = s.db.Query(
-			`SELECT `+cols+` FROM providers WHERE user_id = ?`, userID,
+			`SELECT `+cols+` FROM providers WHERE user_id = ? ORDER BY id ASC`, userID,
 		)
 	}
 	if err != nil {
@@ -297,11 +299,13 @@ func (s *Store) GetAllProviderEnvVars(userID int64, secret []byte, projectID ...
 	var err error
 	if len(projectID) > 0 && projectID[0] != "" {
 		rows, err = s.db.Query(
-			"SELECT id, encrypted_data FROM providers WHERE user_id = ? AND (project_id = ? OR project_id = '')",
+			`SELECT id, encrypted_data FROM providers
+			 WHERE user_id = ? AND (project_id = ? OR project_id = '')
+			 ORDER BY CASE WHEN project_id = '' THEN 0 ELSE 1 END, id ASC`,
 			userID, projectID[0],
 		)
 	} else {
-		rows, err = s.db.Query("SELECT id, encrypted_data FROM providers WHERE user_id = ?", userID)
+		rows, err = s.db.Query("SELECT id, encrypted_data FROM providers WHERE user_id = ? ORDER BY id ASC", userID)
 	}
 	if err != nil {
 		return nil, err
@@ -803,6 +807,7 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 
 	var pool []ProviderInfo
 	var codexPool []ProviderInfo
+	seenProviderKeys := map[string]bool{}
 	for _, p := range providers {
 		// Normalize across the two formats. If type == "llm" this is a
 		// new-format row and we use the name column as the provider key.
@@ -814,6 +819,13 @@ func (s *Server) GetProviderPool(userID int64, projectID ...string) []ProviderIn
 		if !isLLMKey(providerKey) {
 			continue
 		}
+		// ListProviders orders project-scoped rows before global rows. Keep
+		// exactly one runtime entry per provider type so a global credential
+		// cannot unpredictably replace the selected project's credential.
+		if seenProviderKeys[providerKey] {
+			continue
+		}
+		seenProviderKeys[providerKey] = true
 
 		_, encData, err := s.store.GetProvider(userID, p.ID)
 		if err != nil {

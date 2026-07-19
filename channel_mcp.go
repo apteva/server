@@ -424,8 +424,10 @@ func buildSendDescription(channelIDs []string, components []componentEntry) stri
 	return fmt.Sprintf(
 		"Send one complete user-visible message through a communication channel. Thoughts and plain assistant output are INVISIBLE; only this tool delivers chat text. Use publish for approvals/reports/alerts and set_status for mutable work state.\n\n"+
 			"channel=\"current\" replies where the event originated. For dashboard chat it resolves to apteva. channel=\"apteva\" is durable and saves messages even while the operator is offline.\n"+
-			"Every direct [chat] turn requires at least one successful call to this tool before pace, done, or going idle. The turn is incomplete until you send its visible answer. This also applies to clarifications, read-only lookup results, blockers, failures, and no-op outcomes. After any tool result used for the request, send the outcome or next question here before pacing; never leave it only in thoughts or plain assistant output.\n"+
-			"A successful send wakes you again. If you promised work, continue with the needed tools or pace; after results, send the actual outcome before going idle. Build one complete call and never send placeholder or duplicate messages.\n\n"+
+			"Use this tool for a direct [chat] turn and for the later outcome of work explicitly requested in that chat, even if the operator disconnected before completion. Outside a direct [chat] request, send ordinary chat only when the operator or directive explicitly asks for a chat message at that time. Do NOT send ordinary chat for autonomous or scheduled checks, routine monitoring, unchanged or no-op results, idle updates, repeated progress, connect/disconnect events, or internal/system events. A request to \"send a status update\" or \"update the status\" means set_status unless it explicitly asks for a chat message. For a recurring autonomous check with no meaningful change, set_status at most once if appropriate, call pace for the next due check, and remain silent; status next_at does not schedule a wake.\n"+
+			"For a direct [chat] turn that requires tools, including dashboard conversation threads, prefer a short visible acknowledgement before beginning tool work so the operator knows the concrete next action. This is strong guidance, not a hard requirement: skip it when the complete answer can be sent immediately or an acknowledgement would be empty or repetitive. If you acknowledge, wait for this send to succeed before action tools; never parallelize the acknowledgement with them. After the promised work, send exactly one final outcome; the acknowledgement never replaces it. A tool-work turn has either one final message or two intentional messages—acknowledgement then final—and never more. For a durable handoff, prefer acknowledgement before send(main); if it was skipped, at most one acknowledgement may follow the successful handoff receipt, never both.\n"+
+			"Every direct [chat] turn requires at least one successful call to this tool before pace, done, or going idle. The turn is incomplete until you send its visible answer. This also applies to clarifications, read-only lookup results, blockers, failures, and no-op outcomes. After any non-channel tool result used for the request, send the outcome or next question here before pacing; never leave it only in thoughts or plain assistant output.\n"+
+			"A successful send wakes you again, but its result is only the delivery receipt for that exact message. Never repeat it. Continue only concrete unfinished work explicitly promised in an acknowledgement and send one final outcome afterward; otherwise pace/done. Build each message as one complete call and never send placeholders or duplicates.\n\n"+
 			"KNOWN CHANNELS (valid values for channel): [%s].\n"+
 			"Routing — match the event prefix to the channel: %s.\n\n"+
 			"If the gate rejects your message channel as unknown, retry with a channel from the list above — NOT to fall silent. Do NOT default to \"cli\" from training-data prior; use exactly the names listed.\n\n"+
@@ -451,6 +453,8 @@ Follow an explicit operator request or directive when it defines report timing. 
 
 func buildSetStatusDescription() string {
 	return `Set the agent's single mutable current-work status. Status is operational state: it replaces the previous status and never appears in chat or the Inbox. Every call requires both title and state.
+
+When an autonomous instruction says to "send a status update" or "update the status" without explicitly requesting a chat message, use this tool rather than send. A recurring check with no meaningful change may replace status at most once for that completed phase and must not also create an ordinary chat message. After recording the completed recurring work, call pace for the next due check; next_at is display metadata and does not schedule a wake.
 
 Status answers: what meaningful operator-relevant work is this agent actively doing, waiting on, blocked by, or most recently completed? Use it only for a work unit that is multi-step, long-running, or cannot currently continue. When qualifying work can start immediately, call set_status and the first action tool in the same parallel batch.
 
@@ -557,6 +561,17 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 	if err := json.Unmarshal(params, &call); err != nil {
 		return nil, &mcpRPCError{Code: -32602, Message: "invalid params"}
 	}
+	callerContext, _ := call.Arguments["_apteva_caller_context"].(string)
+	delete(call.Arguments, "_apteva_caller_context")
+	scopeChannel := func(ch Channel) Channel {
+		if ch == nil || strings.TrimSpace(callerContext) == "" {
+			return ch
+		}
+		if scoped, ok := ch.(framework.ConversationScopedChannel); ok {
+			return scoped.ForConversationContext(callerContext)
+		}
+		return ch
+	}
 
 	textResult := func(text string) any {
 		return map[string]any{
@@ -570,14 +585,24 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		}
 	}
 
-	sendVisibleMessage := func(text, channel string, components []framework.ChatComponent) any {
+	sendVisibleMessage := func(text, channel string, components []framework.ChatComponent) (framework.MessageDeliveryReceipt, any) {
 		rawChannel := channel
 		if channel == "current" {
 			channel = s.resolveCurrentChannel()
 			rawChannel = "current"
 		}
 		if text == "" {
-			return textToolError("text required")
+			return framework.MessageDeliveryReceipt{}, textToolError("text required")
+		}
+		// Ordinary internal chat is conversation-owned. Main and generic
+		// workers must send their result to the originating conversation with
+		// core send; only that conversation may create the visible Apteva row.
+		// The caller context is injected by core after model-visible telemetry,
+		// so it is a trusted runtime capability rather than a prompt claim.
+		if normalizeChannelID(channel) == "apteva" && !strings.HasPrefix(strings.TrimSpace(callerContext), "chat-") {
+			return framework.MessageDeliveryReceipt{}, textToolError(
+				"internal Apteva chat replies require an originating conversation thread. Main and worker threads must use send(id=\"<conversation-thread>\", message=\"...\") so that conversation can reply; channels_send cannot fall back to the primary chat",
+			)
 		}
 		// Gate by the active channels list BEFORE attempting Send.
 		// This makes the feedback loop loud when the agent picks a
@@ -614,22 +639,39 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 					rawChannel, connected,
 				)
 			}
-			return textToolError(msg)
+			return framework.MessageDeliveryReceipt{}, textToolError(msg)
 		}
-		ch := s.registry.Get(normalized)
+		ch := scopeChannel(s.registry.Get(normalized))
 		if ch == nil {
-			return textToolError(fmt.Sprintf("channel %q not found", normalized))
+			return framework.MessageDeliveryReceipt{}, textToolError(fmt.Sprintf("channel %q not found", normalized))
+		}
+		if sender, ok := ch.(framework.ReceiptSender); ok {
+			receipt, err := sender.SendWithReceipt(text, components)
+			if err != nil {
+				return framework.MessageDeliveryReceipt{}, textToolError(err.Error())
+			}
+			return receipt, nil
 		}
 		if rich, ok := ch.(framework.RichSender); ok && len(components) > 0 {
 			if err := rich.SendWithComponents(text, components); err != nil {
-				return textToolError(err.Error())
+				return framework.MessageDeliveryReceipt{}, textToolError(err.Error())
 			}
 		} else {
 			if err := ch.Send(text); err != nil {
-				return textToolError(err.Error())
+				return framework.MessageDeliveryReceipt{}, textToolError(err.Error())
 			}
 		}
-		return nil
+		return framework.MessageDeliveryReceipt{Inserted: true}, nil
+	}
+
+	deliveryResultText := func(receipt framework.MessageDeliveryReceipt) string {
+		if !receipt.Inserted && receipt.MessageID > 0 {
+			return fmt.Sprintf("duplicate_suppressed message_id=%d. This exact visible message was already delivered. Do not send it again. If it explicitly acknowledged concrete unfinished work, continue that work and send one final outcome afterward; otherwise pace/done.", receipt.MessageID)
+		}
+		if receipt.MessageID > 0 {
+			return fmt.Sprintf("delivered message_id=%d. This exact visible message is complete. Do not repeat it after this result. If it explicitly acknowledged concrete unfinished work, continue that work and send one final outcome afterward; otherwise it satisfies the current chat turn and you should pace/done.", receipt.MessageID)
+		}
+		return "delivered. This exact visible message is complete. Do not repeat it after this result. If it explicitly acknowledged concrete unfinished work, continue that work and send one final outcome afterward; otherwise it satisfies the current chat turn and you should pace/done."
 	}
 
 	resolveArtifactChannel := func(channel string) string {
@@ -644,7 +686,7 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 	sendApproval := func(channel string) any {
 		title, _ := call.Arguments["title"].(string)
 		body, _ := call.Arguments["body"].(string)
-		ch := s.registry.Get(resolveArtifactChannel(channel))
+		ch := scopeChannel(s.registry.Get(resolveArtifactChannel(channel)))
 		if ch == nil {
 			return textToolError(fmt.Sprintf("channel %q not found", channel))
 		}
@@ -669,7 +711,7 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		title, _ := call.Arguments["title"].(string)
 		summary, _ := call.Arguments["summary"].(string)
 		period, _ := call.Arguments["period"].(string)
-		ch := s.registry.Get(resolveArtifactChannel(channel))
+		ch := scopeChannel(s.registry.Get(resolveArtifactChannel(channel)))
 		if ch == nil {
 			return textToolError(fmt.Sprintf("channel %q not found", channel))
 		}
@@ -705,7 +747,7 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		if severity == "" {
 			severity = "info"
 		}
-		ch := s.registry.Get(resolveArtifactChannel(channel))
+		ch := scopeChannel(s.registry.Get(resolveArtifactChannel(channel)))
 		if ch == nil {
 			return textToolError(fmt.Sprintf("channel %q not found", channel))
 		}
@@ -748,7 +790,7 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		if value, ok := call.Arguments["progress"].(float64); ok {
 			progress = &value
 		}
-		ch := s.registry.Get(resolveArtifactChannel(channel))
+		ch := scopeChannel(s.registry.Get(resolveArtifactChannel(channel)))
 		if ch == nil {
 			return textToolError(fmt.Sprintf("channel %q not found", channel))
 		}
@@ -780,10 +822,11 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		switch kind {
 		case "message":
 			text, _ := call.Arguments["text"].(string)
-			if errResult := sendVisibleMessage(text, channel, extractComponents(call.Arguments["components"])); errResult != nil {
+			receipt, errResult := sendVisibleMessage(text, channel, extractComponents(call.Arguments["components"]))
+			if errResult != nil {
 				return errResult, nil
 			}
-			return textResult("delivered. Continue promised work, schedule with pace if needed, or pace/done if the request is complete."), nil
+			return textResult(deliveryResultText(receipt)), nil
 		case "status":
 			return sendStatus(channel), nil
 		case "approval":
@@ -842,10 +885,11 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		// alongside the text. Otherwise fall back to plain Send so
 		// channels without rich rendering still get the text.
 		components := extractComponents(call.Arguments["components"])
-		if errResult := sendVisibleMessage(text, channel, components); errResult != nil {
+		receipt, errResult := sendVisibleMessage(text, channel, components)
+		if errResult != nil {
 			return errResult, nil
 		}
-		return textResult("delivered. Continue promised work, schedule with pace if needed, or pace/done if the request is complete."), nil
+		return textResult(deliveryResultText(receipt)), nil
 
 	case "request_approval":
 		channel, _ := call.Arguments["channel"].(string)

@@ -1,0 +1,161 @@
+{
+  "slug": "treatstock",
+  "name": "Treatstock",
+  "description": "Treatstock 3D printing marketplace API for model upload, regional price comparison, material/color discovery, printable-pack configuration, and production ordering.",
+  "logo": "https://www.google.com/s2/favicons?domain=treatstock.com&sz=128",
+  "categories": ["3d-printing", "manufacturing", "marketplace", "price-comparison", "treatstock"],
+  "base_url": "https://www.treatstock.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": { "Content-Type": "application/x-www-form-urlencoded" },
+    "query_params": { "private-key": "{{private_key}}" },
+    "credential_fields": [
+      {
+        "name": "private_key",
+        "label": "Private API Token",
+        "type": "password",
+        "description": "Treatstock private API token from the API partner settings. Do not use the restricted public-upload key for account, pricing, or order operations."
+      }
+    ]
+  },
+  "health_check": { "tool": "list_material_group_colors" },
+  "tools": [
+    {
+      "name": "create_printable_pack",
+      "description": "Create a printable pack by uploading one or more STL/PLY/3MF files or by giving public model URLs. Set a country or IP when prices are needed. Returned pack links are documented as valid for 24 hours.",
+      "method": "POST",
+      "path": "/api/v2/printable-packs",
+      "multipart_form": {
+        "file_fields": { "files": "files[]" },
+        "field_names": ["files-urls[]", "location[country]", "location[ip]", "description"],
+        "repeat_fields": ["files-urls[]"]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Model files as runtime binary envelopes, base64 strings, data URLs, or raw strings.",
+            "items": { "type": "string" }
+          },
+          "filename": { "type": "string", "description": "Filename used for one file; multiple files receive stable numbered names." },
+          "files-urls[]": { "type": "array", "minItems": 1, "description": "Publicly downloadable model URLs; emitted as repeated files-urls[] fields.", "items": { "type": "string", "format": "uri" } },
+          "location[country]": { "type": "string", "pattern": "^[A-Z]{2}$", "description": "ISO 3166-1 alpha-2 destination country used for pricing." },
+          "location[ip]": { "type": "string", "description": "Destination IP alternative used by Treatstock for regional pricing." },
+          "description": { "type": "string" }
+        },
+        "anyOf": [
+          { "required": ["files"] },
+          { "required": ["files-urls[]"] }
+        ]
+      }
+    },
+    {
+      "name": "get_printable_pack",
+      "description": "Get uploaded-part ids, dimensions, quantities, scale unit, minimum PLA price, and processing state for a printable pack. If Treatstock reports not_calculated_yet, poll with bounded backoff.",
+      "method": "GET",
+      "path": "/api/v2/printable-packs/{packId}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "packId": { "type": "integer", "description": "Printable pack id returned by create_printable_pack." } },
+        "required": ["packId"]
+      }
+    },
+    {
+      "name": "update_printable_pack",
+      "description": "Change the pack scale unit and/or quantities before retrieving prices. qty is keyed by the part uid returned by get_printable_pack, for example {\"MP:1815155\": 7}.",
+      "method": "PUT",
+      "path": "/api/v2/printable-packs/{packId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "packId": { "type": "integer" },
+          "scaleUnit": { "type": "string", "enum": ["mm", "cm", "in"] },
+          "qty": { "type": "object", "description": "Map of Treatstock part uid to positive integer quantity.", "additionalProperties": { "type": "integer", "minimum": 1 } }
+        },
+        "required": ["packId"],
+        "anyOf": [
+          { "required": ["scaleUnit"] },
+          { "required": ["qty"] }
+        ]
+      }
+    },
+    {
+      "name": "list_printing_options",
+      "description": "Compare provider prices and checkout URLs for a printable pack. A destination country/IP must have been supplied on upload or in this call. If calculation is pending, retry with bounded backoff.",
+      "method": "GET",
+      "path": "/api/v2/printable-pack-costs/",
+      "query_params": ["printablePackId", "location[country]", "location[ip]", "printerMaterialGroup", "printerColor"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "printablePackId": { "type": "integer" },
+          "location[country]": { "type": "string", "pattern": "^[A-Z]{2}$" },
+          "location[ip]": { "type": "string" },
+          "printerMaterialGroup": { "type": "string", "description": "Material-group code from list_material_group_colors." },
+          "printerColor": { "type": "string", "description": "Color code from list_material_group_colors." }
+        },
+        "required": ["printablePackId"]
+      }
+    },
+    {
+      "name": "list_material_group_colors",
+      "description": "List Treatstock printer material-group and color codes accepted by pricing and ordering.",
+      "method": "GET",
+      "path": "/api/v2/material-group-colors/",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "place_order",
+      "description": "Place a billable Treatstock production order using a providerId from list_printing_options. Verify the pack, provider, total, material/color, quantities, email, and shipping address before calling. If the response is ambiguous, inspect Treatstock before retrying.",
+      "method": "POST",
+      "path": "/api/v2/place-order/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "printablePackId": { "type": "integer" },
+          "providerId": { "type": "integer", "description": "Provider id returned by list_printing_options." },
+          "comment": { "type": "string" },
+          "location": {
+            "type": "object",
+            "properties": {
+              "email": { "type": "string", "format": "email" },
+              "company": { "type": "string" }
+            },
+            "required": ["email"]
+          },
+          "shippingAddress": {
+            "type": "object",
+            "properties": {
+              "country": { "type": "string", "pattern": "^[A-Z]{2}$" },
+              "zip": { "type": "string" },
+              "city": { "type": "string" },
+              "state": { "type": "string" },
+              "street": { "type": "string" },
+              "firstName": { "type": "string" },
+              "lastName": { "type": "string" }
+            },
+            "required": ["country", "zip", "city", "street", "firstName", "lastName"]
+          },
+          "modelTextureInfo": {
+            "type": "object",
+            "properties": {
+              "isOneMaterialForKit": { "type": "integer", "enum": [0, 1], "default": 1 },
+              "modelTexture": {
+                "type": "object",
+                "properties": {
+                  "color": { "type": "string" },
+                  "materialGroup": { "type": "string" }
+                },
+                "required": ["color", "materialGroup"]
+              }
+            },
+            "required": ["isOneMaterialForKit", "modelTexture"]
+          }
+        },
+        "required": ["printablePackId", "providerId", "location", "shippingAddress", "modelTextureInfo"]
+      }
+    }
+  ]
+}

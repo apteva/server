@@ -170,6 +170,26 @@ func makeSendEvent(port int, coreKey string) func(string, string) {
 	}
 }
 
+// coreHTTPError preserves the status and bounded response body from a core
+// request so callers can make narrow recovery decisions without parsing the
+// formatted Error string.
+type coreHTTPError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *coreHTTPError) Error() string {
+	return fmt.Sprintf("core /event returned %d: %s", e.StatusCode, e.Body)
+}
+
+// ThreadMissing implements channelchat's optional typed recovery contract.
+// Older core builds used a plain-text 404; keep that compatibility here at the
+// HTTP boundary rather than spreading string matching into delivery logic.
+func (e *coreHTTPError) ThreadMissing() bool {
+	body := strings.ToLower(strings.TrimSpace(e.Body))
+	return e.StatusCode == http.StatusNotFound && strings.Contains(body, "thread") && strings.Contains(body, "not found")
+}
+
 func postCoreEventAny(port int, coreKey string, message any, threadID string) error {
 	body, _ := json.Marshal(map[string]any{"message": message, "thread_id": threadID})
 	req, err := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/event", port), strings.NewReader(string(body)))
@@ -187,7 +207,7 @@ func postCoreEventAny(port int, coreKey string, message any, threadID string) er
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("core /event returned %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		return &coreHTTPError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(b))}
 	}
 	return nil
 }

@@ -1374,6 +1374,9 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 
 	// Build headers
 	headers := buildHeaders(app.Auth.Headers, credentials)
+	for _, key := range tool.OmitAuthHeaders {
+		delete(headers, key)
+	}
 	for key, tmpl := range tool.Headers {
 		headers[key] = resolveTemplate(tmpl, credentials)
 	}

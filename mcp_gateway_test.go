@@ -163,6 +163,8 @@ func TestGatewayAppToolsUseAppsAPI(t *testing.T) {
 	s.store.db.Exec(`INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (1, 'a@b.c', 'x')`)
 	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-a', 1, 'Project A', '')`)
 	s.store.db.Exec(`INSERT OR IGNORE INTO project_members (project_id, user_id, role, added_by) VALUES ('proj-a', 1, 'owner', 1)`)
+	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-b', 1, 'Project B', '')`)
+	s.store.db.Exec(`INSERT OR IGNORE INTO project_members (project_id, user_id, role, added_by) VALUES ('proj-b', 1, 'owner', 1)`)
 	ts := newGatewayAppAPITestServer(s)
 	defer ts.Close()
 
@@ -227,13 +229,43 @@ provides:
 		t.Fatalf("apps_list did not include project install: %#v", listed)
 	}
 
+	if _, err := handleGatewayAppTool("apps_uninstall", map[string]any{
+		"install_id": strconv.FormatInt(installID, 10),
+		"project_id": "proj-b",
+	}, "", client); err == nil {
+		t.Fatal("expected cross-project apps_uninstall to fail")
+	}
+	var stillInstalled int
+	if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_installs WHERE id = ?`, installID).Scan(&stillInstalled); err != nil {
+		t.Fatalf("verify rejected uninstall: %v", err)
+	}
+	if stillInstalled != 1 {
+		t.Fatalf("cross-project uninstall deleted install %d", installID)
+	}
+
 	uninstalled, err := handleGatewayAppTool("apps_uninstall", map[string]any{
 		"install_id": strconv.FormatInt(installID, 10),
+		"project_id": "proj-a",
 	}, "", client)
 	if err != nil {
 		t.Fatalf("apps_uninstall returned error: %v", err)
 	}
-	if obj, ok := uninstalled.(map[string]any); !ok || obj["status"] != "uninstalled" {
+	obj, ok := uninstalled.(map[string]any)
+	if !ok {
+		t.Fatalf("expected uninstall receipt object, got %#v", uninstalled)
+	}
+	for key, want := range map[string]any{
+		"status":       "uninstalled",
+		"app_name":     "tiny-bills",
+		"display_name": "Tiny Bills",
+		"project_id":   "proj-a",
+		"version":      "0.1.0",
+	} {
+		if obj[key] != want {
+			t.Fatalf("uninstall receipt %s = %#v, want %#v; receipt=%#v", key, obj[key], want, obj)
+		}
+	}
+	if int64(obj["install_id"].(float64)) != installID || obj["app_id"].(float64) <= 0 {
 		t.Fatalf("unexpected uninstall result: %#v", uninstalled)
 	}
 }

@@ -18,6 +18,7 @@
       }
     ]
   },
+  "health_check": { "tool": "list_technologies" },
   "tools": [
     {
       "name": "upload_model",
@@ -185,7 +186,7 @@
     },
     {
       "name": "delete_quotation",
-      "description": "Delete an active quotation that has not already been ordered.",
+      "description": "Delete an active quotation that has not been ordered. This is destructive; inspect it first and do not retry after a successful deletion.",
       "method": "DELETE",
       "path": "/v1/quotations/{quotationId}",
       "input_schema": {
@@ -243,7 +244,7 @@
     },
     {
       "name": "place_order",
-      "description": "Place an order for a quotation. Invoice ordering must be enabled on the Materialise account.",
+      "description": "Place a billable order for a fully configured quotation. Invoice ordering must be enabled on the Materialise account; inspect quotation totals, items, addresses, currency, and service before calling, and check get_quotation after an ambiguous response before retrying.",
       "method": "POST",
       "path": "/v1/quotations/{quotationId}/order",
       "input_schema": {

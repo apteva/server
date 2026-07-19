@@ -12,7 +12,7 @@ import (
 const (
 	channelsCapabilityMemoryID        = "system_channels_v1"
 	channelsCapabilityTag             = "capability:channels"
-	channelsCapabilityVersionTag      = "capability-version:channels:v6"
+	channelsCapabilityVersionTag      = "capability-version:channels:v11"
 	channelsCapabilityHashTagPrefix   = "capability-hash:"
 	channelsCapabilitySystemTag       = "system"
 	channelsCapabilityMemoryReason    = "channels capability sync"
@@ -28,12 +28,26 @@ The Apteva channel is the durable internal operator chat. Messages and Inbox art
 
 ## Tools
 
-- ` + "`channels_send(channel, text, components?)`" + ` sends one ordinary visible message. Thoughts and plain assistant output are invisible. Use it for conversation, immediate progress, and final outcomes.
+- ` + "`channels_send(channel, text, components?)`" + ` sends one ordinary visible message. Thoughts and plain assistant output are invisible. Use it for direct conversation, a brief initial acknowledgement, requested progress, and requested final outcomes.
 - ` + "`channels_publish(kind, title, content, ...)`" + ` creates one durable Apteva Inbox artifact. kind is approval, report, or alert. title and content are required for every publication.
 - ` + "`channels_set_status(title, state, detail?, progress?, next?, next_at?)`" + ` replaces the single current monitoring status. title and state are required. It is not chat and never appears in the Inbox.
 - ` + "`channels_list_channels()`" + ` lists available communication targets. Use it instead of a send call to inspect availability.
 
 Build every tool call once with all required fields. Never emit placeholder, preflight, partial, or duplicate calls. If one call in a parallel batch fails, retry only that failed call.
+
+A successful ` + "`channels_send`" + ` result means that exact visible message is already delivered. The result wake is not a request to repeat it. If the message was a brief acknowledgement that explicitly promised concrete unfinished work, continue that work and send exactly one final outcome afterward. Otherwise the message satisfies the current chat turn and you should call ` + "`pace`" + ` or ` + "`done`" + `.
+
+## Ordinary Chat
+
+Use ` + "`channels_send`" + ` for a direct ` + "`[chat]`" + ` turn and for the later outcome of work explicitly requested in that chat. The reply remains valid if the operator disconnects before the work finishes because Apteva chat is durable.
+
+Internal Apteva chat replies are conversation-scoped. If your current core thread is main or any non-conversation worker, do not call ` + "`channels_send(channel=\"current\"|\"apteva\", ...)`" + `: use core ` + "`send(id=\"<originating chat thread>\", message=\"...\")`" + ` to return the result, and let that conversation send the visible reply. Main may still use explicitly addressed external channels and the separate status/publication tools.
+
+For a direct ` + "`[chat]`" + ` turn that requires tools, including dashboard conversation threads, prefer a short visible acknowledgement before beginning tool work so the operator immediately knows the concrete next action. This is strong guidance, not a hard requirement: skip it when the complete answer can be sent immediately or when an acknowledgement would be empty or repetitive. When you do acknowledge, wait for that send to succeed, then perform the promised tool work; never send the acknowledgement in parallel with action tools. After the work, send exactly one final outcome. An earlier acknowledgement never replaces that final. A tool-work turn therefore has either one complete final message or two intentional messages—acknowledgement then final—and never more. For durable work that must be handed to main with ` + "`send`" + ` so it survives the conversation, prefer the acknowledgement before the handoff. If it was skipped, at most one brief acknowledgement may follow the successful handoff receipt. Never acknowledge both before and after the handoff. The main receipt confirms delivery only, not completion. After main replies, send exactly one final outcome and no additional progress message.
+
+Outside a direct ` + "`[chat]`" + ` request, send an ordinary message only when the operator or directive explicitly asks for a chat message at that time. Do not use ordinary chat for autonomous or scheduled checks, routine monitoring, unchanged or no-op results, idle updates, repeated progress, connect/disconnect events, or internal/system events. A phrase such as "send a status update" or "update the status" means ` + "`channels_set_status`" + ` unless it explicitly asks for a chat message.
+
+When recurring autonomous work finds no meaningful change, update ` + "`channels_set_status`" + ` at most once if the completed work qualifies for status, then call ` + "`pace`" + ` for the next due check and remain silent. ` + "`next_at`" + ` is display metadata and does not schedule the next wake. Use ` + "`channels_publish`" + ` only when the result genuinely qualifies as an approval, report, or alert.
 
 ## Status
 
@@ -71,9 +85,11 @@ Follow an explicit operator request or directive when it defines report timing. 
 
 Every direct ` + "`[chat]`" + ` turn requires at least one successful ` + "`channels_send`" + ` before you call pace, finish, or otherwise go idle. The turn is incomplete until its user-visible answer is sent. Thoughts and plain assistant output do not count. Reply visibly even when you only need to ask a clarifying question, report a read-only lookup, explain that you cannot act, or say no action was needed.
 
-After any tool result used for the request, including a read-only lookup, send the outcome, clarification, blocker, or next question through ` + "`channels_send`" + ` before pacing. Never leave the user-facing answer only in thoughts.
+After any non-channel tool result used for the request, including a read-only lookup, send the outcome, clarification, blocker, or next question through ` + "`channels_send`" + ` before pacing. An earlier acknowledgement does not replace this final outcome. A successful ` + "`channels_send`" + ` result is the delivery receipt for the exact message already sent, not a new outcome to report. Never repeat that message. Never leave the user-facing answer only in thoughts.
 
-The Apteva chat is durable, so use ` + "`channels_send`" + ` for a requested outcome even if the operator disconnected before work finished. Do not turn offline completion into a report automatically. Do not create reports or alerts for normal live progress unless asked or genuinely important. If a live request creates an approval, report, or alert, also send a short chat confirmation.`
+For a direct ` + "`[chat]`" + ` turn, never call ` + "`pace`" + ` or ` + "`done`" + ` while a visible reply is still owed. After a lookup or other tool result, the next action must be the required ` + "`channels_send`" + ` outcome—not pacing, another idle action, or invisible plain output.
+
+The Apteva chat is durable, so use ` + "`channels_send`" + ` for a requested outcome even if the operator disconnected before work finished. Offline presence alone does not suppress a reply to requested work, but it does not justify unsolicited chat from autonomous work. Do not turn offline completion into a report automatically. Do not create reports or alerts for normal live progress unless asked or genuinely important. If a live request creates an approval, report, or alert, also send a short chat confirmation.`
 }
 
 func channelsCapabilityPayload() pushPayload {

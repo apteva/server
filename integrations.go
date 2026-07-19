@@ -418,7 +418,11 @@ type AppToolDef struct {
 	BaseURL     string            `json:"base_url,omitempty"`
 	Path        string            `json:"path"`
 	Headers     map[string]string `json:"headers,omitempty"`
-	InputSchema map[string]any    `json:"input_schema"`
+	// OmitAuthHeaders removes selected app-level auth headers for this tool.
+	// Presigned upload URLs authenticate in their query string and reject a
+	// forwarded provider Authorization header.
+	OmitAuthHeaders []string       `json:"omit_auth_headers,omitempty"`
+	InputSchema     map[string]any `json:"input_schema"`
 	// Names of input fields that should be sent as URL query string
 	// parameters instead of being folded into the request body. Required
 	// for APIs that mix query+body on POST/PUT/PATCH (e.g. Google Sheets'

@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -13,13 +16,178 @@ import (
 	"github.com/apteva/server/apps/framework"
 )
 
+func TestServerResolverUpdateThreadPreservesScopedMCPTools(t *testing.T) {
+	var got map[string]any
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/threads/chat-conv-1" {
+			t.Fatalf("request=%s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode update body: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+	}))
+	defer core.Close()
+
+	parsed, err := url.Parse(core.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portText, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resolver := &serverResolver{}
+	if err := resolver.UpdateThread(framework.InstanceInfo{Port: port}, "chat-conv-1", "conversation suffix"); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := got["tools"]; exists {
+		t.Fatalf("directive-only update replaced scoped MCP tool allowlist: %v", got)
+	}
+	if got["directive_suffix"] != "conversation suffix" || got["conversation"] != true {
+		t.Fatalf("update body=%v", got)
+	}
+}
+
+func TestServerResolverListsLiveCoreThreads(t *testing.T) {
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/threads" {
+			t.Fatalf("request=%s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode([]map[string]string{
+			{"id": "main"},
+			{"id": "chat-conv-live"},
+		})
+	}))
+	defer core.Close()
+	parsed, err := url.Parse(core.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portText, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := (&serverResolver{}).ListThreadIDs(framework.InstanceInfo{Port: port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(ids, ",") != "main,chat-conv-live" {
+		t.Fatalf("live thread ids=%v", ids)
+	}
+}
+
+func TestServerResolverReconcilesDetachedCoreBeforeManagerReattach(t *testing.T) {
+	var deleted string
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer persisted-core-key" {
+			t.Fatalf("authorization=%q", r.Header.Get("Authorization"))
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/threads":
+			_ = json.NewEncoder(w).Encode([]map[string]string{{"id": "main"}, {"id": "chat-conv-orphan"}})
+		case r.Method == http.MethodDelete && r.URL.Path == "/threads/chat-conv-orphan":
+			deleted = "chat-conv-orphan"
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "killed"})
+		default:
+			http.Error(w, "unexpected request", http.StatusNotFound)
+		}
+	}))
+	defer core.Close()
+	parsed, err := url.Parse(core.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portText, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := newTestServer(t)
+	registerAndLogin(t, s)
+	agent, err := s.store.CreateAgent(1, "detached-core", "directive", "autonomous", `{}`, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent.Status = "running"
+	agent.Port = port
+	agent.CoreAPIKey = "persisted-core-key"
+	if err := s.store.UpdateAgent(agent); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.writeStoppedConfigAtomic(agent.ID, func(cfg map[string]any) error {
+		cfg["threads"] = []any{map[string]any{"id": "chat-conv-orphan"}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resolver := &serverResolver{srv: s}
+	bootInfo := framework.InstanceInfo{ID: agent.ID, UserID: agent.UserID} // manager has no port yet
+	ids, err := resolver.ListThreadIDs(bootInfo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(ids, ",") != "chat-conv-orphan" {
+		t.Fatalf("detached live thread ids=%v", ids)
+	}
+	if err := resolver.KillThread(bootInfo, "chat-conv-orphan"); err != nil {
+		t.Fatal(err)
+	}
+	if deleted != "chat-conv-orphan" {
+		t.Fatalf("detached Core delete=%q", deleted)
+	}
+}
+
+func TestServerResolverChatAgentIDsIncludePlatformHelper(t *testing.T) {
+	store := newTestStore(t)
+	user, err := store.CreateUser("helper-chat-summary@test", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	regular, err := store.CreateAgent(user.ID, "Regular", "directive", "autonomous", "{}", "project-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	helper, err := store.GetOrCreatePlatformHelper(user.ID, platformHelperSystemPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resolver := &serverResolver{srv: &Server{store: store}}
+	ids, err := resolver.InstanceIDsForUser(user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		got[id] = true
+	}
+	if !got[regular.ID] || !got[helper.ID] || len(got) != 2 {
+		t.Fatalf("chat agent ids=%v, want regular=%d and helper=%d", ids, regular.ID, helper.ID)
+	}
+}
+
 // Smoke-test the channel-chat app end-to-end through HTTP:
 //  1. framework loads, manifest lists channel-chat
-//  2. default chat is auto-created on instance attach
+//  2. no internal default row is exposed; an explicit conv-* chat is created
 //  3. POST /messages writes a user row and returns it
 //  4. GET  /messages reads it back
-//  5. agent-side Send writes an agent row
-//  6. SSE stream delivers new messages
+//  5. a thread-scoped agent Send writes back to that same conversation
+//  6. main-channel approvals/reports remain available through the Inbox
 func TestChannelChatApp_EndToEnd(t *testing.T) {
 	s := newTestServer(t)
 	user := mkUser(t, s, "chat-test@test")
@@ -100,7 +268,8 @@ func TestChannelChatApp_EndToEnd(t *testing.T) {
 		t.Fatal("channel-chat missing from manifest")
 	}
 
-	// 2. Default chat auto-created on instance attach.
+	// 2. Internal default-* storage is not a user chat. Creating a chat is an
+	// explicit action and returns a normal deletable conv-* conversation.
 	r = authed("GET", "/apps/channel-chat/chats?instance_id="+itoa64(inst.ID), "")
 	if r.StatusCode != 200 {
 		t.Fatalf("list chats status %d", r.StatusCode)
@@ -108,12 +277,20 @@ func TestChannelChatApp_EndToEnd(t *testing.T) {
 	var chats []map[string]any
 	json.NewDecoder(r.Body).Decode(&chats)
 	r.Body.Close()
-	if len(chats) != 1 {
-		t.Fatalf("expected 1 default chat, got %d", len(chats))
+	if len(chats) != 0 {
+		t.Fatalf("expected no implicit conversations, got %d: %#v", len(chats), chats)
 	}
-	chatID, _ := chats[0]["id"].(string)
-	if chatID == "" {
-		t.Fatal("chat id empty")
+	r = authed("POST", "/apps/channel-chat/chats", `{"agent_id":`+itoa64(inst.ID)+`}`)
+	if r.StatusCode != http.StatusOK {
+		body, _ := readAll(r)
+		t.Fatalf("create chat status=%d body=%s", r.StatusCode, body)
+	}
+	var createdChat map[string]any
+	json.NewDecoder(r.Body).Decode(&createdChat)
+	r.Body.Close()
+	chatID, _ := createdChat["id"].(string)
+	if !strings.HasPrefix(chatID, "conv-") {
+		t.Fatalf("explicit chat id=%q, want conv-*", chatID)
 	}
 
 	// 3. POST user message with a tiny persisted image attachment.
@@ -179,9 +356,33 @@ func TestChannelChatApp_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("factory.Build: %v", err)
 	}
-	if err := ch.Send("agent reply here"); err != nil {
+	threadID := "chat-" + chatID
+	deadline := time.Now().Add(time.Second)
+	for {
+		var persistedThreadID string
+		_ = s.store.db.QueryRow(`SELECT thread_id FROM channel_chat_chats WHERE id=?`, chatID).Scan(&persistedThreadID)
+		if persistedThreadID == threadID {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("conversation thread was not persisted: got %q want %q", persistedThreadID, threadID)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	scoper, ok := ch.(framework.ConversationScopedChannel)
+	if !ok {
+		t.Fatal("channel-chat should implement ConversationScopedChannel")
+	}
+	conversationChannel := scoper.ForConversationContext(threadID)
+	if conversationChannel == nil {
+		t.Fatalf("conversation channel did not resolve thread %q", threadID)
+	}
+	if err := conversationChannel.Send("agent reply here"); err != nil {
 		t.Fatalf("channel.Send: %v", err)
 	}
+
+	// 6. Main remains the durable autonomous/control-plane context. Its
+	// structured artifacts use the internal inbox sink, not the conversation.
 	approvalCh, ok := ch.(framework.ApprovalRequester)
 	if !ok {
 		t.Fatal("channel-chat should implement ApprovalRequester")
@@ -193,7 +394,8 @@ func TestChannelChatApp_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RequestApproval: %v", err)
 	}
-	if approval.MessageID == 0 || approval.ChatID != chatID || approval.Status != "pending" {
+	internalChatID := "default-" + itoa64(inst.ID)
+	if approval.MessageID == 0 || approval.ChatID != internalChatID || approval.Status != "pending" {
 		t.Fatalf("approval result wrong: %#v", approval)
 	}
 	reportCh, ok := ch.(framework.ReportSender)
@@ -212,7 +414,7 @@ func TestChannelChatApp_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SendReport: %v", err)
 	}
-	if report.MessageID == 0 || report.ChatID != chatID || report.Status != "sent" {
+	if report.MessageID == 0 || report.ChatID != internalChatID || report.Status != "sent" {
 		t.Fatalf("report result wrong: %#v", report)
 	}
 
@@ -336,7 +538,38 @@ func TestChannelChatSSEDeliversStreamingFrameAndFinalMessage(t *testing.T) {
 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	chatID := "default-" + itoa64(inst.ID)
+	createReq, _ := http.NewRequest(http.MethodPost, srv.URL+"/apps/channel-chat/chats", strings.NewReader(`{"agent_id":`+itoa64(inst.ID)+`}`))
+	createReq.Header.Set("Authorization", "Bearer "+apiKey)
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("create conversation: %v", err)
+	}
+	if createResp.StatusCode != http.StatusOK {
+		body, _ := readAll(createResp)
+		t.Fatalf("create conversation status=%d body=%s", createResp.StatusCode, body)
+	}
+	var createdChat map[string]any
+	if err := json.NewDecoder(createResp.Body).Decode(&createdChat); err != nil {
+		t.Fatalf("decode conversation: %v", err)
+	}
+	createResp.Body.Close()
+	chatID, _ := createdChat["id"].(string)
+	if !strings.HasPrefix(chatID, "conv-") {
+		t.Fatalf("created chat id=%q, want conv-*", chatID)
+	}
+	threadID := "chat-" + chatID
+	if _, err := s.store.db.Exec(`UPDATE channel_chat_chats SET thread_id=? WHERE id=?`, threadID, chatID); err != nil {
+		t.Fatalf("persist conversation thread: %v", err)
+	}
+	scoper, ok := channel.(framework.ConversationScopedChannel)
+	if !ok {
+		t.Fatal("channel-chat should implement ConversationScopedChannel")
+	}
+	conversationChannel := scoper.ForConversationContext(threadID)
+	if conversationChannel == nil {
+		t.Fatalf("conversation channel did not resolve %q", threadID)
+	}
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/apps/channel-chat/stream?chat_id="+chatID+"&since=0", nil)
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	resp, err := http.DefaultClient.Do(req)
@@ -379,7 +612,7 @@ func TestChannelChatSSEDeliversStreamingFrameAndFinalMessage(t *testing.T) {
 	liveBody, _ := json.Marshal([]TelemetryEvent{{
 		ID:       "live-sse-1",
 		AgentID:  inst.ID,
-		ThreadID: "main",
+		ThreadID: threadID,
 		Type:     "llm.tool_chunk",
 		Time:     time.Now(),
 		Data:     chunkData,
@@ -395,7 +628,7 @@ func TestChannelChatSSEDeliversStreamingFrameAndFinalMessage(t *testing.T) {
 	if liveResp.StatusCode != http.StatusOK {
 		t.Fatalf("live telemetry status=%d", liveResp.StatusCode)
 	}
-	if err := channel.Send("Hello in production"); err != nil {
+	if err := conversationChannel.Send("Hello in production"); err != nil {
 		t.Fatalf("channel send: %v", err)
 	}
 

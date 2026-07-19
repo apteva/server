@@ -15,7 +15,7 @@ package main
 //     was bespoke. This bus generalises it so every app gets the
 //     same shape via ctx.Emit() with no per-app server code.
 //
-// Two subscription kinds:
+// Four subscription kinds:
 //
 //   - Per-project (lanes map, keyed by busKey{app, projectID} with
 //     projectID always non-empty). Project-scoped dashboard tabs +
@@ -25,6 +25,13 @@ package main
 //     want every project's events for one app attach here. Each
 //     wildcard has its own seq counter + ring buffer so reconnect-
 //     with-since works independently of any per-project lane.
+//
+//   - Project-wide (projectAll map, keyed by project). Dashboard tabs
+//     that render several apps attach here, then filter by App in the
+//     browser. This keeps the whole project on one HTTP connection.
+//
+//   - Global (allLane). Trusted global sidecars can consume every app
+//     and project from the existing _all firehose.
 //
 // Publish writes to the (app, project) lane (when projectID is set)
 // AND copies the event onto the wildcard lane with the wildcard's
@@ -96,18 +103,20 @@ func newBusLane() *busLane {
 
 // AppEventBus — top-level bus, one per server.
 type AppEventBus struct {
-	mu        sync.Mutex
-	lanes     map[busKey]*busLane // (app, project) — project ALWAYS non-empty
-	wildcards map[string]*busLane // keyed by app — cross-project subscribers
-	allLane   *busLane            // every app's events — the _all firehose
-	nextID    atomic.Uint64
+	mu         sync.Mutex
+	lanes      map[busKey]*busLane // (app, project) — project ALWAYS non-empty
+	wildcards  map[string]*busLane // keyed by app — cross-project subscribers
+	projectAll map[string]*busLane // keyed by project — every app in one project
+	allLane    *busLane            // every app's events — the global _all firehose
+	nextID     atomic.Uint64
 }
 
 func NewAppEventBus() *AppEventBus {
 	return &AppEventBus{
-		lanes:     make(map[busKey]*busLane),
-		wildcards: make(map[string]*busLane),
-		allLane:   newBusLane(),
+		lanes:      make(map[busKey]*busLane),
+		wildcards:  make(map[string]*busLane),
+		projectAll: make(map[string]*busLane),
+		allLane:    newBusLane(),
 	}
 }
 
@@ -134,6 +143,20 @@ func (b *AppEventBus) wildcardFor(app string) *busLane {
 	if !ok {
 		l = newBusLane()
 		b.wildcards[app] = l
+	}
+	return l
+}
+
+// projectAllFor returns (and lazily creates) the all-apps lane for one
+// project. It has its own sequence and replay ring because events from
+// different apps must share one ordered cursor on the multiplexed SSE.
+func (b *AppEventBus) projectAllFor(projectID string) *busLane {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	l, ok := b.projectAll[projectID]
+	if !ok {
+		l = newBusLane()
+		b.projectAll[projectID] = l
 	}
 	return l
 }
@@ -201,12 +224,17 @@ func (b *AppEventBus) Publish(app, projectID string, installID int64, topic stri
 		}
 	}
 
+	var projectAllDelivered, projectAllDropped, projectAllSubs int
+	if projectID != "" {
+		projectAllDelivered, projectAllDropped, projectAllSubs = b.publishProjectAll(projectID, base)
+	}
 	wildcardDelivered, wildcardDropped, wildcardSubs := b.publishWildcard(app, base)
 	allDelivered, allDropped, allSubs := b.publishAll(base)
 
-	log.Printf("[APPBUS] publish app=%s project=%s topic=%s install=%d project_subs=%d project_delivered=%d project_dropped=%d wildcard_subs=%d wildcard_delivered=%d wildcard_dropped=%d all_subs=%d all_delivered=%d all_dropped=%d",
+	log.Printf("[APPBUS] publish app=%s project=%s topic=%s install=%d project_subs=%d project_delivered=%d project_dropped=%d project_all_subs=%d project_all_delivered=%d project_all_dropped=%d wildcard_subs=%d wildcard_delivered=%d wildcard_dropped=%d all_subs=%d all_delivered=%d all_dropped=%d",
 		app, projectID, topic, installID,
 		projectSubs, projectDelivered, projectDropped,
+		projectAllSubs, projectAllDelivered, projectAllDropped,
 		wildcardSubs, wildcardDelivered, wildcardDropped,
 		allSubs, allDelivered, allDropped)
 
@@ -223,6 +251,37 @@ func (b *AppEventBus) Publish(app, projectID string, installID int64, topic stri
 		return wcLane.ring[idx]
 	}
 	return base
+}
+
+// publishProjectAll appends an event to the all-apps lane for one project.
+// Its sequence is independent from the per-app lane so one SSE cursor can
+// replay an interleaved stream from storage, social, media, and other apps.
+func (b *AppEventBus) publishProjectAll(projectID string, base AppEvent) (delivered, dropped, subCount int) {
+	lane := b.projectAllFor(projectID)
+	lane.mu.Lock()
+	lane.nextSeq++
+	ev := base
+	ev.Seq = lane.nextSeq
+	lane.ring[lane.ringHead] = ev
+	lane.ringHead = (lane.ringHead + 1) % ringCap
+	if lane.ringSize < ringCap {
+		lane.ringSize++
+	}
+	subs := make([]*busSubscriber, 0, len(lane.subs))
+	for _, s := range lane.subs {
+		subs = append(subs, s)
+	}
+	lane.mu.Unlock()
+	for _, s := range subs {
+		select {
+		case s.ch <- ev:
+			delivered++
+		default:
+			dropped++
+		}
+	}
+	subCount = len(subs)
+	return
 }
 
 // publishWildcard appends the event onto the (app, *) wildcard lane
@@ -302,6 +361,9 @@ func (b *AppEventBus) Subscribe(app, projectID string, since uint64) (chan AppEv
 	var lane *busLane
 	var laneTag string
 	switch {
+	case app == allAppsLaneKey && projectID != "":
+		lane = b.projectAllFor(projectID)
+		laneTag = "project-all"
 	case app == allAppsLaneKey:
 		lane = b.allLane
 		laneTag = "all"

@@ -6,7 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	sdk "github.com/apteva/app-sdk"
@@ -77,5 +80,57 @@ func TestRealtimeResolverForwardsLifecycleContract(t *testing.T) {
 	}
 	if len(requests) != 3 {
 		t.Fatalf("requests = %#v", requests)
+	}
+}
+
+func TestResolverKillThreadRemovesStoppedAgentDefinition(t *testing.T) {
+	s := newTestServer(t)
+	registerAndLogin(t, s)
+	agent, err := s.store.CreateAgent(1, "stopped-chat-agent", "directive", "autonomous", `{}`, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.writeStoppedConfigAtomic(agent.ID, func(cfg map[string]any) error {
+		cfg["threads"] = []any{
+			map[string]any{"id": "chat-conv-delete"},
+			map[string]any{"id": "keep-worker"},
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resolver := &serverResolver{srv: s}
+	before, err := resolver.ListThreadIDs(framework.InstanceInfo{ID: agent.ID, UserID: agent.UserID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(before, ",") != "chat-conv-delete,keep-worker" {
+		t.Fatalf("stopped thread ids before cleanup=%v", before)
+	}
+	if err := resolver.KillThread(framework.InstanceInfo{ID: agent.ID, UserID: agent.UserID}, "chat-conv-delete"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := resolver.ListThreadIDs(framework.InstanceInfo{ID: agent.ID, UserID: agent.UserID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(after, ",") != "keep-worker" {
+		t.Fatalf("stopped thread ids after cleanup=%v", after)
+	}
+	data, err := os.ReadFile(filepath.Join(s.agents.instanceDir(agent.ID), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Threads []struct {
+			ID string `json:"id"`
+		} `json:"threads"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Threads) != 1 || cfg.Threads[0].ID != "keep-worker" {
+		t.Fatalf("threads after stopped cleanup=%+v", cfg.Threads)
 	}
 }

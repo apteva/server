@@ -119,6 +119,44 @@ func TestAppBus_AllLaneReceivesEveryApp(t *testing.T) {
 	}
 }
 
+func TestAppBus_ProjectAllLaneReceivesEveryAppOnlyForProject(t *testing.T) {
+	b := NewAppEventBus()
+	all, _, cancel := b.Subscribe(allAppsLaneKey, "p1", 0)
+	defer cancel()
+
+	b.Publish("storage", "p1", 1, "file.added", json.RawMessage(`{"id":1}`))
+	b.Publish("social", "p1", 2, "post.added", json.RawMessage(`{"id":2}`))
+	b.Publish("storage", "p2", 3, "file.added", json.RawMessage(`{"id":3}`))
+	b.Publish("campaigns", "", 4, "campaign.sent", json.RawMessage(`{"id":4}`))
+
+	got := drainEvents(t, all, 2, 300*time.Millisecond)
+	if len(got) != 2 {
+		t.Fatalf("project _all: expected 2 events, got %d", len(got))
+	}
+	if got[0].App != "storage" || got[1].App != "social" {
+		t.Fatalf("project _all should preserve source apps and order: %+v", got)
+	}
+	if got[0].ProjectID != "p1" || got[1].ProjectID != "p1" {
+		t.Fatalf("project _all leaked another project: %+v", got)
+	}
+	if got[0].Seq != 1 || got[1].Seq != 2 {
+		t.Fatalf("project _all seq must be dense, got %d, %d", got[0].Seq, got[1].Seq)
+	}
+}
+
+func TestAppBus_ProjectAllLaneReplaysInterleavedApps(t *testing.T) {
+	b := NewAppEventBus()
+	b.Publish("storage", "p1", 1, "file.added", json.RawMessage(`{}`))
+	b.Publish("social", "p1", 2, "post.added", json.RawMessage(`{}`))
+	b.Publish("media", "p1", 3, "asset.added", json.RawMessage(`{}`))
+
+	_, replay, cancel := b.Subscribe(allAppsLaneKey, "p1", 1)
+	defer cancel()
+	if len(replay) != 2 || replay[0].App != "social" || replay[0].Seq != 2 || replay[1].App != "media" || replay[1].Seq != 3 {
+		t.Fatalf("unexpected multiplexed replay: %+v", replay)
+	}
+}
+
 // drainEvents reads up to n events off ch within deadline, returning
 // the slice. Used by firehose tests; not chatty in any one test.
 func drainEvents(t *testing.T, ch chan AppEvent, n int, deadline time.Duration) []AppEvent {

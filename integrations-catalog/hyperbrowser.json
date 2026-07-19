@@ -1,205 +1,382 @@
 {
   "slug": "hyperbrowser",
   "name": "Hyperbrowser",
-  "description": "Hyperbrowser cloud browser API for AI agents. Async scrape and crawl jobs, plus full browser session lifecycle for agentic workflows. Returns content as markdown or HTML.",
+  "description": "Cloud browser infrastructure for AI agents with CDP sessions, live view, authenticated profiles, country/state/city proxies, CAPTCHA solving, extensions, downloads, rrweb replay, optional MP4 recording, and web scrape/crawl/extract APIs.",
   "logo": "https://www.google.com/s2/favicons?domain=hyperbrowser.ai&sz=128",
-  "categories": [
-    "browser-automation",
-    "scraping",
-    "crawling",
-    "ai-agents",
-    "headless-browser"
-  ],
-  "base_url": "https://app.hyperbrowser.ai/api",
+  "categories": ["browser-automation", "scraping", "crawling", "ai-agents", "headless-browser"],
+  "base_url": "https://api.hyperbrowser.ai",
   "auth": {
-    "types": [
-      "bearer"
-    ],
+    "types": ["api_key"],
     "headers": {
-      "x-api-key": "{{token}}"
+      "x-api-key": "{{api_key}}",
+      "Content-Type": "application/json"
     },
     "credential_fields": [
       {
-        "name": "token",
+        "name": "api_key",
         "label": "API Key",
-        "description": "Hyperbrowser API key from https://app.hyperbrowser.ai (Settings > API Keys)."
+        "description": "Hyperbrowser API key from the Hyperbrowser dashboard."
       }
     ]
   },
   "tools": [
     {
-      "name": "start_scrape",
-      "description": "Start an async scrape job for a single URL. Returns a jobId; poll get_scrape_job until status is 'completed'. The result includes the page content in the requested formats (markdown, html, links, screenshot).",
+      "name": "fetch",
+      "description": "Fetch and render one webpage synchronously. Returns requested outputs such as markdown, HTML, links, structured JSON, or screenshot without managing a session.",
       "method": "POST",
-      "path": "/scrape",
+      "path": "/api/web/fetch",
+      "timeout_ms": 600000,
       "input_schema": {
         "type": "object",
         "properties": {
-          "url": {
-            "type": "string",
-            "description": "URL to scrape."
-          },
-          "scrapeOptions": {
+          "url": { "type": "string", "format": "uri" },
+          "stealth": { "type": "string", "enum": ["none", "basic", "advanced"], "description": "Optional stealth mode." },
+          "outputs": {
             "type": "object",
-            "description": "Output options. Common fields: formats (array of 'markdown'|'html'|'links'|'screenshot'), onlyMainContent (boolean), waitFor (ms), timeout (ms), excludeTags / includeTags (selector arrays)."
+            "description": "Output configuration.",
+            "properties": {
+              "formats": { "type": "array", "items": { "type": "string", "enum": ["html", "markdown", "links", "screenshot", "json"] } },
+              "onlyMainContent": { "type": "boolean" },
+              "schema": { "type": "object", "description": "JSON Schema used for structured JSON output." }
+            }
           },
-          "sessionOptions": {
+          "browser": { "type": "object", "description": "Browser options such as waitUntil, waitFor, headers, cookies, viewport, and timeout." },
+          "proxy": { "type": "object", "description": "Proxy options including country, state, and city." }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "search",
+      "description": "Search the web and return structured result titles, URLs, and descriptions.",
+      "method": "POST",
+      "path": "/api/web/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "page": { "type": "integer", "minimum": 1 },
+          "maxAgeSeconds": { "type": "integer", "minimum": 0 },
+          "location": { "type": "string" },
+          "filters": {
             "type": "object",
-            "description": "Browser-session settings: useProxy (boolean), solveCaptchas (boolean), useStealth (boolean), profile.id (reuse a saved profile)."
+            "properties": {
+              "site": { "type": "string" },
+              "fileType": { "type": "string" },
+              "dateRange": { "type": "string" }
+            }
           }
         },
-        "required": [
-          "url"
-        ]
+        "required": ["query"]
       }
+    },
+    {
+      "name": "create_scrape_job",
+      "description": "Start an asynchronous single-page scrape. Returns an id; use get_scrape_job_status for a cheap poll or get_scrape_job for status plus result.",
+      "method": "POST",
+      "path": "/api/scrape",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "scrapeOptions": { "type": "object", "description": "Formats, main-content filtering, wait behavior, include/exclude tags, and extraction schema." },
+          "sessionOptions": { "type": "object", "description": "Session options such as useProxy, proxyCountry, solveCaptchas, useStealth, profile, and extensions." }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "get_scrape_job_status",
+      "description": "Get only the status of an asynchronous scrape job.",
+      "method": "GET",
+      "path": "/api/scrape/{id}/status",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
     },
     {
       "name": "get_scrape_job",
-      "description": "Get the status and result of a scrape job. Status is one of pending, running, completed, failed. When completed, the response includes the scraped data.",
+      "description": "Get scrape job status and result when complete.",
       "method": "GET",
-      "path": "/scrape/{jobId}",
+      "path": "/api/scrape/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "create_batch_scrape_job",
+      "description": "Start an asynchronous scrape for multiple URLs.",
+      "method": "POST",
+      "path": "/api/scrape/batch",
       "input_schema": {
         "type": "object",
         "properties": {
-          "jobId": {
-            "type": "string",
-            "description": "Job ID returned by start_scrape."
-          }
+          "urls": { "type": "array", "items": { "type": "string", "format": "uri" } },
+          "scrapeOptions": { "type": "object" },
+          "sessionOptions": { "type": "object" }
         },
-        "required": [
-          "jobId"
-        ]
+        "required": ["urls"]
       }
     },
     {
-      "name": "start_crawl",
-      "description": "Start an async crawl job that walks a site starting from a seed URL. Returns a jobId; poll get_crawl_job until status is 'completed'. Each crawled page is returned with its content in the requested formats.",
+      "name": "get_batch_scrape_job_status",
+      "description": "Get only the status of a batch scrape job.",
+      "method": "GET",
+      "path": "/api/scrape/batch/{id}/status",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "get_batch_scrape_job",
+      "description": "Get batch scrape status and accumulated results.",
+      "method": "GET",
+      "path": "/api/scrape/batch/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "create_crawl_job",
+      "description": "Start an asynchronous site crawl. Returns an id; poll status or retrieve paginated results with the corresponding tools.",
       "method": "POST",
-      "path": "/crawl",
+      "path": "/api/crawl",
       "input_schema": {
         "type": "object",
         "properties": {
-          "url": {
-            "type": "string",
-            "description": "Seed URL to crawl."
-          },
-          "maxPages": {
-            "type": "integer",
-            "description": "Maximum number of pages to crawl."
-          },
-          "followLinks": {
-            "type": "boolean",
-            "description": "Follow links found on each page."
-          },
-          "excludePatterns": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Glob patterns of URLs to skip."
-          },
-          "includePatterns": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Only crawl URLs matching these patterns."
-          },
-          "scrapeOptions": {
-            "type": "object",
-            "description": "Per-page scrape options (same shape as start_scrape.scrapeOptions)."
-          }
+          "url": { "type": "string", "format": "uri" },
+          "maxPages": { "type": "integer", "minimum": 1 },
+          "followLinks": { "type": "boolean" },
+          "includePatterns": { "type": "array", "items": { "type": "string" } },
+          "excludePatterns": { "type": "array", "items": { "type": "string" } },
+          "scrapeOptions": { "type": "object" },
+          "sessionOptions": { "type": "object" }
         },
-        "required": [
-          "url"
-        ]
+        "required": ["url"]
       }
+    },
+    {
+      "name": "get_crawl_job_status",
+      "description": "Get only the status of a crawl job.",
+      "method": "GET",
+      "path": "/api/crawl/{id}/status",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
     },
     {
       "name": "get_crawl_job",
-      "description": "Get the status and accumulated results of a crawl job.",
+      "description": "Get crawl status and paginated results.",
       "method": "GET",
-      "path": "/crawl/{jobId}",
+      "path": "/api/crawl/{id}",
+      "query_params": ["page"],
       "input_schema": {
         "type": "object",
-        "properties": {
-          "jobId": {
-            "type": "string",
-            "description": "Job ID returned by start_crawl."
-          }
-        },
-        "required": [
-          "jobId"
-        ]
+        "properties": { "id": { "type": "string" }, "page": { "type": "integer", "minimum": 1 } },
+        "required": ["id"]
       }
     },
     {
-      "name": "create_session",
-      "description": "Create a live browser session for interactive automation (Playwright/Puppeteer connect via the returned wsEndpoint). Sessions persist cookies and storage until stopped.",
+      "name": "create_extract_job",
+      "description": "Start asynchronous AI extraction from one or more URLs using explicit instructions or a JSON Schema.",
       "method": "POST",
-      "path": "/sessions",
+      "path": "/api/extract",
       "input_schema": {
         "type": "object",
         "properties": {
-          "useProxy": {
-            "type": "boolean"
-          },
-          "useStealth": {
-            "type": "boolean",
-            "description": "Enable stealth-mode anti-detection."
-          },
-          "solveCaptchas": {
-            "type": "boolean"
-          },
-          "adblock": {
-            "type": "boolean"
-          },
+          "urls": { "type": "array", "items": { "type": "string", "format": "uri" } },
+          "prompt": { "type": "string" },
+          "schema": { "type": "object" },
+          "sessionOptions": { "type": "object" }
+        },
+        "required": ["urls"]
+      }
+    },
+    {
+      "name": "get_extract_job_status",
+      "description": "Get only the status of an extract job.",
+      "method": "GET",
+      "path": "/api/extract/{id}/status",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "get_extract_job",
+      "description": "Get extract job status and structured results.",
+      "method": "GET",
+      "path": "/api/extract/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "create_session",
+      "description": "Create a live browser session. Returns wsEndpoint for CDP, liveUrl for human handoff, webdriverEndpoint, and computerActionEndpoint. Web replay and MP4 video recording are separate opt-ins and default to false.",
+      "method": "POST",
+      "path": "/api/session",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "useUltraStealth": { "type": "boolean", "default": false },
+          "useStealth": { "type": "boolean", "default": false },
+          "useProxy": { "type": "boolean", "default": false },
+          "proxyServer": { "type": "string" },
+          "proxyServerUsername": { "type": "string" },
+          "proxyServerPassword": { "type": "string" },
+          "proxyCountry": { "type": "string", "description": "Two-letter uppercase country code." },
+          "proxyState": { "type": "string" },
+          "proxyCity": { "type": "string" },
+          "region": { "type": "string" },
+          "operatingSystems": { "type": "array", "items": { "type": "string" } },
+          "device": { "type": "array", "items": { "type": "string" } },
+          "platform": { "type": "array", "items": { "type": "string" } },
+          "locales": { "type": "array", "items": { "type": "string" }, "default": ["en"] },
+          "screen": { "type": "object", "properties": { "width": { "type": "integer" }, "height": { "type": "integer" } } },
+          "solveCaptchas": { "type": "boolean", "default": false },
+          "solverType": { "type": "string", "enum": ["visual"] },
+          "adblock": { "type": "boolean", "default": false },
+          "trackers": { "type": "boolean", "default": false },
+          "annoyances": { "type": "boolean", "default": false },
+          "acceptCookies": { "type": "boolean", "default": false },
+          "enableWebRecording": { "type": "boolean", "default": false, "description": "Enable rrweb recording." },
+          "enableVideoWebRecording": { "type": "boolean", "default": false, "description": "Enable MP4 recording; enableWebRecording must also be true." },
           "profile": {
             "type": "object",
-            "description": "Reuse a saved authenticated profile: { id: 'profile_id' }."
+            "properties": {
+              "id": { "type": "string" },
+              "persistChanges": { "type": "boolean", "default": false },
+              "persistNetworkCache": { "type": "boolean", "default": false }
+            },
+            "required": ["id"]
           },
-          "timeoutMinutes": {
-            "type": "integer",
-            "description": "Session auto-stop timeout in minutes."
-          }
+          "staticIpId": { "type": "string" },
+          "saveDownloads": { "type": "boolean", "default": false },
+          "extensionIds": { "type": "array", "items": { "type": "string" }, "default": [] },
+          "urlBlocklist": { "type": "array", "items": { "type": "string" }, "default": [] },
+          "browserArgs": { "type": "array", "items": { "type": "string" }, "default": [] },
+          "timeoutMinutes": { "type": "number", "minimum": 1, "maximum": 720 },
+          "enableWindowManager": { "type": "boolean", "default": false },
+          "enableWindowManagerTaskbar": { "type": "boolean", "default": false },
+          "viewOnlyLiveView": { "type": "boolean", "default": false },
+          "disablePasswordManager": { "type": "boolean", "default": false },
+          "enableAlwaysOpenPdfExternally": { "type": "boolean", "default": false },
+          "disablePostQuantumKeyAgreement": { "type": "boolean", "default": false }
+        }
+      }
+    },
+    {
+      "name": "list_sessions",
+      "description": "List sessions, optionally filtered by lifecycle status.",
+      "method": "GET",
+      "path": "/api/sessions",
+      "query_params": ["page", "status"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "minimum": 1, "default": 1 },
+          "status": { "type": "string", "enum": ["active", "closed", "error"] }
         }
       }
     },
     {
       "name": "get_session",
-      "description": "Get details for a live session: status, wsEndpoint, live-view URL.",
+      "description": "Get session state and connection endpoints, including wsEndpoint and liveUrl.",
       "method": "GET",
-      "path": "/sessions/{id}",
+      "path": "/api/session/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "update_session",
+      "description": "Update a running session. type must be profile, proxy, screen, or solveCaptchas; params contains the documented settings for that update type.",
+      "method": "PUT",
+      "path": "/api/session/{id}/update",
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string",
-            "description": "Session ID."
-          }
+          "id": { "type": "string" },
+          "type": { "type": "string", "enum": ["profile", "proxy", "screen", "solveCaptchas"] },
+          "params": { "type": "object", "description": "Update parameters, for example {persistChanges:true}, {enabled:true,location:{country:'US'}}, {width:1280,height:720}, or {enabled:true,solverType:'visual'}." }
         },
-        "required": [
-          "id"
-        ]
+        "required": ["id", "type", "params"]
       }
     },
     {
       "name": "stop_session",
-      "description": "Stop a live browser session and release its resources.",
+      "description": "Stop a live session and release its resources.",
       "method": "PUT",
-      "path": "/sessions/{id}/stop",
+      "path": "/api/session/{id}/stop",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "get_session_downloads_url",
+      "description": "Get the download archive status and URL. create_session must have saveDownloads=true.",
+      "method": "GET",
+      "path": "/api/session/{id}/downloads-url",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "get_session_recording_url",
+      "description": "Get rrweb recording status and URL. create_session must have enableWebRecording=true.",
+      "method": "GET",
+      "path": "/api/session/{id}/recording-url",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "get_session_video_recording_url",
+      "description": "Get MP4 recording status and URL. Both enableWebRecording and enableVideoWebRecording must have been true.",
+      "method": "GET",
+      "path": "/api/session/{id}/video-recording-url",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "create_profile",
+      "description": "Create a reusable browser profile for cookies and storage.",
+      "method": "POST",
+      "path": "/api/profile",
+      "input_schema": { "type": "object", "properties": { "name": { "type": "string" } } }
+    },
+    {
+      "name": "list_profiles",
+      "description": "List profiles with pagination and optional name filtering.",
+      "method": "GET",
+      "path": "/api/profiles",
+      "query_params": ["page", "limit", "name"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string",
-            "description": "Session ID."
-          }
-        },
-        "required": [
-          "id"
-        ]
+          "page": { "type": "integer", "minimum": 1, "default": 1 },
+          "limit": { "type": "integer", "minimum": 1, "default": 10 },
+          "name": { "type": "string" }
+        }
       }
+    },
+    {
+      "name": "get_profile",
+      "description": "Get one profile by ID.",
+      "method": "GET",
+      "path": "/api/profile/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "delete_profile",
+      "description": "Delete one profile by ID.",
+      "method": "DELETE",
+      "path": "/api/profile/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+    },
+    {
+      "name": "upload_extension",
+      "description": "Upload a Chrome extension ZIP and optionally assign a name. Returns an extension ID for create_session.extensionIds.",
+      "method": "POST",
+      "path": "/api/extensions/add",
+      "multipart_form": {
+        "field_names": ["name"],
+        "file_fields": { "file": "file" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": { "type": "string", "description": "Extension ZIP as a blobref:// handle, base64, or data URL." },
+          "filename": { "type": "string", "description": "ZIP filename." },
+          "name": { "type": "string" }
+        },
+        "required": ["file"]
+      }
+    },
+    {
+      "name": "list_extensions",
+      "description": "List uploaded browser extensions.",
+      "method": "GET",
+      "path": "/api/extensions/list",
+      "input_schema": { "type": "object", "properties": {} }
     }
-  ]
+  ],
+  "health_check": { "tool": "list_sessions", "input": { "page": 1 } }
 }

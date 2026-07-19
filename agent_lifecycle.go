@@ -335,7 +335,40 @@ func (s *Server) abandonUnsyncedAgentRuntime(inst *Agent) {
 
 // startManagedAgent is the only server-owned path for launching a core. It
 // does not report success while the process exists only in memory.
+func (s *Server) ensureAgentDefaultProvider(inst *Agent, pool []ProviderInfo) (string, error) {
+	configuredDefault := configuredAgentDefaultProvider(inst.Config)
+	effectiveDefault := effectiveProviderDefault(pool, configuredDefault)
+	if effectiveDefault == "" {
+		return "", errors.New("no LLM provider configured")
+	}
+	if configuredDefault != effectiveDefault {
+		var config map[string]any
+		if strings.TrimSpace(inst.Config) != "" {
+			if err := json.Unmarshal([]byte(inst.Config), &config); err != nil {
+				return "", fmt.Errorf("decode agent provider config: %w", err)
+			}
+		}
+		if config == nil {
+			config = map[string]any{}
+		}
+		config["default_provider"] = effectiveDefault
+		encoded, err := json.Marshal(config)
+		if err != nil {
+			return "", fmt.Errorf("encode agent provider config: %w", err)
+		}
+		inst.Config = string(encoded)
+		if err := s.store.UpdateAgent(inst); err != nil {
+			return "", fmt.Errorf("persist agent default provider: %w", err)
+		}
+		log.Printf("[PROVIDERS] agent=%d default=%s previous=%q", inst.ID, effectiveDefault, configuredDefault)
+	}
+	return effectiveDefault, nil
+}
+
 func (s *Server) startManagedAgent(inst *Agent, providerEnv map[string]string, pool []ProviderInfo, channelConfigs ...ChannelConfig) (coreRuntimeInfo, error) {
+	if _, err := s.ensureAgentDefaultProvider(inst, pool); err != nil {
+		return coreRuntimeInfo{}, err
+	}
 	if err := s.agents.Start(inst, providerEnv, s.port, pool, s.instanceSecret, channelConfigs...); err != nil {
 		return coreRuntimeInfo{}, err
 	}

@@ -2,10 +2,13 @@ package channelchat
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,6 +23,7 @@ type Message struct {
 	Role      string    `json:"role"` // user | agent | system
 	Content   string    `json:"content"`
 	UserID    *int64    `json:"user_id,omitempty"`
+	AgentID   *int64    `json:"agent_id,omitempty"`
 	ThreadID  string    `json:"thread_id,omitempty"`
 	Status    string    `json:"status"` // streaming | final
 	CreatedAt time.Time `json:"created_at"`
@@ -30,6 +34,8 @@ type Message struct {
 	// Attachments are user-supplied media attached to this message.
 	// Kept separate from Components, which are agent-rendered UI hints.
 	Attachments []ChatAttachment `json:"attachments"`
+	Metadata    map[string]any   `json:"metadata,omitempty"`
+	ClientID    string           `json:"client_message_id,omitempty"`
 }
 
 type ChatAttachment struct {
@@ -40,6 +46,12 @@ type ChatAttachment struct {
 	MimeType  string `json:"mime_type,omitempty"`
 	Size      int64  `json:"size,omitempty"`
 	Ephemeral bool   `json:"ephemeral,omitempty"`
+}
+
+type agentConversationThreads struct {
+	AgentID   int64
+	UserID    int64
+	ThreadIDs map[string]struct{}
 }
 
 type ApprovalMessage struct {
@@ -89,13 +101,19 @@ type CurrentStatusMessage struct {
 	Stale     bool     `json:"stale"`
 }
 
-// Chat is one conversation — today typically one per instance.
+// Chat is one durable Apteva conversation. AgentID remains the lead agent for
+// backwards compatibility; AgentIDs is the complete participant list.
 type Chat struct {
-	ID        string    `json:"id"`
-	AgentID   int64     `json:"instance_id"`
-	Title     string    `json:"title"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID          string     `json:"id"`
+	AgentID     int64      `json:"instance_id"`
+	AgentIDs    []int64    `json:"agent_ids"`
+	ProjectID   string     `json:"project_id"`
+	OwnerUserID int64      `json:"owner_user_id,omitempty"`
+	Kind        string     `json:"kind"`
+	Title       string     `json:"title"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	ArchivedAt  *time.Time `json:"archived_at,omitempty"`
 	// ThreadID is the core thread that handles this chat. Empty =
 	// route to "main" (legacy / feature flag off). Assigned lazily
 	// on first message via EnsureChatThread when the feature flag
@@ -109,6 +127,12 @@ var ErrNotFound = errors.New("channel-chat: not found")
 
 type store struct {
 	db *sql.DB
+}
+
+type pendingDelivery struct {
+	Message Message
+	Chat    Chat
+	AgentID int64
 }
 
 func newStore(db *sql.DB) *store { return &store{db: db} }
@@ -180,21 +204,33 @@ func (s *store) renameInstanceIDToAgentID() {
 	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_channel_chat_chats_agent ON channel_chat_chats(agent_id)`)
 }
 
-// EnsureDefaultChat returns the existing default chat for an instance
-// or creates one. Default chat id convention: "default-<agent_id>"
-// — stable across process restarts, and unique across instances so a
-// future multi-instance-per-project UI can still look them up safely.
+// EnsureDefaultChat returns the agent's internal operator-inbox record or
+// creates it. The stable default-<agent_id> id is reserved for main-thread
+// reports, alerts, approvals, and status. It is not a user conversation and
+// must never be returned by the user-facing conversation queries below.
 func (s *store) EnsureDefaultChat(agentID int64) (*Chat, error) {
 	chatID := defaultChatID(agentID)
 	// Try insert-or-ignore and then read back. Cheaper than
 	// select-then-insert and race-safe.
 	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO channel_chat_chats (id, agent_id, title)
-		 VALUES (?, ?, 'Chat')`,
+		`INSERT OR IGNORE INTO channel_chat_chats
+			(id, agent_id, title, project_id, owner_user_id, kind)
+		 VALUES (?, ?, 'Chat', '', 0, 'direct')`,
 		chatID, agentID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("ensure default chat: %w", err)
+	}
+	_, _ = s.db.Exec(`
+		UPDATE channel_chat_chats
+		SET project_id=COALESCE((SELECT project_id FROM agents WHERE id=?), project_id),
+		    owner_user_id=COALESCE((SELECT user_id FROM agents WHERE id=?), owner_user_id),
+		    title=CASE WHEN title='Chat' THEN COALESCE((SELECT name FROM agents WHERE id=?), title) ELSE title END
+		WHERE id=?`, agentID, agentID, agentID, chatID)
+	if _, err := s.db.Exec(`
+		INSERT OR IGNORE INTO channel_chat_participants (chat_id, agent_id, is_lead)
+		VALUES (?, ?, 1)`, chatID, agentID); err != nil {
+		return nil, fmt.Errorf("ensure default chat participant: %w", err)
 	}
 	return s.GetChat(chatID)
 }
@@ -204,24 +240,53 @@ func defaultChatID(agentID int64) string {
 }
 
 func (s *store) GetChat(id string) (*Chat, error) {
-	var c Chat
-	err := s.db.QueryRow(
-		`SELECT id, agent_id, title, created_at, updated_at, thread_id
+	c, err := s.scanChat(s.db.QueryRow(
+		`SELECT id, agent_id, title, created_at, updated_at, thread_id,
+		        COALESCE(project_id, ''), COALESCE(owner_user_id, 0),
+		        COALESCE(kind, 'direct'), archived_at
 		 FROM channel_chat_chats WHERE id = ?`, id,
-	).Scan(&c.ID, &c.AgentID, &c.Title, &c.CreatedAt, &c.UpdatedAt, &c.ThreadID)
+	))
+	if err != nil {
+		return nil, err
+	}
+	if err := s.loadChatParticipants(c); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func (s *store) scanChat(row rowScanner) (*Chat, error) {
+	var c Chat
+	var archived sql.NullTime
+	err := row.Scan(&c.ID, &c.AgentID, &c.Title, &c.CreatedAt, &c.UpdatedAt, &c.ThreadID,
+		&c.ProjectID, &c.OwnerUserID, &c.Kind, &archived)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
+	if archived.Valid {
+		v := archived.Time
+		c.ArchivedAt = &v
+	}
 	return &c, nil
 }
 
 func (s *store) ListChatsForAgent(agentID int64) ([]Chat, error) {
 	rows, err := s.db.Query(
-		`SELECT id, agent_id, title, created_at, updated_at, thread_id
-		 FROM channel_chat_chats WHERE agent_id = ? ORDER BY created_at ASC`,
+		`SELECT c.id, c.agent_id, c.title, c.created_at, c.updated_at, c.thread_id,
+		        COALESCE(c.project_id, ''), COALESCE(c.owner_user_id, 0),
+		        COALESCE(c.kind, 'direct'), c.archived_at
+		 FROM channel_chat_chats c
+		 JOIN channel_chat_participants p ON p.chat_id = c.id
+		 WHERE p.agent_id = ? AND c.archived_at IS NULL
+		   AND c.id <> printf('default-%d', c.agent_id)
+		 ORDER BY c.updated_at DESC`,
 		agentID,
 	)
 	if err != nil {
@@ -230,13 +295,504 @@ func (s *store) ListChatsForAgent(agentID int64) ([]Chat, error) {
 	defer rows.Close()
 	out := []Chat{}
 	for rows.Next() {
-		var c Chat
-		if err := rows.Scan(&c.ID, &c.AgentID, &c.Title, &c.CreatedAt, &c.UpdatedAt, &c.ThreadID); err != nil {
+		c, err := s.scanChat(rows)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, c)
+		if err := s.loadChatParticipants(c); err != nil {
+			return nil, err
+		}
+		out = append(out, *c)
 	}
 	return out, rows.Err()
+}
+
+// ListConversations returns the user-visible project conversation list.
+// default-* rows are internal operator-inbox records, never conversations;
+// includePrimaryChatID is retained only for source compatibility with older
+// callers and deliberately cannot opt an internal row into the result.
+func (s *store) ListConversations(ownerUserID int64, projectID string, includeArchived bool, includePrimaryChatID string) ([]Chat, error) {
+	_ = includePrimaryChatID
+	query := `SELECT id, agent_id, title, created_at, updated_at, thread_id,
+	                 COALESCE(project_id, ''), COALESCE(owner_user_id, 0),
+	                 COALESCE(kind, 'direct'), archived_at
+	          FROM channel_chat_chats c
+	          WHERE owner_user_id = ? AND project_id = ?
+	            AND c.id <> printf('default-%d', c.agent_id)`
+	if !includeArchived {
+		query += ` AND c.archived_at IS NULL`
+	}
+	query += ` ORDER BY c.updated_at DESC`
+	rows, err := s.db.Query(query, ownerUserID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Chat{}
+	for rows.Next() {
+		c, err := s.scanChat(rows)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.loadChatParticipants(c); err != nil {
+			return nil, err
+		}
+		out = append(out, *c)
+	}
+	return out, rows.Err()
+}
+
+func (s *store) CreateConversation(ownerUserID int64, projectID, title string, agentIDs []int64, leadAgentID int64) (*Chat, error) {
+	if len(agentIDs) == 0 {
+		return nil, fmt.Errorf("at least one agent required")
+	}
+	if leadAgentID == 0 {
+		leadAgentID = agentIDs[0]
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "New conversation"
+	}
+	id, err := conversationID()
+	if err != nil {
+		return nil, err
+	}
+	kind := "direct"
+	if len(agentIDs) > 1 {
+		kind = "room"
+	}
+	err = s.withImmediateWrite(func(ctx context.Context, conn *sql.Conn) error {
+		if _, err := conn.ExecContext(ctx, `
+			INSERT INTO channel_chat_chats
+				(id, agent_id, title, project_id, owner_user_id, kind)
+			VALUES (?, ?, ?, ?, ?, ?)`, id, leadAgentID, title, projectID, ownerUserID, kind); err != nil {
+			return err
+		}
+		for _, agentID := range agentIDs {
+			isLead := 0
+			if agentID == leadAgentID {
+				isLead = 1
+			}
+			if _, err := conn.ExecContext(ctx, `
+				INSERT INTO channel_chat_participants (chat_id, agent_id, is_lead)
+				VALUES (?, ?, ?)`, id, agentID, isLead); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.GetChat(id)
+}
+
+func (s *store) UpdateConversation(id, title string, archived *bool) (*Chat, error) {
+	if strings.TrimSpace(title) != "" {
+		if _, err := s.db.Exec(`UPDATE channel_chat_chats SET title=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, strings.TrimSpace(title), id); err != nil {
+			return nil, err
+		}
+	}
+	if archived != nil {
+		if *archived {
+			_, err := s.db.Exec(`UPDATE channel_chat_chats SET archived_at=CURRENT_TIMESTAMP WHERE id=?`, id)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			_, err := s.db.Exec(`UPDATE channel_chat_chats SET archived_at=NULL WHERE id=?`, id)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	return s.GetChat(id)
+}
+
+func (s *store) DeleteConversation(id string) error {
+	res, err := s.db.Exec(`DELETE FROM channel_chat_chats WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// AgentConversationThreads returns every agent, including agents with no
+// conversations, together with the chat thread ids still backed by a row and
+// participant relationship. Including empty owners is essential: those are
+// exactly the agents for which every persisted chat-conv-* thread is orphaned.
+func (s *store) AgentConversationThreads() ([]agentConversationThreads, error) {
+	rows, err := s.db.Query(`SELECT id, user_id FROM agents ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	owners := make([]agentConversationThreads, 0)
+	byAgent := make(map[int64]int)
+	for rows.Next() {
+		var owner agentConversationThreads
+		if err := rows.Scan(&owner.AgentID, &owner.UserID); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		owner.ThreadIDs = make(map[string]struct{})
+		owners = append(owners, owner)
+		byAgent[owner.AgentID] = len(owners) - 1
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	threadRows, err := s.db.Query(`
+		SELECT DISTINCT p.agent_id, c.thread_id
+		FROM channel_chat_participants p
+		JOIN channel_chat_chats c ON c.id = p.chat_id
+		WHERE TRIM(COALESCE(c.thread_id, '')) LIKE 'chat-conv-%'
+		UNION
+		SELECT DISTINCT c.agent_id, c.thread_id
+		FROM channel_chat_chats c
+		WHERE TRIM(COALESCE(c.thread_id, '')) LIKE 'chat-conv-%'`)
+	if err != nil {
+		return nil, err
+	}
+	defer threadRows.Close()
+	for threadRows.Next() {
+		var agentID int64
+		var threadID string
+		if err := threadRows.Scan(&agentID, &threadID); err != nil {
+			return nil, err
+		}
+		if index, exists := byAgent[agentID]; exists {
+			owners[index].ThreadIDs[strings.TrimSpace(threadID)] = struct{}{}
+		}
+	}
+	return owners, threadRows.Err()
+}
+
+// UnusedConversationThreads returns conversation rows whose Core thread was
+// assigned even though the user never sent a message. Older presence handling
+// created these merely by opening a dashboard page. The conversation row is
+// preserved; only its unnecessary runtime thread is eligible for cleanup.
+func (s *store) UnusedConversationThreads() ([]Chat, error) {
+	rows, err := s.db.Query(`
+		SELECT id, agent_id, title, created_at, updated_at, thread_id,
+		       COALESCE(project_id, ''), COALESCE(owner_user_id, 0),
+		       COALESCE(kind, 'direct'), archived_at
+		FROM channel_chat_chats c
+		WHERE TRIM(COALESCE(thread_id, '')) <> ''
+		  AND NOT EXISTS (
+		    SELECT 1 FROM channel_chat_messages m
+		    WHERE m.chat_id = c.id AND m.role = 'user'
+		  )
+		ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var chats []Chat
+	for rows.Next() {
+		chat, err := s.scanChat(rows)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.loadChatParticipants(chat); err != nil {
+			return nil, err
+		}
+		chats = append(chats, *chat)
+	}
+	return chats, rows.Err()
+}
+
+func (s *store) ClearUnusedConversationThread(chatID, threadID string) error {
+	_, err := s.db.Exec(`
+		UPDATE channel_chat_chats
+		SET thread_id = ''
+		WHERE id = ? AND thread_id = ?
+		  AND NOT EXISTS (
+		    SELECT 1 FROM channel_chat_messages m
+		    WHERE m.chat_id = channel_chat_chats.id AND m.role = 'user'
+		  )`, chatID, threadID)
+	return err
+}
+
+// DeleteAgentData removes an agent from every conversation it participates in.
+// Conversations with no remaining agents are deleted together with their
+// messages. Shared conversations remain available to the other participants;
+// a new lead is selected when necessary and historical messages from the
+// deleted agent are retained without a stale agent reference.
+func (s *store) DeleteAgentData(agentID int64) error {
+	return s.withImmediateWrite(func(ctx context.Context, conn *sql.Conn) error {
+		return s.deleteAgentData(ctx, conn, agentID)
+	})
+}
+
+// CleanupOrphanedAgentData repairs rows left by server versions that deleted
+// agents without notifying channel-chat. It is idempotent and intentionally
+// runs at mount so upgrading fixes existing installations as well as future
+// deletions.
+func (s *store) CleanupOrphanedAgentData() error {
+	return s.withImmediateWrite(func(ctx context.Context, conn *sql.Conn) error {
+		if _, err := conn.ExecContext(ctx, `
+			DELETE FROM channel_chat_deliveries
+			WHERE NOT EXISTS (
+				SELECT 1 FROM agents WHERE agents.id = channel_chat_deliveries.agent_id
+			)`); err != nil {
+			return err
+		}
+		if _, err := conn.ExecContext(ctx, `
+			DELETE FROM channel_chat_participants
+			WHERE NOT EXISTS (
+				SELECT 1 FROM agents WHERE agents.id = channel_chat_participants.agent_id
+			)`); err != nil {
+			return err
+		}
+		if _, err := conn.ExecContext(ctx, `
+			UPDATE channel_chat_messages
+			SET agent_id = NULL
+			WHERE agent_id IS NOT NULL AND NOT EXISTS (
+				SELECT 1 FROM agents WHERE agents.id = channel_chat_messages.agent_id
+			)`); err != nil {
+			return err
+		}
+
+		rows, err := conn.QueryContext(ctx, `
+			SELECT c.agent_id
+			FROM channel_chat_chats c
+			LEFT JOIN agents a ON a.id = c.agent_id
+			WHERE a.id IS NULL
+			GROUP BY c.agent_id`)
+		if err != nil {
+			return err
+		}
+		var orphanedAgentIDs []int64
+		for rows.Next() {
+			var agentID int64
+			if err := rows.Scan(&agentID); err != nil {
+				rows.Close()
+				return err
+			}
+			orphanedAgentIDs = append(orphanedAgentIDs, agentID)
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, agentID := range orphanedAgentIDs {
+			if err := s.deleteAgentData(ctx, conn, agentID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// CleanupLegacyMainConversationData removes ordinary chat replies written by
+// main before internal dashboard conversations became conversation-owned.
+// Main-owned Inbox artifacts remain valid and are preserved because they have
+// structured components. Any chat row that itself pointed at main is migrated
+// to its dedicated chat-<id> thread. The operation is idempotent and runs at
+// mount so existing installations are repaired automatically.
+func (s *store) CleanupLegacyMainConversationData() error {
+	return s.withImmediateWrite(func(ctx context.Context, conn *sql.Conn) error {
+		legacyOrdinary := `
+			SELECT id FROM channel_chat_messages
+			WHERE role = 'agent'
+			  AND TRIM(COALESCE(thread_id, '')) = 'main'
+			  AND TRIM(COALESCE(components_json, '[]')) IN ('', '[]', 'null')`
+		if _, err := conn.ExecContext(ctx, `
+			DELETE FROM channel_chat_deliveries
+			WHERE message_id IN (`+legacyOrdinary+`)`); err != nil {
+			return err
+		}
+		if _, err := conn.ExecContext(ctx, `
+			DELETE FROM channel_chat_messages
+			WHERE id IN (`+legacyOrdinary+`)`); err != nil {
+			return err
+		}
+		if _, err := conn.ExecContext(ctx, `
+			UPDATE channel_chat_chats
+			SET thread_id = 'chat-' || id
+			WHERE TRIM(COALESCE(thread_id, '')) = 'main'`); err != nil {
+			return err
+		}
+		_, err := conn.ExecContext(ctx, `
+			UPDATE channel_chat_chats
+			SET last_seen_id = COALESCE((
+				SELECT MAX(m.id) FROM channel_chat_messages m
+				WHERE m.chat_id = channel_chat_chats.id
+			), 0)
+			WHERE last_seen_id > COALESCE((
+				SELECT MAX(m.id) FROM channel_chat_messages m
+				WHERE m.chat_id = channel_chat_chats.id
+			), 0)`)
+		return err
+	})
+}
+
+func (s *store) deleteAgentData(ctx context.Context, conn *sql.Conn, agentID int64) error {
+	rows, err := conn.QueryContext(ctx, `
+		SELECT DISTINCT c.id, c.agent_id
+		FROM channel_chat_chats c
+		LEFT JOIN channel_chat_participants p
+		       ON p.chat_id = c.id AND p.agent_id = ?
+		WHERE c.agent_id = ? OR p.agent_id IS NOT NULL`, agentID, agentID)
+	if err != nil {
+		return err
+	}
+	type affectedChat struct {
+		id     string
+		leadID int64
+	}
+	var chats []affectedChat
+	for rows.Next() {
+		var chat affectedChat
+		if err := rows.Scan(&chat.id, &chat.leadID); err != nil {
+			rows.Close()
+			return err
+		}
+		chats = append(chats, chat)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, chat := range chats {
+		var replacementID int64
+		err := conn.QueryRowContext(ctx, `
+			SELECT p.agent_id
+			FROM channel_chat_participants p
+			JOIN agents a ON a.id = p.agent_id
+			WHERE p.chat_id = ? AND p.agent_id <> ?
+			ORDER BY p.is_lead DESC, p.joined_at ASC, p.agent_id ASC
+			LIMIT 1`, chat.id, agentID).Scan(&replacementID)
+		if err == sql.ErrNoRows {
+			if _, err := conn.ExecContext(ctx, `
+				DELETE FROM channel_chat_deliveries
+				WHERE message_id IN (SELECT id FROM channel_chat_messages WHERE chat_id = ?)`, chat.id); err != nil {
+				return err
+			}
+			if _, err := conn.ExecContext(ctx, `DELETE FROM channel_chat_messages WHERE chat_id = ?`, chat.id); err != nil {
+				return err
+			}
+			if _, err := conn.ExecContext(ctx, `DELETE FROM channel_chat_participants WHERE chat_id = ?`, chat.id); err != nil {
+				return err
+			}
+			if _, err := conn.ExecContext(ctx, `DELETE FROM channel_chat_chats WHERE id = ?`, chat.id); err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+
+		if _, err := conn.ExecContext(ctx, `
+			DELETE FROM channel_chat_deliveries
+			WHERE agent_id = ? AND message_id IN (
+				SELECT id FROM channel_chat_messages WHERE chat_id = ?
+			)`, agentID, chat.id); err != nil {
+			return err
+		}
+		if _, err := conn.ExecContext(ctx,
+			`DELETE FROM channel_chat_participants WHERE chat_id = ? AND agent_id = ?`, chat.id, agentID); err != nil {
+			return err
+		}
+		if _, err := conn.ExecContext(ctx,
+			`UPDATE channel_chat_messages SET agent_id = NULL WHERE chat_id = ? AND agent_id = ?`, chat.id, agentID); err != nil {
+			return err
+		}
+
+		if chat.leadID == agentID {
+			if _, err := conn.ExecContext(ctx, `
+				UPDATE channel_chat_participants
+				SET is_lead = CASE WHEN agent_id = ? THEN 1 ELSE 0 END
+				WHERE chat_id = ?`, replacementID, chat.id); err != nil {
+				return err
+			}
+			if _, err := conn.ExecContext(ctx, `
+				UPDATE channel_chat_chats
+				SET agent_id = ?,
+				    kind = CASE WHEN (
+				        SELECT COUNT(*) FROM channel_chat_participants WHERE chat_id = ?
+				    ) > 1 THEN 'room' ELSE 'direct' END,
+				    updated_at = CURRENT_TIMESTAMP
+				WHERE id = ?`, replacementID, chat.id, chat.id); err != nil {
+				return err
+			}
+		} else if _, err := conn.ExecContext(ctx, `
+			UPDATE channel_chat_chats
+			SET kind = CASE WHEN (
+			    SELECT COUNT(*) FROM channel_chat_participants WHERE chat_id = ?
+			) > 1 THEN 'room' ELSE 'direct' END,
+			    updated_at = CURRENT_TIMESTAMP
+			WHERE id = ?`, chat.id, chat.id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *store) AddParticipant(chatID string, agentID int64) error {
+	_, err := s.db.Exec(`INSERT OR IGNORE INTO channel_chat_participants (chat_id, agent_id) VALUES (?, ?)`, chatID, agentID)
+	if err == nil {
+		_, err = s.db.Exec(`UPDATE channel_chat_chats SET kind='room', updated_at=CURRENT_TIMESTAMP WHERE id=?`, chatID)
+	}
+	return err
+}
+
+func (s *store) RemoveParticipant(chatID string, agentID int64) error {
+	chat, err := s.GetChat(chatID)
+	if err != nil {
+		return err
+	}
+	if chat.AgentID == agentID {
+		return fmt.Errorf("lead agent cannot be removed")
+	}
+	_, err = s.db.Exec(`DELETE FROM channel_chat_participants WHERE chat_id=? AND agent_id=?`, chatID, agentID)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`
+		UPDATE channel_chat_chats
+		SET kind=CASE WHEN (SELECT COUNT(*) FROM channel_chat_participants WHERE chat_id=?) > 1 THEN 'room' ELSE 'direct' END,
+		    updated_at=CURRENT_TIMESTAMP
+		WHERE id=?`, chatID, chatID)
+	return err
+}
+
+func (s *store) loadChatParticipants(c *Chat) error {
+	rows, err := s.db.Query(`SELECT agent_id FROM channel_chat_participants WHERE chat_id=? ORDER BY is_lead DESC, joined_at ASC`, c.ID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	c.AgentIDs = []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		c.AgentIDs = append(c.AgentIDs, id)
+	}
+	return rows.Err()
+}
+
+func conversationID() (string, error) {
+	var raw [12]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return "conv-" + hex.EncodeToString(raw[:]), nil
 }
 
 // EnsureChatThread returns the stored thread id for a chat, or
@@ -273,6 +829,108 @@ func (s *store) EnsureChatThread(chatID string) (string, error) {
 	return existing, nil
 }
 
+// ChatForAgentThread resolves an outbound Channels MCP call back to the
+// conversation that originated it. The primary/main path intentionally falls
+// back to the stable default conversation for backwards compatibility.
+func (s *store) ChatForAgentThread(agentID int64, threadID string) (*Chat, error) {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" || threadID == "main" {
+		return s.EnsureDefaultChat(agentID)
+	}
+	c, err := s.scanChat(s.db.QueryRow(`
+		SELECT c.id, c.agent_id, c.title, c.created_at, c.updated_at, c.thread_id,
+		       COALESCE(c.project_id, ''), COALESCE(c.owner_user_id, 0),
+		       COALESCE(c.kind, 'direct'), c.archived_at
+		FROM channel_chat_chats c
+		JOIN channel_chat_participants p ON p.chat_id = c.id
+		WHERE p.agent_id = ? AND c.thread_id = ? AND c.archived_at IS NULL
+		LIMIT 1`, agentID, threadID))
+	if err != nil {
+		return nil, err
+	}
+	if err := s.loadChatParticipants(c); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func (s *store) CreateDeliveries(messageID int64, agentIDs []int64) error {
+	return s.withImmediateWrite(func(ctx context.Context, conn *sql.Conn) error {
+		for _, agentID := range agentIDs {
+			if _, err := conn.ExecContext(ctx, `
+				INSERT OR IGNORE INTO channel_chat_deliveries (message_id, agent_id)
+				VALUES (?, ?)`, messageID, agentID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (s *store) MarkDelivery(messageID, agentID int64, delivered bool, deliveryErr error) error {
+	status := "delivered"
+	lastError := ""
+	var deliveredAt any = time.Now().UTC()
+	if !delivered {
+		status = "failed"
+		deliveredAt = nil
+		if deliveryErr != nil {
+			lastError = deliveryErr.Error()
+		}
+		if len(lastError) > 1000 {
+			lastError = lastError[:1000]
+		}
+	}
+	_, err := s.db.Exec(`
+		UPDATE channel_chat_deliveries
+		SET status=?, attempts=attempts+1, last_error=?, delivered_at=?, updated_at=CURRENT_TIMESTAMP
+		WHERE message_id=? AND agent_id=?`, status, lastError, deliveredAt, messageID, agentID)
+	return err
+}
+
+func (s *store) ListPendingDeliveries(limit int) ([]pendingDelivery, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 25
+	}
+	rows, err := s.db.Query(`
+		SELECT d.message_id, d.agent_id
+		FROM channel_chat_deliveries d
+		WHERE d.status IN ('pending', 'failed')
+		  AND d.attempts < 10
+		  AND d.updated_at <= datetime('now', '-30 seconds')
+		ORDER BY d.updated_at ASC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type deliveryKey struct{ messageID, agentID int64 }
+	keys := []deliveryKey{}
+	for rows.Next() {
+		var key deliveryKey
+		if err := rows.Scan(&key.messageID, &key.agentID); err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]pendingDelivery, 0, len(keys))
+	for _, key := range keys {
+		message, err := s.GetMessage(key.messageID)
+		if err != nil {
+			return nil, err
+		}
+		chat, err := s.GetChat(message.ChatID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, pendingDelivery{Message: *message, Chat: *chat, AgentID: key.agentID})
+	}
+	return out, nil
+}
+
 // Append inserts a new message and returns it (with the assigned id
 // + created_at). Also bumps the parent chat's updated_at so client
 // lists stay sorted by most-recent-activity.
@@ -285,6 +943,82 @@ func (s *store) Append(chatID, role, content string, userID *int64, threadID, st
 }
 
 func (s *store) AppendFull(chatID, role, content string, userID *int64, threadID, status string, components []framework.ChatComponent, attachments []ChatAttachment) (*Message, error) {
+	return s.appendFull(chatID, role, content, userID, nil, threadID, status, components, attachments, nil, "")
+}
+
+func (s *store) AppendUserMessage(chatID, content string, userID int64, attachments []ChatAttachment, metadata map[string]any, clientID string) (*Message, error) {
+	return s.appendFull(chatID, "user", content, &userID, nil, "", "final", nil, attachments, metadata, clientID)
+}
+
+// AppendUserMessageWithDeliveries commits the visible user message and its
+// target-agent delivery ledger in one SQLite write. A repeated client id
+// returns the existing row without scheduling a second agent event.
+func (s *store) AppendUserMessageWithDeliveries(chatID, content string, userID int64, attachments []ChatAttachment, metadata map[string]any, clientID string, agentIDs []int64) (*Message, bool, error) {
+	if attachments == nil {
+		attachments = []ChatAttachment{}
+	}
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	attachmentsJSON, err := json.Marshal(attachments)
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal attachments: %w", err)
+	}
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal metadata: %w", err)
+	}
+	clientID = strings.TrimSpace(clientID)
+	var id int64
+	inserted := false
+	err = s.withImmediateWrite(func(ctx context.Context, conn *sql.Conn) error {
+		if clientID != "" {
+			err := conn.QueryRowContext(ctx, `
+				SELECT id FROM channel_chat_messages
+				WHERE chat_id=? AND user_id=? AND client_message_id=?`, chatID, userID, clientID).Scan(&id)
+			if err == nil {
+				return nil
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+		}
+		result, err := conn.ExecContext(ctx, `
+			INSERT INTO channel_chat_messages
+				(chat_id, role, content, user_id, thread_id, status, components_json,
+				 attachments_json, metadata_json, client_message_id)
+			VALUES (?, 'user', ?, ?, '', 'final', '[]', ?, ?, ?)`,
+			chatID, content, userID, string(attachmentsJSON), string(metadataJSON), clientID)
+		if err != nil {
+			return err
+		}
+		id, err = result.LastInsertId()
+		if err != nil {
+			return err
+		}
+		for _, agentID := range agentIDs {
+			if _, err := conn.ExecContext(ctx, `
+				INSERT INTO channel_chat_deliveries (message_id, agent_id)
+				VALUES (?, ?)`, id, agentID); err != nil {
+				return err
+			}
+		}
+		_, err = conn.ExecContext(ctx, `UPDATE channel_chat_chats SET updated_at=CURRENT_TIMESTAMP WHERE id=?`, chatID)
+		inserted = err == nil
+		return err
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	message, err := s.GetMessage(id)
+	return message, inserted, err
+}
+
+func (s *store) AppendAgentArtifact(chatID, content string, agentID int64, threadID string, components []framework.ChatComponent) (*Message, error) {
+	return s.appendFull(chatID, "agent", content, nil, &agentID, threadID, "final", components, nil, nil, "")
+}
+
+func (s *store) appendFull(chatID, role, content string, userID, agentID *int64, threadID, status string, components []framework.ChatComponent, attachments []ChatAttachment, metadata map[string]any, clientID string) (*Message, error) {
 	if role != "user" && role != "agent" && role != "system" {
 		return nil, fmt.Errorf("invalid role %q", role)
 	}
@@ -305,10 +1039,20 @@ func (s *store) AppendFull(chatID, role, content string, userID *int64, threadID
 	if err != nil {
 		return nil, fmt.Errorf("marshal attachments: %w", err)
 	}
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("marshal metadata: %w", err)
+	}
 	res, err := s.db.Exec(
-		`INSERT INTO channel_chat_messages (chat_id, role, content, user_id, thread_id, status, components_json, attachments_json)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		chatID, role, content, userID, threadID, status, string(componentsJSON), string(attachmentsJSON),
+		`INSERT INTO channel_chat_messages
+			(chat_id, role, content, user_id, agent_id, thread_id, status,
+			 components_json, attachments_json, metadata_json, client_message_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		chatID, role, content, userID, agentID, threadID, status,
+		string(componentsJSON), string(attachmentsJSON), string(metadataJSON), strings.TrimSpace(clientID),
 	)
 	if err != nil {
 		return nil, err
@@ -326,7 +1070,7 @@ func (s *store) AppendFull(chatID, role, content string, userID *int64, threadID
 // fails even when the first message was delivered successfully. Treat the
 // retry as idempotent only when no newer visible user message exists, so two
 // separate user turns can still receive the same legitimate response.
-func (s *store) AppendAgentMessageOnce(chatID, content, threadID string, components []framework.ChatComponent) (*Message, bool, error) {
+func (s *store) AppendAgentMessageOnce(chatID, content, threadID string, agentID int64, components []framework.ChatComponent) (*Message, bool, error) {
 	if components == nil {
 		components = []framework.ChatComponent{}
 	}
@@ -350,9 +1094,13 @@ func (s *store) AppendAgentMessageOnce(chatID, content, threadID string, compone
 			  AND COALESCE(components_json, '[]') NOT LIKE '%"status-card"%'
 			ORDER BY id DESC
 			LIMIT 1`, chatID).Scan(&id, &latestRole, &latestContent, &latestThread, &latestComponents)
-		if latestErr == nil && latestRole == "agent" && latestContent == content &&
-			latestThread == threadID && latestComponents == encodedComponents {
-			return nil
+		if latestErr == nil && latestRole == "agent" && latestThread == threadID && latestComponents == encodedComponents {
+			exactRetry := latestContent == content
+			latestFingerprint := immediateReplyFingerprint(latestContent)
+			paraphrasedRetry := latestFingerprint != "" && latestFingerprint == immediateReplyFingerprint(content)
+			if exactRetry || paraphrasedRetry {
+				return nil
+			}
 		}
 		if latestErr != nil && !errors.Is(latestErr, sql.ErrNoRows) {
 			return latestErr
@@ -360,9 +1108,10 @@ func (s *store) AppendAgentMessageOnce(chatID, content, threadID string, compone
 
 		res, err := conn.ExecContext(ctx, `
 			INSERT INTO channel_chat_messages
-				(chat_id, role, content, user_id, thread_id, status, components_json, attachments_json)
-			VALUES (?, 'agent', ?, NULL, ?, 'final', ?, '[]')`,
-			chatID, content, threadID, encodedComponents)
+				(chat_id, role, content, user_id, agent_id, thread_id, status,
+				 components_json, attachments_json, metadata_json, client_message_id)
+			VALUES (?, 'agent', ?, NULL, ?, ?, 'final', ?, '[]', '{}', '')`,
+			chatID, content, agentID, threadID, encodedComponents)
 		if err != nil {
 			return err
 		}
@@ -383,10 +1132,43 @@ func (s *store) AppendAgentMessageOnce(chatID, content, threadID string, compone
 	return m, inserted, err
 }
 
+// immediateReplyFingerprint catches the common post-receipt retry where the
+// model emits the same sentence with only punctuation or word order changed.
+// It is intentionally conservative: short replies are exact-match only, the
+// caller already limits comparison to the same thread/components and a five
+// second window, and a new user row prevents the previous agent reply from
+// being selected at all.
+func immediateReplyFingerprint(content string) string {
+	rawTokens := strings.FieldsFunc(strings.ToLower(strings.TrimSpace(content)), func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	})
+	tokens := make([]string, 0, len(rawTokens))
+	for i := 0; i < len(rawTokens); i++ {
+		switch rawTokens[i] {
+		case "confirmed", "updated":
+			// Presentation-only lead words commonly alternate after a
+			// successful delivery receipt.
+			continue
+		case "every":
+			if i+1 < len(rawTokens) && rawTokens[i+1] == "day" {
+				tokens = append(tokens, "daily")
+				i++
+				continue
+			}
+		}
+		tokens = append(tokens, rawTokens[i])
+	}
+	if len(tokens) < 6 {
+		return ""
+	}
+	sort.Strings(tokens)
+	return strings.Join(tokens, "\x00")
+}
+
 // UpsertCurrentStatus keeps exactly one mutable status row per chat. Status is
 // operational state rather than conversation history, so it deliberately does
 // not update channel_chat_chats.updated_at or the unread watermark.
-func (s *store) UpsertCurrentStatus(chatID, content string, components []framework.ChatComponent) (*Message, error) {
+func (s *store) UpsertCurrentStatus(chatID string, agentID int64, threadID, content string, components []framework.ChatComponent) (*Message, error) {
 	componentsJSON, err := json.Marshal(components)
 	if err != nil {
 		return nil, err
@@ -400,21 +1182,23 @@ func (s *store) UpsertCurrentStatus(chatID, content string, components []framewo
 		// the connection's busy_timeout applies instead of surfacing SQLITE_BUSY.
 		err = conn.QueryRowContext(ctx, `
 			SELECT id FROM channel_chat_messages
-			WHERE chat_id = ? AND COALESCE(components_json, '[]') LIKE '%"status-card"%'
-			ORDER BY id DESC LIMIT 1`, chatID).Scan(&id)
+			WHERE chat_id = ? AND COALESCE(agent_id, 0) = ?
+			  AND COALESCE(components_json, '[]') LIKE '%"status-card"%'
+			ORDER BY id DESC LIMIT 1`, chatID, agentID).Scan(&id)
 		switch {
 		case err == nil:
 			_, err = conn.ExecContext(ctx, `
 				UPDATE channel_chat_messages
-				SET role='agent', content=?, thread_id='', status='final', created_at=CURRENT_TIMESTAMP,
+				SET role='agent', content=?, agent_id=?, thread_id=?, status='final', created_at=CURRENT_TIMESTAMP,
 				    components_json=?, attachments_json='[]'
-				WHERE id=?`, content, string(componentsJSON), id)
+				WHERE id=?`, content, agentID, strings.TrimSpace(threadID), string(componentsJSON), id)
 		case errors.Is(err, sql.ErrNoRows):
 			err = conn.QueryRowContext(ctx, `
 				INSERT INTO channel_chat_messages
-					(chat_id, role, content, thread_id, status, components_json, attachments_json)
-				VALUES (?, 'agent', ?, '', 'final', ?, '[]')
-				RETURNING id`, chatID, content, string(componentsJSON)).Scan(&id)
+					(chat_id, role, content, agent_id, thread_id, status, components_json,
+					 attachments_json, metadata_json, client_message_id)
+				VALUES (?, 'agent', ?, ?, ?, 'final', ?, '[]', '{}', '')
+				RETURNING id`, chatID, content, agentID, strings.TrimSpace(threadID), string(componentsJSON)).Scan(&id)
 		}
 		if err != nil {
 			return err
@@ -430,14 +1214,18 @@ func (s *store) UpsertCurrentStatus(chatID, content string, components []framewo
 func (s *store) GetMessage(id int64) (*Message, error) {
 	var m Message
 	var userID sql.NullInt64
+	var agentID sql.NullInt64
 	var threadID sql.NullString
 	var componentsJSON sql.NullString
 	var attachmentsJSON sql.NullString
+	var metadataJSON sql.NullString
 	err := s.db.QueryRow(
-		`SELECT id, chat_id, role, content, user_id, thread_id, status, created_at,
-		        COALESCE(components_json, '[]'), COALESCE(attachments_json, '[]')
+		`SELECT id, chat_id, role, content, user_id, agent_id, thread_id, status, created_at,
+		        COALESCE(components_json, '[]'), COALESCE(attachments_json, '[]'),
+		        COALESCE(metadata_json, '{}'), COALESCE(client_message_id, '')
 		 FROM channel_chat_messages WHERE id = ?`, id,
-	).Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &userID, &threadID, &m.Status, &m.CreatedAt, &componentsJSON, &attachmentsJSON)
+	).Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &userID, &agentID, &threadID, &m.Status,
+		&m.CreatedAt, &componentsJSON, &attachmentsJSON, &metadataJSON, &m.ClientID)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -448,11 +1236,16 @@ func (s *store) GetMessage(id int64) (*Message, error) {
 		v := userID.Int64
 		m.UserID = &v
 	}
+	if agentID.Valid {
+		v := agentID.Int64
+		m.AgentID = &v
+	}
 	if threadID.Valid {
 		m.ThreadID = threadID.String
 	}
 	m.Components = decodeComponents(componentsJSON.String)
 	m.Attachments = decodeAttachments(attachmentsJSON.String)
+	m.Metadata = decodeMetadata(metadataJSON.String)
 	return &m, nil
 }
 
@@ -503,6 +1296,17 @@ func decodeAttachments(raw string) []ChatAttachment {
 	return out
 }
 
+func decodeMetadata(raw string) map[string]any {
+	out := map[string]any{}
+	if raw == "" {
+		return out
+	}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil || out == nil {
+		return map[string]any{}
+	}
+	return out
+}
+
 // ListMessages returns the next page of rows for a chat with id > since,
 // ordered by id asc. It is the cursor API used by SSE catch-up.
 func (s *store) ListMessages(chatID string, since int64, limit int) ([]Message, error) {
@@ -510,8 +1314,9 @@ func (s *store) ListMessages(chatID string, since int64, limit int) ([]Message, 
 		limit = 500
 	}
 	rows, err := s.db.Query(
-		`SELECT id, chat_id, role, content, user_id, thread_id, status, created_at,
-		        COALESCE(components_json, '[]'), COALESCE(attachments_json, '[]')
+		`SELECT id, chat_id, role, content, user_id, agent_id, thread_id, status, created_at,
+		        COALESCE(components_json, '[]'), COALESCE(attachments_json, '[]'),
+		        COALESCE(metadata_json, '{}'), COALESCE(client_message_id, '')
 		 FROM channel_chat_messages
 		 WHERE chat_id = ? AND id > ?
 		   AND COALESCE(components_json, '[]') NOT LIKE '%"approval-card"%'
@@ -537,8 +1342,9 @@ func (s *store) ListRecentMessages(chatID string, limit int) ([]Message, error) 
 		limit = 500
 	}
 	rows, err := s.db.Query(
-		`SELECT id, chat_id, role, content, user_id, thread_id, status, created_at,
-		        COALESCE(components_json, '[]'), COALESCE(attachments_json, '[]')
+		`SELECT id, chat_id, role, content, user_id, agent_id, thread_id, status, created_at,
+		        COALESCE(components_json, '[]'), COALESCE(attachments_json, '[]'),
+		        COALESCE(metadata_json, '{}'), COALESCE(client_message_id, '')
 		 FROM channel_chat_messages
 		 WHERE chat_id = ?
 		   AND COALESCE(components_json, '[]') NOT LIKE '%"approval-card"%'
@@ -568,21 +1374,29 @@ func scanMessageRows(rows *sql.Rows) ([]Message, error) {
 	for rows.Next() {
 		var m Message
 		var userID sql.NullInt64
+		var agentID sql.NullInt64
 		var threadID sql.NullString
 		var componentsJSON sql.NullString
 		var attachmentsJSON sql.NullString
-		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &userID, &threadID, &m.Status, &m.CreatedAt, &componentsJSON, &attachmentsJSON); err != nil {
+		var metadataJSON sql.NullString
+		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &userID, &agentID, &threadID,
+			&m.Status, &m.CreatedAt, &componentsJSON, &attachmentsJSON, &metadataJSON, &m.ClientID); err != nil {
 			return nil, err
 		}
 		if userID.Valid {
 			v := userID.Int64
 			m.UserID = &v
 		}
+		if agentID.Valid {
+			v := agentID.Int64
+			m.AgentID = &v
+		}
 		if threadID.Valid {
 			m.ThreadID = threadID.String
 		}
 		m.Components = decodeComponents(componentsJSON.String)
 		m.Attachments = decodeAttachments(attachmentsJSON.String)
+		m.Metadata = decodeMetadata(metadataJSON.String)
 		out = append(out, m)
 	}
 	return out, rows.Err()
@@ -611,7 +1425,7 @@ func (s *store) ListApprovalMessages(ownerIDs []int64, projectID, status string,
 		placeholders[i] = "?"
 		args = append(args, id)
 	}
-	where := `c.agent_id IN (` + strings.Join(placeholders, ",") + `)
+	where := `COALESCE(m.agent_id, c.agent_id) IN (` + strings.Join(placeholders, ",") + `)
 		AND COALESCE(m.components_json, '[]') LIKE '%"approval-card"%'`
 	if strings.TrimSpace(projectID) != "" {
 		where += ` AND i.project_id = ?`
@@ -621,10 +1435,10 @@ func (s *store) ListApprovalMessages(ownerIDs []int64, projectID, status string,
 	q := `
 		SELECT m.id, m.chat_id, m.role, m.content, m.user_id, m.thread_id, m.status, m.created_at,
 		       COALESCE(m.components_json, '[]'), COALESCE(m.attachments_json, '[]'),
-		       c.agent_id, COALESCE(i.name, ''), COALESCE(i.project_id, '')
+		       COALESCE(m.agent_id, c.agent_id), COALESCE(i.name, ''), COALESCE(c.project_id, '')
 		FROM channel_chat_messages m
 		JOIN channel_chat_chats c ON c.id = m.chat_id
-		JOIN agents i ON i.id = c.agent_id
+		JOIN agents i ON i.id = COALESCE(m.agent_id, c.agent_id)
 		WHERE ` + where + `
 		ORDER BY m.id DESC
 		LIMIT ?`
@@ -652,6 +1466,8 @@ func (s *store) ListApprovalMessages(ownerIDs []int64, projectID, status string,
 		if threadID.Valid {
 			m.ThreadID = threadID.String
 		}
+		agentID := row.AgentID
+		m.AgentID = &agentID
 		m.Components = decodeComponents(componentsJSON.String)
 		m.Attachments = decodeAttachments(attachmentsJSON.String)
 		title, body, cardStatus, dismissed, ok := approvalSummary(m.Components)
@@ -690,7 +1506,7 @@ func (s *store) ListReportMessages(ownerIDs []int64, projectID string, limit int
 		placeholders[i] = "?"
 		args = append(args, id)
 	}
-	where := `c.agent_id IN (` + strings.Join(placeholders, ",") + `)
+	where := `COALESCE(m.agent_id, c.agent_id) IN (` + strings.Join(placeholders, ",") + `)
 		AND COALESCE(m.components_json, '[]') LIKE '%"report-card"%'`
 	if strings.TrimSpace(projectID) != "" {
 		where += ` AND i.project_id = ?`
@@ -700,10 +1516,10 @@ func (s *store) ListReportMessages(ownerIDs []int64, projectID string, limit int
 	q := `
 		SELECT m.id, m.chat_id, m.role, m.content, m.user_id, m.thread_id, m.status, m.created_at,
 		       COALESCE(m.components_json, '[]'), COALESCE(m.attachments_json, '[]'),
-		       c.agent_id, COALESCE(i.name, ''), COALESCE(i.project_id, '')
+		       COALESCE(m.agent_id, c.agent_id), COALESCE(i.name, ''), COALESCE(c.project_id, '')
 		FROM channel_chat_messages m
 		JOIN channel_chat_chats c ON c.id = m.chat_id
-		JOIN agents i ON i.id = c.agent_id
+		JOIN agents i ON i.id = COALESCE(m.agent_id, c.agent_id)
 		WHERE ` + where + `
 		ORDER BY m.id DESC
 		LIMIT ?`
@@ -731,6 +1547,8 @@ func (s *store) ListReportMessages(ownerIDs []int64, projectID string, limit int
 		if threadID.Valid {
 			m.ThreadID = threadID.String
 		}
+		agentID := row.AgentID
+		m.AgentID = &agentID
 		m.Components = decodeComponents(componentsJSON.String)
 		m.Attachments = decodeAttachments(attachmentsJSON.String)
 		title, summary, period, dismissed, ok := reportSummary(m.Components)
@@ -763,7 +1581,7 @@ func (s *store) ListAlertMessages(ownerIDs []int64, projectID string, limit int)
 		placeholders[i] = "?"
 		args = append(args, id)
 	}
-	where := `c.agent_id IN (` + strings.Join(placeholders, ",") + `)
+	where := `COALESCE(m.agent_id, c.agent_id) IN (` + strings.Join(placeholders, ",") + `)
 		AND COALESCE(m.components_json, '[]') LIKE '%"alert-card"%'`
 	if strings.TrimSpace(projectID) != "" {
 		where += ` AND i.project_id = ?`
@@ -773,10 +1591,10 @@ func (s *store) ListAlertMessages(ownerIDs []int64, projectID string, limit int)
 	q := `
 		SELECT m.id, m.chat_id, m.role, m.content, m.user_id, m.thread_id, m.status, m.created_at,
 		       COALESCE(m.components_json, '[]'), COALESCE(m.attachments_json, '[]'),
-		       c.agent_id, COALESCE(i.name, ''), COALESCE(i.project_id, '')
+		       COALESCE(m.agent_id, c.agent_id), COALESCE(i.name, ''), COALESCE(c.project_id, '')
 		FROM channel_chat_messages m
 		JOIN channel_chat_chats c ON c.id = m.chat_id
-		JOIN agents i ON i.id = c.agent_id
+		JOIN agents i ON i.id = COALESCE(m.agent_id, c.agent_id)
 		WHERE ` + where + `
 		ORDER BY m.id DESC
 		LIMIT ?`
@@ -804,6 +1622,8 @@ func (s *store) ListAlertMessages(ownerIDs []int64, projectID string, limit int)
 		if threadID.Valid {
 			m.ThreadID = threadID.String
 		}
+		agentID := row.AgentID
+		m.AgentID = &agentID
 		m.Components = decodeComponents(componentsJSON.String)
 		m.Attachments = decodeAttachments(attachmentsJSON.String)
 		title, body, severity, dismissed, ok := alertSummary(m.Components)
@@ -833,7 +1653,7 @@ func (s *store) ListCurrentStatuses(ownerIDs []int64, projectID string) ([]Curre
 		placeholders[i] = "?"
 		args = append(args, id)
 	}
-	where := `c.agent_id IN (` + strings.Join(placeholders, ",") + `)
+	where := `COALESCE(m.agent_id, c.agent_id) IN (` + strings.Join(placeholders, ",") + `)
 		AND COALESCE(m.components_json, '[]') LIKE '%"status-card"%'`
 	if strings.TrimSpace(projectID) != "" {
 		where += ` AND i.project_id = ?`
@@ -842,10 +1662,10 @@ func (s *store) ListCurrentStatuses(ownerIDs []int64, projectID string) ([]Curre
 	q := `
 		SELECT m.id, m.chat_id, m.role, m.content, m.user_id, m.thread_id, m.status, m.created_at,
 		       COALESCE(m.components_json, '[]'), COALESCE(m.attachments_json, '[]'),
-		       c.agent_id, COALESCE(i.name, ''), COALESCE(i.project_id, '')
+		       COALESCE(m.agent_id, c.agent_id), COALESCE(i.name, ''), COALESCE(c.project_id, '')
 		FROM channel_chat_messages m
 		JOIN channel_chat_chats c ON c.id = m.chat_id
-		JOIN agents i ON i.id = c.agent_id
+		JOIN agents i ON i.id = COALESCE(m.agent_id, c.agent_id)
 		WHERE ` + where + `
 		ORDER BY m.created_at DESC`
 	rows, err := s.db.Query(q, args...)
@@ -872,6 +1692,8 @@ func (s *store) ListCurrentStatuses(ownerIDs []int64, projectID string) ([]Curre
 		if threadID.Valid {
 			m.ThreadID = threadID.String
 		}
+		agentID := row.AgentID
+		m.AgentID = &agentID
 		m.Components = decodeComponents(componentsJSON.String)
 		m.Attachments = decodeAttachments(attachmentsJSON.String)
 		title, detail, state, progress, next, nextAt, ok := currentStatusSummary(m.Components)
@@ -1059,6 +1881,7 @@ func (s *store) LatestForOwner(ownerIDs []int64) ([]ChatLatest, error) {
 				  AND COALESCE(components_json, '[]') NOT LIKE '%"status-card"%'
 			)
 		WHERE c.agent_id IN (` + strings.Join(placeholders, ",") + `)
+		  AND c.id <> printf('default-%d', c.agent_id)
 		ORDER BY COALESCE(m.created_at, c.updated_at) DESC`
 	rows, err := s.db.Query(q, args...)
 	if err != nil {

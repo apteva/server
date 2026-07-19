@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -75,7 +76,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "apps_marketplace", Description: "List marketplace apps, marking which are installed in the current project. Defaults to the current project and includes global installs.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "registry_url": {Type: "string", Description: "Optional registry URL override."}}}},
 		{Name: "apps_install", Description: "Install an Apteva app using the same server path as the dashboard. Defaults to the current project. To install globally, pass global=true explicitly.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"manifest_url": {Type: "string", Description: "Manifest URL to install."}, "manifest_yaml": {Type: "string", Description: "Inline manifest YAML."}, "repo": {Type: "string", Description: "Optional source repo metadata."}, "ref": {Type: "string", Description: "Optional source ref metadata."}, "project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "global": {Type: "string", Description: "true/false. Required true for a global install when no project_id/current project is available."}, "config": {Type: "string", Description: "Optional JSON object or JSON string with app config."}, "upgrade_policy": {Type: "string", Description: "manual, auto-patch, or auto-minor."}, "bindings": {Type: "string", Description: "Optional JSON object mapping required roles to connection/install IDs."}}}},
 		{Name: "apps_upgrade", Description: "Upgrade an installed Apteva app using the same server path as the dashboard.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"install_id": {Type: "string", Description: "App install ID"}, "approve_new_permissions": {Type: "string", Description: "true/false. Confirms new permissions shown to the operator."}}, Required: []string{"install_id"}}},
-		{Name: "apps_uninstall", Description: "Uninstall an Apteva app using the same server cleanup path as the dashboard.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"install_id": {Type: "string", Description: "App install ID"}, "force": {Type: "string", Description: "true/false. Override dependency blockers when intentionally removing anyway."}}, Required: []string{"install_id"}}},
+		{Name: "apps_uninstall", Description: "Uninstall an Apteva app from the explicitly named project using the same server cleanup path as the dashboard. Returns an authoritative receipt with app_name, display_name, install_id, app_id, project_id, version, and status. Treat a successful receipt as final; do not re-list apps to reinterpret whether the uninstall happened.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"install_id": {Type: "string", Description: "App install ID"}, "project_id": {Type: "string", Description: "Apteva project ID that owns this install. Must match the current dashboard project."}, "force": {Type: "string", Description: "true/false. Override dependency blockers when intentionally removing anyway."}}, Required: []string{"install_id", "project_id"}}},
 		// Integrations
 		{Name: "list_integrations", Description: "Browse available integrations. Returns name, slug, description, tool count.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"query": {Type: "string", Description: "Search query"}}}},
 		{Name: "get_integration", Description: "Get full details of an integration including credential fields and tools.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"slug": {Type: "string", Description: "Integration slug"}}, Required: []string{"slug"}}},
@@ -1339,12 +1340,17 @@ func handleGatewayAppTool(name string, args map[string]any, defaultProjectID str
 		if err != nil {
 			return nil, err
 		}
-		path := fmt.Sprintf("/apps/installs/%d", installID)
+		projectID := gatewayProjectIDArg(args, defaultProjectID)
+		if projectID == "" {
+			return nil, fmt.Errorf("project_id is required to uninstall an app")
+		}
+		params := url.Values{"project_id": []string{projectID}}
 		if force, ok, err := optionalBoolArg(args["force"]); err != nil {
 			return nil, fmt.Errorf("force must be true or false")
 		} else if ok && force {
-			path += "?force=1"
+			params.Set("force", "1")
 		}
+		path := fmt.Sprintf("/apps/installs/%d?%s", installID, params.Encode())
 		var out any
 		if err := serverAPI.do(http.MethodDelete, path, nil, &out); err != nil {
 			return nil, err
