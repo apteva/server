@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,20 +19,24 @@ import (
 )
 
 type conversationResolver struct {
-	agents     map[int64]framework.InstanceInfo
-	forwarded  atomic.Int64
-	forwardErr error
-	forwardFn  func(call int64) error
-	forwards   chan conversationShutdownCall
-	spawned    atomic.Int64
-	spawnErr   error
-	updated    atomic.Int64
-	updateErr  error
-	events     chan string
-	shutdowns  chan conversationShutdownCall
-	kills      chan conversationShutdownCall
-	threadIDs  map[int64][]string
-	listErr    error
+	agents      map[int64]framework.InstanceInfo
+	forwarded   atomic.Int64
+	forwardErr  error
+	forwardFn   func(call int64) error
+	forwards    chan conversationShutdownCall
+	spawned     atomic.Int64
+	spawnErr    error
+	updated     atomic.Int64
+	updateErr   error
+	toolMu      sync.Mutex
+	threadTools []string
+	spawnTools  []string
+	updateTools []string
+	events      chan string
+	shutdowns   chan conversationShutdownCall
+	kills       chan conversationShutdownCall
+	threadIDs   map[int64][]string
+	listErr     error
 }
 
 type conversationShutdownCall struct {
@@ -39,26 +45,40 @@ type conversationShutdownCall struct {
 	Message  string
 }
 
-func TestChatThreadDirectiveEndsDurableHandoffWithoutParentAcknowledgement(t *testing.T) {
+func TestChatThreadProfileSupportsWorkProgressChildrenAndSelectiveReporting(t *testing.T) {
 	for _, required := range []string{
-		"prefer one short visible acknowledgement",
-		"strong guidance, not a hard requirement",
-		"wait for its successful delivery receipt before calling action tools",
-		"after the optional acknowledgement, send(id=\"main\"",
-		"never send acknowledgements both before and after the handoff",
-		"A preliminary acknowledgement that promises unfinished tool work is not the final answer",
-		"do not claim completion",
-		"exactly one final channels_send",
-		"overrides the generic worker rule that a final report to parent is mandatory",
-		"the durable handoff was already your report",
-		"do NOT send main/parent an acknowledgement",
-		"Pace and wait for the next user message",
-		"After any non-channel tool result used for the current user request",
-		"pace is invalid while that reply is pending",
+		"[USER CHAT ROLE]",
+		"perform interactive work with your attached tools",
+		"keep the user informed at major phases or achievements",
+		"what was achieved and what meaningful step comes next",
+		"Do not narrate every tool call",
+		"exactly one complete final result",
+		"observed non-channel tool result is still unfinished",
+		"Pace, done, and idle are prohibited",
+		"you may create temporary child jobs",
+		"exact result it owes you",
+		"report that result to its parent before sleeping",
+		"Children report to you",
+		"REPORT ONLY — no action or reply required",
+		"ACTION REQUIRED — reply to this conversation",
+		"Do not forward every child event",
+		"Never call evolve",
 	} {
 		if !strings.Contains(chatThreadDirectiveSuffix, required) {
 			t.Fatalf("chat thread directive missing %q", required)
 		}
+	}
+	for _, forbidden := range []string{
+		"Any acknowledgement is the only progress message",
+		"Do not send any additional placeholder or progress message",
+	} {
+		if strings.Contains(chatThreadDirectiveSuffix, forbidden) {
+			t.Fatalf("chat thread directive retained obsolete progress ban %q", forbidden)
+		}
+	}
+	profile := chatThreadProfileFor(framework.InstanceInfo{Kind: "user"})
+	if strings.Join(profile.Tools, ",") != "send,spawn,pace" {
+		t.Fatalf("ordinary chat tools=%v, want send, spawn, pace", profile.Tools)
 	}
 }
 
@@ -67,11 +87,12 @@ func TestPlatformHelperConversationUsesControlPlaneToolsDirectly(t *testing.T) {
 	directive := chatThreadDirectiveFor(inst)
 	for _, required := range []string{
 		"[PLATFORM HELPER CONVERSATION POLICY]",
-		"shared optional acknowledgement guidance",
+		"shared acknowledgement and selective-progress guidance",
 		"agents_update directly",
 		"MUST NOT be handed to main",
 		"Do not call core send(id=\"main\")",
 		"exactly one complete final channels_send outcome",
+		"Temporary children may assist",
 		"does not replace that final outcome",
 		"never send a second paraphrase",
 	} {
@@ -88,7 +109,7 @@ func TestPlatformHelperConversationUsesControlPlaneToolsDirectly(t *testing.T) {
 		"PLATFORM HELPER TURN REQUIREMENT",
 		"persistent agents_update",
 		"does not require a main handoff",
-		"optional acknowledgement-before-tools guidance applies here too",
+		"acknowledgement and selective-progress guidance applies here too",
 		"never repeat the final response",
 	} {
 		if !strings.Contains(event, required) {
@@ -741,15 +762,32 @@ func waitPresenceEvent(t *testing.T, events <-chan string) string {
 		return ""
 	}
 }
-func (r *conversationResolver) SpawnThread(framework.InstanceInfo, string, string, []string, []string) error {
+func (r *conversationResolver) SpawnThread(_ framework.InstanceInfo, _ string, _ string, tools []string, _ []string) error {
 	r.spawned.Add(1)
+	r.toolMu.Lock()
+	r.spawnTools = append([]string(nil), tools...)
+	if len(r.threadTools) == 0 {
+		r.threadTools = append([]string(nil), tools...)
+	}
+	r.toolMu.Unlock()
 	return r.spawnErr
 }
 func (r *conversationResolver) ListMCPNames(framework.InstanceInfo) ([]string, error) {
 	return []string{"channels"}, nil
 }
-func (r *conversationResolver) UpdateThread(framework.InstanceInfo, string, string) error {
+func (r *conversationResolver) ThreadTools(framework.InstanceInfo, string) ([]string, error) {
+	r.toolMu.Lock()
+	defer r.toolMu.Unlock()
+	return append([]string(nil), r.threadTools...), nil
+}
+func (r *conversationResolver) UpdateThread(_ framework.InstanceInfo, _ string, _ string, tools []string) error {
 	r.updated.Add(1)
+	r.toolMu.Lock()
+	r.updateTools = append([]string(nil), tools...)
+	if len(tools) > 0 {
+		r.threadTools = append([]string(nil), tools...)
+	}
+	r.toolMu.Unlock()
 	return r.updateErr
 }
 func (r *conversationResolver) KillThread(inst framework.InstanceInfo, threadID string) error {
@@ -820,6 +858,34 @@ func TestExplicitConversationAlwaysUsesDedicatedEnsuredThread(t *testing.T) {
 	}
 	if got := resolver.updated.Load(); got != 1 {
 		t.Fatalf("directive updates=%d, want only initial cache population", got)
+	}
+	resolver.toolMu.Lock()
+	spawnTools := append([]string(nil), resolver.spawnTools...)
+	resolver.toolMu.Unlock()
+	if strings.Join(spawnTools, ",") != "send,spawn,pace" {
+		t.Fatalf("spawn tools=%v, want chat leader profile", spawnTools)
+	}
+}
+
+func TestExistingConversationAddsSpawnWithoutDroppingScopedMCPTools(t *testing.T) {
+	t.Setenv("CHANNELCHAT_PER_THREAD", "1")
+	resolver := &conversationResolver{
+		forwards:    make(chan conversationShutdownCall, 1),
+		threadTools: []string{"send", "pace", "channels_send", "schedule_lookup"},
+	}
+	h, chat, inst := newConversationHarness(t, 904, resolver)
+
+	if err := h.deliverConversationMessage(inst, chat, "continue", nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	<-resolver.forwards
+	resolver.toolMu.Lock()
+	updated := append([]string(nil), resolver.updateTools...)
+	resolver.toolMu.Unlock()
+	for _, required := range []string{"send", "pace", "channels_send", "schedule_lookup", "spawn"} {
+		if !slices.Contains(updated, required) {
+			t.Fatalf("updated tools=%v, missing %q", updated, required)
+		}
 	}
 }
 

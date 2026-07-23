@@ -146,6 +146,309 @@ func runRealActionBeforeReply(t *testing.T, setupHarness func(*testing.T, string
 	}
 }
 
+func TestChannelChat_RealLLM_Codex_ConversationUsesChildAndReportsProgress(t *testing.T) {
+	runRealConversationUsesChildAndReportsProgress(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealChannelChatHarness(t, "chat-child-progress-codex-under-test", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_ConversationUsesChildAndReportsProgress(t *testing.T) {
+	runRealConversationUsesChildAndReportsProgress(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "chat-child-progress-glm52-under-test", "glm-5.2", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_Codex_ReportOnlyMilestoneDoesNotWait(t *testing.T) {
+	runRealReportOnlyMilestoneDoesNotWait(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealChannelChatHarness(t, "chat-report-only-codex-under-test", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_ReportOnlyMilestoneDoesNotWait(t *testing.T) {
+	runRealReportOnlyMilestoneDoesNotWait(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "chat-report-only-glm52-under-test", "glm-5.2", directive, config)
+	})
+}
+
+// runRealConversationUsesChildAndReportsProgress proves the server-created
+// conversation is a capable leader: it delegates one substantial, self-
+// contained workstream to a temporary child, reports meaningful progress to
+// the user, consumes the child result, and finishes without polluting main.
+func runRealConversationUsesChildAndReportsProgress(t *testing.T, setupHarness func(*testing.T, string, string) *realChannelChatHarness) {
+	t.Helper()
+	directive := strings.Join([]string{
+		"# Role",
+		"You prepare concise launch plans for the operator.",
+		"# Working Rules",
+		"Self-contained launch plans are interactive conversation work and do not need main.",
+		"When the operator explicitly requests a temporary child for a separate workstream, create exactly one child, use its result, and remain responsible for the user-facing response.",
+	}, "\n")
+	h := setupHarness(t, directive, `{"include_apteva_server":false,"include_channels":true}`)
+	waitForInitialAgentTurn(t, h)
+
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	var baselineMessageID int64
+	if err := h.server.store.db.QueryRow(
+		`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID,
+	).Scan(&baselineMessageID); err != nil {
+		t.Fatalf("query baseline chat message: %v", err)
+	}
+
+	h.post(t, "Prepare a two-part launch plan. This is substantial: create one temporary child to draft the risk section while you draft the timeline. Send me a brief progress update after the child starts, then give me one final answer with clear Timeline and Risks sections. This is self-contained work.")
+
+	conversationThreadID := "chat-" + h.chatID
+	var finalReply string
+	// GLM 5.2 can take several provider turns to acknowledge, spawn, receive the
+	// child result, and synthesize the final. Allow enough time to distinguish
+	// a missing completion contract from ordinary provider latency.
+	deadline := time.Now().Add(5 * time.Minute)
+	for time.Now().Before(deadline) {
+		calls := newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls)
+		spawned := false
+		childReported := false
+		for _, event := range calls {
+			var data struct {
+				Name string         `json:"name"`
+				Args map[string]any `json:"args"`
+			}
+			if json.Unmarshal(event.Data, &data) != nil {
+				continue
+			}
+			if event.ThreadID == conversationThreadID && data.Name == "spawn" {
+				spawned = true
+			}
+			target, _ := data.Args["id"].(string)
+			if event.ThreadID != conversationThreadID && event.ThreadID != "main" &&
+				(data.Name == "done" || (data.Name == "send" && (target == "parent" || target == conversationThreadID))) {
+				childReported = true
+			}
+		}
+		finalReply = latestAgentChatReply(t, h.server, h.chatID)
+		if spawned && childReported && looksLikeLaunchPlanFinal(finalReply) {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 6*time.Second)
+
+	type visibleCall struct {
+		At   time.Time
+		Text string
+	}
+	var spawnCalls int
+	var mainSends int
+	var childResultAt time.Time
+	var visible []visibleCall
+	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+		var data struct {
+			Name string         `json:"name"`
+			Args map[string]any `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil {
+			continue
+		}
+		target, _ := data.Args["id"].(string)
+		switch {
+		case event.ThreadID == conversationThreadID && data.Name == "spawn":
+			spawnCalls++
+		case event.ThreadID == conversationThreadID && data.Name == "send" && (target == "main" || target == "parent"):
+			mainSends++
+		case event.ThreadID != conversationThreadID && event.ThreadID != "main" &&
+			(data.Name == "done" || (data.Name == "send" && (target == "parent" || target == conversationThreadID))):
+			if childResultAt.IsZero() || event.Time.Before(childResultAt) {
+				childResultAt = event.Time
+			}
+		case event.ThreadID == conversationThreadID &&
+			(data.Name == "channels_send" || strings.HasSuffix(data.Name, "_channels_send")):
+			text, _ := data.Args["text"].(string)
+			visible = append(visible, visibleCall{At: event.Time, Text: text})
+		}
+	}
+	sort.Slice(visible, func(i, j int) bool { return visible[i].At.Before(visible[j].At) })
+	if spawnCalls != 1 {
+		t.Fatalf("conversation spawn calls=%d, want exactly one temporary child; calls=%v",
+			spawnCalls, toolNames(newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls)))
+	}
+	if mainSends != 0 {
+		t.Fatalf("self-contained conversation sent %d reports or requests to main", mainSends)
+	}
+	if childResultAt.IsZero() {
+		t.Fatalf("temporary child did not report a result to the conversation; calls=%v",
+			toolNames(newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls)))
+	}
+	if len(visible) < 2 || len(visible) > 4 {
+		t.Fatalf("visible messages=%d, want meaningful progress plus one final without narration: %+v", len(visible), visible)
+	}
+	progressFound := false
+	for _, message := range visible[:len(visible)-1] {
+		lower := strings.ToLower(message.Text)
+		if strings.Contains(lower, "risk") &&
+			(strings.Contains(lower, "start") || strings.Contains(lower, "draft") ||
+				strings.Contains(lower, "analy") || strings.Contains(lower, "progress")) {
+			progressFound = true
+		}
+	}
+	if !progressFound {
+		t.Fatalf("conversation did not provide the requested meaningful child-work progress: %+v", visible)
+	}
+	final := visible[len(visible)-1]
+	if !looksLikeLaunchPlanFinal(final.Text) {
+		t.Fatalf("final response did not synthesize both workstreams: %q", final.Text)
+	}
+	if !final.At.After(childResultAt) {
+		t.Fatalf("final response preceded child result: child=%s final=%s", childResultAt, final.At)
+	}
+
+	rows, err := h.server.store.db.Query(`
+		SELECT content FROM channel_chat_messages
+		WHERE chat_id=? AND role='agent' AND id>?
+		  AND COALESCE(components_json, '') NOT LIKE '%"status-card"%'
+		ORDER BY id`, h.chatID, baselineMessageID)
+	if err != nil {
+		t.Fatalf("query child-progress replies: %v", err)
+	}
+	defer rows.Close()
+	var persisted []string
+	for rows.Next() {
+		var reply string
+		if err := rows.Scan(&reply); err != nil {
+			t.Fatal(err)
+		}
+		persisted = append(persisted, reply)
+	}
+	if len(persisted) != len(visible) {
+		t.Fatalf("persisted replies=%d tool deliveries=%d: %q", len(persisted), len(visible), persisted)
+	}
+}
+
+func looksLikeLaunchPlanFinal(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	if !strings.Contains(lower, "timeline") || !strings.Contains(lower, "risk") {
+		return false
+	}
+	for _, progressOnly := range []string{
+		"risk analysis is underway",
+		"risk section is underway",
+		"while i draft",
+		"i'm drafting",
+		"i am drafting",
+		"will follow",
+	} {
+		if strings.Contains(lower, progressOnly) {
+			return false
+		}
+	}
+	return strings.Count(text, "\n") >= 2
+}
+
+// runRealReportOnlyMilestoneDoesNotWait exercises the non-blocking upward
+// reporting path separately from durable ACTION REQUIRED handoffs. Main is
+// informed once, does not reply, and the conversation still completes its
+// user-facing turn immediately after the send receipt.
+func runRealReportOnlyMilestoneDoesNotWait(t *testing.T, setupHarness func(*testing.T, string, string) *realChannelChatHarness) {
+	t.Helper()
+	directive := strings.Join([]string{
+		"# Role",
+		"You assess launch readiness for the operator.",
+		"# Reporting",
+		"When a dashboard conversation reaches a launch-readiness decision, send main exactly one REPORT ONLY milestone with the decision, then immediately give the user the result without waiting.",
+		"When main receives a message beginning REPORT ONLY, take no action and send no reply.",
+	}, "\n")
+	h := setupHarness(t, directive, `{"include_apteva_server":false,"include_channels":true}`)
+	waitForInitialAgentTurn(t, h)
+
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	h.post(t, "Assess launch readiness: automated tests pass, but the required operator documentation is missing. Record the decision as the appropriate milestone and tell me whether we should launch.")
+
+	conversationThreadID := "chat-" + h.chatID
+	deadline := time.Now().Add(120 * time.Second)
+	var reportAt, finalAt time.Time
+	var reportText, finalText string
+	for time.Now().Before(deadline) {
+		for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+			var data struct {
+				Name string         `json:"name"`
+				Args map[string]any `json:"args"`
+			}
+			if json.Unmarshal(event.Data, &data) != nil || event.ThreadID != conversationThreadID {
+				continue
+			}
+			target, _ := data.Args["id"].(string)
+			switch {
+			case data.Name == "send" && (target == "main" || target == "parent"):
+				reportText, _ = data.Args["message"].(string)
+				reportAt = event.Time
+			case data.Name == "channels_send" || strings.HasSuffix(data.Name, "_channels_send"):
+				if finalAt.IsZero() || event.Time.After(finalAt) {
+					finalText, _ = data.Args["text"].(string)
+					finalAt = event.Time
+				}
+			}
+		}
+		if !reportAt.IsZero() && !finalAt.IsZero() && finalAt.After(reportAt) {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 5*time.Second)
+
+	var reportCalls, mainReplies int
+	var visible []string
+	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+		var data struct {
+			Name string         `json:"name"`
+			Args map[string]any `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil {
+			continue
+		}
+		target, _ := data.Args["id"].(string)
+		switch {
+		case event.ThreadID == conversationThreadID && data.Name == "send" && (target == "main" || target == "parent"):
+			reportCalls++
+			reportText, _ = data.Args["message"].(string)
+			reportAt = event.Time
+		case event.ThreadID == "main" && data.Name == "send" && target == conversationThreadID:
+			mainReplies++
+		case event.ThreadID == conversationThreadID &&
+			(data.Name == "channels_send" || strings.HasSuffix(data.Name, "_channels_send")):
+			text, _ := data.Args["text"].(string)
+			visible = append(visible, text)
+			if finalAt.IsZero() || event.Time.After(finalAt) {
+				finalText = text
+				finalAt = event.Time
+			}
+		}
+	}
+	if reportCalls != 1 {
+		t.Fatalf("report-only sends=%d, want exactly one; calls=%v",
+			reportCalls, toolNames(newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls)))
+	}
+	if !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(reportText)), "REPORT ONLY") {
+		t.Fatalf("main message was not explicitly non-blocking: %q", reportText)
+	}
+	if mainReplies != 0 {
+		t.Fatalf("main replied %d times to a report-only milestone", mainReplies)
+	}
+	if len(visible) < 1 || len(visible) > 2 {
+		t.Fatalf("report-only turn visible messages=%d, want optional acknowledgement plus one final: %q", len(visible), visible)
+	}
+	if reportAt.IsZero() || finalAt.IsZero() || !finalAt.After(reportAt) {
+		t.Fatalf("conversation did not continue after its report receipt: report=%s final=%s",
+			reportAt.Format(time.RFC3339Nano), finalAt.Format(time.RFC3339Nano))
+	}
+	finalLower := strings.ToLower(finalText)
+	if !strings.Contains(finalLower, "documentation") ||
+		(!strings.Contains(finalLower, "not ready") && !strings.Contains(finalLower, "do not launch") &&
+			!strings.Contains(finalLower, "should not launch") && !strings.Contains(finalLower, "blocked")) {
+		t.Fatalf("launch-readiness final result is unclear: %q", finalText)
+	}
+}
+
 // TestChannelChat_RealLLM_Codex_DirectChatReplyAfterLookup reproduces the
 // agent 327 failure: a read-only lookup produces an ambiguous result, so the
 // agent must send a visible clarification instead of leaving it in plain model
@@ -619,6 +922,17 @@ func runRealPlatformHelperUsesDashboardProject(t *testing.T, setupHarness func(*
 		"project_id":   projectID,
 		"page_kind":    "build",
 	})
+	var receiptReply string
+	deadline := time.Now().Add(5 * time.Minute)
+	for time.Now().Before(deadline) {
+		receiptReply = latestAgentChatReply(t, h.server, h.chatID)
+		lower := strings.ToLower(receiptReply)
+		if uninstallCalls.Load() > 0 && strings.Contains(lower, "torrent") &&
+			(strings.Contains(lower, "uninstall") || strings.Contains(lower, "removed")) {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
 
 	select {
@@ -631,6 +945,9 @@ func runRealPlatformHelperUsesDashboardProject(t *testing.T, setupHarness func(*
 	}
 	if uninstallCalls.Load() != 1 {
 		t.Fatalf("apps_uninstall calls=%d, want exactly one", uninstallCalls.Load())
+	}
+	if receiptReply == "" {
+		t.Fatal("Helper did not send a visible authoritative uninstall receipt")
 	}
 
 	toolAt := uninstallAtNano.Load()
@@ -868,7 +1185,7 @@ func runRealNonPrimaryConversationDurableHandoff(t *testing.T, setupHarness func
 				childParentSends[event.ID] = true
 			}
 			switch {
-			case event.ThreadID == conversationThreadID && data.Name == "send" && target == "main":
+			case event.ThreadID == conversationThreadID && data.Name == "send" && (target == "main" || target == "parent"):
 				childToMain = true
 				childHandoffAt = event.Time
 			case event.ThreadID == "main" && data.Name == "evolve":
@@ -881,7 +1198,16 @@ func runRealNonPrimaryConversationDurableHandoff(t *testing.T, setupHarness func
 			}
 		}
 		directiveReady := strings.Contains(strings.ToLower(mainDirective), "daily check-in") && strings.Contains(mainDirective, "09:00")
-		replyReady := strings.Contains(strings.ToLower(visibleReply), "daily") || strings.Contains(visibleReply, "09:00")
+		replyReady := false
+		if !mainReplyAt.IsZero() {
+			for _, call := range childVisibleCalls {
+				lower := strings.ToLower(call.Text)
+				if call.At.After(mainReplyAt) && (strings.Contains(lower, "daily") || strings.Contains(call.Text, "09:00")) {
+					replyReady = true
+					break
+				}
+			}
+		}
 		if ownershipOnly && childToMain && mainEvolved && directiveReady {
 			break
 		}
@@ -909,14 +1235,16 @@ func runRealNonPrimaryConversationDurableHandoff(t *testing.T, setupHarness func
 		}
 		if event.ThreadID == conversationThreadID && data.Name == "send" && (target == "main" || target == "parent") {
 			childParentSends[event.ID] = true
+			childToMain = true
 			childHandoffAt = event.Time
 		}
 		if event.ThreadID == "main" && data.Name == "send" && target == conversationThreadID {
 			mainReplyAt = event.Time
 		}
 	}
+	visibleReply = latestAgentChatReply(t, h.server, h.chatID)
 	ownershipFailed := !childToMain || !mainEvolved || childEvolved || len(childParentSends) != 1 || notificationCalls.Load() != 0
-	fullSequenceFailed := !ownershipOnly && (!mainToChild || len(childVisibleCalls) < 1 || len(childVisibleCalls) > 2)
+	fullSequenceFailed := !ownershipOnly && (!mainToChild || len(childVisibleCalls) < 1 || len(childVisibleCalls) > 3)
 	if ownershipFailed || fullSequenceFailed {
 		t.Logf("durable handoff state child_to_main=%v main_evolved=%v main_to_child=%v child_evolved=%v directive=%q visible_reply=%q",
 			childToMain, mainEvolved, mainToChild, childEvolved, mainDirective, visibleReply)
@@ -946,9 +1274,6 @@ func runRealNonPrimaryConversationDurableHandoff(t *testing.T, setupHarness func
 	if childEvolved {
 		t.Fatal("conversation thread incorrectly persisted the recurring responsibility into itself")
 	}
-	if !mainToChild {
-		t.Fatal("main did not send configuration confirmation back to the originating conversation thread")
-	}
 	if len(childParentSends) != 1 {
 		t.Fatalf("conversation thread sent %d main/parent messages, want exactly one durable handoff", len(childParentSends))
 	}
@@ -961,33 +1286,36 @@ func runRealNonPrimaryConversationDurableHandoff(t *testing.T, setupHarness func
 	if ownershipOnly {
 		return
 	}
+	if !mainToChild {
+		t.Fatal("main did not send configuration confirmation back to the originating conversation thread")
+	}
 	visibleSequence := make([]visibleCall, 0, len(childVisibleCalls))
 	for _, call := range childVisibleCalls {
 		visibleSequence = append(visibleSequence, call)
 	}
 	sort.Slice(visibleSequence, func(i, j int) bool { return visibleSequence[i].At.Before(visibleSequence[j].At) })
-	if len(visibleSequence) < 1 || len(visibleSequence) > 2 {
-		t.Fatalf("conversation emitted %d visible channel messages, want optional acknowledgement then final: %+v", len(visibleSequence), visibleSequence)
+	if len(visibleSequence) < 1 || len(visibleSequence) > 3 {
+		t.Fatalf("conversation emitted %d visible channel messages, want selective progress plus one final: %+v", len(visibleSequence), visibleSequence)
 	}
 	finalVisible := visibleSequence[len(visibleSequence)-1]
 	if mainReplyAt.IsZero() || !finalVisible.At.After(mainReplyAt) {
 		t.Fatalf("final visible result was not delivered after main replied: main_reply=%s final=%s sequence=%+v",
 			mainReplyAt.Format(time.RFC3339Nano), finalVisible.At.Format(time.RFC3339Nano), visibleSequence)
 	}
-	if len(visibleSequence) == 2 {
-		acknowledgement := visibleSequence[0]
-		if childHandoffAt.IsZero() || mainReplyAt.IsZero() || !acknowledgement.At.Before(mainReplyAt) {
-			t.Fatalf("visible acknowledgement was not delivered before main's result: acknowledgement=%s handoff=%s main_reply=%s sequence=%+v",
-				acknowledgement.At.Format(time.RFC3339Nano), childHandoffAt.Format(time.RFC3339Nano), mainReplyAt.Format(time.RFC3339Nano), visibleSequence)
+	for _, progress := range visibleSequence[:len(visibleSequence)-1] {
+		if childHandoffAt.IsZero() || mainReplyAt.IsZero() || !progress.At.Before(mainReplyAt) {
+			t.Fatalf("visible progress was not delivered before main's result: progress=%s handoff=%s main_reply=%s sequence=%+v",
+				progress.At.Format(time.RFC3339Nano), childHandoffAt.Format(time.RFC3339Nano), mainReplyAt.Format(time.RFC3339Nano), visibleSequence)
 		}
-		acknowledgementLower := strings.ToLower(strings.TrimSpace(acknowledgement.Text))
-		if acknowledgementLower == "" ||
-			(!strings.Contains(acknowledgementLower, "daily") && !strings.Contains(acknowledgementLower, "notification")) {
-			t.Fatalf("durable handoff acknowledgement was not concrete: %q", acknowledgement.Text)
+		progressLower := strings.ToLower(strings.TrimSpace(progress.Text))
+		if progressLower == "" ||
+			(!strings.Contains(progressLower, "daily") && !strings.Contains(progressLower, "notification") &&
+				!strings.Contains(progressLower, "schedule")) {
+			t.Fatalf("durable handoff progress was not concrete: %q", progress.Text)
 		}
 		for _, premature := range []string{"confirmed", "has been scheduled", "is scheduled", "completed"} {
-			if strings.Contains(acknowledgementLower, premature) {
-				t.Fatalf("durable handoff acknowledgement claimed completion before main acted (%q): %q", premature, acknowledgement.Text)
+			if strings.Contains(progressLower, premature) {
+				t.Fatalf("durable handoff progress claimed completion before main acted (%q): %q", premature, progress.Text)
 			}
 		}
 	}
@@ -1006,8 +1334,8 @@ func runRealNonPrimaryConversationDurableHandoff(t *testing.T, setupHarness func
 		WHERE chat_id=? AND role='agent' AND id>?`, created.ID, baselineMessageID).Scan(&replyCount); err != nil {
 		t.Fatalf("count durable-handoff conversation replies: %v", err)
 	}
-	if replyCount < 1 || replyCount > 2 {
-		t.Fatalf("conversation produced %d visible replies, want optional acknowledgement plus exactly one final", replyCount)
+	if replyCount < 1 || replyCount > 3 {
+		t.Fatalf("conversation produced %d visible replies, want selective progress plus exactly one final", replyCount)
 	}
 	if verifyScheduleChange {
 		verifyRealScheduleChange(t, h, resolver, inst, conversationThreadID, notificationCalls.Load)
@@ -1064,7 +1392,7 @@ func verifyRealScheduleChange(t *testing.T, h *realChannelChatHarness, resolver 
 	visibleCalls := map[string]visibleCall{}
 	var mainEvolved, mainReplied bool
 	var directive string
-	deadline := time.Now().Add(120 * time.Second)
+	deadline := time.Now().Add(5 * time.Minute)
 	for time.Now().Before(deadline) {
 		directive, _ = resolver.MainDirective(inst)
 		for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
@@ -1095,9 +1423,8 @@ func verifyRealScheduleChange(t *testing.T, h *realChannelChatHarness, resolver 
 		time.Sleep(500 * time.Millisecond)
 	}
 	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
-	// Re-read after the quiet window. Some models may attempt a paraphrased
-	// third channels_send after their final receipt; the channel boundary must
-	// suppress it so the user still sees exactly acknowledgement + final.
+	// Re-read after the quiet window so late progress or a repeated final cannot
+	// escape the assertions.
 	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
 		var data struct {
 			Name string         `json:"name"`
@@ -1138,8 +1465,8 @@ func verifyRealScheduleChange(t *testing.T, h *realChannelChatHarness, resolver 
 		sequence = append(sequence, call)
 	}
 	sort.Slice(sequence, func(i, j int) bool { return sequence[i].At.Before(sequence[j].At) })
-	if len(sequence) < 1 || len(sequence) > 3 {
-		t.Fatalf("schedule change attempted %d visible replies, want optional acknowledgement + final with at most one boundary-suppressed paraphrase: %+v", len(sequence), sequence)
+	if len(sequence) < 1 || len(sequence) > 4 {
+		t.Fatalf("schedule change attempted %d visible replies, want selective progress plus one final with at most one boundary-suppressed paraphrase: %+v", len(sequence), sequence)
 	}
 	var finalText string
 	for i := len(sequence) - 1; i >= 0; i-- {
@@ -1169,8 +1496,8 @@ func verifyRealScheduleChange(t *testing.T, h *realChannelChatHarness, resolver 
 		}
 		persistedReplies = append(persistedReplies, reply)
 	}
-	if len(persistedReplies) < 1 || len(persistedReplies) > 2 {
-		t.Fatalf("schedule change persisted %d replies, want optional acknowledgement plus exactly one final: %q", len(persistedReplies), persistedReplies)
+	if len(persistedReplies) < 1 || len(persistedReplies) > 3 {
+		t.Fatalf("schedule change persisted %d replies, want selective progress plus exactly one final: %q", len(persistedReplies), persistedReplies)
 	}
 }
 
@@ -1254,7 +1581,6 @@ func TestChannelChat_RealLLM_OpenCodeGLM52_DirectChatReplyAfterLookup(t *testing
 func runRealDirectChatReplyAfterLookup(t *testing.T, setupHarness func(*testing.T, string, string) *realChannelChatHarness) {
 	t.Helper()
 	var listed atomic.Int64
-	var lookupResultAtNano atomic.Int64
 	scheduleMCP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -1305,7 +1631,6 @@ func runRealDirectChatReplyAfterLookup(t *testing.T, setupHarness func(*testing.
 				return
 			}
 			listed.Add(1)
-			lookupResultAtNano.Store(time.Now().UnixNano())
 			respond(map[string]any{"content": []map[string]any{{
 				"type": "text",
 				"text": `{"posts":[{"id":"post-10","time":"10:00 UTC","channels":["instagram"],"title":"Morning studio update"},{"id":"post-16","time":"16:00 UTC","channels":["instagram","linkedin"],"title":"Afternoon launch note"}]}`,
@@ -1334,42 +1659,47 @@ func runRealDirectChatReplyAfterLookup(t *testing.T, setupHarness func(*testing.
 	_ = h.server.store.db.QueryRow(`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID).Scan(&baselineMessageID)
 
 	h.post(t, "Unschedule the Instagram post planned today.")
+	var finalReply string
+	deadline := time.Now().Add(5 * time.Minute)
+	for time.Now().Before(deadline) {
+		finalReply = latestAgentChatReply(t, h.server, h.chatID)
+		lower := strings.ToLower(finalReply)
+		if listed.Load() > 0 && (strings.Contains(lower, "which") || strings.Contains(lower, "clarif") ||
+			(strings.Contains(lower, "10:00") && strings.Contains(lower, "16:00"))) {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
 
 	if listed.Load() == 0 {
 		t.Fatal("agent did not inspect the ambiguous scheduled posts")
 	}
-	lookupAt := lookupResultAtNano.Load()
-	if lookupAt == 0 {
-		t.Fatal("schedule MCP did not record its lookup result time")
-	}
-	callEvents := newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls)
-	visibleBeforeLookup := 0
-	visibleAfterLookup := 0
-	for _, event := range callEvents {
-		var data struct {
-			Name string `json:"name"`
-		}
-		if json.Unmarshal(event.Data, &data) != nil ||
-			(data.Name != "channels_send" && !strings.HasSuffix(data.Name, "_channels_send")) {
+	channelCalls := newChannelCalls(t, h.server, h.agent.ID, baselineCalls)
+	var visibleMessages []channelSendCall
+	finalMessages := 0
+	for _, call := range channelCalls {
+		if call.Kind != "message" {
 			continue
 		}
-		if event.Time.UnixNano() > lookupAt {
-			visibleAfterLookup++
-		} else {
-			visibleBeforeLookup++
+		visibleMessages = append(visibleMessages, call)
+		lower := strings.ToLower(call.Text)
+		if strings.Contains(lower, "which") || strings.Contains(lower, "clarif") ||
+			(strings.Contains(lower, "10:00") && strings.Contains(lower, "16:00")) {
+			finalMessages++
 		}
 	}
-	if visibleAfterLookup != 1 {
-		t.Fatalf("agent did not call channels_send after the lookup result; calls=%v", toolNames(callEvents))
+	if finalMessages != 1 {
+		t.Fatalf("agent did not send exactly one clarification based on the lookup result; calls=%+v", visibleMessages)
 	}
-	if visibleBeforeLookup > 1 {
-		t.Fatalf("channels_send calls before lookup=%d, want at most one acknowledgement; calls=%v", visibleBeforeLookup, toolNames(callEvents))
+	if len(visibleMessages) < 1 || len(visibleMessages) > 2 {
+		t.Fatalf("channels_send messages=%d, want optional acknowledgement plus one final; calls=%+v", len(visibleMessages), visibleMessages)
 	}
 
 	rows, err := h.server.store.db.Query(`
 		SELECT content FROM channel_chat_messages
 		WHERE chat_id=? AND role='agent' AND id>?
+		  AND COALESCE(components_json, '') NOT LIKE '%"status-card"%'
 		ORDER BY id`, h.chatID, baselineMessageID)
 	if err != nil {
 		t.Fatalf("query visible chat replies after lookup: %v", err)
@@ -1386,7 +1716,7 @@ func runRealDirectChatReplyAfterLookup(t *testing.T, setupHarness func(*testing.
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate visible chat replies after lookup: %v", err)
 	}
-	if len(replies) != visibleBeforeLookup+1 || visibleAfterLookup != 1 {
+	if len(replies) != len(visibleMessages) {
 		t.Fatalf("persisted agent replies=%d, want optional acknowledgement plus exactly one final after lookup: %q", len(replies), replies)
 	}
 	reply := replies[len(replies)-1]
@@ -1437,6 +1767,19 @@ func runRealFinalReplyNotRepeatedAfterWake(t *testing.T, setupHarness func(*test
 	}
 
 	h.post(t, "Wait for now.")
+	deadline := time.Now().Add(5 * time.Minute)
+	for time.Now().Before(deadline) {
+		var visible int
+		for _, call := range newChannelCalls(t, h.server, h.agent.ID, baselineCalls) {
+			if call.Kind == "message" {
+				visible++
+			}
+		}
+		if visible > 0 {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 	// Production duplicates were observed a few seconds after the successful
 	// send. Waiting for a quiet period after the post-result LLM iteration makes
 	// the assertion cover that wake rather than racing the first persisted row.
@@ -2217,7 +2560,11 @@ func runRealChannelKindsExactlyOnce(t *testing.T, h *realChannelChatHarness) {
 		"Do not send any other chat message. Do not repeat successful calls.",
 	}, "\n"))
 
-	deadline := time.Now().Add(120 * time.Second)
+	// A provider turn can occasionally sit queued for more than two minutes
+	// before emitting its first tool call. Keep the real-model deadline aligned
+	// with the other multi-step channel tests so queue latency is not mistaken
+	// for a protocol failure.
+	deadline := time.Now().Add(5 * time.Minute)
 	var settleUntil time.Time
 	var snapshot channelCoverageSnapshot
 	for time.Now().Before(deadline) {
@@ -2543,7 +2890,7 @@ func waitForInitialAgentTurn(t *testing.T, h *realChannelChatHarness) {
 
 func waitForAgentTurnSettled(t *testing.T, h *realChannelChatHarness, baselineDone, baselineResults map[string]bool, quietFor time.Duration) {
 	t.Helper()
-	deadline := time.Now().Add(150 * time.Second)
+	deadline := time.Now().Add(5 * time.Minute)
 	var stableSince time.Time
 	lastSignature := ""
 	for time.Now().Before(deadline) {

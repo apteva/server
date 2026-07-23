@@ -35,8 +35,11 @@
           "voice": {
             "type": "object",
             "description": "Voice selector. Current API versions use a saved voice ID.",
-            "properties": { "id": { "type": "string", "description": "Cartesia voice ID." } },
-            "required": ["id"]
+            "properties": {
+              "mode": { "type": "string", "enum": ["id"], "default": "id" },
+              "id": { "type": "string", "description": "Cartesia voice ID." }
+            },
+            "required": ["mode", "id"]
           },
           "output_format": {
             "type": "object",

@@ -594,6 +594,10 @@ func main() {
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, versionInfo())
 	})
+	// Agent-facing bridge for custom subprocess MCP servers. Loopback-only;
+	// unlike the dashboard API it intentionally has no browser auth because
+	// apteva-core is the caller.
+	mux.HandleFunc("/mcp/custom/", s.handleCustomMCPBridge)
 	// Also expose health/version under /api for uniformity from the dashboard.
 	apiMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		info := versionInfo()
@@ -1037,12 +1041,19 @@ func main() {
 			http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
 		}
 	}))
+	apiMux.HandleFunc("/mcp-servers/managed", s.authMiddleware(s.handleCreateManagedMCPServer))
 	apiMux.HandleFunc("/mcp-servers/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/mcp-servers/")
 		if strings.HasSuffix(path, "/start") {
 			s.handleStartMCPServer(w, r)
 		} else if strings.HasSuffix(path, "/stop") {
 			s.handleStopMCPServer(w, r)
+		} else if strings.HasSuffix(path, "/managed") {
+			s.handleManagedMCPServer(w, r)
+		} else if strings.HasSuffix(path, "/validate") {
+			s.handleValidateManagedMCPServer(w, r)
+		} else if strings.HasSuffix(path, "/logs") {
+			s.handleManagedMCPLogs(w, r)
 		} else if strings.HasSuffix(path, "/tools") {
 			// GET  /mcp-servers/:id/tools — list tools available from the server
 			// PUT  /mcp-servers/:id/tools — update the allowed_tools filter
@@ -1064,6 +1075,10 @@ func main() {
 			s.handleDeleteMCPServer(w, r)
 		}
 	}))
+	// Isolated managed-MCP runners exchange their row-scoped HMAC capability
+	// here for calls to explicitly bound apps/integrations. The handler itself
+	// enforces loopback, revision token, alias, and project scope.
+	apiMux.HandleFunc("/managed-mcp-runtime/", s.handleManagedMCPRuntimeGateway)
 
 	// Composio per-toolkit action listing — powers the dashboard tool picker
 	// when the user is scoping down a Composio MCP server.
@@ -1164,6 +1179,7 @@ func main() {
 	apiMux.HandleFunc("/agent-templates/", s.authMiddleware(s.handleAgentTemplateByID))
 
 	apiMux.HandleFunc("/platform/helper", s.authMiddleware(s.handlePlatformHelper))
+	apiMux.HandleFunc("/platform/helper/capabilities", s.authMiddleware(s.handlePlatformHelperCapabilities))
 	// Private capability-token gateway used by temporary runtime agents to
 	// reach dynamic MCP sessions exposed by the runtime-owning app.
 	apiMux.HandleFunc("/runtime-mcp-gateway/", s.handleRuntimeMCPGateway)
@@ -1566,6 +1582,7 @@ func main() {
 	if !quarantined {
 		s.reconcileAllAppDepBindings()
 		s.recomputePendingOptions()
+		s.ResumeManagedMCPs()
 	}
 
 	// Apps are healthy and the installedApps registry is populated.
@@ -1612,6 +1629,9 @@ func main() {
 		// the next boot's cleanup pass to mop up — works, but noisy.
 		if s.localApps != nil {
 			s.localApps.StopAll(5 * time.Second)
+		}
+		if s.mcpManager != nil {
+			s.mcpManager.StopAll()
 		}
 		os.Exit(0)
 	}()

@@ -15,6 +15,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/apteva/server/internal/managedmcp"
 )
 
 // --- MCP JSON-RPC types (same as core/mcp.go) ---
@@ -39,10 +41,11 @@ type jsonRPCError struct {
 }
 
 type mcpToolDef struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	InputSchema map[string]any `json:"inputSchema"`
-	Meta        map[string]any `json:"_meta,omitempty"`
+	Name         string         `json:"name"`
+	Description  string         `json:"description"`
+	InputSchema  map[string]any `json:"inputSchema"`
+	OutputSchema map[string]any `json:"outputSchema,omitempty"`
+	Meta         map[string]any `json:"_meta,omitempty"`
 }
 
 type mcpToolsListResult struct {
@@ -363,6 +366,8 @@ type MCPProcess struct {
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
 	scanner *bufio.Scanner
+	stderr  io.Closer
+	done    chan struct{}
 	// remote fields — empty for stdio transport
 	remoteURL string
 	// shared
@@ -410,6 +415,9 @@ func (p *MCPProcess) call(method string, params any) (json.RawMessage, error) {
 	p.mu.Unlock()
 
 	if err != nil {
+		p.pendMu.Lock()
+		delete(p.pending, id)
+		p.pendMu.Unlock()
 		return nil, fmt.Errorf("write: %w", err)
 	}
 
@@ -447,8 +455,7 @@ func (p *MCPProcess) Close() {
 		p.stdin.Close()
 	}
 	if p.cmd != nil && p.cmd.Process != nil {
-		p.cmd.Process.Kill()
-		p.cmd.Wait()
+		_ = p.cmd.Process.Kill()
 	}
 }
 
@@ -466,6 +473,25 @@ func NewMCPManager() *MCPManager {
 }
 
 func (m *MCPManager) Start(record *MCPServerRecord, env map[string]string) (*MCPProcess, error) {
+	return m.StartWithStderr(record, env, nil)
+}
+
+// StartWithStderr starts an MCP subprocess and, when stderr is non-nil,
+// sends the child's diagnostic output to that writer. The manager owns and
+// closes the writer after the process exits. Managed MCP servers use this to
+// keep isolated rotating logs; legacy custom servers keep using os.Stderr.
+func (m *MCPManager) StartWithStderr(record *MCPServerRecord, env map[string]string, stderr io.WriteCloser) (*MCPProcess, error) {
+	return m.start(record, env, stderr, true)
+}
+
+// StartIsolatedWithStderr is the managed-code variant. It does not inherit
+// apteva-server's environment, so custom code cannot read the server secret,
+// provider credentials, database settings, or unrelated process variables.
+func (m *MCPManager) StartIsolatedWithStderr(record *MCPServerRecord, env map[string]string, stderr io.WriteCloser) (*MCPProcess, error) {
+	return m.start(record, env, stderr, false)
+}
+
+func (m *MCPManager) start(record *MCPServerRecord, env map[string]string, stderr io.WriteCloser, inheritEnv bool) (*MCPProcess, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -499,7 +525,11 @@ func (m *MCPManager) Start(record *MCPServerRecord, env map[string]string) (*MCP
 	json.Unmarshal([]byte(record.Args), &args)
 
 	cmd := exec.Command(record.Command, args...)
-	cmd.Env = os.Environ()
+	if inheritEnv {
+		cmd.Env = os.Environ()
+	} else {
+		cmd.Env = []string{}
+	}
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
@@ -512,9 +542,16 @@ func (m *MCPManager) Start(record *MCPServerRecord, env map[string]string) (*MCP
 	if err != nil {
 		return nil, fmt.Errorf("stdout: %w", err)
 	}
-	cmd.Stderr = os.Stderr
+	if stderr != nil {
+		cmd.Stderr = stderr
+	} else {
+		cmd.Stderr = os.Stderr
+	}
 
 	if err := cmd.Start(); err != nil {
+		if stderr != nil {
+			_ = stderr.Close()
+		}
 		return nil, fmt.Errorf("start %q: %w", record.Command, err)
 	}
 
@@ -524,6 +561,8 @@ func (m *MCPManager) Start(record *MCPServerRecord, env map[string]string) (*MCP
 		cmd:      cmd,
 		stdin:    stdin,
 		scanner:  bufio.NewScanner(stdout),
+		stderr:   stderr,
+		done:     make(chan struct{}),
 		pending:  make(map[int64]chan jsonRPCResponse),
 	}
 	proc.scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
@@ -537,7 +576,11 @@ func (m *MCPManager) Start(record *MCPServerRecord, env map[string]string) (*MCP
 		"clientInfo":      map[string]string{"name": "apteva-server", "version": "1.0.0"},
 	})
 	if err != nil {
-		cmd.Process.Kill()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		if stderr != nil {
+			_ = stderr.Close()
+		}
 		return nil, fmt.Errorf("initialize: %w", err)
 	}
 
@@ -551,7 +594,11 @@ func (m *MCPManager) Start(record *MCPServerRecord, env map[string]string) (*MCP
 	// Discover tools
 	tools, err := proc.ListTools()
 	if err != nil {
-		cmd.Process.Kill()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		if stderr != nil {
+			_ = stderr.Close()
+		}
 		return nil, fmt.Errorf("list tools: %w", err)
 	}
 	proc.Tools = tools
@@ -560,9 +607,17 @@ func (m *MCPManager) Start(record *MCPServerRecord, env map[string]string) (*MCP
 
 	// Wait for exit in background
 	go func() {
-		cmd.Wait()
+		_ = cmd.Wait()
+		if proc.stderr != nil {
+			_ = proc.stderr.Close()
+		}
+		close(proc.done)
 		m.mu.Lock()
-		delete(m.processes, record.ID)
+		// Stop + immediate restart can overlap with this waiter. Delete only
+		// the process we waited for, never its newly started replacement.
+		if current, ok := m.processes[record.ID]; ok && current == proc {
+			delete(m.processes, record.ID)
+		}
 		m.mu.Unlock()
 	}()
 
@@ -575,6 +630,22 @@ func (m *MCPManager) Stop(serverID int64) {
 	delete(m.processes, serverID)
 	m.mu.Unlock()
 	if ok {
+		proc.Close()
+	}
+}
+
+// StopAll terminates every server-owned MCP subprocess without changing its
+// persisted status. Clean server shutdown therefore preserves "running"
+// intent and ResumeManagedMCPs can restore managed servers on the next boot.
+func (m *MCPManager) StopAll() {
+	m.mu.Lock()
+	processes := make([]*MCPProcess, 0, len(m.processes))
+	for id, proc := range m.processes {
+		delete(m.processes, id)
+		processes = append(processes, proc)
+	}
+	m.mu.Unlock()
+	for _, proc := range processes {
 		proc.Close()
 	}
 }
@@ -662,6 +733,31 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// Managed MCP servers are project resources, not private rows. Merge
+	// servers created by other project editors after the membership check
+	// above, while leaving legacy user-owned integrations unchanged.
+	canViewProjectManaged := s.store.GetPlatformRole(userID) == PlatformAdmin
+	if !canViewProjectManaged && projectID != "" {
+		if role, roleErr := s.store.GetProjectRole(projectID, userID); roleErr == nil && role.Rank() >= ProjectViewer.Rank() {
+			canViewProjectManaged = true
+		}
+	}
+	if projectID != "" && canViewProjectManaged {
+		projectManaged, listErr := s.store.ListManagedMCPsInProject(projectID)
+		if listErr != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		seen := make(map[int64]bool, len(servers))
+		for _, row := range servers {
+			seen[row.ID] = true
+		}
+		for _, row := range projectManaged {
+			if !seen[row.ID] {
+				servers = append(servers, row)
+			}
+		}
+	}
 
 	if !includeAppOwned {
 		filtered := servers[:0]
@@ -697,6 +793,13 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 		} else if s.mcpManager.IsRunning(servers[i].ID) {
 			servers[i].Status = "running"
 			servers[i].ToolCount = len(s.mcpManager.GetTools(servers[i].ID))
+		} else if servers[i].Source == managedMCPSource && servers[i].Status == "running" {
+			// The persisted intent is still running. A crashed runner will
+			// restart lazily on the next MCP request (or eagerly on boot).
+			servers[i].Status = "recovering"
+		} else if servers[i].Source == managedMCPSource && servers[i].Status == "failed" {
+			// Preserve the failed state so the dashboard points operators to
+			// runner logs instead of presenting it as an intentional stop.
 		} else {
 			servers[i].Status = "stopped"
 		}
@@ -707,7 +810,6 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Enrich servers with connection config
-	selfPath, _ := os.Executable()
 	type enrichedServer struct {
 		MCPServerRecord
 		CreatedVia        string          `json:"created_via,omitempty"`
@@ -756,15 +858,14 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 				"transport": "http",
 				"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", s.port, srv.ID),
 			}
-		} else if srv.Command != "" {
-			// stdio process
-			var args []string
-			json.Unmarshal([]byte(srv.Args), &args)
+		} else if srv.Source == "custom" || srv.Source == managedMCPSource {
+			// Custom subprocesses are owned by apteva-server. Cores attach
+			// through the loopback bridge so commands, source paths, secrets,
+			// and managed-runtime capabilities never enter agent config.
 			es.ProxyConfig = &map[string]any{
 				"name":      srv.Name,
-				"transport": "stdio",
-				"command":   selfPath,
-				"args":      args,
+				"transport": "http",
+				"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/custom/%d", s.port, srv.ID),
 			}
 		}
 		enriched = append(enriched, es)
@@ -778,7 +879,6 @@ func (s *Server) handleStartMCPServer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
-	userID := getUserID(r)
 	path := strings.TrimPrefix(r.URL.Path, "/mcp-servers/")
 	idStr := strings.TrimSuffix(path, "/start")
 	serverID, err := atoi64(idStr)
@@ -787,22 +887,30 @@ func (s *Server) handleStartMCPServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	record, encEnv, err := s.store.GetMCPServer(userID, serverID)
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
+	record, encEnv, ok := s.requireMCPServerAccess(w, r, serverID, ProjectEditor)
+	if !ok {
 		return
 	}
 
-	// Decrypt env
-	env := map[string]string{}
-	if encEnv != "" {
-		plain, err := Decrypt(s.secret, encEnv)
-		if err == nil {
-			json.Unmarshal([]byte(plain), &env)
+	var proc *MCPProcess
+	if record.Source == managedMCPSource {
+		cfg, cfgErr := s.decryptManagedMCPConfig(encEnv)
+		if cfgErr != nil {
+			http.Error(w, "managed MCP configuration is invalid", http.StatusInternalServerError)
+			return
 		}
+		proc, err = s.startManagedMCP(record, cfg)
+	} else {
+		// Legacy custom stdio rows keep their historical flat env envelope.
+		env := map[string]string{}
+		if encEnv != "" {
+			plain, decErr := Decrypt(s.secret, encEnv)
+			if decErr == nil {
+				_ = json.Unmarshal([]byte(plain), &env)
+			}
+		}
+		proc, err = s.mcpManager.Start(record, env)
 	}
-
-	proc, err := s.mcpManager.Start(record, env)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -831,7 +939,6 @@ func (s *Server) handleStopMCPServer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
-	userID := getUserID(r)
 	path := strings.TrimPrefix(r.URL.Path, "/mcp-servers/")
 	idStr := strings.TrimSuffix(path, "/stop")
 	serverID, err := atoi64(idStr)
@@ -841,9 +948,7 @@ func (s *Server) handleStopMCPServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify ownership
-	_, _, err = s.store.GetMCPServer(userID, serverID)
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
+	if _, _, ok := s.requireMCPServerAccess(w, r, serverID, ProjectEditor); !ok {
 		return
 	}
 
@@ -864,7 +969,6 @@ func (s *Server) handleStopMCPServer(w http.ResponseWriter, r *http.Request) {
 // is the full catalog; allowed_tools is the currently-persisted filter (may
 // be empty = all tools enabled).
 func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
-	userID := getUserID(r)
 	path := strings.TrimPrefix(r.URL.Path, "/mcp-servers/")
 	idStr := strings.TrimSuffix(path, "/tools")
 	serverID, err := atoi64(idStr)
@@ -874,11 +978,11 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify ownership + get record
-	record, encEnv, err := s.store.GetMCPServer(userID, serverID)
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
+	record, encEnv, ok := s.requireMCPServerAccess(w, r, serverID, ProjectViewer)
+	if !ok {
 		return
 	}
+	userID := record.UserID
 	var tools []mcpToolDef
 	if record != nil && record.Source == "local" && record.ConnectionID > 0 {
 		conn, _, err := s.store.GetConnection(userID, record.ConnectionID)
@@ -971,6 +1075,18 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[TOOLS] remote_mcp probe failed server=%d url=%s: %v", record.ID, record.URL, perr)
 		}
 	}
+	// Managed definitions remain inspectable while stopped; no need to launch
+	// arbitrary code just to render the dashboard tool picker.
+	if len(tools) == 0 && record != nil && record.Source == managedMCPSource {
+		if def, loadErr := managedmcp.Load(s.managedMCPSourceDir(record.ID)); loadErr == nil {
+			for _, tool := range def.Tools {
+				tools = append(tools, mcpToolDef{
+					Name: tool.Name, Description: tool.Description,
+					InputSchema: tool.InputSchema, OutputSchema: tool.OutputSchema,
+				})
+			}
+		}
+	}
 	// Fall back to MCP manager for process-based servers
 	if len(tools) == 0 {
 		tools = s.mcpManager.GetTools(serverID)
@@ -996,7 +1112,6 @@ func (s *Server) handleMCPServerTools(w http.ResponseWriter, r *http.Request) {
 // the new action set — the dashboard triggers /composio/reconcile after
 // writing the filter.
 func (s *Server) handleUpdateMCPServerAllowedTools(w http.ResponseWriter, r *http.Request) {
-	userID := getUserID(r)
 	path := strings.TrimPrefix(r.URL.Path, "/mcp-servers/")
 	idStr := strings.TrimSuffix(path, "/tools")
 	serverID, err := atoi64(idStr)
@@ -1004,6 +1119,11 @@ func (s *Server) handleUpdateMCPServerAllowedTools(w http.ResponseWriter, r *htt
 		http.Error(w, "invalid ID", http.StatusBadRequest)
 		return
 	}
+	record, _, ok := s.requireMCPServerAccess(w, r, serverID, ProjectEditor)
+	if !ok {
+		return
+	}
+	ownerID := record.UserID
 
 	var body struct {
 		AllowedTools []string `json:"allowed_tools"`
@@ -1024,12 +1144,12 @@ func (s *Server) handleUpdateMCPServerAllowedTools(w http.ResponseWriter, r *htt
 		clean = append(clean, name)
 	}
 
-	if err := s.store.UpdateMCPServerAllowedTools(userID, serverID, clean); err != nil {
-		log.Printf("[MCP-TOOLS] user=%d server=%d UpdateMCPServerAllowedTools failed: %v", userID, serverID, err)
+	if err := s.store.UpdateMCPServerAllowedTools(ownerID, serverID, clean); err != nil {
+		log.Printf("[MCP-TOOLS] user=%d server=%d UpdateMCPServerAllowedTools failed: %v", ownerID, serverID, err)
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	log.Printf("[MCP-TOOLS] user=%d server=%d allowed_tools set (%d entries)", userID, serverID, len(clean))
+	log.Printf("[MCP-TOOLS] user=%d server=%d allowed_tools set (%d entries)", ownerID, serverID, len(clean))
 
 	// For Composio remote rows, rotate the upstream hosted server to
 	// match the new action set. Without this, Composio keeps exposing
@@ -1037,11 +1157,11 @@ func (s *Server) handleUpdateMCPServerAllowedTools(w http.ResponseWriter, r *htt
 	// Best-effort: if reconcile fails we still report success on the
 	// local update so the user isn't stuck; next manual reconcile or
 	// connection touch will pick it up.
-	if rec, _, err := s.store.GetMCPServer(userID, serverID); err == nil && rec != nil &&
+	if rec, _, err := s.store.GetMCPServer(ownerID, serverID); err == nil && rec != nil &&
 		rec.Source == "remote" && rec.ProviderID > 0 {
 		log.Printf("[MCP-TOOLS] reconciling composio provider=%d project=%s after tool-filter change",
 			rec.ProviderID, rec.ProjectID)
-		if rerr := s.reconcileComposioMCPServer(userID, rec.ProviderID, rec.ProjectID); rerr != nil {
+		if rerr := s.reconcileComposioMCPServer(ownerID, rec.ProviderID, rec.ProjectID); rerr != nil {
 			log.Printf("[MCP-TOOLS] composio reconcile after tool change FAILED provider=%d project=%s: %v",
 				rec.ProviderID, rec.ProjectID, rerr)
 		} else {
@@ -1110,7 +1230,6 @@ func (s *Server) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
-	userID := getUserID(r)
 	path := strings.TrimPrefix(r.URL.Path, "/mcp-servers/")
 	idStr := strings.TrimSuffix(path, "/call-tool")
 	serverID, err := atoi64(idStr)
@@ -1119,9 +1238,8 @@ func (s *Server) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	record, encEnv, err := s.store.GetMCPServer(userID, serverID)
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
+	record, encEnv, ok := s.requireMCPServerAccess(w, r, serverID, ProjectEditor)
+	if !ok {
 		return
 	}
 
@@ -1139,6 +1257,10 @@ func (s *Server) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Args == nil {
 		body.Args = map[string]any{}
+	}
+	if !managedMCPAllowed(record, body.Tool) {
+		http.Error(w, "tool is not enabled", http.StatusForbidden)
+		return
 	}
 	projectID := r.URL.Query().Get("project_id")
 	if projectID != "" && record.Source == "app" {
@@ -1196,11 +1318,17 @@ func (s *Server) handleCallMCPTool(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, map[string]any{"success": true, "status": 200, "data": json.RawMessage(result)})
-	case "custom":
+	case "custom", managedMCPSource:
 		proc, ok := s.mcpManager.processByID(serverID)
 		if !ok {
-			http.Error(w, "custom MCP server not running — start it first", http.StatusConflict)
-			return
+			if record.Source == managedMCPSource && record.Status == "running" {
+				proc, err = s.ensureManagedMCPRunning(record)
+				ok = err == nil
+			}
+			if !ok {
+				http.Error(w, "custom MCP server not running — start it first", http.StatusConflict)
+				return
+			}
 		}
 		result, err := proc.call("tools/call", map[string]any{
 			"name":      body.Tool,
@@ -1258,7 +1386,6 @@ func addQueryParam(rawURL, key, value string) string {
 // the dashboard shows as the row headline; changing it is cosmetic and
 // safe at any time.
 func (s *Server) handleRenameMCPServer(w http.ResponseWriter, r *http.Request) {
-	userID := getUserID(r)
 	idStr := strings.TrimPrefix(r.URL.Path, "/mcp-servers/")
 	serverID, err := atoi64(idStr)
 	if err != nil {
@@ -1277,9 +1404,8 @@ func (s *Server) handleRenameMCPServer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "description required", http.StatusBadRequest)
 		return
 	}
-	record, _, err := s.store.GetMCPServer(userID, serverID)
-	if err != nil || record == nil {
-		http.Error(w, "not found", http.StatusNotFound)
+	record, _, ok := s.requireMCPServerAccess(w, r, serverID, ProjectEditor)
+	if !ok {
 		return
 	}
 	if record.Description == desc {
@@ -1288,7 +1414,7 @@ func (s *Server) handleRenameMCPServer(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := s.store.db.Exec(
 		"UPDATE mcp_servers SET description = ? WHERE id = ? AND user_id = ?",
-		desc, serverID, userID,
+		desc, serverID, record.UserID,
 	); err != nil {
 		http.Error(w, "rename failed", http.StatusInternalServerError)
 		return
@@ -1310,8 +1436,33 @@ func (s *Server) handleDeleteMCPServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	record, _, err := s.store.GetMCPServer(userID, serverID)
+	if err != nil {
+		// Project editors may manage a project-scoped managed server even
+		// when another member originally created its registry row.
+		unscoped, lookupErr := s.store.GetMCPServerByIDUnscoped(serverID)
+		if lookupErr != nil || unscoped == nil || unscoped.Source != managedMCPSource {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		if _, _, ok := s.requireProjectAccess(w, r, unscoped.ProjectID, ProjectEditor); !ok {
+			return
+		}
+		record = unscoped
+	}
 	s.mcpManager.Stop(serverID)
-	s.store.DeleteMCPServer(userID, serverID)
+	if record.Source == "custom" || record.Source == managedMCPSource {
+		s.detachMCPServerFromAgents(record)
+	}
+	if err := s.store.DeleteMCPServer(record.UserID, serverID); err != nil {
+		http.Error(w, "delete failed", http.StatusInternalServerError)
+		return
+	}
+	if record.Source == managedMCPSource {
+		if err := os.RemoveAll(s.managedMCPWorkspace(serverID)); err != nil {
+			log.Printf("[MANAGED-MCP] remove workspace server=%d: %v", serverID, err)
+		}
+	}
 	writeJSON(w, map[string]string{"status": "deleted"})
 }
 

@@ -583,6 +583,12 @@ func TestGatewayListMCPServersClassifiesAndFiltersKinds(t *testing.T) {
 	if got := byID[custom.ID].Kind; got != "custom" {
 		t.Fatalf("custom MCP kind = %q, want custom", got)
 	}
+	if got := byID[custom.ID].MCPURL; got != "http://127.0.0.1:5280/mcp/custom/"+strconv.FormatInt(custom.ID, 10) {
+		t.Fatalf("custom MCP must use the server bridge, got %q", got)
+	}
+	if _, leaked := byID[custom.ID].ProxyConfig["command"]; leaked {
+		t.Fatalf("custom subprocess command leaked to agent config: %#v", byID[custom.ID].ProxyConfig)
+	}
 	if byID[appOwnedMCPID].CreatedVia != "app_install" || byID[appOwnedMCPID].OwnerAppInstallID != 77 {
 		t.Fatalf("expected app-owned metadata, got created_via=%q owner=%d", byID[appOwnedMCPID].CreatedVia, byID[appOwnedMCPID].OwnerAppInstallID)
 	}

@@ -9,6 +9,7 @@ package main
 //   manifest.json                       — versions + per-install metadata
 //   server/apteva-server.db             — the platform DB
 //   apps/<install_id>-<name>/app.db     — one entry per running install
+//   mcp-servers/<id>/source/*            — managed custom MCP definitions
 //
 // Admin-only. The intent is that a self-hoster (or an installable
 // "backup app") periodically pulls this endpoint and ships the bytes
@@ -67,6 +68,47 @@ func (s *Server) handlePlatformSnapshot(w http.ResponseWriter, r *http.Request) 
 		archivePath: "server/apteva-server.db",
 		srcFile:     serverDump,
 	})
+
+	// Managed MCP source lives on disk while identity, encrypted bindings,
+	// revision, and status live in mcp_servers. Snapshot both halves or a
+	// restored registry row would point at a missing server.json.
+	managedRows, managedErr := s.store.db.Query(
+		`SELECT id FROM mcp_servers WHERE source = ? ORDER BY id`,
+		managedMCPSource,
+	)
+	if managedErr != nil {
+		http.Error(w, "snapshot managed MCP registry: "+managedErr.Error(), http.StatusInternalServerError)
+		return
+	}
+	for managedRows.Next() {
+		var serverID int64
+		if err := managedRows.Scan(&serverID); err != nil {
+			_ = managedRows.Close()
+			http.Error(w, "snapshot managed MCP registry: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		sourceDir := s.managedMCPSourceDir(serverID)
+		walkErr := filepath.WalkDir(sourceDir, func(path string, dirEntry os.DirEntry, walkErr error) error {
+			if walkErr != nil || dirEntry.IsDir() {
+				return walkErr
+			}
+			rel, err := filepath.Rel(sourceDir, path)
+			if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return err
+			}
+			entries = append(entries, entry{
+				archivePath: filepath.ToSlash(filepath.Join("mcp-servers", strconv.FormatInt(serverID, 10), "source", rel)),
+				srcFile:     path,
+			})
+			return nil
+		})
+		if walkErr != nil {
+			_ = managedRows.Close()
+			http.Error(w, "snapshot managed MCP source: "+walkErr.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	_ = managedRows.Close()
 
 	type installMeta struct {
 		InstallID  int64  `json:"install_id"`
@@ -285,6 +327,7 @@ type restoreReport struct {
 	ServerDB        string                 `json:"server_db"` // "staged" | "skipped"
 	RestartRequired bool                   `json:"restart_required"`
 	Installs        []restoreInstallReport `json:"installs"`
+	ManagedMCPFiles int                    `json:"managed_mcp_files"`
 }
 
 func (s *Server) handlePlatformRestore(w http.ResponseWriter, r *http.Request) {
@@ -435,7 +478,42 @@ func (s *Server) handlePlatformRestore(w http.ResponseWriter, r *http.Request) {
 		report.Installs = append(report.Installs, entry)
 	}
 
-	// 3) Re-spawn any sidecars we stopped. ResumeLocalInstalls is
+	// 3) Managed MCP source trees. The DB restore is staged for restart, but
+	// source files are safe to replace now: running runners have already
+	// loaded their definition, and the restored registry/source pair becomes
+	// active together on the required restart.
+	clearedManagedSources := map[int64]bool{}
+	for archivePath, srcFile := range staged {
+		serverID, rel, ok := parseManagedMCPArchivePath(archivePath)
+		if !ok {
+			continue
+		}
+		sourceDir := s.managedMCPSourceDir(serverID)
+		if !clearedManagedSources[serverID] {
+			if err := os.RemoveAll(sourceDir); err != nil {
+				http.Error(w, "clear managed MCP source: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			clearedManagedSources[serverID] = true
+		}
+		target := filepath.Join(sourceDir, filepath.FromSlash(rel))
+		check, err := filepath.Rel(sourceDir, target)
+		if err != nil || check == ".." || strings.HasPrefix(check, ".."+string(filepath.Separator)) {
+			http.Error(w, "invalid managed MCP archive path", http.StatusBadRequest)
+			return
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			http.Error(w, "create managed MCP source dir: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := atomicReplaceWithBackup(target, srcFile); err != nil {
+			http.Error(w, "restore managed MCP source: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		report.ManagedMCPFiles++
+	}
+
+	// 4) Re-spawn any sidecars we stopped. ResumeLocalInstalls is
 	// idempotent — it skips installs whose pid is still alive — so it's
 	// safe to call even when nothing was restored.
 	if s.installedApps != nil && s.localApps != nil {
@@ -444,6 +522,23 @@ func (s *Server) handlePlatformRestore(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(report)
+}
+
+func parseManagedMCPArchivePath(archivePath string) (int64, string, bool) {
+	parts := strings.Split(strings.Trim(archivePath, "/"), "/")
+	if len(parts) < 4 || parts[0] != "mcp-servers" || parts[2] != "source" {
+		return 0, "", false
+	}
+	serverID, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || serverID <= 0 {
+		return 0, "", false
+	}
+	rel := strings.Join(parts[3:], "/")
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(rel)))
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || strings.HasPrefix(rel, "/") {
+		return 0, "", false
+	}
+	return serverID, clean, true
 }
 
 // stageServerDBRestore writes the new platform DB next to the live one

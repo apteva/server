@@ -2271,6 +2271,16 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "core computer config has been removed; use the Computer app instead", http.StatusGone)
 		return
 	}
+	if inst.Kind == "platform_helper" {
+		if _, ok := rawBody["mcp_servers"]; ok {
+			http.Error(w, "platform Helper capabilities must be updated through /platform/helper/capabilities", http.StatusForbidden)
+			return
+		}
+		if body.Config != "" {
+			http.Error(w, "platform Helper runtime config is server-managed", http.StatusForbidden)
+			return
+		}
+	}
 	normalizeAppMCPProjectURLs(rawBody, inst.ProjectID)
 
 	effectiveDefault := ""

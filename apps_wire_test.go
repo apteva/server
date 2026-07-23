@@ -16,7 +16,7 @@ import (
 	"github.com/apteva/server/apps/framework"
 )
 
-func TestServerResolverUpdateThreadPreservesScopedMCPTools(t *testing.T) {
+func TestServerResolverUpdateThreadPreservesScopedMCPToolsWhenToolsOmitted(t *testing.T) {
 	var got map[string]any
 	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut || r.URL.Path != "/threads/chat-conv-1" {
@@ -43,7 +43,7 @@ func TestServerResolverUpdateThreadPreservesScopedMCPTools(t *testing.T) {
 	}
 
 	resolver := &serverResolver{}
-	if err := resolver.UpdateThread(framework.InstanceInfo{Port: port}, "chat-conv-1", "conversation suffix"); err != nil {
+	if err := resolver.UpdateThread(framework.InstanceInfo{Port: port}, "chat-conv-1", "conversation suffix", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, exists := got["tools"]; exists {
@@ -51,6 +51,66 @@ func TestServerResolverUpdateThreadPreservesScopedMCPTools(t *testing.T) {
 	}
 	if got["directive_suffix"] != "conversation suffix" || got["conversation"] != true {
 		t.Fatalf("update body=%v", got)
+	}
+}
+
+func TestServerResolverUpdateThreadSendsMergedTools(t *testing.T) {
+	var got map[string]any
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode update body: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+	}))
+	defer core.Close()
+	parsed, err := url.Parse(core.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portText, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := []string{"channels_send", "send", "spawn", "pace"}
+	if err := (&serverResolver{}).UpdateThread(framework.InstanceInfo{Port: port}, "chat-conv-1", "suffix", tools); err != nil {
+		t.Fatal(err)
+	}
+	raw, ok := got["tools"].([]any)
+	if !ok || len(raw) != len(tools) {
+		t.Fatalf("update tools=%v, want %v", got["tools"], tools)
+	}
+}
+
+func TestServerResolverThreadToolsReadsEffectiveAllowlist(t *testing.T) {
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode([]map[string]any{
+			{"id": "main"},
+			{"id": "chat-conv-1", "tools": []string{"channels_send", "send", "pace"}},
+		})
+	}))
+	defer core.Close()
+	parsed, err := url.Parse(core.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portText, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools, err := (&serverResolver{}).ThreadTools(framework.InstanceInfo{Port: port}, "chat-conv-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(tools, ",") != "channels_send,send,pace" {
+		t.Fatalf("thread tools=%v", tools)
 	}
 }
 

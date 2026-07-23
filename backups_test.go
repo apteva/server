@@ -160,6 +160,44 @@ func TestSnapshot_ServerDBOnly(t *testing.T) {
 	}
 }
 
+func TestSnapshot_IncludesManagedMCPSource(t *testing.T) {
+	s := newTestServer(t)
+	tok := adminSession(t, s)
+	s.dataDir = t.TempDir()
+	record, err := s.store.CreateMCPServerExt(MCPServerInput{
+		UserID: 1, Name: "backup-code", Description: "Backup code",
+		Source: managedMCPSource, Transport: "stdio", Command: managedMCPCommand,
+		Args: "[]", ProjectID: "project-a",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceDir := s.managedMCPSourceDir(record.ID)
+	if err := os.MkdirAll(filepath.Join(sourceDir, "tools"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "server.json"), []byte(`{"version":1,"tools":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "tools", "example.js"), []byte(`return {ok:true};`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	s.authMiddleware(s.handlePlatformSnapshot)(w, sessionReq("GET", "/api/platform/snapshot", tok))
+	if w.Code != http.StatusOK {
+		t.Fatalf("snapshot status=%d body=%s", w.Code, w.Body.String())
+	}
+	files := readTarGz(t, w.Body.Bytes())
+	prefix := fmt.Sprintf("mcp-servers/%d/source/", record.ID)
+	if string(files[prefix+"server.json"]) != `{"version":1,"tools":[]}` {
+		t.Fatalf("managed server.json missing: %v", mapKeys(files))
+	}
+	if string(files[prefix+"tools/example.js"]) != `return {ok:true};` {
+		t.Fatalf("managed handler missing: %v", mapKeys(files))
+	}
+}
+
 func TestSnapshot_WithInstall(t *testing.T) {
 	s := newTestServer(t)
 	tok := adminSession(t, s)
@@ -512,6 +550,36 @@ func TestRestore_ServerDBStaged(t *testing.T) {
 	}
 	if report.ServerDB != "staged" || !report.RestartRequired {
 		t.Errorf("report = %+v", report)
+	}
+}
+
+func TestRestore_AppliesManagedMCPSource(t *testing.T) {
+	s := newTestServer(t)
+	tok := adminSession(t, s)
+	s.dataDir = t.TempDir()
+	body := buildSnapshotTar(t,
+		map[string]any{"format_version": 1},
+		map[string][]byte{
+			"mcp-servers/42/source/server.json":      []byte(`{"version":1,"tools":[]}`),
+			"mcp-servers/42/source/tools/example.js": []byte(`return {ok:true};`),
+		})
+	w := httptest.NewRecorder()
+	req := postBytes("POST", "/api/platform/restore", tok, body,
+		map[string]string{"X-Confirm-Restore": "yes"})
+	s.authMiddleware(s.handlePlatformRestore)(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("restore status=%d body=%s", w.Code, w.Body.String())
+	}
+	got, err := os.ReadFile(filepath.Join(s.managedMCPSourceDir(42), "tools", "example.js"))
+	if err != nil || string(got) != `return {ok:true};` {
+		t.Fatalf("restored handler=%q err=%v", got, err)
+	}
+	var report restoreReport
+	if err := json.Unmarshal(w.Body.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.ManagedMCPFiles != 2 {
+		t.Fatalf("managed_mcp_files=%d", report.ManagedMCPFiles)
 	}
 }
 

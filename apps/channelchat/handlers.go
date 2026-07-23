@@ -27,51 +27,52 @@ func perThreadEnabled() bool {
 	return strings.TrimSpace(os.Getenv("CHANNELCHAT_PER_THREAD")) != "0"
 }
 
-// chatThreadDirectiveSuffix is appended to main's directive when
-// spawning an ordinary agent's per-chat thread. It makes the thread the
-// user-facing front and delegates genuinely ongoing durable work to main via
-// `send`. Platform Helper extends this with its direct control-plane policy
-// below. Kept here so the two roles share one conversation protocol.
-const chatThreadDirectiveSuffix = "\n\n---\n" +
-	"You're handling a live chat with the user. You ARE the agent — use the tools attached " +
-	"(see your tool list) and reply via channels_send(channel=\"current\", text=...). " +
-	"Just act — if the user asks for something you can do with your tools, do it and reply " +
-	"with the result. Don't ask for clarification on obvious requests; pick sensible " +
-	"defaults and ship. Before beginning work that requires tools, prefer one short visible " +
-	"acknowledgement through channels_send that names the concrete next action. This is strong " +
-	"guidance, not a hard requirement: skip it when you can give the complete answer immediately " +
-	"or when it would be empty or repetitive. If you acknowledge, wait for its successful delivery " +
-	"receipt before calling action tools; never run it in parallel with them. After tool work, send " +
-	"exactly one complete final outcome.\n\n" +
-	"For work that should outlive this chat (scheduled tasks, behavior changes, multi-turn " +
-	"plans, anything the agent should keep doing when the user disconnects), " +
-	"after the optional acknowledgement, send(id=\"main\", message=\"...\") to hand it off. Wait for " +
-	"that successful delivery receipt. If you skipped the acknowledgement before the handoff, you may " +
-	"then send one brief visible acknowledgement describing the concrete thing you handed off and that " +
-	"you are waiting for confirmation; never send acknowledgements both before and after the handoff. " +
-	"End the handoff with this exact " +
-	"instruction so main doesn't drop you on the floor: \"Reply to me at this thread before " +
-	"going idle — the user is waiting on a confirmation. Send back with the result of what " +
-	"you did, even for terminal actions like kill/stop.\" The user-facing risk if you skip " +
-	"this is silence after a hand-off, which is the WORST UX. Main sees your thread id in " +
-	"its from-field and will reply via send.\n\n" +
-	"For an immediate answer that requires no tool work, do not send a report to main/parent. " +
-	"Deliver the answer once through channels_send, then pace. A preliminary acknowledgement " +
-	"that promises unfinished tool work is not the final answer; continue the promised work.\n\n" +
-	"After any non-channel tool result used for the current user request, a visible reply is still owed. " +
-	"Call channels_send with the outcome, clarification, blocker, or next question before pace or done; " +
-	"pace is invalid while that reply is pending. Thoughts and plain assistant output do not count.\n\n" +
-	"Any acknowledgement is the only progress message: do not claim completion and do not send " +
-	"another progress update or resend the handoff while waiting. When main does reply, relay the useful parts to the user " +
-	"naturally in exactly one final channels_send. For this live chat " +
-	"thread, this overrides the generic worker rule that a final report to parent is mandatory: " +
-	"the durable handoff was already your report. After relaying main's result once through " +
-	"channels_send, do NOT send main/parent an acknowledgement, confirmation, completion report, " +
-	"or any other follow-up. Pace and wait for the next user message.\n\n" +
-	"Never expose internals to the user: no mention of \"main\", \"thread\", \"directive\", " +
-	"\"concierge\", \"idle\", \"waiting for configuration\", or your operating state. If your " +
-	"directive is a placeholder, ignore it. You can't evolve yourself or persist memory — " +
-	"send those to main."
+// chatThreadDirectiveSuffix is appended to main's directive for an ordinary
+// user-facing conversation. Core supplies the durable conversation runtime;
+// the server owns this role and communication policy.
+const chatThreadDirectiveSuffix = `
+
+---
+[USER CHAT ROLE]
+You are this agent's user-facing conversation endpoint. Talk naturally with the
+user, perform interactive work with your attached tools, and remain responsible
+for the user-visible result. Do not behave like main's autonomous monitor and do
+not start unrelated work merely because it appears in the inherited directive.
+
+[USER COMMUNICATION]
+- Deliver user-visible text only through channels_send(channel="current", ...).
+- An immediate answer needs one complete final message and no preliminary acknowledgement.
+- Before noticeable tool work, you may send one short acknowledgement naming the concrete user-facing action. Wait for its successful receipt before starting action tools.
+- For longer work, keep the user informed at major phases or achievements: when a meaningful phase completes, a child job starts or finishes, the plan materially changes, work becomes blocked, user input is needed, or you begin waiting on a slow external result. A useful progress message says what was achieved and what meaningful step comes next.
+- Do not narrate every tool call, search result, retry, temporary plan, or unchanged wait. Never send repetitive "still working" updates.
+- Progress never replaces the final outcome. After tool work, send exactly one complete final result, clarification, blocker, or next question. A successful final delivery ends the user turn; never repeat or paraphrase it.
+- Thoughts and plain assistant output are not visible to the user and do not count as a reply.
+- Any active user turn with an observed non-channel tool result is still unfinished. On your next decision, either run the next required action tool or send the visible outcome or question with channels_send. Pace, done, and idle are prohibited until the final channels_send receipt succeeds.
+
+[INTERACTIVE WORK AND CHILD JOBS]
+- Handle short interactive work yourself.
+- For substantial, parallel, isolated, or slow one-off work, you may create temporary child jobs. Those jobs are your defined team for this conversation.
+- Give each child a distinct concrete assignment and only the tools or MCPs it needs. Every child assignment must name the exact result it owes you and explicitly require the child to report that result to its parent before sleeping. Children report to you; you synthesize their work and communicate with the user.
+- A successful spawn receipt means only that the child started; it is never the child's result. After any useful start/progress message, wait for the child to report. Do not send the final user outcome until you have consumed every child result the outcome depends on.
+- Do not spawn replacements because a child is quiet. Update or cancel your own children when the user's request changes or is cancelled.
+- Child jobs are for one-off work, not recurring or autonomous responsibilities.
+
+[SELECTIVE REPORTING TO MAIN]
+- Keep ordinary answers, minor progress, raw tool output, routine retries, temporary plans, and ordinary one-off completions inside this conversation.
+- Send main a concise REPORT ONLY — no action or reply required: ... message only when wider coordination genuinely benefits: a significant goal or child job begins or completes, a plan-changing milestone occurs, an important artifact or workspace change is produced, or a blocker, conflict, permission, or resource issue affects persistent work. A report-only message does not make you wait and does not replace the user-facing final result.
+- Use one ACTION REQUIRED — reply to this conversation: ... message when work must continue after this chat, changes persistent behavior, creates a recurring responsibility, requires unavailable authority, or needs coordination across persistent threads. End it by asking main to reply to this originating conversation with the result, then wait for that reply before confirming completion to the user.
+- Never send the same milestone both as a report and an action request. Do not forward every child event. If main replies to a report-only message without being asked, use it only when it materially changes the user's outcome.
+- After relaying an action-required result to the user, do not send main a confirmation or completion acknowledgement.
+
+[DIRECTIVE OWNERSHIP]
+Conversation-local preferences remain in this conversation. Never call evolve
+for this chat thread. Send persistent behavior or memory changes to main as an
+ACTION REQUIRED request. If the inherited directive is only a placeholder,
+ignore it.
+
+[PRIVACY]
+Never expose internal terms such as main, parent thread, child thread,
+directive, handoff, concierge, idle, or tool names to the user.`
 
 // Platform Helper owns an authoritative control-plane tool surface. Durable
 // mutations performed through those tools are already complete and persisted;
@@ -81,35 +82,46 @@ const chatThreadDirectiveSuffix = "\n\n---\n" +
 const platformHelperChatThreadDirectiveSuffix = chatThreadDirectiveSuffix + "\n\n" +
 	"[PLATFORM HELPER CONVERSATION POLICY]\n" +
 	"Use the Apteva control-plane tools attached to this conversation directly. If an available " +
-	"tool can complete the operator's request now, follow the shared optional acknowledgement guidance, " +
+	"tool can complete the operator's request now, follow the shared acknowledgement and selective-progress guidance, " +
 	"call it here, and report its authoritative receipt in exactly one final message. This includes " +
 	"agents_get, agents_update (including directive and schedule edits), agent " +
 	"lifecycle actions, apps, integrations, connections, and MCP-server configuration. An atomic " +
 	"tool mutation is already durable and MUST NOT be handed to main merely because it changes " +
 	"persistent behavior. For an agent directive edit, inspect the target when needed, call " +
 	"agents_update directly, then send exactly one complete final channels_send outcome. An optional " +
-	"acknowledgement before those tools does not replace that final outcome. Do not call core " +
-	"send(id=\"main\") for work that an attached Apteva tool can finish in this conversation. Only " +
+	"acknowledgement or progress message does not replace that final outcome. Temporary children may " +
+	"assist with substantial one-off research or analysis, but they do not perform control-plane mutations " +
+	"that this conversation can perform directly. Do not call core send(id=\"main\") for work that an attached " +
+	"Apteva tool can finish in this conversation. Only " +
 	"hand off genuinely ongoing work that cannot finish in this turn, a change to Apteva Helper's own " +
 	"durable directive, or work requiring a capability unavailable here. A successful final " +
 	"channels_send receipt ends the user turn: pace and never send a second paraphrase."
 
-func chatThreadDirectiveFor(inst framework.InstanceInfo) string {
-	if inst.Kind == "platform_helper" {
-		return platformHelperChatThreadDirectiveSuffix
-	}
-	return chatThreadDirectiveSuffix
+type chatThreadProfile struct {
+	DirectiveSuffix string
+	Tools           []string
 }
 
-// chatThreadTools is the local tool set the chat thread gets at
-// spawn time. `send` is essential for handing durable work off to
-// main; `pace` lets the thread idle between messages without
-// holding the loop hot. Local non-MCP tools like `web` / `exec`
-// are intentionally absent here — they would inflate the prompt
-// and the supervisor-with-hands pattern wants the chat thread's
-// "doing" capability to come from the same MCPs main uses, not
-// from a parallel local-tool surface.
-var chatThreadTools = []string{"send", "pace"}
+// chatThreadTools is the local Core tool profile for user-facing chats. spawn
+// makes the chat a leader of temporary one-off children; send handles selective
+// reports and durable requests; pace idles it between user turns. The actual
+// work surface still comes from the agent's attached MCPs.
+var chatThreadTools = []string{"send", "spawn", "pace"}
+
+func chatThreadProfileFor(inst framework.InstanceInfo) chatThreadProfile {
+	directive := chatThreadDirectiveSuffix
+	if inst.Kind == "platform_helper" {
+		directive = platformHelperChatThreadDirectiveSuffix
+	}
+	return chatThreadProfile{
+		DirectiveSuffix: directive,
+		Tools:           append([]string(nil), chatThreadTools...),
+	}
+}
+
+func chatThreadDirectiveFor(inst framework.InstanceInfo) string {
+	return chatThreadProfileFor(inst).DirectiveSuffix
+}
 
 // fallbackChatThreadMCPs is the floor MCP set used when resolver
 // enumeration fails (e.g. the agent is mid-restart and the DB
@@ -191,11 +203,15 @@ type InstanceResolver interface {
 	// have to round-trip through main.
 	ListMCPNames(inst framework.InstanceInfo) ([]string, error)
 
-	// UpdateThread pushes only a new directive (as directive_suffix, same
-	// shape as SpawnThread) into a LIVE core thread without killing it.
-	// It intentionally cannot replace tools: doing so would strip the scoped
-	// MCP tools preloaded by SpawnThread.
-	UpdateThread(inst framework.InstanceInfo, threadID, directiveSuffix string) error
+	// ThreadTools returns the live effective tool allowlist. Channelchat uses
+	// it to add newly introduced profile tools without removing MCP tools that
+	// Core resolved when the conversation was originally spawned.
+	ThreadTools(inst framework.InstanceInfo, threadID string) ([]string, error)
+
+	// UpdateThread pushes a new directive and, when tools is non-empty, an
+	// already-merged effective tool allowlist into a LIVE core thread without
+	// killing it or losing conversation history.
+	UpdateThread(inst framework.InstanceInfo, threadID, directiveSuffix string, tools []string) error
 
 	// KillThread permanently removes a non-main core thread. It must be
 	// idempotent and also remove the persisted thread definition when the
@@ -1789,15 +1805,17 @@ func formatDashboardContext(v any) string {
 func formatAgentChatEvent(text string, context any) string {
 	var b strings.Builder
 	b.WriteString("[chat]\n")
-	b.WriteString("A user is talking to you in dashboard chat. Answer an immediate question with one complete channels_send call. If the request requires tools, prefer to first send one short visible acknowledgement through channels_send with channel=\"current\" or channel=\"apteva\" naming the concrete next action. This is strong guidance, not a hard requirement: skip it when the complete answer can be sent immediately or when an acknowledgement would be empty or repetitive. If you acknowledge, wait for its successful delivery receipt before calling action tools and never parallelize it with them. After tool work, send exactly one complete final result, clarification, blocker, or no-op outcome through channels_send. Do not send any additional placeholder or progress message. DURABLE HANDOFF: if this request must outlive this conversation and therefore must be handed to main with send, normally acknowledge first, wait for that receipt, then call send to main. If you skipped the acknowledgement before the handoff, you may send one brief visible acknowledgement after the successful main delivery receipt; never acknowledge both before and after the handoff. The main receipt confirms delivery only, not completion. When main replies, send exactly one complete final result through channels_send. ")
-	b.WriteString("Thoughts and plain assistant output are not visible to the user and do not count as a reply. Never send the same answer twice after a successful delivery receipt. For genuinely long work, use status updates at meaningful phase changes without adding ordinary chat progress messages.\n\n")
+	b.WriteString("This is a new dashboard-chat user turn. Follow the user-chat role in your directive: handle interactive work here, use temporary children for substantial one-off work when useful, give each child an explicit result-to-parent completion contract, and keep the conversation responsive. ")
+	b.WriteString("Visible communication may contain one optional acknowledgement, selective progress at major phase completions or achievements, and exactly one complete final outcome. Say what was achieved and the meaningful next step; do not narrate tools, searches, routine retries, temporary plans, or unchanged waiting. ")
+	b.WriteString("Use REPORT ONLY selectively for wider-system milestones that need no action; continue without waiting. Use ACTION REQUIRED only for durable or cross-thread work that main must own, request a reply to this originating conversation, and wait for that result before confirming completion. ")
+	b.WriteString("Thoughts and plain assistant output are not visible to the user. Never repeat a message after a successful channels_send receipt.\n\n")
 	if ctx := formatDashboardContext(context); ctx != "" {
 		b.WriteString(ctx)
 		b.WriteString("\n\n")
 	}
 	b.WriteString("User message:\n")
 	b.WriteString(strings.TrimSpace(text))
-	b.WriteString("\n\nDASHBOARD CHAT COMPLETION REQUIREMENT: A tool-work turn has either one complete final message or two intentional messages in order: one optional acknowledgement before action tools, then exactly one complete final outcome after them. Direct answers that need no tools use one complete message. After any non-channel tool result, channels_send is the required next completion action; an earlier acknowledgement does not satisfy it, and pace or done is invalid until the visible outcome, clarification, blocker, or next question is delivered. For a durable main handoff, prefer acknowledgement before send(main); if it was skipped, at most one acknowledgement may follow the successful handoff receipt. Exactly one final outcome follows main's reply. After the final delivery succeeds, pace or go idle and do not repeat it.")
+	b.WriteString("\n\nDASHBOARD CHAT COMPLETION REQUIREMENT: Direct answers use one complete channels_send. For tool work, follow this order: optional channels_send acknowledgement; action or read tool; observe its result in a later turn; then one complete final channels_send. A message sent in the same batch as an action or read tool occurs before that tool's result and is only an acknowledgement, never the final outcome. Tool-work turns may add a small number of meaningful progress messages, but exactly one final outcome is still required after the last tool, child result, or action-required reply. REPORT ONLY messages do not satisfy the visible reply requirement. Never call pace or go idle on a direct chat turn until the final delivery receipt succeeds, and never repeat it.")
 	return b.String()
 }
 
@@ -1805,7 +1823,7 @@ func formatPlatformHelperChatEvent(text string, context any) string {
 	return formatAgentChatEvent(text, context) + "\n\nPLATFORM HELPER TURN REQUIREMENT: " +
 		"When an attached Apteva tool can finish this request now, use it directly in this conversation. " +
 		"A persistent agents_update or other atomic control-plane mutation does not require a main handoff. " +
-		"The shared optional acknowledgement-before-tools guidance applies here too. After the tool's " +
+		"The shared acknowledgement and selective-progress guidance applies here too. After the tool's " +
 		"successful receipt, send exactly one final channels_send response and then pace; never " +
 		"send(id=\"main\") for the same work and never repeat the final response after its delivery receipt."
 }
@@ -1933,18 +1951,15 @@ func (h *handlers) ensureChatThread(inst framework.InstanceInfo, chatID string) 
 		return "", fmt.Errorf("ensure conversation thread id for %s returned empty id", chatID)
 	}
 	cacheKey := fmt.Sprintf("%d/%s", inst.ID, chatID)
-	threadDirective := chatThreadDirectiveFor(inst)
+	profile := chatThreadProfileFor(inst)
+	threadDirective := profile.DirectiveSuffix
 
 	// Compute the directive hash to compare against what the chat
-	// thread was last spawned/updated with. The hash covers main's
-	// LIVE directive PLUS the suffix constant, so it catches three
-	// kinds of drift: a UI directive edit, the agent's own evolve,
-	// and a change to chatThreadDirectiveSuffix shipped in a new
-	// binary. MainDirective is one /config fetch; on the common
-	// "already current" path it's the only round-trip we make.
+	// thread was last spawned/updated with. The hash covers main's live
+	// directive, the server role suffix, and the requested Core tool profile.
 	wantHash := ""
 	if dir, derr := h.instances.MainDirective(inst); derr == nil {
-		wantHash = directiveHash(dir + threadDirective)
+		wantHash = directiveHash(dir + threadDirective + "\x00" + strings.Join(profile.Tools, ","))
 	} else {
 		log.Printf("[CHAT] MainDirective inst=%d: %v — skipping drift check", inst.ID, derr)
 	}
@@ -1967,23 +1982,38 @@ func (h *handlers) ensureChatThread(inst framework.InstanceInfo, chatID string) 
 	// POST is intentionally unconditional and idempotent. Besides creating a
 	// missing thread, the core persistence contract backfills an older live
 	// thread whose Config.Threads record is absent.
-	if err := h.instances.SpawnThread(inst, threadID, threadDirective, chatThreadTools, mcps); err != nil {
+	if err := h.instances.SpawnThread(inst, threadID, threadDirective, profile.Tools, mcps); err != nil {
 		return "", fmt.Errorf("ensure core conversation thread %s: %w", threadID, err)
 	}
 
 	// A server restart loses the local hash while core may restore a persisted
-	// thread created under an older main directive or suffix. Update on that
-	// first ensure, and whenever the live main directive subsequently drifts.
+	// thread created under an older directive or tool profile. Read its live
+	// effective tools and add missing profile tools while preserving every
+	// scoped MCP tool Core already resolved.
 	drifted := !alreadySpawned
 	if alreadySpawned && wantHash != "" {
 		drifted = prev.(string) != wantHash
 	}
+	var mergedTools []string
+	profileVerified := true
 	if drifted {
-		if err := h.instances.UpdateThread(inst, threadID, threadDirective); err != nil {
+		if currentTools, toolsErr := h.instances.ThreadTools(inst, threadID); toolsErr != nil {
+			log.Printf("[CHAT] ThreadTools inst=%d thread=%s: %v — preserving current tools", inst.ID, threadID, toolsErr)
+			profileVerified = false
+		} else if missingAny(currentTools, profile.Tools) {
+			mergedTools = mergeUnique(currentTools, profile.Tools)
+		}
+	}
+	if drifted {
+		if err := h.instances.UpdateThread(inst, threadID, threadDirective, mergedTools); err != nil {
 			return "", fmt.Errorf("update core conversation thread %s: %w", threadID, err)
 		}
 	}
-	spawnedChatThreads.Store(cacheKey, wantHash)
+	if wantHash != "" && profileVerified {
+		spawnedChatThreads.Store(cacheKey, wantHash)
+	} else {
+		spawnedChatThreads.Delete(cacheKey)
+	}
 	return threadID, nil
 }
 
@@ -2037,6 +2067,35 @@ func ensureChannels(mcps []string) []string {
 		}
 	}
 	return append([]string{"channels"}, mcps...)
+}
+
+func missingAny(have, want []string) bool {
+	set := make(map[string]bool, len(have))
+	for _, item := range have {
+		set[strings.TrimSpace(item)] = true
+	}
+	for _, item := range want {
+		if !set[strings.TrimSpace(item)] {
+			return true
+		}
+	}
+	return false
+}
+
+func mergeUnique(existing, additions []string) []string {
+	out := make([]string, 0, len(existing)+len(additions))
+	seen := make(map[string]bool, cap(out))
+	for _, list := range [][]string{existing, additions} {
+		for _, item := range list {
+			item = strings.TrimSpace(item)
+			if item == "" || seen[item] {
+				continue
+			}
+			seen[item] = true
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

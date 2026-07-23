@@ -480,19 +480,21 @@ func (r *serverResolver) MainDirective(inst framework.InstanceInfo) (string, err
 	return directive, nil
 }
 
-// UpdateThread PUTs to core's /threads/{id} to update a LIVE thread's
-// directive in place — same directive_suffix semantics as SpawnThread,
-// but without killing the thread, so its session survives. Used by
-// channelchat's drift-detection to keep the chat thread current with
-// main's directive.
-func (r *serverResolver) UpdateThread(inst framework.InstanceInfo, threadID, directiveSuffix string) error {
+// UpdateThread PUTs to core's /threads/{id} to update a LIVE thread without
+// killing it, so its conversation history survives. tools must already be the
+// merged effective allowlist; nil preserves the current list.
+func (r *serverResolver) UpdateThread(inst framework.InstanceInfo, threadID, directiveSuffix string, tools []string) error {
 	if inst.Port == 0 {
 		return fmt.Errorf("instance %d has no core port — is it running?", inst.ID)
 	}
-	body, _ := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"directive_suffix": directiveSuffix,
 		"conversation":     true,
-	})
+	}
+	if len(tools) > 0 {
+		payload["tools"] = tools
+	}
+	body, _ := json.Marshal(payload)
 	url := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, threadID)
 	req, err := http.NewRequest("PUT", url, bytes.NewReader(body))
 	if err != nil {
@@ -713,7 +715,43 @@ func (r *serverResolver) removePersistedThreadDefinition(instanceID int64, threa
 }
 
 type threadIDRow struct {
-	ID string `json:"id"`
+	ID    string   `json:"id"`
+	Tools []string `json:"tools,omitempty"`
+}
+
+// ThreadTools returns Core's live effective allowlist for one thread. It is
+// intentionally read from /threads rather than reconstructed from MCP server
+// names: Core has already expanded those servers into concrete tool names.
+func (r *serverResolver) ThreadTools(inst framework.InstanceInfo, threadID string) ([]string, error) {
+	if inst.Port == 0 {
+		return nil, fmt.Errorf("instance %d not running", inst.ID)
+	}
+	coreURL := fmt.Sprintf("http://127.0.0.1:%d/threads", inst.Port)
+	req, err := http.NewRequest(http.MethodGet, coreURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	if inst.CoreAPIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
+	}
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("list thread tools: HTTP %d", resp.StatusCode)
+	}
+	var rows []threadIDRow
+	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if row.ID == threadID {
+			return append([]string(nil), row.Tools...), nil
+		}
+	}
+	return nil, fmt.Errorf("thread %q not found", threadID)
 }
 
 // ListThreadIDs reads the same authoritative thread collection regardless of

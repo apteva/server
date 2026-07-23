@@ -1016,7 +1016,7 @@ type gatewayMCPServer struct {
 	ProxyConfig       map[string]any `json:"proxy_config,omitempty"`
 }
 
-func listGatewayMCPServers(store *Store, userID int64, defaultProjectID string, args map[string]any, serverPort, selfPath string) ([]gatewayMCPServer, error) {
+func listGatewayMCPServers(store *Store, userID int64, defaultProjectID string, args map[string]any, serverPort, _ string) ([]gatewayMCPServer, error) {
 	projectID, _ := args["project_id"].(string)
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
@@ -1038,6 +1038,27 @@ func listGatewayMCPServers(store *Store, userID int64, defaultProjectID string, 
 	servers, err := store.ListMCPServers(userID, projectID)
 	if err != nil {
 		return nil, err
+	}
+	if projectID != "" {
+		canViewManaged := store.GetPlatformRole(userID) == PlatformAdmin
+		if !canViewManaged {
+			if role, roleErr := store.GetProjectRole(projectID, userID); roleErr == nil && role.Rank() >= ProjectViewer.Rank() {
+				canViewManaged = true
+			}
+		}
+		if canViewManaged {
+			if managedRows, managedErr := store.ListManagedMCPsInProject(projectID); managedErr == nil {
+				seen := make(map[int64]bool, len(servers))
+				for _, row := range servers {
+					seen[row.ID] = true
+				}
+				for _, row := range managedRows {
+					if !seen[row.ID] {
+						servers = append(servers, row)
+					}
+				}
+			}
+		}
 	}
 
 	result := make([]gatewayMCPServer, 0, len(servers))
@@ -1088,14 +1109,12 @@ func listGatewayMCPServers(store *Store, userID int64, defaultProjectID string, 
 				"transport": "http",
 				"url":       srv.URL,
 			}
-		case srv.Command != "":
-			var parsedArgs []string
-			_ = json.Unmarshal([]byte(srv.Args), &parsedArgs)
+		case srv.Source == "custom" || srv.Source == managedMCPSource:
+			row.MCPURL = fmt.Sprintf("http://127.0.0.1:%s/mcp/custom/%d", serverPort, srv.ID)
 			row.ProxyConfig = map[string]any{
 				"name":      srv.Name,
-				"transport": "stdio",
-				"command":   selfPath,
-				"args":      parsedArgs,
+				"transport": "http",
+				"url":       row.MCPURL,
 			}
 		}
 
@@ -1683,7 +1702,20 @@ func updateAgentMCPServersFromGateway(agentID int64, serverIDs []int64, action, 
 	for _, serverID := range serverIDs {
 		record, _, err := store.GetMCPServer(serverAPI.userID, serverID)
 		if err != nil {
-			return nil, fmt.Errorf("mcp server %d not found", serverID)
+			unscoped, unscopedErr := store.GetMCPServerByIDUnscoped(serverID)
+			if unscopedErr != nil || unscoped == nil || unscoped.Source != managedMCPSource {
+				return nil, fmt.Errorf("mcp server %d not found", serverID)
+			}
+			canUse := store.GetPlatformRole(serverAPI.userID) == PlatformAdmin
+			if !canUse {
+				if role, roleErr := store.GetProjectRole(unscoped.ProjectID, serverAPI.userID); roleErr == nil && role.Rank() >= ProjectViewer.Rank() {
+					canUse = true
+				}
+			}
+			if !canUse {
+				return nil, fmt.Errorf("mcp server %d not found", serverID)
+			}
+			record = unscoped
 		}
 		if record.ProjectID != "" && projectID != "" && record.ProjectID != projectID {
 			return nil, fmt.Errorf("mcp server %d belongs to project %q, agent belongs to project %q", serverID, record.ProjectID, projectID)
@@ -1720,7 +1752,7 @@ func updateAgentMCPServersFromGateway(agentID int64, serverIDs []int64, action, 
 	}, nil
 }
 
-func gatewayMCPConfigFromRecord(record MCPServerRecord, projectID, serverPort, selfPath string) (map[string]any, error) {
+func gatewayMCPConfigFromRecord(record MCPServerRecord, projectID, serverPort, _ string) (map[string]any, error) {
 	switch {
 	case record.Source == "local" && record.ConnectionID > 0:
 		return map[string]any{
@@ -1744,14 +1776,11 @@ func gatewayMCPConfigFromRecord(record MCPServerRecord, projectID, serverPort, s
 			"transport": "http",
 			"url":       record.URL,
 		}, nil
-	case record.Command != "":
-		var parsedArgs []string
-		_ = json.Unmarshal([]byte(record.Args), &parsedArgs)
+	case record.Source == "custom" || record.Source == managedMCPSource:
 		return map[string]any{
 			"name":      record.Name,
-			"transport": "stdio",
-			"command":   selfPath,
-			"args":      parsedArgs,
+			"transport": "http",
+			"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/custom/%d", serverPort, record.ID),
 		}, nil
 	default:
 		return nil, fmt.Errorf("missing URL or command")
