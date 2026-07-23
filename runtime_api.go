@@ -590,10 +590,10 @@ func (s *Server) handleRuntimeRealtime(w http.ResponseWriter, r *http.Request, r
 			return
 		}
 		if result.AudioToken != "" {
-			baseURL := callbackReachableBaseURL(s.publicBaseURL(), r)
+			baseURL := requestReachableBaseURL(r, s.localGatewayURL())
 			bridgeURL, err := publicRealtimeAudioURL(baseURL, agent.AgentID, req.ThreadID, result.AudioToken)
 			if err != nil {
-				http.Error(w, "invalid public server URL", http.StatusInternalServerError)
+				http.Error(w, "invalid runtime gateway URL", http.StatusInternalServerError)
 				return
 			}
 			result.AudioBridgeURL = bridgeURL
@@ -625,10 +625,10 @@ func (s *Server) handleRuntimeRealtime(w http.ResponseWriter, r *http.Request, r
 			return
 		}
 		if result.AudioToken != "" {
-			baseURL := callbackReachableBaseURL(s.publicBaseURL(), r)
+			baseURL := requestReachableBaseURL(r, s.localGatewayURL())
 			bridgeURL, err := publicRealtimeAudioURL(baseURL, agent.AgentID, threadID, result.AudioToken)
 			if err != nil {
-				http.Error(w, "invalid public server URL", http.StatusInternalServerError)
+				http.Error(w, "invalid runtime gateway URL", http.StatusInternalServerError)
 				return
 			}
 			result.AudioBridgeURL = bridgeURL

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -41,12 +42,19 @@ func seedRuntimeAPIInstall(t *testing.T, s *Server, name string, permissions ...
 }
 
 func runtimeAPIRequest(t *testing.T, s *Server, installID int64, method, path string, body any) *httptest.ResponseRecorder {
+	return runtimeAPIRequestAtHost(t, s, installID, method, path, body, "")
+}
+
+func runtimeAPIRequestAtHost(t *testing.T, s *Server, installID int64, method, path string, body any, host string) *httptest.ResponseRecorder {
 	t.Helper()
 	var raw []byte
 	if body != nil {
 		raw, _ = json.Marshal(body)
 	}
 	req := httptest.NewRequest(method, path, bytes.NewReader(raw))
+	if host != "" {
+		req.Host = host
+	}
 	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
 	rec := httptest.NewRecorder()
 	s.handleAppCallback(rec, req)
@@ -303,14 +311,34 @@ func TestRuntimeAPI_RealtimeLifecycleIsRuntimeScoped(t *testing.T) {
 	if err := runtime.AttachAgent(&EnvironmentAgent{AgentID: 993, Alias: "main", Port: port, APIKey: "core-key", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.store.SetSetting("public_url", "https://stale-public.example"); err != nil {
+		t.Fatal(err)
+	}
 
-	spawned := runtimeAPIRequest(t, s, installID, http.MethodPost, "/apps/callback/runtimes/rt-voice/agents/main/realtime", sdk.RuntimeRealtimeSpawnRequest{ThreadID: "voice", Directive: "Answer the caller"})
-	if spawned.Code != http.StatusOK || !strings.Contains(spawned.Body.String(), `"audio_bridge_url":"ws://`) {
+	spawned := runtimeAPIRequestAtHost(t, s, installID, http.MethodPost, "/apps/callback/runtimes/rt-voice/agents/main/realtime", sdk.RuntimeRealtimeSpawnRequest{ThreadID: "voice", Directive: "Answer the caller"}, "runtime-gateway.internal:5280")
+	if spawned.Code != http.StatusOK {
 		t.Fatalf("spawn status=%d body=%s", spawned.Code, spawned.Body.String())
 	}
-	renewed := runtimeAPIRequest(t, s, installID, http.MethodPost, "/apps/callback/runtimes/rt-voice/agents/main/realtime/voice/audio-token", nil)
-	if renewed.Code != http.StatusOK || !strings.Contains(renewed.Body.String(), `"status":"renewed"`) {
+	var spawnResult sdk.RealtimeSpawnResult
+	if err := json.Unmarshal(spawned.Body.Bytes(), &spawnResult); err != nil {
+		t.Fatal(err)
+	}
+	spawnURL, err := url.Parse(spawnResult.AudioBridgeURL)
+	if err != nil || spawnURL.Scheme != "ws" || spawnURL.Host != "runtime-gateway.internal:5280" {
+		t.Fatalf("spawn bridge URL=%q err=%v", spawnResult.AudioBridgeURL, err)
+	}
+
+	renewed := runtimeAPIRequestAtHost(t, s, installID, http.MethodPost, "/apps/callback/runtimes/rt-voice/agents/main/realtime/voice/audio-token", nil, "runtime-gateway.internal:5280")
+	if renewed.Code != http.StatusOK {
 		t.Fatalf("renew status=%d body=%s", renewed.Code, renewed.Body.String())
+	}
+	var renewResult sdk.RealtimeSpawnResult
+	if err := json.Unmarshal(renewed.Body.Bytes(), &renewResult); err != nil {
+		t.Fatal(err)
+	}
+	renewURL, err := url.Parse(renewResult.AudioBridgeURL)
+	if err != nil || renewResult.Status != "renewed" || renewURL.Host != "runtime-gateway.internal:5280" {
+		t.Fatalf("renew result=%#v URL=%q err=%v", renewResult, renewResult.AudioBridgeURL, err)
 	}
 	stopped := runtimeAPIRequest(t, s, installID, http.MethodDelete, "/apps/callback/runtimes/rt-voice/agents/main/realtime/voice", nil)
 	if stopped.Code != http.StatusNoContent {

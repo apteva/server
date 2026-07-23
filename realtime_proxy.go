@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -147,9 +148,27 @@ func callbackReachableBaseURL(configured string, request *http.Request) string {
 	if hostname != "localhost" && hostname != "127.0.0.1" && hostname != "::1" {
 		return configured
 	}
+	return requestReachableBaseURL(request, configured)
+}
+
+// requestReachableBaseURL returns the server origin the caller already used.
+// Runtime sidecars should keep their audio bridge on that reachable internal
+// path instead of detouring through an unrelated public_url.
+func requestReachableBaseURL(request *http.Request, fallback string) string {
+	if request == nil || strings.TrimSpace(request.Host) == "" {
+		return fallback
+	}
 	scheme := request.Header.Get("X-Forwarded-Proto")
-	if scheme == "" {
-		scheme = "http"
+	if comma := strings.IndexByte(scheme, ','); comma >= 0 {
+		scheme = scheme[:comma]
+	}
+	scheme = strings.ToLower(strings.TrimSpace(scheme))
+	if scheme != "http" && scheme != "https" {
+		if request.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
 	}
 	return scheme + "://" + request.Host
 }
