@@ -273,13 +273,62 @@ func TestRuntimeAPI_WaitReturnsNormalizedTraceAndMetrics(t *testing.T) {
 	}
 }
 
+func TestRuntimeAPI_RealtimeLifecycleIsRuntimeScoped(t *testing.T) {
+	s := newRuntimeAPITestServer(t)
+	installID := seedRuntimeAPIInstall(t, s, "voice-runtime", sdk.PermRuntimesManage, sdk.PermRuntimesCall)
+	created := runtimeAPIRequest(t, s, installID, http.MethodPost, "/apps/callback/runtimes", sdk.RuntimeCreateRequest{ID: "rt-voice"})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/threads/voice" && r.Method == http.MethodPost:
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "created", "id": "voice", "audio_token": "one-use"})
+		case r.URL.Path == "/threads/voice/audio-token" && r.Method == http.MethodPost:
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "renewed", "id": "voice", "audio_token": "renewed"})
+		case r.URL.Path == "/threads/voice" && r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer core.Close()
+	port, err := strconv.Atoi(strings.TrimPrefix(core.URL, "http://127.0.0.1:"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, _ := s.environments.Get("rt-voice")
+	if err := runtime.AttachAgent(&EnvironmentAgent{AgentID: 993, Alias: "main", Port: port, APIKey: "core-key", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	spawned := runtimeAPIRequest(t, s, installID, http.MethodPost, "/apps/callback/runtimes/rt-voice/agents/main/realtime", sdk.RuntimeRealtimeSpawnRequest{ThreadID: "voice", Directive: "Answer the caller"})
+	if spawned.Code != http.StatusOK || !strings.Contains(spawned.Body.String(), `"audio_bridge_url":"ws://`) {
+		t.Fatalf("spawn status=%d body=%s", spawned.Code, spawned.Body.String())
+	}
+	renewed := runtimeAPIRequest(t, s, installID, http.MethodPost, "/apps/callback/runtimes/rt-voice/agents/main/realtime/voice/audio-token", nil)
+	if renewed.Code != http.StatusOK || !strings.Contains(renewed.Body.String(), `"status":"renewed"`) {
+		t.Fatalf("renew status=%d body=%s", renewed.Code, renewed.Body.String())
+	}
+	stopped := runtimeAPIRequest(t, s, installID, http.MethodDelete, "/apps/callback/runtimes/rt-voice/agents/main/realtime/voice", nil)
+	if stopped.Code != http.StatusNoContent {
+		t.Fatalf("stop status=%d body=%s", stopped.Code, stopped.Body.String())
+	}
+}
+
 func TestRuntimeProviderPoolPinsProviderAndModel(t *testing.T) {
-	pool := []ProviderInfo{{Type: "anthropic", ModelLarge: "old"}, {Type: "openai", ModelLarge: "gpt"}}
+	pool := []ProviderInfo{
+		{Type: "anthropic", ModelLarge: "old"},
+		{Type: "openai", ModelLarge: "gpt"},
+		{Type: "openai-realtime", ModelLarge: "gpt-realtime"},
+	}
 	selected, provider, model, err := runtimeProviderPool(pool, "anthropic", "claude-test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(selected) != 1 || provider != "anthropic" || model != "claude-test" || selected[0].ModelSmall != "claude-test" {
+	if len(selected) != 2 || provider != "anthropic" || model != "claude-test" || selected[0].ModelSmall != "claude-test" || selected[1].Type != "openai-realtime" {
 		t.Fatalf("selected=%#v provider=%q model=%q", selected, provider, model)
 	}
 	if _, _, _, err := runtimeProviderPool(pool, "missing", ""); err == nil {

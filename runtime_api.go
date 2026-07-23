@@ -24,6 +24,7 @@ import (
 	"time"
 
 	sdk "github.com/apteva/app-sdk"
+	"github.com/apteva/server/apps/framework"
 )
 
 const (
@@ -550,6 +551,89 @@ func (s *Server) handleRuntimeAgents(w http.ResponseWriter, r *http.Request, run
 			events = []TelemetryEvent{}
 		}
 		writeJSON(w, events)
+	case "realtime":
+		s.handleRuntimeRealtime(w, r, runtime, agent, parts[2:])
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (s *Server) handleRuntimeRealtime(w http.ResponseWriter, r *http.Request, runtime *Environment, agent *EnvironmentAgent, parts []string) {
+	if len(parts) == 0 {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxRuntimeRequestBytes)
+		var req sdk.RuntimeRealtimeSpawnRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		req.ThreadID = strings.TrimSpace(req.ThreadID)
+		req.Directive = strings.TrimSpace(req.Directive)
+		if req.ThreadID == "" || req.Directive == "" || strings.Contains(req.ThreadID, "/") || len(req.ThreadID) > 128 {
+			http.Error(w, "valid thread_id and directive required", http.StatusBadRequest)
+			return
+		}
+		result, err := s.resolver().SpawnRealtimeThread(framework.InstanceInfo{
+			ID: agent.AgentID, Name: agent.SourceName, ProjectID: runtime.ProjectID,
+			Port: agent.Port, CoreAPIKey: agent.APIKey,
+		}, sdk.RealtimeSpawnRequest{
+			AgentID: agent.AgentID, ThreadID: req.ThreadID, Directive: req.Directive,
+			Voice: req.Voice, Provider: req.Provider, Tools: req.Tools, MCP: req.MCP,
+			Ephemeral: req.Ephemeral, InitialMessage: req.InitialMessage,
+			BridgeDisconnectTTLSeconds: req.BridgeDisconnectTTLSeconds,
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		if result.AudioToken != "" {
+			baseURL := callbackReachableBaseURL(s.publicBaseURL(), r)
+			bridgeURL, err := publicRealtimeAudioURL(baseURL, agent.AgentID, req.ThreadID, result.AudioToken)
+			if err != nil {
+				http.Error(w, "invalid public server URL", http.StatusInternalServerError)
+				return
+			}
+			result.AudioBridgeURL = bridgeURL
+		}
+		writeJSON(w, result)
+		return
+	}
+
+	threadID, err := url.PathUnescape(parts[0])
+	if err != nil || threadID == "" || strings.Contains(threadID, "/") || len(threadID) > 128 {
+		http.Error(w, "invalid thread id", http.StatusBadRequest)
+		return
+	}
+	inst := framework.InstanceInfo{
+		ID: agent.AgentID, Name: agent.SourceName, ProjectID: runtime.ProjectID,
+		Port: agent.Port, CoreAPIKey: agent.APIKey,
+	}
+	switch {
+	case len(parts) == 1 && r.Method == http.MethodDelete:
+		if err := s.resolver().KillThread(inst, threadID); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case len(parts) == 2 && parts[1] == "audio-token" && r.Method == http.MethodPost:
+		result, err := s.resolver().RenewRealtimeAudioBridge(inst, threadID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		if result.AudioToken != "" {
+			baseURL := callbackReachableBaseURL(s.publicBaseURL(), r)
+			bridgeURL, err := publicRealtimeAudioURL(baseURL, agent.AgentID, threadID, result.AudioToken)
+			if err != nil {
+				http.Error(w, "invalid public server URL", http.StatusInternalServerError)
+				return
+			}
+			result.AudioBridgeURL = bridgeURL
+		}
+		writeJSON(w, result)
 	default:
 		http.NotFound(w, r)
 	}
@@ -756,6 +840,35 @@ func (s *Server) handleRuntimeCatalog(w http.ResponseWriter, r *http.Request, pa
 			return
 		}
 		http.NotFound(w, r)
+		return
+	}
+	if parts[0] == "realtime-providers" && len(parts) == 1 {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
+		if !s.requireRuntimePermission(w, installID, sdk.PermRuntimeCatalogRead, sdk.PermRuntimesManage) {
+			return
+		}
+		userID, projectID, ok := s.runtimeCallerProject(w, r, installID, r.URL.Query().Get("project_id"), ProjectViewer)
+		if !ok {
+			return
+		}
+		pool := s.GetProviderPool(userID, projectID)
+		out := make([]sdk.RuntimeRealtimeProvider, 0)
+		for _, provider := range pool {
+			if !isRealtimeProviderType(provider.Type) {
+				continue
+			}
+			out = append(out, sdk.RuntimeRealtimeProvider{
+				Name: providerKeyFromName(provider.Type),
+				Models: map[string]string{
+					"large": provider.ModelLarge, "medium": provider.ModelMedium, "small": provider.ModelSmall,
+				},
+				DefaultVoice: provider.RealtimeVoice,
+			})
+		}
+		writeJSON(w, out)
 		return
 	}
 	if parts[0] != "agents" {

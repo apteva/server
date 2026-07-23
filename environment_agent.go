@@ -271,11 +271,20 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 func runtimeProviderPool(pool []ProviderInfo, provider, model string) ([]ProviderInfo, string, string, error) {
 	provider = providerKeyFromName(provider)
 	model = strings.TrimSpace(model)
-	selected := pool[0]
+	selected := ProviderInfo{}
+	for _, candidate := range pool {
+		if !isRealtimeProviderType(candidate.Type) {
+			selected = candidate
+			break
+		}
+	}
+	if selected.Type == "" {
+		return nil, "", "", fmt.Errorf("no text LLM provider configured for this project")
+	}
 	if provider != "" {
 		found := false
 		for _, candidate := range pool {
-			if providerKeyFromName(candidate.Type) == provider {
+			if providerKeyFromName(candidate.Type) == provider && !isRealtimeProviderType(candidate.Type) {
 				selected = candidate
 				found = true
 				break
@@ -294,7 +303,13 @@ func runtimeProviderPool(pool []ProviderInfo, provider, model string) ([]Provide
 	if selectedModel == "" {
 		selectedModel = selected.ModelLarge
 	}
-	return []ProviderInfo{selected}, selected.Type, selectedModel, nil
+	selectedPool := []ProviderInfo{selected}
+	for _, candidate := range pool {
+		if isRealtimeProviderType(candidate.Type) {
+			selectedPool = append(selectedPool, candidate)
+		}
+	}
+	return selectedPool, selected.Type, selectedModel, nil
 }
 
 func (s *Server) environmentAgentAppMCPNames(environment *Environment, src *Agent) []string {
