@@ -214,6 +214,9 @@ func cacheableRequest(r *http.Request) bool {
 	if r.Method != http.MethodGet {
 		return false
 	}
+	if requestIsProtocolUpgrade(r) {
+		return false
+	}
 	if r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
 		return false
 	}

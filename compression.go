@@ -34,9 +34,11 @@ func requestIsProtocolUpgrade(r *http.Request) bool {
 	if strings.TrimSpace(r.Header.Get("Upgrade")) == "" {
 		return false
 	}
-	for _, part := range strings.Split(r.Header.Get("Connection"), ",") {
-		if strings.EqualFold(strings.TrimSpace(part), "upgrade") {
-			return true
+	for _, value := range r.Header.Values("Connection") {
+		for _, part := range strings.Split(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), "upgrade") {
+				return true
+			}
 		}
 	}
 	return false

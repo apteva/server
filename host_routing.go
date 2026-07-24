@@ -97,8 +97,12 @@ func (hr *HostRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "https://"+r.Host+r.RequestURI, http.StatusMovedPermanently)
 		return
 	}
+	isUpgrade := requestIsProtocolUpgrade(r)
 	// Edge cache: serve fresh public assets without touching the origin.
-	if hr.server != nil && hr.server.edgeCache != nil && hr.server.edgeCache.serve(w, r, hit.Hostname) {
+	// Protocol upgrades must retain the original ResponseWriter's Hijacker;
+	// neither cache lookup nor response wrapping applies to a connection that
+	// becomes a bidirectional stream.
+	if !isUpgrade && hr.server != nil && hr.server.edgeCache != nil && hr.server.edgeCache.serve(w, r, hit.Hostname) {
 		return
 	}
 	// Resolve the effective backend. For app:// origins this looks up
@@ -129,7 +133,7 @@ func (hr *HostRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// On a cache miss, tee the origin response so eligible public assets
 	// get stored for next time.
-	if hr.server != nil && hr.server.edgeCache != nil {
+	if !isUpgrade && hr.server != nil && hr.server.edgeCache != nil {
 		cw := hr.server.edgeCache.wrap(w, r, hit.Hostname)
 		proxy.ServeHTTP(cw, r)
 		cw.finalize()
