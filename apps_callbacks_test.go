@@ -76,6 +76,29 @@ func TestCallbackAgentForInstallEnforcesOwnerAndProject(t *testing.T) {
 		t.Fatal("agent from another owner accepted")
 	}
 
+	runtimeManager := NewEnvironmentManager(t.TempDir())
+	runtime := &Environment{
+		ID: "runtime-1",
+		installs: map[string]*localInstall{
+			"telephony-auth-test": {InstallID: installID},
+		},
+		agents: map[int64]*EnvironmentAgent{
+			otherProject.ID: {AgentID: otherProject.ID, Alias: "main"},
+		},
+		agentAliases: map[string]int64{"main": otherProject.ID},
+	}
+	runtimeManager.environments[runtime.ID] = runtime
+	s.environments = runtimeManager
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET project_id=? WHERE id=?`, runtime.ID, installID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.callbackAgentForInstall(req, installID, otherProject.ID); err != nil {
+		t.Fatalf("agent and install in the same runtime rejected: %v", err)
+	}
+	if _, err := s.callbackAgentForInstall(req, installID, inProject.ID); err == nil {
+		t.Fatal("agent outside the install runtime accepted")
+	}
+
 	if _, err := s.store.db.Exec(`UPDATE app_installs SET project_id='' WHERE id=?`, installID); err != nil {
 		t.Fatal(err)
 	}
@@ -1034,5 +1057,34 @@ func TestInstallBoundAppID_ResolvesBoundTarget(t *testing.T) {
 	got := installBoundAppID(s, mediaInstallID, "storage")
 	if got != storageInstall2 {
 		t.Errorf("expected bound install_id=%d, got %d", storageInstall2, got)
+	}
+}
+
+func TestInstallBoundAppID_DoesNotDependOnBootRegistry(t *testing.T) {
+	s := newTestServer(t)
+	s.installedApps = NewInstalledAppsRegistry()
+
+	targetManifest := sdk.Manifest{Name: "instances"}
+	targetID := seedRunningInstall(t, s, "instances", "", targetManifest, nil)
+	callerManifest := sdk.Manifest{
+		Name: "fleet",
+		Requires: sdk.Requires{
+			Integrations: []sdk.IntegrationDep{{
+				Role: "host_provider", Kind: "app", CompatibleAppNames: []string{"instances"},
+			}},
+		},
+	}
+	callerID := seedRunningInstall(t, s, "fleet", "", callerManifest, map[string]any{
+		"host_provider": targetID,
+	})
+
+	if got := installBoundAppID(s, callerID, "instances"); got != targetID {
+		t.Fatalf("bound install=%d, want %d while runtime registry is still empty", got, targetID)
+	}
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET status='error' WHERE id=?`, targetID); err != nil {
+		t.Fatal(err)
+	}
+	if got := installBoundAppID(s, callerID, "instances"); got != 0 {
+		t.Fatalf("non-running target authorized as install %d", got)
 	}
 }

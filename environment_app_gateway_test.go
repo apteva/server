@@ -4,9 +4,14 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"io"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	sdk "github.com/apteva/app-sdk"
 )
 
 // TestEnvironmentAppGateway_BrokersToken (gated) proves an agent core can reach a
@@ -60,4 +65,74 @@ func TestEnvironmentAppGateway_BrokersToken(t *testing.T) {
 		t.Fatalf("expected 1 file written via brokered gateway, got %d", n)
 	}
 	t.Logf("✓ agent→in-environment-app works: gateway injected the install token; storage wrote the file")
+}
+
+func TestEnvironmentAppPublicGatewayAndRuntimeIdentity(t *testing.T) {
+	s := newRuntimeAPITestServer(t)
+	installID := seedRuntimeAPIInstall(t, s, "telephony", sdk.PermRuntimesCall)
+	token, err := s.appInstallToken(installID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			http.Error(w, "missing brokered token", http.StatusUnauthorized)
+			return
+		}
+		writeJSON(w, map[string]any{"path": r.URL.Path})
+	}))
+	defer sidecar.Close()
+
+	runtime := &Environment{
+		ID: "rt-public", ownerInstallID: installID,
+		installs: map[string]*localInstall{"telephony": {
+			InstallID: installID, AppName: "telephony", SidecarURL: sidecar.URL,
+		}},
+		agents: map[int64]*EnvironmentAgent{}, agentAliases: map[string]int64{},
+		createdAt: time.Now(),
+	}
+	s.environments.mu.Lock()
+	s.environments.environments[runtime.ID] = runtime
+	s.environments.mu.Unlock()
+
+	endpoint, err := s.runtimeAppEndpoint(runtime, "telephony")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBase := "https://runtime.apteva.invalid/rt-public"
+	wantGateway := "http://127.0.0.1:5280/api/environment-app-public/rt-public"
+	if endpoint.PlatformURL != wantBase || endpoint.GatewayURL != wantGateway || !strings.HasSuffix(endpoint.AppURL, "/api/apps/telephony/_install/"+itoa(installID)) {
+		t.Fatalf("endpoint=%+v", endpoint)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/environment-app-public/rt-public/api/apps/telephony/_install/"+itoa(installID)+"/inbound/twilio/route", strings.NewReader("CallSid=CA1"))
+	req.RemoteAddr = "127.0.0.1:4567"
+	rec := httptest.NewRecorder()
+	s.handleEnvironmentAppPublicGateway(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"path":"/inbound/twilio/route"`) {
+		t.Fatalf("gateway status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	whoami := httptest.NewRequest(http.MethodGet, "/apps/callback/whoami", nil)
+	whoami.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	whoRec := httptest.NewRecorder()
+	s.handleCallbackWhoami(whoRec, whoami)
+	if whoRec.Code != http.StatusOK || !strings.Contains(whoRec.Body.String(), `"public_url":"`+wantBase+`"`) {
+		t.Fatalf("whoami status=%d body=%s", whoRec.Code, whoRec.Body.String())
+	}
+}
+
+func TestCallAppMCPToolAsAgentForwardsRuntimeCaller(t *testing.T) {
+	var caller string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		caller = r.Header.Get("X-Apteva-Caller-Agent")
+		_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{}"}]}}`)
+	}))
+	defer server.Close()
+	if _, err := callAppMCPToolAsAgent(server.URL, "", "42", "test", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	if caller != "42" {
+		t.Fatalf("caller header=%q", caller)
+	}
 }

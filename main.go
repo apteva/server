@@ -50,6 +50,17 @@ func versionInfo() map[string]any {
 	}
 }
 
+func writeServerHealth(w http.ResponseWriter, ready bool) {
+	info := versionInfo()
+	info["ok"] = ready
+	if !ready {
+		info["status"] = "starting"
+		writeJSONStatus(w, http.StatusServiceUnavailable, info)
+		return
+	}
+	writeJSON(w, info)
+}
+
 // loadOrMintInstanceSecret returns the persisted instance secret from
 // server_settings, creating + saving a fresh one the first time. A
 // stable secret across server restarts is the key to not 401-ing cores
@@ -73,6 +84,7 @@ type Server struct {
 	store             *Store
 	dbPath            string // path to apteva-server.db on disk (needed for staged restore)
 	agents            *AgentManager
+	ready             atomic.Bool
 	mcpManager        *MCPManager
 	catalog           *AppCatalog
 	secret            []byte // AES-256 key for encrypting provider data
@@ -177,74 +189,60 @@ type Server struct {
 type appsRegistry = framework.Registry
 
 func main() {
-	// --preflight is a fast-exit health gate the CLI runs against
-	// a freshly-extracted binary BEFORE flipping the load-bearing
-	// `bin/current` symlink. Loads config, opens the DB read-only,
-	// binds an ephemeral high port to confirm the new build is at
-	// least syntactically capable of booting on this host, then
-	// exits 0. Anything that fails here means "don't activate this
-	// version" — the CLI keeps the prior version active and reports
-	// the failure to the operator.
-	for _, arg := range os.Args[1:] {
-		if arg == "--preflight" {
-			os.Exit(runPreflight())
-		}
+	invocation, err := parseServerInvocation(os.Args[1:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "apteva-server: %v\n\n%s\n", err, serverUsage())
+		os.Exit(2)
 	}
-
-	// Check for MCP server modes
-	for i, arg := range os.Args[1:] {
-		if arg == "--mcp-proxy" {
-			var connID int64
-			for _, a := range os.Args[i+2:] {
-				if strings.HasPrefix(a, "--connection-id=") {
-					connID, _ = strconv.ParseInt(strings.TrimPrefix(a, "--connection-id="), 10, 64)
-				}
-			}
-			dbPath := os.Getenv("DB_PATH")
-			if dbPath == "" {
-				dbPath = "apteva-server.db"
-			}
-			dataDir := os.Getenv("DATA_DIR")
-			if dataDir == "" {
-				dataDir = "data"
-			}
-			secret, err := LoadSecret(dataDir)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "secret: %v\n", err)
-				os.Exit(1)
-			}
-			if err := runMCPProxy(dbPath, connID, secret); err != nil {
-				fmt.Fprintf(os.Stderr, "mcp-proxy: %v\n", err)
-				os.Exit(1)
-			}
-			return
+	switch invocation.mode {
+	case serverModeVersion:
+		fmt.Printf("apteva-server %s (build %s)\n", Version, BuildTime)
+		return
+	case serverModeHelp:
+		fmt.Println(serverUsage())
+		return
+	case serverModePreflight:
+		// Fast-exit health gate the CLI runs against a freshly-extracted
+		// binary before flipping the load-bearing bin/current symlink.
+		os.Exit(runPreflight())
+	case serverModeMCPProxy:
+		dbPath := os.Getenv("DB_PATH")
+		if dbPath == "" {
+			dbPath = "apteva-server.db"
 		}
-		if arg == "--mcp-gateway" {
-			var userID int64
-			for _, a := range os.Args[i+2:] {
-				if strings.HasPrefix(a, "--user-id=") {
-					userID, _ = strconv.ParseInt(strings.TrimPrefix(a, "--user-id="), 10, 64)
-				}
-			}
-			dbPath := os.Getenv("DB_PATH")
-			if dbPath == "" {
-				dbPath = "apteva-server.db"
-			}
-			dataDir := os.Getenv("DATA_DIR")
-			if dataDir == "" {
-				dataDir = "data"
-			}
-			secret, err := LoadSecret(dataDir)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "secret: %v\n", err)
-				os.Exit(1)
-			}
-			if err := runMCPGateway(dbPath, userID, secret); err != nil {
-				fmt.Fprintf(os.Stderr, "mcp-gateway: %v\n", err)
-				os.Exit(1)
-			}
-			return
+		dataDir := os.Getenv("DATA_DIR")
+		if dataDir == "" {
+			dataDir = "data"
 		}
+		secret, err := LoadSecret(dataDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "secret: %v\n", err)
+			os.Exit(1)
+		}
+		if err := runMCPProxy(dbPath, invocation.connectionID, secret); err != nil {
+			fmt.Fprintf(os.Stderr, "mcp-proxy: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	case serverModeMCPGateway:
+		dbPath := os.Getenv("DB_PATH")
+		if dbPath == "" {
+			dbPath = "apteva-server.db"
+		}
+		dataDir := os.Getenv("DATA_DIR")
+		if dataDir == "" {
+			dataDir = "data"
+		}
+		secret, err := LoadSecret(dataDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "secret: %v\n", err)
+			os.Exit(1)
+		}
+		if err := runMCPGateway(dbPath, invocation.userID, secret); err != nil {
+			fmt.Fprintf(os.Stderr, "mcp-gateway: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	// Path defaults derive from APTEVA_HOME when it's set. This is
@@ -587,9 +585,7 @@ func main() {
 	// call tells you what's running (apteva umbrella, cli, dashboard,
 	// integrations, core) along with the build timestamp.
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		info := versionInfo()
-		info["ok"] = true
-		writeJSON(w, info)
+		writeServerHealth(w, s.ready.Load())
 	})
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, versionInfo())
@@ -601,9 +597,7 @@ func main() {
 	mux.HandleFunc("/mcp/runtime/", s.handleRuntimeManagedMCPBridge)
 	// Also expose health/version under /api for uniformity from the dashboard.
 	apiMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		info := versionInfo()
-		info["ok"] = true
-		writeJSON(w, info)
+		writeServerHealth(w, s.ready.Load())
 	})
 	apiMux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, versionInfo())
@@ -1197,6 +1191,7 @@ func main() {
 	// proxy so an in-environment agent core can reach token-protected app
 	// sidecars.
 	apiMux.HandleFunc("/environment-app-gateway/", s.handleEnvironmentAppGateway)
+	apiMux.HandleFunc("/environment-app-public/", s.handleEnvironmentAppPublicGateway)
 
 	instancesCollectionHandler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -1567,6 +1562,12 @@ func main() {
 			log.Printf("[CLONE-QUARANTINE] runtimes prepared; agents, apps, subscriptions, and refresh workers remain stopped")
 		}
 	} else {
+		// Seed exact install IDs, credentials, and persisted local sidecar
+		// URLs before process resume. ResumeLocalInstalls starts bound targets
+		// before their callers; this initial registry keeps authorization
+		// correct throughout that sequence instead of returning a false
+		// "app not bound" while a valid target is starting.
+		s.LoadInstalledApps()
 		s.ResumeLocalInstalls()
 		s.PruneInstalledAppVersions()
 		s.ResumePendingLocalInstalls()
@@ -1590,12 +1591,14 @@ func main() {
 	// Apps are healthy and the installedApps registry is populated.
 	// Now safe to spawn agents — their MCP proxies will resolve.
 	resumeInstancesAfterApps()
+	s.ready.Store(true)
 	if !quarantined && providerAuthRefreshEnvEnabled() {
 		s.startProviderAuthRefresher(context.Background())
 	}
 
 	go func() {
 		sig := <-sigCh
+		s.ready.Store(false)
 		fmt.Fprintf(os.Stderr, "\napteva-server received %s — shutting down\n", sig)
 		intent := s.readLifecycleIntent(false)
 		shutdownPolicy := s.resolvedShutdownPolicy(intent)

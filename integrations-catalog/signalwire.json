@@ -104,6 +104,18 @@
             ],
             "default": "POST"
           },
+          "StatusCallbackEvent": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "initiated",
+                "ringing",
+                "answered",
+                "completed"
+              ]
+            }
+          },
           "Timeout": {
             "type": "integer"
           }

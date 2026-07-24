@@ -1,0 +1,29 @@
+{
+  "slug": "zrok",
+  "name": "zrok",
+  "description": "zrok v2 tunnel agent — exposes a local HTTP service through a public zrok URL with a persistent name. This integration stores only the one-time environment enable token; tools[] is intentionally empty because consumers drive the local zrok2 agent rather than calling a REST API.",
+  "logo": "https://www.google.com/s2/favicons?domain=zrok.io&sz=128",
+  "categories": [
+    "tunnel",
+    "infrastructure",
+    "dev",
+    "open-source"
+  ],
+  "base_url": "https://zrok.io",
+  "auth": {
+    "types": [
+      "custom"
+    ],
+    "headers": {},
+    "credential_fields": [
+      {
+        "name": "enable_token",
+        "label": "Environment enable token",
+        "type": "password",
+        "required": true,
+        "description": "One-time zrok environment enable token from the zrok web console. A consumer uses it to run zrok2 enable in isolated persistent storage; it is not sent as an HTTP API key."
+      }
+    ]
+  },
+  "tools": []
+}

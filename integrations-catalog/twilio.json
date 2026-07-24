@@ -309,6 +309,28 @@
             "type": "string",
             "description": "URL for call status webhooks"
           },
+          "StatusCallbackMethod": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST",
+            "description": "HTTP method used for call status webhooks"
+          },
+          "StatusCallbackEvent": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "initiated",
+                "ringing",
+                "answered",
+                "completed"
+              ]
+            },
+            "description": "Call progress events to send. Values are encoded as repeated Twilio form fields."
+          },
           "MachineDetection": {
             "type": "string",
             "enum": [
@@ -846,9 +868,27 @@
             "type": "string",
             "description": "Webhook URL for incoming calls"
           },
+          "VoiceMethod": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST",
+            "description": "HTTP method Twilio uses for incoming voice webhooks"
+          },
           "StatusCallback": {
             "type": "string",
             "description": "Status callback URL"
+          },
+          "StatusCallbackMethod": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST",
+            "description": "HTTP method Twilio uses for voice status callbacks"
           }
         },
         "required": [

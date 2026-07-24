@@ -39,14 +39,14 @@
       "scopes": [
         "email",
         "public_profile",
+        "ads_read",
+        "ads_management",
+        "business_management",
         "pages_show_list",
         "pages_read_engagement",
-        "pages_manage_posts",
+        "pages_manage_ads",
         "pages_manage_metadata",
-        "instagram_basic",
-        "instagram_content_publish",
-        "ads_management",
-        "business_management"
+        "leads_retrieval"
       ],
       "client_id_required": true,
       "pkce": false
@@ -55,22 +55,12 @@
   "tools": [
     {
       "name": "account_list",
-      "description": "List Facebook ad accounts. By default lists the current user's ad accounts (userId='me'). Pass a business ID as userId and set endpoint='owned_ad_accounts' to list business accounts.",
+      "description": "List ad accounts the current user can access through the Meta Marketing API.",
       "method": "GET",
-      "path": "/account-list",
+      "path": "/me/adaccounts",
       "input_schema": {
         "type": "object",
         "properties": {
-          "userId": {
-            "type": "string",
-            "default": "me",
-            "description": "User ID or Business ID. Defaults to 'me' (current user)."
-          },
-          "endpoint": {
-            "type": "string",
-            "default": "adaccounts",
-            "description": "Endpoint: 'adaccounts' for user accounts, 'owned_ad_accounts' for business accounts"
-          },
           "fields": {
             "type": "string",
             "default": "id,name,account_id,account_status,currency,timezone_name,business,default_dsa_beneficiary,default_dsa_payor",
@@ -92,7 +82,7 @@
       "name": "campaign_create",
       "description": "Create a Facebook campaign. special_ad_categories is REQUIRED (pass empty array [] if none). OBJECTIVES: OUTCOME_SALES (website purchases/conversions), OUTCOME_LEADS (lead generation forms), OUTCOME_TRAFFIC (website visits), OUTCOME_ENGAGEMENT (page likes, post engagement, event responses \u2014 use this for PAGE LIKES campaigns), OUTCOME_AWARENESS (reach/brand awareness), OUTCOME_APP_PROMOTION (app installs). PAGE LIKES CAMPAIGN: Use objective=OUTCOME_ENGAGEMENT, then on the ad set use optimization_goal=PAGE_LIKES with promoted_object={\"page_id\":\"YOUR_PAGE_ID\"}. BUDGET: Setting daily_budget or lifetime_budget here enables Campaign Budget Optimization (CBO) \u2014 the campaign controls budget for ALL ad sets. If using CBO, ad sets must NOT set their own budget. bid_strategy options: LOWEST_COST_WITHOUT_CAP (recommended default, auto-bidding), COST_CAP (target cost per result), BID_CAP (max bid cap \u2014 ad sets MUST then set bid_amount). Examples: Page likes: {\"name\":\"Page Likes\",\"objective\":\"OUTCOME_ENGAGEMENT\",\"special_ad_categories\":[],\"daily_budget\":\"1000\",\"status\":\"PAUSED\"}. Sales with CBO: {\"name\":\"Sales\",\"objective\":\"OUTCOME_SALES\",\"special_ad_categories\":[],\"daily_budget\":\"1000\",\"bid_strategy\":\"LOWEST_COST_WITHOUT_CAP\",\"status\":\"PAUSED\"}. Traffic without CBO: {\"name\":\"Traffic\",\"objective\":\"OUTCOME_TRAFFIC\",\"special_ad_categories\":[],\"status\":\"PAUSED\"}",
       "method": "POST",
-      "path": "/campaign-create",
+      "path": "/{adAccountId}/campaigns",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -162,6 +152,10 @@
           "end_time": {
             "type": "string",
             "description": "End time (ISO format, required for lifetime budget)"
+          },
+          "is_adset_budget_sharing_enabled": {
+            "type": "boolean",
+            "description": "Required by Meta when the campaign has no daily_budget or lifetime_budget. Set false for ordinary ad-set budgets."
           }
         },
         "required": [
@@ -176,7 +170,7 @@
       "name": "campaign_list",
       "description": "List all campaigns in an ad account.",
       "method": "GET",
-      "path": "/campaign-list",
+      "path": "/{adAccountId}/campaigns",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -212,7 +206,7 @@
       "name": "campaign_update",
       "description": "Update campaign settings. Returns {success:true}. WARNING: Changing bid_strategy affects all ad sets \u2014 if switching to BID_CAP, all ad sets must have bid_amount set. If switching to LOWEST_COST_WITHOUT_CAP, ad sets should NOT have bid_amount. To activate, ALL components must be valid: campaign + ad set + ad + creative. NOTE: The API returns bid_strategy as LOWEST_COST_WITH_BID_CAP when reading, but for writing use BID_CAP.",
       "method": "POST",
-      "path": "/campaign-update",
+      "path": "/{campaignId}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -271,7 +265,7 @@
       "name": "campaign_delete",
       "description": "Delete a Facebook advertising campaign.",
       "method": "DELETE",
-      "path": "/campaign-delete",
+      "path": "/{campaignId}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -289,7 +283,7 @@
       "name": "adset_create",
       "description": "Create a Facebook ad set. PREREQUISITE: ALWAYS call facebook-ads-campaign-list first to check the parent campaign's objective, bid_strategy, and daily_budget/lifetime_budget. OBJECTIVE \u2192 AD SET CONFIGURATION (use these exact combinations): (1) OUTCOME_SALES \u2192 optimization_goal=OFFSITE_CONVERSIONS, promoted_object={\"pixel_id\":\"YOUR_PIXEL_ID\",\"custom_event_type\":\"PURCHASE\"}, destination_type=WEBSITE. (2) OUTCOME_LEADS \u2192 optimization_goal=LEAD_GENERATION, promoted_object={\"page_id\":\"YOUR_PAGE_ID\"}, destination_type=WEBSITE. (3) OUTCOME_TRAFFIC \u2192 optimization_goal=LINK_CLICKS, no promoted_object needed, destination_type=WEBSITE. (4) OUTCOME_ENGAGEMENT + PAGE LIKES \u2192 optimization_goal=PAGE_LIKES, promoted_object={\"page_id\":\"YOUR_PAGE_ID\"}, billing_event=IMPRESSIONS, destination_type=ON_PAGE. (5) OUTCOME_ENGAGEMENT + POST ENGAGEMENT \u2192 optimization_goal=POST_ENGAGEMENT, promoted_object={\"page_id\":\"YOUR_PAGE_ID\"}, billing_event=IMPRESSIONS. (6) OUTCOME_AWARENESS \u2192 optimization_goal=REACH, billing_event=IMPRESSIONS. BUDGET RULES: (1) If campaign has daily_budget or lifetime_budget (CBO mode) \u2192 do NOT set daily_budget or lifetime_budget on adset. (2) If campaign bid_strategy is LOWEST_COST_WITH_BID_CAP or BID_CAP \u2192 you MUST set bid_amount in cents. (3) If campaign bid_strategy is LOWEST_COST_WITHOUT_CAP \u2192 do NOT set bid_amount or bid_strategy. (4) If campaign has NO budget (no CBO) \u2192 you MUST set daily_budget or lifetime_budget AND bid_strategy. EU/DSA COMPLIANCE: If targeting EU, Taiwan, Singapore, or Australia, you MUST set dsa_beneficiary and dsa_payor \u2014 ads will be rejected without these. targeting format: {\"geo_locations\":{\"countries\":[\"US\"]},\"targeting_automation\":{\"advantage_audience\":0}}.",
       "method": "POST",
-      "path": "/adset-create",
+      "path": "/{adAccountId}/adsets",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -419,7 +413,7 @@
       "name": "adset_list",
       "description": "List ad sets. Pass an ad account ID or campaign ID as objectId.",
       "method": "GET",
-      "path": "/adset-list",
+      "path": "/{objectId}/adsets",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -455,7 +449,7 @@
       "name": "adset_update",
       "description": "Update ad set settings. Returns {success:true}. To activate, parent campaign must be ACTIVE and ad set must have valid ads.",
       "method": "POST",
-      "path": "/adset-update",
+      "path": "/{adSetId}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -534,7 +528,7 @@
       "name": "adset_delete",
       "description": "Delete an ad set.",
       "method": "DELETE",
-      "path": "/adset-delete",
+      "path": "/{adSetId}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -552,7 +546,7 @@
       "name": "ad_create",
       "description": "Create an ad linking an ad set to a creative. Steps: 1) Create campaign, 2) Create ad set (with promoted_object if needed), 3) Create creative, 4) Create ad. The creative param MUST be an object: {\"creative_id\":\"YOUR_ID\"}. IMPORTANT: For OUTCOME_SALES campaigns, the ad set MUST have a promoted_object with pixel_id and custom_event_type, otherwise ad creation fails with 'Tracking pixel required'. For OUTCOME_LEADS, the ad set needs promoted_object with page_id. If you get 'Tracking pixel required', go back and update the ad set to include the correct promoted_object. Example: {\"name\":\"My Ad\",\"adset_id\":\"123456\",\"creative\":{\"creative_id\":\"789012\"},\"status\":\"PAUSED\"}",
       "method": "POST",
-      "path": "/ad-create",
+      "path": "/{adAccountId}/ads",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -602,7 +596,7 @@
       "name": "ad_list",
       "description": "List ads. Pass an ad account ID or ad set ID as objectId.",
       "method": "GET",
-      "path": "/ad-list",
+      "path": "/{objectId}/ads",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -638,7 +632,7 @@
       "name": "ad_update",
       "description": "Update ad settings. Returns {success:true}. To activate, parent campaign AND ad set must both be ACTIVE.",
       "method": "POST",
-      "path": "/ad-update",
+      "path": "/{adId}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -657,6 +651,10 @@
               "PAUSED"
             ],
             "description": "Ad status"
+          },
+          "creative": {
+            "type": "object",
+            "description": "Replacement creative reference: {\"creative_id\":\"CREATIVE_ID\"}"
           }
         },
         "required": [
@@ -668,7 +666,7 @@
       "name": "ad_delete",
       "description": "Delete an ad.",
       "method": "DELETE",
-      "path": "/ad-delete",
+      "path": "/{adId}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -686,7 +684,7 @@
       "name": "creative_create",
       "description": "Create an ad creative with image, video, or link. IMPORTANT: object_story_spec MUST contain page_id at the top level. For IMAGE ads: {\"page_id\":\"PAGE_ID\",\"link_data\":{\"name\":\"Headline\",\"message\":\"Body text above image\",\"link\":\"https://yoursite.com\",\"picture\":\"https://image-url.jpg\",\"call_to_action\":{\"type\":\"LEARN_MORE\",\"value\":{\"link\":\"https://yoursite.com\"}}}}. For VIDEO ads: {\"page_id\":\"PAGE_ID\",\"video_data\":{\"video_id\":\"VIDEO_ID\",\"title\":\"Headline\",\"message\":\"Body text\",\"link_description\":\"Description\",\"call_to_action\":{\"type\":\"SHOP_NOW\",\"value\":{\"link\":\"https://yoursite.com\"}}}}. call_to_action types: LEARN_MORE, SHOP_NOW, SIGN_UP, BOOK_TRAVEL, CONTACT_US, DOWNLOAD, GET_OFFER, GET_QUOTE, SUBSCRIBE, WATCH_MORE.",
       "method": "POST",
-      "path": "/creative-create",
+      "path": "/{adAccountId}/adcreatives",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -722,7 +720,7 @@
       "name": "creative_create_carousel",
       "description": "Create a carousel ad creative with 2-10 cards. Pass the full object_story_spec with link_data containing child_attachments array.",
       "method": "POST",
-      "path": "/creative-create-carousel",
+      "path": "/{adAccountId}/adcreatives",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -750,7 +748,7 @@
       "name": "creative_list",
       "description": "List ad creatives in an ad account.",
       "method": "GET",
-      "path": "/creative-list",
+      "path": "/{adAccountId}/adcreatives",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -782,7 +780,7 @@
       "name": "creative_get",
       "description": "Get details of a specific ad creative.",
       "method": "GET",
-      "path": "/creative-get",
+      "path": "/{creativeId}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -802,10 +800,28 @@
       }
     },
     {
+      "name": "creative_delete",
+      "description": "Delete an ad creative. The creative must not be used by a live ad.",
+      "method": "DELETE",
+      "path": "/{creativeId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "creativeId": {
+            "type": "string",
+            "description": "Ad creative ID to delete"
+          }
+        },
+        "required": [
+          "creativeId"
+        ]
+      }
+    },
+    {
       "name": "creative_upload_image",
       "description": "Upload an image to your ad account. Returns an image_hash for use in creatives. Note: creative-create also accepts image URLs directly (Facebook downloads them), so this is only needed if you want to reuse the same image hash across multiple creatives.",
       "method": "POST",
-      "path": "/creative-upload-image",
+      "path": "/{adAccountId}/adimages",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -836,7 +852,7 @@
       "name": "creative_upload_video",
       "description": "Upload a video for use in ad creatives. Provide file_url for URL-based upload.",
       "method": "POST",
-      "path": "/creative-upload-video",
+      "path": "/{adAccountId}/advideos",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -876,7 +892,7 @@
       "name": "video_status",
       "description": "Check the processing status of an uploaded video.",
       "method": "GET",
-      "path": "/video-status",
+      "path": "/{videoId}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -896,10 +912,28 @@
       }
     },
     {
+      "name": "video_delete",
+      "description": "Delete an uploaded ad video. Remove creatives and ads that reference it first.",
+      "method": "DELETE",
+      "path": "/{videoId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Uploaded ad video ID to delete"
+          }
+        },
+        "required": [
+          "videoId"
+        ]
+      }
+    },
+    {
       "name": "audience_list",
       "description": "List custom audiences in an ad account.",
       "method": "GET",
-      "path": "/audience-list",
+      "path": "/{adAccountId}/customaudiences",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -909,7 +943,7 @@
           },
           "fields": {
             "type": "string",
-            "default": "id,name,subtype,approximate_count,delivery_status,description",
+            "default": "id,name,subtype,approximate_count_lower_bound,approximate_count_upper_bound,delivery_status,description",
             "description": "Comma-separated fields"
           },
           "limit": {
@@ -931,7 +965,7 @@
       "name": "audience_create_custom",
       "description": "Create a custom audience for ad targeting.",
       "method": "POST",
-      "path": "/audience-create-custom",
+      "path": "/{adAccountId}/customaudiences",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1000,7 +1034,7 @@
       "name": "audience_create_lookalike",
       "description": "Create a lookalike audience from a source custom audience.",
       "method": "POST",
-      "path": "/audience-create-lookalike",
+      "path": "/{adAccountId}/customaudiences",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1042,7 +1076,7 @@
       "name": "insights_get",
       "description": "Retrieve performance metrics for campaigns, ad sets, ads, or the whole account. Pass any object ID (account, campaign, adset, ad).",
       "method": "GET",
-      "path": "/insights-get",
+      "path": "/{objectId}/insights",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1116,7 +1150,7 @@
       "name": "insights_export_report",
       "description": "Create an async insights report. Returns a report_run_id \u2014 poll it with GET /{report_run_id} to check status, then GET /{report_run_id}/insights for results.",
       "method": "POST",
-      "path": "/insights-export-report",
+      "path": "/{adAccountId}/insights?async=true",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1166,7 +1200,7 @@
       "name": "pixel_create",
       "description": "Create a Facebook pixel for conversion tracking.",
       "method": "POST",
-      "path": "/pixel-create",
+      "path": "/{adAccountId}/adspixels",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1189,7 +1223,7 @@
       "name": "pixel_send_event",
       "description": "Send conversion events via the Conversions API. Each event needs: event_name, event_time (unix), action_source, and optional user_data/custom_data.",
       "method": "POST",
-      "path": "/pixel-send-event",
+      "path": "/{pixelId}/events",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1219,7 +1253,7 @@
       "name": "leadform_create",
       "description": "Create a lead generation form on a Facebook Page. Requires page-level access token. Questions can be predefined (EMAIL, PHONE, FULL_NAME) or custom objects.",
       "method": "POST",
-      "path": "/leadform-create",
+      "path": "/{pageId}/leadgen_forms",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1279,7 +1313,7 @@
       "name": "leadform_list",
       "description": "List lead generation forms for a Facebook Page. Requires page-level access token.",
       "method": "GET",
-      "path": "/leadform-list",
+      "path": "/{pageId}/leadgen_forms",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1311,7 +1345,7 @@
       "name": "leadform_get",
       "description": "Get details of a specific lead form.",
       "method": "GET",
-      "path": "/leadform-get",
+      "path": "/{formId}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1334,7 +1368,7 @@
       "name": "leadform_update",
       "description": "Update lead form settings.",
       "method": "POST",
-      "path": "/leadform-update",
+      "path": "/{formId}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1376,7 +1410,7 @@
       "name": "leadform_delete",
       "description": "Archive a lead form (Facebook archives rather than permanently deletes).",
       "method": "DELETE",
-      "path": "/leadform-delete",
+      "path": "/{formId}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1394,7 +1428,7 @@
       "name": "leads_get",
       "description": "Retrieve submitted leads from a lead form or ad. Requires page-level access token for form leads.",
       "method": "GET",
-      "path": "/leads-get",
+      "path": "/{objectId}/leads",
       "input_schema": {
         "type": "object",
         "properties": {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -166,6 +167,46 @@ func TestLocalSupervisorStopAllKillsRunningAndPendingSidecars(t *testing.T) {
 	}
 }
 
+func TestLocalResumeDependencyWavesStartBoundAppsBeforeCallers(t *testing.T) {
+	fleetManifest := sdk.Manifest{
+		Name: "fleet",
+		Requires: sdk.Requires{Integrations: []sdk.IntegrationDep{{
+			Role: "host_provider", Kind: "app", CompatibleAppNames: []string{"instances"},
+		}}},
+	}
+	fleetJSON, err := json.Marshal(fleetManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deps := localResumeDependencyIDs(string(fleetJSON), `{"host_provider":40}`)
+	if len(deps) != 1 || deps[0] != 40 {
+		t.Fatalf("dependency IDs=%v, want [40]", deps)
+	}
+
+	waves := localResumeWaves([]localResumeRow{
+		{id: 29, appName: "fleet", dependencyIDs: deps},
+		{id: 40, appName: "instances"},
+		{id: 33, appName: "routes"},
+	})
+	if len(waves) != 2 {
+		t.Fatalf("waves=%v, want 2 waves", resumeWaveIDs(waves))
+	}
+	if got := resumeWaveIDs(waves); !equalInt64Slices(got[0], []int64{33, 40}) || !equalInt64Slices(got[1], []int64{29}) {
+		t.Fatalf("waves=%v, want [[33 40] [29]]", got)
+	}
+}
+
+func TestLocalResumeDependencyWavesDoNotDeadlockCycles(t *testing.T) {
+	waves := localResumeWaves([]localResumeRow{
+		{id: 1, dependencyIDs: []int64{2}},
+		{id: 2, dependencyIDs: []int64{1}},
+	})
+	got := resumeWaveIDs(waves)
+	if len(got) != 1 || !equalInt64Slices(got[0], []int64{1, 2}) {
+		t.Fatalf("cycle waves=%v, want [[1 2]]", got)
+	}
+}
+
 func TestUpdateLocalInstallRuntimeReplacesStaleSidecarOverride(t *testing.T) {
 	s := newTestServer(t)
 	installID := seedLocalInstallWithStaleOverride(t, s)
@@ -303,4 +344,28 @@ func waitLocalProcDone(t *testing.T, p *localProc) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("process pid=%d did not exit", p.cmd.Process.Pid)
 	}
+}
+
+func resumeWaveIDs(waves [][]localResumeRow) [][]int64 {
+	out := make([][]int64, 0, len(waves))
+	for _, wave := range waves {
+		ids := make([]int64, 0, len(wave))
+		for _, row := range wave {
+			ids = append(ids, row.id)
+		}
+		out = append(out, ids)
+	}
+	return out
+}
+
+func equalInt64Slices(a, b []int64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

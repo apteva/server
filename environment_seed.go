@@ -251,6 +251,10 @@ func resolveSeedFixturePath(baseDir, file string) (string, error) {
 // returns the raw JSON-RPC result (or the tool's error). Used by seeding and
 // reusable by any server-side caller that needs to drive an in-environment app.
 func callAppMCPTool(mcpURL, token, tool string, input map[string]any) (json.RawMessage, error) {
+	return callAppMCPToolAsAgent(mcpURL, token, "", tool, input)
+}
+
+func callAppMCPToolAsAgent(mcpURL, token, agentID, tool string, input map[string]any) (json.RawMessage, error) {
 	body, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": tool, "arguments": input},
@@ -262,6 +266,9 @@ func callAppMCPTool(mcpURL, token, tool string, input map[string]any) (json.RawM
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	if strings.TrimSpace(agentID) != "" {
+		req.Header.Set("X-Apteva-Caller-Agent", strings.TrimSpace(agentID))
 	}
 	resp, err := (&http.Client{Timeout: 60 * time.Second}).Do(req)
 	if err != nil {

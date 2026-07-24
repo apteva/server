@@ -115,8 +115,14 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 // external services anyway (webhooks, signed URLs). Version is the
 // release string already returned by /api/platform-status.
 func (s *Server) handleCallbackPlatformInfo(w http.ResponseWriter, r *http.Request) {
+	publicURL := s.publicBaseURL()
+	if installID, err := requireInstallID(r); err == nil {
+		if runtimeURL := s.runtimePlatformURLForInstall(installID); runtimeURL != "" {
+			publicURL = runtimeURL
+		}
+	}
 	writeJSON(w, map[string]any{
-		"public_url": s.publicBaseURL(),
+		"public_url": publicURL,
 		"version":    Version,
 	})
 }
@@ -220,6 +226,10 @@ func (s *Server) handleCallbackWhoami(w http.ResponseWriter, r *http.Request) {
 			`SELECT COALESCE(name,''), COALESCE(description,'') FROM projects WHERE id=?`, projectID,
 		).Scan(&projectName, &projectDescription)
 	}
+	publicURL := s.publicBaseURL()
+	if runtimeURL := s.runtimePlatformURLForInstall(installID); runtimeURL != "" {
+		publicURL = runtimeURL
+	}
 	writeJSON(w, map[string]any{
 		"install_id":          installID,
 		"app_name":            appName,
@@ -232,7 +242,7 @@ func (s *Server) handleCallbackWhoami(w http.ResponseWriter, r *http.Request) {
 		// in Settings → Server propagates to apps within the SDK's
 		// sub-second WhoAmI cache. The env-var-only path requires a
 		// sidecar restart; this doesn't.
-		"public_url": s.publicBaseURL(),
+		"public_url": publicURL,
 	})
 }
 
@@ -1384,10 +1394,27 @@ func (s *Server) callbackAgentForInstall(r *http.Request, installID, agentID int
 	if err := s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&installProject); err != nil {
 		return nil, errors.New("app installation not found")
 	}
-	if installProject != "" && installProject != agent.ProjectID {
+	if installProject != "" && installProject != agent.ProjectID && !s.runtimeContainsInstallAndAgent(installID, agentID) {
 		return nil, errors.New("agent does not belong to the app installation project")
 	}
 	return agent, nil
+}
+
+func (s *Server) runtimeContainsInstallAndAgent(installID, agentID int64) bool {
+	if s.environments == nil || installID <= 0 || agentID <= 0 {
+		return false
+	}
+	for _, runtime := range s.environments.List() {
+		if runtime.GetAgent(agentID) == nil {
+			continue
+		}
+		for _, name := range runtime.InstallNames() {
+			if install, ok := runtime.Install(name); ok && install.InstallID == installID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // resolver returns the canonical serverResolver used for forwarding
@@ -1467,8 +1494,11 @@ func installBoundConnection(s *Server, installID, connID int64) (string, bool) {
 //   - Legacy: requires.integrations[].kind="app" (IntegrationDep).
 //     Bindings are keyed by the integration's role.
 //
-// The bound install must be running and its registered AppName must
-// match the requested name.
+// The bound install must be persisted as running and its AppName must match
+// the requested name. Runtime reachability is checked separately by the
+// callback handler. Keeping authorization independent from the in-memory
+// registry prevents a valid binding from becoming a false 403 during server
+// boot, before all sidecars have been registered.
 func installBoundApp(s *Server, installID int64, appName string) bool {
 	return installBoundAppID(s, installID, appName) != 0
 }
@@ -1498,8 +1528,13 @@ func installBoundAppID(s *Server, installID int64, appName string) int64 {
 		if boundInstallID == 0 {
 			return 0
 		}
-		e := s.installedApps.Get(boundInstallID)
-		if e == nil || e.AppName != appName {
+		var boundName, status string
+		if err := s.store.db.QueryRow(
+			`SELECT a.name, i.status
+				   FROM app_installs i JOIN apps a ON a.id = i.app_id
+				  WHERE i.id = ?`,
+			boundInstallID,
+		).Scan(&boundName, &status); err != nil || boundName != appName || status != "running" {
 			return 0
 		}
 		return boundInstallID

@@ -357,6 +357,20 @@ func (s *Server) handleRuntimeApps(w http.ResponseWriter, r *http.Request, runti
 		return
 	}
 	switch parts[1] {
+	case "endpoint":
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
+		if !s.requireRuntimePermission(w, runtime.OwnerInstallID(), sdk.PermRuntimesRead, sdk.PermRuntimesCall, sdk.PermRuntimesManage) {
+			return
+		}
+		endpoint, err := s.runtimeAppEndpoint(runtime, appName)
+		if err != nil {
+			http.Error(w, "runtime app endpoint: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(w, endpoint)
 	case "tools":
 		if r.Method != http.MethodGet {
 			http.Error(w, "GET only", http.StatusMethodNotAllowed)
@@ -381,23 +395,37 @@ func (s *Server) handleRuntimeApps(w http.ResponseWriter, r *http.Request, runti
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxRuntimeRequestBytes)
 		var req struct {
-			Tool  string         `json:"tool"`
-			Input map[string]any `json:"input"`
+			Tool       string         `json:"tool"`
+			Input      map[string]any `json:"input"`
+			AgentAlias string         `json:"agent_alias"`
 		}
 		if json.NewDecoder(r.Body).Decode(&req) != nil || strings.TrimSpace(req.Tool) == "" {
 			http.Error(w, "tool required", http.StatusBadRequest)
 			return
 		}
-		results, err := s.ExecuteSeedPlan(runtime, []SeedCall{{App: appName, Tool: req.Tool, Input: req.Input}})
+		inst, ok := runtime.Install(appName)
+		if !ok {
+			http.Error(w, "runtime app is not install-backed", http.StatusBadRequest)
+			return
+		}
+		token, err := s.appInstallToken(inst.InstallID)
+		if err != nil {
+			http.Error(w, "runtime app credential unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var agentID string
+		if strings.TrimSpace(req.AgentAlias) != "" {
+			agent := runtime.AgentByAlias(req.AgentAlias)
+			if agent == nil {
+				http.Error(w, "runtime agent alias not found", http.StatusBadRequest)
+				return
+			}
+			agentID = strconv.FormatInt(agent.AgentID, 10)
+		}
+		result, err := callAppMCPToolAsAgent(inst.SidecarURL+"/mcp", token, agentID, req.Tool, req.Input)
 		if err != nil {
 			http.Error(w, "call runtime app: "+err.Error(), http.StatusBadRequest)
 			return
-		}
-		var result json.RawMessage
-		if len(results) > 0 {
-			result = results[0]
-		} else {
-			result = json.RawMessage("null")
 		}
 		writeJSON(w, map[string]any{"result": result})
 	default:

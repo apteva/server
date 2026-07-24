@@ -839,9 +839,17 @@ func (s *Server) localGatewayURL() string {
 	return "http://127.0.0.1:" + port
 }
 
-// ResumeLocalInstalls re-spawns every install whose status='running'
-// but whose pid is no longer alive. Called from LoadInstalledApps at
-// boot. Failures are logged + the install flips to 'error'.
+type localResumeRow struct {
+	id, pid, port                                                       int64
+	binPath, appName, projectID, cfgEnc, installedVersion, manifestJSON string
+	bindingsJSON                                                        string
+	dependencyIDs                                                       []int64
+}
+
+// ResumeLocalInstalls re-spawns every local install whose status is running.
+// Boot order follows exact app-install bindings: dependencies become healthy
+// before dependents start their OnMount callbacks. Independent installs still
+// resume in parallel, preserving the fast common path.
 func (s *Server) ResumeLocalInstalls() {
 	// We pull `i.version` (what was actually installed) separately from
 	// the install's manifest snapshot — they
@@ -853,22 +861,20 @@ func (s *Server) ResumeLocalInstalls() {
 	// for /api/apps/<name>/ui/<Panel>.mjs returns 404.
 	rows, err := s.store.db.Query(
 		`SELECT i.id, i.local_pid, i.local_bin_path, i.local_port, a.name,
-			COALESCE(i.project_id,''), i.config_encrypted, i.version,
-			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
+				COALESCE(i.project_id,''), i.config_encrypted, i.version,
+				COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),
+				COALESCE(i.integration_bindings, '{}')
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.status='running' AND i.local_bin_path != ''`)
 	if err != nil {
 		return
 	}
-	type resumeRow struct {
-		id, pid, port                                                       int64
-		binPath, appName, projectID, cfgEnc, installedVersion, manifestJSON string
-	}
-	var todo []resumeRow
+	var todo []localResumeRow
 	for rows.Next() {
-		var r resumeRow
+		var r localResumeRow
 		if err := rows.Scan(&r.id, &r.pid, &r.binPath, &r.port, &r.appName,
-			&r.projectID, &r.cfgEnc, &r.installedVersion, &r.manifestJSON); err == nil {
+			&r.projectID, &r.cfgEnc, &r.installedVersion, &r.manifestJSON, &r.bindingsJSON); err == nil {
+			r.dependencyIDs = localResumeDependencyIDs(r.manifestJSON, r.bindingsJSON)
 			todo = append(todo, r)
 		}
 	}
@@ -877,35 +883,110 @@ func (s *Server) ResumeLocalInstalls() {
 		return
 	}
 
-	// Resume in parallel. Each install is independent (different
-	// port, different binary, different cache dir) — sequential resume
-	// adds up to ~300ms × N where the dominant cost is killOrphan's
-	// SIGTERM-grace + waitHealthy on /health. With N=20+ that's a
-	// painful 6-10s of stop-the-environment boot. Parallelizing drops it to
-	// the slowest single sidecar's wall time.
+	// Resume each dependency wave in parallel. Each install within a wave is
+	// independent (different port, binary, and cache directory). Once the
+	// wave is healthy, refresh the registry before starting its dependents so
+	// their OnMount app-to-app calls resolve the exact bound install.
 	//
 	// Concurrency cap protects hosts with hundreds of installs from
 	// flooding the process table all at once. Reuses
 	// APTEVA_INSTALL_CONCURRENCY but raised to a less stingy default
 	// (8) since resume doesn't run `go build` (no 1+ GB RSS spikes
 	// per worker — that's why install is capped at 2).
-	parallel := envResumeConcurrency()
-	if parallel > len(todo) {
-		parallel = len(todo)
+	waves := localResumeWaves(todo)
+	for waveIndex, wave := range waves {
+		parallel := envResumeConcurrency()
+		if parallel > len(wave) {
+			parallel = len(wave)
+		}
+		sem := make(chan struct{}, parallel)
+		var wg sync.WaitGroup
+		for _, r := range wave {
+			r := r
+			wg.Add(1)
+			sem <- struct{}{}
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }()
+				s.resumeOneLocalInstall(r.id, r.pid, r.port, r.binPath, r.appName, r.projectID, r.cfgEnc, r.installedVersion, r.manifestJSON)
+			}()
+		}
+		wg.Wait()
+		if waveIndex+1 < len(waves) {
+			s.LoadInstalledApps()
+		}
 	}
-	sem := make(chan struct{}, parallel)
-	var wg sync.WaitGroup
-	for _, r := range todo {
-		r := r
-		wg.Add(1)
-		sem <- struct{}{}
-		go func() {
-			defer wg.Done()
-			defer func() { <-sem }()
-			s.resumeOneLocalInstall(r.id, r.pid, r.port, r.binPath, r.appName, r.projectID, r.cfgEnc, r.installedVersion, r.manifestJSON)
-		}()
+}
+
+func localResumeDependencyIDs(manifestJSON, bindingsJSON string) []int64 {
+	var manifest sdk.Manifest
+	if json.Unmarshal([]byte(manifestJSON), &manifest) != nil {
+		return nil
 	}
-	wg.Wait()
+	var bindings map[string]any
+	if json.Unmarshal([]byte(bindingsJSON), &bindings) != nil {
+		return nil
+	}
+	seen := map[int64]bool{}
+	add := func(key string) {
+		ids, _ := appBindingIDs(bindings[key])
+		for _, id := range ids {
+			if id > 0 {
+				seen[id] = true
+			}
+		}
+	}
+	for _, dep := range manifest.Requires.Apps {
+		add(dep.Name)
+	}
+	for _, dep := range manifest.Requires.Integrations {
+		if dep.Kind == "app" {
+			add(dep.Role)
+		}
+	}
+	out := make([]int64, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+func localResumeWaves(rows []localResumeRow) [][]localResumeRow {
+	pending := make(map[int64]localResumeRow, len(rows))
+	for _, row := range rows {
+		pending[row.id] = row
+	}
+	var waves [][]localResumeRow
+	for len(pending) > 0 {
+		var ready []localResumeRow
+		for _, row := range pending {
+			blocked := false
+			for _, depID := range row.dependencyIDs {
+				if _, exists := pending[depID]; exists && depID != row.id {
+					blocked = true
+					break
+				}
+			}
+			if !blocked {
+				ready = append(ready, row)
+			}
+		}
+		if len(ready) == 0 {
+			// A persisted dependency cycle must not deadlock server boot.
+			// Start the cycle together; each app will surface any unavailable
+			// dependency through its normal OnMount error handling.
+			for _, row := range pending {
+				ready = append(ready, row)
+			}
+		}
+		sort.Slice(ready, func(i, j int) bool { return ready[i].id < ready[j].id })
+		waves = append(waves, ready)
+		for _, row := range ready {
+			delete(pending, row.id)
+		}
+	}
+	return waves
 }
 
 // PrepareCloneLocalRuntimes makes copied source installs portable without
@@ -921,7 +1002,7 @@ func (s *Server) PrepareCloneLocalRuntimes() error {
 	}
 	defer rows.Close()
 	type runtimeRow struct {
-		id                                       int64
+		id                              int64
 		appName, projectID, version, mj string
 	}
 	var installs []runtimeRow
@@ -1415,19 +1496,62 @@ func (sup *LocalSupervisor) StopAll(grace time.Duration) {
 		return
 	}
 	log.Printf("[APPS-LOCAL] StopAll: terminating %d sidecar(s)", len(procs))
+
+	// Shutdown is deliberately phased across the whole set. The prior
+	// implementation ran terminateProc in one goroutine per child while an
+	// outer timer used the exact same grace duration. At the deadline the
+	// outer timer could win the race and let main call os.Exit before those
+	// goroutines actually delivered SIGKILL. That happened to work under
+	// systemd's KillMode=control-group, but could still orphan children when
+	// launched from a terminal or another supervisor.
+	for _, p := range procs {
+		if p != nil && p.cmd != nil && p.cmd.Process != nil {
+			signalLocalProc(p.cmd.Process.Pid, syscall.SIGTERM)
+		}
+	}
+
 	var wg sync.WaitGroup
 	for _, p := range procs {
 		wg.Add(1)
 		go func(p *localProc) {
 			defer wg.Done()
-			terminateProc(p, grace)
+			if p == nil || p.done == nil {
+				return
+			}
+			<-p.done
 		}(p)
 	}
 	done := make(chan struct{})
 	go func() { wg.Wait(); close(done) }()
+	timer := time.NewTimer(grace)
 	select {
 	case <-done:
-	case <-time.After(grace):
-		log.Printf("[APPS-LOCAL] StopAll: %s grace expired, leaving any stragglers to the OS", grace)
+		if !timer.Stop() {
+			<-timer.C
+		}
+		return
+	case <-timer.C:
+	}
+
+	remaining := 0
+	for _, p := range procs {
+		if p == nil || p.cmd == nil || p.cmd.Process == nil || p.done == nil {
+			continue
+		}
+		select {
+		case <-p.done:
+		default:
+			remaining++
+			signalLocalProc(p.cmd.Process.Pid, syscall.SIGKILL)
+		}
+	}
+	if remaining == 0 {
+		return
+	}
+	log.Printf("[APPS-LOCAL] StopAll: %s grace expired, force-killed %d sidecar process group(s)", grace, remaining)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		log.Printf("[APPS-LOCAL] StopAll: %d process group(s) did not report exit after SIGKILL", remaining)
 	}
 }
