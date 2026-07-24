@@ -1289,6 +1289,18 @@ func (s *Server) handleCallbackSpawnRealtime(w http.ResponseWriter, r *http.Requ
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
+	// Apps that omit both capability fields inherit the target agent's
+	// spawnable MCP surface. Explicit MCP names or a narrower tool allowlist
+	// remain authoritative. Server resolves the concrete names so Core stays
+	// provider- and caller-agnostic.
+	if body.MCP == nil && body.Tools == nil {
+		body.MCP, err = s.agentSpawnableMCPNames(agent.ID)
+		if err != nil {
+			log.Printf("[REALTIME-SPAWN] install=%d agent=%d load MCPs: %v", installID, body.AgentID, err)
+			http.Error(w, "load agent realtime capabilities: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+	}
 
 	inst := framework.InstanceInfo{
 		ID:         agent.ID,
@@ -1319,6 +1331,50 @@ func (s *Server) handleCallbackSpawnRealtime(w http.ResponseWriter, r *http.Requ
 	log.Printf("[REALTIME-SPAWN] install=%d agent=%d thread=%q status=%s",
 		installID, body.AgentID, body.ThreadID, res.Status)
 	writeJSON(w, res)
+}
+
+type callbackMCPServerConfig struct {
+	Name    string `json:"name"`
+	NoSpawn bool   `json:"no_spawn"`
+}
+
+func (s *Server) agentSpawnableMCPNames(agentID int64) ([]string, error) {
+	port := s.agents.GetPort(agentID)
+	if port == 0 {
+		return nil, errors.New("agent is not running")
+	}
+	target := fmt.Sprintf("http://127.0.0.1:%d/config", port)
+	resp, err := s.coreDoWithBootWait(agentID, http.MethodGet, target, nil, s.agents.GetCoreAPIKey(agentID))
+	if err != nil {
+		return nil, fmt.Errorf("read agent config: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= http.StatusMultipleChoices {
+		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("read agent config: HTTP %d %s", resp.StatusCode, strings.TrimSpace(string(detail)))
+	}
+	var config struct {
+		MCPServers []callbackMCPServerConfig `json:"mcp_servers"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&config); err != nil {
+		return nil, fmt.Errorf("decode agent config: %w", err)
+	}
+	return spawnableMCPNames(config.MCPServers), nil
+}
+
+func spawnableMCPNames(servers []callbackMCPServerConfig) []string {
+	names := make([]string, 0, len(servers))
+	seen := make(map[string]bool, len(servers))
+	for _, server := range servers {
+		name := strings.TrimSpace(server.Name)
+		system := name == "apteva-server" || name == "channels" || name == "apteva-channels"
+		if name == "" || server.NoSpawn || system || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	return names
 }
 
 func (s *Server) handleCallbackKillThread(w http.ResponseWriter, r *http.Request, installID int64, threadID string) {

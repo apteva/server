@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -80,6 +81,101 @@ func TestRealtimeResolverForwardsLifecycleContract(t *testing.T) {
 	}
 	if len(requests) != 3 {
 		t.Fatalf("requests = %#v", requests)
+	}
+}
+
+func TestCallbackRealtimeSpawnInheritsAgentMCPs(t *testing.T) {
+	var spawnBody struct {
+		MCP   []string `json:"mcp"`
+		Tools []string `json:"tools"`
+	}
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer core-key" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/config":
+			_ = json.NewEncoder(w).Encode(map[string]any{"mcp_servers": []map[string]any{
+				{"name": "flexylead-bookings"},
+				{"name": "crm"},
+				{"name": "channels", "no_spawn": true},
+				{"name": "apteva-server"},
+				{"name": "flexylead-bookings"},
+			}})
+		case r.Method == http.MethodPost && r.URL.Path == "/threads/tel-call":
+			if err := json.NewDecoder(r.Body).Decode(&spawnBody); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "created", "id": "tel-call", "audio_token": "audio-token"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer core.Close()
+	parsed, err := url.Parse(core.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portText, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	agent, err := s.store.CreateAgent(1, "reception", "answer calls", "autonomous", "{}", "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	installID := seedInstallWithBindings(t, s, "telephony-realtime-test", sdk.Manifest{
+		Schema: sdk.SchemaCurrent,
+		Name:   "telephony-realtime-test",
+		Requires: sdk.Requires{
+			Permissions: []sdk.Permission{sdk.PermRealtimeSpawn},
+		},
+	}, nil)
+	s.agents.mu.Lock()
+	s.agents.processes[agent.ID] = &runningAgent{port: port, coreAPIKey: "core-key", reattached: true}
+	s.agents.mu.Unlock()
+
+	body, err := json.Marshal(sdk.RealtimeSpawnRequest{
+		AgentID: agent.ID, ThreadID: "tel-call", Directive: "Book an appointment.",
+		Ephemeral: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://server.internal/apps/callback/threads/spawn-realtime", bytes.NewReader(body))
+	request.Header.Set("X-User-ID", "1")
+	response := httptest.NewRecorder()
+	s.handleCallbackSpawnRealtime(response, request, installID)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if strings.Join(spawnBody.MCP, ",") != "flexylead-bookings,crm" {
+		t.Fatalf("inherited MCPs=%v", spawnBody.MCP)
+	}
+	if spawnBody.Tools != nil {
+		t.Fatalf("tools=%v, want nil", spawnBody.Tools)
+	}
+}
+
+func TestSpawnableMCPNamesFiltersPrivilegeBoundary(t *testing.T) {
+	got := spawnableMCPNames([]callbackMCPServerConfig{
+		{Name: " bookings "},
+		{Name: "channels"},
+		{Name: "apteva-channels"},
+		{Name: "apteva-server"},
+		{Name: "private", NoSpawn: true},
+		{Name: "bookings"},
+		{Name: ""},
+	})
+	if strings.Join(got, ",") != "bookings" {
+		t.Fatalf("spawnable MCPs=%v", got)
 	}
 }
 
