@@ -80,6 +80,37 @@
       }
     },
     {
+      "name": "page_list",
+      "description": "List Facebook Pages available to the authenticated user. Page access tokens are returned for internal Page-authorized operations.",
+      "method": "GET",
+      "path": "/me/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "type": "string",
+            "default": "id,name,access_token,tasks",
+            "description": "Comma-separated Page fields"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Maximum number of Pages"
+          }
+        }
+      }
+    },
+    {
+      "name": "permission_list",
+      "description": "List permissions granted to the current Facebook Ads access token for connection diagnostics.",
+      "method": "GET",
+      "path": "/me/permissions",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
       "name": "campaign_create",
       "description": "Create a Facebook campaign. special_ad_categories is REQUIRED (pass empty array [] if none). OBJECTIVES: OUTCOME_SALES (website purchases/conversions), OUTCOME_LEADS (lead generation forms), OUTCOME_TRAFFIC (website visits), OUTCOME_ENGAGEMENT (page likes, post engagement, event responses \u2014 use this for PAGE LIKES campaigns), OUTCOME_AWARENESS (reach/brand awareness), OUTCOME_APP_PROMOTION (app installs). PAGE LIKES CAMPAIGN: Use objective=OUTCOME_ENGAGEMENT, then on the ad set use optimization_goal=PAGE_LIKES with promoted_object={\"page_id\":\"YOUR_PAGE_ID\"}. BUDGET: Setting daily_budget or lifetime_budget here enables Campaign Budget Optimization (CBO) \u2014 the campaign controls budget for ALL ad sets. If using CBO, ad sets must NOT set their own budget. bid_strategy options: LOWEST_COST_WITHOUT_CAP (recommended default, auto-bidding), COST_CAP (target cost per result), BID_CAP (max bid cap \u2014 ad sets MUST then set bid_amount). Examples: Page likes: {\"name\":\"Page Likes\",\"objective\":\"OUTCOME_ENGAGEMENT\",\"special_ad_categories\":[],\"daily_budget\":\"1000\",\"status\":\"PAUSED\"}. Sales with CBO: {\"name\":\"Sales\",\"objective\":\"OUTCOME_SALES\",\"special_ad_categories\":[],\"daily_budget\":\"1000\",\"bid_strategy\":\"LOWEST_COST_WITHOUT_CAP\",\"status\":\"PAUSED\"}. Traffic without CBO: {\"name\":\"Traffic\",\"objective\":\"OUTCOME_TRAFFIC\",\"special_ad_categories\":[],\"status\":\"PAUSED\"}",
       "method": "POST",
@@ -914,19 +945,24 @@
     },
     {
       "name": "video_delete",
-      "description": "Delete an uploaded ad video. Remove creatives and ads that reference it first.",
+      "description": "Delete an uploaded video from an ad account. Remove creatives and ads that reference it first.",
       "method": "DELETE",
-      "path": "/{videoId}",
+      "path": "/{adAccountId}/advideos",
       "input_schema": {
         "type": "object",
         "properties": {
-          "videoId": {
+          "adAccountId": {
+            "type": "string",
+            "description": "Ad Account ID (format: act_123456789)"
+          },
+          "video_id": {
             "type": "string",
             "description": "Uploaded ad video ID to delete"
           }
         },
         "required": [
-          "videoId"
+          "adAccountId",
+          "video_id"
         ]
       }
     },
