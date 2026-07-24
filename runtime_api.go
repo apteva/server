@@ -36,6 +36,7 @@ const (
 	maxRuntimeConnections          = 32
 	maxRuntimeAgents               = 8
 	maxRuntimeMCPAttachments       = 16
+	maxRuntimeManagedMCPs          = 16
 	maxRuntimeMocks                = 256
 	maxRuntimeRequestBytes   int64 = 2 << 20
 )
@@ -83,6 +84,8 @@ func (s *Server) handleCallbackRuntimes(w http.ResponseWriter, r *http.Request, 
 		s.handleRuntimeAgents(w, r, runtime, parts[2:])
 	case "mcp-attachments":
 		s.handleRuntimeMCPAttachments(w, r, runtime, parts[2:])
+	case "managed-mcps":
+		s.handleRuntimeManagedMCPs(w, r, runtime, parts[2:])
 	case "edge":
 		s.handleRuntimeEdge(w, r, runtime, parts[2:])
 	case "snapshots":
@@ -137,7 +140,7 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		if len(req.AppInstallIDs) > maxRuntimeApps || len(req.ConnectionIDs) > maxRuntimeConnections || len(req.HTTPMocks) > maxRuntimeMocks || len(req.IntegrationFixtures) > maxRuntimeMocks || len(req.IntegrationBindings) > maxRuntimeConnections || len(req.Subscriptions) > maxRuntimeMocks {
+		if len(req.AppInstallIDs) > maxRuntimeApps || len(req.ConnectionIDs) > maxRuntimeConnections || len(req.MCPServerIDs) > maxRuntimeManagedMCPs || len(req.HTTPMocks) > maxRuntimeMocks || len(req.IntegrationFixtures) > maxRuntimeMocks || len(req.IntegrationBindings) > maxRuntimeConnections || len(req.Subscriptions) > maxRuntimeMocks {
 			http.Error(w, "runtime resource limit exceeded", http.StatusRequestEntityTooLarge)
 			return
 		}
@@ -145,6 +148,7 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 		if !ok {
 			return
 		}
+		snapshotMCPRevisions := map[int64]string{}
 		if req.SnapshotID != "" {
 			if !validRuntimeID(req.SnapshotID) {
 				http.Error(w, "invalid runtime snapshot id", http.StatusBadRequest)
@@ -167,6 +171,34 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 					}
 				}
 			}
+			if len(req.MCPServerIDs) == 0 && len(man.ManagedMCPs) > 0 {
+				for _, mcp := range man.ManagedMCPs {
+					if mcp.SourceID > 0 {
+						req.MCPServerIDs = append(req.MCPServerIDs, mcp.SourceID)
+					}
+				}
+			}
+			for _, mcp := range man.ManagedMCPs {
+				if mcp.SourceID > 0 {
+					snapshotMCPRevisions[mcp.SourceID] = mcp.Revision
+				}
+			}
+		}
+		selectedMCPs, mcpAppIDs, err := s.selectRuntimeManagedMCPs(userID, projectID, req.MCPServerIDs)
+		if err != nil {
+			http.Error(w, "runtime managed MCPs: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		for _, selected := range selectedMCPs {
+			if revision, pinned := snapshotMCPRevisions[selected.Record.ID]; pinned && revision != selected.Record.UpstreamID {
+				http.Error(w, "runtime managed MCP changed since snapshot: "+selected.Record.Name, http.StatusConflict)
+				return
+			}
+		}
+		req.AppInstallIDs = appendUniqueInt64(req.AppInstallIDs, mcpAppIDs...)
+		if len(req.AppInstallIDs) > maxRuntimeApps || len(req.ConnectionIDs) > maxRuntimeConnections || len(selectedMCPs) > maxRuntimeManagedMCPs || len(req.HTTPMocks) > maxRuntimeMocks || len(req.IntegrationFixtures) > maxRuntimeMocks || len(req.IntegrationBindings) > maxRuntimeConnections || len(req.Subscriptions) > maxRuntimeMocks {
+			http.Error(w, "runtime resource limit exceeded", http.StatusRequestEntityTooLarge)
+			return
 		}
 		if req.ID == "" {
 			req.ID = "rt_" + randomRuntimeToken(12)
@@ -222,6 +254,12 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 		for _, info := range s.environmentInstallInfos(req.AppInstallIDs) {
 			sourceIDs[info.Name] = info.InstallID
 		}
+		for _, selected := range selectedMCPs {
+			if _, collides := sourceIDs[selected.Record.Name]; collides {
+				http.Error(w, "runtime managed MCP name collides with app: "+selected.Record.Name, http.StatusBadRequest)
+				return
+			}
+		}
 		networkMode := EdgeMode(req.NetworkMode)
 		if networkMode == "" {
 			networkMode = EdgeBlock
@@ -255,6 +293,13 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 			if err := s.bindEnvironmentIntegrationMocks(userID, runtime, bindings); err != nil {
 				s.environments.Destroy(runtime.ID)
 				http.Error(w, "runtime integration bindings: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		for _, selected := range selectedMCPs {
+			if err := s.startRuntimeManagedMCP(runtime, selected); err != nil {
+				s.environments.Destroy(runtime.ID)
+				http.Error(w, "runtime managed MCPs: "+err.Error(), http.StatusBadRequest)
 				return
 			}
 		}
@@ -399,6 +444,73 @@ func (s *Server) handleRuntimeMCPAttachments(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, publicRuntimeAttachment(a))
 	default:
 		http.Error(w, "GET or POST", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleRuntimeManagedMCPs(w http.ResponseWriter, r *http.Request, runtime *Environment, parts []string) {
+	if len(parts) == 0 {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
+		if !s.requireRuntimePermission(w, runtime.OwnerInstallID(), sdk.PermRuntimesRead, sdk.PermRuntimesCall, sdk.PermRuntimesManage) {
+			return
+		}
+		writeJSON(w, publicRuntimeManagedMCPs(runtime.ManagedMCPs()))
+		return
+	}
+	if len(parts) != 2 {
+		http.NotFound(w, r)
+		return
+	}
+	name, err := url.PathUnescape(parts[0])
+	if err != nil || strings.TrimSpace(name) == "" {
+		http.Error(w, "invalid managed MCP name", http.StatusBadRequest)
+		return
+	}
+	mcp := runtime.ManagedMCP(name)
+	if mcp == nil || mcp.Process == nil {
+		http.Error(w, "runtime managed MCP not found", http.StatusNotFound)
+		return
+	}
+	switch parts[1] {
+	case "tools":
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
+		if !s.requireRuntimePermission(w, runtime.OwnerInstallID(), sdk.PermRuntimesRead, sdk.PermRuntimesCall, sdk.PermRuntimesManage) {
+			return
+		}
+		writeJSON(w, runtimeManagedMCPTools(filterMCPTools(mcp.Process.Tools, mcp.AllowedTools)))
+	case "call":
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		if !s.requireRuntimePermission(w, runtime.OwnerInstallID(), sdk.PermRuntimesCall, sdk.PermRuntimesManage) {
+			return
+		}
+		var req struct {
+			Tool  string         `json:"tool"`
+			Input map[string]any `json:"input"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRuntimeRequestBytes)).Decode(&req) != nil || strings.TrimSpace(req.Tool) == "" {
+			http.Error(w, "tool required", http.StatusBadRequest)
+			return
+		}
+		if !managedMCPAllowed(&MCPServerRecord{AllowedTools: mcp.AllowedTools}, req.Tool) {
+			http.Error(w, "tool is not enabled", http.StatusForbidden)
+			return
+		}
+		result, err := mcp.Process.call("tools/call", map[string]any{"name": req.Tool, "arguments": req.Input})
+		if err != nil {
+			http.Error(w, "call runtime managed MCP: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		writeJSON(w, map[string]any{"result": json.RawMessage(result)})
+	default:
+		http.NotFound(w, r)
 	}
 }
 
@@ -737,7 +849,7 @@ func (s *Server) handleRuntimeSnapshots(w http.ResponseWriter, r *http.Request, 
 			sourceInstallIDs[name] = installID
 		}
 	}
-	man, err := s.environments.Snapshots().Capture(CaptureSpec{ID: req.ID, ProjectID: runtime.ProjectID, OwnerInstallID: runtime.OwnerInstallID(), Description: req.Description, AppDataDirs: appDirs, SourceInstallIDs: sourceInstallIDs, Cassette: runtime.Edge().Cassette(), Subscriptions: runtime.SubscriptionSpecs()})
+	man, err := s.environments.Snapshots().Capture(CaptureSpec{ID: req.ID, ProjectID: runtime.ProjectID, OwnerInstallID: runtime.OwnerInstallID(), Description: req.Description, AppDataDirs: appDirs, SourceInstallIDs: sourceInstallIDs, ManagedMCPs: publicRuntimeManagedMCPs(runtime.ManagedMCPs()), Cassette: runtime.Edge().Cassette(), Subscriptions: runtime.SubscriptionSpecs()})
 	if err != nil {
 		http.Error(w, "snapshot runtime: "+err.Error(), http.StatusBadRequest)
 		return
@@ -808,6 +920,26 @@ func (s *Server) handleRuntimeCatalog(w http.ResponseWriter, r *http.Request, pa
 			return
 		}
 		writeJSON(w, runtimeMCPTools(tools))
+		return
+	}
+	if parts[0] == "managed-mcps" && len(parts) == 1 {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
+		if !s.requireRuntimePermission(w, installID, sdk.PermRuntimeCatalogRead, sdk.PermRuntimesManage) {
+			return
+		}
+		_, projectID, ok := s.runtimeCallerProject(w, r, installID, r.URL.Query().Get("project_id"), ProjectViewer)
+		if !ok {
+			return
+		}
+		out, err := s.runtimeCatalogManagedMCPs(projectID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, out)
 		return
 	}
 	if parts[0] == "integrations" {
@@ -1014,11 +1146,11 @@ func (s *Server) handleRuntimeArtifacts(w http.ResponseWriter, r *http.Request, 
 }
 
 func publicRuntimeSnapshot(manifest *SnapshotManifest) sdk.RuntimeSnapshot {
-	return sdk.RuntimeSnapshot{ID: manifest.ID, ProjectID: manifest.ProjectID, Description: manifest.Description, Apps: append([]string(nil), manifest.Apps...), HasAgent: manifest.HasAgent, HasCassette: manifest.HasCassette, CreatedAt: manifest.CreatedAt}
+	return sdk.RuntimeSnapshot{ID: manifest.ID, ProjectID: manifest.ProjectID, Description: manifest.Description, Apps: append([]string(nil), manifest.Apps...), ManagedMCPs: append([]sdk.RuntimeManagedMCP(nil), manifest.ManagedMCPs...), HasAgent: manifest.HasAgent, HasCassette: manifest.HasCassette, CreatedAt: manifest.CreatedAt}
 }
 
 func (s *Server) runtimeSummary(runtime *Environment) sdk.RuntimeSummary {
-	return sdk.RuntimeSummary{ID: runtime.ID, ProjectID: runtime.ProjectID, Status: "running", NetworkMode: sdk.RuntimeNetworkMode(runtime.NetworkMode), IntegrationMode: runtime.IntegrationMode, Apps: s.runtimeApps(runtime), Agents: s.publicRuntimeAgents(runtime), MCPAttachments: publicRuntimeAttachments(runtime.MCPAttachments()), CreatedAt: runtime.createdAt, ExpiresAt: runtime.ExpiresAt()}
+	return sdk.RuntimeSummary{ID: runtime.ID, ProjectID: runtime.ProjectID, Status: "running", NetworkMode: sdk.RuntimeNetworkMode(runtime.NetworkMode), IntegrationMode: runtime.IntegrationMode, Apps: s.runtimeApps(runtime), Agents: s.publicRuntimeAgents(runtime), ManagedMCPs: publicRuntimeManagedMCPs(runtime.ManagedMCPs()), MCPAttachments: publicRuntimeAttachments(runtime.MCPAttachments()), CreatedAt: runtime.createdAt, ExpiresAt: runtime.ExpiresAt()}
 }
 
 func (s *Server) runtimeApps(runtime *Environment) []sdk.RuntimeApp {
@@ -1102,6 +1234,14 @@ func (s *Server) runtimeCatalogIntegrations() []sdk.RuntimeCatalogIntegration {
 }
 
 func runtimeMCPTools(tools []installMCPToolInfo) []sdk.RuntimeMCPTool {
+	out := make([]sdk.RuntimeMCPTool, 0, len(tools))
+	for _, tool := range tools {
+		out = append(out, sdk.RuntimeMCPTool{Name: tool.Name, Description: tool.Description, InputSchema: tool.InputSchema})
+	}
+	return out
+}
+
+func runtimeManagedMCPTools(tools []mcpToolDef) []sdk.RuntimeMCPTool {
 	out := make([]sdk.RuntimeMCPTool, 0, len(tools))
 	for _, tool := range tools {
 		out = append(out, sdk.RuntimeMCPTool{Name: tool.Name, Description: tool.Description, InputSchema: tool.InputSchema})

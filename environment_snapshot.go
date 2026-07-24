@@ -27,6 +27,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	sdk "github.com/apteva/app-sdk"
 )
 
 // SnapshotManifest is the metadata written at the root of every snapshot.
@@ -37,6 +39,7 @@ type SnapshotManifest struct {
 	Description      string                        `json:"description,omitempty"`
 	Apps             []string                      `json:"apps"` // sidecar names captured
 	SourceInstallIDs map[string]int64              `json:"source_install_ids,omitempty"`
+	ManagedMCPs      []sdk.RuntimeManagedMCP       `json:"managed_mcps,omitempty"`
 	HasAgent         bool                          `json:"has_agent"`    // agent/ dir present
 	HasCassette      bool                          `json:"has_cassette"` // cassette.json present
 	Subscriptions    []EnvironmentSubscriptionSpec `json:"subscriptions,omitempty"`
@@ -70,6 +73,7 @@ type CaptureSpec struct {
 	// SourceInstallIDs maps each captured app name to the project install it
 	// was cloned from, allowing a snapshot-only runtime request to restore apps.
 	SourceInstallIDs map[string]int64
+	ManagedMCPs      []sdk.RuntimeManagedMCP
 	// Cassette, when non-nil, is saved as cassette.json.
 	Cassette *Cassette
 	// Subscriptions are logical environment-owned event routes. Raw DB row ids
@@ -96,6 +100,7 @@ func (ss *SnapshotStore) Capture(spec CaptureSpec) (*SnapshotManifest, error) {
 		OwnerInstallID:   spec.OwnerInstallID,
 		Description:      spec.Description,
 		SourceInstallIDs: cloneInt64Map(spec.SourceInstallIDs),
+		ManagedMCPs:      append([]sdk.RuntimeManagedMCP(nil), spec.ManagedMCPs...),
 		Subscriptions:    append([]EnvironmentSubscriptionSpec(nil), spec.Subscriptions...),
 		CreatedAt:        time.Now(),
 	}

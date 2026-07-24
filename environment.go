@@ -105,6 +105,8 @@ type Environment struct {
 	agentAliases      map[string]int64            // stable environment-local alias → agent id
 	subscriptions     []EnvironmentSubscriptionSpec
 	mcpAttachments    map[string]RuntimeMCPAttachment
+	managedMCPs       map[string]*RuntimeManagedMCP
+	managedMCPManager *MCPManager
 	removeInterceptor func() // unregisters this environment's integration interceptor
 	createdAt         time.Time
 }
@@ -126,6 +128,9 @@ func (w *Environment) AddMCPAttachment(a RuntimeMCPAttachment) error {
 	}
 	if w.mcpAttachments == nil {
 		w.mcpAttachments = map[string]RuntimeMCPAttachment{}
+	}
+	if _, exists := w.managedMCPs[a.Name]; exists {
+		return fmt.Errorf("runtime already has managed MCP %q", a.Name)
 	}
 	for _, existing := range w.mcpAttachments {
 		if existing.Name == a.Name {
@@ -154,6 +159,58 @@ func (w *Environment) MCPAttachmentByToken(token string) *RuntimeMCPAttachment {
 		if a.Token == token {
 			copy := a
 			return &copy
+		}
+	}
+	return nil
+}
+
+func (w *Environment) AddManagedMCP(mcp *RuntimeManagedMCP) error {
+	if mcp == nil || mcp.Name == "" {
+		return fmt.Errorf("managed MCP name required")
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.agents) > 0 {
+		return fmt.Errorf("attach managed MCP before spawning runtime agents")
+	}
+	if w.managedMCPs == nil {
+		w.managedMCPs = map[string]*RuntimeManagedMCP{}
+	}
+	for _, attachment := range w.mcpAttachments {
+		if attachment.Name == mcp.Name {
+			return fmt.Errorf("runtime already has MCP attachment %q", mcp.Name)
+		}
+	}
+	if _, exists := w.managedMCPs[mcp.Name]; exists {
+		return fmt.Errorf("runtime already has managed MCP %q", mcp.Name)
+	}
+	w.managedMCPs[mcp.Name] = mcp
+	return nil
+}
+
+func (w *Environment) ManagedMCPs() []*RuntimeManagedMCP {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := make([]*RuntimeManagedMCP, 0, len(w.managedMCPs))
+	for _, mcp := range w.managedMCPs {
+		out = append(out, mcp)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+func (w *Environment) ManagedMCP(name string) *RuntimeManagedMCP {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.managedMCPs[name]
+}
+
+func (w *Environment) ManagedMCPByToken(token string) *RuntimeManagedMCP {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, mcp := range w.managedMCPs {
+		if mcp.Token == token {
+			return mcp
 		}
 	}
 	return nil
@@ -471,8 +528,14 @@ func (w *Environment) Stop() {
 	w.installs = map[string]*localInstall{}
 	w.agents = map[int64]*EnvironmentAgent{}
 	w.agentAliases = map[string]int64{}
+	managedMCPManager := w.managedMCPManager
+	w.managedMCPManager = nil
+	w.managedMCPs = map[string]*RuntimeManagedMCP{}
 	w.mu.Unlock()
 
+	if managedMCPManager != nil {
+		managedMCPManager.StopAll()
+	}
 	if w.server != nil && w.server.store != nil && w.ID != "" {
 		_ = w.server.deleteEnvironmentSubscriptionRows(w.ID)
 	}
@@ -673,24 +736,26 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 		budget = 20 * time.Second
 	}
 	w := &Environment{
-		ID:               spec.ID,
-		ProjectID:        spec.ProjectID,
-		Mode:             edge.mode,
-		NetworkMode:      edge.mode,
-		IntegrationMode:  integrationMode,
-		ownerInstallID:   spec.RuntimeOwnerInstallID,
-		expiresAt:        spec.RuntimeExpiresAt,
-		edge:             edge,
-		server:           wm.server,
-		connectionIDs:    append([]int64(nil), spec.ConnectionIDs...),
-		sourceInstallIDs: cloneInt64Map(spec.SourceInstallIDs),
-		apps:             map[string]*SandboxAppInstance{},
-		installs:         map[string]*localInstall{},
-		agents:           map[int64]*EnvironmentAgent{},
-		agentAliases:     map[string]int64{},
-		subscriptions:    append([]EnvironmentSubscriptionSpec(nil), spec.Subscriptions...),
-		mcpAttachments:   map[string]RuntimeMCPAttachment{},
-		createdAt:        time.Now(),
+		ID:                spec.ID,
+		ProjectID:         spec.ProjectID,
+		Mode:              edge.mode,
+		NetworkMode:       edge.mode,
+		IntegrationMode:   integrationMode,
+		ownerInstallID:    spec.RuntimeOwnerInstallID,
+		expiresAt:         spec.RuntimeExpiresAt,
+		edge:              edge,
+		server:            wm.server,
+		connectionIDs:     append([]int64(nil), spec.ConnectionIDs...),
+		sourceInstallIDs:  cloneInt64Map(spec.SourceInstallIDs),
+		apps:              map[string]*SandboxAppInstance{},
+		installs:          map[string]*localInstall{},
+		agents:            map[int64]*EnvironmentAgent{},
+		agentAliases:      map[string]int64{},
+		subscriptions:     append([]EnvironmentSubscriptionSpec(nil), spec.Subscriptions...),
+		mcpAttachments:    map[string]RuntimeMCPAttachment{},
+		managedMCPs:       map[string]*RuntimeManagedMCP{},
+		managedMCPManager: NewMCPManager(),
+		createdAt:         time.Now(),
 	}
 	removeIntegrationMode := registerEnvironmentIntegrationMode(spec.ID, integrationMode)
 

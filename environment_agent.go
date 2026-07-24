@@ -15,7 +15,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -157,6 +159,14 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 			"no_spawn":  true,
 		})
 	}
+	for _, mcp := range environment.ManagedMCPs() {
+		mcpServers = append(mcpServers, map[string]any{
+			"name":      mcp.Name,
+			"url":       s.runtimeManagedMCPURL(environment.ID, mcp.Token),
+			"transport": "http",
+			"no_spawn":  true,
+		})
+	}
 	// Runtime-owned MCP attachments are private endpoints exposed by the
 	// orchestrating app (for example a dynamic mock session). The
 	// core reaches them only through the server's capability-token gateway.
@@ -182,7 +192,7 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 						continue
 					}
 					url, _ := m["url"].(string)
-					if !strings.Contains(url, "/mcp/") { // connection entries only
+					if !isEnvironmentConnectionMCPURL(url) {
 						continue
 					}
 					sep := "?"
@@ -266,6 +276,19 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		return nil, fmt.Errorf("install environment subscriptions: %w", err)
 	}
 	return wa, nil
+}
+
+func isEnvironmentConnectionMCPURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) != 2 || parts[0] != "mcp" {
+		return false
+	}
+	id, err := strconv.ParseInt(parts[1], 10, 64)
+	return err == nil && id > 0
 }
 
 func runtimeProviderPool(pool []ProviderInfo, provider, model string) ([]ProviderInfo, string, string, error) {

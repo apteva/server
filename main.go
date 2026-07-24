@@ -598,6 +598,7 @@ func main() {
 	// unlike the dashboard API it intentionally has no browser auth because
 	// apteva-core is the caller.
 	mux.HandleFunc("/mcp/custom/", s.handleCustomMCPBridge)
+	mux.HandleFunc("/mcp/runtime/", s.handleRuntimeManagedMCPBridge)
 	// Also expose health/version under /api for uniformity from the dashboard.
 	apiMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		info := versionInfo()
@@ -1079,6 +1080,7 @@ func main() {
 	// here for calls to explicitly bound apps/integrations. The handler itself
 	// enforces loopback, revision token, alias, and project scope.
 	apiMux.HandleFunc("/managed-mcp-runtime/", s.handleManagedMCPRuntimeGateway)
+	apiMux.HandleFunc("/runtime-managed-mcp/", s.handleRuntimeManagedMCPGateway)
 
 	// Composio per-toolkit action listing — powers the dashboard tool picker
 	// when the user is scoping down a Composio MCP server.
