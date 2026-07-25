@@ -4,7 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync"
 )
+
+// SQLite's busy timeout is connection-local and does not reliably serialize
+// simultaneous schema setup across every supported driver version. Migration
+// work is rare and startup-bound, so serialize runners inside the process;
+// BEGIN IMMEDIATE remains the cross-process safety boundary.
+var migrationRunnerMu sync.Mutex
 
 // MigrationTx is a transaction pinned to one SQLite connection. Migrations
 // begin with BEGIN IMMEDIATE so schema inspection followed by DDL cannot lose
@@ -34,6 +41,9 @@ func (tx *MigrationTx) QueryRow(query string, args ...any) *sql.Row {
 // incrementing; the runner refuses to go backwards and skips anything
 // ≤ the highest applied version.
 func RunMigrations(db *sql.DB, slug string, migs []Migration) error {
+	migrationRunnerMu.Lock()
+	defer migrationRunnerMu.Unlock()
+
 	if err := ensureVersionsTable(db); err != nil {
 		return err
 	}
