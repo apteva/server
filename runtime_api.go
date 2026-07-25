@@ -1240,7 +1240,18 @@ func (s *Server) runtimeCatalogApps(projectID string) []sdk.RuntimeCatalogApp {
 		return out
 	}
 	for _, app := range s.installedApps.ListForProject(projectID) {
-		out = append(out, sdk.RuntimeCatalogApp{InstallID: app.InstallID, Name: app.AppName, DisplayName: app.Manifest.DisplayName, Description: app.Manifest.Description, Icon: app.Manifest.Icon, ProjectID: app.ProjectID, Status: "running", IntegrationRoles: app.Manifest.Requires.Integrations, Publishes: app.Manifest.Provides.Publishes})
+		out = append(out, sdk.RuntimeCatalogApp{
+			InstallID:        app.InstallID,
+			Name:             app.AppName,
+			DisplayName:      app.Manifest.DisplayName,
+			Description:      app.Manifest.Description,
+			Icon:             resolveInstalledAppIcon(app.AppName, app.Manifest.Icon, app.Manifest.Version, app.InstallID, firstNonEmpty(app.ProjectID, projectID)),
+			IconStyle:        app.Manifest.IconStyle,
+			ProjectID:        app.ProjectID,
+			Status:           "running",
+			IntegrationRoles: app.Manifest.Requires.Integrations,
+			Publishes:        app.Manifest.Provides.Publishes,
+		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out

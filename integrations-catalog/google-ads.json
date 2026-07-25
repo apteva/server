@@ -26,27 +26,49 @@
     "credential_fields": [
       {
         "name": "token",
-        "label": "access_token"
+        "label": "access_token",
+        "type": "password",
+        "required": false,
+        "source": "oauth",
+        "hidden": true
       },
       {
         "name": "developer_token",
-        "label": "developer_token"
+        "label": "Developer token",
+        "description": "Required Google Ads API developer token from the API Center of your manager account.",
+        "type": "password",
+        "required": true,
+        "source": "user"
       },
       {
         "name": "manager_customer_id",
-        "label": "manager_customer_id"
+        "label": "Manager customer ID",
+        "description": "Optional 10-digit manager account ID, without hyphens. Required only when accessing a client account through a manager account.",
+        "type": "text",
+        "required": false,
+        "source": "user"
       },
       {
         "name": "refresh_token",
-        "label": "refresh_token"
+        "label": "refresh_token",
+        "type": "password",
+        "required": false,
+        "source": "oauth",
+        "hidden": true
       },
       {
         "name": "expires_in",
-        "label": "expires_in"
+        "label": "expires_in",
+        "required": false,
+        "source": "oauth",
+        "hidden": true
       },
       {
         "name": "token_type",
-        "label": "token_type"
+        "label": "token_type",
+        "required": false,
+        "source": "oauth",
+        "hidden": true
       }
     ],
     "oauth2": {

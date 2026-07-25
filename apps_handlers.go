@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -130,6 +131,7 @@ type RegistryEntry struct {
 	Repo        string   `json:"repo"`
 	ManifestURL string   `json:"manifest_url"`
 	Icon        string   `json:"icon"`
+	IconStyle   string   `json:"icon_style,omitempty"`
 	Tags        []string `json:"tags"`
 	Official    bool     `json:"official"`
 	Category    string   `json:"category"`
@@ -329,14 +331,18 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 	// lookups just to render the first marketplace screen.
 	surfacesByName := map[string]AppSurfaces{}
 	versionByName := map[string]string{}
+	iconByName := map[string]string{}
+	iconStyleByName := map[string]string{}
 	for k, v := range builtinSurfaces {
 		surfacesByName[k] = v
 	}
 	{
 		type result struct {
-			name    string
-			surf    AppSurfaces
-			version string
+			name      string
+			surf      AppSurfaces
+			version   string
+			icon      string
+			iconStyle string
 		}
 		ch := make(chan result, len(reg.Apps))
 		dispatched := 0
@@ -355,7 +361,13 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 					ch <- result{name: name}
 					return
 				}
-				ch <- result{name: name, surf: surfacesFromManifest(m), version: m.Version}
+				ch <- result{
+					name:      name,
+					surf:      surfacesFromManifest(m),
+					version:   m.Version,
+					icon:      resolveMarketplaceAppIcon(url, m.Icon),
+					iconStyle: m.IconStyle,
+				}
 			}(e.Name, e.ManifestURL)
 		}
 		for i := 0; i < dispatched; i++ {
@@ -366,6 +378,12 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 			}
 			if r.version != "" {
 				versionByName[key] = r.version
+			}
+			if r.icon != "" {
+				iconByName[key] = r.icon
+			}
+			if r.iconStyle != "" {
+				iconStyleByName[key] = r.iconStyle
 			}
 		}
 	}
@@ -402,6 +420,12 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 		if v, ok := versionByName[key]; ok && v != "" {
 			e.Version = v
 		}
+		if icon, ok := iconByName[key]; ok && icon != "" {
+			e.Icon = icon
+		}
+		if style, ok := iconStyleByName[key]; ok && style != "" {
+			e.IconStyle = style
+		}
 		out = append(out, entryWithStatus{
 			RegistryEntry: e,
 			Installed:     installed[key],
@@ -421,6 +445,57 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 
 func getRegistryURLFromEnv() string {
 	return os.Getenv("APTEVA_APP_REGISTRY_URL")
+}
+
+// resolveInstalledAppIcon turns an app-relative identity asset into the same
+// authenticated, install-scoped proxy URL used for panel/component modules.
+// Absolute legacy URLs pass through unchanged.
+func resolveInstalledAppIcon(appName, icon, version string, installID int64, projectID string) string {
+	icon = strings.TrimSpace(icon)
+	if icon == "" || !strings.HasPrefix(icon, "/ui/") {
+		return icon
+	}
+	params := url.Values{}
+	if version != "" {
+		params.Set("v", version)
+	}
+	if installID > 0 {
+		params.Set("install_id", strconv.FormatInt(installID, 10))
+	}
+	if projectID != "" {
+		params.Set("project_id", projectID)
+	}
+	resolved := "/api/apps/" + url.PathEscape(appName) + icon
+	if query := params.Encode(); query != "" {
+		resolved += "?" + query
+	}
+	return resolved
+}
+
+// resolveMarketplaceAppIcon resolves the same app-relative icon against the
+// public manifest URL. Marketplace cards render before an app has a sidecar to
+// proxy, so they need the repository-hosted form of the one canonical asset.
+func resolveMarketplaceAppIcon(manifestURL, icon string) string {
+	icon = strings.TrimSpace(icon)
+	if icon == "" {
+		return ""
+	}
+	ref, err := url.Parse(icon)
+	if err != nil || ref.IsAbs() || strings.HasPrefix(icon, "data:") {
+		return icon
+	}
+	base, err := url.Parse(manifestURL)
+	if err != nil || !base.IsAbs() {
+		return icon
+	}
+	// A manifest icon is app-root relative even though it starts with "/ui/".
+	// Strip the leading slash before ResolveReference so raw GitHub URLs keep
+	// the repository/ref/entry prefix rather than resolving from host root.
+	relative, err := url.Parse(strings.TrimPrefix(icon, "/"))
+	if err != nil {
+		return icon
+	}
+	return base.ResolveReference(relative).String()
 }
 
 // deriveManifestURL converts a manifest's runtime.source (github
@@ -633,7 +708,15 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			HasPendingOptions: hasPendingOptions != 0,
 			Version:           version,
 			AvailableVersion:  availableVersion,
-			Description:       manifest.Description, Icon: manifest.Icon, IconStyle: manifest.IconStyle,
+			Description:       manifest.Description,
+			Icon: resolveInstalledAppIcon(
+				name,
+				manifest.Icon,
+				version,
+				installID,
+				firstNonEmpty(projectID, projID),
+			),
+			IconStyle: manifest.IconStyle,
 			ProjectID: projID, Status: status, StatusMessage: statusMsg, ErrorMessage: errMsg,
 			Source: source, UpgradePolicy: upgradePolicy,
 			Permissions: perms, Surfaces: surfaces,
@@ -732,6 +815,7 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 					DisplayName:  tmpl.Name,
 					Description:  tmpl.Description,
 					Icon:         icon,
+					IconStyle:    "image",
 					Status:       "running",
 					Source:       "integration",
 					Version:      "1.0.0",

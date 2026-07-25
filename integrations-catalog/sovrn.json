@@ -53,6 +53,7 @@
       "description": "Check whether a destination URL can be monetized and optionally return an optimized Sovrn redirect link.",
       "method": "GET",
       "path": "https://api.viglink.com/api/link/?key={{credential.commerce_api_key}}",
+      "omit_auth_headers": ["Authorization"],
       "input_schema": {
         "type": "object",
         "properties": {
@@ -71,6 +72,7 @@
       "description": "Build a Sovrn affiliate redirect URL for a destination without fetching it.",
       "method": "GET",
       "path": "https://sovrn.co?key={{credential.commerce_api_key}}",
+      "omit_auth_headers": ["Authorization"],
       "return_request_url": true,
       "input_schema": {
         "type": "object",
@@ -119,6 +121,41 @@
           "merchantGroupIds": { "type": "string", "description": "Comma-separated merchant group IDs." },
           "programType": { "type": "string", "enum": ["CPC", "CPA"] }
         }
+      }
+    },
+    {
+      "name": "merchants_by_date_report",
+      "description": "Retrieve daily merchant performance with clicks, sales, actions, and publisher revenue for a date range of up to 31 days.",
+      "method": "GET",
+      "path": "https://viglink.io/v1/reports/merchantsbydate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clickDateStart": { "type": "string", "description": "Inclusive yyyy-mm-dd start date." },
+          "clickDateEnd": { "type": "string", "description": "Exclusive yyyy-mm-dd end date." },
+          "campaignIds": { "type": "string" },
+          "subIds": { "type": "string" },
+          "merchantGroupIds": { "type": "string" },
+          "cuids": { "type": "string" },
+          "pageUtmSource": { "type": "string" },
+          "pageUtmMedium": { "type": "string" },
+          "pageUtmCampaign": { "type": "string" },
+          "pageUtmTerm": { "type": "string" },
+          "pageUtmContent": { "type": "string" },
+          "linkUtmSource": { "type": "string" },
+          "linkUtmMedium": { "type": "string" },
+          "linkUtmCampaign": { "type": "string" },
+          "linkUtmTerm": { "type": "string" },
+          "linkUtmContent": { "type": "string" },
+          "programType": { "type": "string", "enum": ["CPC", "CPA"] },
+          "sovrnProduct": {
+            "type": "string",
+            "enum": ["UNK", "ORG", "INS", "WRA", "RAC", "RAL", "CUP", "TPA", "PCR", "TXT", "SHG", "PRF"]
+          },
+          "deviceType": { "type": "string", "enum": ["DSK", "MBL", "TBL", "UKN"] },
+          "country": { "type": "string" }
+        },
+        "required": ["clickDateStart", "clickDateEnd"]
       }
     }
   ]

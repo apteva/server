@@ -2153,7 +2153,12 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 
 	// Local OAuth2 — two-phase: start flow, return authorize URL, finish in callback.
 	if body.AuthType == "oauth2" {
-		conn, authURL, err := s.startLocalOAuth(userID, app, body.Name, body.ProjectID, body.ClientID, body.ClientSecret, 0, "", body.AutoMCP)
+		supplementalCredentials, err := collectOAuthSupplementalCredentials(app, body.Credentials)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		conn, authURL, err := s.startLocalOAuth(userID, app, body.Name, body.ProjectID, body.ClientID, body.ClientSecret, supplementalCredentials, 0, "", body.AutoMCP)
 		if err != nil {
 			http.Error(w, "oauth start: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -2326,6 +2331,38 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 	// New connection may unblock optional dep prompts on existing installs.
 	s.recomputePendingOptions()
 	writeJSON(w, conn)
+}
+
+// collectOAuthSupplementalCredentials validates and returns only fields
+// explicitly classified as user-supplied. Legacy OAuth templates without
+// source metadata retain their existing behaviour; OAuth-generated/hidden
+// fields are never accepted from the operator.
+func collectOAuthSupplementalCredentials(app *AppTemplate, credentials map[string]string) (map[string]string, error) {
+	if app == nil {
+		return nil, nil
+	}
+	collected := make(map[string]string)
+	for _, field := range app.Auth.CredentialFields {
+		if field.Source != "user" || field.Hidden {
+			continue
+		}
+		value := strings.TrimSpace(credentials[field.Name])
+		required := field.Required == nil || *field.Required
+		if required && value == "" {
+			label := strings.TrimSpace(field.Label)
+			if label == "" {
+				label = field.Name
+			}
+			return nil, fmt.Errorf("%s required", label)
+		}
+		if value != "" {
+			collected[field.Name] = value
+		}
+	}
+	if len(collected) == 0 {
+		return nil, nil
+	}
+	return collected, nil
 }
 
 // connectionAutoMCPFlag reads the auto_mcp boolean off the row.

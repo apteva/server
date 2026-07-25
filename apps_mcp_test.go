@@ -147,7 +147,8 @@ func TestHandleListAppsClosesInstallRowsBeforeIntegrationRows(t *testing.T) {
 	if storage == nil || len(storage.UISurfaces) != 1 || storage.UISurfaces[0].ID != "files" {
 		t.Fatalf("storage ui_surfaces missing from response: %#v", storage)
 	}
-	if storage.Icon != "/ui/icon.svg" || storage.IconStyle != "monochrome" {
+	if storage.Icon != "/api/apps/storage/ui/icon.svg?install_id=1&project_id=proj-1&v=0.1.0" ||
+		storage.IconStyle != "monochrome" {
 		t.Fatalf("storage unified icon missing from response: %#v", storage)
 	}
 }

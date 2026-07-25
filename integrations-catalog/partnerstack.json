@@ -14,8 +14,8 @@
     "credential_fields": [
       {
         "name": "token",
-        "label": "PartnerStack JWT",
-        "description": "PartnerStack partner API bearer token/JWT.",
+        "label": "PartnerStack API key",
+        "description": "Partner API key from Partner dashboard Settings > API. Sent as a bearer token.",
         "type": "password"
       }
     ]
@@ -37,7 +37,7 @@
           "min_created": { "type": "integer" },
           "max_created": { "type": "integer" },
           "category": { "type": "string" },
-          "limit": { "type": "integer", "default": 10 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 250, "default": 10 },
           "starting_after": { "type": "string" },
           "ending_before": { "type": "string" }
         }
@@ -68,7 +68,7 @@
           "has_sub_id": { "type": "string", "enum": ["true", "false", "null"] },
           "include_offers": { "type": "boolean" },
           "include_archived": { "type": "boolean" },
-          "limit": { "type": "integer", "default": 10 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 250, "default": 10 },
           "starting_after": { "type": "string" },
           "ending_before": { "type": "string" }
         }
@@ -85,7 +85,7 @@
           "min_created": { "type": "integer" },
           "max_created": { "type": "integer" },
           "order_by": { "type": "string", "enum": ["-created_at", "created_at"] },
-          "limit": { "type": "integer", "default": 10 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 250, "default": 10 },
           "starting_after": { "type": "string" },
           "ending_before": { "type": "string" }
         }
@@ -100,15 +100,31 @@
         "type": "object",
         "properties": {
           "company_key": { "type": "string" },
-          "payment_status": { "type": "string" },
+          "payment_status": {
+            "type": "string",
+            "enum": ["in_transit", "withdrawn", "available", "paid_externally", "expired", "failed", "merging"]
+          },
           "status": { "type": "string" },
           "min_created": { "type": "integer" },
           "max_created": { "type": "integer" },
-          "order_by": { "type": "string" },
+          "order_by": {
+            "type": "string",
+            "enum": ["-created_at", "created_at", "-amount", "amount", "-ready_at", "ready_at"]
+          },
           "group_key": { "type": "string" },
           "customer_key": { "type": "string" },
+          "invoice_key": { "type": "string" },
+          "description": { "type": "string" },
+          "keywords": { "type": "string" },
+          "exclude_drip_rewards": { "type": "string" },
+          "hide_archived_rewards": { "type": "boolean" },
+          "empty_line_id": { "type": "boolean" },
+          "distinct_description": { "type": "boolean" },
+          "distinct_decline_reason": { "type": "boolean" },
+          "decline_reason": { "type": "string" },
+          "invoiceable": { "type": "boolean" },
           "currency": { "type": "string" },
-          "limit": { "type": "integer", "default": 10 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 250, "default": 10 },
           "starting_after": { "type": "string" },
           "ending_before": { "type": "string" }
         }

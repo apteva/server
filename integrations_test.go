@@ -255,6 +255,35 @@ func TestOpenAICodexCatalogDoesNotPinLegacyDefaultModel(t *testing.T) {
 	}
 }
 
+func TestGoogleAdsCatalogSeparatesOAuthAndUserCredentials(t *testing.T) {
+	raw, err := integrationsCatalogFS.ReadFile("integrations-catalog/google-ads.json")
+	if err != nil {
+		t.Fatalf("read embedded Google Ads catalog: %v", err)
+	}
+	var app AppTemplate
+	if err := json.Unmarshal(raw, &app); err != nil {
+		t.Fatalf("decode embedded Google Ads catalog: %v", err)
+	}
+	fields := make(map[string]CredentialField, len(app.Auth.CredentialFields))
+	for _, field := range app.Auth.CredentialFields {
+		fields[field.Name] = field
+	}
+	developer := fields["developer_token"]
+	if developer.Source != "user" || developer.Hidden || developer.Required == nil || !*developer.Required {
+		t.Fatalf("developer token metadata=%#v", developer)
+	}
+	manager := fields["manager_customer_id"]
+	if manager.Source != "user" || manager.Hidden || manager.Required == nil || *manager.Required {
+		t.Fatalf("manager customer id metadata=%#v", manager)
+	}
+	for _, name := range []string{"token", "refresh_token", "expires_in", "token_type"} {
+		field := fields[name]
+		if field.Source != "oauth" || !field.Hidden {
+			t.Fatalf("%s metadata=%#v", name, field)
+		}
+	}
+}
+
 func TestCatalogGet(t *testing.T) {
 	catalog := createTestCatalog(t)
 
@@ -338,6 +367,57 @@ func TestResolveTemplateFallback(t *testing.T) {
 	result := resolveTemplate("Bearer {{token}}", creds)
 	if result != "Bearer bt789" {
 		t.Errorf("expected Bearer bt789, got %s", result)
+	}
+}
+
+func TestBuildHeadersOmitsUnresolvedOptionalCredential(t *testing.T) {
+	headers := buildHeaders(
+		map[string]string{
+			"Authorization":     "Bearer {{token}}",
+			"developer-token":   "{{developer_token}}",
+			"login-customer-id": "{{manager_customer_id}}",
+		},
+		map[string]string{
+			"access_token":    "oauth-access",
+			"developer_token": "developer-secret",
+		},
+	)
+	if headers["Authorization"] != "Bearer oauth-access" {
+		t.Fatalf("Authorization=%q", headers["Authorization"])
+	}
+	if headers["developer-token"] != "developer-secret" {
+		t.Fatalf("developer-token=%q", headers["developer-token"])
+	}
+	if _, exists := headers["login-customer-id"]; exists {
+		t.Fatalf("optional unresolved header was retained: %q", headers["login-customer-id"])
+	}
+}
+
+func TestCollectOAuthSupplementalCredentials(t *testing.T) {
+	required := true
+	optional := false
+	app := &AppTemplate{Auth: AppAuthConfig{CredentialFields: []CredentialField{
+		{Name: "developer_token", Label: "Developer token", Required: &required, Source: "user"},
+		{Name: "manager_customer_id", Label: "Manager customer ID", Required: &optional, Source: "user"},
+		{Name: "access_token", Label: "Access token", Source: "oauth", Hidden: true},
+	}}}
+	if _, err := collectOAuthSupplementalCredentials(app, map[string]string{}); err == nil {
+		t.Fatal("missing required user credential was accepted")
+	}
+	got, err := collectOAuthSupplementalCredentials(app, map[string]string{
+		"developer_token":     " secret ",
+		"manager_customer_id": "",
+		"access_token":        "must-not-be-stored",
+		"unknown":             "must-not-be-stored",
+	})
+	if err != nil {
+		t.Fatalf("valid supplemental credentials rejected: %v", err)
+	}
+	if got["developer_token"] != "secret" {
+		t.Fatalf("developer_token=%q", got["developer_token"])
+	}
+	if len(got) != 1 {
+		t.Fatalf("unexpected supplemental credentials: %#v", got)
 	}
 }
 

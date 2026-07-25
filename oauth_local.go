@@ -384,7 +384,7 @@ func pkcePair() (verifier, challenge string, err error) {
 // install (created_via=app_install) and returnURL is recorded on the state
 // token so the callback can 302 the browser back into the app's panel
 // instead of rendering the dashboard's auto-close page.
-func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, projectID, explicitClientID, explicitClientSecret string, ownerAppInstallID int64, returnURL string, autoMCP *bool) (*Connection, string, error) {
+func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, projectID, explicitClientID, explicitClientSecret string, supplementalCredentials map[string]string, ownerAppInstallID int64, returnURL string, autoMCP *bool) (*Connection, string, error) {
 	if app.Auth.OAuth2 == nil {
 		return nil, "", fmt.Errorf("app %s has no oauth2 config", app.Slug)
 	}
@@ -395,20 +395,28 @@ func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, proje
 			app.Slug, strings.ToUpper(strings.ReplaceAll(app.Slug, "-", "_")))
 	}
 
-	// Create pending row. If we have client credentials at this point, fold
-	// them into the encrypted blob immediately so the OAuth callback can
-	// read them back without trusting state. The blob is empty for users
-	// relying purely on env vars (existing behavior).
+	// Create the pending row with every user-supplied supplemental credential
+	// plus any explicit/resolved OAuth client credentials. The callback merges
+	// provider-generated tokens onto this blob, preserving values such as a
+	// Google Ads developer token or optional manager customer id.
 	var initialBlob string
+	creds := make(map[string]string, len(supplementalCredentials)+2)
+	for key, value := range supplementalCredentials {
+		if strings.TrimSpace(key) != "" {
+			creds[key] = value
+		}
+	}
 	if clientID != "" {
-		creds := map[string]string{"client_id": clientID}
+		creds["client_id"] = clientID
 		if clientSecret != "" {
 			creds["client_secret"] = clientSecret
 		}
+	}
+	if len(creds) > 0 {
 		credsJSON, _ := json.Marshal(creds)
 		enc, err := Encrypt(s.secret, string(credsJSON))
 		if err != nil {
-			return nil, "", fmt.Errorf("encrypt client creds: %w", err)
+			return nil, "", fmt.Errorf("encrypt pending credentials: %w", err)
 		}
 		initialBlob = enc
 	}

@@ -23,12 +23,6 @@
         "label": "Auth token",
         "description": "Impact API auth token.",
         "type": "password"
-      },
-      {
-        "name": "basic_auth",
-        "label": "Basic auth value",
-        "description": "Base64 encoding of AccountSID:AuthToken.",
-        "type": "password"
       }
     ]
   },
@@ -66,19 +60,37 @@
       }
     },
     {
+      "name": "public_terms_get",
+      "description": "Retrieve the public payout terms for an Impact program, including fixed and percentage payouts and referral windows.",
+      "method": "GET",
+      "path": "/Mediapartners/{{credential.account_sid}}/Campaigns/{campaign_id}/PublicTerms",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": { "type": "string", "description": "Impact CampaignId / ProgramId." }
+        },
+        "required": ["campaign_id"]
+      }
+    },
+    {
       "name": "tracking_link_create",
       "description": "Create an Impact tracking or deeplink URL for a program.",
       "method": "POST",
       "path": "/Mediapartners/{{credential.account_sid}}/Programs/{program_id}/TrackingLinks",
+      "query_params": ["Type", "CustomPath", "AdId", "DeepLink", "MediaPartnerPropertyId", "subId1", "subId2", "subId3", "sharedId"],
       "input_schema": {
         "type": "object",
         "properties": {
           "program_id": { "type": "string", "description": "Impact ProgramId / CampaignId." },
           "DeepLink": { "type": "string", "description": "Optional advertiser destination URL." },
-          "SubId1": { "type": "string" },
-          "SubId2": { "type": "string" },
-          "SubId3": { "type": "string" },
-          "SharedId": { "type": "string" }
+          "Type": { "type": "string", "enum": ["Regular", "Vanity"], "default": "Regular" },
+          "CustomPath": { "type": "string" },
+          "AdId": { "type": "string" },
+          "MediaPartnerPropertyId": { "type": "string" },
+          "subId1": { "type": "string" },
+          "subId2": { "type": "string" },
+          "subId3": { "type": "string" },
+          "sharedId": { "type": "string" }
         },
         "required": ["program_id"]
       }

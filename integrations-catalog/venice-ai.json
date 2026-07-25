@@ -593,6 +593,37 @@
             "items": { "type": "string" },
             "description": "Up to 9 reference images (character / style consistency)."
           },
+          "elements": {
+            "type": "array",
+            "description": "Structured Kling identity anchors. Refer to each entry as @Element1, @Element2, and so on.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "frontal_image_url": {
+                  "type": "string",
+                  "description": "Required primary front-facing identity image when the element uses images."
+                },
+                "reference_image_urls": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Up to 3 additional angles of the same identity."
+                },
+                "video_url": {
+                  "type": "string",
+                  "description": "Optional video-backed identity element where supported."
+                },
+                "voice_id": {
+                  "type": "string",
+                  "description": "Optional voice binding for video-backed elements where supported."
+                }
+              }
+            }
+          },
+          "scene_image_urls": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Scene, environment, or style images for structured reference-to-video models. Refer to them as @Image1, @Image2, and so on."
+          },
           "reference_video_urls": {
             "type": "array",
             "items": { "type": "string" },

@@ -368,7 +368,9 @@ type CredentialField struct {
 	Label       string `json:"label"`
 	Description string `json:"description,omitempty"`
 	Required    *bool  `json:"required,omitempty"`
-	Type        string `json:"type,omitempty"` // "password" or "text"
+	Type        string `json:"type,omitempty"`   // "password" or "text"
+	Source      string `json:"source,omitempty"` // "user" or "oauth"
+	Hidden      bool   `json:"hidden,omitempty"`
 }
 
 type OAuthConfig struct {
@@ -1331,7 +1333,14 @@ func buildAuthBodyParams(bodyParams map[string]string, credentials map[string]st
 func buildHeaders(authHeaders map[string]string, credentials map[string]string) map[string]string {
 	headers := map[string]string{}
 	for key, tmpl := range authHeaders {
-		headers[key] = resolveTemplate(tmpl, credentials)
+		value := resolveTemplate(tmpl, credentials)
+		// Optional credential-backed headers must disappear when their value
+		// was not supplied. Sending a literal "{{field}}" is never useful and
+		// breaks APIs such as Google Ads, where login-customer-id is optional.
+		if value == "" || strings.Contains(value, "{{") {
+			continue
+		}
+		headers[key] = value
 	}
 	return headers
 }
