@@ -21,11 +21,27 @@
     ]
   },
   "health_check": {
-    "tool": "programs_list",
-    "input": { "publisherId": "0" },
-    "expect_status": [200, 400, 403]
+    "tool": "accounts_list",
+    "input": { "type": "publisher" },
+    "expect_status": [200]
   },
   "tools": [
+    {
+      "name": "accounts_list",
+      "description": "List the Awin publisher accounts accessible to the authenticated user, including publisher IDs used by other tools.",
+      "method": "GET",
+      "path": "/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["publisher", "advertiser"],
+            "description": "Optional account type filter."
+          }
+        }
+      }
+    },
     {
       "name": "programs_list",
       "description": "List Awin advertiser programmes for a publisher, optionally filtered by relationship and country.",
@@ -73,6 +89,22 @@
       }
     },
     {
+      "name": "commission_groups_get",
+      "description": "Retrieve the active fixed and percentage commission groups for one joined Awin advertiser programme.",
+      "method": "GET",
+      "path": "/publishers/{publisherId}/commissiongroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publisherId": { "type": "string" },
+          "advertiserId": { "type": "integer" },
+          "effectiveDate": { "type": "string", "description": "Optional ISO-8601 date-time; defaults to the currently active rates." },
+          "extraConditionsDetails": { "type": "boolean", "default": false }
+        },
+        "required": ["publisherId", "advertiserId"]
+      }
+    },
+    {
       "name": "tracking_link_generate",
       "description": "Generate one or a batch of Awin tracking links/deeplinks for an advertiser.",
       "method": "POST",
@@ -102,9 +134,32 @@
           "endDate": { "type": "string", "description": "Required by Awin transaction API, ISO date-time." },
           "dateType": { "type": "string", "enum": ["transaction", "validation", "amendment"], "default": "transaction" },
           "advertiserId": { "type": "string" },
-          "showBasketProducts": { "type": "boolean" }
+          "showBasketProducts": { "type": "boolean" },
+          "status": { "type": "string", "enum": ["pending", "approved", "declined", "deleted"] },
+          "timezone": { "type": "string", "default": "UTC" }
         },
         "required": ["publisherId", "startDate", "endDate"]
+      }
+    },
+    {
+      "name": "campaign_performance_report",
+      "description": "Retrieve publisher performance by day, campaign, and advertiser, including clicks, transactions, sale value, and commission.",
+      "method": "GET",
+      "path": "/publishers/{publisherId}/reports/campaign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publisherId": { "type": "string" },
+          "startDate": { "type": "string", "description": "Inclusive YYYY-MM-DD start date." },
+          "endDate": { "type": "string", "description": "Inclusive YYYY-MM-DD end date." },
+          "region": { "type": "string", "description": "Awin advertiser region code such as GB, DE, FR, or US." },
+          "advertiserIds": { "type": "string", "description": "Optional comma-separated advertiser IDs from the selected region." },
+          "campaign": { "type": "string" },
+          "includeNumbersWithoutCampaign": { "type": "boolean", "default": true },
+          "interval": { "type": "string", "enum": ["day", "month", "year"], "default": "day" },
+          "timezone": { "type": "string", "default": "UTC" }
+        },
+        "required": ["publisherId", "startDate", "endDate", "region"]
       }
     }
   ]
