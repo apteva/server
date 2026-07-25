@@ -1,0 +1,168 @@
+{
+  "slug": "moonshot-ai",
+  "name": "Moonshot AI",
+  "description": "Moonshot AI's Kimi API with OpenAI-compatible chat completions, multimodal inputs, reasoning, structured output, function calling, and account-aware model discovery.",
+  "logo": "https://www.google.com/s2/favicons?domain=moonshot.ai&sz=128",
+  "categories": [
+    "ai",
+    "llm",
+    "kimi",
+    "chat",
+    "reasoning",
+    "multimodal",
+    "vision"
+  ],
+  "base_url": "https://api.moonshot.ai/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Moonshot API Key",
+        "description": "Create an API key in the Kimi API Platform console. Keys are specific to the platform endpoint where they were created."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "chat_completion",
+      "description": "Create an OpenAI-compatible Kimi chat completion. Supports model-dependent text, image, and video inputs, reasoning effort, structured output, partial mode, and function calling.",
+      "method": "POST",
+      "path": "/chat/completions",
+      "timeout_ms": 600000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "default": "kimi-k3",
+            "description": "Native Kimi model ID. Use list_models to discover models and capability flags available to this account."
+          },
+          "messages": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Conversation messages in OpenAI chat format. Content may be text or model-supported text, image_url, and video_url parts.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "system",
+                    "user",
+                    "assistant",
+                    "tool"
+                  ]
+                },
+                "content": {},
+                "name": {
+                  "type": "string"
+                },
+                "partial": {
+                  "type": "boolean",
+                  "description": "Enable Kimi partial mode on the last assistant message."
+                },
+                "tool_calls": {
+                  "type": "array"
+                },
+                "tool_call_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "role"
+              ]
+            }
+          },
+          "max_completion_tokens": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum generated tokens. Limits vary by model."
+          },
+          "max_tokens": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Deprecated OpenAI-compatible alias. Prefer max_completion_tokens."
+          },
+          "temperature": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "reasoning_effort": {
+            "type": "string",
+            "enum": [
+              "low",
+              "high",
+              "max"
+            ],
+            "description": "Model-dependent reasoning effort."
+          },
+          "tools": {
+            "type": "array",
+            "description": "Function tools in OpenAI format."
+          },
+          "tool_choice": {
+            "description": "Use auto, none, required, or select a specific function."
+          },
+          "response_format": {
+            "type": "object",
+            "description": "Use text, json_object, or json_schema output when supported by the selected model."
+          },
+          "stop": {
+            "description": "One stop string or up to five stop strings.",
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "maxItems": 5,
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "prompt_cache_key": {
+            "type": "string",
+            "description": "Stable session identifier used to improve prompt-cache hits."
+          },
+          "safety_identifier": {
+            "type": "string",
+            "description": "Stable, preferably hashed end-user identifier."
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false
+          },
+          "stream_options": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "model",
+          "messages"
+        ]
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List Kimi models available to the connected account, including context length and image, video, and reasoning capability flags.",
+      "method": "GET",
+      "path": "/models",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_models"
+  }
+}
