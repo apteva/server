@@ -315,7 +315,8 @@ func (s *Server) integrationWebhookCallbackURL(installID int64, callbackPath str
 	if appName == "" {
 		return "", errors.New("calling app name not found")
 	}
-	return base + "/api/apps/" + url.PathEscape(appName) + callbackPath, nil
+	return base + "/api/apps/" + url.PathEscape(appName) + callbackPath +
+		"?install_id=" + strconv.FormatInt(installID, 10), nil
 }
 
 func normalizeWebhookEvents(events []string) []string {

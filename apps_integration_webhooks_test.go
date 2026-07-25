@@ -148,7 +148,7 @@ func TestIntegrationWebhookEnsureAndVerifyStripe(t *testing.T) {
 	if gotCalls != 1 {
 		t.Fatalf("registration calls = %d, want 1", gotCalls)
 	}
-	if gotForm.Get("url") != "https://agents.example.test/api/apps/billing/webhooks/stripe" {
+	if gotForm.Get("url") != "https://agents.example.test/api/apps/billing/webhooks/stripe?install_id="+strconv.FormatInt(installID, 10) {
 		t.Fatalf("registered url = %q", gotForm.Get("url"))
 	}
 	gotEvents := gotForm["enabled_events[]"]
