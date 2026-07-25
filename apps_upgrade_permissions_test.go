@@ -70,6 +70,52 @@ func TestUpgradeApp_ApprovesNewPermissionsAndUpgrades(t *testing.T) {
 	}
 }
 
+func TestUpgradeApp_PrunesPermissionsRemovedFromManifest(t *testing.T) {
+	s, installID := seedBuiltinUpgradePermissionFixture(t)
+	var appID int64
+	if err := s.store.db.QueryRow(`SELECT app_id FROM app_installs WHERE id=?`, installID).Scan(&appID); err != nil {
+		t.Fatal(err)
+	}
+	available := sdk.Manifest{
+		Schema: sdk.SchemaCurrent, Name: "deploy", DisplayName: "Deploy", Version: "0.2.0",
+		Requires: sdk.Requires{Permissions: []sdk.Permission{sdk.PermDBWriteApp}},
+	}
+	availableJSON, _ := json.Marshal(available)
+	old := available
+	old.Version = "0.1.0"
+	old.Requires.Permissions = []sdk.Permission{sdk.PermDBWriteApp, sdk.PermConnectionsReadCredentials}
+	oldJSON, _ := json.Marshal(old)
+	oldPermissions, _ := json.Marshal(old.Requires.Permissions)
+	if _, err := s.store.db.Exec(`UPDATE apps SET manifest_json=? WHERE id=?`, string(availableJSON), appID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.db.Exec(
+		`UPDATE app_installs SET manifest_json=?, permissions_json=? WHERE id=?`,
+		string(oldJSON), string(oldPermissions), installID,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/apps/installs/"+itoa(installID)+"/upgrade", nil)
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleUpgradeApp(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var rawPermissions string
+	if err := s.store.db.QueryRow(`SELECT permissions_json FROM app_installs WHERE id=?`, installID).Scan(&rawPermissions); err != nil {
+		t.Fatal(err)
+	}
+	var got []sdk.Permission
+	if err := json.Unmarshal([]byte(rawPermissions), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != sdk.PermDBWriteApp {
+		t.Fatalf("permissions after upgrade=%v, want only %s", got, sdk.PermDBWriteApp)
+	}
+}
+
 func seedBuiltinUpgradePermissionFixture(t *testing.T) (*Server, int64) {
 	t.Helper()
 	s := newTestServer(t)

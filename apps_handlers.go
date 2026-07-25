@@ -1873,9 +1873,10 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		requiredPermissionsJSON, _ := json.Marshal(available.Requires.Permissions)
 		if _, err := s.store.db.Exec(
-			`UPDATE app_installs SET version = ?, manifest_json = ? WHERE id = ?`,
-			available.Version, availableManifestJSON, installID,
+			`UPDATE app_installs SET version = ?, manifest_json = ?, permissions_json = ? WHERE id = ?`,
+			available.Version, availableManifestJSON, string(requiredPermissionsJSON), installID,
 		); err != nil {
 			http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -1952,6 +1953,17 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		if err := s.installFromSource(installID, live, projectID, cfg); err != nil {
 			// installFromSource already wrote status='error' + error_message.
 			return
+		}
+		// The live manifest is the complete authority for app grants.
+		// Dropped permissions must be revoked on upgrade; retaining them
+		// leaves old capabilities available indefinitely even though the
+		// app no longer declares them.
+		requiredPermissionsJSON, _ := json.Marshal(live.Requires.Permissions)
+		if _, err := s.store.db.Exec(
+			`UPDATE app_installs SET permissions_json=? WHERE id=?`,
+			string(requiredPermissionsJSON), installID,
+		); err != nil {
+			log.Printf("[APPS] prune obsolete permissions install=%d: %v", installID, err)
 		}
 		// The healthy sidecar and install snapshot now point at the new
 		// version. Only now refresh app-owned skills; failed upgrades keep
