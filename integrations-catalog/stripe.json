@@ -234,6 +234,9 @@
       "description": "Create a new payment intent to collect payment from a customer",
       "method": "POST",
       "path": "/payment_intents",
+      "header_params": {
+        "idempotency_key": "Idempotency-Key"
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -250,6 +253,22 @@
           "customer": {
             "type": "string",
             "description": "Stripe customer ID (cus_xxx)"
+          },
+          "payment_method": {
+            "type": "string",
+            "description": "Saved Stripe payment method ID (pm_xxx)"
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Confirm the PaymentIntent immediately"
+          },
+          "off_session": {
+            "type": "boolean",
+            "description": "Declare that the customer is not present for this payment"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-stable key sent as Stripe's Idempotency-Key header"
           },
           "description": {
             "type": "string",
