@@ -1253,6 +1253,7 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 		}
 		skillRows.Close()
 	}
+	s.cleanupInactiveIntegrationWebhooks(installID, true)
 	tx, err := s.store.db.Begin()
 	if err != nil {
 		http.Error(w, "begin uninstall: "+err.Error(), http.StatusInternalServerError)
@@ -1441,6 +1442,7 @@ func (s *Server) handleSetInstallBindings2(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.recomputePendingOptions()
+	s.cleanupInactiveIntegrationWebhooks(installID, false)
 
 	// Bounce the sidecar so OnMount re-runs with the new bindings.
 	// Without this, the binding change is recorded but the running

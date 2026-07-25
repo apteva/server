@@ -1100,6 +1100,30 @@ func (s *Store) migrate() error {
 	// the storage app after media-studio). Dashboard surfaces a
 	// "configure" banner on the install detail page.
 	s.db.Exec(`ALTER TABLE app_installs ADD COLUMN has_pending_options INTEGER NOT NULL DEFAULT 0`)
+	// Provider webhook registrations owned by an app's bound integration.
+	// Provider credentials stay on the connection; signing secrets returned
+	// during registration are encrypted here and are only used by the
+	// authenticated app callback verification path.
+	s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS app_integration_webhooks (
+			id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+			install_id            INTEGER NOT NULL REFERENCES app_installs(id) ON DELETE CASCADE,
+			role                  TEXT NOT NULL,
+			connection_id         INTEGER NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+			provider_slug         TEXT NOT NULL,
+			callback_path         TEXT NOT NULL,
+			callback_url          TEXT NOT NULL,
+			events_json           TEXT NOT NULL DEFAULT '[]',
+			external_webhook_id   TEXT NOT NULL,
+			secret_encrypted      TEXT NOT NULL,
+			status                TEXT NOT NULL DEFAULT 'ready',
+			last_error            TEXT NOT NULL DEFAULT '',
+			registered_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(install_id, role)
+		)
+	`)
+	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_app_integration_webhooks_connection ON app_integration_webhooks(connection_id)`)
 	// created_via on connections: 'integration' (default — top-level
 	// install via the Integrations page, auto-creates an mcp_servers
 	// row) vs 'app_install' (created inside an app's dependency flow,

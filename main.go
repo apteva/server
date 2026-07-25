@@ -81,24 +81,25 @@ func loadOrMintInstanceSecret(store *Store) string {
 }
 
 type Server struct {
-	store             *Store
-	dbPath            string // path to apteva-server.db on disk (needed for staged restore)
-	agents            *AgentManager
-	ready             atomic.Bool
-	mcpManager        *MCPManager
-	catalog           *AppCatalog
-	secret            []byte // AES-256 key for encrypting provider data
-	port              string // server port for telemetry callback
-	dataDir           string // data directory for downloads, etc.
-	appsDir           string // path to integration app definitions
-	integrationsUIDir string // path to built integration UI bundles (dist/ui/<slug>/<file>.mjs)
-	publicURL         string // public base URL for webhooks (e.g. "https://agents.example.com")
-	broadcaster       *TelemetryBroadcaster
-	setupToken        string // one-time token for first registration (empty after use)
-	regMode           string // "open", "locked", "setup" — controls registration
-	instanceSecret    string // shared secret for MCP and telemetry auth
-	startupIntent     agentLifecycleIntent
-	agentRollouts     *agentRolloutCoordinator
+	store                *Store
+	dbPath               string // path to apteva-server.db on disk (needed for staged restore)
+	agents               *AgentManager
+	ready                atomic.Bool
+	mcpManager           *MCPManager
+	catalog              *AppCatalog
+	secret               []byte // AES-256 key for encrypting provider data
+	integrationWebhookMu sync.Mutex
+	port                 string // server port for telemetry callback
+	dataDir              string // data directory for downloads, etc.
+	appsDir              string // path to integration app definitions
+	integrationsUIDir    string // path to built integration UI bundles (dist/ui/<slug>/<file>.mjs)
+	publicURL            string // public base URL for webhooks (e.g. "https://agents.example.com")
+	broadcaster          *TelemetryBroadcaster
+	setupToken           string // one-time token for first registration (empty after use)
+	regMode              string // "open", "locked", "setup" — controls registration
+	instanceSecret       string // shared secret for MCP and telemetry auth
+	startupIntent        agentLifecycleIntent
+	agentRollouts        *agentRolloutCoordinator
 	// apps holds the loaded Apteva Apps registry. Apps attach to
 	// instance lifecycle via NotifyInstanceAttach/Detach and expose
 	// HTTP routes under /api/apps/<slug>/. Nil before startApps().

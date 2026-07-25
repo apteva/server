@@ -309,16 +309,20 @@ type WebhookPollConfig struct {
 }
 
 type WebhookRegConfig struct {
-	Method       string                 `json:"method"`
-	Path         string                 `json:"path"`
-	URLField     string                 `json:"url_field"`
-	EventsField  string                 `json:"events_field,omitempty"`
-	SecretField  string                 `json:"secret_field,omitempty"`
-	Extra        map[string]interface{} `json:"extra,omitempty"`
-	IDField      string                 `json:"id_field,omitempty"`
-	DeletePath   string                 `json:"delete_path,omitempty"`
-	DeleteMethod string                 `json:"delete_method,omitempty"`
-	ManualSetup  string                 `json:"manual_setup,omitempty"`
+	Method              string                 `json:"method"`
+	Path                string                 `json:"path"`
+	URLField            string                 `json:"url_field"`
+	EventsField         string                 `json:"events_field,omitempty"`
+	SecretField         string                 `json:"secret_field,omitempty"`
+	ResponseSecretField string                 `json:"response_secret_field,omitempty"`
+	Extra               map[string]interface{} `json:"extra,omitempty"`
+	IDField             string                 `json:"id_field,omitempty"`
+	DeletePath          string                 `json:"delete_path,omitempty"`
+	DeleteMethod        string                 `json:"delete_method,omitempty"`
+	ListPath            string                 `json:"list_path,omitempty"`
+	ListField           string                 `json:"list_field,omitempty"`
+	ContentType         string                 `json:"content_type,omitempty"`
+	ManualSetup         string                 `json:"manual_setup,omitempty"`
 }
 
 type AppAuthConfig struct {

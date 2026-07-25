@@ -988,29 +988,6 @@
       }
     },
     {
-      "name": "process_webhook",
-      "description": "Process and verify incoming Stripe webhook events using signature verification",
-      "method": "GET",
-      "path": "/process-webhook",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "payload": {
-            "type": "string",
-            "description": "Raw webhook payload"
-          },
-          "signature": {
-            "type": "string",
-            "description": "Stripe webhook signature header (stripe-signature)"
-          }
-        },
-        "required": [
-          "payload",
-          "signature"
-        ]
-      }
-    },
-    {
       "name": "cancel_payment_intent",
       "description": "Cancel a payment intent",
       "method": "GET",
@@ -1068,7 +1045,7 @@
       "name": "get_payment_method",
       "description": "Get payment method details",
       "method": "GET",
-      "path": "/get-payment-method",
+      "path": "/payment_methods/{payment_method_id}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1084,8 +1061,8 @@
     {
       "name": "detach_payment_method",
       "description": "Detach payment method from customer",
-      "method": "GET",
-      "path": "/detach-payment-method",
+      "method": "POST",
+      "path": "/payment_methods/{payment_method_id}/detach",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1139,9 +1116,10 @@
       "method": "POST",
       "path": "/webhook_endpoints",
       "url_field": "url",
-      "events_field": "enabled_events",
+      "events_field": "enabled_events[]",
       "content_type": "application/x-www-form-urlencoded",
       "id_field": "id",
+      "response_secret_field": "secret",
       "delete_path": "/webhook_endpoints/{id}",
       "delete_method": "DELETE",
       "list_path": "/webhook_endpoints",
@@ -1149,8 +1127,24 @@
     },
     "events": [
       {
+        "name": "checkout.session.completed",
+        "description": "Occurs when a Checkout Session completes"
+      },
+      {
         "name": "payment_intent.succeeded",
         "description": "Occurs when a PaymentIntent successfully completes a payment"
+      },
+      {
+        "name": "setup_intent.succeeded",
+        "description": "Occurs when a SetupIntent succeeds"
+      },
+      {
+        "name": "setup_intent.setup_failed",
+        "description": "Occurs when a SetupIntent fails"
+      },
+      {
+        "name": "payment_method.detached",
+        "description": "Occurs when a payment method is detached"
       },
       {
         "name": "payment_intent.payment_failed",

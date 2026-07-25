@@ -72,6 +72,8 @@ func (s *Server) handleAppCallback(w http.ResponseWriter, r *http.Request) {
 		s.handleCallbackChannels(w, r, parts[1:])
 	case "integrations":
 		s.handleCallbackIntegrations(w, r, parts[1:])
+	case "integration-webhooks":
+		s.handleCallbackIntegrationWebhooks(w, r, parts[1:])
 	case "apps":
 		s.handleCallbackApps(w, r, parts[1:])
 	case "oauth":
