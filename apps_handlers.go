@@ -32,6 +32,7 @@ type AppRow struct {
 	AvailableVersion string           `json:"available_version,omitempty"`
 	Description      string           `json:"description"`
 	Icon             string           `json:"icon"`
+	IconStyle        string           `json:"icon_style,omitempty"`
 	ProjectID        string           `json:"project_id"`
 	Status           string           `json:"status"`
 	StatusMessage    string           `json:"status_message,omitempty"`
@@ -632,7 +633,7 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			HasPendingOptions: hasPendingOptions != 0,
 			Version:           version,
 			AvailableVersion:  availableVersion,
-			Description:       manifest.Description, Icon: manifest.Icon,
+			Description:       manifest.Description, Icon: manifest.Icon, IconStyle: manifest.IconStyle,
 			ProjectID: projID, Status: status, StatusMessage: statusMsg, ErrorMessage: errMsg,
 			Source: source, UpgradePolicy: upgradePolicy,
 			Permissions: perms, Surfaces: surfaces,

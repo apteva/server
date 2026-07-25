@@ -75,6 +75,8 @@ func TestHandleListAppsClosesInstallRowsBeforeIntegrationRows(t *testing.T) {
 		Name:        "storage",
 		DisplayName: "Storage",
 		Version:     "0.1.0",
+		Icon:        "/ui/icon.svg",
+		IconStyle:   "monochrome",
 		Provides: sdk.Provides{UISurfaces: []sdk.UISurface{{
 			ID: "files", Label: "Files", Icon: "folder", Schema: sdk.NativeSurfaceSchemaCurrent,
 			Entry: "/ui/surfaces/files.json", Slots: []string{sdk.UISurfaceSlotMobileProjectApp},
@@ -144,6 +146,9 @@ func TestHandleListAppsClosesInstallRowsBeforeIntegrationRows(t *testing.T) {
 	}
 	if storage == nil || len(storage.UISurfaces) != 1 || storage.UISurfaces[0].ID != "files" {
 		t.Fatalf("storage ui_surfaces missing from response: %#v", storage)
+	}
+	if storage.Icon != "/ui/icon.svg" || storage.IconStyle != "monochrome" {
+		t.Fatalf("storage unified icon missing from response: %#v", storage)
 	}
 }
 
