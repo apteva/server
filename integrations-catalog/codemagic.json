@@ -1,0 +1,515 @@
+{
+  "slug": "codemagic",
+  "name": "Codemagic",
+  "description": "Mobile CI/CD for on-demand macOS, Linux, and Windows builds. Trigger Xcode workflows on ephemeral Mac mini M2 or M4 machines, inspect build status and actions, retrieve artifacts, cancel builds, use temporary remote access, and manage app or team variable groups for signing and publishing credentials.",
+  "logo": "https://www.google.com/s2/favicons?domain=codemagic.io&sz=128",
+  "categories": [
+    "development",
+    "ci",
+    "cd",
+    "mobile",
+    "ios",
+    "macos",
+    "xcode",
+    "deployment"
+  ],
+  "base_url": "https://codemagic.io",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "x-auth-token": "{{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Token",
+        "description": "Personal Codemagic API token from Teams > Personal Account > Integrations > Codemagic API > Show. Permissions follow your role in the personal account or team.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_current_user",
+    "input": {}
+  },
+  "tools": [
+    {
+      "name": "get_current_user",
+      "description": "Get the authenticated Codemagic user. Use this to verify the API token and identify the account before listing teams or apps.",
+      "method": "GET",
+      "path": "/api/v3/user",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_teams",
+      "description": "List Codemagic teams available to the authenticated user. Team IDs are required for team apps, builds, and shared variable groups.",
+      "method": "GET",
+      "path": "/api/v3/user/teams",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100, "default": 30 },
+          "page": { "type": "integer", "minimum": 1, "default": 1 }
+        }
+      }
+    },
+    {
+      "name": "list_personal_apps",
+      "description": "List applications in the authenticated user's personal Codemagic account. Filter by app name when locating an Xcode project.",
+      "method": "GET",
+      "path": "/api/v3/user/apps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "Case-insensitive app-name search; every whitespace-separated token must match." },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100, "default": 30 },
+          "page": { "type": "integer", "minimum": 1, "default": 1 }
+        }
+      }
+    },
+    {
+      "name": "list_team_apps",
+      "description": "List applications belonging to a Codemagic team.",
+      "method": "GET",
+      "path": "/api/v3/teams/{team_id}/apps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": { "type": "string", "description": "Codemagic team ID." },
+          "id": { "type": "array", "items": { "type": "string" }, "description": "Optional app IDs to include." },
+          "name": { "type": "string", "description": "Optional app-name search." },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100, "default": 30 },
+          "page": { "type": "integer", "minimum": 1, "default": 1 }
+        },
+        "required": ["team_id"]
+      }
+    },
+    {
+      "name": "get_app",
+      "description": "Get one Codemagic application from the legacy Applications API. This response includes Workflow Editor workflow IDs when available. For codemagic.yaml apps, use the workflow key declared under workflows in the repository because YAML workflow IDs are not discoverable until a build clones the repository.",
+      "method": "GET",
+      "base_url": "https://api.codemagic.io",
+      "path": "/apps/{app_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": { "type": "string", "description": "Codemagic application ID." }
+        },
+        "required": ["app_id"]
+      }
+    },
+    {
+      "name": "add_app",
+      "description": "Add a public or already-authorized Git repository to Codemagic. For GitHub, GitLab, or Bitbucket repositories, connect the source provider in Codemagic first so the build service can clone it.",
+      "method": "POST",
+      "base_url": "https://api.codemagic.io",
+      "path": "/apps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "repositoryUrl": { "type": "string", "description": "SSH or HTTPS Git repository URL." },
+          "teamId": { "type": "string", "description": "Optional destination team ID. The token owner must be a team admin." }
+        },
+        "required": ["repositoryUrl"]
+      }
+    },
+    {
+      "name": "add_private_app_with_ssh_key",
+      "description": "Add a private Git repository using an SSH private key. The private key data must be base64-encoded. Prefer a dedicated deploy key with read-only repository access.",
+      "method": "POST",
+      "base_url": "https://api.codemagic.io",
+      "path": "/apps/new",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "repositoryUrl": { "type": "string", "description": "SSH or HTTPS Git repository URL." },
+          "sshKey": {
+            "type": "object",
+            "properties": {
+              "data": { "type": "string", "description": "Base64-encoded SSH private-key file." },
+              "passphrase": { "type": ["string", "null"], "description": "SSH key passphrase, or null when the key has none." }
+            },
+            "required": ["data", "passphrase"],
+            "additionalProperties": false
+          },
+          "projectType": { "type": "string", "enum": ["flutter-app"], "description": "Set to flutter-app only when adding a Flutter application." },
+          "teamId": { "type": "string", "description": "Optional destination team ID." }
+        },
+        "required": ["repositoryUrl", "sshKey"]
+      }
+    },
+    {
+      "name": "start_build",
+      "description": "Start an on-demand Codemagic build. For Xcode deployment, use a workflow defined in codemagic.yaml, choose mac_mini_m2 or mac_mini_m4, and include the signing variable groups in environment.groups. Either branch or tag is required. The response returns buildId; poll get_build until status is finished, failed, canceled, timeout, or skipped.",
+      "method": "POST",
+      "base_url": "https://api.codemagic.io",
+      "path": "/builds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "appId": { "type": "string", "description": "Codemagic application ID." },
+          "workflowId": { "type": "string", "description": "Workflow Editor ID or the workflow key under workflows in codemagic.yaml, such as ios-release." },
+          "branch": { "type": "string", "description": "Git branch to build. Mutually exclusive with tag." },
+          "tag": { "type": "string", "description": "Git tag to build. Mutually exclusive with branch." },
+          "instanceType": {
+            "type": "string",
+            "enum": ["mac_mini_m2", "mac_mini_m4", "linux_x2", "linux_x4", "windows_x2"],
+            "description": "Build machine override. mac_mini_m2 and mac_mini_m4 are the supported on-demand Xcode machines."
+          },
+          "labels": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional labels added to the build."
+          },
+          "environment": {
+            "type": "object",
+            "description": "Per-build variables, imported secret groups, and software-version overrides.",
+            "properties": {
+              "variables": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "description": "Non-secret per-build environment variables. Store reusable signing credentials in secure variable groups instead."
+              },
+              "groups": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Application or team variable-group names to import into this build."
+              },
+              "softwareVersions": {
+                "type": "object",
+                "properties": {
+                  "xcode": { "type": "string" },
+                  "flutter": { "type": "string" },
+                  "cocoapods": { "type": "string" },
+                  "node": { "type": "string" },
+                  "npm": { "type": "string" },
+                  "java": { "type": "string" },
+                  "ruby": { "type": "string" }
+                },
+                "additionalProperties": { "type": "string" }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": ["appId", "workflowId"],
+        "oneOf": [
+          { "required": ["branch"], "not": { "required": ["tag"] } },
+          { "required": ["tag"], "not": { "required": ["branch"] } }
+        ]
+      },
+      "mock_response": {
+        "buildId": "60a0b1c2d3e4f56789abcdef"
+      }
+    },
+    {
+      "name": "cancel_build",
+      "description": "Cancel a queued or running Codemagic build. Codemagic may return 208 when the build already finished.",
+      "method": "POST",
+      "base_url": "https://api.codemagic.io",
+      "path": "/builds/{build_id}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "build_id": { "type": "string", "description": "Codemagic build ID." }
+        },
+        "required": ["build_id"]
+      }
+    },
+    {
+      "name": "list_team_builds",
+      "description": "List builds for a Codemagic team, optionally filtered by app, workflow, status, branch, tag, or labels. Use the returned cursor for the next page.",
+      "method": "GET",
+      "path": "/api/v3/teams/{team_id}/builds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": { "type": "string" },
+          "app_id": { "type": "string" },
+          "status": { "type": "string", "enum": ["queued", "building", "finished", "failed", "canceled", "timeout", "skipped"] },
+          "workflow_id": { "type": "string" },
+          "branch": { "type": "string" },
+          "tag": { "type": "string" },
+          "label": { "type": "array", "items": { "type": "string" } },
+          "cursor": { "type": "string", "description": "Cursor returned by the previous page." },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100, "default": 30 }
+        },
+        "required": ["team_id"]
+      }
+    },
+    {
+      "name": "get_build",
+      "description": "Get current status and details for one build, including workflow, selected instance type, branch or tag, timestamps, App Store Connect status, and artifacts with short-lived download URLs.",
+      "method": "GET",
+      "path": "/api/v3/builds/{build_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "build_id": { "type": "string" }
+        },
+        "required": ["build_id"]
+      }
+    },
+    {
+      "name": "list_build_actions",
+      "description": "List build actions/steps and their status for one build. Use this to locate the failing Xcode archive, code-signing, test, or publishing step.",
+      "method": "GET",
+      "path": "/api/v3/builds/{build_id}/actions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "build_id": { "type": "string" },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100, "default": 30 },
+          "page": { "type": "integer", "minimum": 1, "default": 1 }
+        },
+        "required": ["build_id"]
+      }
+    },
+    {
+      "name": "get_build_remote_access",
+      "description": "Get temporary remote-access information for a build that has remote access enabled. A 202 response means access is being prepared; 410 means it is no longer available.",
+      "method": "GET",
+      "path": "/api/v3/builds/{build_id}/remote-access",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "build_id": { "type": "string" }
+        },
+        "required": ["build_id"]
+      }
+    },
+    {
+      "name": "download_build_artifact",
+      "description": "Download one artifact using the short_lived_download_url returned by get_build. The Codemagic API token is deliberately not forwarded to the signed artifact URL.",
+      "method": "GET",
+      "path": "{download_url}",
+      "omit_auth_headers": ["x-auth-token", "Content-Type"],
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "download_url": { "type": "string", "format": "uri", "description": "Exact short_lived_download_url from get_build." }
+        },
+        "required": ["download_url"]
+      }
+    },
+    {
+      "name": "list_app_variable_groups",
+      "description": "List secure variable groups scoped to an application. Typical iOS groups contain App Store Connect credentials, certificate material, bundle identifiers, and Xcode workspace/scheme settings.",
+      "method": "GET",
+      "path": "/api/v3/apps/{app_id}/variable-groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": { "type": "string" },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100, "default": 30 },
+          "page": { "type": "integer", "minimum": 1, "default": 1 }
+        },
+        "required": ["app_id"]
+      }
+    },
+    {
+      "name": "create_app_variable_group",
+      "description": "Create a variable group scoped to one application.",
+      "method": "POST",
+      "path": "/api/v3/apps/{app_id}/variable-groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": { "type": "string" },
+          "name": { "type": "string", "description": "Group name; dots and dollar signs are not allowed." }
+        },
+        "required": ["app_id", "name"]
+      }
+    },
+    {
+      "name": "list_team_variable_groups",
+      "description": "List variable groups shared by a Codemagic team.",
+      "method": "GET",
+      "path": "/api/v3/teams/{team_id}/variable-groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": { "type": "string" },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100, "default": 30 },
+          "page": { "type": "integer", "minimum": 1, "default": 1 }
+        },
+        "required": ["team_id"]
+      }
+    },
+    {
+      "name": "create_team_variable_group",
+      "description": "Create a team variable group and optionally restrict it to selected applications.",
+      "method": "POST",
+      "path": "/api/v3/teams/{team_id}/variable-groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": { "type": "string" },
+          "name": { "type": "string", "description": "Group name; dots and dollar signs are not allowed." },
+          "advanced_security": {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "selected_apps": { "type": "array", "items": { "type": "string" }, "description": "App IDs allowed to use this group; empty when advanced security is disabled." }
+            },
+            "required": ["enabled", "selected_apps"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["team_id", "name", "advanced_security"]
+      }
+    },
+    {
+      "name": "get_variable_group",
+      "description": "Get one app or team variable group by ID.",
+      "method": "GET",
+      "path": "/api/v3/variable-groups/{variable_group_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variable_group_id": { "type": "string" }
+        },
+        "required": ["variable_group_id"]
+      }
+    },
+    {
+      "name": "update_variable_group",
+      "description": "Rename a variable group or change advanced app-access restrictions for a team group.",
+      "method": "PATCH",
+      "path": "/api/v3/variable-groups/{variable_group_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variable_group_id": { "type": "string" },
+          "name": { "type": "string" },
+          "advanced_security": {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "boolean" },
+              "selected_apps": { "type": "array", "items": { "type": "string" } }
+            },
+            "required": ["enabled", "selected_apps"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["variable_group_id"],
+        "anyOf": [
+          { "required": ["name"] },
+          { "required": ["advanced_security"] }
+        ]
+      }
+    },
+    {
+      "name": "delete_variable_group",
+      "description": "Delete a variable group and all variables it contains.",
+      "method": "DELETE",
+      "path": "/api/v3/variable-groups/{variable_group_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variable_group_id": { "type": "string" }
+        },
+        "required": ["variable_group_id"]
+      }
+    },
+    {
+      "name": "list_group_variables",
+      "description": "List variables in one variable group. Secure values are not revealed.",
+      "method": "GET",
+      "path": "/api/v3/variable-groups/{variable_group_id}/variables",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variable_group_id": { "type": "string" },
+          "search": { "type": "string", "description": "Optional variable-name search." },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100, "default": 30 },
+          "page": { "type": "integer", "minimum": 1, "default": 1 }
+        },
+        "required": ["variable_group_id"]
+      }
+    },
+    {
+      "name": "import_group_variables",
+      "description": "Bulk-create variables in a group. Set secure=true for App Store Connect keys, certificate private keys, passwords, tokens, and base64-encoded signing files. All variables in one call share the secure setting.",
+      "method": "POST",
+      "path": "/api/v3/variable-groups/{variable_group_id}/variables",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variable_group_id": { "type": "string" },
+          "secure": { "type": "boolean" },
+          "variables": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "value": { "type": "string" }
+              },
+              "required": ["name", "value"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["variable_group_id", "secure", "variables"]
+      }
+    },
+    {
+      "name": "get_group_variable",
+      "description": "Get metadata for one variable in a group. Secure values remain hidden.",
+      "method": "GET",
+      "path": "/api/v3/variable-groups/{variable_group_id}/variables/{variable_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variable_group_id": { "type": "string" },
+          "variable_id": { "type": "string" }
+        },
+        "required": ["variable_group_id", "variable_id"]
+      }
+    },
+    {
+      "name": "update_group_variable",
+      "description": "Update a variable's name, value, or secure setting.",
+      "method": "PATCH",
+      "path": "/api/v3/variable-groups/{variable_group_id}/variables/{variable_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variable_group_id": { "type": "string" },
+          "variable_id": { "type": "string" },
+          "name": { "type": "string" },
+          "value": { "type": "string" },
+          "secure": { "type": "boolean" }
+        },
+        "required": ["variable_group_id", "variable_id"],
+        "anyOf": [
+          { "required": ["name"] },
+          { "required": ["value"] },
+          { "required": ["secure"] }
+        ]
+      }
+    },
+    {
+      "name": "delete_group_variable",
+      "description": "Delete one variable from a variable group.",
+      "method": "DELETE",
+      "path": "/api/v3/variable-groups/{variable_group_id}/variables/{variable_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variable_group_id": { "type": "string" },
+          "variable_id": { "type": "string" }
+        },
+        "required": ["variable_group_id", "variable_id"]
+      }
+    }
+  ]
+}

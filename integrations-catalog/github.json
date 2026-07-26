@@ -1606,6 +1606,21 @@
       }
     },
     {
+      "name": "get_workflow",
+      "description": "Get one GitHub Actions workflow, including its path and enabled or disabled state. Use this before dispatching an Xcode deployment when the workflow filename or state is uncertain.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/actions/workflows/{workflow_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string", "description": "Repository owner" },
+          "repo": { "type": "string", "description": "Repository name" },
+          "workflow_id": { "type": "string", "description": "Workflow numeric ID or filename, such as ios-deploy.yml" }
+        },
+        "required": ["owner", "repo", "workflow_id"]
+      }
+    },
+    {
       "name": "list_workflow_runs",
       "description": "List recent runs for a specific workflow",
       "method": "GET",
@@ -1675,9 +1690,12 @@
     },
     {
       "name": "trigger_workflow",
-      "description": "Manually trigger a workflow_dispatch workflow run",
+      "description": "Manually trigger a workflow_dispatch run and return its workflow_run_id, API run URL, and GitHub HTML URL. For an on-demand Xcode deployment, configure the repository workflow with runs-on: macos-15 or macos-15-intel, then pass that workflow filename and a branch or tag ref here. Follow with get_workflow_run, list_workflow_run_jobs, and list_workflow_run_artifacts.",
       "method": "POST",
       "path": "/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
+      "headers": {
+        "X-GitHub-Api-Version": "2026-03-10"
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1699,11 +1717,11 @@
           },
           "inputs": {
             "type": "object",
-            "description": "Input parameters for the workflow (key-value pairs)"
-          },
-          "return_run_details": {
-            "type": "boolean",
-            "description": "Ask GitHub to return the created workflow run ID and URLs when supported."
+            "description": "Up to 25 input parameters declared by workflow_dispatch in the workflow file. Values may be strings or booleans.",
+            "maxProperties": 25,
+            "additionalProperties": {
+              "type": ["string", "boolean", "number"]
+            }
           }
         },
         "required": [
@@ -1714,7 +1732,39 @@
         ]
       },
       "mock_response": {
-        "success": true
+        "workflow_run_id": 123456789,
+        "run_url": "https://api.github.com/repos/octocat/hello-world/actions/runs/123456789",
+        "html_url": "https://github.com/octocat/hello-world/actions/runs/123456789"
+      }
+    },
+    {
+      "name": "enable_workflow",
+      "description": "Enable a disabled GitHub Actions workflow so it can receive workflow_dispatch events.",
+      "method": "PUT",
+      "path": "/repos/{owner}/{repo}/actions/workflows/{workflow_id}/enable",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" },
+          "repo": { "type": "string" },
+          "workflow_id": { "type": "string", "description": "Workflow numeric ID or filename" }
+        },
+        "required": ["owner", "repo", "workflow_id"]
+      }
+    },
+    {
+      "name": "disable_workflow",
+      "description": "Disable a GitHub Actions workflow. Existing runs are not deleted.",
+      "method": "PUT",
+      "path": "/repos/{owner}/{repo}/actions/workflows/{workflow_id}/disable",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" },
+          "repo": { "type": "string" },
+          "workflow_id": { "type": "string", "description": "Workflow numeric ID or filename" }
+        },
+        "required": ["owner", "repo", "workflow_id"]
       }
     },
     {
@@ -2274,6 +2324,39 @@
       "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "run_id": { "type": "integer" }, "enable_debug_logging": { "type": "boolean" } }, "required": ["owner", "repo", "run_id"] }
     },
     {
+      "name": "rerun_failed_workflow_jobs",
+      "description": "Rerun only failed jobs and their dependent jobs in a workflow run. Useful after diagnosing a failed Xcode build without repeating successful setup jobs.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" },
+          "repo": { "type": "string" },
+          "run_id": { "type": "integer" },
+          "enable_debug_logging": { "type": "boolean", "default": false }
+        },
+        "required": ["owner", "repo", "run_id"]
+      }
+    },
+    {
+      "name": "rerun_workflow_job",
+      "description": "Rerun one workflow job and its dependent jobs by job ID.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/actions/jobs/{job_id}/rerun",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" },
+          "repo": { "type": "string" },
+          "job_id": { "type": "integer" },
+          "enable_debug_logging": { "type": "boolean", "default": false },
+          "enable_debugger": { "type": "boolean", "default": false }
+        },
+        "required": ["owner", "repo", "job_id"]
+      }
+    },
+    {
       "name": "list_workflow_run_jobs",
       "description": "List jobs and steps for an Actions workflow run, optionally selecting latest or all attempts.",
       "method": "GET",
@@ -2287,6 +2370,59 @@
       "path": "/repos/{owner}/{repo}/actions/runs/{run_id}/logs",
       "timeout_ms": 120000,
       "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "run_id": { "type": "integer" } }, "required": ["owner", "repo", "run_id"] }
+    },
+    {
+      "name": "download_workflow_job_logs",
+      "description": "Download the plain-text log for one workflow job. Prefer this over the full run ZIP when diagnosing a specific Xcode archive, signing, or upload failure.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/actions/jobs/{job_id}/logs",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" },
+          "repo": { "type": "string" },
+          "job_id": { "type": "integer" }
+        },
+        "required": ["owner", "repo", "job_id"]
+      }
+    },
+    {
+      "name": "get_workflow_pending_deployments",
+      "description": "List protected environments waiting for approval in a workflow run, including environment IDs and whether the current user can approve.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/actions/runs/{run_id}/pending_deployments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" },
+          "repo": { "type": "string" },
+          "run_id": { "type": "integer" }
+        },
+        "required": ["owner", "repo", "run_id"]
+      }
+    },
+    {
+      "name": "review_workflow_pending_deployments",
+      "description": "Approve or reject protected environments waiting in a workflow run. Get pending deployments first and pass the returned numeric environment IDs. GitHub can reject self-approval when the environment forbids it.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/actions/runs/{run_id}/pending_deployments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" },
+          "repo": { "type": "string" },
+          "run_id": { "type": "integer" },
+          "environment_ids": {
+            "type": "array",
+            "items": { "type": "integer" },
+            "minItems": 1
+          },
+          "state": { "type": "string", "enum": ["approved", "rejected"] },
+          "comment": { "type": "string" }
+        },
+        "required": ["owner", "repo", "run_id", "environment_ids", "state", "comment"]
+      }
     },
     {
       "name": "list_repo_artifacts",

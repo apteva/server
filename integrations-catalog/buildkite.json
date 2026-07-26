@@ -1,0 +1,1803 @@
+{
+  "slug": "buildkite",
+  "name": "Buildkite",
+  "description": "CI/CD orchestration for hosted and self-hosted build agents. Discover organizations and pipelines, create and monitor builds, control jobs, inspect bounded log tails, manage annotations and artifacts, configure schedules, and operate agents through Buildkite's REST API.",
+  "logo": "https://www.google.com/s2/favicons?domain=buildkite.com&sz=128",
+  "categories": [
+    "development",
+    "ci",
+    "cd",
+    "automation",
+    "deployment"
+  ],
+  "base_url": "https://api.buildkite.com/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Access Token",
+        "description": "Buildkite API access token. Grant only the organization access and REST scopes needed by the intended tools, such as read_organizations, read_pipelines, read_builds, write_builds, read_build_logs, read_artifacts, and write_pipelines.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_current_user",
+    "input": {}
+  },
+  "tools": [
+    {
+      "name": "get_current_user",
+      "description": "Get the authenticated Buildkite user. Use this first to verify the token and identify its owner.",
+      "method": "GET",
+      "path": "/user",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_current_access_token",
+      "description": "Inspect the current API access token, including its UUID, organization restrictions, and granted scopes. Use this when a later call fails with a permission error.",
+      "method": "GET",
+      "path": "/access-token",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_organizations",
+      "description": "List organizations accessible to the token. Save the organization slug for pipeline, build, job, and agent calls.",
+      "method": "GET",
+      "path": "/organizations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page number."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Results per page."
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "per_page"
+      ]
+    },
+    {
+      "name": "get_organization",
+      "description": "Get one organization by slug.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string",
+            "description": "Organization slug, not its display name."
+          }
+        },
+        "required": [
+          "org_slug"
+        ]
+      }
+    },
+    {
+      "name": "get_organization_rate_limits",
+      "description": "Get current REST API rate-limit information for an organization. Check this before aggressive build polling and back off after 429 responses.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/rate_limit",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug"
+        ]
+      }
+    },
+    {
+      "name": "list_pipelines",
+      "description": "List an organization's pipelines. Pipeline slugs are required for build, schedule, annotation, and artifact routes.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/pipelines",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "org_slug"
+        ]
+      },
+      "query_params": [
+        "page",
+        "per_page"
+      ]
+    },
+    {
+      "name": "get_pipeline",
+      "description": "Get a pipeline's repository, provider settings, YAML configuration, branch behavior, queue counts, and current state.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug"
+        ]
+      }
+    },
+    {
+      "name": "create_pipeline",
+      "description": "Create a YAML-defined pipeline. Configuration must be valid Buildkite pipeline YAML supplied as a string. A minimal dynamic pipeline can upload its repository's .buildkite/pipeline.yml.",
+      "method": "POST",
+      "path": "/organizations/{org_slug}/pipelines",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "Pipeline display name."
+          },
+          "repository": {
+            "type": "string",
+            "description": "Git repository SSH or HTTPS URL."
+          },
+          "configuration": {
+            "type": "string",
+            "description": "Complete Buildkite pipeline YAML."
+          },
+          "cluster_id": {
+            "type": "string",
+            "description": "Optional cluster UUID for the pipeline."
+          },
+          "default_branch": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string",
+            "description": "Optional custom pipeline slug."
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "public"
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "teams": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "read_only",
+                "build_and_read",
+                "manage_build_and_read"
+              ]
+            },
+            "description": "Map of team UUID to pipeline access level."
+          },
+          "skip_queued_branch_builds": {
+            "type": "boolean"
+          },
+          "skip_queued_branch_builds_filter": {
+            "type": "string"
+          },
+          "cancel_running_branch_builds": {
+            "type": "boolean"
+          },
+          "cancel_running_branch_builds_filter": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "name",
+          "repository",
+          "configuration"
+        ]
+      }
+    },
+    {
+      "name": "update_pipeline",
+      "description": "Update a pipeline's mutable settings or YAML configuration. Send only fields that should change.",
+      "method": "PATCH",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "repository": {
+            "type": "string"
+          },
+          "configuration": {
+            "type": "string",
+            "description": "Complete Buildkite pipeline YAML."
+          },
+          "default_branch": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "public"
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "skip_queued_branch_builds": {
+            "type": "boolean"
+          },
+          "skip_queued_branch_builds_filter": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cancel_running_branch_builds": {
+            "type": "boolean"
+          },
+          "cancel_running_branch_builds_filter": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "allow_rebuilds": {
+            "type": "boolean"
+          },
+          "branch_configuration": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider_settings": {
+            "type": "object",
+            "description": "Provider-specific settings documented for the pipeline's source-control provider."
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug"
+        ]
+      }
+    },
+    {
+      "name": "archive_pipeline",
+      "description": "Archive a pipeline without deleting its build history.",
+      "method": "POST",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/archive",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug"
+        ]
+      }
+    },
+    {
+      "name": "unarchive_pipeline",
+      "description": "Restore an archived pipeline.",
+      "method": "POST",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/unarchive",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug"
+        ]
+      }
+    },
+    {
+      "name": "delete_pipeline",
+      "description": "Permanently delete a pipeline. This is destructive; archive it instead when history may still be needed.",
+      "method": "DELETE",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug"
+        ]
+      }
+    },
+    {
+      "name": "add_pipeline_webhook",
+      "description": "Ask Buildkite to add or repair the source-control webhook used to trigger this pipeline. This manages the repository provider webhook; it is not a Buildkite event subscription for an external application.",
+      "method": "POST",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug"
+        ]
+      }
+    },
+    {
+      "name": "list_pipeline_schedules",
+      "description": "List scheduled build definitions for a pipeline.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/schedules",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug"
+        ]
+      },
+      "query_params": [
+        "page",
+        "per_page"
+      ]
+    },
+    {
+      "name": "get_pipeline_schedule",
+      "description": "Get one scheduled build definition and its next execution time or failure details.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/schedules/{schedule_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          },
+          "schedule_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug",
+          "schedule_id"
+        ]
+      }
+    },
+    {
+      "name": "create_pipeline_schedule",
+      "description": "Create a recurring pipeline build schedule using Buildkite's cronline syntax, such as @daily or a five-field cron expression.",
+      "method": "POST",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/schedules",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "cronline": {
+            "type": "string",
+            "description": "Schedule expression such as @daily or 0 2 * * *."
+          },
+          "message": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string",
+            "default": "HEAD"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug",
+          "label",
+          "cronline"
+        ]
+      }
+    },
+    {
+      "name": "update_pipeline_schedule",
+      "description": "Update a pipeline build schedule. Send only the schedule fields that should change.",
+      "method": "PUT",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/schedules/{schedule_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          },
+          "schedule_id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "cronline": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug",
+          "schedule_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_pipeline_schedule",
+      "description": "Delete a pipeline build schedule.",
+      "method": "DELETE",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/schedules/{schedule_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          },
+          "schedule_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug",
+          "schedule_id"
+        ]
+      }
+    },
+    {
+      "name": "list_all_builds",
+      "description": "List builds across all organizations available to the token. Prefer organization or pipeline-scoped listing when possible. Set exclude_jobs=true and exclude_pipeline=true for efficient status polling.",
+      "method": "GET",
+      "path": "/builds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string",
+            "description": "Full commit SHA."
+          },
+          "state": {
+            "type": "string",
+            "description": "Build state such as running, passed, failed, canceled, or finished."
+          },
+          "created_from": {
+            "type": "string",
+            "description": "ISO 8601 lower timestamp bound."
+          },
+          "created_to": {
+            "type": "string",
+            "description": "ISO 8601 upper timestamp bound."
+          },
+          "creator": {
+            "type": "string",
+            "description": "Creator UUID."
+          },
+          "include_retried_jobs": {
+            "type": "boolean"
+          },
+          "include_paused": {
+            "type": "boolean"
+          },
+          "exclude_jobs": {
+            "type": "boolean",
+            "description": "Set true when polling status or only build metadata is needed."
+          },
+          "exclude_pipeline": {
+            "type": "boolean",
+            "description": "Set true when expanded pipeline data is not needed."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "query_params": [
+        "branch",
+        "commit",
+        "state",
+        "created_from",
+        "created_to",
+        "creator",
+        "include_retried_jobs",
+        "include_paused",
+        "exclude_jobs",
+        "exclude_pipeline",
+        "page",
+        "per_page"
+      ]
+    },
+    {
+      "name": "list_organization_builds",
+      "description": "List builds across an organization. Use filters and exclude_jobs=true for efficient monitoring.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/builds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "created_from": {
+            "type": "string"
+          },
+          "created_to": {
+            "type": "string"
+          },
+          "creator": {
+            "type": "string"
+          },
+          "include_retried_jobs": {
+            "type": "boolean"
+          },
+          "include_paused": {
+            "type": "boolean"
+          },
+          "exclude_jobs": {
+            "type": "boolean"
+          },
+          "exclude_pipeline": {
+            "type": "boolean"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "org_slug"
+        ]
+      },
+      "query_params": [
+        "branch",
+        "commit",
+        "state",
+        "created_from",
+        "created_to",
+        "creator",
+        "include_retried_jobs",
+        "include_paused",
+        "exclude_jobs",
+        "exclude_pipeline",
+        "page",
+        "per_page"
+      ]
+    },
+    {
+      "name": "list_pipeline_builds",
+      "description": "List builds for one pipeline, newest first. Use state and time filters to avoid deep pagination, and set exclude_jobs=true for status polling.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/builds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "created_from": {
+            "type": "string"
+          },
+          "created_to": {
+            "type": "string"
+          },
+          "creator": {
+            "type": "string"
+          },
+          "include_retried_jobs": {
+            "type": "boolean"
+          },
+          "include_paused": {
+            "type": "boolean"
+          },
+          "exclude_jobs": {
+            "type": "boolean"
+          },
+          "exclude_pipeline": {
+            "type": "boolean"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug"
+        ]
+      },
+      "query_params": [
+        "branch",
+        "commit",
+        "state",
+        "created_from",
+        "created_to",
+        "creator",
+        "include_retried_jobs",
+        "include_paused",
+        "exclude_jobs",
+        "exclude_pipeline",
+        "page",
+        "per_page"
+      ]
+    },
+    {
+      "name": "get_build",
+      "description": "Get a build by its pipeline-local build number, not its global UUID. For lightweight polling set exclude_jobs=true and exclude_pipeline=true; call list_build_jobs only when job details are needed.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/builds/{build_number}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          },
+          "build_number": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Pipeline-local build number, not build ID."
+          },
+          "include_retried_jobs": {
+            "type": "boolean"
+          },
+          "exclude_jobs": {
+            "type": "boolean"
+          },
+          "exclude_pipeline": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug",
+          "build_number"
+        ]
+      },
+      "query_params": [
+        "include_retried_jobs",
+        "exclude_jobs",
+        "exclude_pipeline"
+      ]
+    },
+    {
+      "name": "create_build",
+      "description": "Trigger a build for a pipeline. The response returns the build number and jobs; poll get_build with exclude_jobs=true until the build reaches a terminal state.",
+      "method": "POST",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/builds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string",
+            "description": "Git ref, full SHA, or tag to build, commonly HEAD."
+          },
+          "branch": {
+            "type": "string",
+            "description": "Branch associated with the commit for branch filtering."
+          },
+          "message": {
+            "type": "string"
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Per-build environment variables. Do not pass secrets unless the pipeline is designed to receive them securely."
+          },
+          "author": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "clean_checkout": {
+            "type": "boolean"
+          },
+          "ignore_pipeline_branch_filters": {
+            "type": "boolean"
+          },
+          "pull_request_base_branch": {
+            "type": "string"
+          },
+          "pull_request_id": {
+            "type": "string"
+          },
+          "pull_request_repository": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug",
+          "commit",
+          "branch"
+        ]
+      },
+      "mock_response": {
+        "id": "01908131-7d9f-495e-a17b-80ed31276810",
+        "number": 42,
+        "state": "scheduled",
+        "web_url": "https://buildkite.com/example/mobile/builds/42"
+      }
+    },
+    {
+      "name": "cancel_build",
+      "description": "Cancel a scheduled or running build by build number.",
+      "method": "PUT",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/builds/{build_number}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          },
+          "build_number": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug",
+          "build_number"
+        ]
+      }
+    },
+    {
+      "name": "rebuild_build",
+      "description": "Create a new build by replaying an earlier build's captured commit, branch, message, environment, and pull-request data. Use create_build instead when the current branch or pull-request state is required.",
+      "method": "PUT",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/builds/{build_number}/rebuild",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          },
+          "build_number": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug",
+          "build_number"
+        ]
+      }
+    },
+    {
+      "name": "retry_failed_build_jobs",
+      "description": "Asynchronously retry all retryable failed jobs in a build. Optionally restrict the retry to a comma-separated set of canceled, expired, failed, soft_failed, or timed_out states.",
+      "method": "PUT",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/builds/{build_number}/retry_failed_jobs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          },
+          "build_number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "states": {
+            "type": "string",
+            "description": "Optional comma-separated retry states, for example failed,soft_failed."
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug",
+          "build_number"
+        ]
+      }
+    },
+    {
+      "name": "list_build_jobs",
+      "description": "List jobs for one build without expanding the whole build. Use state filters to locate failures and the links.next cursor for pagination.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/builds/{build_number}/jobs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          },
+          "build_number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "state": {
+            "type": "string",
+            "description": "Job state filter."
+          },
+          "step_key": {
+            "type": "string"
+          },
+          "after": {
+            "type": "string",
+            "description": "Cursor from the previous response's links.next URL."
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug",
+          "build_number"
+        ]
+      },
+      "query_params": [
+        "state",
+        "step_key",
+        "after",
+        "per_page"
+      ]
+    },
+    {
+      "name": "get_job",
+      "description": "Get one job directly by organization slug and job UUID.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/jobs/{job_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string",
+            "description": "Job UUID from a build or list_build_jobs response."
+          }
+        },
+        "required": [
+          "org_slug",
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "retry_job",
+      "description": "Retry a failed or timed-out job. A job UUID can only be retried once; use the new job UUID returned by this call for another retry.",
+      "method": "PUT",
+      "path": "/organizations/{org_slug}/jobs/{job_id}/retry",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "reprioritize_job",
+      "description": "Change a queued job's priority and therefore its ordering relative to other jobs.",
+      "method": "PUT",
+      "path": "/organizations/{org_slug}/jobs/{job_id}/reprioritize",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer",
+            "description": "New numeric job priority."
+          }
+        },
+        "required": [
+          "org_slug",
+          "job_id",
+          "priority"
+        ]
+      }
+    },
+    {
+      "name": "unblock_job",
+      "description": "Unblock a manual block step. Supply values for any block-step input fields; the authenticated user is the default unblocker.",
+      "method": "PUT",
+      "path": "/organizations/{org_slug}/jobs/{job_id}/unblock",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "unblocker": {
+            "type": "string",
+            "description": "Optional Buildkite user UUID."
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Values for the block step's fields."
+          }
+        },
+        "required": [
+          "org_slug",
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "get_job_log",
+      "description": "Get a job log. By default Buildkite returns JSON with content and size. For efficient tailing, set accept to text/plain and range to a suffix such as bytes=-65536; do not repeatedly download a full growing log.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/jobs/{job_id}/log",
+      "header_params": {
+        "accept": "Accept",
+        "range": "Range"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "accept": {
+            "type": "string",
+            "enum": [
+              "application/json",
+              "text/plain"
+            ],
+            "description": "Use text/plain with range for a bounded raw log tail."
+          },
+          "range": {
+            "type": "string",
+            "pattern": "^bytes=(?:[0-9]+-[0-9]*|-[0-9]+)$",
+            "description": "HTTP byte range, for example bytes=-65536 for the final 64 KiB."
+          }
+        },
+        "required": [
+          "org_slug",
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_job_log",
+      "description": "Permanently delete a job's stored log output. This is destructive.",
+      "method": "DELETE",
+      "path": "/organizations/{org_slug}/jobs/{job_id}/log",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "get_job_environment",
+      "description": "Get the environment variables captured for a job. Treat the response as sensitive because it may reveal build configuration or secrets exposed by the pipeline.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/jobs/{job_id}/env",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "list_build_annotations",
+      "description": "List annotations for a build. Set omit_body=true when only annotation metadata is needed to keep agent context small.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/builds/{build_number}/annotations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          },
+          "build_number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "build",
+              "job",
+              "all"
+            ]
+          },
+          "omit_body": {
+            "type": "boolean"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug",
+          "build_number"
+        ]
+      },
+      "query_params": [
+        "scope",
+        "omit_body",
+        "page",
+        "per_page"
+      ]
+    },
+    {
+      "name": "create_build_annotation",
+      "description": "Create or append a Markdown/HTML annotation on a build. Context identifies the annotation and allows later appends.",
+      "method": "POST",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/builds/{build_number}/annotations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          },
+          "build_number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "body": {
+            "type": "string",
+            "description": "Annotation body as Markdown or HTML."
+          },
+          "style": {
+            "type": "string",
+            "enum": [
+              "success",
+              "info",
+              "warning",
+              "error"
+            ]
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          },
+          "context": {
+            "type": "string"
+          },
+          "append": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug",
+          "build_number",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "delete_build_annotation",
+      "description": "Delete one build-scoped annotation by UUID.",
+      "method": "DELETE",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/builds/{build_number}/annotations/{annotation_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          },
+          "build_number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "annotation_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug",
+          "build_number",
+          "annotation_id"
+        ]
+      }
+    },
+    {
+      "name": "list_job_annotations",
+      "description": "List annotations scoped to one job.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/jobs/{job_id}/annotations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "omit_body": {
+            "type": "boolean"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "org_slug",
+          "job_id"
+        ]
+      },
+      "query_params": [
+        "omit_body",
+        "page",
+        "per_page"
+      ]
+    },
+    {
+      "name": "create_job_annotation",
+      "description": "Create or append a Markdown/HTML annotation scoped to one job.",
+      "method": "POST",
+      "path": "/organizations/{org_slug}/jobs/{job_id}/annotations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "style": {
+            "type": "string",
+            "enum": [
+              "success",
+              "info",
+              "warning",
+              "error"
+            ]
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          },
+          "context": {
+            "type": "string"
+          },
+          "append": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "org_slug",
+          "job_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "delete_job_annotation",
+      "description": "Delete one job-scoped annotation by UUID.",
+      "method": "DELETE",
+      "path": "/organizations/{org_slug}/jobs/{job_id}/annotations/{annotation_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "annotation_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "job_id",
+          "annotation_id"
+        ]
+      }
+    },
+    {
+      "name": "list_build_artifacts",
+      "description": "List artifact metadata across all jobs in a build. Filter by state or exact/glob path to find the intended artifact without downloading it.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/pipelines/{pipeline_slug}/builds/{build_number}/artifacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "pipeline_slug": {
+            "type": "string"
+          },
+          "build_number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "error",
+              "finished",
+              "deleted",
+              "expired"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "description": "Exact artifact path or glob using *."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "org_slug",
+          "pipeline_slug",
+          "build_number"
+        ]
+      },
+      "query_params": [
+        "state",
+        "path",
+        "page",
+        "per_page"
+      ]
+    },
+    {
+      "name": "list_job_artifacts",
+      "description": "List artifact metadata for one job.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/jobs/{job_id}/artifacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "new",
+              "error",
+              "finished",
+              "deleted",
+              "expired"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "org_slug",
+          "job_id"
+        ]
+      },
+      "query_params": [
+        "state",
+        "path",
+        "page",
+        "per_page"
+      ]
+    },
+    {
+      "name": "get_artifact",
+      "description": "Get one artifact's metadata, including filename, MIME type, size, checksum, state, and download URL. Inspect this before downloading large artifacts.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/jobs/{job_id}/artifacts/{artifact_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "artifact_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "job_id",
+          "artifact_id"
+        ]
+      }
+    },
+    {
+      "name": "download_artifact",
+      "description": "Download an artifact as binary data through Buildkite's redirecting download route. Inspect get_artifact first; very large build products may exceed the integration runner's binary response limit.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/jobs/{job_id}/artifacts/{artifact_id}/download",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "artifact_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "job_id",
+          "artifact_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_artifact",
+      "description": "Permanently delete one build artifact. This is destructive.",
+      "method": "DELETE",
+      "path": "/organizations/{org_slug}/jobs/{job_id}/artifacts/{artifact_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "artifact_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "job_id",
+          "artifact_id"
+        ]
+      }
+    },
+    {
+      "name": "list_agents",
+      "description": "List connected and recently disconnected agents for an organization. Use hostname, queue, cluster, or connection-state filters when diagnosing capacity.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/agents",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "connection_state": {
+            "type": "string"
+          },
+          "cluster_id": {
+            "type": "string"
+          },
+          "queue": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "per_page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "org_slug"
+        ]
+      },
+      "query_params": [
+        "hostname",
+        "connection_state",
+        "cluster_id",
+        "queue",
+        "page",
+        "per_page"
+      ]
+    },
+    {
+      "name": "get_agent",
+      "description": "Get one Buildkite agent's connection, version, host, queue, cluster, and current-job information.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/agents/{agent_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "agent_id"
+        ]
+      }
+    },
+    {
+      "name": "stop_agent",
+      "description": "Gracefully stop an agent. If it is running a job, Buildkite stops it after the job completes.",
+      "method": "PUT",
+      "path": "/organizations/{org_slug}/agents/{agent_id}/stop",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "agent_id"
+        ]
+      }
+    },
+    {
+      "name": "pause_agent",
+      "description": "Pause an agent so it does not accept new jobs.",
+      "method": "PUT",
+      "path": "/organizations/{org_slug}/agents/{agent_id}/pause",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "agent_id"
+        ]
+      }
+    },
+    {
+      "name": "resume_agent",
+      "description": "Resume a paused agent so it can accept jobs.",
+      "method": "PUT",
+      "path": "/organizations/{org_slug}/agents/{agent_id}/resume",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "agent_id"
+        ]
+      }
+    },
+    {
+      "name": "get_meta",
+      "description": "Get Buildkite platform metadata, including webhook source IP ranges useful for firewall allowlists.",
+      "method": "GET",
+      "path": "/meta",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}
