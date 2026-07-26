@@ -86,6 +86,7 @@ func TestAptevaServerMCP_RealLLM_Codex_BuildsBusiness(t *testing.T) {
 
 	assertBusinessSetupToolCoverage(t, h, baselineCalls)
 	assertBusinessSetupState(t, h, projectID)
+	assertBusinessSetupVisibleReplies(t, h, baselineMessageID)
 }
 
 func newBusinessSetupMarketplace(t *testing.T) *httptest.Server {
@@ -177,6 +178,44 @@ func assertBusinessSetupToolCoverage(t *testing.T, h *realChannelChatHarness, ba
 	}
 	if countTools(names, "evolve") != 1 {
 		t.Errorf("evolve calls=%d, want exactly 1; calls=%v", countTools(names, "evolve"), names)
+	}
+	if countTools(names, "channels_send") != 2 {
+		t.Errorf("channels_send calls=%d, want exactly one acknowledgement plus one final; calls=%v",
+			countTools(names, "channels_send"), names)
+	}
+}
+
+func assertBusinessSetupVisibleReplies(t *testing.T, h *realChannelChatHarness, afterID int64) {
+	t.Helper()
+	rows, err := h.server.store.db.Query(`
+		SELECT content FROM channel_chat_messages
+		WHERE chat_id=? AND role='agent' AND id>?
+		ORDER BY id`, h.chatID, afterID)
+	if err != nil {
+		t.Fatalf("query business setup replies: %v", err)
+	}
+	defer rows.Close()
+
+	var replies []string
+	for rows.Next() {
+		var reply string
+		if err := rows.Scan(&reply); err != nil {
+			t.Fatalf("scan business setup reply: %v", err)
+		}
+		replies = append(replies, reply)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate business setup replies: %v", err)
+	}
+	if len(replies) != 2 {
+		t.Fatalf("business setup visible replies=%d, want exactly one acknowledgement plus one final: %q",
+			len(replies), replies)
+	}
+	if strings.Contains(replies[0], "BUSINESS SETUP COMPLETE") {
+		t.Fatalf("business setup acknowledgement incorrectly claimed completion: %q", replies[0])
+	}
+	if !strings.Contains(replies[1], "BUSINESS SETUP COMPLETE") {
+		t.Fatalf("business setup final reply is missing completion marker: %q", replies[1])
 	}
 }
 

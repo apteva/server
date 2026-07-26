@@ -138,26 +138,6 @@ func TestChannelMCPAdvertisesUnconditionalSchemas(t *testing.T) {
 	if _, exists := sendProps["kind"]; exists {
 		t.Fatal("new send schema must not advertise legacy kind")
 	}
-	sendDescription, _ := byName["send"]["description"].(string)
-	for _, want := range []string{
-		"including dashboard conversation threads",
-		"prefer a short visible acknowledgement before beginning tool work",
-		"strong guidance, not a hard requirement",
-		"wait for this send to succeed before action tools",
-		"never parallelize the acknowledgement with them",
-		"the acknowledgement never replaces it",
-		"tool-work turn has either one final message or two intentional messages",
-		"acknowledgement then final",
-		"never more",
-		"prefer acknowledgement before send(main)",
-		"never both",
-	} {
-		if !strings.Contains(sendDescription, want) {
-			t.Fatalf("send description missing %q: %s", want, sendDescription)
-		}
-	}
-	publishProps := assertRequired("publish", []string{"kind", "title", "content"})
-	statusProps := assertRequired("set_status", []string{"title", "state"})
 	assertEnum := func(properties map[string]any, field string, want []string) {
 		t.Helper()
 		definition := properties[field].(map[string]any)
@@ -166,6 +146,37 @@ func TestChannelMCPAdvertisesUnconditionalSchemas(t *testing.T) {
 			t.Fatalf("%s enum=%#v, want %#v", field, got, want)
 		}
 	}
+	assertEnum(sendProps, "phase", []string{"acknowledgement", "progress", "final"})
+	if got := sendProps["phase"].(map[string]any)["default"]; got != "final" {
+		t.Fatalf("send phase default=%v, want final", got)
+	}
+	sendDescription, _ := byName["send"]["description"].(string)
+	for _, want := range []string{
+		"including dashboard conversation threads",
+		"first send exactly one short visible acknowledgement",
+		`phase="acknowledgement"`,
+		`phase="progress"`,
+		`phase="final"`,
+		"Omitted phase defaults to final",
+		"required before the first non-channel tool call",
+		"including quick or read-only lookups",
+		"Wait for this send to succeed before action tools",
+		"never parallelize the acknowledgement with them",
+		"One acknowledgement covers a parallel batch",
+		"do not narrate each tool separately",
+		"the acknowledgement never replaces it",
+		"tool-work turn has exactly two intentional messages",
+		"acknowledgement then final",
+		"never more",
+		"send the required acknowledgement before send(main)",
+		"never after it",
+	} {
+		if !strings.Contains(sendDescription, want) {
+			t.Fatalf("send description missing %q: %s", want, sendDescription)
+		}
+	}
+	publishProps := assertRequired("publish", []string{"kind", "title", "content"})
+	statusProps := assertRequired("set_status", []string{"title", "state"})
 	assertEnum(publishProps, "kind", []string{"approval", "report", "alert"})
 	assertEnum(statusProps, "state", []string{"working", "waiting", "blocked", "completed"})
 	if _, ok := statusProps["next"]; !ok {
@@ -340,6 +351,48 @@ func TestChannelMCPSendReportsSuppressedDuplicateAsSuccessfulReceipt(t *testing.
 	}
 	if strings.Contains(got, `"isError":true`) {
 		t.Fatalf("idempotent suppression must remain a successful tool result: %s", got)
+	}
+}
+
+func TestChannelMCPSendForwardsLifecyclePhaseAndDefaultsToFinal(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		phaseArg  string
+		wantPhase string
+	}{
+		{name: "explicit acknowledgement", phaseArg: "acknowledgement", wantPhase: "acknowledgement"},
+		{name: "explicit progress", phaseArg: "progress", wantPhase: "progress"},
+		{name: "omitted defaults final", wantPhase: "final"},
+		{name: "invalid defaults final", phaseArg: "unexpected", wantPhase: "final"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reg := NewChannelRegistry()
+			ch := &phasedReceiptCaptureChannel{
+				receiptCaptureChannel: receiptCaptureChannel{
+					captureChannel: captureChannel{id: "apteva", active: true},
+					receipt:        framework.MessageDeliveryReceipt{MessageID: 43, Inserted: true},
+				},
+			}
+			reg.Register(ch)
+			arguments := map[string]any{
+				"channel":                "current",
+				"text":                   "Visible lifecycle message.",
+				"_apteva_caller_context": "chat-default-1",
+			}
+			if test.phaseArg != "" {
+				arguments["phase"] = test.phaseArg
+			}
+			params, _ := json.Marshal(map[string]any{"name": "send", "arguments": arguments})
+			if _, rpcErr := (&channelMCPServer{
+				registry: reg,
+				ic:       &AgentChannels{registry: reg},
+			}).handleToolCall(params); rpcErr != nil {
+				t.Fatal(rpcErr)
+			}
+			if ch.phase != test.wantPhase {
+				t.Fatalf("phase=%q, want %q", ch.phase, test.wantPhase)
+			}
+		})
 	}
 }
 
@@ -792,6 +845,17 @@ type scopedCaptureChannel struct {
 type receiptCaptureChannel struct {
 	captureChannel
 	receipt framework.MessageDeliveryReceipt
+}
+
+type phasedReceiptCaptureChannel struct {
+	receiptCaptureChannel
+	phase string
+}
+
+func (c *phasedReceiptCaptureChannel) SendWithReceiptAndPhase(text string, _ []framework.ChatComponent, phase string) (framework.MessageDeliveryReceipt, error) {
+	c.sent = text
+	c.phase = phase
+	return c.receipt, nil
 }
 
 func (c *receiptCaptureChannel) SendWithReceipt(text string, _ []framework.ChatComponent) (framework.MessageDeliveryReceipt, error) {

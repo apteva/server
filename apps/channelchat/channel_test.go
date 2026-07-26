@@ -359,6 +359,54 @@ func TestChatChannelSuppressesImmediateDuplicateRetry(t *testing.T) {
 	}
 }
 
+func TestChatChannelPersistsLifecyclePhaseAndIncludesItInRetryIdentity(t *testing.T) {
+	db := openChannelContentionTestDB(t)
+	defer db.Close()
+	st := newStore(db)
+	chatID := defaultChatID(285)
+	if _, err := st.EnsureDefaultChat(285); err != nil {
+		t.Fatal(err)
+	}
+	ch := &chatChannel{
+		chatID: chatID, threadID: "chat-" + chatID, agentID: 285,
+		userID: 99, store: st, hub: newHub(),
+	}
+
+	ack, err := ch.SendWithReceiptAndPhase("Working on it.", nil, "acknowledgement")
+	if err != nil || !ack.Inserted {
+		t.Fatalf("ack receipt=%+v err=%v", ack, err)
+	}
+	// Identical copy in a different phase is not an idempotent retry: it has a
+	// distinct lifecycle meaning and must reach the transcript.
+	final, err := ch.SendWithReceiptAndPhase("Working on it.", nil, "final")
+	if err != nil || !final.Inserted || final.MessageID == ack.MessageID {
+		t.Fatalf("final receipt=%+v err=%v, ack=%+v", final, err, ack)
+	}
+
+	rows, err := st.ListRecentMessages(chatID, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows=%d, want 2", len(rows))
+	}
+	if rows[0].Metadata["phase"] != "acknowledgement" || rows[1].Metadata["phase"] != "final" {
+		t.Fatalf("phases=%v, %v", rows[0].Metadata, rows[1].Metadata)
+	}
+
+	legacy, err := ch.SendWithReceipt("Legacy final.", nil)
+	if err != nil || !legacy.Inserted {
+		t.Fatalf("legacy receipt=%+v err=%v", legacy, err)
+	}
+	legacyMessage, err := st.GetMessage(legacy.MessageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyMessage.Metadata["phase"] != "final" {
+		t.Fatalf("legacy metadata=%v, want final", legacyMessage.Metadata)
+	}
+}
+
 func TestChatChannelSuppressesImmediateReorderedFinalButKeepsAcknowledgement(t *testing.T) {
 	db := openChannelContentionTestDB(t)
 	defer db.Close()

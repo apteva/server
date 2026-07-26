@@ -40,9 +40,9 @@ for the user-visible result. Do not behave like main's autonomous monitor and do
 not start unrelated work merely because it appears in the inherited directive.
 
 [USER COMMUNICATION]
-- Deliver user-visible text only through channels_send(channel="current", ...).
-- An immediate answer needs one complete final message and no preliminary acknowledgement.
-- Before noticeable tool work, you may send one short acknowledgement naming the concrete user-facing action. Wait for its successful receipt before starting action tools.
+- Deliver user-visible text only through channels_send(channel="current", ..., phase=...). phase is acknowledgement, progress, or final and defaults to final.
+- An immediate answer needs one complete phase="final" message and no preliminary acknowledgement.
+- Before noticeable tool work, send one short phase="acknowledgement" message naming the concrete user-facing action. Wait for its successful receipt before starting action tools.
 - For longer work, keep the user informed at major phases or achievements: when a meaningful phase completes, a child job starts or finishes, the plan materially changes, work becomes blocked, user input is needed, or you begin waiting on a slow external result. A useful progress message says what was achieved and what meaningful step comes next.
 - Do not narrate every tool call, search result, retry, temporary plan, or unchanged wait. Never send repetitive "still working" updates.
 - Progress never replaces the final outcome. After tool work, send exactly one complete final result, clarification, blocker, or next question. A successful final delivery ends the user turn; never repeat or paraphrase it.
@@ -1806,7 +1806,7 @@ func formatAgentChatEvent(text string, context any) string {
 	var b strings.Builder
 	b.WriteString("[chat]\n")
 	b.WriteString("This is a new dashboard-chat user turn. Follow the user-chat role in your directive: handle interactive work here, use temporary children for substantial one-off work when useful, give each child an explicit result-to-parent completion contract, and keep the conversation responsive. ")
-	b.WriteString("Visible communication may contain one optional acknowledgement, selective progress at major phase completions or achievements, and exactly one complete final outcome. Say what was achieved and the meaningful next step; do not narrate tools, searches, routine retries, temporary plans, or unchanged waiting. ")
+	b.WriteString("Visible communication uses channels_send phase values: acknowledgement before promised tool work, progress only at meaningful intermediate achievements, and final for the complete outcome. Omitted phase means final. Say what was achieved and the meaningful next step; do not narrate tools, searches, routine retries, temporary plans, or unchanged waiting. ")
 	b.WriteString("Use REPORT ONLY selectively for wider-system milestones that need no action; continue without waiting. Use ACTION REQUIRED only for durable or cross-thread work that main must own, request a reply to this originating conversation, and wait for that result before confirming completion. ")
 	b.WriteString("Thoughts and plain assistant output are not visible to the user. Never repeat a message after a successful channels_send receipt.\n\n")
 	if ctx := formatDashboardContext(context); ctx != "" {
@@ -1815,7 +1815,7 @@ func formatAgentChatEvent(text string, context any) string {
 	}
 	b.WriteString("User message:\n")
 	b.WriteString(strings.TrimSpace(text))
-	b.WriteString("\n\nDASHBOARD CHAT COMPLETION REQUIREMENT: Direct answers use one complete channels_send. For tool work, follow this order: optional channels_send acknowledgement; action or read tool; observe its result in a later turn; then one complete final channels_send. A message sent in the same batch as an action or read tool occurs before that tool's result and is only an acknowledgement, never the final outcome. Tool-work turns may add a small number of meaningful progress messages, but exactly one final outcome is still required after the last tool, child result, or action-required reply. REPORT ONLY messages do not satisfy the visible reply requirement. Never call pace or go idle on a direct chat turn until the final delivery receipt succeeds, and never repeat it.")
+	b.WriteString("\n\nDASHBOARD CHAT COMPLETION REQUIREMENT: Direct answers use one complete channels_send with phase=\"final\". For tool work, follow this order: channels_send with phase=\"acknowledgement\"; action or read tool; observe its result in a later turn; then one complete channels_send with phase=\"final\". A message sent in the same batch as an action or read tool occurs before that tool's result and is only an acknowledgement, never the final outcome. Tool-work turns may add a small number of meaningful phase=\"progress\" messages, but exactly one final outcome is still required after the last tool, child result, or action-required reply. REPORT ONLY messages do not satisfy the visible reply requirement. Never call pace or go idle on a direct chat turn until the final delivery receipt succeeds, and never repeat it.")
 	return b.String()
 }
 

@@ -211,6 +211,46 @@ func TestStreamerIngest_ChannelsSendAptevaMessageStreams(t *testing.T) {
 	}
 }
 
+func TestStreamerFinalArgsAddsLifecyclePhaseEvenWhenTextDidNotChange(t *testing.T) {
+	h := newHub()
+	st := newStreamer(h)
+	chatID := defaultChatID(42)
+	ch, _, cancel := h.subscribeStream(chatID)
+	defer cancel()
+
+	st.Ingest(
+		"llm.tool_chunk",
+		42,
+		"chat-"+chatID,
+		`{"tool":"channels_send","id":"call-phase","chunk":"{\"channel\":\"current\",\"text\":\"I’ll check that now.\"}"}`,
+		time.Now(),
+	)
+	select {
+	case frame := <-ch:
+		if frame.Text != "I’ll check that now." || frame.Phase != "" {
+			t.Fatalf("partial frame=%+v", frame)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for partial frame")
+	}
+
+	st.Ingest(
+		"tool.call",
+		42,
+		"chat-"+chatID,
+		`{"tool":"channels_send","id":"call-phase","args":{"channel":"current","text":"I’ll check that now.","phase":"acknowledgement"}}`,
+		time.Now(),
+	)
+	select {
+	case frame := <-ch:
+		if frame.Text != "I’ll check that now." || frame.Phase != "acknowledgement" {
+			t.Fatalf("final phase frame=%+v", frame)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for lifecycle phase frame")
+	}
+}
+
 func TestStreamerIngest_ChannelsPublishArtifactDoesNotStreamAsChat(t *testing.T) {
 	h := newHub()
 	st := newStreamer(h)
@@ -357,8 +397,9 @@ func TestFormatAgentChatEventIncludesReplyContract(t *testing.T) {
 	for _, want := range []string{
 		"[chat]",
 		"new dashboard-chat user turn",
-		"one optional acknowledgement",
-		"selective progress at major phase completions or achievements",
+		"phase values: acknowledgement",
+		"progress only at meaningful intermediate achievements",
+		"Omitted phase means final",
 		"what was achieved and the meaningful next step",
 		"explicit result-to-parent completion contract",
 		"do not narrate tools",
@@ -367,9 +408,9 @@ func TestFormatAgentChatEventIncludesReplyContract(t *testing.T) {
 		"Thoughts and plain assistant output are not visible to the user",
 		"Never repeat a message after a successful channels_send receipt",
 		"DASHBOARD CHAT COMPLETION REQUIREMENT",
-		"optional channels_send acknowledgement; action or read tool; observe its result in a later turn",
+		`channels_send with phase="acknowledgement"; action or read tool; observe its result in a later turn`,
 		"is only an acknowledgement, never the final outcome",
-		"a small number of meaningful progress messages",
+		`meaningful phase="progress" messages`,
 		"exactly one final outcome is still required",
 		"REPORT ONLY messages do not satisfy the visible reply requirement",
 		"User message:",

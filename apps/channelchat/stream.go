@@ -83,6 +83,7 @@ type StreamFrame struct {
 	ThreadID  string    `json:"thread_id"`
 	CallID    string    `json:"call_id"`
 	Text      string    `json:"text"`
+	Phase     string    `json:"phase,omitempty"`
 	Done      bool      `json:"done"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -217,7 +218,7 @@ func (s *Streamer) onFinalArgs(agentID int64, threadID, chatID, dataJSON string,
 		return
 	}
 	argsRaw := firstRaw(d.Args, d.Arguments, d.Input, d.Params)
-	channel, text, ok := decodeRespondArgs(argsRaw)
+	channel, text, phase, ok := decodeRespondArgs(argsRaw)
 	if !ok {
 		return
 	}
@@ -227,13 +228,14 @@ func (s *Streamer) onFinalArgs(agentID int64, threadID, chatID, dataJSON string,
 	}
 	key := streamCallKey(agentID, threadID, callID)
 	s.mu.Lock()
+	signature := text + "\x00" + phase
 	last := s.lastEmit[key]
 	s.mu.Unlock()
-	if text == "" || text == last {
+	if text == "" || signature == last {
 		return
 	}
 	s.mu.Lock()
-	s.lastEmit[key] = text
+	s.lastEmit[key] = signature
 	s.mu.Unlock()
 	s.hub.publishStream(StreamFrame{
 		Type:      "stream",
@@ -241,6 +243,7 @@ func (s *Streamer) onFinalArgs(agentID int64, threadID, chatID, dataJSON string,
 		ThreadID:  threadID,
 		CallID:    callID,
 		Text:      text,
+		Phase:     phase,
 		CreatedAt: ts,
 	})
 }
@@ -317,33 +320,34 @@ func firstRaw(values ...json.RawMessage) json.RawMessage {
 	return nil
 }
 
-func decodeRespondArgs(raw json.RawMessage) (channel, text string, ok bool) {
+func decodeRespondArgs(raw json.RawMessage) (channel, text, phase string, ok bool) {
 	if len(strings.TrimSpace(string(raw))) == 0 {
-		return "", "", false
+		return "", "", "", false
 	}
 	var args struct {
 		Channel string `json:"channel"`
 		Kind    string `json:"kind"`
 		Text    string `json:"text"`
+		Phase   string `json:"phase"`
 	}
 	if err := json.Unmarshal(raw, &args); err == nil {
 		kind := strings.ToLower(strings.TrimSpace(args.Kind))
 		if kind != "" && kind != "message" {
-			return "", "", false
+			return "", "", "", false
 		}
-		return args.Channel, args.Text, args.Channel != "" || args.Text != ""
+		return args.Channel, args.Text, normalizeMessagePhase(args.Phase), args.Channel != "" || args.Text != ""
 	}
 	var encoded string
 	if err := json.Unmarshal(raw, &encoded); err == nil && encoded != "" {
 		if err := json.Unmarshal([]byte(encoded), &args); err == nil {
 			kind := strings.ToLower(strings.TrimSpace(args.Kind))
 			if kind != "" && kind != "message" {
-				return "", "", false
+				return "", "", "", false
 			}
-			return args.Channel, args.Text, args.Channel != "" || args.Text != ""
+			return args.Channel, args.Text, normalizeMessagePhase(args.Phase), args.Channel != "" || args.Text != ""
 		}
 	}
-	return "", "", false
+	return "", "", "", false
 }
 
 // extractTextField pulls the value of the JSON object's `text` key

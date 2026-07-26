@@ -155,6 +155,14 @@ type ReceiptSender interface {
 	SendWithReceipt(text string, components []ChatComponent) (MessageDeliveryReceipt, error)
 }
 
+// PhasedReceiptSender lets durable chat channels persist the lifecycle role of
+// a visible agent message without changing the Channel interface used by
+// external integrations. Valid phases are acknowledgement, progress, and
+// final; callers should treat an omitted or unknown phase as final.
+type PhasedReceiptSender interface {
+	SendWithReceiptAndPhase(text string, components []ChatComponent, phase string) (MessageDeliveryReceipt, error)
+}
+
 // ConversationScopedChannel lets a durable internal channel resolve an
 // outbound tool call to the conversation that originated the current agent
 // execution. Other channels ignore this optional capability.

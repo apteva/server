@@ -15,7 +15,8 @@
       "bearer"
     ],
     "headers": {
-      "Authorization": "{{token}}"
+      "Authorization": "Bearer {{api_key}}",
+      "X-PF-Store-Id": "{{store_id}}"
     },
     "credential_fields": [
       {
@@ -35,21 +36,48 @@
       "name": "get_products",
       "description": "Get store products",
       "method": "GET",
-      "path": "/get-products",
+      "path": "/store/products",
+      "query_params": [
+        "offset",
+        "limit"
+      ],
       "input_schema": {
         "type": "object",
         "properties": {
           "store_id": {
             "type": "string"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
           }
         }
+      }
+    },
+    {
+      "name": "get_product",
+      "description": "Get one configured Printful store product and its sync variants",
+      "method": "GET",
+      "path": "/store/products/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
       }
     },
     {
       "name": "create_product",
       "description": "Create a new product",
       "method": "POST",
-      "path": "/create-product",
+      "path": "/store/products",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -70,7 +98,7 @@
       "name": "update_product",
       "description": "Update a product",
       "method": "PUT",
-      "path": "/update-product",
+      "path": "/store/products/{id}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -90,7 +118,10 @@
       "name": "create_order",
       "description": "Create a new order",
       "method": "POST",
-      "path": "/create-order",
+      "path": "/orders",
+      "query_params": [
+        "confirm"
+      ],
       "input_schema": {
         "type": "object",
         "properties": {
@@ -99,6 +130,15 @@
           },
           "items": {
             "type": "array"
+          },
+          "external_id": {
+            "type": "string"
+          },
+          "shipping": {
+            "type": "string"
+          },
+          "confirm": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -111,7 +151,7 @@
       "name": "get_order",
       "description": "Get order details",
       "method": "GET",
-      "path": "/get-order",
+      "path": "/orders/{id}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -127,8 +167,8 @@
     {
       "name": "get_shipping_rates",
       "description": "Get shipping rates",
-      "method": "GET",
-      "path": "/get-shipping-rates",
+      "method": "POST",
+      "path": "/shipping/rates",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -137,6 +177,9 @@
           },
           "items": {
             "type": "array"
+          },
+          "currency": {
+            "type": "string"
           }
         },
         "required": [
@@ -148,8 +191,8 @@
     {
       "name": "estimate_costs",
       "description": "Estimate order costs",
-      "method": "GET",
-      "path": "/estimate-costs",
+      "method": "POST",
+      "path": "/orders/estimate-costs",
       "input_schema": {
         "type": "object",
         "properties": {

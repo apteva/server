@@ -79,10 +79,25 @@ func (c *chatChannel) SendWithComponents(text string, components []framework.Cha
 // immediate exact retry was suppressed. The ordinary Channel methods retain
 // their error-only compatibility for external channel consumers.
 func (c *chatChannel) SendWithReceipt(text string, components []framework.ChatComponent) (framework.MessageDeliveryReceipt, error) {
+	return c.SendWithReceiptAndPhase(text, components, "final")
+}
+
+// SendWithReceiptAndPhase persists the visible message lifecycle phase in the
+// existing metadata_json column. Keeping this as an optional framework
+// capability avoids changing external channel implementations.
+func (c *chatChannel) SendWithReceiptAndPhase(text string, components []framework.ChatComponent, phase string) (framework.MessageDeliveryReceipt, error) {
 	if c.store == nil {
 		return framework.MessageDeliveryReceipt{}, fmt.Errorf("channel-chat: store not initialised")
 	}
-	m, inserted, err := c.store.AppendAgentMessageOnce(c.chatID, text, c.threadID, c.agentID, components)
+	phase = normalizeMessagePhase(phase)
+	m, inserted, err := c.store.AppendAgentMessageOnceWithMetadata(
+		c.chatID,
+		text,
+		c.threadID,
+		c.agentID,
+		components,
+		map[string]any{"phase": phase},
+	)
 	if err != nil {
 		log.Printf("[CHAT] Send DB append failed chatID=%s err=%v", c.chatID, err)
 		return framework.MessageDeliveryReceipt{}, err
@@ -101,6 +116,17 @@ func (c *chatChannel) SendWithReceipt(text string, components []framework.ChatCo
 		c.bus.Publish("chat.message", "channel-chat", *m)
 	}
 	return receipt, nil
+}
+
+func normalizeMessagePhase(phase string) string {
+	switch strings.ToLower(strings.TrimSpace(phase)) {
+	case "acknowledgement":
+		return "acknowledgement"
+	case "progress":
+		return "progress"
+	default:
+		return "final"
+	}
 }
 
 func (c *chatChannel) RequestApproval(req framework.ApprovalRequest) (framework.ApprovalResult, error) {

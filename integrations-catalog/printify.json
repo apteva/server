@@ -29,7 +29,7 @@
       "name": "get_shops",
       "description": "Get user shops",
       "method": "GET",
-      "path": "/get-shops",
+      "path": "/shops.json",
       "input_schema": {
         "type": "object",
         "properties": {}
@@ -39,7 +39,7 @@
       "name": "get_products",
       "description": "Get shop products",
       "method": "GET",
-      "path": "/get-products",
+      "path": "/shops/{shop_id}/products.json",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -53,10 +53,31 @@
       }
     },
     {
+      "name": "get_product",
+      "description": "Get one configured Printify product",
+      "method": "GET",
+      "path": "/shops/{shop_id}/products/{product_id}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "string"
+          },
+          "product_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "shop_id",
+          "product_id"
+        ]
+      }
+    },
+    {
       "name": "create_product",
       "description": "Create a new product",
       "method": "POST",
-      "path": "/create-product",
+      "path": "/shops/{shop_id}/products.json",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -93,7 +114,7 @@
       "name": "update_product",
       "description": "Update a product",
       "method": "PUT",
-      "path": "/update-product",
+      "path": "/shops/{shop_id}/products/{product_id}.json",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -116,8 +137,8 @@
     {
       "name": "publish_product",
       "description": "Publish product to store",
-      "method": "GET",
-      "path": "/publish-product",
+      "method": "POST",
+      "path": "/shops/{shop_id}/products/{product_id}/publish.json",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -138,7 +159,7 @@
       "name": "create_order",
       "description": "Create a new order",
       "method": "POST",
-      "path": "/create-order",
+      "path": "/shops/{shop_id}/orders.json",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -150,6 +171,15 @@
           },
           "address_to": {
             "type": "object"
+          },
+          "external_id": {
+            "type": "string"
+          },
+          "shipping_method": {
+            "type": "integer"
+          },
+          "send_shipping_notification": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -163,7 +193,7 @@
       "name": "get_order",
       "description": "Get order details",
       "method": "GET",
-      "path": "/get-order",
+      "path": "/shops/{shop_id}/orders/{order_id}.json",
       "input_schema": {
         "type": "object",
         "properties": {

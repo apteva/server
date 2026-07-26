@@ -84,6 +84,7 @@ func runRealActionBeforeReply(t *testing.T, setupHarness func(*testing.T, string
 			respond(map[string]any{"tools": []map[string]any{{
 				"name":        "mark_done",
 				"description": "Mark the named todo item done. If the user asks to complete, finish, close, or mark a todo done, call this tool before replying with the result.",
+				"_meta":       map[string]any{"io.apteva/wakeOnResult": "always"},
 				"inputSchema": map[string]any{
 					"type":       "object",
 					"properties": map[string]any{"item": map[string]any{"type": "string"}},
@@ -121,6 +122,13 @@ func runRealActionBeforeReply(t *testing.T, setupHarness func(*testing.T, string
 	h := setupHarness(t, directive,
 		fmt.Sprintf(`{"include_apteva_server":false,"include_channels":true,"mcp_servers":[{"name":"todo","transport":"http","url":%q}]}`, todoMCP.URL))
 	s, agent, chatID := h.server, h.agent, h.chatID
+	baselineCalls := telemetryEventIDs(t, s, agent.ID, "tool.call")
+	var baselineMessageID int64
+	if err := s.store.db.QueryRow(
+		`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, chatID,
+	).Scan(&baselineMessageID); err != nil {
+		t.Fatalf("query baseline chat message: %v", err)
+	}
 	h.post(t, "Mark todo alpha done now. Do not just acknowledge; complete it and tell me the result.")
 
 	var toolSeq []string
@@ -132,7 +140,29 @@ func runRealActionBeforeReply(t *testing.T, setupHarness func(*testing.T, string
 			toolSeq = toolNames(events)
 		}
 		finalReply = latestAgentChatReply(t, s, chatID)
-		if marked.Load() > 0 && looksLikeCompletionReply(finalReply) {
+		var finalPhaseRows int
+		_ = s.store.db.QueryRow(`
+			SELECT COUNT(*) FROM channel_chat_messages
+			WHERE chat_id=? AND role='agent' AND id>?
+			  AND COALESCE(json_extract(metadata_json, '$.phase'), 'final')='final'`,
+			chatID, baselineMessageID,
+		).Scan(&finalPhaseRows)
+		finalPhaseTelemetry := false
+		for _, event := range newTelemetryEvents(t, s, agent.ID, "tool.call", baselineCalls) {
+			var data struct {
+				Name string         `json:"name"`
+				Args map[string]any `json:"args"`
+			}
+			if json.Unmarshal(event.Data, &data) != nil {
+				continue
+			}
+			phase, _ := data.Args["phase"].(string)
+			if (data.Name == "channels_send" || strings.HasSuffix(data.Name, "_channels_send")) && phase == "final" {
+				finalPhaseTelemetry = true
+				break
+			}
+		}
+		if marked.Load() > 0 && finalPhaseRows > 0 && finalPhaseTelemetry && looksLikeCompletionReply(finalReply) {
 			break
 		}
 		time.Sleep(500 * time.Millisecond)
@@ -143,6 +173,73 @@ func runRealActionBeforeReply(t *testing.T, setupHarness func(*testing.T, string
 	}
 	if !looksLikeCompletionReply(finalReply) {
 		t.Fatalf("final chat reply does not report completion: %q (tool sequence=%v)", finalReply, toolSeq)
+	}
+
+	type lifecycleCall struct {
+		name  string
+		phase string
+	}
+	var ordered []lifecycleCall
+	calls := newTelemetryEvents(t, s, agent.ID, "tool.call", baselineCalls)
+	sort.Slice(calls, func(i, j int) bool { return calls[i].Time.Before(calls[j].Time) })
+	for _, event := range calls {
+		var data struct {
+			Name string         `json:"name"`
+			Args map[string]any `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil {
+			continue
+		}
+		phase, _ := data.Args["phase"].(string)
+		ordered = append(ordered, lifecycleCall{name: data.Name, phase: phase})
+	}
+	var visible []lifecycleCall
+	markIndex := -1
+	for index, call := range ordered {
+		if call.name == "mark_done" || call.name == "todo_mark_done" || strings.HasSuffix(call.name, "_mark_done") {
+			markIndex = index
+		}
+		if call.name == "channels_send" || strings.HasSuffix(call.name, "_channels_send") {
+			visible = append(visible, call)
+		}
+	}
+	if len(visible) != 2 || visible[0].phase != "acknowledgement" || visible[1].phase != "final" {
+		t.Fatalf("visible lifecycle calls=%+v, want acknowledgement then final; all=%+v", visible, ordered)
+	}
+	firstVisible, finalVisible := -1, -1
+	for index, call := range ordered {
+		if call.name != "channels_send" && !strings.HasSuffix(call.name, "_channels_send") {
+			continue
+		}
+		if firstVisible < 0 {
+			firstVisible = index
+		} else {
+			finalVisible = index
+		}
+	}
+	if markIndex < 0 || firstVisible < 0 || finalVisible < 0 || !(firstVisible < markIndex && markIndex < finalVisible) {
+		t.Fatalf("tool order=%+v, want acknowledgement < mark_done < final", ordered)
+	}
+
+	rows, err := s.store.db.Query(`
+		SELECT content, COALESCE(json_extract(metadata_json, '$.phase'), 'final')
+		FROM channel_chat_messages
+		WHERE chat_id=? AND role='agent' AND id>?
+		ORDER BY id`, chatID, baselineMessageID)
+	if err != nil {
+		t.Fatalf("query lifecycle messages: %v", err)
+	}
+	defer rows.Close()
+	var persistedPhases []string
+	for rows.Next() {
+		var content, phase string
+		if err := rows.Scan(&content, &phase); err != nil {
+			t.Fatal(err)
+		}
+		persistedPhases = append(persistedPhases, phase)
+	}
+	if strings.Join(persistedPhases, ",") != "acknowledgement,final" {
+		t.Fatalf("persisted phases=%v, want acknowledgement,final", persistedPhases)
 	}
 }
 
@@ -451,8 +548,8 @@ func runRealReportOnlyMilestoneDoesNotWait(t *testing.T, setupHarness func(*test
 
 // TestChannelChat_RealLLM_Codex_DirectChatReplyAfterLookup reproduces the
 // agent 327 failure: a read-only lookup produces an ambiguous result, so the
-// agent must send a visible clarification instead of leaving it in plain model
-// output and pacing.
+// agent must acknowledge before the lookup, then send a visible clarification
+// instead of leaving it in plain model output and pacing.
 func TestChannelChat_RealLLM_Codex_DirectChatReplyAfterLookup(t *testing.T) {
 	runRealDirectChatReplyAfterLookup(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
 		return setupRealChannelChatHarness(t, "chat-reply-after-lookup-codex-under-test", directive, config)
@@ -461,8 +558,8 @@ func TestChannelChat_RealLLM_Codex_DirectChatReplyAfterLookup(t *testing.T) {
 
 // TestChannelChat_RealLLM_Codex_PlatformHelperSequentialReplyAfterLookup covers
 // the Build-page regression where Apteva Helper emitted duplicate answers
-// around apps_list. Dashboard chat permits one concrete acknowledgement before
-// the lookup, but still requires exactly one final reply after it.
+// around apps_list. Dashboard chat requires one concrete acknowledgement before
+// the lookup and exactly one final reply after it.
 func TestChannelChat_RealLLM_Codex_PlatformHelperSequentialReplyAfterLookup(t *testing.T) {
 	runRealDirectChatReplyAfterLookup(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
 		return setupRealPlatformHelperChannelChatHarness(t, "platform-helper-sequential-reply-under-test", directive, config)
@@ -490,7 +587,7 @@ func TestChannelChat_RealLLM_Codex_PlatformHelperUsesDashboardProject(t *testing
 // atomic agents_update operation to Helper main. The conversation already has
 // the authoritative apteva-server tool, so it must inspect and mutate the
 // target directly, then publish one final reply without a core send handoff.
-// A single acknowledgement may precede those tools.
+// A single acknowledgement must precede those tools.
 func TestChannelChat_RealLLM_Codex_PlatformHelperUpdatesAgentDirectiveDirectly(t *testing.T) {
 	h := setupRealPlatformHelperChannelChatHarness(t,
 		"platform-helper-direct-agent-update-codex-under-test",
@@ -609,10 +706,10 @@ func TestChannelChat_RealLLM_Codex_PlatformHelperUpdatesAgentDirectiveDirectly(t
 	if !getAt.Before(updateAt) || !updateAt.Before(finalAt) {
 		t.Fatalf("Helper sequence out of order: get=%s update=%s final=%s", getAt, updateAt, finalAt)
 	}
-	if len(visibleAt) < 1 || len(visibleAt) > 2 {
-		t.Fatalf("Helper visible replies=%d, want optional acknowledgement plus exactly one final", len(visibleAt))
+	if len(visibleAt) != 2 {
+		t.Fatalf("Helper visible replies=%d, want exactly one acknowledgement plus exactly one final", len(visibleAt))
 	}
-	if len(visibleAt) == 2 && !visibleAt[0].Before(getAt) {
+	if !visibleAt[0].Before(getAt) {
 		t.Fatalf("Helper acknowledgement did not precede action tools: acknowledgement=%s get=%s", visibleAt[0], getAt)
 	}
 
@@ -632,8 +729,8 @@ func TestChannelChat_RealLLM_Codex_PlatformHelperUpdatesAgentDirectiveDirectly(t
 		}
 		replies = append(replies, reply)
 	}
-	if len(replies) < 1 || len(replies) > 2 || !containsAnyFold(replies[len(replies)-1], "removed", "no scheduled") {
-		t.Fatalf("Helper replies=%q, want optional acknowledgement then one completed schedule-removal result", replies)
+	if len(replies) != 2 || !containsAnyFold(replies[len(replies)-1], "removed", "no scheduled") {
+		t.Fatalf("Helper replies=%q, want exactly one acknowledgement then one completed schedule-removal result", replies)
 	}
 }
 
@@ -968,8 +1065,8 @@ func runRealPlatformHelperUsesDashboardProject(t *testing.T, setupHarness func(*
 			}
 		}
 	}
-	if visibleBeforeTool > 1 || visibleAfterTool != 1 {
-		t.Fatalf("channels_send sequence before_tool=%d after_tool=%d, want at most one acknowledgement before and one final after the tool", visibleBeforeTool, visibleAfterTool)
+	if visibleBeforeTool != 1 || visibleAfterTool != 1 {
+		t.Fatalf("channels_send sequence before_tool=%d after_tool=%d, want exactly one acknowledgement before and one final after the tool", visibleBeforeTool, visibleAfterTool)
 	}
 	rows, err := h.server.store.db.Query(`
 		SELECT content FROM channel_chat_messages
@@ -1616,6 +1713,7 @@ func runRealDirectChatReplyAfterLookup(t *testing.T, setupHarness func(*testing.
 			respond(map[string]any{"tools": []map[string]any{{
 				"name":        "scheduled_posts_list",
 				"description": "List scheduled social posts. If multiple posts match, do not guess; ask the operator which item in a visible reply.",
+				"_meta":       map[string]any{"io.apteva/wakeOnResult": "always"},
 				"inputSchema": map[string]any{
 					"type":       "object",
 					"properties": map[string]any{"date": map[string]any{"type": "string"}},
@@ -1676,6 +1774,7 @@ func runRealDirectChatReplyAfterLookup(t *testing.T, setupHarness func(*testing.
 		t.Fatal("agent did not inspect the ambiguous scheduled posts")
 	}
 	channelCalls := newChannelCalls(t, h.server, h.agent.ID, baselineCalls)
+	sort.Slice(channelCalls, func(i, j int) bool { return channelCalls[i].Time.Before(channelCalls[j].Time) })
 	var visibleMessages []channelSendCall
 	finalMessages := 0
 	for _, call := range channelCalls {
@@ -1692,12 +1791,15 @@ func runRealDirectChatReplyAfterLookup(t *testing.T, setupHarness func(*testing.
 	if finalMessages != 1 {
 		t.Fatalf("agent did not send exactly one clarification based on the lookup result; calls=%+v", visibleMessages)
 	}
-	if len(visibleMessages) < 1 || len(visibleMessages) > 2 {
-		t.Fatalf("channels_send messages=%d, want optional acknowledgement plus one final; calls=%+v", len(visibleMessages), visibleMessages)
+	if len(visibleMessages) != 2 ||
+		visibleMessages[0].Phase != "acknowledgement" ||
+		visibleMessages[1].Phase != "final" {
+		t.Fatalf("channels_send lifecycle=%+v, want acknowledgement then final", visibleMessages)
 	}
 
 	rows, err := h.server.store.db.Query(`
-		SELECT content FROM channel_chat_messages
+		SELECT content, COALESCE(json_extract(metadata_json, '$.phase'), 'final')
+		FROM channel_chat_messages
 		WHERE chat_id=? AND role='agent' AND id>?
 		  AND COALESCE(components_json, '') NOT LIKE '%"status-card"%'
 		ORDER BY id`, h.chatID, baselineMessageID)
@@ -1705,19 +1807,23 @@ func runRealDirectChatReplyAfterLookup(t *testing.T, setupHarness func(*testing.
 		t.Fatalf("query visible chat replies after lookup: %v", err)
 	}
 	defer rows.Close()
-	var replies []string
+	var replies, persistedPhases []string
 	for rows.Next() {
-		var reply string
-		if err := rows.Scan(&reply); err != nil {
+		var reply, phase string
+		if err := rows.Scan(&reply, &phase); err != nil {
 			t.Fatalf("scan visible chat reply after lookup: %v", err)
 		}
 		replies = append(replies, reply)
+		persistedPhases = append(persistedPhases, phase)
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate visible chat replies after lookup: %v", err)
 	}
 	if len(replies) != len(visibleMessages) {
-		t.Fatalf("persisted agent replies=%d, want optional acknowledgement plus exactly one final after lookup: %q", len(replies), replies)
+		t.Fatalf("persisted agent replies=%d, want acknowledgement plus exactly one final after lookup: %q", len(replies), replies)
+	}
+	if strings.Join(persistedPhases, ",") != "acknowledgement,final" {
+		t.Fatalf("persisted phases=%v, want acknowledgement,final", persistedPhases)
 	}
 	reply := replies[len(replies)-1]
 	lower := strings.ToLower(reply)
@@ -2772,6 +2878,7 @@ type channelSendCall struct {
 	ID       string
 	Time     time.Time
 	Kind     string
+	Phase    string
 	State    string
 	Text     string
 	Title    string
@@ -2813,6 +2920,7 @@ func readChannelCoverageSnapshot(t *testing.T, s *Server, agentID int64, chatID 
 			Name string `json:"name"`
 			Args struct {
 				Kind     string `json:"kind"`
+				Phase    string `json:"phase"`
 				State    string `json:"state"`
 				Text     string `json:"text"`
 				Title    string `json:"title"`
@@ -2982,6 +3090,7 @@ func newChannelCalls(t *testing.T, s *Server, agentID int64, baseline map[string
 			Name string `json:"name"`
 			Args struct {
 				Kind     string `json:"kind"`
+				Phase    string `json:"phase"`
 				State    string `json:"state"`
 				Text     string `json:"text"`
 				Title    string `json:"title"`
@@ -2999,7 +3108,7 @@ func newChannelCalls(t *testing.T, s *Server, agentID int64, baseline map[string
 			continue
 		}
 		calls = append(calls, channelSendCall{
-			ID: data.ID, Time: event.Time, Kind: kind, State: data.Args.State, Text: data.Args.Text,
+			ID: data.ID, Time: event.Time, Kind: kind, Phase: data.Args.Phase, State: data.Args.State, Text: data.Args.Text,
 			Title: data.Args.Title, Detail: data.Args.Detail, Next: data.Args.Next, NextAt: data.Args.NextAt,
 			Progress: numericStatusProgress(data.Args.Progress),
 		})

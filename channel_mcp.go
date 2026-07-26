@@ -192,6 +192,12 @@ func (s *channelMCPServer) toolsList() map[string]any {
 					"properties": map[string]any{
 						"channel": map[string]any{"type": "string", "description": "Target channel. Use \"current\" to reply where the event originated, \"apteva\" for the durable Apteva operator chat, or an id returned by list_channels."},
 						"text":    map[string]any{"type": "string", "description": "Complete user-visible message. Thoughts and plain assistant output are invisible; put the actual reply here."},
+						"phase": map[string]any{
+							"type":        "string",
+							"enum":        []string{"acknowledgement", "progress", "final"},
+							"default":     "final",
+							"description": "Lifecycle phase for this visible message. Use acknowledgement before promised tool work, progress only for a meaningful intermediate update, and final for the completed answer. Omitted values are treated as final.",
+						},
 						"components": map[string]any{
 							"type":        "array",
 							"description": "Optional rich attachments for kind=message — see AVAILABLE COMPONENTS in the description. External channels ignore this field; the Apteva channel renders attachments.",
@@ -425,7 +431,7 @@ func buildSendDescription(channelIDs []string, components []componentEntry) stri
 		"Send one complete user-visible message through a communication channel. Thoughts and plain assistant output are INVISIBLE; only this tool delivers chat text. Use publish for approvals/reports/alerts and set_status for mutable work state.\n\n"+
 			"channel=\"current\" replies where the event originated. For dashboard chat it resolves to apteva. channel=\"apteva\" is durable and saves messages even while the operator is offline.\n"+
 			"Use this tool for a direct [chat] turn and for the later outcome of work explicitly requested in that chat, even if the operator disconnected before completion. Outside a direct [chat] request, send ordinary chat only when the operator or directive explicitly asks for a chat message at that time. Do NOT send ordinary chat for autonomous or scheduled checks, routine monitoring, unchanged or no-op results, idle updates, repeated progress, connect/disconnect events, or internal/system events. A request to \"send a status update\" or \"update the status\" means set_status unless it explicitly asks for a chat message. For a recurring autonomous check with no meaningful change, set_status at most once if appropriate, call pace for the next due check, and remain silent; status next_at does not schedule a wake.\n"+
-			"For a direct [chat] turn that requires tools, including dashboard conversation threads, prefer a short visible acknowledgement before beginning tool work so the operator knows the concrete next action. This is strong guidance, not a hard requirement: skip it when the complete answer can be sent immediately or an acknowledgement would be empty or repetitive. If you acknowledge, wait for this send to succeed before action tools; never parallelize the acknowledgement with them. After the promised work, send exactly one final outcome; the acknowledgement never replaces it. A tool-work turn has either one final message or two intentional messages—acknowledgement then final—and never more. For a durable handoff, prefer acknowledgement before send(main); if it was skipped, at most one acknowledgement may follow the successful handoff receipt, never both.\n"+
+			"For a direct [chat] turn that requires one or more non-channel tools, including dashboard conversation threads, first send exactly one short visible acknowledgement with phase=\"acknowledgement\" stating the concrete next action. This acknowledgement is required before the first non-channel tool call, including quick or read-only lookups. Wait for this send to succeed before action tools; never parallelize the acknowledgement with them. One acknowledgement covers a parallel batch and its immediately dependent tool calls—do not narrate each tool separately. Use phase=\"progress\" only for a genuinely useful intermediate update during longer work. After the promised work, send exactly one final outcome with phase=\"final\"; the acknowledgement never replaces it. Omitted phase defaults to final. A normal tool-work turn has exactly two intentional messages—acknowledgement then final—and never more. For a durable handoff, send the required acknowledgement before send(main), never after it.\n"+
 			"Every direct [chat] turn requires at least one successful call to this tool before pace, done, or going idle. The turn is incomplete until you send its visible answer. This also applies to clarifications, read-only lookup results, blockers, failures, and no-op outcomes. After any non-channel tool result used for the request, send the outcome or next question here before pacing; never leave it only in thoughts or plain assistant output.\n"+
 			"A successful send wakes you again, but its result is only the delivery receipt for that exact message. Never repeat it. Continue only concrete unfinished work explicitly promised in an acknowledgement and send one final outcome afterward; otherwise pace/done. Build each message as one complete call and never send placeholders or duplicates.\n\n"+
 			"KNOWN CHANNELS (valid values for channel): [%s].\n"+
@@ -449,6 +455,17 @@ Correct approval example: {"kind":"approval","title":"Approve production deploy"
 Correct alert example: {"kind":"alert","title":"CRM authentication expired","content":"Lead synchronization stopped after the CRM token expired; reconnect the integration to resume.","severity":"error"}
 
 Follow an explicit operator request or directive when it defines report timing. Otherwise publish at most one unsolicited report per day, near the end of the operator's day, and only when meaningful work was completed since the previous report. Combine that day's work into one digest and use period=today. If no meaningful work was done, publish no report. Use approvals only when a decision is genuinely required. Use alerts only for important problems requiring attention.`
+}
+
+func normalizeVisibleMessagePhase(phase string) string {
+	switch strings.ToLower(strings.TrimSpace(phase)) {
+	case "acknowledgement":
+		return "acknowledgement"
+	case "progress":
+		return "progress"
+	default:
+		return "final"
+	}
 }
 
 func buildSetStatusDescription() string {
@@ -585,7 +602,7 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		}
 	}
 
-	sendVisibleMessage := func(text, channel string, components []framework.ChatComponent) (framework.MessageDeliveryReceipt, any) {
+	sendVisibleMessage := func(text, channel, phase string, components []framework.ChatComponent) (framework.MessageDeliveryReceipt, any) {
 		rawChannel := channel
 		if channel == "current" {
 			channel = s.resolveCurrentChannel()
@@ -644,6 +661,14 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		ch := scopeChannel(s.registry.Get(normalized))
 		if ch == nil {
 			return framework.MessageDeliveryReceipt{}, textToolError(fmt.Sprintf("channel %q not found", normalized))
+		}
+		phase = normalizeVisibleMessagePhase(phase)
+		if sender, ok := ch.(framework.PhasedReceiptSender); ok {
+			receipt, err := sender.SendWithReceiptAndPhase(text, components, phase)
+			if err != nil {
+				return framework.MessageDeliveryReceipt{}, textToolError(err.Error())
+			}
+			return receipt, nil
 		}
 		if sender, ok := ch.(framework.ReceiptSender); ok {
 			receipt, err := sender.SendWithReceipt(text, components)
@@ -822,7 +847,8 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		switch kind {
 		case "message":
 			text, _ := call.Arguments["text"].(string)
-			receipt, errResult := sendVisibleMessage(text, channel, extractComponents(call.Arguments["components"]))
+			phase, _ := call.Arguments["phase"].(string)
+			receipt, errResult := sendVisibleMessage(text, channel, phase, extractComponents(call.Arguments["components"]))
 			if errResult != nil {
 				return errResult, nil
 			}
@@ -885,7 +911,8 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		// alongside the text. Otherwise fall back to plain Send so
 		// channels without rich rendering still get the text.
 		components := extractComponents(call.Arguments["components"])
-		receipt, errResult := sendVisibleMessage(text, channel, components)
+		phase, _ := call.Arguments["phase"].(string)
+		receipt, errResult := sendVisibleMessage(text, channel, phase, components)
 		if errResult != nil {
 			return errResult, nil
 		}

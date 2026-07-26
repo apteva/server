@@ -1071,20 +1071,44 @@ func (s *store) appendFull(chatID, role, content string, userID, agentID *int64,
 // retry as idempotent only when no newer visible user message exists, so two
 // separate user turns can still receive the same legitimate response.
 func (s *store) AppendAgentMessageOnce(chatID, content, threadID string, agentID int64, components []framework.ChatComponent) (*Message, bool, error) {
+	return s.AppendAgentMessageOnceWithMetadata(
+		chatID,
+		content,
+		threadID,
+		agentID,
+		components,
+		map[string]any{"phase": "final"},
+	)
+}
+
+// AppendAgentMessageOnceWithMetadata persists an agent reply and includes its
+// lifecycle metadata in immediate-retry detection. The same text can
+// legitimately appear in different lifecycle phases, so phase must be part of
+// the idempotency fingerprint.
+func (s *store) AppendAgentMessageOnceWithMetadata(chatID, content, threadID string, agentID int64, components []framework.ChatComponent, metadata map[string]any) (*Message, bool, error) {
 	if components == nil {
 		components = []framework.ChatComponent{}
+	}
+	if metadata == nil {
+		metadata = map[string]any{"phase": "final"}
 	}
 	componentsJSON, err := json.Marshal(components)
 	if err != nil {
 		return nil, false, fmt.Errorf("marshal components: %w", err)
 	}
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal metadata: %w", err)
+	}
 	encodedComponents := string(componentsJSON)
+	encodedMetadata := string(metadataJSON)
 	var id int64
 	inserted := false
 	err = s.withImmediateWrite(func(ctx context.Context, conn *sql.Conn) error {
-		var latestRole, latestContent, latestThread, latestComponents string
+		var latestRole, latestContent, latestThread, latestComponents, latestMetadata string
 		latestErr := conn.QueryRowContext(ctx, `
-			SELECT id, role, content, COALESCE(thread_id, ''), COALESCE(components_json, '[]')
+			SELECT id, role, content, COALESCE(thread_id, ''), COALESCE(components_json, '[]'),
+			       COALESCE(metadata_json, '{}')
 			FROM channel_chat_messages
 			WHERE chat_id = ?
 			  AND created_at >= datetime('now', '-5 seconds')
@@ -1093,8 +1117,9 @@ func (s *store) AppendAgentMessageOnce(chatID, content, threadID string, agentID
 			  AND COALESCE(components_json, '[]') NOT LIKE '%"alert-card"%'
 			  AND COALESCE(components_json, '[]') NOT LIKE '%"status-card"%'
 			ORDER BY id DESC
-			LIMIT 1`, chatID).Scan(&id, &latestRole, &latestContent, &latestThread, &latestComponents)
-		if latestErr == nil && latestRole == "agent" && latestThread == threadID && latestComponents == encodedComponents {
+			LIMIT 1`, chatID).Scan(&id, &latestRole, &latestContent, &latestThread, &latestComponents, &latestMetadata)
+		if latestErr == nil && latestRole == "agent" && latestThread == threadID &&
+			latestComponents == encodedComponents && latestMetadata == encodedMetadata {
 			exactRetry := latestContent == content
 			latestFingerprint := immediateReplyFingerprint(latestContent)
 			paraphrasedRetry := latestFingerprint != "" && latestFingerprint == immediateReplyFingerprint(content)
@@ -1110,8 +1135,8 @@ func (s *store) AppendAgentMessageOnce(chatID, content, threadID string, agentID
 			INSERT INTO channel_chat_messages
 				(chat_id, role, content, user_id, agent_id, thread_id, status,
 				 components_json, attachments_json, metadata_json, client_message_id)
-			VALUES (?, 'agent', ?, NULL, ?, ?, 'final', ?, '[]', '{}', '')`,
-			chatID, content, agentID, threadID, encodedComponents)
+			VALUES (?, 'agent', ?, NULL, ?, ?, 'final', ?, '[]', ?, '')`,
+			chatID, content, agentID, threadID, encodedComponents, encodedMetadata)
 		if err != nil {
 			return err
 		}
