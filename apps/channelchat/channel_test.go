@@ -178,6 +178,78 @@ func TestChatChannelCurrentStatusPersistsNormalizesAndClearsNextAction(t *testin
 	}
 }
 
+func TestCurrentStatusMonitoringIgnoresConversationScopedLegacyRows(t *testing.T) {
+	db := openChannelTestDB(t, true)
+	defer db.Close()
+	st := newStore(db)
+	if _, err := db.Exec(`INSERT INTO agents (id, user_id, name, project_id) VALUES (285, 99, 'Media Agent', 'default')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EnsureDefaultChat(285); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO channel_chat_chats (id, agent_id, title, project_id, owner_user_id, kind, thread_id)
+		VALUES ('conv-status-legacy', 285, 'Legacy conversation', 'default', 99, 'direct', 'chat-conv-status-legacy')`); err != nil {
+		t.Fatal(err)
+	}
+	hub := newHub()
+	conversation := &chatChannel{
+		chatID: "conv-status-legacy", threadID: "chat-conv-status-legacy",
+		agentID: 285, userID: 99, store: st, hub: hub,
+	}
+	if _, err := conversation.SetCurrentStatus(framework.CurrentStatusRequest{
+		Title: "Conversation import", State: "working",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := st.ListCurrentStatuses([]int64{285}, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 0 {
+		t.Fatalf("conversation-scoped legacy status leaked into global monitoring: %#v", statuses)
+	}
+
+	main := &chatChannel{
+		chatID: defaultChatID(285), threadID: "main",
+		agentID: 285, userID: 99, store: st, hub: hub,
+	}
+	if _, err := main.SetCurrentStatus(framework.CurrentStatusRequest{
+		Title: "Main import", State: "working",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err = st.ListCurrentStatuses([]int64{285}, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 1 || statuses[0].Title != "Main import" || statuses[0].Message.ThreadID != "main" {
+		t.Fatalf("global status is not exclusively main-owned: %#v", statuses)
+	}
+}
+
+func TestChatChannelFactoryMarksDefaultSinkAsMain(t *testing.T) {
+	db := openChannelTestDB(t, true)
+	defer db.Close()
+	st := newStore(db)
+	if _, err := db.Exec(`INSERT INTO agents (id, user_id, name, project_id) VALUES (285, 99, 'Media Agent', 'default')`); err != nil {
+		t.Fatal(err)
+	}
+	factory := &chatChannelFactory{store: st, hub: newHub()}
+	built, err := factory.Build(nil, framework.InstanceInfo{ID: 285, UserID: 99})
+	if err != nil {
+		t.Fatal(err)
+	}
+	channel, ok := built.(*chatChannel)
+	if !ok {
+		t.Fatalf("factory built %T, want *chatChannel", built)
+	}
+	if channel.chatID != defaultChatID(285) || channel.threadID != "main" {
+		t.Fatalf("factory sink chat=%q thread=%q, want hidden default sink on main", channel.chatID, channel.threadID)
+	}
+}
+
 func TestChatChannelCurrentStatusValidatesNextAction(t *testing.T) {
 	db := openChannelTestDB(t, false)
 	defer db.Close()

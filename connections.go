@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"mime/multipart"
 	"net/http"
 	neturl "net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -54,6 +56,120 @@ func isBinaryContentType(ct string) bool {
 		}
 	}
 	return false
+}
+
+func applyHeaderTransforms(headers map[string]string, transforms []HeaderTransformDef, input map[string]any) (map[string]bool, error) {
+	localParams := make(map[string]bool)
+	for _, transform := range transforms {
+		if transform.StartParam != "" {
+			localParams[transform.StartParam] = true
+		}
+		if transform.EndParam != "" {
+			localParams[transform.EndParam] = true
+		}
+		if transform.Type != "byte_range" {
+			return nil, fmt.Errorf("unsupported header transform %q", transform.Type)
+		}
+
+		startRaw, hasStart := nonEmptyInput(input, transform.StartParam)
+		endRaw, hasEnd := nonEmptyInput(input, transform.EndParam)
+		if !hasStart && !hasEnd {
+			continue
+		}
+		if !hasStart {
+			return nil, fmt.Errorf("%s requires %s", transform.EndParam, transform.StartParam)
+		}
+		start, err := nonNegativeInt64(startRaw, transform.StartParam)
+		if err != nil {
+			return nil, err
+		}
+
+		value := fmt.Sprintf("bytes=%d-", start)
+		if hasEnd {
+			end, err := nonNegativeInt64(endRaw, transform.EndParam)
+			if err != nil {
+				return nil, err
+			}
+			if end < start {
+				return nil, fmt.Errorf("%s must be greater than or equal to %s", transform.EndParam, transform.StartParam)
+			}
+			value += strconv.FormatInt(end, 10)
+		}
+		header := transform.Header
+		if header == "" {
+			header = "Range"
+		}
+		headers[header] = value
+	}
+	return localParams, nil
+}
+
+func nonEmptyInput(input map[string]any, name string) (any, bool) {
+	if name == "" {
+		return nil, false
+	}
+	value, ok := input[name]
+	if !ok || value == nil {
+		return nil, false
+	}
+	if text, isString := value.(string); isString && text == "" {
+		return nil, false
+	}
+	return value, true
+}
+
+func nonNegativeInt64(value any, name string) (int64, error) {
+	var parsed int64
+	var err error
+	switch typed := value.(type) {
+	case int:
+		parsed = int64(typed)
+	case int8:
+		parsed = int64(typed)
+	case int16:
+		parsed = int64(typed)
+	case int32:
+		parsed = int64(typed)
+	case int64:
+		parsed = typed
+	case uint:
+		if uint64(typed) > math.MaxInt64 {
+			return 0, fmt.Errorf("%s must be a non-negative integer", name)
+		}
+		parsed = int64(typed)
+	case uint8:
+		parsed = int64(typed)
+	case uint16:
+		parsed = int64(typed)
+	case uint32:
+		parsed = int64(typed)
+	case uint64:
+		if typed > math.MaxInt64 {
+			return 0, fmt.Errorf("%s must be a non-negative integer", name)
+		}
+		parsed = int64(typed)
+	case float32:
+		number := float64(typed)
+		if math.Trunc(number) != number || number > math.MaxInt64 {
+			return 0, fmt.Errorf("%s must be a non-negative integer", name)
+		}
+		parsed = int64(number)
+	case float64:
+		if math.Trunc(typed) != typed || typed > math.MaxInt64 {
+			return 0, fmt.Errorf("%s must be a non-negative integer", name)
+		}
+		parsed = int64(typed)
+	case json.Number:
+		parsed, err = typed.Int64()
+	case string:
+		parsed, err = strconv.ParseInt(typed, 10, 64)
+	default:
+		err = fmt.Errorf("unsupported value")
+	}
+	if err != nil || parsed < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative integer", name)
+	}
+	return parsed, nil
 }
 
 func buildMultipartRequestBody(tool *AppToolDef, input map[string]any, credentials map[string]string, authBodyParams map[string]string) (io.Reader, string, error) {
@@ -999,6 +1115,8 @@ type ExecuteResult struct {
 var forwardableHeaders = []string{
 	"Location",
 	"Content-Type",
+	"Content-Range",
+	"Accept-Ranges",
 	"Etag",
 	"Last-Modified",
 	"Content-Length",
@@ -1393,6 +1511,10 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		}
 		headers[headerName] = fmt.Sprint(v)
 	}
+	localHeaderTransformParams, err := applyHeaderTransforms(headers, tool.HeaderTransforms, input)
+	if err != nil {
+		return nil, err
+	}
 	if _, set := headers["Accept"]; !set {
 		if _, lowerSet := headers["accept"]; !lowerSet {
 			headers["Accept"] = "application/json"
@@ -1412,13 +1534,13 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	toolQuerySet := make(map[string]bool, len(tool.QueryParams)+len(tool.QueryParamAliases))
 	localResponseParams := responseTransformLocalParams(tool.ResponseTransform)
 	for _, name := range tool.QueryParams {
-		if localResponseParams[name] {
+		if localResponseParams[name] || localHeaderTransformParams[name] {
 			continue
 		}
 		toolQuerySet[name] = true
 	}
 	for name := range tool.QueryParamAliases {
-		if localResponseParams[name] {
+		if localResponseParams[name] || localHeaderTransformParams[name] {
 			continue
 		}
 		toolQuerySet[name] = true
@@ -1427,7 +1549,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	// values so optional fields don't become noisy ?foo= in the URL.
 	toolQuery := neturl.Values{}
 	for _, name := range tool.QueryParams {
-		if localResponseParams[name] {
+		if localResponseParams[name] || localHeaderTransformParams[name] {
 			continue
 		}
 		v, ok := input[name]
@@ -1440,7 +1562,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		addQueryValue(toolQuery, name, v)
 	}
 	for inputName, queryName := range tool.QueryParamAliases {
-		if localResponseParams[inputName] {
+		if localResponseParams[inputName] || localHeaderTransformParams[inputName] {
 			continue
 		}
 		if queryName == "" {
@@ -1606,6 +1728,9 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 				if localResponseParams[k] {
 					continue
 				}
+				if localHeaderTransformParams[k] {
+					continue
+				}
 				if _, isHeaderParam := tool.HeaderParams[k]; isHeaderParam {
 					continue
 				}
@@ -1654,6 +1779,9 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 				continue
 			}
 			if localResponseParams[k] {
+				continue
+			}
+			if localHeaderTransformParams[k] {
 				continue
 			}
 			if _, isHeaderParam := tool.HeaderParams[k]; isHeaderParam {

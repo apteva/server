@@ -48,6 +48,8 @@ not start unrelated work merely because it appears in the inherited directive.
 - Progress never replaces the final outcome. After tool work, send exactly one complete final result, clarification, blocker, or next question. A successful final delivery ends the user turn; never repeat or paraphrase it.
 - Thoughts and plain assistant output are not visible to the user and do not count as a reply.
 - Any active user turn with an observed non-channel tool result is still unfinished. On your next decision, either run the next required action tool or send the visible outcome or question with channels_send. Pace, done, and idle are prohibited until the final channels_send receipt succeeds.
+- The conversation is durable. Continue to send requested progress and the final result even if the user disconnects.
+- channels_publish is limited here to approval or alert. Publish an approval only when work cannot continue without a user decision, or an alert for a genuinely important problem requiring attention. Never publish routine progress, ordinary final answers, or reports from this conversation. After publishing, also send one concise chat explanation.
 
 [INTERACTIVE WORK AND CHILD JOBS]
 - Handle short interactive work yourself.
@@ -63,6 +65,15 @@ not start unrelated work merely because it appears in the inherited directive.
 - Use one ACTION REQUIRED — reply to this conversation: ... message when work must continue after this chat, changes persistent behavior, creates a recurring responsibility, requires unavailable authority, or needs coordination across persistent threads. End it by asking main to reply to this originating conversation with the result, then wait for that reply before confirming completion to the user.
 - Never send the same milestone both as a report and an action request. Do not forward every child event. If main replies to a report-only message without being asked, use it only when it materially changes the user's outcome.
 - After relaying an action-required result to the user, do not send main a confirmation or completion acknowledgement.
+
+[CENTRAL AGENT STATE]
+Main exclusively owns the agent's global status, periodic reports, and autonomous
+operator state. This conversation reports one-off long work to the user with
+selective channels_send phase="progress" messages; it never creates or replaces
+global status. If work becomes recurring, autonomous, cross-conversation, or
+must otherwise outlive this conversation's responsibility, hand ownership to
+main as ACTION REQUIRED. Main then owns execution and status; wait for its result
+and relay one final answer to the user.
 
 [DIRECTIVE OWNERSHIP]
 Conversation-local preferences remain in this conversation. Never call evolve
@@ -128,6 +139,8 @@ func chatThreadDirectiveFor(inst framework.InstanceInfo) string {
 // query errors). `channels` is the bare minimum for the thread to
 // reply at all.
 var fallbackChatThreadMCPs = []string{"channels"}
+
+const mainOutputMCPName = "agent-output"
 
 // spawnedChatThreads remembers the last directive hash applied to each
 // (instance, chat) pair. It is only a drift-detection optimization: every
@@ -1967,16 +1980,16 @@ func (h *handlers) ensureChatThread(inst framework.InstanceInfo, chatID string) 
 	prev, alreadySpawned := spawnedChatThreads.Load(cacheKey)
 
 	// We're going to either spawn (first time) or update (drifted).
-	// Both want main's MCP surface. "channels" is always required —
-	// the chat thread needs channels_send to reply at all; the
-	// rest mirrors the instance's effective MCP list so quick
-	// reads/lookups can be served without round-tripping through main.
+	// User conversations retain the agent's domain MCP surface for direct
+	// interactive work, but never inherit main's central output MCP. The
+	// conversation-only `channels` scope supplies durable reply plus narrowly
+	// scoped approval/alert publication.
 	mcps, err := h.instances.ListMCPNames(inst)
 	if err != nil || len(mcps) == 0 {
 		log.Printf("[CHAT] ListMCPNames inst=%d: %v — using minimal fallback", inst.ID, err)
 		mcps = fallbackChatThreadMCPs
 	} else {
-		mcps = ensureChannels(mcps)
+		mcps = conversationThreadMCPs(mcps)
 	}
 
 	// POST is intentionally unconditional and idempotent. Besides creating a
@@ -2067,6 +2080,19 @@ func ensureChannels(mcps []string) []string {
 		}
 	}
 	return append([]string{"channels"}, mcps...)
+}
+
+func conversationThreadMCPs(mcps []string) []string {
+	filtered := make([]string, 0, len(mcps))
+	for _, name := range mcps {
+		switch strings.TrimSpace(name) {
+		case "", mainOutputMCPName, "apteva-agent-output":
+			continue
+		default:
+			filtered = append(filtered, name)
+		}
+	}
+	return ensureChannels(filtered)
 }
 
 func missingAny(have, want []string) bool {

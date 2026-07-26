@@ -113,10 +113,11 @@ func (r *ChannelRegistry) CloseAll() {
 
 // AgentChannels holds all channel infrastructure for a running instance.
 type AgentChannels struct {
-	registry *ChannelRegistry
-	mcp      *channelMCPServer
-	telegram *TelegramGateway
-	cli      *CLIBridge
+	registry  *ChannelRegistry
+	mcp       *channelMCPServer
+	outputMCP *channelMCPServer
+	telegram  *TelegramGateway
+	cli       *CLIBridge
 }
 
 // activeChannel is an optional interface channels may implement to
@@ -205,6 +206,9 @@ func (ic *AgentChannels) Stop() {
 	}
 	if ic.mcp != nil {
 		ic.mcp.close()
+	}
+	if ic.outputMCP != nil {
+		ic.outputMCP.close()
 	}
 	if ic.registry != nil {
 		ic.registry.CloseAll()

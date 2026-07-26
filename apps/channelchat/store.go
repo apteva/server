@@ -1679,7 +1679,8 @@ func (s *store) ListCurrentStatuses(ownerIDs []int64, projectID string) ([]Curre
 		args = append(args, id)
 	}
 	where := `COALESCE(m.agent_id, c.agent_id) IN (` + strings.Join(placeholders, ",") + `)
-		AND COALESCE(m.components_json, '[]') LIKE '%"status-card"%'`
+		AND COALESCE(m.components_json, '[]') LIKE '%"status-card"%'
+		AND m.chat_id = printf('default-%d', COALESCE(m.agent_id, c.agent_id))`
 	if strings.TrimSpace(projectID) != "" {
 		where += ` AND i.project_id = ?`
 		args = append(args, strings.TrimSpace(projectID))

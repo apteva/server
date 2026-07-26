@@ -79,8 +79,12 @@ func TestBuildSendDescription_MessageWakesAgain(t *testing.T) {
 		"Do NOT send ordinary chat for autonomous or scheduled checks",
 		"unchanged or no-op results",
 		`"send a status update" or "update the status" means set_status`,
-		"call pace for the next due check, and remain silent",
-		"status next_at does not schedule a wake",
+		"Every due directive-defined recurring monitor cycle must call set_status exactly once",
+		"never call pace as its only post-cycle action",
+		"call pace exactly once for the next cycle and remain silent",
+		"successful pace result is its scheduling receipt",
+		"must not trigger another pace call",
+		"Status next_at does not schedule a wake",
 	} {
 		if !strings.Contains(desc, want) {
 			t.Fatalf("respond description missing %q:\n%s", want, desc)
@@ -201,6 +205,15 @@ func TestChannelMCPAdvertisesUnconditionalSchemas(t *testing.T) {
 	nextAtDescription, _ := nextAt["description"].(string)
 	for _, want := range []string{
 		"meaningful operator-relevant work",
+		"Every due cycle of a directive-defined recurring monitor MUST call this tool exactly once",
+		"required completion receipt",
+		"never call pace as the only post-cycle action",
+		"call pace exactly once for the next due cycle",
+		"successful pace result is the scheduling receipt",
+		"must not trigger another pace call",
+		"include both next and next_at",
+		"scheduler event",
+		"recurring-cycle requirement overrides the general read-only, isolated quick-action, and channel-publication exclusions",
 		"multi-step, long-running, or cannot currently continue",
 		"always call this tool at meaningful phase changes",
 		"do not merely describe the state in thoughts or chat",
@@ -262,20 +275,159 @@ func TestChannelMCPSetStatusDescriptionSeparatesCurrentWorkFromFutureSchedule(t 
 		"title names the current work unit or completed outcome",
 		"never a future action or waiting/blocking condition",
 		"never use waiting with 100 percent",
-		"Skip status for directive or memory edits",
+		"Except for the completed recurring-monitor cycle defined above",
+		"skip status for directive or memory edits",
 		"status maintenance itself",
 		"isolated quick actions",
 		"merely sleeping until future recurring work",
 		"Do not set a status just to announce what you may do later",
 		"A completed recurring task may remain completed while next and next_at describe its next scheduled run",
 		`"send a status update" or "update the status"`,
-		"must not also create an ordinary chat message",
-		"call pace for the next due check",
+		"Do not also create an ordinary chat message",
+		"call pace exactly once for the next due cycle",
 		"next_at is display metadata and does not schedule a wake",
 	} {
 		if !strings.Contains(desc, want) {
 			t.Fatalf("set_status description missing %q:\n%s", want, desc)
 		}
+	}
+}
+
+func TestChannelMCPRoleProfilesExposeOnlyOwnedTools(t *testing.T) {
+	toolNames := func(profile channelMCPProfile) []string {
+		t.Helper()
+		server := &channelMCPServer{registry: NewChannelRegistry(), profile: profile}
+		tools := server.toolsList()["tools"].([]map[string]any)
+		names := make([]string, 0, len(tools))
+		for _, tool := range tools {
+			name, _ := tool["name"].(string)
+			names = append(names, name)
+		}
+		return names
+	}
+	if got := strings.Join(toolNames(channelMCPProfileConversation), ","); got != "send,publish" {
+		t.Fatalf("conversation tools=%s, want send,publish", got)
+	}
+	if got := strings.Join(toolNames(channelMCPProfileAgentOutput), ","); got != "notify,publish,set_status,list_channels" {
+		t.Fatalf("main output tools=%s, want notify,publish,set_status,list_channels", got)
+	}
+
+	mainTools := (&channelMCPServer{
+		registry: NewChannelRegistry(),
+		profile:  channelMCPProfileAgentOutput,
+	}).toolsList()["tools"].([]map[string]any)
+	for _, tool := range mainTools {
+		description, _ := tool["description"].(string)
+		for _, required := range []string{
+			"Main is their only writer",
+			"updating main's own directive with evolve",
+			"Do not spawn a persistent child merely to hold that schedule or behavior",
+			"Never grant a child any agent-output tool",
+			"report results and state changes to main with core send",
+		} {
+			if !strings.Contains(description, required) {
+				t.Fatalf("%s description missing ownership rule %q:\n%s", tool["name"], required, description)
+			}
+		}
+	}
+
+	conversation := (&channelMCPServer{
+		registry: NewChannelRegistry(),
+		profile:  channelMCPProfileConversation,
+	}).toolsList()["tools"].([]map[string]any)
+	publishSchema := conversation[1]["inputSchema"].(map[string]any)
+	publishProps := publishSchema["properties"].(map[string]any)
+	kinds := publishProps["kind"].(map[string]any)["enum"].([]string)
+	if strings.Join(kinds, ",") != "approval,alert" {
+		t.Fatalf("conversation publication kinds=%v", kinds)
+	}
+	for _, forbidden := range []string{"period", "sections", "tags"} {
+		if _, exists := publishProps[forbidden]; exists {
+			t.Fatalf("conversation publish unexpectedly exposes %s", forbidden)
+		}
+	}
+}
+
+func TestChannelMCPConversationProfileEnforcesConversationScopeAndCentralOwnership(t *testing.T) {
+	registry := NewChannelRegistry()
+	target := &captureChannel{id: "apteva"}
+	scoped := &scopedCaptureChannel{
+		captureChannel: captureChannel{id: "apteva"},
+		target:         target,
+	}
+	registry.Register(scoped)
+	server := &channelMCPServer{registry: registry, profile: channelMCPProfileConversation}
+
+	call := func(name string, arguments map[string]any) string {
+		t.Helper()
+		params, _ := json.Marshal(map[string]any{"name": name, "arguments": arguments})
+		out, rpcErr := server.handleToolCall(params)
+		if rpcErr != nil {
+			t.Fatalf("%s rpc error: %#v", name, rpcErr)
+		}
+		encoded, _ := json.Marshal(out)
+		return string(encoded)
+	}
+	if got := call("send", map[string]any{"channel": "current", "text": "Hi"}); !strings.Contains(got, "originating user conversation") {
+		t.Fatalf("unscoped conversation send was not rejected: %s", got)
+	}
+	context := map[string]any{
+		"_apteva_caller_context": "chat-conv-1",
+		"channel":                "current",
+		"text":                   "Working on it",
+		"phase":                  "progress",
+	}
+	if got := call("send", context); !strings.Contains(got, "delivered") || target.sent != "Working on it" {
+		t.Fatalf("scoped conversation reply failed: result=%s sent=%q", got, target.sent)
+	}
+	if got := call("set_status", map[string]any{
+		"_apteva_caller_context": "chat-conv-1",
+		"title":                  "Import", "state": "working",
+	}); !strings.Contains(got, "global status") {
+		t.Fatalf("conversation status was not rejected: %s", got)
+	}
+	if got := call("publish", map[string]any{
+		"_apteva_caller_context": "chat-conv-1",
+		"kind":                   "report", "title": "Routine report", "content": "Done",
+	}); !strings.Contains(got, "reports are not allowed") {
+		t.Fatalf("conversation report was not rejected: %s", got)
+	}
+	if got := call("publish", map[string]any{
+		"_apteva_caller_context": "chat-conv-1",
+		"kind":                   "approval", "title": "Approve import", "content": "Continue?",
+	}); !strings.Contains(got, "approval sent") || target.approvals != 1 {
+		t.Fatalf("conversation approval failed: result=%s approvals=%d", got, target.approvals)
+	}
+}
+
+func TestChannelMCPAgentOutputProfileOwnsStatusAndExternalNotification(t *testing.T) {
+	registry := NewChannelRegistry()
+	internal := &captureChannel{id: "apteva"}
+	external := &captureChannel{id: "slack:C123"}
+	registry.Register(internal)
+	registry.Register(external)
+	server := &channelMCPServer{registry: registry, profile: channelMCPProfileAgentOutput}
+
+	call := func(name string, arguments map[string]any) string {
+		t.Helper()
+		params, _ := json.Marshal(map[string]any{"name": name, "arguments": arguments})
+		out, rpcErr := server.handleToolCall(params)
+		if rpcErr != nil {
+			t.Fatalf("%s rpc error: %#v", name, rpcErr)
+		}
+		encoded, _ := json.Marshal(out)
+		return string(encoded)
+	}
+	if got := call("set_status", map[string]any{
+		"title": "CRM import", "state": "working", "progress": 40,
+	}); !strings.Contains(got, "current status updated") || internal.currentStatus.State != "working" {
+		t.Fatalf("main status failed: result=%s status=%+v", got, internal.currentStatus)
+	}
+	if got := call("notify", map[string]any{"channel": "apteva", "text": "Wrong path"}); !strings.Contains(got, "originating conversation") {
+		t.Fatalf("main internal chat notification was not rejected: %s", got)
+	}
+	if got := call("notify", map[string]any{"channel": "slack:C123", "text": "External update"}); !strings.Contains(got, "delivered") || external.sent != "External update" {
+		t.Fatalf("main external notification failed: result=%s sent=%q", got, external.sent)
 	}
 }
 

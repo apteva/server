@@ -1449,7 +1449,7 @@ func spawnableMCPNames(servers []callbackMCPServerConfig) []string {
 	seen := make(map[string]bool, len(servers))
 	for _, server := range servers {
 		name := strings.TrimSpace(server.Name)
-		system := name == "apteva-server" || name == "channels" || name == "apteva-channels"
+		system := name == "apteva-server" || isServerOwnedOutputMCP(name)
 		if name == "" || server.NoSpawn || system || seen[name] {
 			continue
 		}

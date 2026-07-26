@@ -762,6 +762,23 @@ func waitPresenceEvent(t *testing.T, events <-chan string) string {
 		return ""
 	}
 }
+
+func TestConversationThreadMCPsExcludeMainOutputAndKeepDomainTools(t *testing.T) {
+	got := conversationThreadMCPs([]string{
+		mainOutputMCPName,
+		"crm",
+		"channels",
+		"calendar",
+		"apteva-agent-output",
+	})
+	if strings.Join(got, ",") != "crm,channels,calendar" {
+		t.Fatalf("conversation MCPs=%v, want channels plus domain MCPs without main output", got)
+	}
+	if got := conversationThreadMCPs([]string{"crm"}); strings.Join(got, ",") != "channels,crm" {
+		t.Fatalf("conversation MCP fallback=%v, want channels prepended", got)
+	}
+}
+
 func (r *conversationResolver) SpawnThread(_ framework.InstanceInfo, _ string, _ string, tools []string, _ []string) error {
 	r.spawned.Add(1)
 	r.toolMu.Lock()

@@ -1818,7 +1818,7 @@ func removeMCPConfigsByName(servers []map[string]any, targets []map[string]any) 
 
 func gatewayMCPConfigIsSystem(srv map[string]any) bool {
 	name, _ := srv["name"].(string)
-	return name == "apteva-server" || name == "channels" || name == "apteva-channels"
+	return name == "apteva-server" || isServerOwnedOutputMCP(name)
 }
 
 func optionalBoolArg(v any) (bool, bool, error) {

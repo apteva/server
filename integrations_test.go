@@ -1392,6 +1392,70 @@ func TestExecuteIntegrationTool_HeaderParamsExcludedFromBody(t *testing.T) {
 	}
 }
 
+func TestExecuteIntegrationTool_ByteRangeHeaderTransform(t *testing.T) {
+	var gotRange string
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRange = r.Header.Get("Range")
+		gotQuery = r.URL.Query()
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Range", "bytes 0-4194303/125829120")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte{1, 2, 3, 4})
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{Slug: "fake-google-drive", BaseURL: srv.URL}
+	tool := &AppToolDef{
+		Name:   "download_file",
+		Method: "GET",
+		Path:   "/drive/v3/files/{fileId}?alt=media",
+		HeaderTransforms: []HeaderTransformDef{{
+			Type:       "byte_range",
+			Header:     "Range",
+			StartParam: "start_byte",
+			EndParam:   "end_byte",
+		}},
+	}
+	res, err := executeIntegrationTool(app, tool, nil, map[string]any{
+		"fileId":     "file-123",
+		"start_byte": float64(0),
+		"end_byte":   float64(4194303),
+	}, "")
+	if err != nil || res == nil || !res.Success {
+		t.Fatalf("execute result=%+v err=%v", res, err)
+	}
+	if gotRange != "bytes=0-4194303" {
+		t.Fatalf("Range header=%q, want bytes=0-4194303", gotRange)
+	}
+	if got := gotQuery.Get("alt"); got != "media" {
+		t.Fatalf("alt query=%q, want media", got)
+	}
+	if gotQuery.Has("start_byte") || gotQuery.Has("end_byte") {
+		t.Fatalf("range inputs leaked into query: %v", gotQuery)
+	}
+	if got := res.Headers["Content-Range"]; got != "bytes 0-4194303/125829120" {
+		t.Fatalf("Content-Range response header=%q", got)
+	}
+}
+
+func TestApplyHeaderTransformsRejectsInvalidByteRange(t *testing.T) {
+	headers := map[string]string{}
+	transforms := []HeaderTransformDef{{
+		Type: "byte_range", StartParam: "start_byte", EndParam: "end_byte",
+	}}
+	if _, err := applyHeaderTransforms(headers, transforms, map[string]any{
+		"end_byte": float64(10),
+	}); err == nil || !strings.Contains(err.Error(), "end_byte requires start_byte") {
+		t.Fatalf("end-only range error=%v", err)
+	}
+	if _, err := applyHeaderTransforms(headers, transforms, map[string]any{
+		"start_byte": float64(10), "end_byte": float64(9),
+	}); err == nil || !strings.Contains(err.Error(), "greater than or equal") {
+		t.Fatalf("reversed range error=%v", err)
+	}
+}
+
 func TestExecuteIntegrationTool_DeleteVideoPathParamNoBody(t *testing.T) {
 	var gotMethod string
 	var gotPath string

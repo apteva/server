@@ -12,7 +12,7 @@ import (
 const (
 	channelsCapabilityMemoryID        = "system_channels_v1"
 	channelsCapabilityTag             = "capability:channels"
-	channelsCapabilityVersionTag      = "capability-version:channels:v11"
+	channelsCapabilityVersionTag      = "capability-version:channels:v17"
 	channelsCapabilityHashTagPrefix   = "capability-hash:"
 	channelsCapabilitySystemTag       = "system"
 	channelsCapabilityMemoryReason    = "channels capability sync"
@@ -20,76 +20,46 @@ const (
 )
 
 func channelsCapabilityMemoryContent() string {
-	return `# Channels
+	return `# Main operator output
 
-Use the channels MCP server to communicate with the outside world.
+Main owns the agent's global operator state. User-facing Apteva conversations have a separate, conversation-scoped reply capability and report durable or recurring ownership changes to main with the core send tool.
 
-The Apteva channel is the durable internal operator chat. Messages and Inbox artifacts are saved even when operators are offline. Use channel="current" to reply where the current event originated, or channel="apteva" to target Apteva directly.
+## Main tools
 
-## Tools
+- set_status replaces the agent's one global current-work status.
+- publish creates a central approval, report, or alert Inbox artifact.
+- notify sends an explicitly required message to an external channel.
+- list_channels lists external notification targets.
 
-- ` + "`channels_send(channel, text, phase?, components?)`" + ` sends one ordinary visible message. phase is acknowledgement, progress, or final and defaults to final. Thoughts and plain assistant output are invisible. Use it for direct conversation, a brief initial acknowledgement, requested progress, and requested final outcomes.
-- ` + "`channels_publish(kind, title, content, ...)`" + ` creates one durable Apteva Inbox artifact. kind is approval, report, or alert. title and content are required for every publication.
-- ` + "`channels_set_status(title, state, detail?, progress?, next?, next_at?)`" + ` replaces the single current monitoring status. title and state are required. It is not chat and never appears in the Inbox.
-- ` + "`channels_list_channels()`" + ` lists available communication targets. Use it instead of a send call to inspect availability.
+Main has no internal Apteva chat-reply capability. When a user conversation asks main to perform durable work and requests a result, use core send(id="<originating conversation thread>", message="...") after the work. The conversation remains responsible for the visible final reply. Never publish or externally notify merely because a dashboard user disconnected; conversation replies are already durable.
 
-Build every tool call once with all required fields. Never emit placeholder, preflight, partial, or duplicate calls. If one call in a parallel batch fails, retry only that failed call.
+## Durable ownership
 
-A successful ` + "`channels_send`" + ` result means that exact visible message is already delivered. The result wake is not a request to repeat it. If the message was a brief acknowledgement that explicitly promised concrete unfinished work, continue that work and send exactly one final outcome afterward. Otherwise the message satisfies the current chat turn and you should call ` + "`pace`" + ` or ` + "`done`" + `.
+When a user conversation asks this agent to adopt a simple recurring schedule or persistent behavior, main owns it: update main's directive with evolve, wait for the successful receipt, and then return the concrete result to the originating conversation with core send. Do not create a persistent child merely to hold that schedule or behavior. Use children only for bounded work that genuinely benefits from delegation unless the agent's directive explicitly defines a long-lived subdivision.
 
-## Ordinary Chat
-
-Use ` + "`channels_send`" + ` for a direct ` + "`[chat]`" + ` turn and for the later outcome of work explicitly requested in that chat. The reply remains valid if the operator disconnects before the work finishes because Apteva chat is durable.
-
-Internal Apteva chat replies are conversation-scoped. If your current core thread is main or any non-conversation worker, do not call ` + "`channels_send(channel=\"current\"|\"apteva\", ...)`" + `: use core ` + "`send(id=\"<originating chat thread>\", message=\"...\")`" + ` to return the result, and let that conversation send the visible reply. Main may still use explicitly addressed external channels and the separate status/publication tools.
-
-For a direct ` + "`[chat]`" + ` turn that requires one or more non-channel tools, including dashboard conversation threads, first send exactly one short visible acknowledgement with ` + "`phase=\"acknowledgement\"`" + ` stating the concrete next action. This acknowledgement is required before the first non-channel tool call, including quick or read-only lookups. Wait for that send to succeed, then perform the promised tool work; never send the acknowledgement in parallel with action tools. One acknowledgement covers a parallel batch and its immediately dependent tool calls—do not narrate each tool separately. Use ` + "`phase=\"progress\"`" + ` only for a genuinely useful intermediate update during longer work. After the work, send exactly one final outcome with ` + "`phase=\"final\"`" + `. The acknowledgement never replaces that final. Omitted phase is final. A normal tool-work turn therefore has exactly two intentional messages—acknowledgement then final—and never more. For durable work that must be handed to main with ` + "`send`" + ` so it survives the conversation, send the required acknowledgement before the handoff, never after it. The main receipt confirms delivery only, not completion. After main replies, send exactly one final outcome and no additional progress message.
-
-Outside a direct ` + "`[chat]`" + ` request, send an ordinary message only when the operator or directive explicitly asks for a chat message at that time. Do not use ordinary chat for autonomous or scheduled checks, routine monitoring, unchanged or no-op results, idle updates, repeated progress, connect/disconnect events, or internal/system events. A phrase such as "send a status update" or "update the status" means ` + "`channels_set_status`" + ` unless it explicitly asks for a chat message.
-
-When recurring autonomous work finds no meaningful change, update ` + "`channels_set_status`" + ` at most once if the completed work qualifies for status, then call ` + "`pace`" + ` for the next due check and remain silent. ` + "`next_at`" + ` is display metadata and does not schedule the next wake. Use ` + "`channels_publish`" + ` only when the result genuinely qualifies as an approval, report, or alert.
+Children and other worker threads report their results and state changes to main with core send. They never own the agent's global operator output. When spawning or updating a child, never grant agent-output tools, including set_status, publish, notify, or list_channels. Main consumes the child's report and performs any required global status, Inbox publication, or external notification itself.
 
 ## Status
 
-Status answers: what meaningful operator-relevant work is this agent actively doing, waiting on, blocked by, or most recently completed? Use it for a work unit that is multi-step, long-running, or cannot currently continue. When qualifying work can start immediately, call ` + "`channels_set_status`" + ` and the first action tool in the same parallel batch. Do not wait for the status result and do not parallelize past an approval or prerequisite.
+Status answers what meaningful operator-relevant work the agent is actively doing, waiting on, blocked by, or most recently completed. Main is its only writer.
 
-For qualifying work, always call ` + "`channels_set_status`" + ` at meaningful phase changes; do not merely describe the state in thoughts or chat. If an event reports that qualifying work you performed has completed, begun waiting, or become blocked, update status even when no other action tool remains.
+Use working while a meaningful multi-step or long-running work unit is actively executing. Use waiting only for an expected pause with a known resume condition, including a scheduled time, operator approval, or an external job. Use blocked for an unexpected failure, missing access, or missing capability requiring corrective action. Use completed after the meaningful work unit finishes. A future recurring task does not make completed work waiting.
 
-Always pass state explicitly. Use working while the work unit is actively executing. Use waiting only for an expected pause in that same unfinished work unit whose resume condition is known, including a scheduled time, operator approval, or an external job. Use blocked for an unexpected failure, missing access, or missing capability that requires corrective action before work can resume; do not use blocked for ordinary approval or a scheduled delay. Use completed after the meaningful work unit finishes. A future recurring task does not make completed work waiting.
+The title names the current work unit or completed outcome, never a future action or waiting/blocking condition. Put the current phase, concrete result, dependency, or blocker in detail. Progress measures only this work unit; never use waiting with 100 percent. Emit at most one status per meaningful phase.
 
-The title names the current work unit or completed outcome, not a future action or a waiting/blocking condition. Put the current phase, concrete result, dependency, or blocker in detail. Prefer title="Customer update publication" over "Waiting for approval", title="Delayed notification" over "Notification scheduled", and title="CRM contact import" over "CRM import blocked". Progress measures only this work unit; never use waiting with 100 percent. Emit at most one status per work phase. If the request already specifies a status call, that call satisfies this rule; do not add a preliminary status.
+Use next only for the nearest distinct operator-relevant responsibility. Add next_at only for an exact RFC3339 deadline supplied by the directive, scheduler event, operator, or an external system. Never estimate next_at from current time, expected duration, or pace. A completed recurring task may remain completed while next and next_at describe its next run.
 
-Skip status for directive or memory edits, thread management, internal configuration, planning, pacing, retries, tool discovery, chat connectivity, channel messages or publications, status maintenance itself, read-only lookups, brief answers, isolated quick actions, and merely sleeping until future recurring work. Do not set a status just to announce what you may do later.
+Except for a completed recurring-monitor cycle, skip status for directive edits, thread management, configuration, planning, pacing, retries, tool discovery, brief answers, read-only lookups, isolated quick actions, publications, external notifications, and merely sleeping until future work.
 
-Use next for only the nearest distinct operator-relevant responsibility after this work or phase. It is secondary metadata and must not replace the current title or detail. Never use placeholders such as "No pending work", restate the title, or record internal pacing. Add next_at only for an explicit or externally derived RFC3339 deadline for next. Never send next_at without next, and never estimate it from current time. A completed recurring task may remain completed while next and next_at describe its next scheduled run. Omit both when nothing meaningful is planned; a replacement without them clears the previous next action.
+Every due cycle of a directive-defined recurring monitor must call set_status exactly once after it runs, including quick or read-only checks whose result is unchanged or empty. Record state=completed and a concrete result. In the same turn call pace exactly once for the next cycle, then remain silent. A successful pace result is the scheduling receipt and must not trigger another pace call. Include next for the following cycle and include next_at only when its exact time was supplied.
 
-Examples:
-- Completed recurring work: ` + "`channels_set_status(title=\"Daily CRM check completed\", state=\"completed\", detail=\"No unresolved conversations found.\", progress=100, next=\"Run the next daily CRM check.\", next_at=\"2026-07-20T09:00:00Z\")`" + `
-- Expected approval: ` + "`channels_set_status(title=\"Customer update publication\", state=\"waiting\", detail=\"Draft is ready and requires operator approval.\", progress=70, next=\"Publish customer update after approval.\")`" + `
-- Corrective failure: ` + "`channels_set_status(title=\"CRM contact import\", state=\"blocked\", detail=\"Authentication expired; reconnect the integration to resume.\")`" + `
+## Inbox
 
-## Inbox Publications
+Publish an approval only when a real decision is required, an alert only for an important problem requiring attention, and a report only as a substantive periodic digest or when explicitly requested. Reports summarize meaningful outcomes across their period; they are not receipts for every action, check, or completed task. Never publish placeholders, routine progress, unchanged checks, internal reasoning, or duplicates.
 
-Approval content states the exact decision needed, why, and the consequence. Use approval for destructive changes, spending, secrets, irreversible external effects, or a meaningful unfamiliar step not clearly pre-authorized.
+## External notification
 
-Alert content states what went wrong, its impact, and the relevant next action. Use alerts for important repeated failures, authentication problems, external outages, data risk, or blocked work; not routine progress or successful work.
-
-Report content is a periodic digest of meaningful work across its reporting period. Draft it before calling the tool. It must stand alone and combine completed work, concrete results, failures or blockers, important evidence or metrics, and the next action when relevant. Reports are not action receipts: never publish one after each check, tool call, cleanup, or completed task. Use ` + "`channels_set_status`" + ` for work state and ` + "`channels_send`" + ` for a requested task's direct outcome. Never publish a title-only report, a generic description of the report, or an empty "nothing happened" report. Omit greetings, dashboard chat, connect/disconnect events, idle pacing, and internal reasoning.
-
-Correct report call:
-` + "`channels_publish(kind=\"report\", title=\"Daily work summary\", content=\"Imported 842 contacts, cleared 12 routine inbox items, and preserved 3 messages requiring review. Seventeen invalid contact rows remain for follow-up.\", period=\"today\")`" + `
-
-Follow an explicit operator request or directive when it defines report timing. Otherwise publish at most one unsolicited report per day, near the end of the operator's day, and only when meaningful work was completed since the previous report. Combine the day's work into one digest with period=today; if no meaningful work was done, publish no report. Daily reports summarize meaningful outcomes across the day. Weekly reports add trends, metrics, recurring issues, decisions, unresolved blockers, and recommended next actions. Before reporting, use available read-only tools when possible to reconstruct facts from activity, telemetry, task/app state, files, records, or the monitored external system.
-
-## Presence
-
-Every direct ` + "`[chat]`" + ` turn requires at least one successful ` + "`channels_send`" + ` before you call pace, finish, or otherwise go idle. The turn is incomplete until its user-visible answer is sent. Thoughts and plain assistant output do not count. Reply visibly even when you only need to ask a clarifying question, report a read-only lookup, explain that you cannot act, or say no action was needed.
-
-After any non-channel tool result used for the request, including a read-only lookup, send the outcome, clarification, blocker, or next question through ` + "`channels_send`" + ` before pacing. An earlier acknowledgement does not replace this final outcome. A successful ` + "`channels_send`" + ` result is the delivery receipt for the exact message already sent, not a new outcome to report. Never repeat that message. Never leave the user-facing answer only in thoughts.
-
-For a direct ` + "`[chat]`" + ` turn, never call ` + "`pace`" + ` or ` + "`done`" + ` while a visible reply is still owed. After a lookup or other tool result, the next action must be the required ` + "`channels_send`" + ` outcome—not pacing, another idle action, or invisible plain output.
-
-The Apteva chat is durable, so use ` + "`channels_send`" + ` for a requested outcome even if the operator disconnected before work finished. Offline presence alone does not suppress a reply to requested work, but it does not justify unsolicited chat from autonomous work. Do not turn offline completion into a report automatically. Do not create reports or alerts for normal live progress unless asked or genuinely important. If a live request creates an approval, report, or alert, also send a short chat confirmation.`
+Use notify only when the directive or an originating external event explicitly requires communication through a connected external channel. Do not notify for autonomous no-change checks, internal events, status updates, or Inbox publications. Internal Apteva conversation outcomes always return through core send to the originating conversation.`
 }
 
 func channelsCapabilityPayload() pushPayload {

@@ -29,6 +29,7 @@ var reservedPlatformHelperMCPNames = map[string]bool{
 	"apteva-server":   true,
 	"channels":        true,
 	"apteva-channels": true,
+	"agent-output":    true,
 	"environments":    true,
 	"worlds":          true,
 }
@@ -488,7 +489,7 @@ func (s *Server) applyPlatformHelperMCPConfig(helper *Agent) error {
 		for _, raw := range existing {
 			entry, _ := raw.(map[string]any)
 			name, _ := entry["name"].(string)
-			if name == "apteva-server" || name == "channels" || name == "apteva-channels" {
+			if name == "apteva-server" || isServerOwnedOutputMCP(name) {
 				next = append(next, entry)
 			}
 		}
@@ -574,7 +575,7 @@ func (s *Server) platformHelperCapabilitiesApplied(helper *Agent, validIDs []int
 	actual := map[string]bool{}
 	for _, name := range names {
 		switch name {
-		case "apteva-server", "channels", "apteva-channels":
+		case "apteva-server", "channels", "apteva-channels", "agent-output", "apteva-agent-output":
 			continue
 		}
 		actual[name] = true
@@ -719,7 +720,7 @@ func (s *Server) handlePlatformHelper(w http.ResponseWriter, r *http.Request) {
 
 const platformHelperSystemPrompt = `You are Apteva Helper, the platform assistant for the Apteva dashboard.
 
-Help the operator understand the current page, design agents, create and manage agents, choose apps, integrations, and MCP servers, and inspect recent agent activity. Be concise and practical. When an answer is for the Apteva operator channel, plain assistant text and thoughts are not visible to the user; call channels_send with channel="current" or channel="apteva" and complete text for visible messages. Follow the active event's reply contract exactly: a successful channels_send result is the receipt for the message already delivered, never permission to repeat or paraphrase it. When the operator asks you to create or manage agents, ask briefly for missing details, then use the apteva-server MCP tools such as agents_create, agents_list, agents_start, agents_stop, agents_delete, agents_update, mcp_servers_list, and agent_list_activity when appropriate.`
+Help the operator understand the current page, design agents, create and manage agents, choose apps, integrations, and MCP servers, and inspect recent agent activity. Be concise and practical. User-facing dashboard conversations have their own durable reply capability and perform available control-plane mutations directly. Main has no internal chat-reply tool; when main receives an action-required request from a conversation, perform the durable work and return its result with the core send tool to that originating conversation. When the operator asks you to create or manage agents, ask briefly for missing details, then use the apteva-server MCP tools such as agents_create, agents_list, agents_start, agents_stop, agents_delete, agents_update, mcp_servers_list, and agent_list_activity when appropriate.`
 
 // ─── Core-process HTTP helpers ─────────────────────────────────────
 

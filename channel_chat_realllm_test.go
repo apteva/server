@@ -336,6 +336,7 @@ func runRealConversationUsesChildAndReportsProgress(t *testing.T, setupHarness f
 	}
 	var spawnCalls int
 	var mainSends int
+	var globalStatusCalls int
 	var childResultAt time.Time
 	var visible []visibleCall
 	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
@@ -348,6 +349,8 @@ func runRealConversationUsesChildAndReportsProgress(t *testing.T, setupHarness f
 		}
 		target, _ := data.Args["id"].(string)
 		switch {
+		case isStatusToolName(data.Name):
+			globalStatusCalls++
 		case event.ThreadID == conversationThreadID && data.Name == "spawn":
 			spawnCalls++
 		case event.ThreadID == conversationThreadID && data.Name == "send" && (target == "main" || target == "parent"):
@@ -370,6 +373,9 @@ func runRealConversationUsesChildAndReportsProgress(t *testing.T, setupHarness f
 	}
 	if mainSends != 0 {
 		t.Fatalf("self-contained conversation sent %d reports or requests to main", mainSends)
+	}
+	if globalStatusCalls != 0 {
+		t.Fatalf("self-contained conversation wrote %d global statuses; long chat progress must remain conversation-visible", globalStatusCalls)
 	}
 	if childResultAt.IsZero() {
 		t.Fatalf("temporary child did not report a result to the conversation; calls=%v",
@@ -2047,8 +2053,10 @@ func runRealAlwaysLoadedChannels(t *testing.T, h *realChannelChatHarness) {
 	if containsTool(calls, "search_tools") || containsTool(calls, "spawn") {
 		t.Fatalf("always-loaded Channels caused discovery/delegation; calls=%v", calls)
 	}
-	if containsTool(calls, "channels_set_status") {
-		t.Fatalf("brief channel message incorrectly created work status; calls=%v", calls)
+	for _, name := range calls {
+		if isStatusToolName(name) {
+			t.Fatalf("brief channel message incorrectly created work status; calls=%v", calls)
+		}
 	}
 }
 
@@ -2260,8 +2268,7 @@ func TestChannelChat_RealLLM_Codex_MainPersistsAutonomousStatus(t *testing.T) {
 		var data struct {
 			Name string `json:"name"`
 		}
-		if json.Unmarshal(telemetry.Data, &data) == nil &&
-			(data.Name == "channels_set_status" || strings.HasSuffix(data.Name, "_channels_set_status")) {
+		if json.Unmarshal(telemetry.Data, &data) == nil && isStatusToolName(data.Name) {
 			if telemetry.ThreadID != "main" {
 				t.Fatalf("status call originated from thread %q, want main", telemetry.ThreadID)
 			}
@@ -2329,6 +2336,168 @@ func TestChannelChat_RealLLM_Codex_MainPersistsAutonomousStatus(t *testing.T) {
 	}
 }
 
+// TestChannelChat_RealLLM_Codex_MainOwnsCentralReport proves that full Inbox
+// reporting is available on main, persists in the hidden agent-output sink,
+// and never leaks into a user conversation.
+func TestChannelChat_RealLLM_Codex_MainOwnsCentralReport(t *testing.T) {
+	h := setupRealChannelChatHarness(t, "main-report-codex-under-test",
+		offlineAutonomousSilenceDirective(), `{"include_apteva_server":false,"include_channels":true}`)
+	waitForInitialAgentTurn(t, h)
+
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	ordinaryBefore := ordinaryAgentMessageCount(t, h.server, h.chatID)
+	event := strings.Join([]string{
+		"[system] [scheduled report]",
+		"The agent directive explicitly requires its daily report now.",
+		"Publish exactly one report titled Daily CRM summary.",
+		"Its substantive content must say: Reviewed 12 conversations; 3 require follow-up tomorrow.",
+		"Use period=today. This event requests only that central report: do not notify an external channel, update status, or send dashboard chat.",
+	}, "\n")
+	if err := postCoreEvent(t.Context(), h.server.agents.GetPort(h.agent.ID),
+		h.server.agents.GetCoreAPIKey(h.agent.ID), "main", event); err != nil {
+		t.Fatalf("post central report event: %v", err)
+	}
+	waitForChannelOutputSettled(t, h, baselineCalls, baselineResults, 8*time.Second)
+
+	calls := newChannelCalls(t, h.server, h.agent.ID, baselineCalls)
+	if len(calls) != 1 || calls[0].Kind != "report" ||
+		calls[0].Title != "Daily CRM summary" ||
+		!strings.Contains(calls[0].Text, "Reviewed 12 conversations") {
+		t.Fatalf("main central report calls=%+v, want exactly one substantive report", calls)
+	}
+	var chatID, threadID string
+	if err := h.server.store.db.QueryRow(`
+		SELECT chat_id, COALESCE(thread_id, '')
+		FROM channel_chat_messages
+		WHERE agent_id=? AND components_json LIKE '%"report-card"%'
+		ORDER BY id DESC LIMIT 1`, h.agent.ID).Scan(&chatID, &threadID); err != nil {
+		t.Fatalf("read persisted central report: %v", err)
+	}
+	if chatID != "default-"+itoa64(h.agent.ID) || threadID != "main" {
+		t.Fatalf("central report chat=%q thread=%q, want hidden default sink on main", chatID, threadID)
+	}
+	if got := ordinaryAgentMessageCount(t, h.server, h.chatID); got != ordinaryBefore {
+		t.Fatalf("central report leaked into conversation: before=%d after=%d", ordinaryBefore, got)
+	}
+}
+
+// TestChannelChat_RealLLM_Codex_MainRecurringMonitorEmitsStatus reproduces
+// the Personal Agent's hourly inbox cycle without explicitly asking Codex to
+// update status. The recurring-monitor rule itself must cause one completed
+// status on main, followed by the next hourly pace, with no chat or Inbox item.
+func TestChannelChat_RealLLM_Codex_MainRecurringMonitorEmitsStatus(t *testing.T) {
+	directive := strings.Join([]string{
+		"# Role",
+		"You keep the operator's Gmail inbox clean.",
+		"# Hourly routine",
+		"When idle, check unread Gmail messages about once every hour.",
+		"Inspect and classify unread messages, mark processed routine messages read, and alert only when operator attention is needed.",
+	}, "\n")
+	h := setupRealChannelChatHarness(t, "main-recurring-status-codex-under-test", directive,
+		`{"include_apteva_server":false,"include_channels":true}`)
+	waitForInitialAgentTurn(t, h)
+
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	ordinaryBefore := ordinaryAgentMessageCount(t, h.server, h.chatID)
+	nextAt := time.Now().UTC().Add(time.Hour).Truncate(time.Second).Format(time.RFC3339)
+
+	event := strings.Join([]string{
+		"[system] [scheduled]",
+		"The due hourly Gmail inbox cycle has completed.",
+		"It checked for unread messages and found none.",
+		"The next hourly cycle is scheduled for " + nextAt + ".",
+		"Continue the normal hourly monitoring routine.",
+	}, "\n")
+	if err := postCoreEvent(t.Context(), h.server.agents.GetPort(h.agent.ID),
+		h.server.agents.GetCoreAPIKey(h.agent.ID), "main", event); err != nil {
+		t.Fatalf("post recurring monitor event: %v", err)
+	}
+	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
+
+	events := newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls)
+	calls := newChannelCalls(t, h.server, h.agent.ID, baselineCalls)
+	if len(calls) == 0 {
+		var completions []string
+		for _, telemetry := range newTelemetryEvents(t, h.server, h.agent.ID, "llm.done", baselineDone) {
+			var data struct {
+				Message string `json:"message"`
+			}
+			if json.Unmarshal(telemetry.Data, &data) == nil {
+				completions = append(completions, data.Message)
+			}
+		}
+		t.Logf("recurring monitor emitted no channel calls; tools=%v completions=%q", toolNames(events), completions)
+	}
+	status := assertSingleStatusCall(t, calls, "completed")
+	if strings.TrimSpace(status.Detail) == "" {
+		t.Fatalf("recurring monitor status has no concrete result: %+v", status)
+	}
+	next := strings.ToLower(strings.TrimSpace(status.Next))
+	if next == "" || (!strings.Contains(next, "gmail") && !strings.Contains(next, "inbox")) {
+		t.Fatalf("recurring monitor status does not describe the next inbox cycle: %+v", status)
+	}
+	if status.NextAt != nextAt {
+		t.Fatalf("recurring monitor next_at=%q, want %q: %+v", status.NextAt, nextAt, status)
+	}
+	for _, call := range calls {
+		if call.Kind != "status" {
+			t.Fatalf("recurring no-change monitor emitted %s instead of remaining silent: %+v", call.Kind, calls)
+		}
+	}
+
+	statusCallsOnMain := 0
+	for _, telemetry := range events {
+		var data struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(telemetry.Data, &data) == nil && isStatusToolName(data.Name) {
+			if telemetry.ThreadID != "main" {
+				t.Fatalf("recurring monitor status originated from thread %q, want main", telemetry.ThreadID)
+			}
+			statusCallsOnMain++
+		}
+	}
+	if statusCallsOnMain != 1 {
+		t.Fatalf("main recurring status calls=%d, want exactly one", statusCallsOnMain)
+	}
+	assertSinglePaceNearDuration(t, events, time.Hour, 2*time.Minute)
+	if got := ordinaryAgentMessageCount(t, h.server, h.chatID); got != ordinaryBefore {
+		t.Fatalf("recurring monitor leaked into chat: before=%d after=%d", ordinaryBefore, got)
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, h.url+"/apps/channel-chat/current-statuses", nil)
+	req.Header.Set("Authorization", "Bearer "+h.apiKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("get recurring current status: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("recurring current statuses status=%d body=%s", resp.StatusCode, body)
+	}
+	var statuses []struct {
+		AgentID int64  `json:"instance_id"`
+		State   string `json:"state"`
+		Next    string `json:"next"`
+		NextAt  string `json:"next_at"`
+		Message struct {
+			ThreadID string `json:"thread_id"`
+		} `json:"message"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&statuses); err != nil {
+		t.Fatalf("decode recurring current status: %v", err)
+	}
+	if len(statuses) != 1 || statuses[0].AgentID != h.agent.ID ||
+		statuses[0].State != "completed" || strings.TrimSpace(statuses[0].Next) == "" ||
+		statuses[0].NextAt != nextAt || statuses[0].Message.ThreadID != "main" {
+		t.Fatalf("persisted recurring status missing next action/time on main: %+v", statuses)
+	}
+}
+
 func TestChannelChat_RealLLM_OpenCodeGLM52_StatusWorkSemantics(t *testing.T) {
 	h := setupOpenCodeChannelChatHarnessWithDirective(t, "status-semantics-glm52-under-test", "glm-5.2", statusSemanticsDirective())
 	runRealStatusWorkSemantics(t, h)
@@ -2352,11 +2521,11 @@ func TestChannelChat_RealLLM_OpenCodeMiniMaxM3_StatusWorkSemantics(t *testing.T)
 func statusSemanticsDirective() string {
 	return strings.Join([]string{
 		"# Role",
-		"You maintain operator-visible state while carrying out requested work.",
+		"On main, you maintain the agent's single operator-visible state while carrying out autonomous work.",
 		"# Status protocol",
 		"Apply the injected Channels capability guidance exactly.",
 		"Use status only for meaningful operator-relevant work units, not your own administration or future-only scheduling.",
-		"Do not send chat messages or Inbox artifacts during these monitoring scenarios.",
+		"These monitoring events are internal main-thread events. Do not externally notify or publish Inbox artifacts.",
 		"Never repeat a successful status call.",
 	}, "\n")
 }
@@ -2371,6 +2540,28 @@ func runRealStatusWorkSemantics(t *testing.T, h *realChannelChatHarness) {
 			"No CRM check is active or completed as part of this event. Apply the Channels guidance, then return idle.",
 		}, "\n"))
 		assertNoStatusCalls(t, calls)
+	})
+
+	t.Run("long-running-work-reports-working-progress", func(t *testing.T) {
+		calls := runRealStatusSemanticTurn(t, h, strings.Join([]string{
+			"A meaningful long-running CRM contact import is actively processing.",
+			"It has imported 40 of 100 contacts successfully and is continuing with the remaining records.",
+			"Update operator monitoring for this active work unit.",
+			"The nearest next responsibility is exactly: Import the remaining 60 contacts.",
+			"There is no deadline.",
+		}, "\n"))
+		call := assertSingleStatusCall(t, calls, "working")
+		if call.Progress == nil || *call.Progress != 40 {
+			t.Fatalf("working import progress=%v, want exactly 40: %+v", call.Progress, call)
+		}
+		if normalizeStatusNextFixture(call.Next) != "Import the remaining 60 contacts" || call.NextAt != "" {
+			t.Fatalf("working import next=%q next_at=%q, want remaining work without invented time: %+v",
+				call.Next, call.NextAt, call)
+		}
+		assertTitleDoesNotDescribeFutureOrWait(t, call.Title)
+		if len(calls) != 1 || calls[0].Kind != "status" {
+			t.Fatalf("main working progress calls=%+v, want exactly one global status and no conversation output", calls)
+		}
 	})
 
 	t.Run("completed-recurring-work-stays-completed", func(t *testing.T) {
@@ -2461,47 +2652,53 @@ func TestChannelChat_RealLLM_OpenCodeGLM52_StatusExtendedSemantics(t *testing.T)
 
 func runRealStatusOnly(t *testing.T, h *realChannelChatHarness, prompt, wantNext, wantNextAt string) {
 	t.Helper()
-	h.post(t, prompt)
+	waitForInitialAgentTurn(t, h)
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	ordinaryBefore := ordinaryAgentMessageCount(t, h.server, h.chatID)
+	if err := postCoreEvent(t.Context(), h.server.agents.GetPort(h.agent.ID),
+		h.server.agents.GetCoreAPIKey(h.agent.ID), "main",
+		"[system] [monitoring]\n"+prompt); err != nil {
+		t.Fatalf("post main status event: %v", err)
+	}
+	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
 
-	deadline := time.Now().Add(90 * time.Second)
-	var snapshot channelCoverageSnapshot
+	calls := newChannelCalls(t, h.server, h.agent.ID, baselineCalls)
+	status := assertSingleStatusCall(t, calls, "completed")
+	if status.Progress == nil || *status.Progress != 100 {
+		t.Fatalf("completed status progress=%v, want 100: %+v", status.Progress, status)
+	}
+	if normalizeStatusNextFixture(status.Next) != normalizeStatusNextFixture(wantNext) || status.NextAt != wantNextAt {
+		t.Fatalf("status next=%q next_at=%q, want %q at %q: %+v", status.Next, status.NextAt, wantNext, wantNextAt, status)
+	}
+	for _, call := range calls {
+		if call.Kind != "status" {
+			t.Fatalf("main status-only event emitted %s: %+v", call.Kind, calls)
+		}
+	}
+
 	var persistedState, persistedNext, persistedNextAt string
 	var persistedProgress float64
-	found := false
-	for time.Now().Before(deadline) {
-		snapshot = readChannelCoverageSnapshot(t, h.server, h.agent.ID, h.chatID)
-		err := h.server.store.db.QueryRow(`
-			SELECT
-				COALESCE(json_extract(components_json, '$[0].props.state'), ''),
-				COALESCE(json_extract(components_json, '$[0].props.progress'), -1),
-				COALESCE(json_extract(components_json, '$[0].props.next'), ''),
-				COALESCE(json_extract(components_json, '$[0].props.next_at'), '')
-			FROM channel_chat_messages
-			WHERE chat_id=? AND components_json LIKE '%"status-card"%'
-			LIMIT 1`, h.chatID).Scan(&persistedState, &persistedProgress, &persistedNext, &persistedNextAt)
-		if err == nil && persistedState == "completed" {
-			found = true
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
+	if err := h.server.store.db.QueryRow(`
+		SELECT
+			COALESCE(json_extract(components_json, '$[0].props.state'), ''),
+			COALESCE(json_extract(components_json, '$[0].props.progress'), -1),
+			COALESCE(json_extract(components_json, '$[0].props.next'), ''),
+			COALESCE(json_extract(components_json, '$[0].props.next_at'), '')
+		FROM channel_chat_messages
+		WHERE chat_id=? AND components_json LIKE '%"status-card"%'
+		LIMIT 1`, "default-"+itoa64(h.agent.ID)).Scan(
+		&persistedState, &persistedProgress, &persistedNext, &persistedNextAt); err != nil {
+		t.Fatalf("read persisted main status: %v", err)
 	}
-	if !found {
-		t.Fatalf("GLM-5.2 did not persist the completed status before timeout: %s", snapshot.summary())
-	}
-	// Keep observing beyond the late-retry window from the production duplicate
-	// incident before asserting the final call and row counts.
-	time.Sleep(8 * time.Second)
-	snapshot = readChannelCoverageSnapshot(t, h.server, h.agent.ID, h.chatID)
-	if snapshot.failedResults != 0 || len(snapshot.calls) != 1 || snapshot.callCount("status", "completed") != 1 {
-		t.Fatalf("status call was not exactly once and successful: %s", snapshot.summary())
-	}
-	if snapshot.normalMessages != 0 || snapshot.reportRows != 0 || snapshot.approvalRows != 0 || snapshot.alertRows != 0 {
-		t.Fatalf("status-only request leaked into chat or Inbox: %s", snapshot.summary())
-	}
-	if snapshot.statusRows != 1 || persistedState != "completed" || persistedProgress != 100 ||
+	if persistedState != "completed" || persistedProgress != 100 ||
 		normalizeStatusNextFixture(persistedNext) != normalizeStatusNextFixture(wantNext) || persistedNextAt != wantNextAt {
-		t.Fatalf("persisted status state=%q progress=%v next=%q next_at=%q snapshot=%s",
-			persistedState, persistedProgress, persistedNext, persistedNextAt, snapshot.summary())
+		t.Fatalf("persisted status state=%q progress=%v next=%q next_at=%q",
+			persistedState, persistedProgress, persistedNext, persistedNextAt)
+	}
+	if got := ordinaryAgentMessageCount(t, h.server, h.chatID); got != ordinaryBefore {
+		t.Fatalf("main status-only event leaked into conversation: before=%d after=%d", ordinaryBefore, got)
 	}
 }
 
@@ -2536,40 +2733,26 @@ func TestNormalizeStatusNextFixture(t *testing.T) {
 
 func runRealWithoutReport(t *testing.T, h *realChannelChatHarness, prompt string) {
 	t.Helper()
-	h.post(t, prompt)
-
-	deadline := time.Now().Add(150 * time.Second)
-	processed := false
-	for time.Now().Before(deadline) {
-		errors, err := h.server.store.QueryTelemetry(h.agent.ID, "llm.error", time.Time{}, 20)
-		if err != nil {
-			t.Fatalf("query LLM errors: %v", err)
-		}
-		if len(errors) > 0 {
-			t.Fatalf("GLM-5.2 returned an LLM error: %s", string(errors[len(errors)-1].Data))
-		}
-		done, err := h.server.store.QueryTelemetry(h.agent.ID, "llm.done", time.Time{}, 20)
-		if err != nil {
-			t.Fatalf("query LLM completion: %v", err)
-		}
-		if len(done) > 0 {
-			processed = true
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
+	waitForInitialAgentTurn(t, h)
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	ordinaryBefore := ordinaryAgentMessageCount(t, h.server, h.chatID)
+	if err := postCoreEvent(t.Context(), h.server.agents.GetPort(h.agent.ID),
+		h.server.agents.GetCoreAPIKey(h.agent.ID), "main",
+		"[system] [scheduled]\n"+prompt); err != nil {
+		t.Fatalf("post routine main event: %v", err)
 	}
-	if !processed {
-		t.Fatal("GLM-5.2 did not complete an LLM turn before timeout")
+	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
+	calls := newChannelCalls(t, h.server, h.agent.ID, baselineCalls)
+	assertSingleStatusCall(t, calls, "completed")
+	for _, call := range calls {
+		if call.Kind != "status" {
+			t.Fatalf("routine daytime work emitted %s instead of status only: %+v", call.Kind, calls)
+		}
 	}
-	// Reports are normally chosen in the completed turn. Keep observing past
-	// the duplicate retry window in case another Channels result wakes the agent.
-	time.Sleep(8 * time.Second)
-	snapshot := readChannelCoverageSnapshot(t, h.server, h.agent.ID, h.chatID)
-	if snapshot.failedResults != 0 {
-		t.Fatalf("routine work produced failed channel calls: %s", snapshot.summary())
-	}
-	if snapshot.callCount("report", "") != 0 || snapshot.reportRows != 0 {
-		t.Fatalf("routine daytime work incorrectly produced a report: %s", snapshot.summary())
+	if got := ordinaryAgentMessageCount(t, h.server, h.chatID); got != ordinaryBefore {
+		t.Fatalf("routine daytime work leaked into chat: before=%d after=%d", ordinaryBefore, got)
 	}
 }
 
@@ -2655,14 +2838,12 @@ func channelCoverageDirective() string {
 func runRealChannelKindsExactlyOnce(t *testing.T, h *realChannelChatHarness) {
 	t.Helper()
 	h.post(t, strings.Join([]string{
-		"Run the channel coverage protocol now.",
-		"Treat the protocol as one meaningful work phase. Follow your normal status guidance to establish exactly one working status before publishing artifacts; do not add a second working status for this phase.",
-		"After that working status succeeds, make exactly these five calls together in one parallel tool batch:",
-		"1. channels_set_status with title=Channel coverage, state=completed, detail=Protocol coverage complete, progress=100.",
-		"2. channels_publish with kind=report, title=Channel Coverage Report, content=All requested channel artifacts were emitted, period=today.",
-		"3. channels_publish with kind=approval, title=Channel Coverage Approval, content=Approve the protocol fixture.",
-		"4. channels_publish with kind=alert, title=Channel Coverage Alert, content=Protocol warning fixture, severity=warning.",
-		"5. channels_send with channel=current, text=CHANNEL COVERAGE COMPLETE.",
+		"Run the user-conversation output coverage protocol now.",
+		"Make exactly these three calls together in one parallel tool batch:",
+		"1. channels_publish with kind=approval, title=Channel Coverage Approval, content=Approve the protocol fixture.",
+		"2. channels_publish with kind=alert, title=Channel Coverage Alert, content=Protocol warning fixture, severity=warning.",
+		"3. channels_send with channel=current, phase=final, text=CHANNEL COVERAGE COMPLETE.",
+		"Global status and reports belong to main. Do not attempt either from this conversation.",
 		"Do not send any other chat message. Do not repeat successful calls.",
 	}, "\n"))
 
@@ -2675,7 +2856,7 @@ func runRealChannelKindsExactlyOnce(t *testing.T, h *realChannelChatHarness) {
 	var snapshot channelCoverageSnapshot
 	for time.Now().Before(deadline) {
 		snapshot = readChannelCoverageSnapshot(t, h.server, h.agent.ID, h.chatID)
-		if snapshot.hasAllKinds() && settleUntil.IsZero() {
+		if snapshot.hasConversationOutputs() && settleUntil.IsZero() {
 			// A duplicate retry in the production incident arrived ~3.5s after
 			// the first message. Keep observing beyond that window.
 			settleUntil = time.Now().Add(8 * time.Second)
@@ -2686,10 +2867,10 @@ func runRealChannelKindsExactlyOnce(t *testing.T, h *realChannelChatHarness) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	if settleUntil.IsZero() {
-		t.Fatalf("real LLM did not produce every channel kind before timeout: %s", snapshot.summary())
+		t.Fatalf("real LLM did not produce every conversation-owned output before timeout: %s", snapshot.summary())
 	}
 	snapshot = readChannelCoverageSnapshot(t, h.server, h.agent.ID, h.chatID)
-	if err := snapshot.validateExactlyOnce(); err != nil {
+	if err := snapshot.validateConversationOutputsExactlyOnce(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -2923,6 +3104,7 @@ func readChannelCoverageSnapshot(t *testing.T, s *Server, agentID int64, chatID 
 				Phase    string `json:"phase"`
 				State    string `json:"state"`
 				Text     string `json:"text"`
+				Content  string `json:"content"`
 				Title    string `json:"title"`
 				Detail   string `json:"detail"`
 				Next     string `json:"next"`
@@ -2986,7 +3168,11 @@ func runRealStatusSemanticTurn(t *testing.T, h *realChannelChatHarness, prompt s
 	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
 	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
 	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
-	h.post(t, prompt)
+	if err := postCoreEvent(t.Context(), h.server.agents.GetPort(h.agent.ID),
+		h.server.agents.GetCoreAPIKey(h.agent.ID), "main",
+		"[system] [monitoring]\n"+prompt); err != nil {
+		t.Fatalf("post main status semantic event: %v", err)
+	}
 	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
 	return newChannelCalls(t, h.server, h.agent.ID, baselineCalls)
 }
@@ -3021,6 +3207,36 @@ func waitForAgentTurnSettled(t *testing.T, h *realChannelChatHarness, baselineDo
 	}
 	t.Fatalf("agent turn did not settle: done=%s results=%s",
 		telemetryEventSignature(newTelemetryEvents(t, h.server, h.agent.ID, "llm.done", baselineDone)),
+		telemetryEventSignature(newChannelResultEvents(t, h.server, h.agent.ID, baselineResults)))
+}
+
+// waitForChannelOutputSettled is for terminal main-owned output such as an
+// explicitly requested report. Its durable tool receipt completes the work;
+// unlike an acknowledgement or action result, it does not owe a later model
+// round. Requiring llm.done after the receipt made a successful publication
+// look hung when core correctly left main idle.
+func waitForChannelOutputSettled(t *testing.T, h *realChannelChatHarness, baselineCalls, baselineResults map[string]bool, quietFor time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Minute)
+	var stableSince time.Time
+	lastSignature := ""
+	for time.Now().Before(deadline) {
+		calls := newChannelCallEvents(t, h.server, h.agent.ID, baselineCalls)
+		results := newChannelResultEvents(t, h.server, h.agent.ID, baselineResults)
+		ready := len(calls) > 0 && len(results) >= len(calls)
+		signature := telemetryEventSignature(calls) + ":" + telemetryEventSignature(results)
+		if !ready || signature != lastSignature {
+			stableSince = time.Time{}
+			lastSignature = signature
+		} else if stableSince.IsZero() {
+			stableSince = time.Now()
+		} else if time.Since(stableSince) >= quietFor {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatalf("main channel output did not settle: calls=%s results=%s",
+		telemetryEventSignature(newChannelCallEvents(t, h.server, h.agent.ID, baselineCalls)),
 		telemetryEventSignature(newChannelResultEvents(t, h.server, h.agent.ID, baselineResults)))
 }
 
@@ -3067,6 +3283,21 @@ func newChannelResultEvents(t *testing.T, s *Server, agentID int64, baseline map
 	return out
 }
 
+func newChannelCallEvents(t *testing.T, s *Server, agentID int64, baseline map[string]bool) []TelemetryEvent {
+	t.Helper()
+	events := newTelemetryEvents(t, s, agentID, "tool.call", baseline)
+	out := make([]TelemetryEvent, 0, len(events))
+	for _, event := range events {
+		var data struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(event.Data, &data) == nil && isChannelCoverageTool(data.Name) {
+			out = append(out, event)
+		}
+	}
+	return out
+}
+
 func telemetryEventSignature(events []TelemetryEvent) string {
 	if len(events) == 0 {
 		return "0"
@@ -3093,6 +3324,7 @@ func newChannelCalls(t *testing.T, s *Server, agentID int64, baseline map[string
 				Phase    string `json:"phase"`
 				State    string `json:"state"`
 				Text     string `json:"text"`
+				Content  string `json:"content"`
 				Title    string `json:"title"`
 				Detail   string `json:"detail"`
 				Next     string `json:"next"`
@@ -3107,8 +3339,12 @@ func newChannelCalls(t *testing.T, s *Server, agentID int64, baseline map[string
 		if !ok {
 			continue
 		}
+		text := data.Args.Text
+		if text == "" {
+			text = data.Args.Content
+		}
 		calls = append(calls, channelSendCall{
-			ID: data.ID, Time: event.Time, Kind: kind, Phase: data.Args.Phase, State: data.Args.State, Text: data.Args.Text,
+			ID: data.ID, Time: event.Time, Kind: kind, Phase: data.Args.Phase, State: data.Args.State, Text: text,
 			Title: data.Args.Title, Detail: data.Args.Detail, Next: data.Args.Next, NextAt: data.Args.NextAt,
 			Progress: numericStatusProgress(data.Args.Progress),
 		})
@@ -3142,7 +3378,37 @@ func assertSinglePaceSleep(t *testing.T, events []TelemetryEvent, wantSleep stri
 		}
 	}
 	if len(sleeps) != 1 || sleeps[0] != wantSleep {
-		t.Fatalf("pace sleeps=%v, want exactly [%s]", sleeps, wantSleep)
+		if len(sleeps) == 1 {
+			gotDuration, gotErr := time.ParseDuration(sleeps[0])
+			wantDuration, wantErr := time.ParseDuration(wantSleep)
+			if gotErr == nil && wantErr == nil && gotDuration == wantDuration {
+				return
+			}
+		}
+		t.Fatalf("pace sleeps=%v, want exactly one duration equivalent to %s", sleeps, wantSleep)
+	}
+}
+
+func assertSinglePaceNearDuration(t *testing.T, events []TelemetryEvent, want, tolerance time.Duration) {
+	t.Helper()
+	var sleeps []string
+	for _, event := range events {
+		var data struct {
+			Name string `json:"name"`
+			Args struct {
+				Sleep string `json:"sleep"`
+			} `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) == nil && data.Name == "pace" {
+			sleeps = append(sleeps, data.Args.Sleep)
+		}
+	}
+	if len(sleeps) != 1 {
+		t.Fatalf("pace sleeps=%v, want exactly one duration within %s of %s", sleeps, tolerance, want)
+	}
+	got, err := time.ParseDuration(sleeps[0])
+	if err != nil || got < want-tolerance || got > want+tolerance {
+		t.Fatalf("pace sleep=%q, want one duration within %s of %s", sleeps[0], tolerance, want)
 	}
 }
 
@@ -3235,13 +3501,19 @@ func channelCoverageToolKind(name, advertisedKind string) (string, bool) {
 			return "message", true
 		}
 		return advertisedKind, true // Legacy typed send.
-	case name == "channels_publish" || strings.HasSuffix(name, "_channels_publish"):
+	case name == "channels_publish" || strings.HasSuffix(name, "_channels_publish") || strings.HasSuffix(name, "_publish"):
 		return advertisedKind, advertisedKind != ""
-	case name == "channels_set_status" || strings.HasSuffix(name, "_channels_set_status"):
+	case isStatusToolName(name):
 		return "status", true
 	default:
 		return "", false
 	}
+}
+
+func isStatusToolName(name string) bool {
+	return name == "channels_set_status" ||
+		strings.HasSuffix(name, "_channels_set_status") ||
+		strings.HasSuffix(name, "_set_status")
 }
 
 func isChannelCoverageTool(name string) bool {
@@ -3302,6 +3574,12 @@ func (s channelCoverageSnapshot) hasAllKinds() bool {
 		s.reportRows >= 1 && s.approvalRows >= 1 && s.alertRows >= 1
 }
 
+func (s channelCoverageSnapshot) hasConversationOutputs() bool {
+	return s.callCount("approval", "") >= 1 && s.callCount("alert", "") >= 1 &&
+		s.markerCallCount() >= 1 && s.markerMessages >= 1 &&
+		s.approvalRows >= 1 && s.alertRows >= 1
+}
+
 func (s channelCoverageSnapshot) summary() string {
 	return fmt.Sprintf("calls=%+v failed=%d details=%q normal=%d marker=%d status=%d/%s report=%d approval=%d alert=%d",
 		s.calls, s.failedResults, s.failedResultDetails, s.normalMessages, s.markerMessages, s.statusRows, s.statusState, s.reportRows, s.approvalRows, s.alertRows)
@@ -3342,6 +3620,23 @@ func (s channelCoverageSnapshot) validateExactlyOnce() error {
 	if s.normalMessages != 1 || s.markerMessages != 1 || s.statusRows != 1 || s.statusState != "completed" ||
 		s.reportRows != 1 || s.approvalRows != 1 || s.alertRows != 1 {
 		return fmt.Errorf("persisted channel rows were not exactly once: %s", s.summary())
+	}
+	return nil
+}
+
+func (s channelCoverageSnapshot) validateConversationOutputsExactlyOnce() error {
+	if s.failedResults != 0 {
+		return fmt.Errorf("conversation output tools had %d failed result(s): %s", s.failedResults, s.summary())
+	}
+	if s.callCount("approval", "") != 1 || s.callCount("alert", "") != 1 || s.markerCallCount() != 1 {
+		return fmt.Errorf("conversation approval, alert, or final reply was not exactly once: %s", s.summary())
+	}
+	if s.callCount("status", "") != 0 || s.callCount("report", "") != 0 {
+		return fmt.Errorf("conversation attempted main-owned status or report: %s", s.summary())
+	}
+	if s.normalMessages != 1 || s.markerMessages != 1 || s.statusRows != 0 ||
+		s.reportRows != 0 || s.approvalRows != 1 || s.alertRows != 1 {
+		return fmt.Errorf("persisted conversation output rows were not exactly once and role-scoped: %s", s.summary())
 	}
 	return nil
 }

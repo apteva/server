@@ -275,34 +275,48 @@ func TestAgentShutdownPolicy(t *testing.T) {
 	}
 }
 
-func assertAlwaysLoadedChannelsEntry(t *testing.T, servers []any) {
+func assertRoleSplitOutputEntries(t *testing.T, servers []any) {
 	t.Helper()
+	found := map[string]bool{}
 	for _, raw := range servers {
 		entry, _ := raw.(map[string]any)
-		if entry["name"] != "channels" {
+		name, _ := entry["name"].(string)
+		if name != "channels" && name != agentOutputMCPName {
 			continue
 		}
+		found[name] = true
 		if entry["no_spawn"] != true {
-			t.Fatalf("channels no_spawn = %#v, want true", entry["no_spawn"])
+			t.Fatalf("%s no_spawn = %#v, want true", name, entry["no_spawn"])
 		}
 		loading, _ := entry["tool_loading"].(map[string]any)
-		if loading["default"] != "always" {
-			t.Fatalf("channels tool_loading = %#v, want default=always", entry["tool_loading"])
+		wantLoading := "deferred"
+		if name == agentOutputMCPName {
+			wantLoading = "always"
 		}
-		return
+		if loading["default"] != wantLoading {
+			t.Fatalf("%s tool_loading = %#v, want default=%s", name, entry["tool_loading"], wantLoading)
+		}
 	}
-	t.Fatalf("channels entry missing from %#v", servers)
-}
-
-func TestChannelsMCPConfigIsAlwaysLoadedAndMainOnly(t *testing.T) {
-	entry := channelsMCPConfig("http://127.0.0.1:9999")
-	assertAlwaysLoadedChannelsEntry(t, []any{entry})
-	if entry["url"] != "http://127.0.0.1:9999" || entry["transport"] != "http" {
-		t.Fatalf("channels connection fields = %#v", entry)
+	for _, name := range []string{"channels", agentOutputMCPName} {
+		if !found[name] {
+			t.Fatalf("%s entry missing from %#v", name, servers)
+		}
 	}
 }
 
-func TestAgentManagerStartInjectsAlwaysLoadedChannels(t *testing.T) {
+func TestChannelsMCPConfigsSplitConversationFromMainOutput(t *testing.T) {
+	conversation := channelsMCPConfig("http://127.0.0.1:9999")
+	output := agentOutputMCPConfig("http://127.0.0.1:9998")
+	assertRoleSplitOutputEntries(t, []any{conversation, output})
+	if conversation["url"] != "http://127.0.0.1:9999" || conversation["transport"] != "http" {
+		t.Fatalf("conversation channels connection fields = %#v", conversation)
+	}
+	if output["url"] != "http://127.0.0.1:9998" || output["transport"] != "http" {
+		t.Fatalf("agent output connection fields = %#v", output)
+	}
+}
+
+func TestAgentManagerStartInjectsRoleSplitOutputMCPs(t *testing.T) {
 	dir := t.TempDir()
 	core := filepath.Join(dir, "fake-core")
 	script := `#!/bin/sh
@@ -331,7 +345,7 @@ while :; do sleep 1 & wait $!; done
 		t.Fatal(err)
 	}
 	servers, _ := cfg["mcp_servers"].([]any)
-	assertAlwaysLoadedChannelsEntry(t, servers)
+	assertRoleSplitOutputEntries(t, servers)
 }
 
 func TestAgentManagerStartPassesCodexRuntimeRefreshEnv(t *testing.T) {
@@ -495,20 +509,20 @@ func TestAgentManagerReattachRefreshesChannelsConfig(t *testing.T) {
 		t.Fatalf("Authorization=%q, want persisted bearer key", sawAuth)
 	}
 	servers, _ := sawConfig["mcp_servers"].([]any)
-	if len(servers) != 2 {
-		t.Fatalf("mcp_servers=%v, want channels + custom", servers)
+	if len(servers) != 3 {
+		t.Fatalf("mcp_servers=%v, want agent-output + channels + custom", servers)
 	}
 	names := map[string]bool{}
 	for _, raw := range servers {
 		m, _ := raw.(map[string]any)
 		names[m["name"].(string)] = true
 	}
-	for _, name := range []string{"channels", "custom"} {
+	for _, name := range []string{agentOutputMCPName, "channels", "custom"} {
 		if !names[name] {
 			t.Fatalf("missing %s from refreshed config: %#v", name, sawConfig)
 		}
 	}
-	assertAlwaysLoadedChannelsEntry(t, servers)
+	assertRoleSplitOutputEntries(t, servers)
 }
 
 func TestResumeRunningInstancesManualModeSkipsSpawn(t *testing.T) {

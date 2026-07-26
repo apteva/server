@@ -453,11 +453,15 @@ func agentActivityData(ev TelemetryEvent) map[string]any {
 }
 
 func isHiddenActivityTool(tool string) bool {
-	switch strings.ToLower(strings.TrimSpace(tool)) {
+	tool = strings.ToLower(strings.TrimSpace(tool))
+	switch tool {
 	case "pace", "done", "channels_status", "channels_respond", "channels_send", "channels_publish", "channels_set_status":
 		return true
 	default:
-		return false
+		return strings.HasSuffix(tool, "_set_status") ||
+			strings.HasSuffix(tool, "_publish") ||
+			strings.HasSuffix(tool, "_notify") ||
+			strings.HasSuffix(tool, "_list_channels")
 	}
 }
 

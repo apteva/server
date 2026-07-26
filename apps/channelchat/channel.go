@@ -373,12 +373,13 @@ func (f *chatChannelFactory) Build(_ *framework.AppCtx, inst framework.InstanceI
 		return nil, err
 	}
 	return &chatChannel{
-		chatID:  chat.ID,
-		agentID: inst.ID,
-		userID:  inst.UserID,
-		store:   f.store,
-		hub:     f.hub,
-		bus:     f.bus,
+		chatID:   chat.ID,
+		threadID: "main",
+		agentID:  inst.ID,
+		userID:   inst.UserID,
+		store:    f.store,
+		hub:      f.hub,
+		bus:      f.bus,
 	}, nil
 }
 

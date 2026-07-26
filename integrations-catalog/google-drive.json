@@ -136,9 +136,17 @@
     },
     {
       "name": "download_file",
-      "description": "Download the binary content of a non-Google Workspace file (images, audio, video, PDFs, etc.). For Google Workspace files (Docs, Sheets, Slides), use export_file instead.",
+      "description": "Download the binary content of a non-Google Workspace file (images, audio, video, PDFs, etc.). For large files, pass start_byte and optionally end_byte to fetch one byte range at a time; end_byte is inclusive, so 0 through 4194303 returns at most 4 MiB. The response headers include Content-Range when Google returns a partial response. For Google Workspace files (Docs, Sheets, Slides), use export_file instead; Google does not support partial downloads for exports.",
       "method": "GET",
-      "path": "/drive/v3/files/{fileId}",
+      "path": "/drive/v3/files/{fileId}?alt=media",
+      "header_transforms": [
+        {
+          "type": "byte_range",
+          "header": "Range",
+          "start_param": "start_byte",
+          "end_param": "end_byte"
+        }
+      ],
       "input_schema": {
         "type": "object",
         "properties": {
@@ -146,10 +154,15 @@
             "type": "string",
             "description": "ID of the file to download"
           },
-          "alt": {
-            "type": "string",
-            "description": "Must be 'media' to download file content",
-            "default": "media"
+          "start_byte": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Optional inclusive first byte for a partial download. When omitted, the complete file is downloaded. Use 0 for the first chunk."
+          },
+          "end_byte": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Optional inclusive last byte for a partial download. Requires start_byte and must be greater than or equal to it. Omit to download from start_byte through the end of the file."
           }
         },
         "required": [

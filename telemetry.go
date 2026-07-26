@@ -443,6 +443,13 @@ func (s *Store) QueryChatHistory(instanceID int64, limit int) ([]ChatHistoryMess
 			if name == "" {
 				continue
 			}
+			lowerName := strings.ToLower(strings.TrimSpace(name))
+			if strings.HasSuffix(lowerName, "_set_status") ||
+				strings.HasSuffix(lowerName, "_publish") ||
+				strings.HasSuffix(lowerName, "_notify") ||
+				strings.HasSuffix(lowerName, "_list_channels") {
+				continue
+			}
 
 			if name == "channels_respond" || name == "channels_send" || name == "channels_status" {
 				args, _ := e.data["args"].(map[string]any)

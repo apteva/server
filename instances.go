@@ -248,10 +248,13 @@ func extractMCPNames(config map[string]any) []string {
 	return out
 }
 
-// channelsMCPConfig is the single source of truth for the host-owned
-// Channels entry used by both fresh starts and core reattachment. Channels
-// remains an ordinary HTTP MCP server; tool_loading only pins its four small,
-// user-facing schemas in the authorized model context.
+const agentOutputMCPName = "agent-output"
+
+// channelsMCPConfig is the conversation-only durable reply/publication
+// surface. Main retains the server in its deferred catalog so authenticated
+// API-created conversation threads can preload it by name, but its schemas are
+// absent from main's active prompt. Runtime caller-context checks remain the
+// authority boundary.
 func channelsMCPConfig(url string) map[string]any {
 	return map[string]any{
 		"name":      "channels",
@@ -259,8 +262,46 @@ func channelsMCPConfig(url string) map[string]any {
 		"transport": "http",
 		"no_spawn":  true,
 		"tool_loading": map[string]any{
+			"default": "deferred",
+		},
+	}
+}
+
+// agentOutputMCPConfig is main's central operator-output surface: one mutable
+// status, full Inbox publication, and explicit external notifications. It is
+// always loaded for main and never attached to user conversation threads.
+func agentOutputMCPConfig(url string) map[string]any {
+	return map[string]any{
+		"name":      agentOutputMCPName,
+		"url":       url,
+		"transport": "http",
+		"no_spawn":  true,
+		"tool_loading": map[string]any{
 			"default": "always",
 		},
+	}
+}
+
+func isServerOwnedOutputMCP(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "channels", "apteva-channels", agentOutputMCPName, "apteva-agent-output":
+		return true
+	default:
+		return false
+	}
+}
+
+func waitForChannelMCPReady(server *channelMCPServer) {
+	if server == nil {
+		return
+	}
+	for i := 0; i < 50; i++ {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", server.port), 50*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -496,8 +537,9 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		im.PostChannelsInit(inst, ic)
 	}
 
-	// Start channels MCP server
-	channelsMCP, err := newChannelMCPServer(ic.registry)
+	// Start the conversation-only Channels MCP and main-owned operator-output
+	// MCP over the same per-agent registry.
+	channelsMCP, err := newProfiledChannelMCPServer(ic.registry, channelMCPProfileConversation)
 	if err == nil {
 		channelsMCP.ic = ic
 		// Close over the project AND this instance's attached MCP
@@ -534,25 +576,27 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		}
 	}
 	if err != nil {
-		return fmt.Errorf("failed to start channels MCP: %w", err)
+		return fmt.Errorf("failed to start conversation channels MCP: %w", err)
 	}
+	outputMCP, err := newProfiledChannelMCPServer(ic.registry, channelMCPProfileAgentOutput)
+	if err != nil {
+		channelsMCP.close()
+		return fmt.Errorf("failed to start agent output MCP: %w", err)
+	}
+	outputMCP.ic = ic
 	ic.mcp = channelsMCP
+	ic.outputMCP = outputMCP
 	go channelsMCP.serve()
+	go outputMCP.serve()
 
-	// Wait for channels MCP to be ready before starting core
-	for i := 0; i < 50; i++ {
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", channelsMCP.port), 50*time.Millisecond)
-		if err == nil {
-			conn.Close()
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitForChannelMCPReady(channelsMCP)
+	waitForChannelMCPReady(outputMCP)
 
-	// Outbound user-facing chat bridge — main only. All four schemas are
-	// pinned for main so replying, publishing, and status updates never need a
-	// search_tools round-trip. no_spawn remains the worker privilege boundary.
+	// Main keeps the conversation server only as a deferred scope that the
+	// server can grant to API-created user conversations. Main's own active
+	// output schemas come from the separate always-loaded operator surface.
 	channelsEntry := channelsMCPConfig(channelsMCP.url())
+	outputEntry := agentOutputMCPConfig(outputMCP.url())
 
 	// Read the opt-in flags for the auto-injected system MCPs. These
 	// live in the instance's DB record (inst.Config JSON blob) rather
@@ -575,15 +619,15 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		}
 	}
 
-	// Merge apteva-server gateway and channels into existing MCP servers.
+	// Merge apteva-server and the role-split output servers into existing MCPs.
 	// Preserve all other MCP servers (schedule, social, helpdesk, etc.) that were
-	// added at runtime or manually. Only replace gateway + channels entries.
+	// added at runtime or manually. Only replace server-owned system entries.
 	var userServers []any
 	if existing, ok := config["mcp_servers"].([]any); ok {
 		for _, s := range existing {
 			if sm, ok := s.(map[string]any); ok {
 				name, _ := sm["name"].(string)
-				if name == "apteva-server" || name == "channels" || name == "apteva-channels" {
+				if isServerOwnedOutputMCP(name) || name == "apteva-server" {
 					continue // will be re-added with fresh URLs (if enabled)
 				}
 				userServers = append(userServers, sm)
@@ -595,7 +639,7 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		systemEntries = append(systemEntries, gateway)
 	}
 	if includeChannels {
-		systemEntries = append(systemEntries, channelsEntry)
+		systemEntries = append(systemEntries, outputEntry, channelsEntry)
 	}
 	config["mcp_servers"] = append(systemEntries, userServers...)
 
@@ -992,11 +1036,19 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 		im.PostChannelsInit(inst, ic)
 	}
 
-	channelsMCP, err := newChannelMCPServer(ic.registry)
+	channelsMCP, err := newProfiledChannelMCPServer(ic.registry, channelMCPProfileConversation)
 	if err != nil {
-		return fmt.Errorf("failed to start channels MCP: %w", err)
+		return fmt.Errorf("failed to start conversation channels MCP: %w", err)
 	}
+	outputMCP, err := newProfiledChannelMCPServer(ic.registry, channelMCPProfileAgentOutput)
+	if err != nil {
+		channelsMCP.close()
+		return fmt.Errorf("failed to start agent output MCP: %w", err)
+	}
+	channelsMCP.ic = ic
+	outputMCP.ic = ic
 	ic.mcp = channelsMCP
+	ic.outputMCP = outputMCP
 	if im.ComponentCatalog != nil {
 		pid := inst.ProjectID
 		attached := extractMCPNames(config)
@@ -1005,14 +1057,9 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 		}
 	}
 	go channelsMCP.serve()
-	for i := 0; i < 50; i++ {
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", channelsMCP.port), 50*time.Millisecond)
-		if err == nil {
-			conn.Close()
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	go outputMCP.serve()
+	waitForChannelMCPReady(channelsMCP)
+	waitForChannelMCPReady(outputMCP)
 
 	gateway := map[string]any{
 		"name":     "apteva-server",
@@ -1021,6 +1068,7 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 		"no_spawn": true,
 	}
 	channelsEntry := channelsMCPConfig(channelsMCP.url())
+	outputEntry := agentOutputMCPConfig(outputMCP.url())
 
 	includeGateway := false
 	includeChannels := true
@@ -1042,7 +1090,7 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 		for _, s := range existing {
 			if sm, ok := s.(map[string]any); ok {
 				name, _ := sm["name"].(string)
-				if name == "apteva-server" || name == "channels" || name == "apteva-channels" {
+				if isServerOwnedOutputMCP(name) || name == "apteva-server" {
 					continue
 				}
 				userServers = append(userServers, sm)
@@ -1054,7 +1102,7 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 		systemEntries = append(systemEntries, gateway)
 	}
 	if includeChannels {
-		systemEntries = append(systemEntries, channelsEntry)
+		systemEntries = append(systemEntries, outputEntry, channelsEntry)
 	}
 	config["mcp_servers"] = append(systemEntries, userServers...)
 	configData, _ := json.MarshalIndent(config, "", "  ")
@@ -2368,7 +2416,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		for _, s := range mcpList {
 			if sm, ok := s.(map[string]any); ok {
 				n, _ := sm["name"].(string)
-				if n == "channels" || n == "apteva-channels" {
+				if isServerOwnedOutputMCP(n) {
 					hasChannels = true
 				}
 			}

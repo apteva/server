@@ -449,7 +449,11 @@ type AppToolDef struct {
 	// names. Values are copied from the input and excluded from the normal
 	// request body/query. Fish Audio uses this for its required model header.
 	HeaderParams map[string]string `json:"header_params,omitempty"`
-	ResponsePath *string           `json:"response_path,omitempty"`
+	// HeaderTransforms builds request headers from multiple agent-facing
+	// inputs and keeps those inputs out of the normal query/body. The
+	// byte_range transform emits an RFC 7233 Range header.
+	HeaderTransforms []HeaderTransformDef `json:"header_transforms,omitempty"`
+	ResponsePath     *string              `json:"response_path,omitempty"`
 
 	// MockResponse is the curated, real-shaped reply returned for this tool
 	// when it runs inside a test Environment and no per-environment fixture/cassette
@@ -557,6 +561,13 @@ type MultipartFormDef struct {
 	// RepeatFields lists text fields whose array values should be emitted as
 	// repeated multipart parts instead of one JSON-encoded value.
 	RepeatFields []string `json:"repeat_fields,omitempty"`
+}
+
+type HeaderTransformDef struct {
+	Type       string `json:"type"`
+	Header     string `json:"header,omitempty"`
+	StartParam string `json:"start_param"`
+	EndParam   string `json:"end_param,omitempty"`
 }
 
 type RequestTransformDef struct {

@@ -21,6 +21,7 @@ type channelMCPServer struct {
 	listener net.Listener
 	registry *ChannelRegistry
 	ic       *AgentChannels // parent — for listing available channels
+	profile  channelMCPProfile
 
 	// componentCatalog returns the UI components installed apps in
 	// this instance's project declare. Used to enumerate them in the
@@ -35,6 +36,17 @@ type channelMCPServer struct {
 	closed bool
 }
 
+type channelMCPProfile string
+
+const (
+	// The zero value preserves the historical aggregate surface for focused
+	// unit tests and compatibility callers. Production agents use the two
+	// explicit profiles below.
+	channelMCPProfileCombined     channelMCPProfile = ""
+	channelMCPProfileConversation channelMCPProfile = "conversation"
+	channelMCPProfileAgentOutput  channelMCPProfile = "agent-output"
+)
+
 // componentEntry is the flat (app, name, slots, description) row
 // the chat MCP advertises to the agent. Decoupled from sdk.UIComponent
 // so we can also expose human-readable display_name/description from
@@ -48,6 +60,10 @@ type componentEntry struct {
 }
 
 func newChannelMCPServer(registry *ChannelRegistry) (*channelMCPServer, error) {
+	return newProfiledChannelMCPServer(registry, channelMCPProfileCombined)
+}
+
+func newProfiledChannelMCPServer(registry *ChannelRegistry, profile channelMCPProfile) (*channelMCPServer, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
@@ -56,6 +72,7 @@ func newChannelMCPServer(registry *ChannelRegistry) (*channelMCPServer, error) {
 		port:     ln.Addr().(*net.TCPAddr).Port,
 		listener: ln,
 		registry: registry,
+		profile:  profile,
 	}, nil
 }
 
@@ -178,124 +195,210 @@ func (s *channelMCPServer) toolsList() map[string]any {
 		components = s.componentCatalog()
 	}
 
-	return map[string]any{
-		"tools": []map[string]any{
-			{
-				"name":        "send",
-				"description": buildSendDescription(channelIDs, components),
-				"_meta": map[string]any{
-					"io.apteva/wakeOnResult": "always",
-				},
-				"inputSchema": map[string]any{
-					"type":     "object",
-					"required": []string{"channel", "text"},
-					"properties": map[string]any{
-						"channel": map[string]any{"type": "string", "description": "Target channel. Use \"current\" to reply where the event originated, \"apteva\" for the durable Apteva operator chat, or an id returned by list_channels."},
-						"text":    map[string]any{"type": "string", "description": "Complete user-visible message. Thoughts and plain assistant output are invisible; put the actual reply here."},
-						"phase": map[string]any{
-							"type":        "string",
-							"enum":        []string{"acknowledgement", "progress", "final"},
-							"default":     "final",
-							"description": "Lifecycle phase for this visible message. Use acknowledgement before promised tool work, progress only for a meaningful intermediate update, and final for the completed answer. Omitted values are treated as final.",
-						},
-						"components": map[string]any{
-							"type":        "array",
-							"description": "Optional rich attachments for kind=message — see AVAILABLE COMPONENTS in the description. External channels ignore this field; the Apteva channel renders attachments.",
-							"items": map[string]any{
-								"type":     "object",
-								"required": []string{"app", "name"},
-								"properties": map[string]any{
-									"app":   map[string]any{"type": "string", "description": "Installed app's slug, e.g. \"storage\"."},
-									"name":  map[string]any{"type": "string", "description": "Component name from that app's manifest, e.g. \"file-card\"."},
-									"props": map[string]any{"type": "object", "description": "Forwarded to the component verbatim."},
-								},
+	tools := []map[string]any{
+		{
+			"name":        "send",
+			"description": buildSendDescription(channelIDs, components),
+			"_meta": map[string]any{
+				"io.apteva/wakeOnResult": "always",
+			},
+			"inputSchema": map[string]any{
+				"type":     "object",
+				"required": []string{"channel", "text"},
+				"properties": map[string]any{
+					"channel": map[string]any{"type": "string", "description": "Target channel. Use \"current\" to reply where the event originated, \"apteva\" for the durable Apteva operator chat, or an id returned by list_channels."},
+					"text":    map[string]any{"type": "string", "description": "Complete user-visible message. Thoughts and plain assistant output are invisible; put the actual reply here."},
+					"phase": map[string]any{
+						"type":        "string",
+						"enum":        []string{"acknowledgement", "progress", "final"},
+						"default":     "final",
+						"description": "Lifecycle phase for this visible message. Use acknowledgement before promised tool work, progress only for a meaningful intermediate update, and final for the completed answer. Omitted values are treated as final.",
+					},
+					"components": map[string]any{
+						"type":        "array",
+						"description": "Optional rich attachments for kind=message — see AVAILABLE COMPONENTS in the description. External channels ignore this field; the Apteva channel renders attachments.",
+						"items": map[string]any{
+							"type":     "object",
+							"required": []string{"app", "name"},
+							"properties": map[string]any{
+								"app":   map[string]any{"type": "string", "description": "Installed app's slug, e.g. \"storage\"."},
+								"name":  map[string]any{"type": "string", "description": "Component name from that app's manifest, e.g. \"file-card\"."},
+								"props": map[string]any{"type": "object", "description": "Forwarded to the component verbatim."},
 							},
 						},
 					},
 				},
-			},
-			{
-				"name":        "publish",
-				"description": buildPublishDescription(),
-				"_meta": map[string]any{
-					"io.apteva/wakeOnResult": "always",
-				},
-				"inputSchema": map[string]any{
-					"type":     "object",
-					"required": []string{"kind", "title", "content"},
-					"properties": map[string]any{
-						"kind": map[string]any{
-							"type":        "string",
-							"enum":        []string{"approval", "report", "alert"},
-							"description": "Inbox artifact type: approval, report, or alert.",
-						},
-						"title":   map[string]any{"type": "string", "description": "Short, specific operator-facing title."},
-						"content": map[string]any{"type": "string", "description": "Required substantive content. For reports, summarize what actually happened and the outcome; for approvals, state the decision needed; for alerts, explain the problem and impact."},
-						"severity": map[string]any{
-							"type":        "string",
-							"enum":        []string{"info", "warning", "error", "critical"},
-							"description": "Optional alert severity: info, warning, error, or critical.",
-						},
-						"actions": map[string]any{
-							"type":        "array",
-							"description": "Optional approval buttons. Defaults to Approve and Deny.",
-							"items": map[string]any{
-								"type":     "object",
-								"required": []string{"id", "label"},
-								"properties": map[string]any{
-									"id":    map[string]any{"type": "string", "description": "Stable action id, e.g. approve or deny."},
-									"label": map[string]any{"type": "string", "description": "Button label."},
-									"style": map[string]any{"type": "string", "description": "Optional visual style: primary, danger, neutral."},
-								},
-							},
-						},
-						"period": map[string]any{"type": "string", "description": "Optional report period such as today, yesterday, past_week, daily, weekly, or an ISO date range."},
-						"sections": map[string]any{
-							"type":        "array",
-							"description": "Optional expanded details for the report modal. Each item is {title, body}. Use sections for completed work, findings, risks, next steps, metrics, evidence, links, or chronology. Do not rely on sections to replace the summary.",
-							"items": map[string]any{
-								"type": "object",
-								"properties": map[string]any{
-									"title": map[string]any{"type": "string"},
-									"body":  map[string]any{"type": "string"},
-								},
-							},
-						},
-						"tags":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional report tags such as daily, weekly, milestone, incident, or activity."},
-						"context": map[string]any{"type": "object", "description": "Optional structured context for follow-up."},
-					},
-				},
-			},
-			{
-				"name":        "set_status",
-				"description": buildSetStatusDescription(),
-				"_meta": map[string]any{
-					"io.apteva/wakeOnResult": "always",
-				},
-				"inputSchema": map[string]any{
-					"type":     "object",
-					"required": []string{"title", "state"},
-					"properties": map[string]any{
-						"title": map[string]any{"type": "string", "description": "Concise current work unit or completed outcome. Never use a future action, waiting condition, or internal agent administration as the title."},
-						"state": map[string]any{
-							"type":        "string",
-							"enum":        []string{"working", "waiting", "blocked", "completed"},
-							"description": "Required state. waiting is an expected pause with a known resume condition such as time, approval, or an external job. blocked is an unexpected failure, missing access, or missing capability requiring corrective action.",
-						},
-						"detail":   map[string]any{"type": "string", "description": "Optional concise current phase, concrete result, dependency, or blocker for this work unit."},
-						"progress": map[string]any{"type": "number", "minimum": 0, "maximum": 100, "description": "Optional completion percentage for this work unit. Never use waiting with 100 percent."},
-						"next":     map[string]any{"type": "string", "description": "Optional nearest distinct operator-relevant responsibility after this work or phase. Do not use placeholders such as No pending work, restate the title, or record internal pacing."},
-						"next_at":  map[string]any{"type": "string", "description": "Optional explicit or externally derived RFC3339 deadline for next. Include only when the same call contains a non-empty next. Never estimate it from current time, expected duration, the current work phase, or internal pacing."},
-					},
-				},
-			},
-			{
-				"name":        "list_channels",
-				"description": "List communication channels and their capabilities. Use send for ordinary messages, publish for Apteva approval/report/alert Inbox artifacts, and set_status for mutable monitoring state.",
-				"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
 			},
 		},
+		{
+			"name":        "publish",
+			"description": buildPublishDescription(),
+			"_meta": map[string]any{
+				"io.apteva/wakeOnResult": "always",
+			},
+			"inputSchema": map[string]any{
+				"type":     "object",
+				"required": []string{"kind", "title", "content"},
+				"properties": map[string]any{
+					"kind": map[string]any{
+						"type":        "string",
+						"enum":        []string{"approval", "report", "alert"},
+						"description": "Inbox artifact type: approval, report, or alert.",
+					},
+					"title":   map[string]any{"type": "string", "description": "Short, specific operator-facing title."},
+					"content": map[string]any{"type": "string", "description": "Required substantive content. For reports, summarize what actually happened and the outcome; for approvals, state the decision needed; for alerts, explain the problem and impact."},
+					"severity": map[string]any{
+						"type":        "string",
+						"enum":        []string{"info", "warning", "error", "critical"},
+						"description": "Optional alert severity: info, warning, error, or critical.",
+					},
+					"actions": map[string]any{
+						"type":        "array",
+						"description": "Optional approval buttons. Defaults to Approve and Deny.",
+						"items": map[string]any{
+							"type":     "object",
+							"required": []string{"id", "label"},
+							"properties": map[string]any{
+								"id":    map[string]any{"type": "string", "description": "Stable action id, e.g. approve or deny."},
+								"label": map[string]any{"type": "string", "description": "Button label."},
+								"style": map[string]any{"type": "string", "description": "Optional visual style: primary, danger, neutral."},
+							},
+						},
+					},
+					"period": map[string]any{"type": "string", "description": "Optional report period such as today, yesterday, past_week, daily, weekly, or an ISO date range."},
+					"sections": map[string]any{
+						"type":        "array",
+						"description": "Optional expanded details for the report modal. Each item is {title, body}. Use sections for completed work, findings, risks, next steps, metrics, evidence, links, or chronology. Do not rely on sections to replace the summary.",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"title": map[string]any{"type": "string"},
+								"body":  map[string]any{"type": "string"},
+							},
+						},
+					},
+					"tags":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional report tags such as daily, weekly, milestone, incident, or activity."},
+					"context": map[string]any{"type": "object", "description": "Optional structured context for follow-up."},
+				},
+			},
+		},
+		{
+			"name":        "set_status",
+			"description": buildSetStatusDescription(),
+			"_meta": map[string]any{
+				"io.apteva/wakeOnResult": "always",
+			},
+			"inputSchema": map[string]any{
+				"type":     "object",
+				"required": []string{"title", "state"},
+				"properties": map[string]any{
+					"title": map[string]any{"type": "string", "description": "Concise current work unit or completed outcome. Never use a future action, waiting condition, or internal agent administration as the title."},
+					"state": map[string]any{
+						"type":        "string",
+						"enum":        []string{"working", "waiting", "blocked", "completed"},
+						"description": "Required state. waiting is an expected pause with a known resume condition such as time, approval, or an external job. blocked is an unexpected failure, missing access, or missing capability requiring corrective action.",
+					},
+					"detail":   map[string]any{"type": "string", "description": "Optional concise current phase, concrete result, dependency, or blocker for this work unit."},
+					"progress": map[string]any{"type": "number", "minimum": 0, "maximum": 100, "description": "Optional completion percentage for this work unit. Never use waiting with 100 percent."},
+					"next":     map[string]any{"type": "string", "description": "Optional nearest distinct operator-relevant responsibility after this work or phase. Do not use placeholders such as No pending work, restate the title, or record internal pacing."},
+					"next_at":  map[string]any{"type": "string", "description": "Optional explicit or externally derived RFC3339 deadline for next. Include only when the same call contains a non-empty next. Never estimate it from current time, expected duration, the current work phase, or internal pacing."},
+				},
+			},
+		},
+		{
+			"name":        "list_channels",
+			"description": "List communication channels and their capabilities. Use send for ordinary messages, publish for Apteva approval/report/alert Inbox artifacts, and set_status for mutable monitoring state.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+		},
 	}
+	switch s.profile {
+	case channelMCPProfileConversation:
+		return map[string]any{"tools": conversationChannelTools(tools, components)}
+	case channelMCPProfileAgentOutput:
+		return map[string]any{"tools": agentOutputChannelTools(tools, channelIDs)}
+	default:
+		return map[string]any{"tools": tools}
+	}
+}
+
+func conversationChannelTools(all []map[string]any, components []componentEntry) []map[string]any {
+	out := make([]map[string]any, 0, 2)
+	for _, tool := range all {
+		name, _ := tool["name"].(string)
+		switch name {
+		case "send":
+			tool["description"] = buildConversationSendDescription(components)
+			schema, _ := tool["inputSchema"].(map[string]any)
+			properties, _ := schema["properties"].(map[string]any)
+			properties["channel"] = map[string]any{
+				"type":        "string",
+				"enum":        []string{"current"},
+				"description": "Use current. The server binds this durable reply to the originating Apteva conversation.",
+			}
+			out = append(out, tool)
+		case "publish":
+			tool["description"] = buildConversationPublishDescription()
+			schema, _ := tool["inputSchema"].(map[string]any)
+			properties, _ := schema["properties"].(map[string]any)
+			properties["kind"] = map[string]any{
+				"type":        "string",
+				"enum":        []string{"approval", "alert"},
+				"description": "Conversation-scoped attention artifact: approval or alert.",
+			}
+			delete(properties, "period")
+			delete(properties, "sections")
+			delete(properties, "tags")
+			out = append(out, tool)
+		}
+	}
+	return out
+}
+
+func agentOutputChannelTools(all []map[string]any, channelIDs []string) []map[string]any {
+	out := make([]map[string]any, 0, 4)
+	ownership := buildAgentOutputOwnershipDescription() + "\n\n"
+	for _, tool := range all {
+		name, _ := tool["name"].(string)
+		switch name {
+		case "send":
+			tool["name"] = "notify"
+			tool["description"] = ownership + buildExternalNotifyDescription(channelIDs)
+			tool["inputSchema"] = map[string]any{
+				"type":     "object",
+				"required": []string{"channel", "text"},
+				"properties": map[string]any{
+					"channel": map[string]any{
+						"type":        "string",
+						"description": "Explicit connected external channel id, or current only when the originating event came from an external channel. Internal Apteva chat is not a valid target.",
+					},
+					"text": map[string]any{
+						"type":        "string",
+						"description": "Complete external notification or reply.",
+					},
+				},
+			}
+			out = append(out, tool)
+		case "publish":
+			tool["description"] = ownership + buildAgentOutputPublishDescription()
+			out = append(out, tool)
+		case "set_status":
+			description, _ := tool["description"].(string)
+			tool["description"] = ownership + description
+			out = append(out, tool)
+		case "list_channels":
+			tool["description"] = ownership + "List connected external communication channels available to notify. Internal Apteva conversations are excluded; return requested chat outcomes to their conversation with the core send tool."
+			out = append(out, tool)
+		}
+	}
+	return out
+}
+
+func buildAgentOutputOwnershipDescription() string {
+	return `MAIN-ONLY OWNERSHIP: These tools represent the agent's one global operator-output surface. Main is their only writer.
+
+For a simple recurring schedule or persistent behavior requested by a user conversation, main must adopt it by updating main's own directive with evolve, wait for that receipt, and return the result with core send to the originating conversation. Do not spawn a persistent child merely to hold that schedule or behavior.
+
+Children are for bounded delegated work unless the directive explicitly defines a long-lived subdivision. They report results and state changes to main with core send. Never grant a child any agent-output tool (set_status, publish, notify, or list_channels); main consumes the child report and emits any required global output itself.`
 }
 
 // buildSendDescription emits a send-tool description whose
@@ -430,7 +533,7 @@ func buildSendDescription(channelIDs []string, components []componentEntry) stri
 	return fmt.Sprintf(
 		"Send one complete user-visible message through a communication channel. Thoughts and plain assistant output are INVISIBLE; only this tool delivers chat text. Use publish for approvals/reports/alerts and set_status for mutable work state.\n\n"+
 			"channel=\"current\" replies where the event originated. For dashboard chat it resolves to apteva. channel=\"apteva\" is durable and saves messages even while the operator is offline.\n"+
-			"Use this tool for a direct [chat] turn and for the later outcome of work explicitly requested in that chat, even if the operator disconnected before completion. Outside a direct [chat] request, send ordinary chat only when the operator or directive explicitly asks for a chat message at that time. Do NOT send ordinary chat for autonomous or scheduled checks, routine monitoring, unchanged or no-op results, idle updates, repeated progress, connect/disconnect events, or internal/system events. A request to \"send a status update\" or \"update the status\" means set_status unless it explicitly asks for a chat message. For a recurring autonomous check with no meaningful change, set_status at most once if appropriate, call pace for the next due check, and remain silent; status next_at does not schedule a wake.\n"+
+			"Use this tool for a direct [chat] turn and for the later outcome of work explicitly requested in that chat, even if the operator disconnected before completion. Outside a direct [chat] request, send ordinary chat only when the operator or directive explicitly asks for a chat message at that time. Do NOT send ordinary chat for autonomous or scheduled checks, routine monitoring, unchanged or no-op results, idle updates, repeated progress, connect/disconnect events, or internal/system events. A request to \"send a status update\" or \"update the status\" means set_status unless it explicitly asks for a chat message. Every due directive-defined recurring monitor cycle must call set_status exactly once with its completed result before pacing, even when the result is unchanged or empty; never call pace as its only post-cycle action. Then call pace exactly once for the next cycle and remain silent; a successful pace result is its scheduling receipt and must not trigger another pace call. Status next_at does not schedule a wake.\n"+
 			"For a direct [chat] turn that requires one or more non-channel tools, including dashboard conversation threads, first send exactly one short visible acknowledgement with phase=\"acknowledgement\" stating the concrete next action. This acknowledgement is required before the first non-channel tool call, including quick or read-only lookups. Wait for this send to succeed before action tools; never parallelize the acknowledgement with them. One acknowledgement covers a parallel batch and its immediately dependent tool calls—do not narrate each tool separately. Use phase=\"progress\" only for a genuinely useful intermediate update during longer work. After the promised work, send exactly one final outcome with phase=\"final\"; the acknowledgement never replaces it. Omitted phase defaults to final. A normal tool-work turn has exactly two intentional messages—acknowledgement then final—and never more. For a durable handoff, send the required acknowledgement before send(main), never after it.\n"+
 			"Every direct [chat] turn requires at least one successful call to this tool before pace, done, or going idle. The turn is incomplete until you send its visible answer. This also applies to clarifications, read-only lookup results, blockers, failures, and no-op outcomes. After any non-channel tool result used for the request, send the outcome or next question here before pacing; never leave it only in thoughts or plain assistant output.\n"+
 			"A successful send wakes you again, but its result is only the delivery receipt for that exact message. Never repeat it. Continue only concrete unfinished work explicitly promised in an acknowledgement and send one final outcome afterward; otherwise pace/done. Build each message as one complete call and never send placeholders or duplicates.\n\n"+
@@ -457,6 +560,86 @@ Correct alert example: {"kind":"alert","title":"CRM authentication expired","con
 Follow an explicit operator request or directive when it defines report timing. Otherwise publish at most one unsolicited report per day, near the end of the operator's day, and only when meaningful work was completed since the previous report. Combine that day's work into one digest and use period=today. If no meaningful work was done, publish no report. Use approvals only when a decision is genuinely required. Use alerts only for important problems requiring attention.`
 }
 
+func buildAgentOutputPublishDescription() string {
+	return `Publish one durable structured artifact to the agent's central Apteva Inbox. Main owns this surface. It is not ordinary chat and not current work status.
+
+Every call requires kind, title, and substantive content:
+- report: a periodic digest across its reporting period with concrete outcomes, evidence or metrics, blockers, and next steps. It is not a receipt for each action or check.
+- approval: the exact decision needed, why it is needed, and the consequence of approving or denying it.
+- alert: an important problem requiring attention, its impact, and the relevant next action.
+
+Use set_status for the agent's single mutable operational state. For a requested dashboard-chat outcome, return the result to the originating conversation with the core send tool and let that conversation reply visibly. Use notify only for an explicitly required external channel message.
+
+Follow explicit report timing in the directive. Otherwise publish at most one unsolicited report per day and only when meaningful work occurred. Never publish placeholders, routine progress, unchanged checks, internal reasoning, or duplicates.`
+}
+
+func buildConversationSendDescription(components []componentEntry) string {
+	componentDocs := buildComponentDocs(components)
+	return "Reply durably to the user in this exact Apteva conversation. Thoughts and plain assistant output are invisible; only this tool creates user-visible chat text. " +
+		"Use phase=\"final\" for a direct answer. Before noticeable non-channel tool work, send one short phase=\"acknowledgement\", wait for its receipt, perform the work, and then send exactly one phase=\"final\" outcome. " +
+		"Use phase=\"progress\" only for a meaningful achievement, plan change, blocker, request for input, or a slow phase transition during longer work. Do not narrate individual tools, routine retries, temporary plans, or unchanged waiting. " +
+		"The conversation is durable, so send the requested final outcome even if the user disconnected. A successful receipt means that exact message is already delivered; never repeat or paraphrase it. " +
+		"Global agent status is owned by main and is not a conversation progress mechanism. Work that becomes recurring, autonomous, or otherwise must outlive this conversation must be handed to main with the core send tool; after main replies, send the user one final outcome here.\n\n" +
+		componentDocs
+}
+
+func buildComponentDocs(components []componentEntry) string {
+	var lines []string
+	for _, component := range components {
+		allowed := false
+		for _, slot := range component.Slots {
+			if slot == "chat.message_attachment" {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			continue
+		}
+		line := fmt.Sprintf("  - {app:%q, name:%q}", component.App, component.Name)
+		if propsHint := propsSchemaHint(component.PropsSchema); propsHint != "" {
+			line += " props=" + propsHint
+		}
+		if component.Description != "" {
+			line += " — " + component.Description
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "AVAILABLE COMPONENTS for optional durable chat attachments:\n" +
+		strings.Join(lines, "\n") +
+		"\nAttach a matching card when the user asks to show, preview, or inspect a specific supported entity. Send text and components together in one call; never create a second component-only message."
+}
+
+func buildConversationPublishDescription() string {
+	return `Create a durable attention artifact tied to this user conversation. This is narrower than a normal chat reply.
+
+Use kind=approval only when the requested work cannot continue without a user decision. Use kind=alert only for a genuinely urgent or materially important problem discovered while handling the user's request. The artifact remains visible if the user leaves the chat.
+
+Do not publish routine progress, ordinary failures, normal final answers, periodic reports, or a duplicate of every chat message. Normal acknowledgement, progress, clarification, and final outcomes belong in send. If an approval or alert is created during a live request, also send one concise chat message explaining what needs attention.`
+}
+
+func buildExternalNotifyDescription(channelIDs []string) string {
+	external := make([]string, 0, len(channelIDs))
+	for _, id := range channelIDs {
+		normalized := normalizeChannelID(id)
+		if normalized == "" || normalized == "apteva" {
+			continue
+		}
+		external = append(external, id)
+	}
+	sort.Strings(external)
+	available := "none registered"
+	if len(external) > 0 {
+		available = strings.Join(external, ", ")
+	}
+	return "Send one complete message through an external communication channel. Internal Apteva chat is deliberately unavailable to main: return a requested dashboard-chat result with core send(id=\"<originating conversation thread>\", message=\"...\") so that conversation can reply. " +
+		"Use notify only when the directive or originating external event requires a message on that external channel. Do not use it for autonomous no-change checks, internal events, status updates, reports, approvals, or alerts.\n\n" +
+		"REGISTERED EXTERNAL CHANNELS: " + available
+}
+
 func normalizeVisibleMessagePhase(phase string) string {
 	switch strings.ToLower(strings.TrimSpace(phase)) {
 	case "acknowledgement":
@@ -471,7 +654,9 @@ func normalizeVisibleMessagePhase(phase string) string {
 func buildSetStatusDescription() string {
 	return `Set the agent's single mutable current-work status. Status is operational state: it replaces the previous status and never appears in chat or the Inbox. Every call requires both title and state.
 
-When an autonomous instruction says to "send a status update" or "update the status" without explicitly requesting a chat message, use this tool rather than send. A recurring check with no meaningful change may replace status at most once for that completed phase and must not also create an ordinary chat message. After recording the completed recurring work, call pace for the next due check; next_at is display metadata and does not schedule a wake.
+When an autonomous instruction says to "send a status update" or "update the status" without explicitly requesting a chat message, use this tool rather than send.
+
+Every due cycle of a directive-defined recurring monitor MUST call this tool exactly once after it runs, including quick or read-only checks whose result is unchanged or empty. This completed status is the cycle's required completion receipt: record state=completed and a concrete result in detail, and never call pace as the only post-cycle action. In the same turn, call pace exactly once for the next due cycle and remain silent; a successful pace result is the scheduling receipt and must not trigger another pace call. Do not also create an ordinary chat message. Set next to the operator-facing action for that next cycle. When the directive, scheduler event, or an external source provides its exact RFC3339 time, include both next and next_at; otherwise include next without next_at. next_at is display metadata and does not schedule a wake. This recurring-cycle requirement overrides the general read-only, isolated quick-action, and channel-publication exclusions below when status summarizes the whole cycle. It does not apply when a cycle is not due or the agent is merely sleeping between cycles.
 
 Status answers: what meaningful operator-relevant work is this agent actively doing, waiting on, blocked by, or most recently completed? Use it only for a work unit that is multi-step, long-running, or cannot currently continue. When qualifying work can start immediately, call set_status and the first action tool in the same parallel batch.
 
@@ -481,14 +666,14 @@ Use working while the work unit is actively executing. Use waiting only for an e
 
 The title names the current work unit or completed outcome, never a future action or waiting/blocking condition. Put the current phase, concrete result, dependency, or blocker in detail. Prefer title="Customer update publication" over "Waiting for approval", title="Delayed notification" over "Notification scheduled", and title="CRM contact import" over "CRM import blocked". Progress measures only this work unit; never use waiting with 100 percent.
 
-Use next for only the nearest distinct operator-relevant responsibility after this work or phase. It is secondary metadata and must not replace the current title or detail. Never use placeholders such as "No pending work", restate the title, or record internal pacing. next_at is its optional deadline and is valid only when the SAME tool call also contains a non-empty next; never send next_at alone. Use it only for an RFC3339 deadline explicitly stated by the operator or directive, or obtained from an external system. Never invent or estimate it from [CURRENT TIME], expected duration, the current work phase, or internal pacing. A completed recurring task may remain completed while next and next_at describe its next scheduled run. If the responsibility has no known deadline, send next without next_at. If nothing meaningful is planned, omit both. Replacing a status without them clears the previous next action.
+Use next for only the nearest distinct operator-relevant responsibility after this work or phase. It is secondary metadata and must not replace the current title or detail. Never use placeholders such as "No pending work", restate the title, or record internal pacing. next_at is its optional deadline and is valid only when the SAME tool call also contains a non-empty next; never send next_at alone. Use it only for an RFC3339 deadline explicitly stated by the operator or directive, supplied by a scheduler event, or obtained from an external system. Never invent or estimate it from [CURRENT TIME], expected duration, the current work phase, or internal pacing. A completed recurring task may remain completed while next and next_at describe its next scheduled run. If the responsibility has no known deadline, send next without next_at. If nothing meaningful is planned, omit both. Replacing a status without them clears the previous next action.
 
 Examples:
 - Completed recurring work: {"title":"Daily CRM check completed","state":"completed","detail":"No unresolved conversations found.","progress":100,"next":"Run the next daily CRM check.","next_at":"2026-07-20T09:00:00Z"}
 - Expected approval: {"title":"Customer update publication","state":"waiting","detail":"Draft is ready and requires operator approval.","progress":70,"next":"Publish customer update after approval."}
 - Corrective failure: {"title":"CRM contact import","state":"blocked","detail":"Authentication expired; reconnect the integration to resume."}
 
-Emit at most one status per work phase. If the request already specifies a status call, that call satisfies this rule; never add a separate preliminary status. Skip status for directive or memory edits, thread management, internal configuration, planning, pacing, retries, tool discovery, chat connectivity, channel messages or publications, status maintenance itself, read-only lookups, brief answers, isolated quick actions, individual tools within one phase, and merely sleeping until future recurring work. Do not set a status just to announce what you may do later.`
+Emit at most one status per work phase. If the request already specifies a status call, that call satisfies this rule; never add a separate preliminary status. Except for the completed recurring-monitor cycle defined above, skip status for directive or memory edits, thread management, internal configuration, planning, pacing, retries, tool discovery, chat connectivity, channel messages or publications, status maintenance itself, read-only lookups, brief answers, isolated quick actions, individual tools within one phase, and merely sleeping until future recurring work. Do not set a status just to announce what you may do later.`
 }
 
 func canonicalChannelIDs(ids []string) []string {
@@ -599,6 +784,23 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		return map[string]any{
 			"content": []map[string]string{{"type": "text", "text": text}},
 			"isError": true,
+		}
+	}
+	switch s.profile {
+	case channelMCPProfileConversation:
+		if !strings.HasPrefix(strings.TrimSpace(callerContext), "chat-") {
+			return textToolError("conversation output is available only from an originating user conversation thread"), nil
+		}
+		switch call.Name {
+		case "send", "respond", "publish", "request_approval":
+		default:
+			return textToolError("this user conversation can reply and publish an approval or alert; global status, reports, external notification, and channel discovery belong to main"), nil
+		}
+	case channelMCPProfileAgentOutput:
+		switch call.Name {
+		case "notify", "publish", "set_status", "list_channels":
+		default:
+			return textToolError("main output supports global status, Inbox publication, external notification, and external channel discovery; internal Apteva chat replies belong to the originating conversation"), nil
 		}
 	}
 
@@ -843,6 +1045,9 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		if kind == "" {
 			kind = "message"
 		}
+		if s.profile == channelMCPProfileConversation && kind != "message" && kind != "approval" && kind != "alert" {
+			return textToolError("conversation send supports only a visible message or legacy approval/alert; global status and reports belong to main"), nil
+		}
 		channel, _ := call.Arguments["channel"].(string)
 		switch kind {
 		case "message":
@@ -865,9 +1070,21 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 			return textToolError(fmt.Sprintf("unknown channels send kind %q", kind)), nil
 		}
 
+	case "notify":
+		text, _ := call.Arguments["text"].(string)
+		channel, _ := call.Arguments["channel"].(string)
+		receipt, errResult := sendVisibleMessage(text, channel, "final", nil)
+		if errResult != nil {
+			return errResult, nil
+		}
+		return textResult(deliveryResultText(receipt)), nil
+
 	case "publish":
 		kind, _ := call.Arguments["kind"].(string)
 		kind = strings.ToLower(strings.TrimSpace(kind))
+		if s.profile == channelMCPProfileConversation && kind == "report" {
+			return textToolError("conversation reports are not allowed; send the requested result as a durable chat reply, or hand durable/recurring reporting work to main"), nil
+		}
 		title, _ := call.Arguments["title"].(string)
 		content, _ := call.Arguments["content"].(string)
 		title = strings.TrimSpace(title)
@@ -927,7 +1144,17 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 		return sendReport(channel), nil
 
 	case "list_channels":
-		raw, _ := json.Marshal(s.channelCapabilityList())
+		capabilities := s.channelCapabilityList()
+		if s.profile == channelMCPProfileAgentOutput {
+			external := capabilities[:0]
+			for _, capability := range capabilities {
+				if capability["type"] == "external" {
+					external = append(external, capability)
+				}
+			}
+			capabilities = external
+		}
+		raw, _ := json.Marshal(capabilities)
 		return textResult(string(raw)), nil
 
 	default:
