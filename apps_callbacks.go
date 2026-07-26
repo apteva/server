@@ -495,6 +495,10 @@ func (s *Server) handleCallbackConnectionPublicConfig(w http.ResponseWriter, r *
 		http.Error(w, fmt.Sprintf("connection slug %q not in role %q compatible_slugs", conn.AppSlug, role), http.StatusForbidden)
 		return
 	}
+	if s.catalog == nil {
+		http.Error(w, "integration catalog unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	app := s.catalog.Get(conn.AppSlug)
 	if app == nil {
 		http.Error(w, "integration catalog entry not found", http.StatusNotFound)
