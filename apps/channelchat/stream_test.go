@@ -404,6 +404,8 @@ func TestFormatAgentChatEventIncludesReplyContract(t *testing.T) {
 		"explicit result-to-parent completion contract",
 		"do not narrate tools",
 		"Use REPORT ONLY selectively",
+		"For a read-only question about the latest state",
+		"use one STATUS QUERY",
 		"Use ACTION REQUIRED only",
 		"Thoughts and plain assistant output are not visible to the user",
 		"Never repeat a message after a successful channels_send receipt",

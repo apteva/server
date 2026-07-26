@@ -2,9 +2,11 @@ package main
 
 // environment_derive.go — build a Environment from an agent's app bindings.
 //
-// The agent's app_agent_bindings are the source of truth for which apps it uses.
-// This turns them into an EnvironmentSpec installed from local source, so the
-// environment is derived from the agent rather than hand-listed.
+// app_agent_bindings is the environment/grant membership index used here.
+// For MCP-capable apps it is derived from the agent's canonical mcp_servers
+// config whenever attachments change; UI/worker-only apps have no MCP entry
+// and remain directly bound. This turns the resulting membership into an
+// EnvironmentSpec rather than maintaining a second runtime tool catalog.
 //
 // Today it derives the directly-bound apps. Sibling deps (manifest
 // requires.apps, e.g. social→storage/jobs) are a documented follow-up; the

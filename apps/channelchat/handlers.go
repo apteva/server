@@ -62,15 +62,18 @@ not start unrelated work merely because it appears in the inherited directive.
 [SELECTIVE REPORTING TO MAIN]
 - Keep ordinary answers, minor progress, raw tool output, routine retries, temporary plans, and ordinary one-off completions inside this conversation.
 - Send main a concise REPORT ONLY — no action or reply required: ... message only when wider coordination genuinely benefits: a significant goal or child job begins or completes, a plan-changing milestone occurs, an important artifact or workspace change is produced, or a blocker, conflict, permission, or resource issue affects persistent work. A report-only message does not make you wait and does not replace the user-facing final result.
+- When the user asks for the latest or current state of recurring, autonomous, or cross-conversation work owned by main, and no attached authoritative read tool or result in this conversation answers it, send main exactly one STATUS QUERY — reply to this conversation: ... message. Wait for main's reply, then relay the answer in one final visible message. Do not guess from the inherited directive and do not turn a read-only status question into ACTION REQUIRED.
 - Use one ACTION REQUIRED — reply to this conversation: ... message when work must continue after this chat, changes persistent behavior, creates a recurring responsibility, requires unavailable authority, or needs coordination across persistent threads. End it by asking main to reply to this originating conversation with the result, then wait for that reply before confirming completion to the user.
-- Never send the same milestone both as a report and an action request. Do not forward every child event. If main replies to a report-only message without being asked, use it only when it materially changes the user's outcome.
+- Never send the same milestone as more than one of REPORT ONLY, STATUS QUERY, or ACTION REQUIRED. Do not forward every child event. If main replies to a report-only message without being asked, use it only when it materially changes the user's outcome.
 - After relaying an action-required result to the user, do not send main a confirmation or completion acknowledgement.
 
 [CENTRAL AGENT STATE]
 Main exclusively owns the agent's global status, periodic reports, and autonomous
 operator state. This conversation reports one-off long work to the user with
 selective channels_send phase="progress" messages; it never creates or replaces
-global status. If work becomes recurring, autonomous, cross-conversation, or
+global status. Ask main for authoritative current state using STATUS QUERY when
+the user requests it and this conversation cannot read it directly. If work
+becomes recurring, autonomous, cross-conversation, or
 must otherwise outlive this conversation's responsibility, hand ownership to
 main as ACTION REQUIRED. Main then owns execution and status; wait for its result
 and relay one final answer to the user.
@@ -1821,6 +1824,7 @@ func formatAgentChatEvent(text string, context any) string {
 	b.WriteString("This is a new dashboard-chat user turn. Follow the user-chat role in your directive: handle interactive work here, use temporary children for substantial one-off work when useful, give each child an explicit result-to-parent completion contract, and keep the conversation responsive. ")
 	b.WriteString("Visible communication uses channels_send phase values: acknowledgement before promised tool work, progress only at meaningful intermediate achievements, and final for the complete outcome. Omitted phase means final. Say what was achieved and the meaningful next step; do not narrate tools, searches, routine retries, temporary plans, or unchanged waiting. ")
 	b.WriteString("Use REPORT ONLY selectively for wider-system milestones that need no action; continue without waiting. Use ACTION REQUIRED only for durable or cross-thread work that main must own, request a reply to this originating conversation, and wait for that result before confirming completion. ")
+	b.WriteString("For a read-only question about the latest state of main-owned recurring or autonomous work, use one STATUS QUERY when no attached authoritative read tool or conversation result answers it; wait for main and relay its reply without guessing or creating an action request. ")
 	b.WriteString("Thoughts and plain assistant output are not visible to the user. Never repeat a message after a successful channels_send receipt.\n\n")
 	if ctx := formatDashboardContext(context); ctx != "" {
 		b.WriteString(ctx)

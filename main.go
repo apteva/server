@@ -89,17 +89,22 @@ type Server struct {
 	catalog              *AppCatalog
 	secret               []byte // AES-256 key for encrypting provider data
 	integrationWebhookMu sync.Mutex
-	port                 string // server port for telemetry callback
-	dataDir              string // data directory for downloads, etc.
-	appsDir              string // path to integration app definitions
-	integrationsUIDir    string // path to built integration UI bundles (dist/ui/<slug>/<file>.mjs)
-	publicURL            string // public base URL for webhooks (e.g. "https://agents.example.com")
-	broadcaster          *TelemetryBroadcaster
-	setupToken           string // one-time token for first registration (empty after use)
-	regMode              string // "open", "locked", "setup" — controls registration
-	instanceSecret       string // shared secret for MCP and telemetry auth
-	startupIntent        agentLifecycleIntent
-	agentRollouts        *agentRolloutCoordinator
+	// agentConfigLocks serializes read/modify/write updates to one agent's
+	// config. MCP attachment changes are additive at the API, but ultimately
+	// core consumes one desired mcp_servers list; without this lock two
+	// concurrent attach/detach or directive edits can overwrite each other.
+	agentConfigLocks  sync.Map // agent id -> *sync.Mutex
+	port              string   // server port for telemetry callback
+	dataDir           string   // data directory for downloads, etc.
+	appsDir           string   // path to integration app definitions
+	integrationsUIDir string   // path to built integration UI bundles (dist/ui/<slug>/<file>.mjs)
+	publicURL         string   // public base URL for webhooks (e.g. "https://agents.example.com")
+	broadcaster       *TelemetryBroadcaster
+	setupToken        string // one-time token for first registration (empty after use)
+	regMode           string // "open", "locked", "setup" — controls registration
+	instanceSecret    string // shared secret for MCP and telemetry auth
+	startupIntent     agentLifecycleIntent
+	agentRollouts     *agentRolloutCoordinator
 	// apps holds the loaded Apteva Apps registry. Apps attach to
 	// instance lifecycle via NotifyInstanceAttach/Detach and expose
 	// HTTP routes under /api/apps/<slug>/. Nil before startApps().
@@ -1243,6 +1248,13 @@ func main() {
 			return
 		}
 
+		// /instances/:id/mcp-servers — atomically add/remove registered MCP
+		// inventory rows without making callers replace the complete config.
+		if strings.HasSuffix(path, "/mcp-servers") {
+			s.handleAgentMCPServers(w, r)
+			return
+		}
+
 		// /instances/:id/background-memory — inspect or toggle the
 		// per-agent unconscious consolidation thread. Runtime changes
 		// require a controlled restart so core boot owns spawn/teardown.
@@ -1577,12 +1589,14 @@ func main() {
 	if !quarantined {
 		s.RemountStaticApps()
 		s.backfillAppMCPs()
+		// Repair legacy app_agent_bindings drift from each agent's actual
+		// persisted MCP configuration before cores resume.
+		s.reconcileAllAgentAppBindings()
 	}
-	// Backfill any missing requires.apps[].name bindings on running
-	// installs. Catches parents installed before the cascade learned
-	// to write them and out-of-order installs (parent first, dep
-	// later). Idempotent — only writes when a key is genuinely
-	// missing, so re-runs on every boot are cheap.
+	// Apply the repeatable binding migration on every boot. The current
+	// manifest is authoritative: obsolete integration/app-dependency
+	// grants are pruned and missing required app dependencies are
+	// backfilled.
 	if !quarantined {
 		s.reconcileAllAppDepBindings()
 		s.recomputePendingOptions()

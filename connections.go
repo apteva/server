@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -1172,6 +1173,18 @@ func executeIntegrationToolWithRefresh(
 	environmentID string,
 	onRefresh onCredsRefresh,
 ) (*ExecuteResult, error) {
+	if app != nil && app.Auth.TokenExchange != nil &&
+		(environmentID == "" || environmentIntegrationMode(environmentID) == IntegrationModeReal) {
+		changed, err := ensureCredentialExchangeToken(app, credentials, false)
+		if err != nil {
+			return nil, err
+		}
+		if changed && onRefresh != nil {
+			if err := onRefresh(credentials); err != nil {
+				fmt.Fprintf(os.Stderr, "[token-exchange] persist failed for %s: %v\n", app.Slug, err)
+			}
+		}
+	}
 	if app != nil && app.Slug == integrationOpenAICodexSlug && connectionOpenAICodexNeedsRefresh(credentials, 10*time.Minute) {
 		if err := refreshIntegrationOpenAICodexCredentials(credentials); err == nil && onRefresh != nil {
 			if perr := onRefresh(credentials); perr != nil {
@@ -1197,6 +1210,19 @@ func executeIntegrationToolWithRefresh(
 	}
 	if result.Status != 401 {
 		return result, nil
+	}
+	if app != nil && app.Auth.TokenExchange != nil {
+		changed, exchangeErr := ensureCredentialExchangeToken(app, credentials, true)
+		if exchangeErr != nil {
+			fmt.Fprintf(os.Stderr, "[token-exchange] %s: %v\n", app.Slug, exchangeErr)
+			return result, nil
+		}
+		if changed && onRefresh != nil {
+			if err := onRefresh(credentials); err != nil {
+				fmt.Fprintf(os.Stderr, "[token-exchange] persist failed for %s: %v\n", app.Slug, err)
+			}
+		}
+		return executeIntegrationTool(app, tool, credentials, input, environmentID)
 	}
 	// 401 — try to refresh and retry once.
 	if app.Auth.OAuth2 == nil {
@@ -1230,6 +1256,100 @@ func executeIntegrationToolWithRefresh(
 	// Retry the original call with the refreshed token. executeIntegrationTool
 	// reads from the same credentials map so the new token is picked up.
 	return executeIntegrationTool(app, tool, credentials, input, environmentID)
+}
+
+func ensureCredentialExchangeToken(app *AppTemplate, credentials map[string]string, force bool) (bool, error) {
+	cfg := app.Auth.TokenExchange
+	if cfg == nil || cfg.URL == "" {
+		return false, nil
+	}
+	skew := time.Duration(cfg.ExpirySkewSeconds) * time.Second
+	if skew <= 0 {
+		skew = time.Minute
+	}
+	if !force && credentials["access_token"] != "" {
+		if expiresAt, err := time.Parse(time.RFC3339, credentials["token_expires_at"]); err == nil &&
+			expiresAt.After(time.Now().Add(skew)) {
+			return false, nil
+		}
+	}
+
+	values := map[string]string{}
+	for key, template := range cfg.BodyParams {
+		if value := resolveTemplate(template, credentials); value != "" {
+			values[key] = value
+		}
+	}
+	contentType := cfg.ContentType
+	if contentType == "" {
+		contentType = "application/x-www-form-urlencoded"
+	}
+	var body io.Reader
+	if contentType == "application/json" {
+		raw, err := json.Marshal(values)
+		if err != nil {
+			return false, err
+		}
+		body = bytes.NewReader(raw)
+	} else {
+		form := neturl.Values{}
+		for key, value := range values {
+			form.Set(key, value)
+		}
+		body = strings.NewReader(form.Encode())
+	}
+
+	method := cfg.Method
+	if method == "" {
+		method = http.MethodPost
+	}
+	req, err := http.NewRequest(method, cfg.URL, body)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", contentType)
+	for key, template := range cfg.Headers {
+		if value := resolveTemplate(template, credentials); value != "" {
+			req.Header.Set(key, value)
+		}
+	}
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1_000_000))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return false, fmt.Errorf("credential token exchange http %d: %s", resp.StatusCode, string(raw))
+	}
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return false, fmt.Errorf("credential token exchange decode: %w", err)
+	}
+	tokenPath := cfg.AccessTokenPath
+	if tokenPath == "" {
+		tokenPath = "access_token"
+	}
+	root, _ := decoded.(map[string]any)
+	token := fmt.Sprint(extractPath(root, tokenPath))
+	if token == "" || token == "<nil>" {
+		return false, errors.New("credential token exchange returned no access token")
+	}
+	credentials["access_token"] = token
+	credentials["accessToken"] = token
+	credentials["token"] = token
+
+	expiresPath := cfg.ExpiresInPath
+	if expiresPath == "" {
+		expiresPath = "expires_in"
+	}
+	expiresIn, _ := strconv.ParseFloat(fmt.Sprint(extractPath(root, expiresPath)), 64)
+	if expiresIn <= 0 {
+		expiresIn = 300
+	}
+	credentials["token_expires_at"] = time.Now().Add(time.Duration(expiresIn * float64(time.Second))).UTC().Format(time.RFC3339)
+	return true, nil
 }
 
 func addQueryValue(q neturl.Values, key string, v any) {

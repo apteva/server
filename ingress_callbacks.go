@@ -42,6 +42,7 @@ func (s *Server) handleCallbackIngress(w http.ResponseWriter, r *http.Request, p
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		*route = s.ingressRouteWithCertificate(*route)
 		writeJSON(w, map[string]any{"route": route})
 	case "unexpose":
 		if r.Method != http.MethodPost && r.Method != http.MethodDelete {
@@ -83,6 +84,7 @@ func (s *Server) handleCallbackIngress(w http.ResponseWriter, r *http.Request, p
 			http.Error(w, "list ingress routes: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		routes = s.ingressRoutesWithCertificates(routes)
 		writeJSON(w, map[string]any{"routes": routes})
 	default:
 		http.Error(w, "unknown ingress callback", http.StatusNotFound)

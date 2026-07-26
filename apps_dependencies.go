@@ -18,6 +18,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 
 	sdk "github.com/apteva/app-sdk"
 )
@@ -377,10 +378,48 @@ func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, pr
 	}
 }
 
-// reconcileAppDepBindings backfills any missing requires.apps[].name
-// bindings on a single install — for parents installed before the
-// cascade learned to write them, or whose deps came online after the
-// parent (out-of-order installs).
+// manifestBindingKeys returns the complete set of binding keys the
+// current manifest is allowed to retain. Integration bindings are keyed
+// by role; requires.apps bindings are keyed by app name.
+func manifestBindingKeys(m *sdk.Manifest) map[string]bool {
+	allowed := make(map[string]bool)
+	if m == nil {
+		return allowed
+	}
+	for _, dep := range m.Requires.Integrations {
+		if key := strings.TrimSpace(dep.Role); key != "" {
+			allowed[key] = true
+		}
+	}
+	for _, dep := range m.Requires.Apps {
+		if key := strings.TrimSpace(dep.Name); key != "" {
+			allowed[key] = true
+		}
+	}
+	return allowed
+}
+
+// pruneUnknownManifestBindings removes grants that are no longer
+// declared by the current manifest. This is security-sensitive:
+// integration_bindings is also the app-to-app authorization surface,
+// so preserving an obsolete key preserves an obsolete capability.
+func pruneUnknownManifestBindings(m *sdk.Manifest, bindings map[string]any) bool {
+	allowed := manifestBindingKeys(m)
+	changed := false
+	for key := range bindings {
+		if !allowed[key] {
+			delete(bindings, key)
+			changed = true
+		}
+	}
+	return changed
+}
+
+// reconcileAppDepBindings reconciles the complete binding set for one
+// install against its current manifest. It first removes obsolete
+// integration roles and requires.apps keys, then backfills missing
+// required app dependencies for parents installed before the cascade
+// learned to write them or whose dependencies came online later.
 //
 // Idempotent: a key already present in integration_bindings is
 // preserved verbatim, even if it's nil. That matters for operators
@@ -395,9 +434,6 @@ func (s *Server) reconcileAppDepBindings(installID int64) (bool, error) {
 	if err != nil || m == nil {
 		return false, err
 	}
-	if len(m.Requires.Apps) == 0 {
-		return false, nil
-	}
 	var (
 		bindingsRaw string
 		projectID   string
@@ -409,9 +445,11 @@ func (s *Server) reconcileAppDepBindings(installID int64) (bool, error) {
 		return false, err
 	}
 	bindings := map[string]any{}
-	_ = json.Unmarshal([]byte(bindingsRaw), &bindings)
+	if err := json.Unmarshal([]byte(bindingsRaw), &bindings); err != nil {
+		return false, fmt.Errorf("decode integration_bindings for install %d: %w", installID, err)
+	}
 
-	changed := false
+	changed := pruneUnknownManifestBindings(m, bindings)
 	for _, dep := range m.Requires.Apps {
 		if dep.Optional {
 			continue
@@ -439,9 +477,10 @@ func (s *Server) reconcileAppDepBindings(installID int64) (bool, error) {
 	return true, nil
 }
 
-// reconcileAllAppDepBindings walks every running install and runs
-// reconcileAppDepBindings against it. Called once at server boot,
-// after LoadInstalledApps so the in-memory registry is populated.
+// reconcileAllAppDepBindings is the repeatable startup migration for
+// bindings. It walks every running install and applies the current
+// manifest as the authority, pruning removed roles and app deps while
+// healing missing required app-dependency bindings.
 func (s *Server) reconcileAllAppDepBindings() {
 	rows, err := s.store.db.Query(`SELECT id FROM app_installs WHERE status = 'running'`)
 	if err != nil {
@@ -465,6 +504,6 @@ func (s *Server) reconcileAllAppDepBindings() {
 		}
 	}
 	if healed > 0 {
-		log.Printf("[APPS-DEP] reconcile-all: backfilled bindings on %d install(s)", healed)
+		log.Printf("[APPS-BIND] reconcile-all: repaired bindings on %d install(s)", healed)
 	}
 }

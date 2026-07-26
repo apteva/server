@@ -31,6 +31,8 @@ func newGatewayAgentAPITestServer(s *Server) *httptest.Server {
 		switch {
 		case strings.HasSuffix(path, "/config"):
 			s.handleUpdateConfig(w, r)
+		case strings.HasSuffix(path, "/mcp-servers"):
+			s.handleAgentMCPServers(w, r)
 		case strings.HasSuffix(path, "/start"):
 			s.handleStartInstance(w, r)
 		case strings.HasSuffix(path, "/stop"):

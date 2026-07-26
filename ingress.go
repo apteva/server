@@ -18,18 +18,32 @@ const (
 )
 
 type IngressRoute struct {
-	ID             int64  `json:"id"`
-	Hostname       string `json:"hostname"`
-	Target         string `json:"target"`
-	ProjectID      string `json:"project_id"`
-	OwnerInstallID int64  `json:"owner_install_id"`
-	OwnerKind      string `json:"owner_kind"`
-	CertFQDN       string `json:"cert_fqdn,omitempty"`
-	AllowHTTP      bool   `json:"allow_http"`
-	TLSMode        string `json:"tls_mode"`
-	Status         string `json:"status"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
+	ID             int64                     `json:"id"`
+	Hostname       string                    `json:"hostname"`
+	Target         string                    `json:"target"`
+	ProjectID      string                    `json:"project_id"`
+	OwnerInstallID int64                     `json:"owner_install_id"`
+	OwnerKind      string                    `json:"owner_kind"`
+	CertFQDN       string                    `json:"cert_fqdn,omitempty"`
+	AllowHTTP      bool                      `json:"allow_http"`
+	TLSMode        string                    `json:"tls_mode"`
+	Status         string                    `json:"status"`
+	Certificate    *IngressCertificateStatus `json:"certificate,omitempty"`
+	CreatedAt      string                    `json:"created_at"`
+	UpdatedAt      string                    `json:"updated_at"`
+}
+
+// IngressCertificateStatus is the app-safe certificate view returned
+// alongside install-scoped ingress routes. It deliberately omits the
+// native cache path exposed by the platform-admin diagnostics endpoint.
+type IngressCertificateStatus struct {
+	FQDN      string `json:"fqdn"`
+	Status    string `json:"status"`
+	NotBefore string `json:"not_before,omitempty"`
+	NotAfter  string `json:"not_after,omitempty"`
+	Serial    string `json:"serial,omitempty"`
+	Issuer    string `json:"issuer,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 type IngressCertCacheInfo struct {
@@ -43,6 +57,42 @@ type IngressCertCacheInfo struct {
 	RouteHost string `json:"route_host,omitempty"`
 	TLSMode   string `json:"tls_mode,omitempty"`
 	Error     string `json:"error,omitempty"`
+}
+
+func (s *Server) ingressRouteWithCertificate(route IngressRoute) IngressRoute {
+	fqdn := strings.TrimSpace(route.CertFQDN)
+	if fqdn == "" {
+		fqdn = route.Hostname
+	}
+	status := &IngressCertificateStatus{FQDN: fqdn}
+	switch {
+	case route.TLSMode == "off":
+		status.Status = "disabled"
+	case s.ingressCerts == nil:
+		status.Status = "manager_unavailable"
+	default:
+		info, err := s.ingressCerts.CachedCertificateInfo(fqdn)
+		if err != nil {
+			status.Status = "error"
+			status.Error = err.Error()
+		} else {
+			status.Status = info.Status
+			status.NotBefore = info.NotBefore
+			status.NotAfter = info.NotAfter
+			status.Serial = info.Serial
+			status.Issuer = info.Issuer
+			status.Error = info.Error
+		}
+	}
+	route.Certificate = status
+	return route
+}
+
+func (s *Server) ingressRoutesWithCertificates(routes []IngressRoute) []IngressRoute {
+	for i := range routes {
+		routes[i] = s.ingressRouteWithCertificate(routes[i])
+	}
+	return routes
 }
 
 type IngressExposeRequest struct {

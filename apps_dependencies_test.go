@@ -241,7 +241,8 @@ func TestReconcileAppDepBindings_FillsMissingAppDep(t *testing.T) {
 	parentManifest := sdk.Manifest{
 		Name: "backup",
 		Requires: sdk.Requires{
-			Apps: []sdk.RequiredAppRef{{Name: "jobs"}},
+			Apps:         []sdk.RequiredAppRef{{Name: "jobs"}},
+			Integrations: []sdk.IntegrationDep{{Role: "cloud_storage"}},
 		},
 	}
 	parentID := seedRunningInstall(t, s, "backup", "", parentManifest, map[string]any{
@@ -367,8 +368,41 @@ func TestReconcileAppDepBindings_NoRequiresApps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
-	if changed {
-		t.Fatalf("nothing to reconcile, but reported changed=true")
+	if !changed {
+		t.Fatalf("obsolete binding should be pruned")
+	}
+	if got := readBindings(t, s, id); len(got) != 0 {
+		t.Fatalf("obsolete bindings survived: %v", got)
+	}
+}
+
+func TestReconcileAppDepBindings_PrunesRemovedRolesAndAppDeps(t *testing.T) {
+	s := newTestServer(t)
+	manifest := sdk.Manifest{
+		Name: "migrated",
+		Requires: sdk.Requires{
+			Integrations: []sdk.IntegrationDep{{Role: "domains"}},
+		},
+	}
+	id := seedRunningInstall(t, s, "migrated", "", manifest, map[string]any{
+		"domains": 31,
+		"certs":   32,
+		"routes":  33,
+	})
+
+	changed, err := s.reconcileAppDepBindings(id)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected obsolete Certs/Routes bindings to be pruned")
+	}
+	got := readBindings(t, s, id)
+	if len(got) != 1 {
+		t.Fatalf("bindings = %v, want only domains", got)
+	}
+	if value, _ := asInt64(got["domains"]); value != 31 {
+		t.Fatalf("valid domains binding changed: %v", got)
 	}
 }
 
@@ -455,6 +489,33 @@ func TestSetInstallBindings_PartialPUTPreservesOtherKeys(t *testing.T) {
 	}
 	if v, _ := asInt64(got["jobs"]); v != 48 {
 		t.Fatalf("expected jobs=48 preserved, got %v", got)
+	}
+}
+
+func TestSetInstallBindings_PartialPUTPrunesRolesRemovedByUpgrade(t *testing.T) {
+	s := newTestServer(t)
+	manifest := sdk.Manifest{
+		Name: "deploy",
+		Requires: sdk.Requires{
+			Integrations: []sdk.IntegrationDep{{Role: "domains", Required: false}},
+		},
+	}
+	id := seedRunningInstall(t, s, "deploy", "", manifest, map[string]any{
+		"domains": 31,
+		"certs":   32,
+		"routes":  33,
+	})
+
+	rec := putBindings(s, id, map[string]any{"domains": 34})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%q", rec.Code, rec.Body.String())
+	}
+	got := readBindings(t, s, id)
+	if len(got) != 1 {
+		t.Fatalf("stale roles survived partial PUT: %v", got)
+	}
+	if value, _ := asInt64(got["domains"]); value != 34 {
+		t.Fatalf("domains binding = %v, want 34", got["domains"])
 	}
 }
 

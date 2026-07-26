@@ -165,8 +165,16 @@ func TestUpdateConfigHydratesAndPersistsCodexSelection(t *testing.T) {
 func TestUpdateConfigForwardsHydratedCodexSelectionToRunningCore(t *testing.T) {
 	var forwarded map[string]any
 	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/config" || r.Method != http.MethodPut {
+		if r.URL.Path != "/config" {
 			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{"mcp_servers": []any{}})
+			return
+		}
+		if r.Method != http.MethodPut {
+			http.Error(w, "method", http.StatusMethodNotAllowed)
 			return
 		}
 		if err := json.NewDecoder(r.Body).Decode(&forwarded); err != nil {

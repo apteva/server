@@ -1504,6 +1504,10 @@ func (s *Server) handleSetInstallBindings2(w http.ResponseWriter, r *http.Reques
 	for k, v := range body {
 		merged[k] = v
 	}
+	// A partial PUT must preserve other valid roles, but it must not
+	// preserve roles removed by an app upgrade. The manifest remains
+	// the complete authority for app-to-app grants.
+	pruneUnknownManifestBindings(manifest, merged)
 	if err := normalizeManifestIntegrationBindings(manifest, merged); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -1920,14 +1924,21 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if info, ok := deprecatedApp(stored.Name); ok {
-		writeJSONStatus(w, http.StatusGone, map[string]any{
-			"error":       fmt.Sprintf("%s is deprecated and can no longer be upgraded", stored.Name),
-			"app":         stored.Name,
-			"deprecated":  true,
-			"deprecation": info.Message,
-			"replacement": info.Replacement,
-		})
-		return
+		// Existing Certs installs remain upgradeable during the native
+		// certificate migration window. New installs stay blocked, and
+		// once the legacy fallback is explicitly disabled this exception
+		// disappears as well.
+		if normalizeAppName(stored.Name) != "certs" || !legacyCertsFallbackEnabled(s) {
+			writeJSONStatus(w, http.StatusGone, map[string]any{
+				"error":       fmt.Sprintf("%s is deprecated and can no longer be upgraded", stored.Name),
+				"app":         stored.Name,
+				"deprecated":  true,
+				"deprecation": info.Message,
+				"replacement": info.Replacement,
+			})
+			return
+		}
+		log.Printf("[APPS] allowing Certs upgrade while legacy certificate fallback remains enabled")
 	}
 	approvedPermissions := parsePermissionListJSON(permissionsJSON)
 
@@ -1965,6 +1976,11 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		); err != nil {
 			http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if changed, err := s.reconcileAppDepBindings(installID); err != nil {
+			log.Printf("[APPS-BIND] built-in upgrade reconcile install=%d: %v", installID, err)
+		} else if changed {
+			s.recomputePendingOptions()
 		}
 		writeJSON(w, map[string]string{"status": "upgraded", "version": available.Version})
 		return
@@ -2070,13 +2086,11 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		// (upgrade => MCP refreshed) after the atomic running+version
 		// install row update.
 		_ = s.registerAppMCP(installID)
-		// Backfill missing requires.apps bindings — covers the case
-		// where the parent was installed before the cascade learned
-		// to write them, or a dep came online after the parent.
-		// Idempotent and only ever ADDS keys, so safe to run on
-		// every upgrade.
+		// Reconcile the complete binding set against the successful
+		// live manifest: prune removed roles/app deps and backfill
+		// missing required app deps.
 		if changed, err := s.reconcileAppDepBindings(installID); err != nil {
-			log.Printf("[APPS-DEP] upgrade reconcile install=%d: %v", installID, err)
+			log.Printf("[APPS-BIND] upgrade reconcile install=%d: %v", installID, err)
 		} else if changed {
 			s.recomputePendingOptions()
 		}
@@ -2182,6 +2196,23 @@ func (s *Server) handleSetInstallBindings(w http.ResponseWriter, r *http.Request
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	// MCP-capable app attachment is now owned by the per-agent additive API.
+	// Keeping this metadata-only replace-all path for those apps recreates the
+	// exact split-brain failure where app_agent_bindings and core config
+	// disagree. UI/worker-only apps still use this endpoint because they have
+	// no MCP runtime configuration to synchronize.
+	var mcpServerID int64
+	_ = s.store.db.QueryRow(`SELECT id FROM mcp_servers WHERE upstream_id=?`,
+		appMCPUpstreamID(installID)).Scan(&mcpServerID)
+	if mcpServerID > 0 {
+		writeJSONStatus(w, http.StatusGone, map[string]any{
+			"error":         "replace-all MCP app bindings are no longer supported",
+			"replacement":   "POST /api/agents/:id/mcp-servers",
+			"mcp_server_id": mcpServerID,
+			"actions":       []string{"add", "remove"},
+		})
 		return
 	}
 	tx, err := s.store.db.Begin()

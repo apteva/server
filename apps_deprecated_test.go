@@ -88,3 +88,49 @@ func TestUpgradeDeprecatedAppIsBlocked(t *testing.T) {
 		t.Fatalf("expected deprecated response, got %s", rec.Body.String())
 	}
 }
+
+func TestExistingCertsCanUpgradeDuringLegacyFallbackMigration(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	manifestJSON := `{
+		"schema":"apteva-app/v1",
+		"name":"certs",
+		"display_name":"Certs",
+		"version":"0.5.3"
+	}`
+	res, err := s.store.db.Exec(
+		`INSERT INTO apps (name, source, repo, ref, manifest_json) VALUES ('certs', 'builtin', '', '', ?)`,
+		manifestJSON,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appID, _ := res.LastInsertId()
+	res, err = s.store.db.Exec(
+		`INSERT INTO app_installs (app_id, project_id, status, version, source, permissions_json)
+		 VALUES (?, '', 'running', '0.5.2', 'builtin', '[]')`,
+		appID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installID, _ := res.LastInsertId()
+
+	req := httptest.NewRequest(http.MethodPost, "/apps/installs/"+itoa(installID)+"/upgrade", nil)
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleUpgradeApp(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("migration-window upgrade status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	t.Setenv("APTEVA_LEGACY_CERTS_FALLBACK", "false")
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET version='0.5.2' WHERE id=?`, installID); err != nil {
+		t.Fatal(err)
+	}
+	rec = httptest.NewRecorder()
+	s.handleUpgradeApp(rec, req)
+	if rec.Code != http.StatusGone {
+		t.Fatalf("disabled-fallback upgrade status=%d, want 410: %s", rec.Code, rec.Body.String())
+	}
+}

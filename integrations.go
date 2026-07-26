@@ -326,13 +326,14 @@ type WebhookRegConfig struct {
 }
 
 type AppAuthConfig struct {
-	Types            []string          `json:"types"`
-	Headers          map[string]string `json:"headers,omitempty"`
-	QueryParams      map[string]string `json:"query_params,omitempty"`
-	BodyParams       map[string]string `json:"body_params,omitempty"`
-	CredentialFields []CredentialField `json:"credential_fields,omitempty"`
-	OAuth2           *OAuthConfig      `json:"oauth2,omitempty"`
-	MTLS             *MutualTLSConfig  `json:"mtls,omitempty"`
+	Types            []string                       `json:"types"`
+	Headers          map[string]string              `json:"headers,omitempty"`
+	QueryParams      map[string]string              `json:"query_params,omitempty"`
+	BodyParams       map[string]string              `json:"body_params,omitempty"`
+	CredentialFields []CredentialField              `json:"credential_fields,omitempty"`
+	OAuth2           *OAuthConfig                   `json:"oauth2,omitempty"`
+	TokenExchange    *CredentialTokenExchangeConfig `json:"token_exchange,omitempty"`
+	MTLS             *MutualTLSConfig               `json:"mtls,omitempty"`
 	// AwsSigV4 configures AWS Signature V4 request signing (SES, S3,
 	// anything else that lives behind aws_sigv4). Service is required
 	// when types includes "aws_sigv4" — region comes from the
@@ -352,6 +353,17 @@ type AppAuthConfig struct {
 	// Order matters: body-mutating signers (EIP-712) must run before
 	// header-only signers (HMAC/AWS) that sign over the final body.
 	Signers []SignerSpec `json:"signers,omitempty"`
+}
+
+type CredentialTokenExchangeConfig struct {
+	URL               string            `json:"url"`
+	Method            string            `json:"method,omitempty"`
+	ContentType       string            `json:"content_type,omitempty"`
+	Headers           map[string]string `json:"headers,omitempty"`
+	BodyParams        map[string]string `json:"body_params"`
+	AccessTokenPath   string            `json:"access_token_path,omitempty"`
+	ExpiresInPath     string            `json:"expires_in_path,omitempty"`
+	ExpirySkewSeconds int               `json:"expiry_skew_seconds,omitempty"`
 }
 
 type MutualTLSConfig struct {

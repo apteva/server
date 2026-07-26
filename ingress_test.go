@@ -82,9 +82,35 @@ func TestIngressAllowsCertificateForConfiguredPrimaryHost(t *testing.T) {
 	}
 }
 
+func TestLegacyCertsFallbackDefaultsToExistingInstallAndCanBeDisabled(t *testing.T) {
+	s := newTestServer(t)
+	if legacyCertsFallbackEnabled(s) {
+		t.Fatal("fresh server unexpectedly enabled legacy Certs fallback")
+	}
+
+	seedRunningInstall(t, s, "certs", "", sdk.Manifest{Name: "certs"}, nil)
+	if !legacyCertsFallbackEnabled(s) {
+		t.Fatal("existing Certs install should keep migration fallback enabled")
+	}
+	if manager := NewIngressCertManager(s); manager.fallback == nil {
+		t.Fatal("existing Certs install did not construct migration fallback")
+	}
+
+	t.Setenv("APTEVA_LEGACY_CERTS_FALLBACK", "false")
+	if legacyCertsFallbackEnabled(s) {
+		t.Fatal("explicit false did not disable legacy Certs fallback")
+	}
+	manager := NewIngressCertManager(s)
+	if manager.fallback != nil {
+		t.Fatal("disabled legacy fallback was still constructed")
+	}
+}
+
 func TestCallbackIngress_RequiresPermissionAndScopesOwner(t *testing.T) {
 	s := newTestServer(t)
 	s.routeCache = NewRouteCache()
+	cacheDir := t.TempDir()
+	s.ingressCerts = &IngressCertManager{cacheDir: cacheDir}
 
 	withoutPerm := sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "no-ingress"}
 	installWithoutPerm := seedInstallWithBindings(t, s, "no-ingress", withoutPerm, map[string]any{})
@@ -160,6 +186,12 @@ func TestCallbackIngress_RequiresPermissionAndScopesOwner(t *testing.T) {
 	if exposeOut.Route.OwnerInstallID != installID || exposeOut.Route.OwnerKind != "app" || exposeOut.Route.ProjectID != "proj-1" {
 		t.Fatalf("route ownership/project mismatch: %+v", exposeOut.Route)
 	}
+	if exposeOut.Route.Certificate == nil || exposeOut.Route.Certificate.Status != "not_cached" {
+		t.Fatalf("expose response certificate = %+v, want not_cached", exposeOut.Route.Certificate)
+	}
+	if err := writeTestCachedCert(cacheDir, "tenant.example.com", time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour)); err != nil {
+		t.Fatalf("write cached cert: %v", err)
+	}
 
 	req = httptest.NewRequest(http.MethodGet, "/apps/callback/ingress/routes", nil)
 	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
@@ -176,6 +208,12 @@ func TestCallbackIngress_RequiresPermissionAndScopesOwner(t *testing.T) {
 	}
 	if len(routesOut.Routes) != 1 || routesOut.Routes[0].Hostname != "tenant.example.com" {
 		t.Fatalf("unexpected routes: %+v", routesOut.Routes)
+	}
+	if cert := routesOut.Routes[0].Certificate; cert == nil || cert.Status != "live" || cert.NotAfter == "" {
+		t.Fatalf("app-facing certificate status missing: %+v", cert)
+	}
+	if strings.Contains(rec.Body.String(), "cache_path") {
+		t.Fatalf("app-facing route leaked native cache path: %s", rec.Body.String())
 	}
 }
 

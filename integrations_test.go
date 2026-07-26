@@ -123,7 +123,7 @@ func TestEmbeddedGitHubCatalogAgentCoverage(t *testing.T) {
 	if err := json.Unmarshal(raw, &app); err != nil {
 		t.Fatalf("decode GitHub catalog: %v", err)
 	}
-	if got, want := len(app.Tools), 103; got != want {
+	if got, want := len(app.Tools), 111; got != want {
 		t.Fatalf("GitHub tool count=%d want=%d", got, want)
 	}
 	if got := app.Auth.Headers["Accept"]; got != "application/vnd.github+json" {

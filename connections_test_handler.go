@@ -183,7 +183,7 @@ func (s *Server) runHealthCheck(app *AppTemplate, encCreds string) ConnectionTes
 	}
 
 	t0 := time.Now()
-	result, execErr := executeIntegrationTool(&probeApp, tool, credentials, input, "")
+	result, execErr := executeIntegrationToolWithRefresh(&probeApp, tool, credentials, input, "", nil)
 	latency := time.Since(t0).Milliseconds()
 
 	if execErr != nil {

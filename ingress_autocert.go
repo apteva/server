@@ -51,8 +51,11 @@ func NewIngressCertManager(s *Server) *IngressCertManager {
 
 	icm := &IngressCertManager{
 		server:   s,
-		fallback: NewCertCache(s),
 		cacheDir: cacheDir,
+	}
+	if legacyCertsFallbackEnabled(s) {
+		icm.fallback = NewCertCache(s)
+		log.Printf("[ingress-cert] legacy Certs fallback enabled for migration; set APTEVA_LEGACY_CERTS_FALLBACK=false after native certificates are live")
 	}
 	m := &autocert.Manager{
 		Prompt:      autocert.AcceptTOS,
@@ -72,6 +75,28 @@ func NewIngressCertManager(s *Server) *IngressCertManager {
 		http.NotFound(w, nil)
 	}))
 	return icm
+}
+
+// legacyCertsFallbackEnabled keeps existing installations online while
+// native autocert gradually populates its cache. Fresh installations,
+// which have no running Certs sidecar, do not start the legacy polling
+// path. Operators can force either state during a staged migration.
+func legacyCertsFallbackEnabled(s *Server) bool {
+	if raw, present := os.LookupEnv("APTEVA_LEGACY_CERTS_FALLBACK"); present && strings.TrimSpace(raw) != "" {
+		return envTruthy(raw)
+	}
+	if s == nil || s.store == nil || s.store.db == nil {
+		return false
+	}
+	var count int
+	err := s.store.db.QueryRow(
+		`SELECT COUNT(*)
+		   FROM app_installs i
+		   JOIN apps a ON a.id = i.app_id
+		  WHERE lower(a.name) = 'certs'
+		    AND i.status IN ('running', 'pending')`,
+	).Scan(&count)
+	return err == nil && count > 0
 }
 
 func (m *IngressCertManager) Start(refresh time.Duration) {

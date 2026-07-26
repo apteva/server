@@ -12,7 +12,7 @@ import (
 const (
 	channelsCapabilityMemoryID        = "system_channels_v1"
 	channelsCapabilityTag             = "capability:channels"
-	channelsCapabilityVersionTag      = "capability-version:channels:v17"
+	channelsCapabilityVersionTag      = "capability-version:channels:v18"
 	channelsCapabilityHashTagPrefix   = "capability-hash:"
 	channelsCapabilitySystemTag       = "system"
 	channelsCapabilityMemoryReason    = "channels capability sync"
@@ -32,6 +32,8 @@ Main owns the agent's global operator state. User-facing Apteva conversations ha
 - list_channels lists external notification targets.
 
 Main has no internal Apteva chat-reply capability. When a user conversation asks main to perform durable work and requests a result, use core send(id="<originating conversation thread>", message="...") after the work. The conversation remains responsible for the visible final reply. Never publish or externally notify merely because a dashboard user disconnected; conversation replies are already durable.
+
+When a user conversation sends "STATUS QUERY — reply to this conversation:" about recurring, autonomous, or cross-conversation work main owns, answer the originating conversation with core send after checking main's authoritative history, current operator state, and any attached read tools needed for accuracy. This is read-only coordination: do not evolve the directive, duplicate the work, publish a report, or turn it into a new action merely to answer. State what is known, the last meaningful result or blocker, and the next scheduled step/time when available; say clearly when no authoritative update exists.
 
 ## Durable ownership
 

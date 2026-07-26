@@ -1678,77 +1678,31 @@ func hasGatewayDirectiveEditArgs(args map[string]any) bool {
 }
 
 func updateAgentMCPServersFromGateway(agentID int64, serverIDs []int64, action, defaultProjectID string, serverAPI gatewayAPIClient, store *Store, selfPath string) (any, error) {
-	var agent map[string]any
-	if err := serverAPI.do(http.MethodGet, fmt.Sprintf("/agents/%d", agentID), nil, &agent); err != nil {
+	// Attachment mutation belongs to the server API so dashboard and agent
+	// tools share one atomic, project-scoped implementation. In particular,
+	// do not GET + replace the full list here: two callers could otherwise
+	// erase each other's changes.
+	body := map[string]any{
+		"action":         action,
+		"mcp_server_ids": serverIDs,
+	}
+	var mutation any
+	if err := serverAPI.do(http.MethodPost, fmt.Sprintf("/agents/%d/mcp-servers", agentID), body, &mutation); err != nil {
 		return nil, err
 	}
-	projectID, _ := agent["project_id"].(string)
-	if projectID == "" {
-		projectID = defaultProjectID
-	}
-
 	var current struct {
 		MCPServers []map[string]any `json:"mcp_servers"`
 	}
 	if err := serverAPI.do(http.MethodGet, fmt.Sprintf("/agents/%d/config", agentID), nil, &current); err != nil {
 		return nil, err
 	}
-
-	serverPort := os.Getenv("PORT")
-	if serverPort == "" {
-		serverPort = "8080"
-	}
-	selected := make([]map[string]any, 0, len(serverIDs))
-	for _, serverID := range serverIDs {
-		record, _, err := store.GetMCPServer(serverAPI.userID, serverID)
-		if err != nil {
-			unscoped, unscopedErr := store.GetMCPServerByIDUnscoped(serverID)
-			if unscopedErr != nil || unscoped == nil || unscoped.Source != managedMCPSource {
-				return nil, fmt.Errorf("mcp server %d not found", serverID)
-			}
-			canUse := store.GetPlatformRole(serverAPI.userID) == PlatformAdmin
-			if !canUse {
-				if role, roleErr := store.GetProjectRole(unscoped.ProjectID, serverAPI.userID); roleErr == nil && role.Rank() >= ProjectViewer.Rank() {
-					canUse = true
-				}
-			}
-			if !canUse {
-				return nil, fmt.Errorf("mcp server %d not found", serverID)
-			}
-			record = unscoped
-		}
-		if record.ProjectID != "" && projectID != "" && record.ProjectID != projectID {
-			return nil, fmt.Errorf("mcp server %d belongs to project %q, agent belongs to project %q", serverID, record.ProjectID, projectID)
-		}
-		cfg, err := gatewayMCPConfigFromRecord(*record, projectID, serverPort, selfPath)
-		if err != nil {
-			return nil, fmt.Errorf("mcp server %d cannot be attached: %w", serverID, err)
-		}
-		selected = append(selected, cfg)
-	}
-
-	next := current.MCPServers
-	switch action {
-	case "set":
-		next = append(filterSystemMCPConfigs(current.MCPServers), selected...)
-	case "add":
-		next = append(removeMCPConfigsByName(current.MCPServers, selected), selected...)
-	case "remove":
-		next = removeMCPConfigsByName(current.MCPServers, selected)
-	}
-
-	body := map[string]any{"mcp_servers": next}
-	var out any
-	if err := serverAPI.do(http.MethodPut, fmt.Sprintf("/agents/%d/config", agentID), body, &out); err != nil {
-		return nil, err
-	}
 	return map[string]any{
 		"id":             agentID,
 		"action":         action,
 		"mcp_server_ids": serverIDs,
-		"mcp_servers":    next,
-		"count":          len(next),
-		"result":         out,
+		"mcp_servers":    current.MCPServers,
+		"count":          len(current.MCPServers),
+		"result":         mutation,
 	}, nil
 }
 

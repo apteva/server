@@ -1146,6 +1146,196 @@ func TestChannelChat_RealLLM_Codex_ConversationDelegatesDurableWorkToMain(t *tes
 	}, false, true)
 }
 
+// A natural read-only status question is distinct from a durable action
+// handoff. The conversation must ask main exactly once for authoritative
+// autonomous-work state, main must reply to the originating conversation, and
+// the conversation must relay that result without evolving either directive.
+func TestChannelChat_RealLLM_Codex_ConversationQueriesMainForLatestAutonomousStatus(t *testing.T) {
+	const stateMarker = "PATREON-STATE-742"
+	directive := strings.Join([]string{
+		"# Role",
+		"You autonomously own Patreon publishing for the operator.",
+		"# Responsibilities",
+		"Track Patreon publishing runs and their current state across conversations.",
+		"When a user conversation asks for current Patreon status, answer it from your authoritative main history.",
+	}, "\n")
+	h := setupRealChannelChatHarness(t, "patreon-status-query-codex-under-test", directive,
+		`{"include_apteva_server":false,"include_channels":true}`)
+	waitForInitialAgentTurn(t, h)
+
+	// This update arrives only in main after the user conversation already
+	// exists, so the chat cannot truthfully answer from its inherited
+	// directive or its own history.
+	baselineSeedDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineSeedResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	if err := postCoreEvent(t.Context(), h.server.agents.GetPort(h.agent.ID),
+		h.server.agents.GetCoreAPIKey(h.agent.ID), "main",
+		"[system] Internal authoritative Patreon state update. "+
+			stateMarker+": the July supporter post was published successfully; the next scheduled posting review is 2026-07-27 at 09:00 UTC. "+
+			"Retain this as the latest current state. Do not send a user-facing message now."); err != nil {
+		t.Fatalf("seed main Patreon state: %v", err)
+	}
+	waitForAgentTurnSettled(t, h, baselineSeedDone, baselineSeedResults, 3*time.Second)
+
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	var baselineMessageID int64
+	_ = h.server.store.db.QueryRow(`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID).Scan(&baselineMessageID)
+
+	h.post(t, "What is the latest status of Patreon posting?")
+
+	conversationThreadID := "chat-" + h.chatID
+	type observedSend struct {
+		At      time.Time
+		Thread  string
+		Target  string
+		Message string
+	}
+	type visibleStatusCall struct {
+		At    time.Time
+		Text  string
+		Phase string
+	}
+	var sends []observedSend
+	var visible []visibleStatusCall
+	seenCalls := map[string]bool{}
+	deadline := time.Now().Add(3 * time.Minute)
+	for time.Now().Before(deadline) {
+		for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+			if seenCalls[event.ID] {
+				continue
+			}
+			seenCalls[event.ID] = true
+			var data struct {
+				Name string         `json:"name"`
+				Args map[string]any `json:"args"`
+			}
+			if json.Unmarshal(event.Data, &data) != nil {
+				continue
+			}
+			target, _ := data.Args["id"].(string)
+			message, _ := data.Args["message"].(string)
+			if data.Name == "send" {
+				sends = append(sends, observedSend{
+					At: event.Time, Thread: event.ThreadID, Target: target, Message: message,
+				})
+			}
+			if event.ThreadID == conversationThreadID &&
+				(data.Name == "channels_send" || strings.HasSuffix(data.Name, "_channels_send")) {
+				text, _ := data.Args["text"].(string)
+				phase, _ := data.Args["phase"].(string)
+				visible = append(visible, visibleStatusCall{At: event.Time, Text: text, Phase: phase})
+			}
+		}
+		var childQuery, mainReply bool
+		for _, send := range sends {
+			if send.Thread == conversationThreadID && (send.Target == "main" || send.Target == "parent") {
+				childQuery = true
+			}
+			if send.Thread == "main" && send.Target == conversationThreadID &&
+				containsPatreonStatusFacts(send.Message) {
+				mainReply = true
+			}
+		}
+		latest := latestAgentChatReply(t, h.server, h.chatID)
+		if childQuery && mainReply && containsPatreonStatusFacts(latest) {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 5*time.Second)
+
+	// Re-read after settling to catch duplicate late sends.
+	sends = nil
+	visible = nil
+	var conversationEvolved, mainEvolved bool
+	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+		var data struct {
+			Name string         `json:"name"`
+			Args map[string]any `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil {
+			continue
+		}
+		target, _ := data.Args["id"].(string)
+		message, _ := data.Args["message"].(string)
+		if data.Name == "send" {
+			sends = append(sends, observedSend{At: event.Time, Thread: event.ThreadID, Target: target, Message: message})
+		}
+		if data.Name == "evolve" && event.ThreadID == conversationThreadID {
+			conversationEvolved = true
+		}
+		if data.Name == "evolve" && event.ThreadID == "main" {
+			mainEvolved = true
+		}
+		if event.ThreadID == conversationThreadID &&
+			(data.Name == "channels_send" || strings.HasSuffix(data.Name, "_channels_send")) {
+			text, _ := data.Args["text"].(string)
+			phase, _ := data.Args["phase"].(string)
+			visible = append(visible, visibleStatusCall{At: event.Time, Text: text, Phase: phase})
+		}
+	}
+
+	var queries, replies int
+	var queryMessage string
+	var mainReplyAt time.Time
+	for _, send := range sends {
+		switch {
+		case send.Thread == conversationThreadID && (send.Target == "main" || send.Target == "parent"):
+			queries++
+			queryMessage = send.Message
+		case send.Thread == "main" && send.Target == conversationThreadID:
+			replies++
+			mainReplyAt = send.At
+			if !containsPatreonStatusFacts(send.Message) {
+				t.Errorf("main reply omitted the authoritative Patreon facts: %q", send.Message)
+			}
+		}
+	}
+	if queries != 1 {
+		t.Fatalf("conversation sent %d messages to main, want exactly one status query: %+v", queries, sends)
+	}
+	queryLower := strings.ToLower(queryMessage)
+	if !strings.Contains(queryLower, "status query") || !strings.Contains(queryLower, "patreon") {
+		t.Fatalf("conversation did not make a clear Patreon STATUS QUERY: %q", queryMessage)
+	}
+	if strings.Contains(queryLower, "action required") {
+		t.Fatalf("read-only status question became an action handoff: %q", queryMessage)
+	}
+	if replies != 1 {
+		t.Fatalf("main sent %d replies to the conversation, want exactly one: %+v", replies, sends)
+	}
+	if conversationEvolved || mainEvolved {
+		t.Fatalf("read-only status query evolved state: conversation=%v main=%v", conversationEvolved, mainEvolved)
+	}
+	if len(visible) < 1 || len(visible) > 2 {
+		t.Fatalf("visible messages=%d, want optional acknowledgement plus one final: %+v", len(visible), visible)
+	}
+	sort.Slice(visible, func(i, j int) bool { return visible[i].At.Before(visible[j].At) })
+	final := visible[len(visible)-1]
+	if !final.At.After(mainReplyAt) || !containsPatreonStatusFacts(final.Text) {
+		t.Fatalf("final status was not relayed after main's authoritative reply: main=%s final=%+v",
+			mainReplyAt.Format(time.RFC3339Nano), final)
+	}
+	var replyCount int
+	if err := h.server.store.db.QueryRow(`
+		SELECT COUNT(*) FROM channel_chat_messages
+		WHERE chat_id=? AND role='agent' AND id>?`, h.chatID, baselineMessageID).Scan(&replyCount); err != nil {
+		t.Fatal(err)
+	}
+	if replyCount < 1 || replyCount > 2 {
+		t.Fatalf("stored visible replies=%d, want optional acknowledgement plus one final", replyCount)
+	}
+}
+
+func containsPatreonStatusFacts(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "supporter post") &&
+		strings.Contains(lower, "published") &&
+		strings.Contains(text, "09:00")
+}
+
 func runRealNonPrimaryConversationDurableHandoff(t *testing.T, setupHarness func(*testing.T, string, string) *realChannelChatHarness, verifyScheduleChange, ownershipOnly bool) {
 	t.Helper()
 	var notificationCalls atomic.Int64

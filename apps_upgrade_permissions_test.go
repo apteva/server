@@ -116,6 +116,57 @@ func TestUpgradeApp_PrunesPermissionsRemovedFromManifest(t *testing.T) {
 	}
 }
 
+func TestUpgradeApp_PrunesBindingsRemovedFromManifest(t *testing.T) {
+	s, installID := seedBuiltinUpgradePermissionFixture(t)
+	var appID int64
+	if err := s.store.db.QueryRow(`SELECT app_id FROM app_installs WHERE id=?`, installID).Scan(&appID); err != nil {
+		t.Fatal(err)
+	}
+	available := sdk.Manifest{
+		Schema: sdk.SchemaCurrent, Name: "deploy", DisplayName: "Deploy", Version: "0.2.0",
+		Requires: sdk.Requires{
+			Permissions:  []sdk.Permission{sdk.PermDBWriteApp},
+			Integrations: []sdk.IntegrationDep{{Role: "domains"}},
+		},
+	}
+	old := available
+	old.Version = "0.1.0"
+	old.Requires.Integrations = []sdk.IntegrationDep{
+		{Role: "domains"},
+		{Role: "certs"},
+		{Role: "routes"},
+	}
+	availableJSON, _ := json.Marshal(available)
+	oldJSON, _ := json.Marshal(old)
+	if _, err := s.store.db.Exec(`UPDATE apps SET manifest_json=? WHERE id=?`, string(availableJSON), appID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.db.Exec(
+		`UPDATE app_installs
+		    SET manifest_json=?, permissions_json='["db.write.app"]',
+		        integration_bindings='{"domains":31,"certs":32,"routes":33}'
+		  WHERE id=?`,
+		string(oldJSON), installID,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/apps/installs/"+itoa(installID)+"/upgrade", nil)
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleUpgradeApp(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	got := readBindings(t, s, installID)
+	if len(got) != 1 {
+		t.Fatalf("obsolete bindings survived upgrade: %v", got)
+	}
+	if value, _ := asInt64(got["domains"]); value != 31 {
+		t.Fatalf("valid domains binding changed: %v", got)
+	}
+}
+
 func seedBuiltinUpgradePermissionFixture(t *testing.T) (*Server, int64) {
 	t.Helper()
 	s := newTestServer(t)

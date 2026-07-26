@@ -1521,13 +1521,10 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		// stateless agent can stay out of the memory-write cycle
 		// while a personal-assistant-style agent enables it.
 		Unconscious *bool `json:"unconscious,omitempty"`
-		// BoundAppInstallIDs — installed apps the operator picked
-		// in the wizard's Setup step. We write app_agent_bindings
-		// rows so the gateway's per-agent tool filter (currently
-		// advisory, runtime enforcement coming in a follow-up)
-		// knows which apps this agent is allowed to talk to. nil
-		// or empty means "no explicit selection" — the agent gets
-		// every app in its project (current default behaviour).
+		// BoundAppInstallIDs — installed apps the operator picked in the
+		// wizard's Setup step. MCP-capable apps are added to the agent's
+		// actual mcp_servers config; app_agent_bindings is synchronized
+		// metadata used by environments, grants, and skill inheritance.
 		BoundAppInstallIDs []int64 `json:"bound_app_install_ids,omitempty"`
 		// BoundAppGrants — optional scoped access policies for the
 		// bound apps above. Written before auto-start so the first
@@ -1587,7 +1584,9 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	// logged but don't abort the agent create — the operator can
 	// re-pick later from the agent detail page.
 	if len(body.BoundAppInstallIDs) > 0 {
-		for _, installID := range body.BoundAppInstallIDs {
+		validInstallIDs, appMCPConfigs := s.appMCPConfigsForInstallIDs(userID, inst, body.BoundAppInstallIDs)
+		body.BoundAppInstallIDs = validInstallIDs
+		for _, installID := range validInstallIDs {
 			if _, err := s.store.db.Exec(
 				`INSERT OR IGNORE INTO app_agent_bindings (install_id, agent_id, enabled) VALUES (?, ?, 1)`,
 				installID, inst.ID,
@@ -1595,9 +1594,20 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 				log.Printf("[CREATE] bind app install_id=%d to agent=%d: %v", installID, inst.ID, err)
 			}
 		}
-		// Inherit the bound apps' skills (their MCP tools are already
-		// reachable via the apteva-server gateway). Best-effort.
-		s.inheritAppSkills(inst, body.BoundAppInstallIDs)
+		if len(appMCPConfigs) > 0 {
+			var instCfg map[string]any
+			_ = json.Unmarshal([]byte(inst.Config), &instCfg)
+			if instCfg == nil {
+				instCfg = map[string]any{}
+			}
+			instCfg["mcp_servers"] = mcpMapsAsAny(mutateMCPServers(
+				mcpMaps(instCfg["mcp_servers"]), appMCPConfigs, "add"))
+			if out, err := json.Marshal(instCfg); err == nil {
+				inst.Config = string(out)
+			}
+		}
+		// Skills and non-MCP app metadata use the same validated selection.
+		s.inheritAppSkills(inst, validInstallIDs)
 	}
 	if len(body.BoundAppGrants) > 0 {
 		allowedInstalls := map[int64]bool{}
@@ -1689,6 +1699,12 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	if err := s.syncChannelsCapabilityMemoryDisk(inst.ID, includeChannels); err != nil {
 		log.Printf("[CAPABILITY-MEMORY] create sync agent=%d include_channels=%v: %v", inst.ID, includeChannels, err)
 	}
+	// Persist the fully assembled initial config before any early return from
+	// the provider/start gates below.
+	if err := s.store.UpdateAgent(inst); err != nil {
+		http.Error(w, "persist initial agent config", http.StatusInternalServerError)
+		return
+	}
 
 	// Start unless explicitly disabled. P1 fix: refuse to start when
 	// the user has no LLM provider configured for this project. The
@@ -1735,9 +1751,9 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 }
 
 // inheritAppSkills attaches the skills shipped by each bound app to the
-// agent, so binding an app brings its playbooks along. App MCP tools are
-// already reachable via the apteva-server gateway; this is the skills half
-// of an app→agent binding. Best-effort; returns the number attached. Safe to
+// agent, so binding an app brings its playbooks along. MCP-capable apps are
+// attached separately through the agent's mcp_servers config. Best-effort;
+// returns the number attached. Safe to
 // call before the agent is started — PushSkillToInstance writes to the
 // instance's on-disk memory journal, which the core reads at boot.
 func (s *Server) inheritAppSkills(inst *Agent, boundInstallIDs []int64) int {
@@ -2295,6 +2311,12 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Core's PUT /config consumes mcp_servers as one complete desired list.
+	// Serialize the read/merge/write here so a directive edit or two
+	// simultaneous attachment changes cannot silently disconnect tools.
+	unlockConfig := s.lockAgentConfig(instanceID)
+	defer unlockConfig()
+
 	// PUT — read body, update DB fields, then proxy FULL body to core
 	bodyBytes, _ := io.ReadAll(r.Body)
 
@@ -2320,7 +2342,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if inst.Kind == "platform_helper" {
-		if _, ok := rawBody["mcp_servers"]; ok {
+		if _, ok := rawBody["mcp_servers"]; ok || rawBody["_mcp_action"] != nil {
 			http.Error(w, "platform Helper capabilities must be updated through /platform/helper/capabilities", http.StatusForbidden)
 			return
 		}
@@ -2328,6 +2350,51 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "platform Helper runtime config is server-managed", http.StatusForbidden)
 			return
 		}
+	}
+
+	// The public additive MCP endpoint is rewritten to these internal fields
+	// before entering this handler. Resolve inventory ids and merge them while
+	// the same per-agent lock used by every other config update is held.
+	action, hasMCPAction := rawBody["_mcp_action"].(string)
+	if hasMCPAction {
+		rawIDs, ok := rawBody["_mcp_server_ids"].([]any)
+		if !ok {
+			http.Error(w, "mcp_server_ids must be an array", http.StatusBadRequest)
+			return
+		}
+		serverIDs := make([]int64, 0, len(rawIDs))
+		for _, rawID := range rawIDs {
+			id, ok := rawID.(float64)
+			if !ok || id <= 0 || id != float64(int64(id)) {
+				http.Error(w, "mcp_server_ids must contain positive integers", http.StatusBadRequest)
+				return
+			}
+			serverIDs = append(serverIDs, int64(id))
+		}
+		current, err := s.currentAgentMCPServers(inst, port)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		selected, err := s.resolveAgentMCPConfigs(getUserID(r), inst, serverIDs)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		rawBody["mcp_servers"] = mcpMapsAsAny(mutateMCPServers(current, selected, action))
+		delete(rawBody, "_mcp_action")
+		delete(rawBody, "_mcp_server_ids")
+	} else if _, hasMCPServers := rawBody["mcp_servers"]; !hasMCPServers {
+		// Dashboard and gateway config writes are patch-shaped (directive,
+		// mode, provider selection, reset). Core's config endpoint is not:
+		// omitting mcp_servers means "detach all non-system MCPs". Preserve
+		// the canonical current set explicitly before forwarding.
+		current, err := s.currentAgentMCPServers(inst, port)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		rawBody["mcp_servers"] = mcpMapsAsAny(current)
 	}
 	normalizeAppMCPProjectURLs(rawBody, inst.ProjectID)
 
@@ -2443,6 +2510,13 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer resp.Body.Close()
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			if err := s.syncAppBindingsFromMCPServers(inst.ID, inst.ProjectID, rawBody["mcp_servers"]); err != nil {
+				log.Printf("[CONFIG] sync app bindings failed agent=%d: %v", inst.ID, err)
+				http.Error(w, "core config updated but app attachment metadata could not be synchronized", http.StatusInternalServerError)
+				return
+			}
+		}
 		for k, v := range resp.Header {
 			w.Header()[k] = v
 		}
@@ -2485,6 +2559,11 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("[CONFIG] PUT stopped-write failed agent=%d: %v", inst.ID, err)
 		http.Error(w, fmt.Sprintf("persist config: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := s.syncAppBindingsFromMCPServers(inst.ID, inst.ProjectID, rawBody["mcp_servers"]); err != nil {
+		log.Printf("[CONFIG] sync stopped app bindings failed agent=%d: %v", inst.ID, err)
+		http.Error(w, "config saved but app attachment metadata could not be synchronized", http.StatusInternalServerError)
 		return
 	}
 	log.Printf("[CONFIG] PUT stopped agent=%d — persisted to config.json (applies on next start)", inst.ID)

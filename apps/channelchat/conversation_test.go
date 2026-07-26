@@ -60,6 +60,8 @@ func TestChatThreadProfileSupportsWorkProgressChildrenAndSelectiveReporting(t *t
 		"report that result to its parent before sleeping",
 		"Children report to you",
 		"REPORT ONLY — no action or reply required",
+		"STATUS QUERY — reply to this conversation",
+		"Do not guess from the inherited directive",
 		"ACTION REQUIRED — reply to this conversation",
 		"Do not forward every child event",
 		"Never call evolve",
