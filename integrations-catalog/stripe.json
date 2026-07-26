@@ -898,9 +898,10 @@
           },
           "ui_mode": {
             "type": "string",
-            "description": "Checkout presentation. hosted returns a redirect URL; custom returns client_secret for Stripe Elements.",
+            "description": "Checkout presentation. hosted returns a redirect URL; elements returns client_secret for Stripe Elements. custom remains accepted for accounts pinned to the 2025 Basil API.",
             "enum": [
               "hosted",
+              "elements",
               "custom"
             ],
             "default": "hosted"
@@ -927,11 +928,11 @@
           },
           "return_url": {
             "type": "string",
-            "description": "Return URL for ui_mode=custom, including redirect-based payment authentication."
+            "description": "Return URL for ui_mode=elements/custom, including redirect-based payment authentication."
           },
           "redirect_on_completion": {
             "type": "string",
-            "description": "Redirect behavior for embedded/custom checkout where supported.",
+            "description": "Redirect behavior for embedded/elements/custom checkout where supported.",
             "enum": [
               "always",
               "if_required",
