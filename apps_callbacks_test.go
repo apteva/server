@@ -973,6 +973,73 @@ func TestCallback_GetCredentials_HappyPath(t *testing.T) {
 	}
 }
 
+func TestCallback_GetPublicConfig_ReturnsOnlyCatalogPublicFields(t *testing.T) {
+	s := newTestServer(t)
+	s.catalog = NewAppCatalog()
+	if err := s.catalog.LoadFromDir("integrations-catalog"); err != nil {
+		t.Fatal(err)
+	}
+	connID := seedCredsConnection(t, s, "stripe", map[string]string{
+		"token":          "sk_test_secret",
+		"publishableKey": "pk_test_browser",
+		"webhookSecret":  "whsec_secret",
+	})
+	manifest := sdk.Manifest{
+		Schema: sdk.SchemaCurrent, Name: "billing",
+		Requires: sdk.Requires{
+			Permissions: []sdk.Permission{sdk.PermConnectionsReadPublicConfig},
+			Integrations: []sdk.IntegrationDep{
+				{Role: "payment_processor", Kind: "integration", CompatibleSlugs: []string{"stripe"}},
+			},
+		},
+	}
+	installID := seedInstallWithBindings(t, s, "billing", manifest, map[string]any{"payment_processor": float64(connID)})
+
+	req := httptest.NewRequest("GET", "/apps/callback/connections/"+itoa(connID)+"/public-config", nil)
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	req.Header.Set("X-User-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var out sdk.ConnectionPublicConfig
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Fields["publishableKey"] != "pk_test_browser" {
+		t.Fatalf("public key missing: %#v", out.Fields)
+	}
+	if _, ok := out.Fields["token"]; ok {
+		t.Fatalf("secret token leaked: %#v", out.Fields)
+	}
+	if _, ok := out.Fields["webhookSecret"]; ok {
+		t.Fatalf("webhook secret leaked: %#v", out.Fields)
+	}
+}
+
+func TestCallback_GetPublicConfig_RejectsMissingPermission(t *testing.T) {
+	s := newTestServer(t)
+	connID := seedCredsConnection(t, s, "stripe", map[string]string{"publishableKey": "pk_test_browser"})
+	manifest := sdk.Manifest{
+		Schema: sdk.SchemaCurrent, Name: "billing",
+		Requires: sdk.Requires{
+			Integrations: []sdk.IntegrationDep{
+				{Role: "payment_processor", Kind: "integration", CompatibleSlugs: []string{"stripe"}},
+			},
+		},
+	}
+	installID := seedInstallWithBindings(t, s, "billing", manifest, map[string]any{"payment_processor": float64(connID)})
+
+	req := httptest.NewRequest("GET", "/apps/callback/connections/"+itoa(connID)+"/public-config", nil)
+	req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+	rec := httptest.NewRecorder()
+	s.handleAppCallback(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 // --- helpers --------------------------------------------------------
 
 // installBoundConnection / installBoundApp / etc. are exercised

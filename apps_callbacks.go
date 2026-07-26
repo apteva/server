@@ -273,6 +273,10 @@ func (s *Server) handleCallbackConnections(w http.ResponseWriter, r *http.Reques
 		s.handleCallbackConnectionCredentials(w, r, parts[0])
 		return
 	}
+	if r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "public-config" {
+		s.handleCallbackConnectionPublicConfig(w, r, parts[0])
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
@@ -449,6 +453,78 @@ func (s *Server) handleCallbackConnectionCredentials(w http.ResponseWriter, r *h
 		installID, connID, conn.AppSlug, role, len(fields))
 
 	writeJSON(w, sdk.ConnectionCredentials{
+		ConnectionID: conn.ID,
+		Slug:         conn.AppSlug,
+		Fields:       fields,
+		FetchedAt:    time.Now().UTC(),
+	})
+}
+
+func (s *Server) handleCallbackConnectionPublicConfig(w http.ResponseWriter, r *http.Request, idStr string) {
+	installID, err := requireInstallID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	connID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || connID <= 0 {
+		http.Error(w, "invalid connection id", http.StatusBadRequest)
+		return
+	}
+	if !installHasPermission(s, installID, sdk.PermConnectionsReadPublicConfig) {
+		http.Error(w, "missing permission: "+string(sdk.PermConnectionsReadPublicConfig), http.StatusForbidden)
+		return
+	}
+	role, bound := installBoundConnection(s, installID, connID)
+	if !bound {
+		http.Error(w, "connection not bound to this install", http.StatusForbidden)
+		return
+	}
+	dep, derr := installRoleDep(s, installID, role)
+	if derr != nil {
+		http.Error(w, derr.Error(), http.StatusInternalServerError)
+		return
+	}
+	userID := getUserID(r)
+	conn, encCreds, err := s.store.GetConnection(userID, connID)
+	if err != nil || conn == nil {
+		http.Error(w, "connection not found", http.StatusNotFound)
+		return
+	}
+	if dep != nil && dep.Kind != "app" && len(dep.CompatibleSlugs) > 0 && !contains(dep.CompatibleSlugs, conn.AppSlug) {
+		http.Error(w, fmt.Sprintf("connection slug %q not in role %q compatible_slugs", conn.AppSlug, role), http.StatusForbidden)
+		return
+	}
+	app := s.catalog.Get(conn.AppSlug)
+	if app == nil {
+		http.Error(w, "integration catalog entry not found", http.StatusNotFound)
+		return
+	}
+	publicNames := map[string]bool{}
+	for _, field := range app.Auth.CredentialFields {
+		if field.Exposure == "public" {
+			publicNames[field.Name] = true
+		}
+	}
+	fields := map[string]string{}
+	if encCreds != "" && len(publicNames) > 0 {
+		plain, derr := Decrypt(s.secret, encCreds)
+		if derr != nil {
+			http.Error(w, "decrypt failed", http.StatusInternalServerError)
+			return
+		}
+		raw := map[string]any{}
+		if jerr := json.Unmarshal([]byte(plain), &raw); jerr != nil {
+			http.Error(w, "parse creds failed", http.StatusInternalServerError)
+			return
+		}
+		for name := range publicNames {
+			if value, ok := raw[name]; ok {
+				fields[name] = fmt.Sprint(value)
+			}
+		}
+	}
+	writeJSON(w, sdk.ConnectionPublicConfig{
 		ConnectionID: conn.ID,
 		Slug:         conn.AppSlug,
 		Fields:       fields,

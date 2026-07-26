@@ -31,6 +31,8 @@
       {
         "name": "publishableKey",
         "label": "Publishable Key",
+        "type": "text",
+        "exposure": "public",
         "description": "Your Stripe Publishable Key (pk_live_ or pk_test_)"
       },
       {
@@ -878,6 +880,9 @@
       "description": "Create a Stripe Checkout Session — a hosted payment page. Returns { id, url } where url is the Stripe-hosted page the customer is redirected to. mode=payment for one-time; mode=subscription for recurring (uses price IDs from create_price). Webhook event checkout.session.completed fires on payment success.",
       "method": "POST",
       "path": "/checkout/sessions",
+      "header_params": {
+        "idempotency_key": "Idempotency-Key"
+      },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -890,6 +895,15 @@
               "setup"
             ],
             "default": "payment"
+          },
+          "ui_mode": {
+            "type": "string",
+            "description": "Checkout presentation. hosted returns a redirect URL; custom returns client_secret for Stripe Elements.",
+            "enum": [
+              "hosted",
+              "custom"
+            ],
+            "default": "hosted"
           },
           "line_items": {
             "type": "array",
@@ -911,6 +925,33 @@
             "type": "string",
             "description": "URL Stripe redirects to if the customer abandons the page."
           },
+          "return_url": {
+            "type": "string",
+            "description": "Return URL for ui_mode=custom, including redirect-based payment authentication."
+          },
+          "redirect_on_completion": {
+            "type": "string",
+            "description": "Redirect behavior for embedded/custom checkout where supported.",
+            "enum": [
+              "always",
+              "if_required",
+              "never"
+            ]
+          },
+          "payment_method_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional explicit payment method types. Omit to use Stripe Dashboard dynamic methods."
+          },
+          "customer_creation": {
+            "type": "string",
+            "enum": [
+              "always",
+              "if_required"
+            ]
+          },
           "client_reference_id": {
             "type": "string",
             "description": "Free-form string returned in the webhook payload. Useful for tying back to your own session/cart id."
@@ -930,11 +971,31 @@
           "expires_at": {
             "type": "integer",
             "description": "Unix timestamp at which the session expires. Min 30 min from creation, max 24h."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-stable key sent as Stripe's Idempotency-Key header."
           }
         },
         "required": [
-          "line_items",
-          "success_url"
+          "line_items"
+        ]
+      }
+    },
+    {
+      "name": "get_checkout_session",
+      "description": "Retrieve a Stripe Checkout Session by ID, including url or client_secret where available.",
+      "method": "GET",
+      "path": "/checkout/sessions/{checkout_session_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "checkout_session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "checkout_session_id"
         ]
       }
     },
@@ -1148,6 +1209,18 @@
       {
         "name": "checkout.session.completed",
         "description": "Occurs when a Checkout Session completes"
+      },
+      {
+        "name": "checkout.session.async_payment_succeeded",
+        "description": "Occurs when a delayed Checkout Session payment succeeds"
+      },
+      {
+        "name": "checkout.session.async_payment_failed",
+        "description": "Occurs when a delayed Checkout Session payment fails"
+      },
+      {
+        "name": "checkout.session.expired",
+        "description": "Occurs when a Checkout Session expires"
       },
       {
         "name": "payment_intent.succeeded",

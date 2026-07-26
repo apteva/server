@@ -371,6 +371,7 @@ type CredentialField struct {
 	Type        string `json:"type,omitempty"`   // "password" or "text"
 	Source      string `json:"source,omitempty"` // "user" or "oauth"
 	Hidden      bool   `json:"hidden,omitempty"`
+	Exposure    string `json:"exposure,omitempty"` // "secret" (default) or "public"
 }
 
 type OAuthConfig struct {
