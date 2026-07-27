@@ -2471,6 +2471,13 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 	// Local non-OAuth (api_key, basic, bearer, ...): store creds immediately.
 	log.Printf("[CONN] local create: user=%d slug=%s name=%s auth=%s project=%s",
 		userID, body.AppSlug, body.Name, body.AuthType, body.ProjectID)
+	generatedCredentials, generationErr := materializeGeneratedConnectionCredentials(app, body.Credentials)
+	if generationErr != nil {
+		log.Printf("[CONN] generated credentials failed slug=%s: %v", body.AppSlug, generationErr)
+		http.Error(w, "credential generation failed", http.StatusInternalServerError)
+		return
+	}
+	body.Credentials = generatedCredentials
 	credsJSON, _ := json.Marshal(body.Credentials)
 	encrypted, err := Encrypt(s.secret, string(credsJSON))
 	if err != nil {

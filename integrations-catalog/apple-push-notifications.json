@@ -42,6 +42,15 @@
         "label": "Environment",
         "type": "text",
         "description": "Use production for App Store and TestFlight builds, or sandbox for locally signed development builds."
+      },
+      {
+        "name": "relay_encryption_key",
+        "label": "Relay encryption key",
+        "type": "password",
+        "source": "generated",
+        "hidden": true,
+        "required": false,
+        "description": "Generated automatically by Apteva when the connection is created. Push uses it to encrypt APNs device tokens at rest."
       }
     ]
   },

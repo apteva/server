@@ -448,6 +448,33 @@ func (s *Server) handleCallbackConnectionCredentials(w http.ResponseWriter, r *h
 			}
 		}
 	}
+	// Catalogs may add server-generated secrets after a connection already
+	// exists. Materialize missing values on the first authorized app read,
+	// persist them in the same encrypted blob, and return them immediately.
+	// Existing generated values are never rotated by this path.
+	if s.catalog != nil {
+		if template := s.catalog.Get(conn.AppSlug); template != nil {
+			missingGenerated := hasMissingGeneratedConnectionCredentials(template, fields)
+			withGenerated, generationErr := backfillGeneratedConnectionCredentials(template, fields)
+			if generationErr != nil {
+				http.Error(w, "credential generation failed", http.StatusInternalServerError)
+				return
+			}
+			if missingGenerated {
+				serialized, marshalErr := json.Marshal(withGenerated)
+				if marshalErr != nil {
+					http.Error(w, "credential generation failed", http.StatusInternalServerError)
+					return
+				}
+				encrypted, encryptErr := Encrypt(s.secret, string(serialized))
+				if encryptErr != nil || s.store.UpdateConnectionCredentials(conn.ID, encrypted) != nil {
+					http.Error(w, "credential persistence failed", http.StatusInternalServerError)
+					return
+				}
+				fields = withGenerated
+			}
+		}
+	}
 
 	log.Printf("[CRED-READ] install=%d conn=%d slug=%s role=%s fields=%d",
 		installID, connID, conn.AppSlug, role, len(fields))
