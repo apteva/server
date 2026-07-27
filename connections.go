@@ -1123,6 +1123,7 @@ var forwardableHeaders = []string{
 	"Content-Length",
 	"Request-Id",
 	"X-Request-Id",
+	"Apns-Id",
 	"X-ElevenLabs-Request-Id",
 	"Xi-Request-Id",
 }

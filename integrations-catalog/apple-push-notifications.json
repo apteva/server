@@ -1,0 +1,105 @@
+{
+  "slug": "apple-push-notifications",
+  "name": "Apple Push Notifications",
+  "description": "Send native iOS and iPadOS push notifications through Apple Push Notification service (APNs). Requests are signed automatically with the Team ID, Key ID, bundle ID, and APNs .p8 private key from the Apple Developer portal.",
+  "logo": "https://www.google.com/s2/favicons?domain=developer.apple.com&sz=128",
+  "categories": ["notifications", "mobile", "ios", "apple"],
+  "base_url": "https://api.push.apple.com/3",
+  "auth": {
+    "types": ["custom"],
+    "headers": {
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "signers": [{ "name": "apns_jwt" }],
+    "credential_fields": [
+      {
+        "name": "team_id",
+        "label": "Apple Team ID",
+        "type": "text",
+        "description": "The 10-character Team ID from your Apple Developer account."
+      },
+      {
+        "name": "key_id",
+        "label": "APNs Key ID",
+        "type": "text",
+        "description": "The Key ID of a key created in Certificates, Identifiers & Profiles with APNs enabled."
+      },
+      {
+        "name": "private_key",
+        "label": "APNs Private Key (.p8)",
+        "type": "multiline_password",
+        "description": "Paste the full contents of the APNs AuthKey_<KEY_ID>.p8 file, including the BEGIN/END PRIVATE KEY lines."
+      },
+      {
+        "name": "bundle_id",
+        "label": "Bundle ID",
+        "type": "text",
+        "description": "The app bundle identifier used as the APNs topic, for example ai.apteva.mobile."
+      },
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "text",
+        "description": "Use production for App Store and TestFlight builds, or sandbox for locally signed development builds."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "send_notification",
+      "description": "Send one APNs notification to a device token. Pass the complete aps dictionary and optional provider-neutral data object; APNs authentication and transport headers are added automatically.",
+      "method": "POST",
+      "path": "/device/{device_token}",
+      "header_params": {
+        "push_type": "apns-push-type",
+        "priority": "apns-priority",
+        "expiration": "apns-expiration",
+        "collapse_id": "apns-collapse-id"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "device_token": {
+            "type": "string",
+            "description": "The raw APNs device token returned to the native app."
+          },
+          "push_type": {
+            "type": "string",
+            "enum": ["alert", "background"],
+            "description": "APNs push type. Use alert for visible notifications and background for silent refresh."
+          },
+          "priority": {
+            "type": "integer",
+            "enum": [5, 10],
+            "description": "APNs priority. Visible alerts normally use 10; background pushes use 5."
+          },
+          "expiration": {
+            "type": "integer",
+            "description": "Optional UNIX timestamp after which APNs may discard the notification."
+          },
+          "collapse_id": {
+            "type": "string",
+            "description": "Optional identifier used by APNs to replace an older equivalent notification."
+          },
+          "aps": {
+            "type": "object",
+            "description": "The Apple aps payload dictionary.",
+            "additionalProperties": true
+          },
+          "data": {
+            "type": "object",
+            "description": "Optional application data placed beside aps in the notification payload.",
+            "additionalProperties": true
+          }
+        },
+        "required": ["device_token", "push_type", "aps"]
+      },
+      "mock_response": {
+        "accepted": true,
+        "provider": "apns",
+        "_mock": true
+      }
+    }
+  ]
+}
