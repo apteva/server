@@ -632,6 +632,126 @@ func TestInternalDefaultConversationIsNotAddressableOrKilled(t *testing.T) {
 	}
 }
 
+func TestDismissingPendingApprovalNotifiesExactOriginatingThreadOnce(t *testing.T) {
+	db := openChannelTestDB(t, true)
+	defer db.Close()
+	inst := framework.InstanceInfo{
+		ID:        285,
+		UserID:    99,
+		Name:      "Planner",
+		ProjectID: "project-a",
+	}
+	if _, err := db.Exec(
+		`INSERT INTO agents (id, user_id, name, project_id) VALUES (?, ?, ?, ?)`,
+		inst.ID,
+		inst.UserID,
+		inst.Name,
+		inst.ProjectID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	st := newStore(db)
+	chat, err := st.EnsureDefaultChat(inst.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const threadID = "chat-conv-approval"
+	msg, err := st.Append(
+		chat.ID,
+		"agent",
+		"Approval requested: Publish customer update",
+		nil,
+		threadID,
+		"final",
+		[]framework.ChatComponent{{
+			App:  "channel-chat",
+			Name: "approval-card",
+			Props: map[string]any{
+				"title":  "Publish customer update",
+				"body":   "Publish the reviewed update.",
+				"status": "pending",
+			},
+		}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := &conversationResolver{
+		agents:   map[int64]framework.InstanceInfo{inst.ID: inst},
+		forwards: make(chan conversationShutdownCall, 2),
+	}
+	h := &handlers{store: st, hub: newHub(), instances: resolver}
+
+	dismiss := func() map[string]any {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(
+			http.MethodPost,
+			"/message-dismiss",
+			bytes.NewBufferString(fmt.Sprintf(`{"message_id":%d}`, msg.ID)),
+		)
+		h.messageDismiss(rec, req, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("dismiss status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		var response map[string]any
+		if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+
+	first := dismiss()
+	if first["notified"] != true || first["forwarded"] != true || first["delivery_error"] != "" {
+		t.Fatalf("dismiss response=%#v", first)
+	}
+	call := waitConversationShutdownCall(t, resolver.forwards)
+	if call.AgentID != inst.ID || call.ThreadID != threadID {
+		t.Fatalf("dismiss forwarded to wrong origin: %+v", call)
+	}
+	for _, want := range []string{
+		"[approval.dismissed]",
+		"Approval message",
+		"Publish customer update",
+		"without approving or denying",
+		"Treat this approval wait as ended",
+		"update global status",
+	} {
+		if !strings.Contains(call.Message, want) {
+			t.Fatalf("dismiss event missing %q:\n%s", want, call.Message)
+		}
+	}
+	updated, err := st.GetMessage(msg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	props := updated.Components[0].Props
+	if props["dismissed"] != true || props["status"] != "pending" {
+		t.Fatalf("dismiss should hide without inventing a decision: %#v", props)
+	}
+
+	second := dismiss()
+	if second["notified"] != false || second["forwarded"] != false {
+		t.Fatalf("repeat dismiss response=%#v", second)
+	}
+	select {
+	case duplicate := <-resolver.forwards:
+		t.Fatalf("repeat dismiss forwarded duplicate event: %+v", duplicate)
+	default:
+	}
+}
+
+func TestDismissingReportDoesNotNotifyAgent(t *testing.T) {
+	components := []framework.ChatComponent{{
+		App:   "channel-chat",
+		Name:  "report-card",
+		Props: map[string]any{"title": "Daily report"},
+	}}
+	if title, notify := pendingApprovalDismissNotification(components); title != "" || notify {
+		t.Fatalf("report dismissal notification=(%q,%v), want none", title, notify)
+	}
+}
+
 func waitConversationShutdownCall(t *testing.T, calls <-chan conversationShutdownCall) conversationShutdownCall {
 	t.Helper()
 	select {

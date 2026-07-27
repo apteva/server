@@ -61,6 +61,37 @@ func TestAppStoreConnectJWTSigner(t *testing.T) {
 	}
 }
 
+func TestParseAppStoreConnectPrivateKeyAcceptsPastedFormats(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privatePEM := string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
+
+	formats := map[string]string{
+		"multiline":       privatePEM,
+		"escaped newline": strings.ReplaceAll(privatePEM, "\n", `\n`),
+		"CRLF":            strings.ReplaceAll(privatePEM, "\n", "\r\n"),
+		"flattened":       strings.ReplaceAll(privatePEM, "\n", ""),
+		"space flattened": strings.ReplaceAll(privatePEM, "\n", " "),
+	}
+	for name, input := range formats {
+		t.Run(name, func(t *testing.T) {
+			parsed, err := parseAppStoreConnectPrivateKey(input)
+			if err != nil {
+				t.Fatalf("parse pasted .p8: %v", err)
+			}
+			if parsed.D.Cmp(key.D) != 0 {
+				t.Fatal("parsed a different private key")
+			}
+		})
+	}
+}
+
 func decodeJWTPart(t *testing.T, part string, target any) {
 	t.Helper()
 	raw, err := base64.RawURLEncoding.DecodeString(part)

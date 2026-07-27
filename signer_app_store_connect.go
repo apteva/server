@@ -52,7 +52,7 @@ func (appStoreConnectJWTSigner) Sign(_ context.Context, req *http.Request, _ []b
 }
 
 func parseAppStoreConnectPrivateKey(raw string) (*ecdsa.PrivateKey, error) {
-	normalized := strings.TrimSpace(strings.ReplaceAll(raw, `\n`, "\n"))
+	normalized := normalizeAppStoreConnectPrivateKey(raw)
 	block, _ := pem.Decode([]byte(normalized))
 	if block == nil {
 		return nil, fmt.Errorf("private_key must be the .p8 PEM downloaded from App Store Connect")
@@ -66,4 +66,41 @@ func parseAppStoreConnectPrivateKey(raw string) (*ecdsa.PrivateKey, error) {
 		return nil, fmt.Errorf("App Store Connect private_key must be an ES256 P-256 key")
 	}
 	return key, nil
+}
+
+func normalizeAppStoreConnectPrivateKey(raw string) string {
+	normalized := strings.TrimSpace(raw)
+	normalized = strings.ReplaceAll(normalized, `\r\n`, "\n")
+	normalized = strings.ReplaceAll(normalized, `\n`, "\n")
+	normalized = strings.ReplaceAll(normalized, `\r`, "\n")
+	normalized = strings.ReplaceAll(normalized, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+
+	const begin = "-----BEGIN PRIVATE KEY-----"
+	const end = "-----END PRIVATE KEY-----"
+	beginAt := strings.Index(normalized, begin)
+	endAt := strings.Index(normalized, end)
+	if beginAt < 0 || endAt <= beginAt {
+		return normalized
+	}
+
+	body := normalized[beginAt+len(begin) : endAt]
+	body = strings.Join(strings.Fields(body), "")
+	if body == "" {
+		return normalized
+	}
+
+	var rebuilt strings.Builder
+	rebuilt.WriteString(begin)
+	rebuilt.WriteByte('\n')
+	for len(body) > 64 {
+		rebuilt.WriteString(body[:64])
+		rebuilt.WriteByte('\n')
+		body = body[64:]
+	}
+	rebuilt.WriteString(body)
+	rebuilt.WriteByte('\n')
+	rebuilt.WriteString(end)
+	rebuilt.WriteByte('\n')
+	return rebuilt.String()
 }

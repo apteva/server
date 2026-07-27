@@ -1157,8 +1157,10 @@ func (h *handlers) messageAction(w http.ResponseWriter, r *http.Request, _ *fram
 // Body: {message_id}
 //
 // Hides an inbox artifact (approval/report/alert) from inbox queries
-// by updating the component props in-place. This is intentionally not
-// an approval decision and does not notify the agent.
+// by updating the component props in-place. Dismissing a pending approval is
+// intentionally not an approve/deny decision, but it does notify the exact
+// originating thread so the agent does not remain stuck waiting for a decision.
+// Reports and alerts remain UI-only dismissals.
 func (h *handlers) messageDismiss(w http.ResponseWriter, r *http.Request, _ *framework.AppCtx) {
 	var body struct {
 		MessageID int64 `json:"message_id"`
@@ -1185,6 +1187,7 @@ func (h *handlers) messageDismiss(w http.ResponseWriter, r *http.Request, _ *fra
 		http.Error(w, "chat not found", http.StatusNotFound)
 		return
 	}
+	approvalTitle, notifyApproval := pendingApprovalDismissNotification(msg.Components)
 	userID := h.instances.LookupUserID(r)
 	inst, err := h.instances.OwnedInstance(userID, chat.AgentID)
 	if err != nil {
@@ -1206,10 +1209,56 @@ func (h *handlers) messageDismiss(w http.ResponseWriter, r *http.Request, _ *fra
 	if h.bus != nil {
 		h.bus.Publish("chat.message", "channel-chat", *updated)
 	}
+
+	var forwardErr error
+	if notifyApproval {
+		threadID := msg.ThreadID
+		if threadID == "" && chat.ID == defaultChatID(chat.AgentID) {
+			threadID = "main"
+		}
+		if threadID == "" {
+			threadID, forwardErr = h.ensureChatThread(inst, msg.ChatID)
+		}
+		if forwardErr == nil {
+			forwardErr = h.instances.ForwardEvent(
+				inst,
+				formatApprovalDismissedEvent(updated.ID, approvalTitle),
+				threadID,
+			)
+		}
+		if forwardErr != nil {
+			log.Printf("[CHAT] approval dismiss forward message=%d agent=%d thread=%s: %v",
+				updated.ID, inst.ID, threadID, forwardErr)
+		}
+	}
 	writeJSON(w, map[string]any{
-		"message":   updated,
-		"dismissed": true,
+		"message":        updated,
+		"dismissed":      true,
+		"notified":       notifyApproval,
+		"forwarded":      notifyApproval && forwardErr == nil,
+		"delivery_error": errString(forwardErr),
 	})
+}
+
+func pendingApprovalDismissNotification(components []framework.ChatComponent) (string, bool) {
+	for _, c := range components {
+		if c.App != "channel-chat" || c.Name != "approval-card" {
+			continue
+		}
+		if componentDismissed(c.Props) {
+			return "", false
+		}
+		status, _ := c.Props["status"].(string)
+		if status == "" {
+			status = "pending"
+		}
+		if status != "pending" {
+			return "", false
+		}
+		title, _ := c.Props["title"].(string)
+		return strings.TrimSpace(title), true
+	}
+	return "", false
 }
 
 func applyInboxDismiss(components []framework.ChatComponent, userID int64) ([]framework.ChatComponent, error) {
@@ -1327,6 +1376,25 @@ func formatApprovalResultEvent(messageID int64, actionID string, approval map[st
 		b.WriteString(strings.TrimSpace(note))
 	}
 	b.WriteString("\nContinue from this decision. If this was requested from dashboard chat, send a visible channels_send with channel=\"current\" and complete text when you have acted on it.")
+	return b.String()
+}
+
+func formatApprovalDismissedEvent(messageID int64, title string) string {
+	var b strings.Builder
+	b.WriteString("[approval.dismissed]\n")
+	b.WriteString(fmt.Sprintf(
+		"Approval message %d was dismissed by the operator without approving or denying it.",
+		messageID,
+	))
+	if strings.TrimSpace(title) != "" {
+		b.WriteString("\nTitle: ")
+		b.WriteString(strings.TrimSpace(title))
+	}
+	b.WriteString("\nTreat this approval wait as ended. Do not perform the gated action. ")
+	b.WriteString("Reassess the plan and continue with any safe work that does not require this approval. ")
+	b.WriteString("If this is main, update global status so it no longer says it is waiting on this approval. ")
+	b.WriteString("If this originated in dashboard chat, send one concise visible final message explaining the resulting state. ")
+	b.WriteString("Do not publish the same approval again unless materially changed information makes a new decision necessary.")
 	return b.String()
 }
 

@@ -158,6 +158,7 @@ type Server struct {
 	// own N-fetch sweep — fine functionally (fetchAndCacheManifest
 	// is per-URL cached) but multiplicatively wasteful.
 	manifestRefreshInFlight atomic.Bool
+	mobilePushCancel        context.CancelFunc
 
 	// appEventDispatcher bridges AppEventBus → subscriptions of
 	// source='app_event'. One bus subscriber per (app, project)
@@ -624,6 +625,9 @@ func main() {
 	apiMux.HandleFunc("/auth/password", s.authMiddleware(s.handleChangePassword))
 	apiMux.HandleFunc("/auth/preferences", s.authMiddleware(s.handleAuthPreferences))
 	apiMux.HandleFunc("/auth/onboarding/complete", s.authMiddleware(s.handleCompleteOnboarding))
+	apiMux.HandleFunc("/mobile/push/config", s.authMiddleware(s.handleMobilePushConfig))
+	apiMux.HandleFunc("/mobile/push/subscriptions", s.authMiddleware(s.handleMobilePushSubscriptions))
+	apiMux.HandleFunc("/mobile/push/subscriptions/", s.authMiddleware(s.handleMobilePushSubscription))
 
 	// User administration. GET / POST are admin-only; DELETE and
 	// PATCH .../password are too. GET /users/:id is self-or-admin.
@@ -1436,6 +1440,9 @@ func main() {
 		os.Exit(1)
 	}
 	s.apps = appsReg
+	if !quarantined {
+		s.startMobilePushWorker()
+	}
 
 	// Sidecar-based Apps system (v2). Reads app_installs from the DB
 	// and registers reverse proxies + manifest-derived MCP rows for
@@ -1633,6 +1640,7 @@ func main() {
 		} else if stopped > 0 {
 			log.Printf("[SHUTDOWN] marked %d platform agent(s) stopped for clean shutdown", stopped)
 		}
+		s.stopMobilePushWorker()
 		s.stopApps(appsReg)
 		if preserveAgents {
 			log.Printf("[SHUTDOWN] leaving user agent core process(es) alive for reattach")

@@ -91,8 +91,9 @@ func TestRealtimeResolverForwardsLifecycleContract(t *testing.T) {
 
 func TestCallbackRealtimeSpawnInheritsAgentMCPs(t *testing.T) {
 	var spawnBody struct {
-		MCP   []string `json:"mcp"`
-		Tools []string `json:"tools"`
+		MCP           []string                   `json:"mcp"`
+		Tools         []string                   `json:"tools"`
+		TurnDetection *sdk.RealtimeTurnDetection `json:"turn_detection"`
 	}
 	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer core-key" {
@@ -149,7 +150,8 @@ func TestCallbackRealtimeSpawnInheritsAgentMCPs(t *testing.T) {
 
 	body, err := json.Marshal(sdk.RealtimeSpawnRequest{
 		AgentID: agent.ID, ThreadID: "tel-call", Directive: "Book an appointment.",
-		Ephemeral: true,
+		TurnDetection: &sdk.RealtimeTurnDetection{Profile: "telephony"},
+		Ephemeral:     true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -167,6 +169,9 @@ func TestCallbackRealtimeSpawnInheritsAgentMCPs(t *testing.T) {
 	if spawnBody.Tools != nil {
 		t.Fatalf("tools=%v, want nil", spawnBody.Tools)
 	}
+	if spawnBody.TurnDetection == nil || spawnBody.TurnDetection.Profile != "telephony" {
+		t.Fatalf("turn detection=%#v", spawnBody.TurnDetection)
+	}
 }
 
 func TestSpawnableMCPNamesFiltersPrivilegeBoundary(t *testing.T) {
@@ -181,6 +186,38 @@ func TestSpawnableMCPNamesFiltersPrivilegeBoundary(t *testing.T) {
 	})
 	if strings.Join(got, ",") != "bookings" {
 		t.Fatalf("spawnable MCPs=%v", got)
+	}
+}
+
+func TestCallbackRealtimeAudioBaseURLUsesRuntimeGatewayForEnvironmentInstall(t *testing.T) {
+	s := newTestServer(t)
+	s.port = "5280"
+	if err := s.store.SetSetting("public_url", "https://stale-public.example"); err != nil {
+		t.Fatal(err)
+	}
+
+	const (
+		installID = int64(77)
+		agentID   = int64(42)
+	)
+	s.environments = NewEnvironmentManager(t.TempDir())
+	s.environments.environments["rt-local"] = &Environment{
+		ID: "rt-local",
+		installs: map[string]*localInstall{
+			"telephony": {InstallID: installID},
+		},
+		agents: map[int64]*EnvironmentAgent{
+			agentID: {AgentID: agentID, Alias: "main"},
+		},
+		agentAliases: map[string]int64{"main": agentID},
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:5280/api/apps/callback/threads/spawn-realtime", nil)
+	if got := s.callbackRealtimeAudioBaseURL(request, installID, agentID); got != "http://127.0.0.1:5280" {
+		t.Fatalf("runtime bridge base=%q", got)
+	}
+	if got := s.callbackRealtimeAudioBaseURL(request, installID+1, agentID); got != "https://stale-public.example" {
+		t.Fatalf("normal bridge base=%q", got)
 	}
 }
 

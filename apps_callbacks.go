@@ -1429,7 +1429,7 @@ func (s *Server) handleCallbackSpawnRealtime(w http.ResponseWriter, r *http.Requ
 	// separate containers, where 127.0.0.1 is not the host/core process.
 	// The proxy authenticates to core without exposing its long-lived key.
 	if res.AudioToken != "" && inst.Port != 0 {
-		baseURL := callbackReachableBaseURL(s.publicBaseURL(), r)
+		baseURL := s.callbackRealtimeAudioBaseURL(r, installID, body.AgentID)
 		bridgeURL, parseErr := publicRealtimeAudioURL(baseURL, body.AgentID, body.ThreadID, res.AudioToken)
 		if parseErr != nil {
 			http.Error(w, "invalid public server URL", http.StatusInternalServerError)
@@ -1539,7 +1539,7 @@ func (s *Server) handleCallbackRenewRealtimeAudio(w http.ResponseWriter, r *http
 		return
 	}
 	if res.AudioToken != "" {
-		baseURL := callbackReachableBaseURL(s.publicBaseURL(), r)
+		baseURL := s.callbackRealtimeAudioBaseURL(r, installID, agentID)
 		bridgeURL, parseErr := publicRealtimeAudioURL(baseURL, agentID, threadID, res.AudioToken)
 		if parseErr != nil {
 			http.Error(w, "invalid public server URL", http.StatusInternalServerError)
@@ -1548,6 +1548,13 @@ func (s *Server) handleCallbackRenewRealtimeAudio(w http.ResponseWriter, r *http
 		res.AudioBridgeURL = bridgeURL
 	}
 	writeJSON(w, res)
+}
+
+func (s *Server) callbackRealtimeAudioBaseURL(r *http.Request, installID, agentID int64) string {
+	if s.runtimeContainsInstallAndAgent(installID, agentID) {
+		return requestReachableBaseURL(r, s.localGatewayURL())
+	}
+	return callbackReachableBaseURL(s.publicBaseURL(), r)
 }
 
 func (s *Server) callbackAgentForInstall(r *http.Request, installID, agentID int64) (*Agent, error) {

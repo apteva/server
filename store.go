@@ -996,6 +996,42 @@ func (s *Store) migrate() error {
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
+	s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS mobile_push_subscriptions (
+			id TEXT PRIMARY KEY,
+			installation_id TEXT NOT NULL UNIQUE,
+			user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			relay_device_id TEXT NOT NULL,
+			relay_grant_encrypted TEXT NOT NULL,
+			grant_expires_at DATETIME NOT NULL,
+			platform TEXT NOT NULL DEFAULT 'ios'
+				CHECK(platform IN ('ios', 'android')),
+			bundle_id TEXT NOT NULL,
+			environment TEXT NOT NULL CHECK(environment IN ('sandbox', 'production')),
+			app_version TEXT NOT NULL DEFAULT '',
+			device_name TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'active'
+				CHECK(status IN ('active', 'invalid', 'revoked')),
+			last_inbox_message_id INTEGER NOT NULL DEFAULT 0,
+			last_badge INTEGER NOT NULL DEFAULT 0,
+			retry_count INTEGER NOT NULL DEFAULT 0,
+			next_retry_at DATETIME,
+			last_error TEXT NOT NULL DEFAULT '',
+			last_success_at DATETIME,
+			last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_mobile_push_subscriptions_delivery
+			ON mobile_push_subscriptions(status, next_retry_at);
+		CREATE INDEX IF NOT EXISTS idx_mobile_push_subscriptions_user
+			ON mobile_push_subscriptions(user_id, status);
+	`)
+	// Upgrade servers that created the original iOS-only subscription table.
+	// SQLite applies the DEFAULT to existing rows, preserving their behavior.
+	s.db.Exec(`ALTER TABLE mobile_push_subscriptions
+		ADD COLUMN platform TEXT NOT NULL DEFAULT 'ios'
+		CHECK(platform IN ('ios', 'android'))`)
 
 	// Migrate legacy local mcp_servers rows: the name was written as
 	// conn.AppName (display name with spaces like "OmniKit Storage") but
@@ -1317,7 +1353,7 @@ func (s *Store) migrate() error {
 }
 
 func (s *Store) validateMigratedSchema() error {
-	requiredTables := []string{"users", "agents", "projects", "project_members", "app_installs", "skills", "telemetry"}
+	requiredTables := []string{"users", "agents", "projects", "project_members", "app_installs", "skills", "telemetry", "mobile_push_subscriptions"}
 	for _, table := range requiredTables {
 		if !tableExists(s.db, table) {
 			return fmt.Errorf("migration incomplete: required table %s is missing", table)

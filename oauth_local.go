@@ -136,8 +136,8 @@ func (s *Server) handleOAuthClientStatus(w http.ResponseWriter, r *http.Request)
 // each value came from (DB / env / unset). PUT upserts the keys provided
 // in the body, treating empty string as "delete".
 //
-// Today the only real key is public_url; the shape generalizes so we can
-// add more without touching the route.
+// Public URL, push relay, and agent lifecycle settings live here so headless
+// installs can configure them without editing SQLite directly.
 func (s *Server) handleServerSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -152,6 +152,7 @@ func (s *Server) handleServerSettings(w http.ResponseWriter, r *http.Request) {
 				source = "unset"
 			}
 		}
+		pushRelay := s.mobilePushRelayConfig()
 		writeJSON(w, map[string]any{
 			"public_url": map[string]any{
 				"value":          dbURL,
@@ -159,6 +160,13 @@ func (s *Server) handleServerSettings(w http.ResponseWriter, r *http.Request) {
 				"effective":      effective,
 				"source":         source,
 				"oauth_callback": s.localOAuthRedirectURI(),
+			},
+			"push_relay": map[string]any{
+				"value":     pushRelay.DBURL,
+				"env_value": pushRelay.EnvURL,
+				"effective": pushRelay.Effective,
+				"source":    pushRelay.Source,
+				"enabled":   true,
 			},
 			"agent_lifecycle": map[string]any{
 				"update_policy":        s.agentUpdatePolicy(),
@@ -173,6 +181,7 @@ func (s *Server) handleServerSettings(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPut:
 		var body struct {
 			PublicURL            *string `json:"public_url"`
+			PushRelayURL         *string `json:"push_relay_url"`
 			AgentUpdatePolicy    *string `json:"agent_update_policy"`
 			AgentBootResume      *string `json:"agent_boot_resume"`
 			AgentBootResumeDelay *string `json:"agent_boot_resume_delay"`
@@ -182,7 +191,7 @@ func (s *Server) handleServerSettings(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		if (body.AgentUpdatePolicy != nil || body.AgentBootResume != nil || body.AgentBootResumeDelay != nil || body.AgentRolloutDelay != nil) && !s.isAdmin(getUserID(r)) {
+		if (body.PushRelayURL != nil || body.AgentUpdatePolicy != nil || body.AgentBootResume != nil || body.AgentBootResumeDelay != nil || body.AgentRolloutDelay != nil) && !s.isAdmin(getUserID(r)) {
 			http.Error(w, "admin access required", http.StatusForbidden)
 			return
 		}
@@ -196,6 +205,20 @@ func (s *Server) handleServerSettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if err := s.store.SetSetting("public_url", v); err != nil {
+				http.Error(w, "failed to save: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		if body.PushRelayURL != nil {
+			v := strings.TrimRight(strings.TrimSpace(*body.PushRelayURL), "/")
+			if v != "" {
+				parsed, err := url.Parse(v)
+				if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+					http.Error(w, "push_relay_url must be an absolute http:// or https:// URL", http.StatusBadRequest)
+					return
+				}
+			}
+			if err := s.store.SetSetting("push_relay_url", v); err != nil {
 				http.Error(w, "failed to save: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
