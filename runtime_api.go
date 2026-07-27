@@ -716,13 +716,23 @@ func (s *Server) handleRuntimeRealtime(w http.ResponseWriter, r *http.Request, r
 			http.Error(w, "valid thread_id and directive required", http.StatusBadRequest)
 			return
 		}
+		mcpNames := req.MCP
+		if req.MCP == nil && req.Tools == nil {
+			inheritedMCPs, inheritErr := s.agentSpawnableMCPNames(agent.AgentID)
+			if inheritErr != nil {
+				http.Error(w, "load runtime agent realtime capabilities: "+inheritErr.Error(), http.StatusBadGateway)
+				return
+			}
+			mcpNames = inheritedMCPs
+		}
 		result, err := s.resolver().SpawnRealtimeThread(framework.InstanceInfo{
 			ID: agent.AgentID, Name: agent.SourceName, ProjectID: runtime.ProjectID,
 			Port: agent.Port, CoreAPIKey: agent.APIKey,
 		}, sdk.RealtimeSpawnRequest{
 			AgentID: agent.AgentID, ThreadID: req.ThreadID, Directive: req.Directive,
-			Voice: req.Voice, Provider: req.Provider, Tools: req.Tools, MCP: req.MCP,
-			Ephemeral: req.Ephemeral, InitialMessage: req.InitialMessage,
+			Voice: req.Voice, Provider: req.Provider, Tools: req.Tools, MCP: mcpNames,
+			TurnDetection: req.TurnDetection,
+			Ephemeral:     req.Ephemeral, InitialMessage: req.InitialMessage,
 			BridgeDisconnectTTLSeconds: req.BridgeDisconnectTTLSeconds,
 		})
 		if err != nil {

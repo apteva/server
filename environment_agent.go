@@ -62,6 +62,85 @@ type EnvironmentAgent struct {
 	cleanup       func()
 }
 
+type environmentSourceAgentPolicy struct {
+	config                  map[string]any
+	mcpServers              map[string]map[string]any
+	realtimeMCPs            map[string]bool
+	hasRealtimeMCPAllowlist bool
+}
+
+func parseEnvironmentSourceAgentPolicy(raw string) environmentSourceAgentPolicy {
+	policy := environmentSourceAgentPolicy{
+		config:       map[string]any{},
+		mcpServers:   map[string]map[string]any{},
+		realtimeMCPs: map[string]bool{},
+	}
+	if json.Unmarshal([]byte(raw), &policy.config) != nil {
+		return policy
+	}
+	if entries, ok := policy.config["mcp_servers"].([]any); ok {
+		for _, entry := range entries {
+			server, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+			name, _ := server["name"].(string)
+			name = strings.TrimSpace(name)
+			if name != "" {
+				policy.mcpServers[name] = server
+			}
+		}
+	}
+	rawAllowlist, exists := policy.config["realtime_voice_mcp"]
+	policy.hasRealtimeMCPAllowlist = exists
+	if entries, ok := rawAllowlist.([]any); ok {
+		for _, entry := range entries {
+			name, _ := entry.(string)
+			name = strings.TrimSpace(name)
+			if name != "" {
+				policy.realtimeMCPs[name] = true
+			}
+		}
+	}
+	return policy
+}
+
+func (p environmentSourceAgentPolicy) mcpConfig(name, endpoint string) map[string]any {
+	name = strings.TrimSpace(name)
+	config := map[string]any{
+		"name":      name,
+		"url":       endpoint,
+		"transport": "http",
+		"no_spawn":  true,
+	}
+	source, attachedToSource := p.mcpServers[name]
+	if toolLoading, ok := source["tool_loading"]; ok {
+		config["tool_loading"] = toolLoading
+	}
+	if p.hasRealtimeMCPAllowlist {
+		config["no_spawn"] = !p.realtimeMCPs[name]
+	} else if attachedToSource {
+		noSpawn := false
+		if rawNoSpawn, exists := source["no_spawn"]; exists {
+			var valid bool
+			noSpawn, valid = rawNoSpawn.(bool)
+			if !valid {
+				noSpawn = true
+			}
+		}
+		config["no_spawn"] = noSpawn
+	}
+	return config
+}
+
+func (p environmentSourceAgentPolicy) copyRealtimeConfig(target map[string]any) {
+	for _, key := range []string{"realtime_enabled", "realtime_voice", "realtime_voice_mcp"} {
+		if value, ok := p.config[key]; ok {
+			target[key] = value
+		}
+	}
+}
+
 // Stop tears the environment-agent down (stops the core, deletes the row).
 func (wa *EnvironmentAgent) Stop() {
 	if wa != nil && wa.cleanup != nil {
@@ -103,6 +182,7 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	if spec.DirectiveOverride != "" {
 		directive = spec.DirectiveOverride
 	}
+	sourcePolicy := parseEnvironmentSourceAgentPolicy(src.Config)
 
 	// Transient environment-agent row cloned from the source.
 	row, err := s.store.CreateAgent(userID,
@@ -130,21 +210,11 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	legacyApps := environment.Apps()
 	for _, name := range s.environmentAgentAppMCPNames(environment, src) {
 		if _, ok := environment.Install(name); ok {
-			mcpServers = append(mcpServers, map[string]any{
-				"name":      name,
-				"url":       s.environmentAppMCPURL(environment.ID, name),
-				"transport": "http",
-				"no_spawn":  true,
-			})
+			mcpServers = append(mcpServers, sourcePolicy.mcpConfig(name, s.environmentAppMCPURL(environment.ID, name)))
 			continue
 		}
 		if inst, ok := legacyApps[name]; ok && inst != nil {
-			mcpServers = append(mcpServers, map[string]any{
-				"name":      name,
-				"url":       inst.MCPURL,
-				"transport": "http",
-				"no_spawn":  true,
-			})
+			mcpServers = append(mcpServers, sourcePolicy.mcpConfig(name, inst.MCPURL))
 		}
 	}
 	for _, cid := range environment.ConnectionIDs() {
@@ -152,31 +222,19 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		if err != nil || conn == nil {
 			continue
 		}
-		mcpServers = append(mcpServers, map[string]any{
-			"name":      conn.AppSlug,
-			"url":       fmt.Sprintf("http://127.0.0.1:%s/mcp/%d?environment_id=%s", s.port, cid, environment.ID),
-			"transport": "http",
-			"no_spawn":  true,
-		})
+		mcpServers = append(mcpServers, sourcePolicy.mcpConfig(
+			conn.AppSlug,
+			fmt.Sprintf("http://127.0.0.1:%s/mcp/%d?environment_id=%s", s.port, cid, environment.ID),
+		))
 	}
 	for _, mcp := range environment.ManagedMCPs() {
-		mcpServers = append(mcpServers, map[string]any{
-			"name":      mcp.Name,
-			"url":       s.runtimeManagedMCPURL(environment.ID, mcp.Token),
-			"transport": "http",
-			"no_spawn":  true,
-		})
+		mcpServers = append(mcpServers, sourcePolicy.mcpConfig(mcp.Name, s.runtimeManagedMCPURL(environment.ID, mcp.Token)))
 	}
 	// Runtime-owned MCP attachments are private endpoints exposed by the
 	// orchestrating app (for example a dynamic mock session). The
 	// core reaches them only through the server's capability-token gateway.
 	for _, attachment := range environment.MCPAttachments() {
-		mcpServers = append(mcpServers, map[string]any{
-			"name":      attachment.Name,
-			"url":       s.runtimeMCPAttachmentURL(environment.ID, attachment.Token),
-			"transport": "http",
-			"no_spawn":  true,
-		})
+		mcpServers = append(mcpServers, sourcePolicy.mcpConfig(attachment.Name, s.runtimeMCPAttachmentURL(environment.ID, attachment.Token)))
 	}
 	// Carry over the agent's OWN integration connections (its config's
 	// /mcp/<id> entries), tagging each URL with ?environment_id so the executor
@@ -199,12 +257,8 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 					if strings.Contains(url, "?") {
 						sep = "&"
 					}
-					mcpServers = append(mcpServers, map[string]any{
-						"name":      m["name"],
-						"url":       url + sep + "environment_id=" + environment.ID,
-						"transport": "http",
-						"no_spawn":  true,
-					})
+					name, _ := m["name"].(string)
+					mcpServers = append(mcpServers, sourcePolicy.mcpConfig(name, url+sep+"environment_id="+environment.ID))
 				}
 			}
 		}
@@ -216,6 +270,7 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		"include_apteva_server": false,
 		"include_channels":      false,
 	}
+	sourcePolicy.copyRealtimeConfig(cfg)
 	if spec.StartPaused {
 		cfg["execution_control"] = map[string]any{
 			"mode":        "paused",

@@ -289,10 +289,22 @@ func TestRuntimeAPI_RealtimeLifecycleIsRuntimeScoped(t *testing.T) {
 		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
 	}
 
+	var coreSpawnBody struct {
+		MCP           []string                   `json:"mcp"`
+		TurnDetection *sdk.RealtimeTurnDetection `json:"turn_detection"`
+	}
 	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
+		case r.URL.Path == "/config" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"mcp_servers": []map[string]any{
+				{"name": "flexylead-bookings"},
+				{"name": "private", "no_spawn": true},
+			}})
 		case r.URL.Path == "/threads/voice" && r.Method == http.MethodPost:
+			if err := json.NewDecoder(r.Body).Decode(&coreSpawnBody); err != nil {
+				t.Fatal(err)
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"status": "created", "id": "voice", "audio_token": "one-use"})
 		case r.URL.Path == "/threads/voice/audio-token" && r.Method == http.MethodPost:
 			_ = json.NewEncoder(w).Encode(map[string]any{"status": "renewed", "id": "voice", "audio_token": "renewed"})
@@ -311,13 +323,25 @@ func TestRuntimeAPI_RealtimeLifecycleIsRuntimeScoped(t *testing.T) {
 	if err := runtime.AttachAgent(&EnvironmentAgent{AgentID: 993, Alias: "main", Port: port, APIKey: "core-key", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
+	s.agents.mu.Lock()
+	s.agents.processes[993] = &runningAgent{port: port, coreAPIKey: "core-key", reattached: true}
+	s.agents.mu.Unlock()
 	if err := s.store.SetSetting("public_url", "https://stale-public.example"); err != nil {
 		t.Fatal(err)
 	}
 
-	spawned := runtimeAPIRequestAtHost(t, s, installID, http.MethodPost, "/apps/callback/runtimes/rt-voice/agents/main/realtime", sdk.RuntimeRealtimeSpawnRequest{ThreadID: "voice", Directive: "Answer the caller"}, "runtime-gateway.internal:5280")
+	spawned := runtimeAPIRequestAtHost(t, s, installID, http.MethodPost, "/apps/callback/runtimes/rt-voice/agents/main/realtime", sdk.RuntimeRealtimeSpawnRequest{
+		ThreadID: "voice", Directive: "Answer the caller",
+		TurnDetection: &sdk.RealtimeTurnDetection{Profile: "telephony"},
+	}, "runtime-gateway.internal:5280")
 	if spawned.Code != http.StatusOK {
 		t.Fatalf("spawn status=%d body=%s", spawned.Code, spawned.Body.String())
+	}
+	if strings.Join(coreSpawnBody.MCP, ",") != "flexylead-bookings" {
+		t.Fatalf("runtime realtime MCPs=%v", coreSpawnBody.MCP)
+	}
+	if coreSpawnBody.TurnDetection == nil || coreSpawnBody.TurnDetection.Profile != "telephony" {
+		t.Fatalf("runtime turn detection=%#v", coreSpawnBody.TurnDetection)
 	}
 	var spawnResult sdk.RealtimeSpawnResult
 	if err := json.Unmarshal(spawned.Body.Bytes(), &spawnResult); err != nil {

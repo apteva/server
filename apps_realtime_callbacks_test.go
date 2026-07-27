@@ -58,7 +58,8 @@ func TestRealtimeResolverForwardsLifecycleContract(t *testing.T) {
 
 	spawned, err := resolver.SpawnRealtimeThread(inst, sdk.RealtimeSpawnRequest{
 		AgentID: 42, ThreadID: "voice", Directive: "answer calls", Voice: "marin",
-		Ephemeral: true, InitialMessage: "Greet the caller.", BridgeDisconnectTTLSeconds: 30,
+		TurnDetection: &sdk.RealtimeTurnDetection{Profile: "telephony"},
+		Ephemeral:     true, InitialMessage: "Greet the caller.", BridgeDisconnectTTLSeconds: 30,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -68,6 +69,10 @@ func TestRealtimeResolverForwardsLifecycleContract(t *testing.T) {
 	}
 	if spawnBody["ephemeral"] != true || spawnBody["initial_message"] != "Greet the caller." || spawnBody["bridge_disconnect_ttl_seconds"] != float64(30) {
 		t.Fatalf("spawn lifecycle body = %#v", spawnBody)
+	}
+	turnDetection, ok := spawnBody["turn_detection"].(map[string]any)
+	if !ok || turnDetection["profile"] != "telephony" {
+		t.Fatalf("spawn turn detection = %#v", spawnBody["turn_detection"])
 	}
 	renewed, err := resolver.RenewRealtimeAudioBridge(inst, "voice")
 	if err != nil {

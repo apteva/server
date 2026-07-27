@@ -564,6 +564,7 @@ func (r *serverResolver) SpawnRealtimeThread(inst framework.InstanceInfo, req sd
 		"provider":                      req.Provider,
 		"tools":                         req.Tools,
 		"mcp":                           req.MCP,
+		"turn_detection":                req.TurnDetection,
 		"ephemeral":                     req.Ephemeral,
 		"initial_message":               req.InitialMessage,
 		"bridge_disconnect_ttl_seconds": req.BridgeDisconnectTTLSeconds,
