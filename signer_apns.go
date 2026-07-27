@@ -24,12 +24,23 @@ func (apnsJWTSigner) Sign(_ context.Context, req *http.Request, _ []byte,
 	teamID := strings.TrimSpace(creds["team_id"])
 	keyID := strings.TrimSpace(creds["key_id"])
 	privateKey := creds["private_key"]
-	bundleID := strings.TrimSpace(creds["bundle_id"])
-	if teamID == "" || keyID == "" || privateKey == "" || bundleID == "" {
-		return nil, fmt.Errorf("missing team_id/key_id/private_key/bundle_id")
+	topic := strings.TrimSpace(req.Header.Get("apns-topic"))
+	if topic == "" {
+		topic = strings.TrimSpace(creds["bundle_id"]) // v0.15 compatibility
+	}
+	environment := strings.TrimSpace(req.Header.Get("x-apteva-apns-environment"))
+	req.Header.Del("x-apteva-apns-environment")
+	if environment == "" {
+		environment = strings.TrimSpace(creds["environment"]) // v0.15 compatibility
+	}
+	if teamID == "" || keyID == "" || privateKey == "" {
+		return nil, fmt.Errorf("missing team_id/key_id/private_key")
+	}
+	if topic == "" {
+		return nil, fmt.Errorf("APNs topic is required")
 	}
 
-	switch environment := strings.ToLower(strings.TrimSpace(creds["environment"])); environment {
+	switch environment = strings.ToLower(environment); environment {
 	case "", "production":
 		req.URL.Scheme = "https"
 		req.URL.Host = "api.push.apple.com"
@@ -61,7 +72,7 @@ func (apnsJWTSigner) Sign(_ context.Context, req *http.Request, _ []byte,
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("apns-topic", bundleID)
+	req.Header.Set("apns-topic", topic)
 	return nil, nil
 }
 

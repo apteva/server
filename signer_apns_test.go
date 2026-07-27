@@ -26,13 +26,13 @@ func TestAPNsJWTSigner(t *testing.T) {
 	}
 	privatePEM := string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
 	req, _ := http.NewRequest(http.MethodPost, "https://api.push.apple.com/3/device/device-token", nil)
+	req.Header.Set("apns-topic", "ai.apteva.mobile")
+	req.Header.Set("x-apteva-apns-environment", "sandbox")
 
 	_, err = (apnsJWTSigner{}).Sign(context.Background(), req, nil, map[string]string{
 		"team_id":     "TEAM123456",
 		"key_id":      "KEY1234567",
 		"private_key": strings.ReplaceAll(privatePEM, "\n", `\n`),
-		"bundle_id":   "ai.apteva.mobile",
-		"environment": "sandbox",
 	}, nil)
 	if err != nil {
 		t.Fatalf("Sign: %v", err)
@@ -42,6 +42,9 @@ func TestAPNsJWTSigner(t *testing.T) {
 	}
 	if got := req.Header.Get("apns-topic"); got != "ai.apteva.mobile" {
 		t.Fatalf("apns-topic = %q", got)
+	}
+	if got := req.Header.Get("x-apteva-apns-environment"); got != "" {
+		t.Fatalf("internal environment header leaked: %q", got)
 	}
 
 	token := strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
@@ -79,12 +82,12 @@ func TestAPNsJWTSigner(t *testing.T) {
 
 func TestAPNsJWTSignerRejectsUnknownEnvironment(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPost, "https://api.push.apple.com/3/device/token", nil)
+	req.Header.Set("apns-topic", "ai.apteva.mobile")
+	req.Header.Set("x-apteva-apns-environment", "staging")
 	_, err := (apnsJWTSigner{}).Sign(context.Background(), req, nil, map[string]string{
 		"team_id":     "TEAM123456",
 		"key_id":      "KEY1234567",
 		"private_key": "unused",
-		"bundle_id":   "ai.apteva.mobile",
-		"environment": "staging",
 	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "production or sandbox") {
 		t.Fatalf("err = %v", err)
