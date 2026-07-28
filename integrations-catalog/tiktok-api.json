@@ -458,6 +458,9 @@
       "description": "List the authenticated user's public TikTok videos, sorted by create_time descending. Returns video metadata including views, likes, comments, and share counts.\n\nAvailable fields: id, title, create_time, cover_image_url, share_url, duration, like_count, comment_count, share_count, view_count, video_description, height, width, embed_html, embed_link",
       "method": "POST",
       "path": "/video/list/",
+      "query_params": [
+        "fields"
+      ],
       "input_schema": {
         "type": "object",
         "properties": {
@@ -507,6 +510,9 @@
       "description": "Query specific TikTok videos by their IDs. Returns detailed video info and metrics. Use this to get analytics for specific videos.\n\nAvailable fields: id, title, create_time, cover_image_url, share_url, video_description, duration, like_count, comment_count, share_count, view_count, height, width, embed_html, embed_link\n\nExample:\n{\n  \"filters\": {\n    \"video_ids\": [\"7123456789\", \"7234567890\"]\n  }\n}",
       "method": "POST",
       "path": "/video/query/",
+      "query_params": [
+        "fields"
+      ],
       "input_schema": {
         "type": "object",
         "properties": {

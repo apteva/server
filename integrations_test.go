@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1353,6 +1354,39 @@ func TestExecuteIntegrationTool_PostQueryParamsExcludedFromBody(t *testing.T) {
 	}
 	if gotBody["url"] != "https://example.com/video.mp4" || gotBody["title"] != "video.mp4" {
 		t.Fatalf("body lost fetch fields: %#v", gotBody)
+	}
+}
+
+func TestExecuteIntegrationTool_PreservesLargeJSONIntegers(t *testing.T) {
+	const postID = "7667276869607116037"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"data":{"publicaly_available_post_id":[%s]}}`, postID)
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{
+		Slug:    "fake-tiktok",
+		BaseURL: srv.URL,
+		Auth:    AppAuthConfig{Types: []string{"api_key"}},
+	}
+	tool := &AppToolDef{
+		Name:   "get_publish_status",
+		Method: "POST",
+		Path:   "/post/publish/status/fetch/",
+	}
+	result, err := executeIntegrationTool(app, tool, map[string]string{"api_key": "tok"}, map[string]any{
+		"publish_id": "v_pub_file~example",
+	}, "")
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	encoded, err := json.Marshal(result.Data)
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	if !strings.Contains(string(encoded), postID) {
+		t.Fatalf("large integer lost precision: got %s, want %s", encoded, postID)
 	}
 }
 

@@ -415,6 +415,91 @@
       }
     },
     {
+      "name": "facebook_get_video",
+      "description": "Get a Facebook Page video or Reel by Video ID. Video publication returns this object ID rather than a full pageId_postId feed-post ID. Request post_id to resolve the associated feed post; views, likes, and comments are available directly on the video object.",
+      "method": "GET",
+      "path": "/{videoId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Facebook Video or Reel ID returned by post_video."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated video fields. shares and reactions are feed-post fields and must not be requested from this object.",
+            "default": "id,post_id,permalink_url,views,likes.limit(0).summary(true),comments.limit(0).summary(true)"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token for the Page that owns the video."
+          }
+        },
+        "required": [
+          "videoId"
+        ]
+      },
+      "mock_response": {
+        "id": "27830404249960972",
+        "post_id": "1032431409544833",
+        "permalink_url": "/reel/27830404249960972/",
+        "views": 13,
+        "likes": {
+          "data": [],
+          "summary": {
+            "total_count": 0
+          }
+        },
+        "comments": {
+          "data": [],
+          "summary": {
+            "total_count": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "facebook_get_video_insights",
+      "description": "Get lifetime or selected insights for a Facebook Page video by Video ID. Calls /{videoId}/video_insights and requires a Page access token with pages_read_engagement.",
+      "method": "GET",
+      "path": "/{videoId}/video_insights",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Facebook Video ID."
+          },
+          "metric": {
+            "type": "string",
+            "description": "Optional comma-separated Video Insights metrics.",
+            "default": "total_video_views,total_video_views_unique"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token for the Page that owns the video."
+          }
+        },
+        "required": [
+          "videoId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "name": "total_video_views",
+            "period": "lifetime",
+            "values": [
+              {
+                "value": 13
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "facebook_update_post",
       "description": "Edit the message of a Facebook post. Calls POST /{postId} on the Graph API; postId is the full pageId_postId format. Page-level access_token required (user-level tokens are rejected with error 210, same as the write endpoints).",
       "method": "POST",
@@ -649,6 +734,41 @@
       }
     },
     {
+      "name": "get_media",
+      "description": "Fetch one Instagram Business media object. Use this to resolve media type, permalink, and public engagement counters before requesting media insights.",
+      "method": "GET",
+      "path": "/{mediaId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "description": "Instagram media ID"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields to retrieve",
+            "default": "id,media_type,media_product_type,permalink,like_count,comments_count"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token for the linked Facebook Page."
+          }
+        },
+        "required": [
+          "mediaId"
+        ]
+      },
+      "mock_response": {
+        "id": "17900000000000099",
+        "media_type": "VIDEO",
+        "media_product_type": "REELS",
+        "permalink": "https://www.instagram.com/reel/CmOckPost1/",
+        "like_count": 210,
+        "comments_count": 18
+      }
+    },
+    {
       "name": "get_account_insights",
       "description": "Fetch Instagram Business account insights through the Meta Graph API. Requires the page-level access token for the Facebook Page linked to the IG Business account.",
       "method": "GET",
@@ -716,7 +836,7 @@
     },
     {
       "name": "get_media_insights",
-      "description": "Fetch Instagram Business media insights (per-post metrics). Calls GET /{mediaId}/insights?metric=...&access_token=PAGE_TOKEN on the Graph API. Returns {data: [{name, period, values: [{value: N}]}]} — one entry per requested metric. Common metrics for FEED posts: reach, likes, comments, saves, shares (where supported). Metric availability varies by media type — REELS exposes plays, IG VIDEO ones differ.",
+      "description": "Fetch Instagram Business media insights (per-post metrics). Calls GET /{mediaId}/insights?metric=...&access_token=PAGE_TOKEN on the Graph API. Returns {data: [{name, period, values: [{value: N}]}]} — one entry per requested metric. Current engagement metrics include reach, views, likes, comments, saved, and shares where supported. Availability varies by media type.",
       "method": "GET",
       "path": "/{mediaId}/insights",
       "input_schema": {
@@ -729,7 +849,7 @@
           "metric": {
             "type": "string",
             "description": "Comma-separated metric names (no spaces). Default covers the engagement basics.",
-            "default": "reach,likes,comments,saves,shares"
+            "default": "reach,views,likes,comments,saved,shares"
           },
           "access_token": {
             "type": "string",
@@ -776,7 +896,7 @@
             "id": "17900000000000099/insights/comments/lifetime"
           },
           {
-            "name": "saves",
+            "name": "saved",
             "period": "lifetime",
             "values": [
               {
@@ -784,7 +904,7 @@
               }
             ],
             "title": "Saves",
-            "id": "17900000000000099/insights/saves/lifetime"
+            "id": "17900000000000099/insights/saved/lifetime"
           },
           {
             "name": "shares",

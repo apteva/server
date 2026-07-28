@@ -59,6 +59,19 @@ func isBinaryContentType(ct string) bool {
 	return false
 }
 
+func decodeIntegrationJSON(raw []byte) any {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var data any
+	if err := decoder.Decode(&data); err != nil {
+		return nil
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return nil
+	}
+	return data
+}
+
 func applyHeaderTransforms(headers map[string]string, transforms []HeaderTransformDef, input map[string]any) (map[string]bool, error) {
 	localParams := make(map[string]bool)
 	for _, transform := range transforms {
@@ -2035,7 +2048,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 			"size":     len(respBody),
 		}
 	case strings.Contains(ct, "json"):
-		json.Unmarshal(respBody, &data)
+		data = decodeIntegrationJSON(respBody)
 	default:
 		data = string(respBody)
 	}
