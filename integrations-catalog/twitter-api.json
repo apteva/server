@@ -45,7 +45,9 @@
         "tweet.write",
         "users.read",
         "offline.access",
-        "media.write"
+        "media.write",
+        "dm.read",
+        "dm.write"
       ],
       "client_id_required": true,
       "pkce": true,
