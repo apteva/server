@@ -72,6 +72,13 @@ type parsedRoute struct {
 	// one install per project). From the app:// target's ?project_id=.
 	// Empty resolves by app name alone (global apps).
 	originProject string
+	// originAppTokenAuth is an explicit route-level opt-in. For a route
+	// targeting its owning app install, the host router authenticates the
+	// request to the sidecar with that install's APTEVA_APP_TOKEN and
+	// preserves any visitor Authorization value in
+	// X-Apteva-Original-Authorization. This lets an app expose a public host
+	// without declaring a catch-all no_auth SDK route.
+	originAppTokenAuth bool
 }
 
 func NewRouteCache() *RouteCache {
@@ -159,6 +166,7 @@ func parseRoute(r Route) (parsedRoute, bool) {
 	if u.Scheme == "app" {
 		p.originApp = strings.ToLower(u.Host)
 		p.originProject = u.Query().Get("project_id")
+		p.originAppTokenAuth = u.Query().Get("ingress_auth") == "app_token"
 	}
 	return p, true
 }
@@ -341,16 +349,18 @@ func applyRouteEvent(s *Server, data map[string]any) {
 // release the cache lock immediately.
 
 type RouteHit struct {
-	Hostname  string
-	Target    *url.URL
-	CertFQDN  string
-	AllowHTTP bool
+	Hostname       string
+	Target         *url.URL
+	CertFQDN       string
+	AllowHTTP      bool
+	OwnerInstallID int64
 	// OriginApp, when non-empty, means the route fronts an installed
 	// app by name and Target is a placeholder. HostRouter resolves the
 	// app's live sidecar URL per request before proxying. OriginProject
 	// scopes the resolution for project-scoped apps.
-	OriginApp     string
-	OriginProject string
+	OriginApp          string
+	OriginProject      string
+	OriginAppTokenAuth bool
 }
 
 func (c *RouteCache) LookupForRouter(host string) (RouteHit, bool) {
@@ -359,12 +369,14 @@ func (c *RouteCache) LookupForRouter(host string) (RouteHit, bool) {
 		return RouteHit{}, false
 	}
 	return RouteHit{
-		Hostname:      r.hostname,
-		Target:        r.target,
-		CertFQDN:      r.certFQDN,
-		AllowHTTP:     r.allowHTTP,
-		OriginApp:     r.originApp,
-		OriginProject: r.originProject,
+		Hostname:           r.hostname,
+		Target:             r.target,
+		CertFQDN:           r.certFQDN,
+		AllowHTTP:          r.allowHTTP,
+		OwnerInstallID:     r.owner,
+		OriginApp:          r.originApp,
+		OriginProject:      r.originProject,
+		OriginAppTokenAuth: r.originAppTokenAuth,
 	}, true
 }
 

@@ -115,12 +115,29 @@ func (hr *HostRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "backend unavailable", http.StatusBadGateway)
 		return
 	}
+	appToken := ""
+	if hit.OriginAppTokenAuth {
+		appToken = hr.resolveAppToken(hit)
+		if appToken == "" {
+			log.Printf("[host-router] %s: app-token ingress auth requested but app token is unavailable", hit.Hostname)
+			http.Error(w, "backend authentication unavailable", http.StatusBadGateway)
+			return
+		}
+	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
 		req.Host = r.Host
 		req.Header.Set("X-Forwarded-Host", r.Host)
+		req.Header.Del("X-Apteva-Original-Authorization")
+		req.Header.Del("X-Apteva-App-Token")
+		if appToken != "" {
+			if visitorAuthorization := req.Header.Get("Authorization"); visitorAuthorization != "" {
+				req.Header.Set("X-Apteva-Original-Authorization", visitorAuthorization)
+			}
+			req.Header.Set("Authorization", "Bearer "+appToken)
+		}
 		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 			req.Header.Set("X-Forwarded-Proto", "https")
 		} else {
@@ -171,6 +188,23 @@ func (hr *HostRouter) resolveTarget(hit RouteHit) (*url.URL, bool) {
 		return nil, false
 	}
 	return u, true
+}
+
+func (hr *HostRouter) resolveAppToken(hit RouteHit) string {
+	if hit.OriginApp == "" || hit.OwnerInstallID <= 0 || hr.server == nil || hr.server.installedApps == nil {
+		return ""
+	}
+	var entry *InstalledApp
+	if hit.OriginProject != "" {
+		entry = hr.server.installedApps.GetByNameAndProject(hit.OriginApp, hit.OriginProject)
+	}
+	if entry == nil {
+		entry = hr.server.installedApps.GetByName(hit.OriginApp)
+	}
+	if entry == nil || entry.InstallID != hit.OwnerInstallID {
+		return ""
+	}
+	return strings.TrimSpace(entry.Token)
 }
 
 // ─── cross-app tool call helper ───────────────────────────────────
