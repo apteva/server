@@ -1389,6 +1389,10 @@ func (s *Server) handleCallbackSpawnRealtime(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "agent_id, thread_id, directive all required", http.StatusBadRequest)
 		return
 	}
+	if err := validateRealtimeCallContext(body.CallContext); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Authorize: the install's owning user must also own the target
 	// agent. Prevents enumeration of other users' agents via
@@ -1398,17 +1402,27 @@ func (s *Server) handleCallbackSpawnRealtime(w http.ResponseWriter, r *http.Requ
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	// Apps that omit both capability fields inherit the target agent's
-	// spawnable MCP surface. Explicit MCP names or a narrower tool allowlist
-	// remain authoritative. Server resolves the concrete names so Core stays
-	// provider- and caller-agnostic.
-	if body.MCP == nil && body.Tools == nil {
+	mode, err := normalizeRealtimeCapabilityMode(body.CapabilityMode, body.Tools, body.MCP)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	body.CapabilityMode = mode
+	switch mode {
+	case sdk.RealtimeCapabilitiesInheritAgent:
 		body.MCP, err = s.agentSpawnableMCPNames(agent.ID)
 		if err != nil {
 			log.Printf("[REALTIME-SPAWN] install=%d agent=%d load MCPs: %v", installID, body.AgentID, err)
 			http.Error(w, "load agent realtime capabilities: "+err.Error(), http.StatusBadGateway)
 			return
 		}
+		body.Tools = nil
+	case sdk.RealtimeCapabilitiesExplicit:
+		body.Tools = nonNilStrings(body.Tools)
+		body.MCP = nonNilStrings(body.MCP)
+	case sdk.RealtimeCapabilitiesNone:
+		body.Tools = []string{}
+		body.MCP = []string{}
 	}
 
 	inst := framework.InstanceInfo{
@@ -1437,9 +1451,38 @@ func (s *Server) handleCallbackSpawnRealtime(w http.ResponseWriter, r *http.Requ
 		}
 		res.AudioBridgeURL = bridgeURL
 	}
-	log.Printf("[REALTIME-SPAWN] install=%d agent=%d thread=%q status=%s",
-		installID, body.AgentID, body.ThreadID, res.Status)
+	log.Printf("[REALTIME-SPAWN] install=%d agent=%d thread=%q status=%s capabilities_verified=%t tools=%v mcp=%v",
+		installID, body.AgentID, body.ThreadID, res.Status, res.CapabilitiesVerified, res.EffectiveTools, res.EffectiveMCP)
 	writeJSON(w, res)
+}
+
+func normalizeRealtimeCapabilityMode(mode sdk.RealtimeCapabilityMode, tools, mcp []string) (sdk.RealtimeCapabilityMode, error) {
+	if mode == "" {
+		// Backward compatibility for pre-mode callers: omitted fields inherit,
+		// while any explicitly present field selects the explicit surface.
+		if tools == nil && mcp == nil {
+			return sdk.RealtimeCapabilitiesInheritAgent, nil
+		}
+		return sdk.RealtimeCapabilitiesExplicit, nil
+	}
+	switch mode {
+	case sdk.RealtimeCapabilitiesExplicit:
+		return mode, nil
+	case sdk.RealtimeCapabilitiesInheritAgent, sdk.RealtimeCapabilitiesNone:
+		if len(tools) != 0 || len(mcp) != 0 {
+			return "", fmt.Errorf("capability_mode %q cannot include tools or mcp", mode)
+		}
+		return mode, nil
+	default:
+		return "", fmt.Errorf("invalid capability_mode %q", mode)
+	}
+}
+
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }
 
 type callbackMCPServerConfig struct {

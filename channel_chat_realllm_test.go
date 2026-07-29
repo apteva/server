@@ -2423,8 +2423,10 @@ func TestChannelChat_RealLLM_Codex_MainPersistsAutonomousStatus(t *testing.T) {
 	waitForInitialAgentTurn(t, h)
 
 	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineStarts := telemetryEventIDs(t, h.server, h.agent.ID, "llm.start")
 	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
 	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	baselineCompactions := telemetryEventIDs(t, h.server, h.agent.ID, "llm.compaction_started")
 	ordinaryBefore := ordinaryAgentMessageCount(t, h.server, h.chatID)
 	var visibleBefore int
 	if err := h.server.store.db.QueryRow(`
@@ -2524,6 +2526,9 @@ func TestChannelChat_RealLLM_Codex_MainPersistsAutonomousStatus(t *testing.T) {
 	if got := ordinaryAgentMessageCount(t, h.server, h.chatID); got != ordinaryBefore {
 		t.Fatalf("main status leaked into chat history: before=%d after=%d", ordinaryBefore, got)
 	}
+	assertStatusSettlesWithoutRetryLoop(
+		t, h, baselineStarts, baselineDone, baselineCompactions, 12*time.Second,
+	)
 }
 
 // TestChannelChat_RealLLM_Codex_MainOwnsCentralReport proves that full Inbox
@@ -2574,8 +2579,9 @@ func TestChannelChat_RealLLM_Codex_MainOwnsCentralReport(t *testing.T) {
 
 // TestChannelChat_RealLLM_Codex_MainRecurringMonitorEmitsStatus reproduces
 // the Personal Agent's hourly inbox cycle without explicitly asking Codex to
-// update status. The recurring-monitor rule itself must cause one completed
-// status on main, followed by the next hourly pace, with no chat or Inbox item.
+// update status or supplying the following run's timestamp. The recurring-
+// monitor rule itself must cause one completed status on main, derive next_at
+// for the next hourly occurrence, and pace without a chat or Inbox item.
 func TestChannelChat_RealLLM_Codex_MainRecurringMonitorEmitsStatus(t *testing.T) {
 	directive := strings.Join([]string{
 		"# Role",
@@ -2589,16 +2595,17 @@ func TestChannelChat_RealLLM_Codex_MainRecurringMonitorEmitsStatus(t *testing.T)
 	waitForInitialAgentTurn(t, h)
 
 	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineStarts := telemetryEventIDs(t, h.server, h.agent.ID, "llm.start")
 	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
 	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	baselineCompactions := telemetryEventIDs(t, h.server, h.agent.ID, "llm.compaction_started")
 	ordinaryBefore := ordinaryAgentMessageCount(t, h.server, h.chatID)
-	nextAt := time.Now().UTC().Add(time.Hour).Truncate(time.Second).Format(time.RFC3339)
+	triggeredAt := time.Now().UTC()
 
 	event := strings.Join([]string{
 		"[system] [scheduled]",
 		"The due hourly Gmail inbox cycle has completed.",
 		"It checked for unread messages and found none.",
-		"The next hourly cycle is scheduled for " + nextAt + ".",
 		"Continue the normal hourly monitoring routine.",
 	}, "\n")
 	if err := postCoreEvent(t.Context(), h.server.agents.GetPort(h.agent.ID),
@@ -2629,8 +2636,13 @@ func TestChannelChat_RealLLM_Codex_MainRecurringMonitorEmitsStatus(t *testing.T)
 	if next == "" || (!strings.Contains(next, "gmail") && !strings.Contains(next, "inbox")) {
 		t.Fatalf("recurring monitor status does not describe the next inbox cycle: %+v", status)
 	}
-	if status.NextAt != nextAt {
-		t.Fatalf("recurring monitor next_at=%q, want %q: %+v", status.NextAt, nextAt, status)
+	derivedNextAt, err := time.Parse(time.RFC3339, status.NextAt)
+	if err != nil {
+		t.Fatalf("recurring monitor did not derive an RFC3339 next_at: %+v", status)
+	}
+	if earliest, latest := triggeredAt.Add(45*time.Minute), triggeredAt.Add(75*time.Minute); derivedNextAt.Before(earliest) || derivedNextAt.After(latest) {
+		t.Fatalf("recurring monitor next_at=%s, want approximately one hour after %s: %+v",
+			derivedNextAt.Format(time.RFC3339), triggeredAt.Format(time.RFC3339), status)
 	}
 	for _, call := range calls {
 		if call.Kind != "status" {
@@ -2683,9 +2695,12 @@ func TestChannelChat_RealLLM_Codex_MainRecurringMonitorEmitsStatus(t *testing.T)
 	}
 	if len(statuses) != 1 || statuses[0].AgentID != h.agent.ID ||
 		statuses[0].State != "completed" || strings.TrimSpace(statuses[0].Next) == "" ||
-		statuses[0].NextAt != nextAt || statuses[0].Message.ThreadID != "main" {
+		statuses[0].NextAt != status.NextAt || statuses[0].Message.ThreadID != "main" {
 		t.Fatalf("persisted recurring status missing next action/time on main: %+v", statuses)
 	}
+	assertStatusSettlesWithoutRetryLoop(
+		t, h, baselineStarts, baselineDone, baselineCompactions, 12*time.Second,
+	)
 }
 
 func TestChannelChat_RealLLM_OpenCodeGLM52_StatusWorkSemantics(t *testing.T) {
@@ -3383,6 +3398,13 @@ func waitForAgentTurnSettled(t *testing.T, h *realChannelChatHarness, baselineDo
 		ready := len(done) > 0
 		if ready && len(results) > 0 {
 			ready = !done[0].Time.Before(results[0].Time)
+			if !ready && allStatusResultEvents(results) {
+				// set_status advertises wakeOnResult=on_error. On success, its
+				// tool result is intentionally recorded after the originating
+				// llm.done without starting a receipt-only model turn.
+				llmActive, err := readRealCoreLLMActive(h)
+				ready = err == nil && !llmActive
+			}
 		}
 		signature := telemetryEventSignature(done) + ":" + telemetryEventSignature(results)
 		if !ready || signature != lastSignature {
@@ -3398,6 +3420,125 @@ func waitForAgentTurnSettled(t *testing.T, h *realChannelChatHarness, baselineDo
 	t.Fatalf("agent turn did not settle: done=%s results=%s",
 		telemetryEventSignature(newTelemetryEvents(t, h.server, h.agent.ID, "llm.done", baselineDone)),
 		telemetryEventSignature(newChannelResultEvents(t, h.server, h.agent.ID, baselineResults)))
+}
+
+func allStatusResultEvents(events []TelemetryEvent) bool {
+	if len(events) == 0 {
+		return false
+	}
+	for _, event := range events {
+		var data struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil || !isStatusToolName(data.Name) {
+			return false
+		}
+	}
+	return true
+}
+
+// assertStatusSettlesWithoutRetryLoop covers the production failure
+// where set_status and pace completed together, the status receipt woke main,
+// and an empty Codex response entered an unbounded retry/compaction loop.
+//
+// Unlike waitForAgentTurnSettled, this guard watches llm.start as well as
+// llm.done. Empty provider responses intentionally have no llm.done event, so
+// a quiet signature alone cannot prove that the agent actually settled.
+func assertStatusSettlesWithoutRetryLoop(
+	t *testing.T,
+	h *realChannelChatHarness,
+	baselineStarts, baselineDone, baselineCompactions map[string]bool,
+	quietFor time.Duration,
+) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Minute)
+	var stableSince time.Time
+	var unmatchedSince time.Time
+	for time.Now().Before(deadline) {
+		starts := newTelemetryEvents(t, h.server, h.agent.ID, "llm.start", baselineStarts)
+		done := newTelemetryEvents(t, h.server, h.agent.ID, "llm.done", baselineDone)
+		compactions := newTelemetryEvents(t, h.server, h.agent.ID, "llm.compaction_started", baselineCompactions)
+		for _, event := range compactions {
+			var data struct {
+				Reason string `json:"reason"`
+			}
+			if json.Unmarshal(event.Data, &data) == nil && data.Reason == "empty_response" {
+				t.Fatalf(
+					"recurring status entered empty-response compaction: starts=%s done=%s compactions=%s",
+					telemetryEventSignature(starts),
+					telemetryEventSignature(done),
+					telemetryEventSignature(compactions),
+				)
+			}
+		}
+
+		llmActive, err := readRealCoreLLMActive(h)
+		if err != nil {
+			stableSince = time.Time{}
+			unmatchedSince = time.Time{}
+			time.Sleep(250 * time.Millisecond)
+			continue
+		}
+		unmatched := len(starts) - len(done)
+		switch {
+		case len(starts) == 0 || llmActive:
+			stableSince = time.Time{}
+			unmatchedSince = time.Time{}
+		case unmatched > 0:
+			stableSince = time.Time{}
+			if unmatchedSince.IsZero() {
+				unmatchedSince = time.Now()
+			} else if time.Since(unmatchedSince) >= 3*time.Second {
+				t.Fatalf(
+					"recurring status left %d completed model call(s) without llm.done and core is idle: starts=%s done=%s",
+					unmatched,
+					telemetryEventSignature(starts),
+					telemetryEventSignature(done),
+				)
+			}
+		case unmatched == 0:
+			unmatchedSince = time.Time{}
+			if stableSince.IsZero() {
+				stableSince = time.Now()
+			} else if time.Since(stableSince) >= quietFor {
+				return
+			}
+		default:
+			stableSince = time.Time{}
+			unmatchedSince = time.Time{}
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatalf(
+		"recurring status did not settle: starts=%s done=%s compactions=%s",
+		telemetryEventSignature(newTelemetryEvents(t, h.server, h.agent.ID, "llm.start", baselineStarts)),
+		telemetryEventSignature(newTelemetryEvents(t, h.server, h.agent.ID, "llm.done", baselineDone)),
+		telemetryEventSignature(newTelemetryEvents(t, h.server, h.agent.ID, "llm.compaction_started", baselineCompactions)),
+	)
+}
+
+func readRealCoreLLMActive(h *realChannelChatHarness) (bool, error) {
+	port := h.server.agents.GetPort(h.agent.ID)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/status", port), nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+h.server.agents.GetCoreAPIKey(h.agent.ID))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("core status returned %s", resp.Status)
+	}
+	var status struct {
+		LLMActive bool `json:"llm_active"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		return false, err
+	}
+	return status.LLMActive, nil
 }
 
 // waitForChannelOutputSettled is for terminal main-owned output such as an

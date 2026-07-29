@@ -99,6 +99,14 @@ func TestChatChannelCurrentStatusUpsertsAndStaysOutOfChat(t *testing.T) {
 	if _, err := db.Exec(`UPDATE channel_chat_messages SET created_at=datetime('now', '-48 hours') WHERE id=?`, first.MessageID); err != nil {
 		t.Fatal(err)
 	}
+	oldWorking, err := st.GetMessage(first.MessageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldWorking.Components[0].Props["updated_at"] = time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339Nano)
+	if _, err := st.UpdateMessageComponents(first.MessageID, oldWorking.Components); err != nil {
+		t.Fatal(err)
+	}
 	statuses, err = st.ListCurrentStatuses([]int64{285}, "default")
 	if err != nil {
 		t.Fatal(err)
@@ -157,6 +165,10 @@ func TestChatChannelCurrentStatusPersistsNormalizesAndClearsNextAction(t *testin
 	if len(statuses) != 1 || statuses[0].Next != "Generate the weekly report" || statuses[0].NextAt != "2026-07-20T09:00:00Z" || statuses[0].Message.ThreadID != "main" {
 		t.Fatalf("current statuses = %#v", statuses)
 	}
+	firstUpdatedAt := statuses[0].UpdatedAt
+	if firstUpdatedAt.IsZero() {
+		t.Fatalf("current status has no explicit updated_at: %#v", statuses[0])
+	}
 
 	second, err := ch.SetCurrentStatus(framework.CurrentStatusRequest{
 		Title: "No further work planned",
@@ -175,6 +187,9 @@ func TestChatChannelCurrentStatusPersistsNormalizesAndClearsNextAction(t *testin
 	}
 	if len(statuses) != 1 || statuses[0].Next != "" || statuses[0].NextAt != "" {
 		t.Fatalf("replacement retained stale next action: %#v", statuses)
+	}
+	if !statuses[0].UpdatedAt.After(firstUpdatedAt) {
+		t.Fatalf("replacement updated_at=%s, want after %s", statuses[0].UpdatedAt, firstUpdatedAt)
 	}
 }
 

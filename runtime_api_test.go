@@ -306,6 +306,11 @@ func TestRuntimeAPI_RealtimeLifecycleIsRuntimeScoped(t *testing.T) {
 				t.Fatal(err)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"status": "created", "id": "voice", "audio_token": "one-use"})
+		case r.URL.Path == "/threads" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]map[string]any{{
+				"id": "voice", "tools": []string{"pace", "send", "bookings_check"},
+				"mcp_names": []string{"flexylead-bookings"},
+			}})
 		case r.URL.Path == "/threads/voice/audio-token" && r.Method == http.MethodPost:
 			_ = json.NewEncoder(w).Encode(map[string]any{"status": "renewed", "id": "voice", "audio_token": "renewed"})
 		case r.URL.Path == "/threads/voice" && r.Method == http.MethodDelete:
@@ -346,6 +351,11 @@ func TestRuntimeAPI_RealtimeLifecycleIsRuntimeScoped(t *testing.T) {
 	var spawnResult sdk.RealtimeSpawnResult
 	if err := json.Unmarshal(spawned.Body.Bytes(), &spawnResult); err != nil {
 		t.Fatal(err)
+	}
+	if !spawnResult.CapabilitiesVerified ||
+		strings.Join(spawnResult.EffectiveMCP, ",") != "flexylead-bookings" ||
+		strings.Join(spawnResult.EffectiveTools, ",") != "pace,send,bookings_check" {
+		t.Fatalf("runtime effective capabilities=%#v", spawnResult)
 	}
 	spawnURL, err := url.Parse(spawnResult.AudioBridgeURL)
 	if err != nil || spawnURL.Scheme != "ws" || spawnURL.Host != "runtime-gateway.internal:5280" {

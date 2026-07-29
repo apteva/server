@@ -355,6 +355,38 @@
           },
           "status_callback_url": {
             "type": "string"
+          },
+          "status_callback_method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST"
+          },
+          "stream_timeout": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400,
+            "default": 86400
+          },
+          "extra_headers": {
+            "type": "string",
+            "description": "Comma-separated custom headers, for example key1=value1,key2=value2."
+          },
+          "noise_cancellation": {
+            "type": "string",
+            "enum": [
+              "true",
+              "false"
+            ],
+            "default": "false"
+          },
+          "noise_cancellation_level": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 100,
+            "default": 85
           }
         },
         "required": [

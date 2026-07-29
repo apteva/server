@@ -716,21 +716,40 @@ func (s *Server) handleRuntimeRealtime(w http.ResponseWriter, r *http.Request, r
 			http.Error(w, "valid thread_id and directive required", http.StatusBadRequest)
 			return
 		}
+		if err := validateRealtimeCallContext(req.CallContext); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		mode, err := normalizeRealtimeCapabilityMode(req.CapabilityMode, req.Tools, req.MCP)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		tools := req.Tools
 		mcpNames := req.MCP
-		if req.MCP == nil && req.Tools == nil {
+		switch mode {
+		case sdk.RealtimeCapabilitiesInheritAgent:
 			inheritedMCPs, inheritErr := s.agentSpawnableMCPNames(agent.AgentID)
 			if inheritErr != nil {
 				http.Error(w, "load runtime agent realtime capabilities: "+inheritErr.Error(), http.StatusBadGateway)
 				return
 			}
 			mcpNames = inheritedMCPs
+			tools = nil
+		case sdk.RealtimeCapabilitiesExplicit:
+			tools = nonNilStrings(tools)
+			mcpNames = nonNilStrings(mcpNames)
+		case sdk.RealtimeCapabilitiesNone:
+			tools = []string{}
+			mcpNames = []string{}
 		}
 		result, err := s.resolver().SpawnRealtimeThread(framework.InstanceInfo{
 			ID: agent.AgentID, Name: agent.SourceName, ProjectID: runtime.ProjectID,
 			Port: agent.Port, CoreAPIKey: agent.APIKey,
 		}, sdk.RealtimeSpawnRequest{
 			AgentID: agent.AgentID, ThreadID: req.ThreadID, Directive: req.Directive,
-			Voice: req.Voice, Provider: req.Provider, Tools: req.Tools, MCP: mcpNames,
+			Voice: req.Voice, Provider: req.Provider, CapabilityMode: mode, Tools: tools, MCP: mcpNames,
+			CallContext:   req.CallContext,
 			TurnDetection: req.TurnDetection,
 			Ephemeral:     req.Ephemeral, InitialMessage: req.InitialMessage,
 			BridgeDisconnectTTLSeconds: req.BridgeDisconnectTTLSeconds,

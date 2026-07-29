@@ -88,17 +88,18 @@ type AlertMessage struct {
 }
 
 type CurrentStatusMessage struct {
-	Message   Message  `json:"message"`
-	AgentID   int64    `json:"instance_id"`
-	AgentName string   `json:"instance_name"`
-	ProjectID string   `json:"project_id"`
-	Title     string   `json:"title"`
-	Detail    string   `json:"detail,omitempty"`
-	State     string   `json:"state"`
-	Progress  *float64 `json:"progress,omitempty"`
-	Next      string   `json:"next,omitempty"`
-	NextAt    string   `json:"next_at,omitempty"`
-	Stale     bool     `json:"stale"`
+	Message   Message   `json:"message"`
+	AgentID   int64     `json:"instance_id"`
+	AgentName string    `json:"instance_name"`
+	ProjectID string    `json:"project_id"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Title     string    `json:"title"`
+	Detail    string    `json:"detail,omitempty"`
+	State     string    `json:"state"`
+	Progress  *float64  `json:"progress,omitempty"`
+	Next      string    `json:"next,omitempty"`
+	NextAt    string    `json:"next_at,omitempty"`
+	Stale     bool      `json:"stale"`
 }
 
 // Chat is one durable Apteva conversation. AgentID remains the lead agent for
@@ -1727,11 +1728,26 @@ func (s *store) ListCurrentStatuses(ownerIDs []int64, projectID string) ([]Curre
 			continue
 		}
 		row.Message = m
+		row.UpdatedAt = currentStatusUpdatedAt(m.Components, m.CreatedAt)
 		row.Title, row.Detail, row.State, row.Progress, row.Next, row.NextAt = title, detail, state, progress, next, nextAt
-		row.Stale = state != "completed" && now.Sub(m.CreatedAt) > 30*time.Minute
+		row.Stale = state != "completed" && now.Sub(row.UpdatedAt) > 30*time.Minute
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+func currentStatusUpdatedAt(components []framework.ChatComponent, fallback time.Time) time.Time {
+	for _, c := range components {
+		if c.App != "channel-chat" || c.Name != "status-card" {
+			continue
+		}
+		value, _ := c.Props["updated_at"].(string)
+		if parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(value)); err == nil {
+			return parsed
+		}
+		break
+	}
+	return fallback
 }
 
 func approvalSummary(components []framework.ChatComponent) (title, body, status string, dismissed bool, ok bool) {

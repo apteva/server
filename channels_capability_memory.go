@@ -12,7 +12,7 @@ import (
 const (
 	channelsCapabilityMemoryID        = "system_channels_v1"
 	channelsCapabilityTag             = "capability:channels"
-	channelsCapabilityVersionTag      = "capability-version:channels:v18"
+	channelsCapabilityVersionTag      = "capability-version:channels:v22"
 	channelsCapabilityHashTagPrefix   = "capability-hash:"
 	channelsCapabilitySystemTag       = "system"
 	channelsCapabilityMemoryReason    = "channels capability sync"
@@ -49,11 +49,15 @@ Use working while a meaningful multi-step or long-running work unit is actively 
 
 The title names the current work unit or completed outcome, never a future action or waiting/blocking condition. Put the current phase, concrete result, dependency, or blocker in detail. Progress measures only this work unit; never use waiting with 100 percent. Emit at most one status per meaningful phase.
 
-Use next only for the nearest distinct operator-relevant responsibility. Add next_at only for an exact RFC3339 deadline supplied by the directive, scheduler event, operator, or an external system. Never estimate next_at from current time, expected duration, or pace. A completed recurring task may remain completed while next and next_at describe its next run.
+Use next only for the nearest distinct operator-relevant responsibility. For recurring or scheduled work, always add next_at for the following occurrence. Use the exact RFC3339 time supplied by the directive, scheduler event, operator, or an external system when available; otherwise derive the expected next occurrence from the recurrence rule and current UTC time.
+
+For every relative-time derivation, read the exact timestamp from the current [CURRENT TIME] block's UTC: line. Perform the arithmetic directly on that UTC instant and preserve the Z timezone. Never use, infer, or convert from local wall-clock time. If the current UTC timestamp is 2026-07-29T05:37:00Z, the next hourly occurrence is 2026-07-29T06:37:00Z, never 08:37:00Z, regardless of the host timezone. next_at and pace.sleep must describe the same relative interval.
+
+For non-recurring work, add next_at only for a known deadline and never estimate one from expected duration or the current work phase. next_at is display metadata and does not schedule a wake. A completed recurring task may remain completed while next and next_at describe its next run.
 
 Except for a completed recurring-monitor cycle, skip status for directive edits, thread management, configuration, planning, pacing, retries, tool discovery, brief answers, read-only lookups, isolated quick actions, publications, external notifications, and merely sleeping until future work.
 
-Every due cycle of a directive-defined recurring monitor must call set_status exactly once after it runs, including quick or read-only checks whose result is unchanged or empty. Record state=completed and a concrete result. In the same turn call pace exactly once for the next cycle, then remain silent. A successful pace result is the scheduling receipt and must not trigger another pace call. Include next for the following cycle and include next_at only when its exact time was supplied.
+Every due cycle of a directive-defined recurring monitor must call set_status exactly once after it runs, including quick or read-only checks whose result is unchanged or empty. Record state=completed and a concrete result. Include both next and the exact or derived next_at for the following cycle. In that same original model turn, call pace exactly once for the next cycle. A successful set_status result intentionally does not wake main, so never defer pace until after the status receipt and never schedule the same cycle twice.
 
 ## Inbox
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
 )
@@ -78,7 +80,6 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 	clientConn.SetPongHandler(func(string) error { refreshDeadline(clientConn); return nil })
 	coreConn.SetPongHandler(func(string) error { refreshDeadline(coreConn); return nil })
 	pingDone := make(chan struct{})
-	defer close(pingDone)
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
@@ -94,27 +95,76 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 		}
 	}()
 
-	copyMessages := func(dst, src *websocket.Conn, done chan<- error) {
+	type proxyResult struct {
+		err       error
+		initiator string
+		peer      *websocket.Conn
+	}
+	copyMessages := func(dst *websocket.Conn, dstSide string, src *websocket.Conn, srcSide string, done chan<- proxyResult) {
 		for {
 			_ = src.SetReadDeadline(time.Now().Add(2 * time.Minute))
 			messageType, payload, err := src.ReadMessage()
 			if err != nil {
-				done <- err
+				done <- proxyResult{err: err, initiator: srcSide, peer: dst}
 				return
 			}
 			_ = dst.SetWriteDeadline(time.Now().Add(15 * time.Second))
 			if err := dst.WriteMessage(messageType, payload); err != nil {
-				done <- err
+				done <- proxyResult{err: err, initiator: dstSide, peer: src}
 				return
 			}
 		}
 	}
-	done := make(chan error, 2)
-	go copyMessages(coreConn, clientConn, done)
-	go copyMessages(clientConn, coreConn, done)
-	if err := <-done; err != nil && !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-		log.Printf("[REALTIME-PROXY] agent=%d thread=%q closed: %v", agentID, threadID, err)
+	done := make(chan proxyResult, 2)
+	go copyMessages(coreConn, "core", clientConn, "client", done)
+	go copyMessages(clientConn, "client", coreConn, "core", done)
+
+	first := <-done
+	close(pingDone)
+	code, reason := realtimeProxyCloseDetails(first.err)
+	relayErr := first.peer.WriteControl(
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(code, reason),
+		time.Now().Add(time.Second),
+	)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
 	}
+	var peerClose *websocket.CloseError
+	if errors.As(first.err, &peerClose) {
+		// Close reasons can contain provider/customer detail. Forward them to
+		// the peer, but keep logs limited to structured routing metadata.
+		log.Printf("[REALTIME-PROXY] agent=%d thread=%q initiated_by=%s code=%d relay_err=%v",
+			agentID, threadID, first.initiator, code, relayErr)
+	} else {
+		log.Printf("[REALTIME-PROXY] agent=%d thread=%q initiated_by=%s code=%d transport_err=%v relay_err=%v",
+			agentID, threadID, first.initiator, code, first.err, relayErr)
+	}
+}
+
+func realtimeProxyCloseDetails(err error) (int, string) {
+	var closeErr *websocket.CloseError
+	if errors.As(err, &closeErr) {
+		if closeErr.Code < 1000 || closeErr.Code == websocket.CloseNoStatusReceived ||
+			closeErr.Code == websocket.CloseAbnormalClosure || closeErr.Code == websocket.CloseTLSHandshake {
+			return websocket.CloseInternalServerErr, "realtime bridge transport error"
+		}
+		return closeErr.Code, boundedWebSocketCloseReason(closeErr.Text)
+	}
+	if err == nil {
+		return websocket.CloseNormalClosure, ""
+	}
+	return websocket.CloseInternalServerErr, "realtime bridge transport error"
+}
+
+func boundedWebSocketCloseReason(reason string) string {
+	reason = strings.ToValidUTF8(reason, "")
+	for len(reason) > 123 {
+		_, size := utf8.DecodeLastRuneInString(reason)
+		reason = reason[:len(reason)-size]
+	}
+	return reason
 }
 
 func publicRealtimeAudioURL(base string, agentID int64, threadID, token string) (string, error) {

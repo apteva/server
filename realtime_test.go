@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -221,5 +222,133 @@ func TestRealtimeAudioProxyAuthenticatesAndPreservesFrameTypes(t *testing.T) {
 	query := <-querySeen
 	if query.Get("thread") != "voice-1" || query.Get("token") != "single-use" {
 		t.Fatalf("core query = %#v", query)
+	}
+}
+
+func TestRealtimeAudioProxyPropagatesGracefulCoreClose(t *testing.T) {
+	coreCloseSeen := make(chan *websocket.CloseError, 1)
+	coreUpgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	coreServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := coreUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		if err := conn.WriteControl(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "thread complete"),
+			time.Now().Add(time.Second),
+		); err != nil {
+			return
+		}
+		_, _, err = conn.ReadMessage()
+		var closeErr *websocket.CloseError
+		if errors.As(err, &closeErr) {
+			coreCloseSeen <- closeErr
+		}
+	}))
+	defer coreServer.Close()
+	coreURL, _ := url.Parse(coreServer.URL)
+	_, portText, _ := strings.Cut(coreURL.Host, ":")
+	port, _ := strconv.Atoi(portText)
+
+	s := newTestServer(t)
+	s.agents.mu.Lock()
+	s.agents.processes[42] = &runningAgent{port: port, coreAPIKey: "core-secret", reattached: true}
+	s.agents.mu.Unlock()
+	proxyServer := httptest.NewServer(http.HandlerFunc(s.handleRealtimeAudioProxy))
+	defer proxyServer.Close()
+	proxyURL := "ws" + strings.TrimPrefix(proxyServer.URL, "http") + "/?agent_id=42&thread=voice-close&token=single-use"
+	client, _, err := websocket.DefaultDialer.Dial(proxyURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+	_, _, err = client.ReadMessage()
+	var clientClose *websocket.CloseError
+	if !errors.As(err, &clientClose) {
+		t.Fatalf("client close error = %v", err)
+	}
+	if clientClose.Code != websocket.CloseNormalClosure || clientClose.Text != "thread complete" {
+		t.Fatalf("client close = code %d reason %q", clientClose.Code, clientClose.Text)
+	}
+	select {
+	case ack := <-coreCloseSeen:
+		if ack.Code != websocket.CloseNormalClosure {
+			t.Fatalf("core acknowledgement = code %d reason %q", ack.Code, ack.Text)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("core did not receive a close acknowledgement")
+	}
+}
+
+func TestRealtimeAudioProxyPropagatesGracefulClientClose(t *testing.T) {
+	coreCloseSeen := make(chan *websocket.CloseError, 1)
+	coreUpgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	coreServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := coreUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _, err = conn.ReadMessage()
+		var closeErr *websocket.CloseError
+		if errors.As(err, &closeErr) {
+			coreCloseSeen <- closeErr
+		}
+	}))
+	defer coreServer.Close()
+	coreURL, _ := url.Parse(coreServer.URL)
+	_, portText, _ := strings.Cut(coreURL.Host, ":")
+	port, _ := strconv.Atoi(portText)
+
+	s := newTestServer(t)
+	s.agents.mu.Lock()
+	s.agents.processes[42] = &runningAgent{port: port, coreAPIKey: "core-secret", reattached: true}
+	s.agents.mu.Unlock()
+	proxyServer := httptest.NewServer(http.HandlerFunc(s.handleRealtimeAudioProxy))
+	defer proxyServer.Close()
+	proxyURL := "ws" + strings.TrimPrefix(proxyServer.URL, "http") + "/?agent_id=42&thread=voice-client-close&token=single-use"
+	client, _, err := websocket.DefaultDialer.Dial(proxyURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	if err := client.WriteControl(
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseGoingAway, "caller finished"),
+		time.Now().Add(time.Second),
+	); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-coreCloseSeen:
+		if got.Code != websocket.CloseGoingAway || got.Text != "caller finished" {
+			t.Fatalf("core close = code %d reason %q", got.Code, got.Text)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("core did not receive the client close")
+	}
+}
+
+func TestRealtimeProxyCloseDetailsPreservesPeerReason(t *testing.T) {
+	code, reason := realtimeProxyCloseDetails(&websocket.CloseError{Code: websocket.ClosePolicyViolation, Text: "secret detail"})
+	if code != websocket.ClosePolicyViolation || reason != "secret detail" {
+		t.Fatalf("close details = %d %q", code, reason)
+	}
+	code, reason = realtimeProxyCloseDetails(errors.New("broken pipe"))
+	if code != websocket.CloseInternalServerErr || reason != "realtime bridge transport error" {
+		t.Fatalf("transport close details = %d %q", code, reason)
+	}
+	code, reason = realtimeProxyCloseDetails(&websocket.CloseError{Code: websocket.CloseAbnormalClosure})
+	if code != websocket.CloseInternalServerErr || reason != "realtime bridge transport error" {
+		t.Fatalf("reserved close details = %d %q", code, reason)
+	}
+	longReason := strings.Repeat("é", 100)
+	_, reason = realtimeProxyCloseDetails(&websocket.CloseError{Code: websocket.CloseNormalClosure, Text: longReason})
+	if len(reason) > 123 || !strings.HasPrefix(longReason, reason) {
+		t.Fatalf("bounded reason bytes=%d value=%q", len(reason), reason)
 	}
 }

@@ -80,11 +80,10 @@ func TestBuildSendDescription_MessageWakesAgain(t *testing.T) {
 		"unchanged or no-op results",
 		`"send a status update" or "update the status" means set_status`,
 		"Every due directive-defined recurring monitor cycle must call set_status exactly once",
-		"never call pace as its only post-cycle action",
-		"call pace exactly once for the next cycle and remain silent",
-		"successful pace result is its scheduling receipt",
-		"must not trigger another pace call",
-		"Status next_at does not schedule a wake",
+		"with its completed result",
+		"even when the result is unchanged or empty",
+		"must include both next and the derived next_at",
+		"next_at only describes the schedule and does not create the wake",
 	} {
 		if !strings.Contains(desc, want) {
 			t.Fatalf("respond description missing %q:\n%s", want, desc)
@@ -92,7 +91,7 @@ func TestBuildSendDescription_MessageWakesAgain(t *testing.T) {
 	}
 }
 
-func TestChannelMCPSendAdvertisesWakeAlways(t *testing.T) {
+func TestChannelMCPOutputWakePolicies(t *testing.T) {
 	s := &channelMCPServer{registry: NewChannelRegistry()}
 	out := s.toolsList()
 	tools, ok := out["tools"].([]map[string]any)
@@ -110,13 +109,78 @@ func TestChannelMCPSendAdvertisesWakeAlways(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s tool missing _meta: %#v", name, tool)
 		}
-		if got := meta["io.apteva/wakeOnResult"]; got != "always" {
-			t.Fatalf("%s wakeOnResult=%v, want always", name, got)
+		want := "always"
+		if name == "set_status" {
+			want = "on_error"
+		}
+		if got := meta["io.apteva/wakeOnResult"]; got != want {
+			t.Fatalf("%s wakeOnResult=%v, want %s", name, got, want)
 		}
 	}
 	for _, name := range []string{"send", "publish", "set_status"} {
 		if !seen[name] {
 			t.Fatalf("tool %q not found", name)
+		}
+	}
+}
+
+func TestRecurringStatusGuidanceCoordinatesOnePaceWithoutReceiptWake(t *testing.T) {
+	sources := map[string]string{
+		"send description":       buildSendDescription([]string{"apteva"}, nil),
+		"set_status description": buildSetStatusDescription(),
+		"capability memory":      channelsCapabilityMemoryContent(),
+	}
+	if !strings.Contains(sources["set_status description"], "Every due cycle of a directive-defined recurring monitor MUST call this tool exactly once") {
+		t.Fatalf("set_status description lost the recurring completion-status requirement:\n%s", sources["set_status description"])
+	}
+	for source, content := range sources {
+		if !strings.Contains(content, "next_at") {
+			t.Fatalf("%s lost recurring next_at guidance:\n%s", source, content)
+		}
+	}
+	if !strings.Contains(sources["set_status description"], "always set next_at") ||
+		!strings.Contains(sources["set_status description"], "derive the next occurrence from the recurring rule and current UTC time") {
+		t.Fatalf("set_status description does not require a derived recurring next_at:\n%s", sources["set_status description"])
+	}
+	if !strings.Contains(sources["capability memory"], "Include both next and the exact or derived next_at") {
+		t.Fatalf("capability memory does not require recurring next and next_at:\n%s", sources["capability memory"])
+	}
+	for _, source := range []string{"set_status description", "capability memory"} {
+		for _, want := range []string{
+			"current [CURRENT TIME] block's UTC: line",
+			"Never use, infer, or convert from local wall-clock time",
+			"2026-07-29T05:37:00Z",
+			"2026-07-29T06:37:00Z",
+			"never 08:37:00Z",
+			"next_at and pace.sleep must describe the same relative interval",
+		} {
+			if !strings.Contains(sources[source], want) {
+				t.Fatalf("%s missing UTC-relative scheduling rule %q:\n%s", source, want, sources[source])
+			}
+		}
+	}
+	for source, wants := range map[string][]string{
+		"send description": {
+			"In that original turn, also call pace exactly once",
+			"next_at only describes the schedule and does not create the wake",
+		},
+		"set_status description": {
+			"In the same original model turn, call pace exactly once",
+			"successful status result intentionally does not wake you",
+			"never defer pace until after its receipt",
+			"never schedule the same cycle again",
+		},
+		"capability memory": {
+			"same original model turn, call pace exactly once",
+			"successful set_status result intentionally does not wake main",
+			"never defer pace until after the status receipt",
+			"never schedule the same cycle twice",
+		},
+	} {
+		for _, want := range wants {
+			if !strings.Contains(sources[source], want) {
+				t.Fatalf("%s missing stable recurring scheduling rule %q:\n%s", source, want, sources[source])
+			}
 		}
 	}
 }
@@ -207,11 +271,7 @@ func TestChannelMCPAdvertisesUnconditionalSchemas(t *testing.T) {
 		"meaningful operator-relevant work",
 		"Every due cycle of a directive-defined recurring monitor MUST call this tool exactly once",
 		"required completion receipt",
-		"never call pace as the only post-cycle action",
-		"call pace exactly once for the next due cycle",
-		"successful pace result is the scheduling receipt",
-		"must not trigger another pace call",
-		"include both next and next_at",
+		"always set next_at",
 		"scheduler event",
 		"recurring-cycle requirement overrides the general read-only, isolated quick-action, and channel-publication exclusions",
 		"multi-step, long-running, or cannot currently continue",
@@ -237,7 +297,8 @@ func TestChannelMCPAdvertisesUnconditionalSchemas(t *testing.T) {
 		`"state":"waiting"`,
 		`"state":"blocked"`,
 		"SAME tool call also contains a non-empty next",
-		"Never invent or estimate it from [CURRENT TIME]",
+		"For recurring or scheduled work it is required",
+		"derive the next occurrence from the recurring rule and current UTC time",
 	} {
 		if !strings.Contains(statusDescription, want) {
 			t.Fatalf("set_status description missing %q: %s", want, statusDescription)
@@ -245,8 +306,12 @@ func TestChannelMCPAdvertisesUnconditionalSchemas(t *testing.T) {
 	}
 	for _, want := range []string{
 		"same call contains a non-empty next",
-		"RFC3339 deadline for next",
-		"estimate it from current time",
+		"Required for recurring or scheduled work",
+		"derive it from the recurrence rule",
+		"exact current [CURRENT TIME] UTC: timestamp",
+		"add the interval directly in UTC",
+		"never use local wall-clock time",
+		"For non-recurring work, include only a known deadline",
 	} {
 		if !strings.Contains(nextAtDescription, want) {
 			t.Fatalf("set_status next_at description missing %q: %s", want, nextAtDescription)
@@ -284,8 +349,9 @@ func TestChannelMCPSetStatusDescriptionSeparatesCurrentWorkFromFutureSchedule(t 
 		"A completed recurring task may remain completed while next and next_at describe its next scheduled run",
 		`"send a status update" or "update the status"`,
 		"Do not also create an ordinary chat message",
-		"call pace exactly once for the next due cycle",
-		"next_at is display metadata and does not schedule a wake",
+		"next_at is display metadata and does not schedule the wake",
+		"same original model turn, call pace exactly once",
+		"successful status result intentionally does not wake you",
 	} {
 		if !strings.Contains(desc, want) {
 			t.Fatalf("set_status description missing %q:\n%s", want, desc)
