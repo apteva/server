@@ -38,15 +38,16 @@ import (
 // InvitePayload is what gets signed into the token. Keep keys short — the
 // token ends up in the URL and we'd rather not waste bytes.
 type InvitePayload struct {
-	Op     int64  `json:"op"`             // operator user_id — the invite acts on their behalf
-	Proj   string `json:"proj,omitempty"` // project_id the connection lands in
-	App    string `json:"app"`            // app_slug (e.g. "gmail")
-	Src    string `json:"src"`            // "local" | "composio"
-	ConnID int64  `json:"cid,omitempty"`  // if set, update an existing connection; else create new
-	ProvID int64  `json:"pid,omitempty"`  // composio provider_id (for src=composio)
-	Tools  string `json:"tools,omitempty"`
-	Name   string `json:"name,omitempty"`
-	Exp    int64  `json:"exp"`
+	Op             int64  `json:"op"`             // operator user_id — the invite acts on their behalf
+	Proj           string `json:"proj,omitempty"` // project_id the connection lands in
+	App            string `json:"app"`            // app_slug (e.g. "gmail")
+	Src            string `json:"src"`            // "local" | "composio"
+	ConnID         int64  `json:"cid,omitempty"`  // if set, update an existing connection
+	TemplateConnID int64  `json:"tcid,omitempty"` // copy required static setup into a new OAuth connection
+	ProvID         int64  `json:"pid,omitempty"`  // composio provider_id (for src=composio)
+	Tools          string `json:"tools,omitempty"`
+	Name           string `json:"name,omitempty"`
+	Exp            int64  `json:"exp"`
 }
 
 // signInvite produces a `payload.sig` URL-safe token.
@@ -107,9 +108,10 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ProjectID    string `json:"project_id"`
 		AppSlug      string `json:"app_slug"`
-		Source       string `json:"source"`                // "local" | "composio"
-		ConnectionID int64  `json:"connection_id"`         // optional — reauth an existing conn
-		ProviderID   int64  `json:"provider_id,omitempty"` // composio
+		Source       string `json:"source"`                 // "local" | "composio"
+		ConnectionID int64  `json:"connection_id"`          // optional — reauth an existing conn
+		TemplateID   int64  `json:"template_connection_id"` // optional — seed a separate OAuth connection
+		ProviderID   int64  `json:"provider_id,omitempty"`  // composio
 		Tools        string `json:"allowed_tools,omitempty"`
 		Name         string `json:"name,omitempty"`
 		TTLSeconds   int64  `json:"ttl_seconds,omitempty"`
@@ -125,6 +127,10 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 	if body.Source == "" {
 		body.Source = "local"
 	}
+	if body.ConnectionID != 0 && body.TemplateID != 0 {
+		http.Error(w, "connection_id and template_connection_id cannot be combined", http.StatusBadRequest)
+		return
+	}
 
 	// If reauthing, validate the connection belongs to this operator.
 	if body.ConnectionID != 0 {
@@ -139,6 +145,20 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 		body.Source = conn.Source
 		body.ProjectID = conn.ProjectID
 	}
+	if body.TemplateID != 0 {
+		conn, _, err := s.store.GetConnection(userID, body.TemplateID)
+		if err != nil || conn == nil {
+			http.Error(w, "template connection not found", http.StatusNotFound)
+			return
+		}
+		if conn.Source != "local" || conn.Status != "active" {
+			http.Error(w, "template connection must be an active local connection", http.StatusBadRequest)
+			return
+		}
+		body.AppSlug = conn.AppSlug
+		body.Source = conn.Source
+		body.ProjectID = conn.ProjectID
+	}
 
 	ttl := time.Duration(body.TTLSeconds) * time.Second
 	if ttl <= 0 || ttl > 7*24*time.Hour {
@@ -146,15 +166,16 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	payload := InvitePayload{
-		Op:     userID,
-		Proj:   body.ProjectID,
-		App:    body.AppSlug,
-		Src:    body.Source,
-		ConnID: body.ConnectionID,
-		ProvID: body.ProviderID,
-		Tools:  body.Tools,
-		Name:   body.Name,
-		Exp:    time.Now().Add(ttl).Unix(),
+		Op:             userID,
+		Proj:           body.ProjectID,
+		App:            body.AppSlug,
+		Src:            body.Source,
+		ConnID:         body.ConnectionID,
+		TemplateConnID: body.TemplateID,
+		ProvID:         body.ProviderID,
+		Tools:          body.Tools,
+		Name:           body.Name,
+		Exp:            time.Now().Add(ttl).Unix(),
 	}
 	token, err := s.signInvite(payload)
 	if err != nil {
@@ -255,6 +276,10 @@ func (s *Server) handleFulfillInvite(w http.ResponseWriter, r *http.Request) {
 	if body.Name == "" {
 		body.Name = p.Name
 	}
+	if p.ConnID != 0 && p.TemplateConnID != 0 {
+		http.Error(w, "invalid invite target", http.StatusBadRequest)
+		return
+	}
 
 	switch p.Src {
 	case "local":
@@ -328,16 +353,39 @@ func (s *Server) fulfillLocalInvite(w http.ResponseWriter, p *InvitePayload, bod
 	}
 
 	// --- New connection path ---
+	clientID := ""
+	clientSecret := ""
+	var supplementalCredentials map[string]string
+	if p.TemplateConnID != 0 {
+		if authType != "oauth2" {
+			http.Error(w, "template connections are only supported for OAuth integrations", http.StatusBadRequest)
+			return
+		}
+		var err error
+		clientID, clientSecret, supplementalCredentials, err = s.inviteOAuthTemplate(app, p)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	connName := body.Name
 	if connName == "" {
-		connName = app.Name
+		if p.TemplateConnID != 0 {
+			connName = fmt.Sprintf("%s access %d", app.Name, p.Exp)
+		} else {
+			connName = app.Name
+		}
 	}
 
 	if authType == "oauth2" {
 		// startLocalOAuth uses the operator's saved OAuth client creds
 		// (resolveOAuthClient walks DB → env). The client never sees the
 		// client_id/secret. Standard callback creates the connection.
-		conn, authURL, err := s.startLocalOAuth(p.Op, app, connName, p.Proj, "", "", nil, 0, "", nil)
+		conn, authURL, err := s.startLocalOAuth(
+			p.Op, app, connName, p.Proj,
+			clientID, clientSecret, supplementalCredentials,
+			0, "", nil,
+		)
 		if err != nil {
 			http.Error(w, "oauth start: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -377,6 +425,45 @@ func (s *Server) fulfillLocalInvite(w http.ResponseWriter, p *InvitePayload, bod
 		return
 	}
 	writeJSON(w, map[string]any{"status": "connected", "connection_id": conn.ID})
+}
+
+func (s *Server) inviteOAuthTemplate(app *AppTemplate, p *InvitePayload) (string, string, map[string]string, error) {
+	conn, encrypted, err := s.store.GetConnection(p.Op, p.TemplateConnID)
+	if err != nil || conn == nil {
+		return "", "", nil, fmt.Errorf("template connection not found")
+	}
+	if conn.AppSlug != p.App || conn.Source != "local" || conn.Status != "active" || conn.ProjectID != p.Proj {
+		return "", "", nil, fmt.Errorf("template connection no longer matches this access link")
+	}
+	plaintext, err := Decrypt(s.secret, encrypted)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("template connection credentials unavailable")
+	}
+	var credentials map[string]string
+	if err := json.Unmarshal([]byte(plaintext), &credentials); err != nil {
+		return "", "", nil, fmt.Errorf("template connection credentials are invalid")
+	}
+
+	supplemental := make(map[string]string)
+	for _, field := range app.Auth.CredentialFields {
+		required := field.Required == nil || *field.Required
+		if field.Source != "user" || field.Hidden || !required {
+			continue
+		}
+		value := strings.TrimSpace(credentials[field.Name])
+		if value == "" {
+			label := strings.TrimSpace(field.Label)
+			if label == "" {
+				label = field.Name
+			}
+			return "", "", nil, fmt.Errorf("template connection is missing required %s", label)
+		}
+		supplemental[field.Name] = value
+	}
+	if len(supplemental) == 0 {
+		supplemental = nil
+	}
+	return strings.TrimSpace(credentials["client_id"]), strings.TrimSpace(credentials["client_secret"]), supplemental, nil
 }
 
 // fulfillComposioInvite kicks off the Composio hosted connect flow on
