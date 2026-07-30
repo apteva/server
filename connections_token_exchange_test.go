@@ -104,3 +104,41 @@ func TestCredentialTokenExchangeAndUnauthorizedRetry(t *testing.T) {
 		t.Fatalf("credentials not updated: %#v", credentials)
 	}
 }
+
+func TestCredentialTokenExchangeResolvesURLTemplate(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/security/oauth2/token" {
+			t.Fatalf("token path=%q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"templated-token","expires_in":1800}`))
+	}))
+	defer tokenServer.Close()
+
+	credentials := map[string]string{
+		"token_host": tokenServer.URL,
+		"client_id":  "client",
+		"secret":     "secret",
+	}
+	app := &AppTemplate{
+		Auth: AppAuthConfig{
+			TokenExchange: &CredentialTokenExchangeConfig{
+				URL:         "{{credential.token_host}}/v1/security/oauth2/token",
+				ContentType: "application/x-www-form-urlencoded",
+				BodyParams: map[string]string{
+					"grant_type":    "client_credentials",
+					"client_id":     "{{credential.client_id}}",
+					"client_secret": "{{credential.secret}}",
+				},
+			},
+		},
+	}
+
+	changed, err := ensureCredentialExchangeToken(app, credentials, false)
+	if err != nil {
+		t.Fatalf("exchange: %v", err)
+	}
+	if !changed || credentials["access_token"] != "templated-token" {
+		t.Fatalf("changed=%v credentials=%#v", changed, credentials)
+	}
+}

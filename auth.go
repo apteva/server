@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -416,10 +417,44 @@ func appRouteMatches(pattern, path string) bool {
 	if !strings.HasPrefix(pattern, "/") {
 		pattern = "/" + pattern
 	}
+	// Preserve the historical exact/subtree behavior for literal routes.
+	// RouteSpec.Prefix also carries Go 1.22 ServeMux patterns from SDK apps,
+	// however, so parameterized routes such as /v1/devices/{id}/test must be
+	// evaluated with the same matcher the sidecar uses.
+	if strings.Contains(pattern, "{") {
+		matcher := cachedAppRouteMatcher(pattern)
+		if matcher == nil {
+			return false
+		}
+		_, matchedPattern := matcher.Handler(&http.Request{
+			Method: http.MethodGet,
+			URL:    &url.URL{Path: path},
+		})
+		return matchedPattern != ""
+	}
 	if strings.HasSuffix(pattern, "/") {
 		return strings.HasPrefix(path, pattern)
 	}
 	return path == pattern
+}
+
+var appRouteMatcherCache sync.Map
+
+func cachedAppRouteMatcher(pattern string) (matcher *http.ServeMux) {
+	if cached, ok := appRouteMatcherCache.Load(pattern); ok {
+		matcher, _ = cached.(*http.ServeMux)
+		return matcher
+	}
+	defer func() {
+		if recover() != nil {
+			matcher = nil
+		}
+	}()
+	compiled := http.NewServeMux()
+	compiled.HandleFunc(pattern, func(http.ResponseWriter, *http.Request) {})
+	actual, _ := appRouteMatcherCache.LoadOrStore(pattern, compiled)
+	matcher, _ = actual.(*http.ServeMux)
+	return matcher
 }
 
 func getUserID(r *http.Request) int64 {

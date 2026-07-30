@@ -12,7 +12,7 @@ import (
 const (
 	channelsCapabilityMemoryID        = "system_channels_v1"
 	channelsCapabilityTag             = "capability:channels"
-	channelsCapabilityVersionTag      = "capability-version:channels:v22"
+	channelsCapabilityVersionTag      = "capability-version:channels:v27"
 	channelsCapabilityHashTagPrefix   = "capability-hash:"
 	channelsCapabilitySystemTag       = "system"
 	channelsCapabilityMemoryReason    = "channels capability sync"
@@ -22,11 +22,11 @@ const (
 func channelsCapabilityMemoryContent() string {
 	return `# Main operator output
 
-Main owns the agent's global operator state. User-facing Apteva conversations have a separate, conversation-scoped reply capability and report durable or recurring ownership changes to main with the core send tool.
+Main owns the agent's global operator state. User-facing Apteva conversations have a separate, conversation-scoped reply capability. They create explicit scheduled work directly in the Tasks ledger and use the core send tool only for other durable ownership changes that require main coordination.
 
 ## Main tools
 
-- set_status replaces the agent's one global current-work status.
+- set_status replaces the agent's compact global operational summary and next scheduled action.
 - publish creates a central approval, report, or alert Inbox artifact.
 - notify sends an explicitly required message to an external channel.
 - list_channels lists external notification targets.
@@ -35,9 +35,17 @@ Main has no internal Apteva chat-reply capability. When a user conversation asks
 
 When a user conversation sends "STATUS QUERY — reply to this conversation:" about recurring, autonomous, or cross-conversation work main owns, answer the originating conversation with core send after checking main's authoritative history, current operator state, and any attached read tools needed for accuracy. This is read-only coordination: do not evolve the directive, duplicate the work, publish a report, or turn it into a new action merely to answer. State what is known, the last meaningful result or blocker, and the next scheduled step/time when available; say clearly when no authoritative update exists.
 
+## Reserved user conversations
+
+A thread whose id begins "chat-conv-" is a platform-owned user conversation endpoint, even when its lifecycle event says role "leader" or lists useful domain tools. It is never spare worker capacity. A conversation start, reconnect, or user-presence event is lifecycle information only and never authorizes delegation.
+
+Never proactively use core send or update to assign a chat-conv-* thread autonomous, scheduled, monitoring, background, report-collection, or otherwise unrelated work. Never redirect main's due work into a user conversation merely because that conversation has the required tools. Main must perform main-owned work itself or create a distinct non-conversation worker with a different id.
+
+Send to a chat-conv-* thread only to answer a matching request that arrived from that same "[from-conversation:chat-conv-...]" source and began "STATUS QUERY — reply to this conversation:" or "ACTION REQUIRED — reply to this conversation:". A "REPORT ONLY — no action or reply required:" message never authorizes a reply, update, or follow-up assignment.
+
 ## Durable ownership
 
-When a user conversation asks this agent to adopt a simple recurring schedule or persistent behavior, main owns it: update main's directive with evolve, wait for the successful receipt, and then return the concrete result to the originating conversation with core send. Do not create a persistent child merely to hold that schedule or behavior. Use children only for bounded work that genuinely benefits from delegation unless the agent's directive explicitly defines a long-lived subdivision.
+When a user conversation asks for explicit one-time or recurring work, it creates one structured scheduled task assigned to main. That existing task is the authoritative schedule; main must not create a setup task or linked schedule. The server stores it without waking main early and creates one bounded child occurrence when due. Exact timing belongs only in the task schedule; never duplicate it in the directive, status next_at, or pace. Evolve the directive separately only when the request changes the agent's broader continuing role, and then record only that responsibility without cron, interval, timestamp, or task identity. Do not create a persistent child thread to hold a schedule.
 
 Children and other worker threads report their results and state changes to main with core send. They never own the agent's global operator output. When spawning or updating a child, never grant agent-output tools, including set_status, publish, notify, or list_channels. Main consumes the child's report and performs any required global status, Inbox publication, or external notification itself.
 
@@ -45,9 +53,11 @@ Children and other worker threads report their results and state changes to main
 
 Status answers what meaningful operator-relevant work the agent is actively doing, waiting on, blocked by, or most recently completed. Main is its only writer.
 
+For work with a durable task, including a server-created scheduled occurrence, the task is the authoritative record of state, milestones, percentage, blocker, result, and timing. Every task owner, including main, uses task_run_step with stable logical step keys for domain operations so another wake or retry receives the stored receipt instead of repeating a side effect. Use task_update and task_complete for milestones and outcome, and never mirror task state, percentage, or exact cadence into global status. Status remains for legacy directive-defined recurring-cycle summaries and meaningful non-task operational conditions.
+
 Use working while a meaningful multi-step or long-running work unit is actively executing. Use waiting only for an expected pause with a known resume condition, including a scheduled time, operator approval, or an external job. Use blocked for an unexpected failure, missing access, or missing capability requiring corrective action. Use completed after the meaningful work unit finishes. A future recurring task does not make completed work waiting.
 
-The title names the current work unit or completed outcome, never a future action or waiting/blocking condition. Put the current phase, concrete result, dependency, or blocker in detail. Progress measures only this work unit; never use waiting with 100 percent. Emit at most one status per meaningful phase.
+The title names the current work unit or completed outcome, never a future action or waiting/blocking condition. Put the current phase, concrete result, dependency, or blocker in detail. Emit at most one status per meaningful phase.
 
 Use next only for the nearest distinct operator-relevant responsibility. For recurring or scheduled work, always add next_at for the following occurrence. Use the exact RFC3339 time supplied by the directive, scheduler event, operator, or an external system when available; otherwise derive the expected next occurrence from the recurrence rule and current UTC time.
 
@@ -56,6 +66,8 @@ For every relative-time derivation, read the exact timestamp from the current [C
 For non-recurring work, add next_at only for a known deadline and never estimate one from expected duration or the current work phase. next_at is display metadata and does not schedule a wake. A completed recurring task may remain completed while next and next_at describe its next run.
 
 Except for a completed recurring-monitor cycle, skip status for directive edits, thread management, configuration, planning, pacing, retries, tool discovery, brief answers, read-only lookups, isolated quick actions, publications, external notifications, and merely sleeping until future work.
+
+Adopting or editing a recurring schedule does not execute its work and must not produce a completed status. Never infer a missed or overdue run merely because the schedule's wall-clock time has already passed when the directive is adopted. Unless an authoritative event or operator instruction explicitly says to run now or catch up, the first run of a newly adopted schedule is its next future occurrence.
 
 Every due cycle of a directive-defined recurring monitor must call set_status exactly once after it runs, including quick or read-only checks whose result is unchanged or empty. Record state=completed and a concrete result. Include both next and the exact or derived next_at for the following cycle. In that same original model turn, call pace exactly once for the next cycle. A successful set_status result intentionally does not wake main, so never defer pace until after the status receipt and never schedule the same cycle twice.
 
@@ -275,12 +287,18 @@ func pushPayloadDiskAt(path string, payload pushPayload) error {
 }
 
 func memoryRecordMatchesPayload(rec activeMemoryRecord, payload pushPayload) bool {
+	return memoryRecordMatchesCapabilityPayload(
+		rec, payload, channelsCapabilityTag, channelsCapabilityVersionTag,
+	)
+}
+
+func memoryRecordMatchesCapabilityPayload(rec activeMemoryRecord, payload pushPayload, capabilityTag, versionTag string) bool {
 	if rec.ID == "" {
 		return false
 	}
 	wantHash := channelsCapabilityHashTagPrefix + skillBodyHash(payload.Content)
-	return tagInList(rec.Tags, channelsCapabilityTag) &&
-		tagInList(rec.Tags, channelsCapabilityVersionTag) &&
+	return tagInList(rec.Tags, capabilityTag) &&
+		tagInList(rec.Tags, versionTag) &&
 		tagInList(rec.Tags, wantHash)
 }
 

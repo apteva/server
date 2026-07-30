@@ -179,7 +179,12 @@ type Server struct {
 	// so the whole feature can be turned off with a single env var
 	// without redeploying. Set once at startApps boot.
 	liveTelemetryHook func([]TelemetryEvent)
-	latestLLMDone     latestLLMDoneCache
+	// taskConversationEnsure restores channel-chat's complete conversation
+	// thread profile before terminal task recovery posts to Core. Without this,
+	// Core's generic lazy-spawn fallback lacks the conversation Channels MCP.
+	taskConversationEnsure func(agentID int64, conversationID string) error
+	taskSchedulerCancel    context.CancelFunc
+	latestLLMDone          latestLLMDoneCache
 
 	appTokenMu sync.Mutex
 
@@ -536,6 +541,7 @@ func main() {
 	quarantined := cloneQuarantineEnabled()
 	s.agentRollouts = newAgentRolloutCoordinator(s.updateAgentCore)
 	s.installCapabilityMemoryHooks()
+	s.installTaskTrackingHooks()
 	s.ingressCerts = NewIngressCertManager(s)
 	// Back-reference so Environments can drive real (install-backed) app
 	// seeding + teardown. Only ever used by environment endpoints.
@@ -682,6 +688,11 @@ func main() {
 			http.Error(w, "GET, POST, or DELETE", http.StatusMethodNotAllowed)
 		}
 	})
+	// Optional server-owned durable work ledger. The handlers deliberately
+	// return 404 while APTEVA_TASK_TRACKING is disabled, so rolling the MVP
+	// back does not expose a half-active API or discard persisted rows.
+	apiMux.HandleFunc("/tasks", s.authMiddleware(s.handleTasks))
+	apiMux.HandleFunc("/tasks/", s.authMiddleware(s.handleTaskByID))
 
 	// Webhook receiver (unauthenticated — external services POST here).
 	// One route, one handler, one URL shape: /webhooks/<opaque_token>.
@@ -1613,6 +1624,9 @@ func main() {
 	// Apps are healthy and the installedApps registry is populated.
 	// Now safe to spawn agents — their MCP proxies will resolve.
 	resumeInstancesAfterApps()
+	if !quarantined {
+		s.startTaskScheduler()
+	}
 	s.ready.Store(true)
 	if !quarantined && providerAuthRefreshEnvEnabled() {
 		s.startProviderAuthRefresher(context.Background())
@@ -1641,6 +1655,7 @@ func main() {
 			log.Printf("[SHUTDOWN] marked %d platform agent(s) stopped for clean shutdown", stopped)
 		}
 		s.stopMobilePushWorker()
+		s.stopTaskScheduler()
 		s.stopApps(appsReg)
 		if preserveAgents {
 			log.Printf("[SHUTDOWN] leaving user agent core process(es) alive for reattach")

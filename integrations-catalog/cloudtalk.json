@@ -1,7 +1,7 @@
 {
   "slug": "cloudtalk",
   "name": "CloudTalk",
-  "description": "CloudTalk API for agents, contacts, phone numbers, calls, call recordings, SMS, tags, groups, and AI call insights.",
+  "description": "CloudTalk API for agents, contacts, campaigns, phone numbers, calls, recordings, SMS, groups, live statistics, VoiceAgent calls, and AI call insights.",
   "logo": "https://www.google.com/s2/favicons?domain=cloudtalk.io&sz=128",
   "categories": ["telephony", "voice", "sms", "phone", "communications", "support", "crm"],
   "base_url": "https://my.cloudtalk.io/api",
@@ -39,6 +39,198 @@
     { "name": "create_tag", "description": "Create a CloudTalk tag.", "method": "PUT", "path": "/tags/add.json", "input_schema": { "type": "object", "properties": { "name": { "type": "string" }, "color": { "type": "string" } }, "required": ["name"] } },
     { "name": "get_call_ai_summary", "description": "Get AI summary for a CloudTalk call.", "method": "GET", "path": "/ai/calls/{callId}/summary", "input_schema": { "type": "object", "properties": { "callId": { "type": "integer" } }, "required": ["callId"] } },
     { "name": "get_call_ai_transcription", "description": "Get AI transcription for a CloudTalk call.", "method": "GET", "path": "/ai/calls/{callId}/transcription", "input_schema": { "type": "object", "properties": { "callId": { "type": "integer" } }, "required": ["callId"] } },
-    { "name": "get_call_ai_sentiment", "description": "Get AI overall sentiment for a CloudTalk call.", "method": "GET", "path": "/ai/calls/{callId}/overall-sentiment", "input_schema": { "type": "object", "properties": { "callId": { "type": "integer" } }, "required": ["callId"] } }
+    { "name": "get_call_ai_sentiment", "description": "Get AI overall sentiment for a CloudTalk call.", "method": "GET", "path": "/ai/calls/{callId}/overall-sentiment", "input_schema": { "type": "object", "properties": { "callId": { "type": "integer" } }, "required": ["callId"] } },
+    { "name": "add_agent_to_group", "description": "Assign an agent to a CloudTalk group.", "method": "PUT", "path": "/groups/add.json", "input_schema": { "type": "object", "properties": { "group_id": { "type": "integer" }, "agent_id": { "type": "integer" } }, "required": ["group_id", "agent_id"] } },
+    { "name": "remove_agent_from_group", "description": "Remove an agent from a CloudTalk group.", "method": "DELETE", "path": "/groups/delete/{agent_id}.json", "input_schema": { "type": "object", "properties": { "agent_id": { "type": "integer" }, "group_id": { "type": "integer" } }, "required": ["agent_id", "group_id"] } },
+    {
+      "name": "bulk_contact_actions",
+      "description": "Execute up to 10 contact, activity, or note add/edit/delete actions in one request. Each action needs action, command_id, and a typed data object.",
+      "method": "POST",
+      "path": "/bulk/contacts.json",
+      "body_root_param": "actions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "actions": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "object",
+              "properties": {
+                "action": { "type": "string", "enum": ["add_contact", "edit_contact", "delete_contact", "add_activity", "edit_activity", "delete_activity", "add_note", "edit_note", "delete_note"] },
+                "command_id": { "type": "string" },
+                "data": { "type": "object", "additionalProperties": true }
+              },
+              "required": ["action", "command_id", "data"]
+            }
+          }
+        },
+        "required": ["actions"]
+      }
+    },
+    { "name": "list_campaigns", "description": "List CloudTalk outbound campaigns.", "method": "GET", "path": "/campaigns/index.json", "query_params": ["page", "limit"], "input_schema": { "type": "object", "properties": { "page": { "type": "integer" }, "limit": { "type": "integer" } } } },
+    {
+      "name": "create_campaign",
+      "description": "Create an outbound dialing campaign with agent/group/contact-tag assignments and dialing settings.",
+      "method": "PUT",
+      "path": "/campaigns/add.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "Button": { "type": "array", "items": { "type": "object" } },
+          "Agent": { "type": "array", "items": { "type": "object" } },
+          "Group": { "type": "array", "items": { "type": "object" } },
+          "ContactsTag": { "type": "array", "items": { "type": "object" } },
+          "call_number_id": { "type": "integer" },
+          "call_script_id": { "type": "integer" },
+          "survey_id": { "type": "integer" },
+          "status": { "type": "string" },
+          "is_predictive": { "type": "boolean" },
+          "is_recording": { "type": "boolean" },
+          "attempts": { "type": "integer" },
+          "attempts_interval": { "type": "integer" },
+          "answer_wait_time": { "type": "integer" },
+          "after_call_time": { "type": "integer" },
+          "calls_percentage": { "type": "integer" },
+          "schedule_start_date": { "type": "string" },
+          "schedule_start_time": { "type": "string" }
+        },
+        "required": ["name", "Button"]
+      }
+    },
+    {
+      "name": "update_campaign",
+      "description": "Update an outbound dialing campaign.",
+      "method": "POST",
+      "path": "/campaigns/edit/{id}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "Button": { "type": "array", "items": { "type": "object" } },
+          "Agent": { "type": "array", "items": { "type": "object" } },
+          "Group": { "type": "array", "items": { "type": "object" } },
+          "ContactsTag": { "type": "array", "items": { "type": "object" } },
+          "call_number_id": { "type": "integer" },
+          "status": { "type": "string" },
+          "is_predictive": { "type": "boolean" },
+          "is_recording": { "type": "boolean" },
+          "attempts": { "type": "integer" },
+          "attempts_interval": { "type": "integer" },
+          "answer_wait_time": { "type": "integer" },
+          "after_call_time": { "type": "integer" }
+        },
+        "required": ["id", "name", "Button"]
+      }
+    },
+    { "name": "delete_campaign", "description": "Delete a CloudTalk campaign.", "method": "DELETE", "path": "/campaigns/delete/{id}.json", "input_schema": { "type": "object", "properties": { "id": { "type": "integer" } }, "required": ["id"] } },
+    { "name": "list_contact_attributes", "description": "List custom contact attribute definitions.", "method": "GET", "path": "/contacts/attributes.json", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "add_contact_tags", "description": "Assign one or more existing tags to a contact.", "method": "PUT", "path": "/contacts/addTags/{contactId}.json", "input_schema": { "type": "object", "properties": { "contactId": { "type": "integer" }, "tags": { "type": "array", "items": { "type": "integer" } } }, "required": ["contactId", "tags"] } },
+    { "name": "remove_contact_tags", "description": "Unassign one or more tags from a contact.", "method": "DELETE", "path": "/contacts/removeTags/{contactId}.json", "input_schema": { "type": "object", "properties": { "contactId": { "type": "integer" }, "tags": { "type": "array", "items": { "type": "integer" } } }, "required": ["contactId", "tags"] } },
+    { "name": "list_notes", "description": "List contact notes.", "method": "GET", "path": "/notes/index.json", "query_params": ["contact_id", "page", "limit"], "input_schema": { "type": "object", "properties": { "contact_id": { "type": "integer" }, "page": { "type": "integer" }, "limit": { "type": "integer" } } } },
+    { "name": "create_note", "description": "Add a note to a contact.", "method": "PUT", "path": "/notes/add/{contactId}.json", "input_schema": { "type": "object", "properties": { "contactId": { "type": "integer" }, "note": { "type": "string" }, "user_id": { "type": "integer" } }, "required": ["contactId", "note"] } },
+    { "name": "update_note", "description": "Update a contact note.", "method": "POST", "path": "/notes/edit/{noteId}.json", "input_schema": { "type": "object", "properties": { "noteId": { "type": "integer" }, "contact_id": { "type": "integer" }, "note": { "type": "string" }, "user_id": { "type": "integer" } }, "required": ["noteId", "contact_id", "note"] } },
+    { "name": "delete_note", "description": "Delete a contact note.", "method": "DELETE", "path": "/notes/delete/{noteId}.json", "input_schema": { "type": "object", "properties": { "noteId": { "type": "integer" } }, "required": ["noteId"] } },
+    { "name": "list_activities", "description": "List CRM activities associated with contacts.", "method": "GET", "path": "/activity/index.json", "query_params": ["contact_id", "page", "limit"], "input_schema": { "type": "object", "properties": { "contact_id": { "type": "integer" }, "page": { "type": "integer" }, "limit": { "type": "integer" } } } },
+    {
+      "name": "create_activity",
+      "description": "Add a CRM activity to a contact.",
+      "method": "PUT",
+      "path": "/activity/add/{contactId}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contactId": { "type": "integer" },
+          "name": { "type": "string" },
+          "type": { "type": "string" },
+          "activity_date": { "type": "string" },
+          "description": { "type": "string" },
+          "activity_author": { "type": "string" },
+          "external_id": { "type": "string" },
+          "external_url": { "type": "string" }
+        },
+        "required": ["contactId", "name", "type"]
+      }
+    },
+    {
+      "name": "update_activity",
+      "description": "Update a CRM activity.",
+      "method": "POST",
+      "path": "/activity/edit/{activityId}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activityId": { "type": "integer" },
+          "contact_id": { "type": "integer" },
+          "name": { "type": "string" },
+          "type": { "type": "string" },
+          "activity_date": { "type": "string" },
+          "description": { "type": "string" },
+          "activity_author": { "type": "string" },
+          "external_id": { "type": "string" },
+          "external_url": { "type": "string" }
+        },
+        "required": ["activityId", "contact_id"]
+      }
+    },
+    { "name": "delete_activity", "description": "Delete a CRM activity.", "method": "DELETE", "path": "/activity/delete/{activityId}.json", "input_schema": { "type": "object", "properties": { "activityId": { "type": "integer" } }, "required": ["activityId"] } },
+    { "name": "update_number", "description": "Update the internal name or routing destination of a CloudTalk number.", "method": "POST", "path": "/numbers/edit/{id}.json", "input_schema": { "type": "object", "properties": { "id": { "type": "integer" }, "internal_name": { "type": "string" }, "connected_to": { "type": "string" }, "source_id": { "type": "integer" } }, "required": ["id"] } },
+    { "name": "clear_number", "description": "Unregister and clear a CloudTalk number from the account.", "method": "DELETE", "path": "/numbers/clear/{id}.json", "input_schema": { "type": "object", "properties": { "id": { "type": "integer" } }, "required": ["id"] } },
+    { "name": "list_countries", "description": "List countries and CloudTalk country identifiers used by contacts.", "method": "GET", "path": "/countries/index.json", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "list_blacklist", "description": "List blacklisted phone numbers.", "method": "GET", "path": "/blacklist/index.json", "query_params": ["page", "limit"], "input_schema": { "type": "object", "properties": { "page": { "type": "integer" }, "limit": { "type": "integer" } } } },
+    { "name": "create_blacklist_entry", "description": "Add a phone number to the blacklist.", "method": "PUT", "path": "/blacklist/add.json", "input_schema": { "type": "object", "properties": { "public_number": { "type": "string" }, "type": { "type": "string" } }, "required": ["public_number", "type"] } },
+    { "name": "update_blacklist_entry", "description": "Update a blacklisted phone number.", "method": "POST", "path": "/blacklist/edit/{id}.json", "input_schema": { "type": "object", "properties": { "id": { "type": "integer" }, "public_number": { "type": "string" }, "type": { "type": "string" } }, "required": ["id", "public_number", "type"] } },
+    { "name": "delete_blacklist_entry", "description": "Remove a phone number from the blacklist.", "method": "DELETE", "path": "/blacklist/delete/{id}.json", "input_schema": { "type": "object", "properties": { "id": { "type": "integer" } }, "required": ["id"] } },
+    { "name": "delete_call_recording", "description": "Permanently delete a CloudTalk call recording.", "method": "DELETE", "path": "/recordings/delete/{callId}.json", "input_schema": { "type": "object", "properties": { "callId": { "type": "integer" } }, "required": ["callId"] } },
+    { "name": "get_realtime_group_statistics", "description": "Get live queue and daily call statistics for all groups.", "method": "GET", "path": "/statistics/realtime/groups.json", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "update_tag", "description": "Rename a contact tag.", "method": "POST", "path": "/tags/edit/{id}.json", "input_schema": { "type": "object", "properties": { "id": { "type": "integer" }, "name": { "type": "string" } }, "required": ["id", "name"] } },
+    { "name": "delete_tag", "description": "Delete a contact tag.", "method": "DELETE", "path": "/tags/delete/{id}.json", "input_schema": { "type": "object", "properties": { "id": { "type": "integer" } }, "required": ["id"] } },
+    { "name": "get_call_ai_talk_listen_ratio", "description": "Get the AI-derived talk/listen ratio for a call.", "method": "GET", "path": "/ai/calls/{callId}/talk-listen-ratio", "input_schema": { "type": "object", "properties": { "callId": { "type": "integer" } }, "required": ["callId"] } },
+    { "name": "get_call_ai_topics", "description": "Get AI-detected topics for a call.", "method": "GET", "path": "/ai/calls/{callId}/topics", "input_schema": { "type": "object", "properties": { "callId": { "type": "integer" } }, "required": ["callId"] } },
+    { "name": "get_call_ai_smart_notes", "description": "Get AI smart notes for a call.", "method": "GET", "path": "/ai/calls/{callId}/smart-notes", "input_schema": { "type": "object", "properties": { "callId": { "type": "integer" } }, "required": ["callId"] } },
+    { "name": "get_call_ai_details_link", "description": "Get a link to the CloudTalk AI call details page.", "method": "GET", "path": "/ai/calls/{callId}/details-link", "input_schema": { "type": "object", "properties": { "callId": { "type": "integer" } }, "required": ["callId"] } },
+    {
+      "name": "create_voice_agent_call",
+      "description": "Initiate a CloudTalk VoiceAgent call, optionally supplying variables for the agent system prompt and analysis output.",
+      "method": "POST",
+      "base_url": "https://api.cloudtalk.io/v1",
+      "path": "/voice-agent/calls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_number": { "type": "string" },
+          "voice_agent_id": { "type": "string" },
+          "call_properties": {
+            "type": "object",
+            "properties": {
+              "output": { "type": "object", "properties": { "variables": { "type": "object", "additionalProperties": true } } },
+              "system_prompt": { "type": "object", "properties": { "variables": { "type": "object", "additionalProperties": true } } }
+            }
+          }
+        },
+        "required": ["call_number", "voice_agent_id"]
+      }
+    },
+    {
+      "name": "create_cuecard",
+      "description": "Display a cue card to an agent during an active call.",
+      "method": "POST",
+      "base_url": "https://platform-api.cloudtalk.io/api",
+      "path": "/cuecards",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_uuid": { "type": "string" },
+          "type": { "type": "string" },
+          "title": { "type": "string" },
+          "subtitle": { "type": "string" },
+          "icon_url": { "type": "string" },
+          "content": { "type": "object", "additionalProperties": true }
+        },
+        "required": ["call_uuid", "type", "title", "content"]
+      }
+    }
   ]
 }

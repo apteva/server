@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -42,8 +44,1120 @@ func TestChannelChat_RealLLM_OpenCodeGLM52_ActionBeforeReply(t *testing.T) {
 	})
 }
 
+func TestChannelChat_RealLLM_Codex_DurableConversationTask(t *testing.T) {
+	runRealDurableConversationTask(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealChannelChatHarness(t, "chat-task-codex-under-test", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_DurableConversationTask(t *testing.T) {
+	runRealDurableConversationTask(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "chat-task-glm52-under-test", "glm-5.2", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeKimiK3_DurableConversationTask(t *testing.T) {
+	runRealDurableConversationTask(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "chat-task-kimi-k3-under-test", "kimi-k3", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_Codex_BriefChatDoesNotCreateTask(t *testing.T) {
+	runRealBriefChatDoesNotCreateTask(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealChannelChatHarness(t, "chat-task-brief-codex-under-test", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_BriefChatDoesNotCreateTask(t *testing.T) {
+	runRealBriefChatDoesNotCreateTask(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "chat-task-brief-glm52-under-test", "glm-5.2", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeKimiK3_BriefChatDoesNotCreateTask(t *testing.T) {
+	runRealBriefChatDoesNotCreateTask(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "chat-task-brief-kimi-k3-under-test", "kimi-k3", directive, config)
+	})
+}
+
+func runRealBriefChatDoesNotCreateTask(t *testing.T, setupHarness func(*testing.T, string, string) *realChannelChatHarness) {
+	t.Helper()
+	t.Setenv("APTEVA_TASK_TRACKING", "1")
+	h := setupHarness(t, "Answer the operator's direct questions accurately and concisely.",
+		`{"include_apteva_server":false,"include_channels":true}`)
+	waitForInitialAgentTurn(t, h)
+	var baselineMessageID int64
+	_ = h.server.store.db.QueryRow(
+		`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID,
+	).Scan(&baselineMessageID)
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	h.post(t, "What is 2 + 2? Reply with just the answer.")
+
+	deadline := time.Now().Add(90 * time.Second)
+	var finalRows int
+	for time.Now().Before(deadline) {
+		_ = h.server.store.db.QueryRow(`
+			SELECT COUNT(*) FROM channel_chat_messages
+			WHERE chat_id=? AND role='agent' AND id>?
+			  AND COALESCE(json_extract(metadata_json, '$.phase'), 'final')='final'`,
+			h.chatID, baselineMessageID,
+		).Scan(&finalRows)
+		if finalRows == 1 {
+			break
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	if finalRows != 1 || !strings.Contains(latestAgentChatReply(t, h.server, h.chatID), "4") {
+		t.Fatalf("brief final rows=%d reply=%q", finalRows, latestAgentChatReply(t, h.server, h.chatID))
+	}
+	tasks, err := h.server.store.ListAgentTasks(h.agent.ID, AgentTaskListFilter{
+		OriginConversationID: h.chatID, Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("brief chat created tasks: %+v", tasks)
+	}
+	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+		var data struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(event.Data, &data) == nil &&
+			(data.Name == "task_create" || strings.HasSuffix(data.Name, "_task_create")) {
+			t.Fatalf("brief chat called task_create: %s", event.Data)
+		}
+	}
+}
+
+func runRealDurableConversationTask(t *testing.T, setupHarness func(*testing.T, string, string) *realChannelChatHarness) {
+	t.Helper()
+	t.Setenv("APTEVA_TASK_TRACKING", "1")
+	directive := strings.Join([]string{
+		"# Role",
+		"You help the operator assess launch risks.",
+		"# Rules",
+		"Produce concrete risks and mitigations. Keep durable multi-step work tracked until its result is complete.",
+	}, "\n")
+	h := setupHarness(t, directive, `{"include_apteva_server":false,"include_channels":true}`)
+	waitForInitialAgentTurn(t, h)
+
+	var baselineMessageID int64
+	if err := h.server.store.db.QueryRow(
+		`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID,
+	).Scan(&baselineMessageID); err != nil {
+		t.Fatal(err)
+	}
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	h.post(t, "Prepare a durable three-step launch risk assessment for Project Atlas. I may close this page, so track this work and continue in this conversation until it is complete. Return three concrete risks and mitigations.")
+
+	deadline := time.Now().Add(3 * time.Minute)
+	var tasks []AgentTask
+	var finalRows int
+	for time.Now().Before(deadline) {
+		var err error
+		tasks, err = h.server.store.ListAgentTasks(h.agent.ID, AgentTaskListFilter{
+			OriginConversationID: h.chatID, Limit: 10,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = h.server.store.db.QueryRow(`
+			SELECT COUNT(*) FROM channel_chat_messages
+			WHERE chat_id=? AND role='agent' AND id>?
+			  AND COALESCE(json_extract(metadata_json, '$.phase'), 'final')='final'`,
+			h.chatID, baselineMessageID,
+		).Scan(&finalRows)
+		if len(tasks) == 1 && tasks[0].State == taskStateCompleted &&
+			tasks[0].CompletionDeliveryStatus == "delivered" && finalRows == 1 {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("durable conversation created %d tasks, want exactly one: %+v", len(tasks), tasks)
+	}
+	task := tasks[0]
+	if task.AssignedThreadID != "chat-"+h.chatID ||
+		task.OriginConversationID != h.chatID ||
+		task.State != taskStateCompleted ||
+		task.CompletionDeliveryStatus != "delivered" ||
+		strings.TrimSpace(task.Result) == "" {
+		t.Fatalf("unexpected completed conversation task: %+v", task)
+	}
+	if finalRows != 1 {
+		t.Fatalf("visible final rows=%d, want exactly one", finalRows)
+	}
+	reply := strings.ToLower(latestAgentChatReply(t, h.server, h.chatID))
+	for _, required := range []string{"risk", "mitig"} {
+		if !strings.Contains(reply, required) {
+			t.Fatalf("final reply omitted %q: %q", required, reply)
+		}
+	}
+
+	var creates, completes, sendsToMain int
+	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+		var data struct {
+			Name string         `json:"name"`
+			Args map[string]any `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil {
+			continue
+		}
+		switch {
+		case data.Name == "task_create" || strings.HasSuffix(data.Name, "_task_create"):
+			creates++
+		case data.Name == "task_complete" || strings.HasSuffix(data.Name, "_task_complete"):
+			completes++
+		case data.Name == "send" && event.ThreadID == "chat-"+h.chatID:
+			target, _ := data.Args["id"].(string)
+			if target == "main" || target == "parent" {
+				sendsToMain++
+			}
+		}
+	}
+	if creates != 1 || completes != 1 || sendsToMain != 0 {
+		t.Fatalf("task calls create=%d complete=%d sends_to_main=%d, want 1/1/0", creates, completes, sendsToMain)
+	}
+}
+
+func TestChannelChat_RealLLM_Codex_DurableTaskHandoffToMain(t *testing.T) {
+	runRealDurableTaskHandoffToMain(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealChannelChatHarness(t, "chat-task-handoff-codex-under-test", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_DurableTaskHandoffToMain(t *testing.T) {
+	runRealDurableTaskHandoffToMain(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "chat-task-handoff-glm52-under-test", "glm-5.2", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeKimiK3_DurableTaskHandoffToMain(t *testing.T) {
+	runRealDurableTaskHandoffToMain(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "chat-task-handoff-kimi-k3-under-test", "kimi-k3", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_Codex_DurableTaskDelegatesToWorkerWithProgress(t *testing.T) {
+	runRealDurableTaskDelegatesToWorkerWithProgress(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealChannelChatHarness(t, "chat-task-worker-codex-under-test", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_DurableTaskDelegatesToWorkerWithProgress(t *testing.T) {
+	runRealDurableTaskDelegatesToWorkerWithProgress(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "chat-task-worker-glm52-under-test", "glm-5.2", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_Codex_NaturalOperatorTaskTracksProgress(t *testing.T) {
+	t.Setenv("APTEVA_TASK_TRACKING", "1")
+	fixture := newDurableWorkerFixtureMCP(t, durableWorkerFixtureSuccess)
+	h := setupRealChannelChatHarness(
+		t,
+		"operator-task-progress-codex-under-test",
+		strings.Join([]string{
+			"You perform reliable operational audits and keep durable task progress current at meaningful milestones.",
+			"Do not start an audit, call an audit tool, or create a task until the operator explicitly assigns one.",
+		}, "\n"),
+		fmt.Sprintf(
+			`{"include_apteva_server":false,"include_channels":true,"mcp_servers":[{"name":"worker-fixture","transport":"http","url":%q}]}`,
+			fixture.URL,
+		),
+	)
+	waitForInitialAgentTurn(t, h)
+
+	task, created, err := h.server.store.CreateAgentTask(CreateAgentTaskInput{
+		AgentID:              h.agent.ID,
+		ProjectID:            h.agent.ProjectID,
+		Title:                "Review Atlas readiness, identify the important risks, and give me a prioritized action plan.",
+		AssignedThreadID:     "main",
+		CreatedByThreadID:    "api:user:1",
+		QueueHandoffDelivery: true,
+	})
+	if err != nil || !created {
+		t.Fatalf("create operator task: created=%v err=%v", created, err)
+	}
+	if err := deliverAndRecordTaskHandoff(
+		context.Background(),
+		h.server.store,
+		task,
+		h.server.deliverTaskHandoff,
+	); err != nil {
+		t.Fatalf("deliver operator task: %v", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Minute)
+	for time.Now().Before(deadline) {
+		task, err = h.server.store.GetAgentTask(h.agent.ID, task.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if taskStateTerminal(task.State) {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if task.State != taskStateCompleted || strings.TrimSpace(task.Result) == "" {
+		events, _ := h.server.store.ListAgentTaskEvents(h.agent.ID, task.ID)
+		t.Fatalf("natural operator task did not complete: task=%+v events=%+v", task, events)
+	}
+	if stages := fixture.Stages(); strings.Join(intStrings(stages), ",") != "1,2,3" {
+		t.Fatalf("natural operator task stages=%v, want exactly [1 2 3]", stages)
+	}
+
+	events, err := h.server.store.ListAgentTaskEvents(h.agent.ID, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var milestones []int
+	seen := map[int]bool{}
+	for _, event := range events {
+		progress := numericStatusProgress(event.Data["progress"])
+		if progress == nil {
+			continue
+		}
+		value := int(*progress)
+		if value >= 100 || seen[value] {
+			continue
+		}
+		seen[value] = true
+		milestones = append(milestones, value)
+	}
+	if len(milestones) < 2 || !strictlyIncreasing(milestones) {
+		t.Fatalf("natural operator task milestones=%v, want at least two increasing values before completion; events=%+v",
+			milestones, events)
+	}
+}
+
+func TestChannelChat_RealLLM_Codex_DurableWorkerFailureReturnsToOrigin(t *testing.T) {
+	runRealDurableWorkerFailureReturnsToOrigin(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealChannelChatHarness(t, "chat-task-worker-failure-codex-under-test", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_DurableWorkerFailureReturnsToOrigin(t *testing.T) {
+	runRealDurableWorkerFailureReturnsToOrigin(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "chat-task-worker-failure-glm52-under-test", "glm-5.2", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_Codex_DurableTaskCancellationStopsWorker(t *testing.T) {
+	runRealDurableTaskCancellationStopsWorker(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealChannelChatHarness(t, "chat-task-worker-cancel-codex-under-test", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_DurableTaskCancellationStopsWorker(t *testing.T) {
+	runRealDurableTaskCancellationStopsWorker(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "chat-task-worker-cancel-glm52-under-test", "glm-5.2", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_Codex_TaskOutcomeRecoversAcrossCoreRestart(t *testing.T) {
+	runRealTaskOutcomeRecoversAcrossCoreRestart(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealChannelChatHarness(t, "chat-task-recovery-codex-under-test", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_TaskOutcomeRecoversAcrossCoreRestart(t *testing.T) {
+	runRealTaskOutcomeRecoversAcrossCoreRestart(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "chat-task-recovery-glm52-under-test", "glm-5.2", directive, config)
+	})
+}
+
+func runRealDurableTaskHandoffToMain(t *testing.T, setupHarness func(*testing.T, string, string) *realChannelChatHarness) {
+	t.Helper()
+	t.Setenv("APTEVA_TASK_TRACKING", "1")
+	t.Setenv("APTEVA_TASK_SCHEDULING", "1")
+	directive := strings.Join([]string{
+		"# Role",
+		"You are a reliable personal assistant.",
+		"# Operating rules",
+		"Main owns persistent schedules. Exact cadence belongs in Tasks, not in the directive.",
+	}, "\n")
+	h := setupHarness(t, directive, `{"include_apteva_server":false,"include_channels":true}`)
+	waitForInitialAgentTurn(t, h)
+
+	var baselineMessageID int64
+	if err := h.server.store.db.QueryRow(
+		`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID,
+	).Scan(&baselineMessageID); err != nil {
+		t.Fatal(err)
+	}
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	h.post(t, "From now on, every day at 09:00 UTC, send me a notification saying exactly: Daily check-in.")
+
+	deadline := time.Now().Add(5 * time.Minute)
+	var tasks []AgentTask
+	var finalRows int
+	for time.Now().Before(deadline) {
+		var err error
+		tasks, err = h.server.store.ListAgentTasks(h.agent.ID, AgentTaskListFilter{
+			OriginConversationID: h.chatID, Limit: 10,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = h.server.store.db.QueryRow(`
+			SELECT COUNT(*) FROM channel_chat_messages
+			WHERE chat_id=? AND role='agent' AND id>?
+			  AND COALESCE(json_extract(metadata_json, '$.phase'), 'final')='final'`,
+			h.chatID, baselineMessageID,
+		).Scan(&finalRows)
+		if len(tasks) == 1 && validDirectConversationSchedule(&tasks[0], h.chatID, "0 9 * * *") &&
+			finalRows == 1 {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("scheduled chat request created %d tasks, want exactly one: %+v", len(tasks), tasks)
+	}
+	task := tasks[0]
+	if !validDirectConversationSchedule(&task, h.chatID, "0 9 * * *") {
+		t.Fatalf("conversation did not create the authoritative structured schedule: %+v", task)
+	}
+	if task.ParentTaskID != "" || task.HandoffDeliveryStatus != "" ||
+		task.CompletionDeliveryStatus != "" {
+		t.Fatalf("scheduled task retained setup or early-delivery state: %+v", task)
+	}
+	if finalRows != 1 {
+		t.Fatalf("visible final rows=%d, want exactly one", finalRows)
+	}
+	updatedAgent, err := h.server.store.GetAgentByID(h.agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directiveLower := strings.ToLower(updatedAgent.Directive)
+	if strings.Contains(directiveLower, "09:00") || strings.Contains(directiveLower, "0 9 * * *") {
+		t.Fatalf("exact cadence leaked into the directive instead of remaining in Tasks:\n%s", updatedAgent.Directive)
+	}
+	reply := strings.ToLower(latestAgentChatReply(t, h.server, h.chatID))
+	if !strings.Contains(reply, "09:00") || !strings.Contains(reply, "daily check-in") {
+		t.Fatalf("final reply omitted the confirmed schedule: %q", reply)
+	}
+
+	var conversationCreates, mainCreates, completes, conversationHandoffs int
+	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+		var data struct {
+			Name string         `json:"name"`
+			Args map[string]any `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil {
+			continue
+		}
+		switch {
+		case realToolNameMatches(data.Name, "task_create"):
+			if event.ThreadID == "chat-"+h.chatID && realTaskScheduleArgumentPresent(data.Args["schedule"]) {
+				conversationCreates++
+			}
+			if event.ThreadID == "main" {
+				mainCreates++
+			}
+		case realToolNameMatches(data.Name, "task_complete"):
+			completes++
+		case realToolNameMatches(data.Name, "send") && event.ThreadID == "chat-"+h.chatID:
+			target, _ := data.Args["id"].(string)
+			if target == "main" || target == "parent" {
+				conversationHandoffs++
+			}
+		}
+	}
+	if conversationCreates != 1 || mainCreates != 0 || completes != 0 || conversationHandoffs != 0 {
+		t.Fatalf(
+			"task flow conversation_create=%d main_create=%d completes=%d manual_handoffs=%d, want 1/0/0/0",
+			conversationCreates, mainCreates, completes, conversationHandoffs,
+		)
+	}
+}
+
+func runRealDurableTaskDelegatesToWorkerWithProgress(
+	t *testing.T,
+	setupHarness func(*testing.T, string, string) *realChannelChatHarness,
+) {
+	t.Helper()
+	t.Setenv("APTEVA_TASK_TRACKING", "1")
+	fixture := newDurableWorkerFixtureMCP(t, durableWorkerFixtureSuccess)
+	directive := strings.Join([]string{
+		"# Role",
+		"You run reliable operational audits for the operator.",
+		"# Working rules",
+		"Do not start an audit or create a task until the operator explicitly requests one.",
+		"Durable work that must continue after a conversation is owned by main.",
+		"Substantial bounded audits may be delegated to a dedicated worker while main remains accountable.",
+	}, "\n")
+	h := setupHarness(t, directive, fmt.Sprintf(
+		`{"include_apteva_server":false,"include_channels":true,"mcp_servers":[{"name":"worker-fixture","transport":"http","url":%q}]}`,
+		fixture.URL,
+	))
+	waitForInitialAgentTurn(t, h)
+
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	var baselineMessageID int64
+	if err := h.server.store.db.QueryRow(
+		`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID,
+	).Scan(&baselineMessageID); err != nil {
+		t.Fatal(err)
+	}
+	h.post(t, "Run a durable three-stage Atlas readiness audit. I am leaving this chat, so hand it to main and have a separate worker execute all three stages. Track meaningful progress and return the verified outcome here when it is complete.")
+
+	var tasks []AgentTask
+	closedStream := false
+	deadline := time.Now().Add(5 * time.Minute)
+	for time.Now().Before(deadline) {
+		var err error
+		tasks, err = h.server.store.ListAgentTasks(h.agent.ID, AgentTaskListFilter{
+			OriginConversationID: h.chatID, Limit: 10,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) == 1 && tasks[0].AssignedThreadID != "" &&
+			tasks[0].AssignedThreadID != "main" &&
+			tasks[0].AssignedThreadID != "chat-"+h.chatID && !closedStream {
+			// The durable task must finish and persist its final chat reply even
+			// after the dashboard connection that originated it has gone away.
+			h.closeChatStream(t)
+			closedStream = true
+		}
+		if len(tasks) == 1 && tasks[0].State == taskStateCompleted &&
+			tasks[0].CompletionDeliveryStatus == "delivered" &&
+			countFinalChatRowsAfter(t, h.server, h.chatID, baselineMessageID) == 1 {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("worker flow created %d tasks, want exactly one: %+v", len(tasks), tasks)
+	}
+	task := tasks[0]
+	conversationThreadID := "chat-" + h.chatID
+	if task.AssignedThreadID == "" || task.AssignedThreadID == "main" ||
+		task.AssignedThreadID == conversationThreadID ||
+		task.State != taskStateCompleted ||
+		task.HandoffDeliveryStatus != "delivered" ||
+		task.CompletionDeliveryStatus != "delivered" ||
+		strings.TrimSpace(task.Result) == "" {
+		t.Fatalf("unexpected worker-completed task: %+v", task)
+	}
+	if !closedStream {
+		t.Fatal("task never reached a dedicated worker before completion")
+	}
+	if finalRows := countFinalChatRowsAfter(t, h.server, h.chatID, baselineMessageID); finalRows != 1 {
+		t.Fatalf("final rows=%d, want exactly one persisted final after disconnect", finalRows)
+	}
+	reply := strings.ToLower(latestAgentChatReply(t, h.server, h.chatID))
+	if !strings.Contains(reply, "atlas") ||
+		(!strings.Contains(reply, "ready") && !strings.Contains(reply, "audit")) {
+		t.Fatalf("final reply omitted the worker outcome: %q", reply)
+	}
+	if stages := fixture.Stages(); strings.Join(intStrings(stages), ",") != "1,2,3" {
+		taskEvents, _ := h.server.store.ListAgentTaskEvents(h.agent.ID, task.ID)
+		var toolTrace []string
+		for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+			var data struct {
+				Name string         `json:"name"`
+				Args map[string]any `json:"args"`
+			}
+			if json.Unmarshal(event.Data, &data) != nil {
+				continue
+			}
+			toolTrace = append(toolTrace, fmt.Sprintf("%s:%s:%v", event.ThreadID, data.Name, data.Args))
+		}
+		t.Fatalf("domain stages=%v, want exactly [1 2 3]; task_events=%+v; tool_trace=%v",
+			stages, taskEvents, toolTrace)
+	}
+
+	events, err := h.server.store.ListAgentTaskEvents(h.agent.ID, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workerProgress []int
+	var completedStepKeys []string
+	assignmentEvents := 0
+	for _, event := range events {
+		if event.EventType == "assigned" {
+			if assigned, _ := event.Data["assigned_thread_id"].(string); assigned == task.AssignedThreadID {
+				assignmentEvents++
+			}
+		}
+		if event.ThreadID != task.AssignedThreadID {
+			continue
+		}
+		if event.EventType == "step_completed" {
+			if key, _ := event.Data["step_key"].(string); key != "" {
+				completedStepKeys = append(completedStepKeys, key)
+			}
+		}
+		currentStep, _ := event.Data["current_step"].(string)
+		if strings.HasPrefix(currentStep, "Completed step ") {
+			raw, ok := event.Data["progress"].(float64)
+			if !ok {
+				continue
+			}
+			workerProgress = append(workerProgress, int(raw))
+		}
+	}
+	if len(workerProgress) < 2 || !strictlyIncreasing(workerProgress) {
+		t.Fatalf("worker progress=%v, want at least two increasing milestones; events=%+v", workerProgress, events)
+	}
+	if len(completedStepKeys) != 3 {
+		t.Fatalf("completed server-owned steps=%v, want exactly three; events=%+v", completedStepKeys, events)
+	}
+	if assignmentEvents != 1 {
+		t.Fatalf("persisted worker assignments=%d, want exactly one; events=%+v", assignmentEvents, events)
+	}
+
+	var creates, directAssignments, serverSpawns, unsafeCoreSpawns, completes, stepCalls int
+	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+		var data struct {
+			Name string         `json:"name"`
+			Args map[string]any `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil {
+			continue
+		}
+		switch {
+		case taskToolNameIs(data.Name, "task_create"):
+			creates++
+		case taskToolNameIs(data.Name, "task_assign"):
+			directAssignments++
+		case taskToolNameIs(data.Name, "task_spawn_worker"):
+			serverSpawns++
+		case data.Name == "spawn" && event.ThreadID == "main":
+			unsafeCoreSpawns++
+		case taskToolNameIs(data.Name, "task_complete"):
+			completes++
+			if event.ThreadID != task.AssignedThreadID {
+				t.Fatalf("task completed from %q, assigned worker is %q", event.ThreadID, task.AssignedThreadID)
+			}
+		case taskToolNameIs(data.Name, "task_run_step"):
+			stepCalls++
+			if event.ThreadID != task.AssignedThreadID {
+				t.Fatalf("task step ran from %q, assigned worker is %q", event.ThreadID, task.AssignedThreadID)
+			}
+		}
+	}
+	if creates != 1 || directAssignments != 0 || serverSpawns < 1 || serverSpawns > 2 ||
+		unsafeCoreSpawns != 0 || completes != 1 ||
+		stepCalls < 3 || stepCalls > 5 {
+		t.Fatalf("worker flow calls create=%d direct_assign=%d server_spawn_attempts=%d unsafe_core_spawn=%d complete=%d task_steps=%d, want 1/0/1..2/0/1/3..5",
+			creates, directAssignments, serverSpawns, unsafeCoreSpawns, completes, stepCalls)
+	}
+}
+
+func runRealDurableWorkerFailureReturnsToOrigin(
+	t *testing.T,
+	setupHarness func(*testing.T, string, string) *realChannelChatHarness,
+) {
+	t.Helper()
+	t.Setenv("APTEVA_TASK_TRACKING", "1")
+	fixture := newDurableWorkerFixtureMCP(t, durableWorkerFixtureFailure)
+	directive := strings.Join([]string{
+		"# Role",
+		"You run compatibility checks for the operator.",
+		"# Working rules",
+		"Do not start a compatibility check or create a task until the operator explicitly requests one.",
+		"Durable checks that outlive chat are owned by main and substantial bounded work may use a dedicated worker.",
+		"Record unrecoverable tool rejection as a failed durable task with the concrete error.",
+	}, "\n")
+	h := setupHarness(t, directive, fmt.Sprintf(
+		`{"include_apteva_server":false,"include_channels":true,"mcp_servers":[{"name":"worker-fixture","transport":"http","url":%q}]}`,
+		fixture.URL,
+	))
+	waitForInitialAgentTurn(t, h)
+
+	var baselineMessageID int64
+	_ = h.server.store.db.QueryRow(
+		`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID,
+	).Scan(&baselineMessageID)
+	h.post(t, "Run a durable Atlas compatibility check after I leave. Hand it to main and use a separate worker for the check. If the checker reports that the rejection is permanent, stop and return that failure here rather than pretending the task succeeded.")
+
+	var tasks []AgentTask
+	deadline := time.Now().Add(5 * time.Minute)
+	for time.Now().Before(deadline) {
+		tasks, _ = h.server.store.ListAgentTasks(h.agent.ID, AgentTaskListFilter{
+			OriginConversationID: h.chatID, Limit: 10,
+		})
+		if len(tasks) == 1 && tasks[0].State == taskStateFailed &&
+			tasks[0].CompletionDeliveryStatus == "delivered" &&
+			countFinalChatRowsAfter(t, h.server, h.chatID, baselineMessageID) == 1 {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("failure flow created %d tasks, want one: %+v", len(tasks), tasks)
+	}
+	task := tasks[0]
+	errorLower := strings.ToLower(task.Error)
+	if task.AssignedThreadID == "main" || strings.HasPrefix(task.AssignedThreadID, "chat-") ||
+		task.State != taskStateFailed || task.CompletionDeliveryStatus != "delivered" ||
+		(!strings.Contains(errorLower, "permanent") &&
+			!strings.Contains(errorLower, "cannot be retried") &&
+			!strings.Contains(errorLower, "incompatible")) {
+		t.Fatalf("unexpected failed worker task: %+v", task)
+	}
+	if calls := fixture.Failures(); calls < 1 || calls > 2 {
+		t.Fatalf("failure tool calls=%d, want bounded termination after at most one provider retry", calls)
+	}
+	if finalRows := countFinalChatRowsAfter(t, h.server, h.chatID, baselineMessageID); finalRows != 1 {
+		t.Fatalf("failure final rows=%d, want exactly one", finalRows)
+	}
+	reply := strings.ToLower(latestAgentChatReply(t, h.server, h.chatID))
+	if !strings.Contains(reply, "fail") && !strings.Contains(reply, "permanent") {
+		t.Fatalf("origin did not receive concrete failure: %q", reply)
+	}
+
+	taskEvents, err := h.server.store.ListAgentTaskEvents(h.agent.ID, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acceptedFailures := 0
+	failedSteps := 0
+	for _, event := range taskEvents {
+		if event.EventType == "state_changed" && event.ToState == taskStateFailed {
+			acceptedFailures++
+			if event.ThreadID != task.AssignedThreadID {
+				t.Fatalf("accepted failure event came from %q, assigned=%q: %+v",
+					event.ThreadID, task.AssignedThreadID, taskEvents)
+			}
+		}
+		if event.EventType == "step_failed" {
+			failedSteps++
+			if event.ThreadID != task.AssignedThreadID {
+				t.Fatalf("failed server-owned step came from %q, assigned=%q: %+v",
+					event.ThreadID, task.AssignedThreadID, taskEvents)
+			}
+		}
+	}
+	if acceptedFailures != 1 {
+		t.Fatalf("accepted failure events=%d, want exactly one: %+v", acceptedFailures, taskEvents)
+	}
+	if failedSteps != 1 || strings.TrimSpace(task.Result) != "" {
+		t.Fatalf("server-owned failed steps=%d result=%q, want one failed step and no completion: %+v",
+			failedSteps, task.Result, taskEvents)
+	}
+}
+
+func runRealDurableTaskCancellationStopsWorker(
+	t *testing.T,
+	setupHarness func(*testing.T, string, string) *realChannelChatHarness,
+) {
+	t.Helper()
+	t.Setenv("APTEVA_TASK_TRACKING", "1")
+	fixture := newDurableWorkerFixtureMCP(t, durableWorkerFixtureWaiting)
+	directive := strings.Join([]string{
+		"# Role",
+		"You coordinate long-running imports for the operator.",
+		"# Working rules",
+		"Do not start an import or create a task until the operator explicitly requests one.",
+		"Durable imports are owned by main and substantial bounded work may use a dedicated worker.",
+		"A submitted import is waiting, not complete, until the external release arrives.",
+	}, "\n")
+	h := setupHarness(t, directive, fmt.Sprintf(
+		`{"include_apteva_server":false,"include_channels":true,"mcp_servers":[{"name":"worker-fixture","transport":"http","url":%q}]}`,
+		fixture.URL,
+	))
+	waitForInitialAgentTurn(t, h)
+
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	var baselineMessageID int64
+	_ = h.server.store.db.QueryRow(
+		`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID,
+	).Scan(&baselineMessageID)
+	h.post(t, "Start a durable Atlas archive import that can continue after I leave. Hand it to main and have a separate worker submit it, then keep the task waiting for the external release.")
+
+	var task *AgentTask
+	waitDeadline := time.Now().Add(5 * time.Minute)
+	for time.Now().Before(waitDeadline) {
+		tasks, _ := h.server.store.ListAgentTasks(h.agent.ID, AgentTaskListFilter{
+			OriginConversationID: h.chatID, Limit: 10,
+		})
+		if len(tasks) == 1 {
+			task = &tasks[0]
+			if task.State == taskStateCompleted || task.State == taskStateFailed {
+				t.Fatalf("pending import reached an unexpected terminal state before cancellation: %+v", task)
+			}
+			if task.State == taskStateWaiting && task.AssignedThreadID != "main" &&
+				!strings.HasPrefix(task.AssignedThreadID, "chat-") {
+				break
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if task == nil || task.State != taskStateWaiting {
+		t.Fatalf("worker did not leave durable import waiting: %+v", task)
+	}
+	if fixture.WaitingStarts() != 1 {
+		t.Fatalf("begin_long_import calls=%d, want exactly one", fixture.WaitingStarts())
+	}
+
+	h.post(t, "Cancel that Atlas archive import now. Do not let its worker continue.")
+	cancelDeadline := time.Now().Add(3 * time.Minute)
+	for time.Now().Before(cancelDeadline) {
+		current, err := h.server.store.GetAgentTask(h.agent.ID, task.ID)
+		if err == nil {
+			task = current
+		}
+		if task.State == taskStateCancelled &&
+			task.CompletionDeliveryStatus == "delivered" &&
+			countFinalChatRowsAfter(t, h.server, h.chatID, baselineMessageID) == 1 {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if task.State != taskStateCancelled || task.CompletionDeliveryStatus != "delivered" {
+		t.Fatalf("task was not cancelled and delivered: %+v", task)
+	}
+	if finalRows := countFinalChatRowsAfter(t, h.server, h.chatID, baselineMessageID); finalRows != 1 {
+		t.Fatalf("cancellation final rows=%d, want exactly one", finalRows)
+	}
+	reply := strings.ToLower(latestAgentChatReply(t, h.server, h.chatID))
+	if !strings.Contains(reply, "cancel") {
+		t.Fatalf("origin did not receive cancellation outcome: %q", reply)
+	}
+
+	var cancels, completes int
+	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+		var data struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil {
+			continue
+		}
+		switch {
+		case taskToolNameIs(data.Name, "task_cancel"):
+			cancels++
+			if event.ThreadID != "chat-"+h.chatID {
+				t.Fatalf("task_cancel ran from %q, want originating conversation", event.ThreadID)
+			}
+		case taskToolNameIs(data.Name, "task_complete"):
+			completes++
+		}
+	}
+	if cancels != 1 || completes != 0 {
+		t.Fatalf("cancellation calls cancel=%d complete=%d, want 1/0", cancels, completes)
+	}
+}
+
+func runRealTaskOutcomeRecoversAcrossCoreRestart(
+	t *testing.T,
+	setupHarness func(*testing.T, string, string) *realChannelChatHarness,
+) {
+	t.Helper()
+	t.Setenv("APTEVA_TASK_TRACKING", "1")
+	h := setupHarness(t,
+		"You reliably return durable operational outcomes to their originating user conversation.",
+		`{"include_apteva_server":false,"include_channels":true}`)
+	waitForInitialAgentTurn(t, h)
+
+	var baselineMessageID int64
+	_ = h.server.store.db.QueryRow(
+		`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`, h.chatID,
+	).Scan(&baselineMessageID)
+	task, _, err := h.server.store.CreateAgentTask(CreateAgentTaskInput{
+		AgentID: h.agent.ID, ProjectID: h.agent.ProjectID,
+		Title:                "Restart-safe Atlas export",
+		Description:          "Return the verified export outcome after the agent process is available again.",
+		AssignedThreadID:     "main",
+		OriginConversationID: h.chatID,
+		IdempotencyKey:       "restart-safe-atlas-export",
+		CreatedByThreadID:    "main",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h.server.agents.Stop(h.agent.ID)
+	stopDeadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(stopDeadline) && h.server.agents.GetPort(h.agent.ID) > 0 {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if h.server.agents.GetPort(h.agent.ID) > 0 {
+		t.Fatal("agent core did not stop before offline completion")
+	}
+
+	task, changed, err := h.server.store.CompleteAgentTask(
+		h.agent.ID, task.ID, "main",
+		"Atlas export completed and checksum sha256:atlas-verified was recorded.",
+	)
+	if err != nil || !changed {
+		t.Fatalf("record offline completion changed=%v err=%v", changed, err)
+	}
+	if err := deliverAndRecordTaskCompletion(
+		t.Context(), h.server.store, task, h.server.deliverTaskCompletion,
+	); err == nil {
+		t.Fatal("offline completion unexpectedly delivered while core was stopped")
+	}
+	task, err = h.server.store.GetAgentTask(h.agent.ID, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.CompletionDeliveryStatus != "failed" {
+		t.Fatalf("offline delivery status=%q, want failed: %+v", task.CompletionDeliveryStatus, task)
+	}
+
+	providerEnv, err := h.server.store.GetAllProviderEnvVars(
+		h.agent.UserID, h.server.secret, h.agent.ProjectID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.server.startManagedAgent(
+		h.agent, providerEnv,
+		h.server.GetProviderPool(h.agent.UserID, h.agent.ProjectID),
+	); err != nil {
+		t.Fatalf("restart agent after offline completion: %v", err)
+	}
+	if !waitForCoreListening(h.server.agents.GetPort(h.agent.ID), 30*time.Second) {
+		t.Fatalf("restarted core did not listen on port %d", h.server.agents.GetPort(h.agent.ID))
+	}
+
+	deadline := time.Now().Add(4 * time.Minute)
+	for time.Now().Before(deadline) {
+		task, _ = h.server.store.GetAgentTask(h.agent.ID, task.ID)
+		if task != nil && task.CompletionDeliveryStatus == "delivered" &&
+			countFinalChatRowsAfter(t, h.server, h.chatID, baselineMessageID) == 1 {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if task == nil || task.State != taskStateCompleted ||
+		task.CompletionDeliveryStatus != "delivered" ||
+		task.CompletionDeliveredAt == nil {
+		t.Fatalf("completion was not recovered after core restart: %+v", task)
+	}
+	if finalRows := countFinalChatRowsAfter(t, h.server, h.chatID, baselineMessageID); finalRows != 1 {
+		t.Fatalf("restart recovery final rows=%d, want exactly one", finalRows)
+	}
+	reply := strings.ToLower(latestAgentChatReply(t, h.server, h.chatID))
+	if !strings.Contains(reply, "atlas") ||
+		(!strings.Contains(reply, "checksum") && !strings.Contains(reply, "verified")) {
+		t.Fatalf("recovered final omitted authoritative result: %q", reply)
+	}
+
+	// Recovery is safe to run again once the durable receipt is marked.
+	h.server.recoverTaskDeliveries(h.agent.ID)
+	time.Sleep(2 * time.Second)
+	if finalRows := countFinalChatRowsAfter(t, h.server, h.chatID, baselineMessageID); finalRows != 1 {
+		t.Fatalf("repeated recovery duplicated the visible outcome: rows=%d", finalRows)
+	}
+}
+
+func countFinalChatRowsAfter(t *testing.T, s *Server, chatID string, afterID int64) int {
+	t.Helper()
+	var count int
+	if err := s.store.db.QueryRow(`
+		SELECT COUNT(*) FROM channel_chat_messages
+		WHERE chat_id=? AND role='agent' AND id>?
+		  AND COALESCE(json_extract(metadata_json, '$.phase'), 'final')='final'`,
+		chatID, afterID,
+	).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
+}
+
+func taskToolNameIs(actual, bare string) bool {
+	return actual == bare || strings.HasSuffix(actual, "_"+bare)
+}
+
+func intStrings(values []int) []string {
+	out := make([]string, len(values))
+	for i, value := range values {
+		out[i] = strconv.Itoa(value)
+	}
+	return out
+}
+
+func strictlyIncreasing(values []int) bool {
+	for i := 1; i < len(values); i++ {
+		if values[i] <= values[i-1] {
+			return false
+		}
+	}
+	return true
+}
+
+type durableWorkerFixtureMode string
+
+const (
+	durableWorkerFixtureSuccess durableWorkerFixtureMode = "success"
+	durableWorkerFixtureFailure durableWorkerFixtureMode = "failure"
+	durableWorkerFixtureWaiting durableWorkerFixtureMode = "waiting"
+)
+
+type durableWorkerFixtureMCP struct {
+	URL string
+
+	mu            sync.Mutex
+	stages        []int
+	failures      int
+	waitingStarts int
+}
+
+func (f *durableWorkerFixtureMCP) Stages() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]int(nil), f.stages...)
+}
+
+func (f *durableWorkerFixtureMCP) Failures() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.failures
+}
+
+func (f *durableWorkerFixtureMCP) WaitingStarts() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.waitingStarts
+}
+
+func newDurableWorkerFixtureMCP(t *testing.T, mode durableWorkerFixtureMode) *durableWorkerFixtureMCP {
+	t.Helper()
+	fixture := &durableWorkerFixtureMCP{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		var request struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		respond := func(result any, message string) {
+			response := map[string]any{"jsonrpc": "2.0"}
+			if len(request.ID) > 0 {
+				response["id"] = request.ID
+			}
+			if message != "" {
+				response["error"] = map[string]any{"code": -32603, "message": message}
+			} else {
+				response["result"] = result
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(response)
+		}
+		textResult := func(text string, isError bool) map[string]any {
+			return map[string]any{
+				"content": []map[string]string{{"type": "text", "text": text}},
+				"isError": isError,
+			}
+		}
+		switch request.Method {
+		case "initialize":
+			respond(map[string]any{
+				"protocolVersion": "2025-03-26",
+				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"serverInfo":      map[string]string{"name": "durable-worker-fixture", "version": "1.0.0"},
+			}, "")
+		case "tools/list":
+			var tool map[string]any
+			switch mode {
+			case durableWorkerFixtureSuccess:
+				tool = map[string]any{
+					"name":        "run_atlas_stage",
+					"description": "Execute one stage of the durable Atlas audit from a dedicated worker. Run stages 1, 2, and 3 in order, recording meaningful durable task progress between stages.",
+					"_meta":       map[string]any{"io.apteva/wakeOnResult": "always"},
+					"inputSchema": map[string]any{
+						"type": "object", "required": []string{"stage"},
+						"properties": map[string]any{
+							"stage": map[string]any{"type": "integer", "minimum": 1, "maximum": 3},
+						},
+					},
+				}
+			case durableWorkerFixtureFailure:
+				tool = map[string]any{
+					"name":        "run_permanent_check",
+					"description": "Run the Atlas compatibility checker once from the assigned worker. This fixture returns an unrecoverable permanent rejection; record the durable task as failed with its error and do not retry or complete it.",
+					"_meta":       map[string]any{"io.apteva/wakeOnResult": "always"},
+					"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+				}
+			default:
+				tool = map[string]any{
+					"name":        "begin_long_import",
+					"description": "Submit the Atlas archive import once from the assigned worker. Submission is not completion: record the durable task as waiting for the external release, then pace.",
+					"_meta":       map[string]any{"io.apteva/wakeOnResult": "always"},
+					"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+				}
+			}
+			respond(map[string]any{"tools": []map[string]any{tool}}, "")
+		case "tools/call":
+			var call struct {
+				Name      string         `json:"name"`
+				Arguments map[string]any `json:"arguments"`
+			}
+			if err := json.Unmarshal(request.Params, &call); err != nil {
+				respond(nil, "invalid tool call")
+				return
+			}
+			switch mode {
+			case durableWorkerFixtureSuccess:
+				if call.Name != "run_atlas_stage" {
+					respond(textResult("unknown tool", true), "")
+					return
+				}
+				stageValue, _ := call.Arguments["stage"].(float64)
+				stage := int(stageValue)
+				fixture.mu.Lock()
+				want := len(fixture.stages) + 1
+				fixture.stages = append(fixture.stages, stage)
+				fixture.mu.Unlock()
+				if stage != want {
+					respond(textResult(fmt.Sprintf("stage %d is out of order; expected %d", stage, want), true), "")
+					return
+				}
+				labels := map[int]string{
+					1: "inventory complete: 12 release controls found",
+					2: "verification complete: all 12 controls passed",
+					3: "summary complete: Atlas is ready with no blocking findings",
+				}
+				respond(textResult(labels[stage], false), "")
+			case durableWorkerFixtureFailure:
+				if call.Name != "run_permanent_check" {
+					respond(textResult("unknown tool", true), "")
+					return
+				}
+				fixture.mu.Lock()
+				fixture.failures++
+				fixture.mu.Unlock()
+				respond(textResult("PERMANENT REJECTION: Atlas runtime is incompatible with required ABI v9; this cannot be retried.", true), "")
+			default:
+				if call.Name != "begin_long_import" {
+					respond(textResult("unknown tool", true), "")
+					return
+				}
+				fixture.mu.Lock()
+				fixture.waitingStarts++
+				count := fixture.waitingStarts
+				fixture.mu.Unlock()
+				if count > 1 {
+					respond(textResult("duplicate submission rejected", true), "")
+					return
+				}
+				respond(textResult(`{"submission_id":"atlas-import-1","state":"pending_external_release","instruction":"This task is waiting, not completed. Record state=waiting and pace."}`, false), "")
+			}
+		default:
+			respond(nil, "method not found: "+request.Method)
+		}
+	}))
+	fixture.URL = server.URL
+	t.Cleanup(server.Close)
+	return fixture
+}
+
 func runRealActionBeforeReply(t *testing.T, setupHarness func(*testing.T, string, string) *realChannelChatHarness) {
 	t.Helper()
+	t.Setenv("APTEVA_TASK_TRACKING", "1")
 	var marked atomic.Int64
 	todoMCP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -241,6 +1355,23 @@ func runRealActionBeforeReply(t *testing.T, setupHarness func(*testing.T, string
 	if strings.Join(persistedPhases, ",") != "acknowledgement,final" {
 		t.Fatalf("persisted phases=%v, want acknowledgement,final", persistedPhases)
 	}
+	tasks, err := s.store.ListAgentTasks(agent.ID, AgentTaskListFilter{
+		OriginConversationID: chatID, Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("quick tool action created durable tasks: %+v", tasks)
+	}
+	for _, event := range calls {
+		var data struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(event.Data, &data) == nil && taskToolNameIs(data.Name, "task_create") {
+			t.Fatalf("quick tool action called task_create: %s", event.Data)
+		}
+	}
 }
 
 func TestChannelChat_RealLLM_Codex_ConversationUsesChildAndReportsProgress(t *testing.T) {
@@ -267,12 +1398,296 @@ func TestChannelChat_RealLLM_OpenCodeGLM52_ReportOnlyMilestoneDoesNotWait(t *tes
 	})
 }
 
+func TestChannelChat_RealLLM_Codex_MainDoesNotRecruitUserConversation(t *testing.T) {
+	runRealMainDoesNotRecruitUserConversation(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealChannelChatHarness(t, "main-chat-boundary-codex-under-test", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_MainDoesNotRecruitUserConversation(t *testing.T) {
+	runRealMainDoesNotRecruitUserConversation(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(
+			t, "main-chat-boundary-glm52-under-test", "glm-5.2", directive, config,
+		)
+	})
+}
+
+// runRealMainDoesNotRecruitUserConversation reproduces the production failure:
+// a main-owned recurring task becomes due while a capable chat-conv-* thread is
+// live. Main must do the work itself (or use a distinct worker), never recruit
+// the user conversation. The second phase sends the old bad assignment directly
+// to the conversation and proves the reciprocal boundary rejects it.
+func runRealMainDoesNotRecruitUserConversation(
+	t *testing.T,
+	setupHarness func(*testing.T, string, string) *realChannelChatHarness,
+) {
+	t.Helper()
+	var collections atomic.Int64
+	metricsMCP := newWeeklyMetricsTestMCP(t, &collections)
+
+	directive := strings.Join([]string{
+		"# Role",
+		"You own the operator's weekly business-metrics review.",
+		"# Recurring responsibility",
+		"Run the weekly review only when a system scheduled event says that cycle is due.",
+		"For a due cycle, call collect_weekly_metrics and record the completed global status.",
+		"Do not run the collection before its explicit scheduled event.",
+	}, "\n")
+	h := setupHarness(t, directive, fmt.Sprintf(
+		`{"include_apteva_server":false,"include_channels":true,"mcp_servers":[{"name":"weekly-metrics","transport":"http","url":%q}]}`,
+		metricsMCP.URL,
+	))
+	waitForInitialAgentTurn(t, h)
+
+	conversationThreadID := "chat-" + h.chatID
+	greetingDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	greetingResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	h.post(t, "Reply exactly CHAT READY. Do not perform any other work.")
+	greetingDeadline := time.Now().Add(3 * time.Minute)
+	for time.Now().Before(greetingDeadline) {
+		if strings.Contains(strings.ToUpper(latestAgentChatReply(t, h.server, h.chatID)), "CHAT READY") {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if got := latestAgentChatReply(t, h.server, h.chatID); !strings.Contains(strings.ToUpper(got), "CHAT READY") {
+		t.Fatalf("conversation did not become ready: %q", got)
+	}
+	waitForAgentTurnSettled(t, h, greetingDone, greetingResults, 4*time.Second)
+	if got := collections.Load(); got != 0 {
+		t.Fatalf("conversation ran recurring work before the scheduled event: collections=%d", got)
+	}
+
+	var chatMessagesBefore int
+	if err := h.server.store.db.QueryRow(
+		`SELECT COUNT(*) FROM channel_chat_messages WHERE chat_id=?`, h.chatID,
+	).Scan(&chatMessagesBefore); err != nil {
+		t.Fatalf("count chat messages before scheduled work: %v", err)
+	}
+	scheduledCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	scheduledDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	scheduledResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	scheduledEvent := strings.Join([]string{
+		"[system] [scheduled]",
+		"The weekly business-metrics cycle is due now.",
+		"Run collect_weekly_metrics once, record a completed global status for this cycle, then wait for the next scheduled event.",
+	}, "\n")
+	if err := postCoreEvent(
+		t.Context(),
+		h.server.agents.GetPort(h.agent.ID),
+		h.server.agents.GetCoreAPIKey(h.agent.ID),
+		"main",
+		scheduledEvent,
+	); err != nil {
+		t.Fatalf("post scheduled main event: %v", err)
+	}
+
+	scheduledDeadline := time.Now().Add(4 * time.Minute)
+	for time.Now().Before(scheduledDeadline) {
+		events := newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", scheduledCalls)
+		if collections.Load() > 0 && hasCompletedMainStatusCall(events) {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	waitForAgentTurnSettled(t, h, scheduledDone, scheduledResults, 8*time.Second)
+
+	scheduledEvents := newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", scheduledCalls)
+	if got := collections.Load(); got != 1 {
+		t.Fatalf("weekly collection calls=%d, want exactly one; tools=%v", got, toolNames(scheduledEvents))
+	}
+	var collectionThreads []string
+	for _, event := range scheduledEvents {
+		var data struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(event.Data, &data) == nil && isWeeklyMetricsTestTool(data.Name) {
+			collectionThreads = append(collectionThreads, event.ThreadID)
+		}
+	}
+	if len(collectionThreads) != 1 || strings.HasPrefix(collectionThreads[0], "chat-conv-") {
+		t.Fatalf("weekly collection threads=%v, want one main or dedicated non-conversation worker", collectionThreads)
+	}
+	if !hasCompletedMainStatusCall(scheduledEvents) {
+		t.Fatalf("scheduled cycle did not record completed status on main; tools=%v", toolNames(scheduledEvents))
+	}
+	assertMainDidNotTargetConversation(t, h.server, h.agent.ID, conversationThreadID)
+	var chatMessagesAfterScheduled int
+	_ = h.server.store.db.QueryRow(
+		`SELECT COUNT(*) FROM channel_chat_messages WHERE chat_id=?`, h.chatID,
+	).Scan(&chatMessagesAfterScheduled)
+	if chatMessagesAfterScheduled != chatMessagesBefore {
+		t.Fatalf("main-owned scheduled work leaked into chat: before=%d after=%d", chatMessagesBefore, chatMessagesAfterScheduled)
+	}
+
+	// Defence in depth: reproduce the exact bad parent assignment observed in
+	// production. With no outstanding STATUS QUERY or ACTION REQUIRED, the
+	// conversation must ignore it.
+	rejectionCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	rejectionDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	rejectionResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	if err := postCoreEvent(
+		t.Context(),
+		h.server.agents.GetPort(h.agent.ID),
+		h.server.agents.GetCoreAPIKey(h.agent.ID),
+		conversationThreadID,
+		"[from:main] Perform one bounded weekly metrics collection now. "+
+			"Call collect_weekly_metrics and return the findings to main via send, then remain idle.",
+	); err != nil {
+		t.Fatalf("post unsolicited main assignment: %v", err)
+	}
+	waitForAgentTurnSettled(t, h, rejectionDone, rejectionResults, 5*time.Second)
+
+	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", rejectionCalls) {
+		var data struct {
+			Name string         `json:"name"`
+			Args map[string]any `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil || event.ThreadID != conversationThreadID {
+			continue
+		}
+		target, _ := data.Args["id"].(string)
+		if isWeeklyMetricsTestTool(data.Name) ||
+			(data.Name == "send" && (target == "main" || target == "parent")) ||
+			data.Name == "channels_send" || strings.HasSuffix(data.Name, "_channels_send") {
+			t.Fatalf("conversation acted on unsolicited main assignment: tool=%s args=%v", data.Name, data.Args)
+		}
+	}
+	if got := collections.Load(); got != 1 {
+		t.Fatalf("conversation reran weekly collection after unsolicited assignment: collections=%d", got)
+	}
+	var chatMessagesAfterRejection int
+	_ = h.server.store.db.QueryRow(
+		`SELECT COUNT(*) FROM channel_chat_messages WHERE chat_id=?`, h.chatID,
+	).Scan(&chatMessagesAfterRejection)
+	if chatMessagesAfterRejection != chatMessagesBefore {
+		t.Fatalf("unsolicited main assignment produced a visible chat message: before=%d after=%d",
+			chatMessagesBefore, chatMessagesAfterRejection)
+	}
+}
+
+func newWeeklyMetricsTestMCP(t *testing.T, collections *atomic.Int64) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		var request struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		respond := func(result any, message string) {
+			response := map[string]any{"jsonrpc": "2.0"}
+			if len(request.ID) > 0 {
+				response["id"] = request.ID
+			}
+			if message != "" {
+				response["error"] = map[string]any{"code": -32603, "message": message}
+			} else {
+				response["result"] = result
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(response)
+		}
+		switch request.Method {
+		case "initialize":
+			respond(map[string]any{
+				"protocolVersion": "2025-03-26",
+				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"serverInfo":      map[string]string{"name": "weekly-metrics", "version": "1.0.0"},
+			}, "")
+		case "tools/list":
+			respond(map[string]any{"tools": []map[string]any{{
+				"name":        "collect_weekly_metrics",
+				"description": "Collect the due weekly business metrics. Call exactly once when the scheduled weekly cycle is currently due.",
+				"_meta":       map[string]any{"io.apteva/wakeOnResult": "always"},
+				"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+			}}}, "")
+		case "tools/call":
+			var params struct {
+				Name string `json:"name"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			if params.Name != "collect_weekly_metrics" {
+				respond(nil, "unknown tool: "+params.Name)
+				return
+			}
+			collections.Add(1)
+			respond(map[string]any{"content": []map[string]any{{
+				"type": "text",
+				"text": `{"period":"weekly","result":"12 qualified leads, 4 wins","next_review":"in 7 days"}`,
+			}}}, "")
+		default:
+			respond(nil, "method not found: "+request.Method)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func isWeeklyMetricsTestTool(name string) bool {
+	return name == "collect_weekly_metrics" || strings.HasSuffix(name, "_collect_weekly_metrics")
+}
+
+func hasCompletedMainStatusCall(events []TelemetryEvent) bool {
+	for _, event := range events {
+		var data struct {
+			Name string         `json:"name"`
+			Args map[string]any `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil || event.ThreadID != "main" || !isStatusToolName(data.Name) {
+			continue
+		}
+		state, _ := data.Args["state"].(string)
+		if strings.EqualFold(strings.TrimSpace(state), "completed") {
+			return true
+		}
+	}
+	return false
+}
+
+func assertMainDidNotTargetConversation(
+	t *testing.T,
+	s *Server,
+	agentID int64,
+	conversationThreadID string,
+) {
+	t.Helper()
+	events, err := s.store.QueryTelemetry(agentID, "tool.call", time.Time{}, 1000)
+	if err != nil {
+		t.Fatalf("query main conversation targeting: %v", err)
+	}
+	for _, event := range events {
+		if event.ThreadID != "main" {
+			continue
+		}
+		var data struct {
+			Name string         `json:"name"`
+			Args map[string]any `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil || (data.Name != "send" && data.Name != "update") {
+			continue
+		}
+		target, _ := data.Args["id"].(string)
+		if target == conversationThreadID {
+			t.Fatalf("main recruited reserved user conversation with %s: %v", data.Name, data.Args)
+		}
+	}
+}
+
 // runRealConversationUsesChildAndReportsProgress proves the server-created
 // conversation is a capable leader: it delegates one substantial, self-
 // contained workstream to a temporary child, reports meaningful progress to
 // the user, consumes the child result, and finishes without polluting main.
 func runRealConversationUsesChildAndReportsProgress(t *testing.T, setupHarness func(*testing.T, string, string) *realChannelChatHarness) {
 	t.Helper()
+	t.Setenv("APTEVA_TASK_TRACKING", "1")
 	directive := strings.Join([]string{
 		"# Role",
 		"You prepare concise launch plans for the operator.",
@@ -297,11 +1712,20 @@ func runRealConversationUsesChildAndReportsProgress(t *testing.T, setupHarness f
 
 	conversationThreadID := "chat-" + h.chatID
 	var finalReply string
+	var tasks []AgentTask
+	var finalWithoutTaskAt time.Time
 	// GLM 5.2 can take several provider turns to acknowledge, spawn, receive the
 	// child result, and synthesize the final. Allow enough time to distinguish
 	// a missing completion contract from ordinary provider latency.
 	deadline := time.Now().Add(5 * time.Minute)
 	for time.Now().Before(deadline) {
+		var err error
+		tasks, err = h.server.store.ListAgentTasks(h.agent.ID, AgentTaskListFilter{
+			OriginConversationID: h.chatID, Limit: 10,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 		calls := newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls)
 		spawned := false
 		childReported := false
@@ -323,8 +1747,17 @@ func runRealConversationUsesChildAndReportsProgress(t *testing.T, setupHarness f
 			}
 		}
 		finalReply = latestAgentChatReply(t, h.server, h.chatID)
-		if spawned && childReported && looksLikeLaunchPlanFinal(finalReply) {
+		taskComplete := len(tasks) == 1 && tasks[0].State == taskStateCompleted &&
+			tasks[0].CompletionDeliveryStatus == "delivered"
+		if spawned && childReported && taskComplete && looksLikeLaunchPlanFinal(finalReply) {
 			break
+		}
+		if spawned && childReported && len(tasks) == 0 && looksLikeLaunchPlanFinal(finalReply) {
+			if finalWithoutTaskAt.IsZero() {
+				finalWithoutTaskAt = time.Now()
+			} else if time.Since(finalWithoutTaskAt) > 15*time.Second {
+				break
+			}
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -335,6 +1768,7 @@ func runRealConversationUsesChildAndReportsProgress(t *testing.T, setupHarness f
 		Text string
 	}
 	var spawnCalls int
+	var taskCreates int
 	var mainSends int
 	var globalStatusCalls int
 	var childResultAt time.Time
@@ -349,6 +1783,8 @@ func runRealConversationUsesChildAndReportsProgress(t *testing.T, setupHarness f
 		}
 		target, _ := data.Args["id"].(string)
 		switch {
+		case taskToolNameIs(data.Name, "task_create"):
+			taskCreates++
 		case isStatusToolName(data.Name):
 			globalStatusCalls++
 		case event.ThreadID == conversationThreadID && data.Name == "spawn":
@@ -376,6 +1812,14 @@ func runRealConversationUsesChildAndReportsProgress(t *testing.T, setupHarness f
 	}
 	if globalStatusCalls != 0 {
 		t.Fatalf("self-contained conversation wrote %d global statuses; long chat progress must remain conversation-visible", globalStatusCalls)
+	}
+	if len(tasks) != 1 || tasks[0].AssignedThreadID != conversationThreadID ||
+		tasks[0].State != taskStateCompleted ||
+		tasks[0].CompletionDeliveryStatus != "delivered" {
+		t.Fatalf("self-contained tracked task=%+v, want one conversation-owned completed task", tasks)
+	}
+	if taskCreates != 1 {
+		t.Fatalf("self-contained conversation task_create calls=%d, want exactly one", taskCreates)
 	}
 	if childResultAt.IsZero() {
 		t.Fatalf("temporary child did not report a result to the conversation; calls=%v",
@@ -468,7 +1912,11 @@ func runRealReportOnlyMilestoneDoesNotWait(t *testing.T, setupHarness func(*test
 	h.post(t, "Assess launch readiness: automated tests pass, but the required operator documentation is missing. Record the decision as the appropriate milestone and tell me whether we should launch.")
 
 	conversationThreadID := "chat-" + h.chatID
-	deadline := time.Now().Add(120 * time.Second)
+	// GLM can spend close to two minutes producing the acknowledgement and
+	// durable handoff before main gets its first provider turn. Give the whole
+	// conversation -> main -> conversation sequence the same budget as the
+	// other multi-turn real-model tests.
+	deadline := time.Now().Add(5 * time.Minute)
 	var reportAt, finalAt time.Time
 	var reportText, finalText string
 	for time.Now().Before(deadline) {
@@ -1120,10 +2568,11 @@ func TestChannelChat_RealLLM_OpenCodeGLM52_NonPrimaryConversationReply(t *testin
 }
 
 // TestChannelChat_RealLLM_Codex_NonPrimaryConversationDurableHandoff proves
-// that an owner command which must outlive a custom conversation is handed to
-// main, persisted in main's directive, acknowledged back to the originating
-// chat thread, and not persisted into the disposable conversation thread.
-// The notification MCP is local and must not be called during configuration.
+// that an explicit schedule which must outlive a custom conversation becomes
+// exactly one main-owned structured task, is acknowledged from its creation
+// receipt, and does not wake main or execute early. Exact cadence must stay out
+// of the directive. The notification MCP is local and must not be called while
+// merely configuring or changing future work.
 func TestChannelChat_RealLLM_Codex_NonPrimaryConversationDurableHandoff(t *testing.T) {
 	runRealNonPrimaryConversationDurableHandoff(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
 		return setupRealChannelChatHarness(t, "conversation-durable-handoff-codex-under-test", directive, config)
@@ -1136,10 +2585,34 @@ func TestChannelChat_RealLLM_OpenCodeGLM52_NonPrimaryConversationDurableHandoff(
 	}, false, false)
 }
 
+func TestChannelChat_RealLLM_OpenCodeKimiK3_NonPrimaryConversationDurableHandoff(t *testing.T) {
+	runRealNonPrimaryConversationDurableHandoff(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "conversation-durable-handoff-kimi-k3-under-test", "kimi-k3", directive, config)
+	}, false, false)
+}
+
+func TestChannelChat_RealLLM_Codex_ConversationCreatesOneTimeScheduleDirectly(t *testing.T) {
+	runRealConversationOneTimeSchedule(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupRealChannelChatHarness(t, "conversation-once-schedule-codex-under-test", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeGLM52_ConversationCreatesOneTimeScheduleDirectly(t *testing.T) {
+	runRealConversationOneTimeSchedule(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "conversation-once-schedule-glm52-under-test", "glm-5.2", directive, config)
+	})
+}
+
+func TestChannelChat_RealLLM_OpenCodeKimiK3_ConversationCreatesOneTimeScheduleDirectly(t *testing.T) {
+	runRealConversationOneTimeSchedule(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
+		return setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t, "conversation-once-schedule-kimi-k3-under-test", "kimi-k3", directive, config)
+	})
+}
+
 // This narrower test owns one invariant independently from the end-to-end UX
-// test above: a disposable chat thread must recognize durable work as main's
-// responsibility. It may acknowledge and hand off, but it must neither evolve
-// itself nor execute the future notification. Main must perform the evolve.
+// test above: a disposable chat thread may create one main-owned schedule, but
+// it must neither evolve itself, create setup work, nor execute the future
+// notification. Main is woken only for a due occurrence.
 func TestChannelChat_RealLLM_Codex_ConversationDelegatesDurableWorkToMain(t *testing.T) {
 	runRealNonPrimaryConversationDurableHandoff(t, func(t *testing.T, directive, config string) *realChannelChatHarness {
 		return setupRealChannelChatHarness(t, "conversation-ownership-boundary-codex-under-test", directive, config)
@@ -1338,6 +2811,553 @@ func containsPatreonStatusFacts(text string) bool {
 
 func runRealNonPrimaryConversationDurableHandoff(t *testing.T, setupHarness func(*testing.T, string, string) *realChannelChatHarness, verifyScheduleChange, ownershipOnly bool) {
 	t.Helper()
+	t.Setenv("APTEVA_TASK_TRACKING", "1")
+	t.Setenv("APTEVA_TASK_SCHEDULING", "1")
+	var notificationCalls atomic.Int64
+	notificationsMCP := newScheduledNotificationTestMCP(t, &notificationCalls)
+
+	directive := strings.Join([]string{
+		"# Role",
+		"You help the operator manage reminders and notifications.",
+		"# Operating Rules",
+		"Send notifications only when they are currently due; never send a future notification early.",
+	}, "\n")
+	config := fmt.Sprintf(`{"include_apteva_server":false,"include_channels":true,"mcp_servers":[{"name":"notifications","transport":"http","url":%q}]}`, notificationsMCP.URL)
+	h := setupHarness(t, directive, config)
+	waitForInitialAgentTurn(t, h)
+
+	createBody, _ := json.Marshal(map[string]any{
+		"project_id": h.agent.ProjectID,
+		"title":      "Daily notification setup",
+		"agent_ids":  []int64{h.agent.ID},
+	})
+	createReq, _ := http.NewRequest(http.MethodPost, h.url+"/apps/channel-chat/conversations", bytes.NewReader(createBody))
+	createReq.Header.Set("Authorization", "Bearer "+h.apiKey)
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("create scheduled-task conversation: %v", err)
+	}
+	defer createResp.Body.Close()
+	if createResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(createResp.Body)
+		t.Fatalf("create scheduled-task conversation status=%d body=%s", createResp.StatusCode, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil || created.ID == "" {
+		t.Fatalf("decode scheduled-task conversation: id=%q err=%v", created.ID, err)
+	}
+	h.chatID = created.ID
+	conversationThreadID := "chat-" + created.ID
+
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	var baselineMessageID int64
+	_ = h.server.store.db.QueryRow(
+		`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`,
+		h.chatID,
+	).Scan(&baselineMessageID)
+
+	h.post(t, "From now on, every day at 09:00 UTC, send me a notification saying exactly: Daily check-in.")
+
+	var scheduleTask *AgentTask
+	var visibleReply string
+	deadline := time.Now().Add(5 * time.Minute)
+	for time.Now().Before(deadline) {
+		scheduleTask = findDirectConversationSchedule(t, h.server.store, h.agent.ID, created.ID)
+		visibleReply = latestAgentChatReply(t, h.server, h.chatID)
+		scheduleReady := validDirectConversationSchedule(scheduleTask, created.ID, "0 9 * * *")
+		if ownershipOnly && scheduleReady {
+			break
+		}
+		if !ownershipOnly && scheduleReady &&
+			strings.Contains(strings.ToLower(visibleReply), "daily check-in") &&
+			strings.Contains(visibleReply, "09:00") {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
+	scheduleTask = findDirectConversationSchedule(t, h.server.store, h.agent.ID, created.ID)
+	visibleReply = latestAgentChatReply(t, h.server, h.chatID)
+
+	type observedCall struct {
+		Thread string
+		Name   string
+		Args   map[string]any
+	}
+	var calls []observedCall
+	var conversationEvolved bool
+	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+		var data struct {
+			Name string         `json:"name"`
+			Args map[string]any `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil {
+			continue
+		}
+		calls = append(calls, observedCall{Thread: event.ThreadID, Name: data.Name, Args: data.Args})
+		if event.ThreadID == conversationThreadID && realToolNameMatches(data.Name, "evolve") {
+			conversationEvolved = true
+		}
+	}
+	var conversationScheduleCreates, mainCreates, completions, legacyParentSends int
+	for _, call := range calls {
+		switch {
+		case call.Thread == conversationThreadID && realToolNameMatches(call.Name, "task_create"):
+			if assignTo, _ := call.Args["assign_to"].(string); assignTo == "main" &&
+				realTaskScheduleArgumentPresent(call.Args["schedule"]) {
+				conversationScheduleCreates++
+			}
+		case call.Thread == "main" && realToolNameMatches(call.Name, "task_create"):
+			mainCreates++
+		case realToolNameMatches(call.Name, "task_complete"):
+			completions++
+		case call.Thread == conversationThreadID && realToolNameMatches(call.Name, "send"):
+			target, _ := call.Args["id"].(string)
+			if target == "main" || target == "parent" {
+				legacyParentSends++
+			}
+		}
+	}
+
+	if conversationScheduleCreates != 1 {
+		t.Fatalf("conversation scheduled task_create calls=%d, want exactly one: %+v", conversationScheduleCreates, calls)
+	}
+	if conversationEvolved {
+		t.Fatal("conversation thread incorrectly evolved its disposable directive")
+	}
+	if legacyParentSends != 0 {
+		t.Fatalf("conversation used %d legacy send(main) handoffs in addition to task_create", legacyParentSends)
+	}
+	if !validDirectConversationSchedule(scheduleTask, created.ID, "0 9 * * *") {
+		t.Fatalf("conversation did not create the expected single structured schedule: %+v", scheduleTask)
+	}
+	if mainCreates != 0 || completions != 0 {
+		t.Fatalf("schedule setup unnecessarily involved main: creates=%d completions=%d calls=%+v",
+			mainCreates, completions, calls)
+	}
+	if scheduleTask.ParentTaskID != "" || scheduleTask.HandoffDeliveryStatus != "" {
+		t.Fatalf("schedule configuration woke future work immediately: %+v", scheduleTask)
+	}
+	if notificationCalls.Load() != 0 {
+		t.Fatalf("notification tool calls=%d, want zero while configuring future work", notificationCalls.Load())
+	}
+	if ownershipOnly {
+		return
+	}
+	visibleReplyLower := strings.ToLower(visibleReply)
+	if !strings.Contains(visibleReplyLower, "daily check-in") || !strings.Contains(visibleReply, "09:00") {
+		t.Fatalf("originating conversation confirmation was not clear about the schedule: %q", visibleReply)
+	}
+	for _, internal := range []string{"main agent", "parent thread", "conversation thread", "directive", "handoff", "cron"} {
+		if strings.Contains(visibleReplyLower, internal) {
+			t.Fatalf("originating conversation exposed internal coordination %q: %q", internal, visibleReply)
+		}
+	}
+	var replyCount int
+	if err := h.server.store.db.QueryRow(`
+		SELECT COUNT(*) FROM channel_chat_messages
+		WHERE chat_id=? AND role='agent' AND id>?`, created.ID, baselineMessageID).Scan(&replyCount); err != nil {
+		t.Fatal(err)
+	}
+	if replyCount < 1 || replyCount > 3 {
+		t.Fatalf("conversation produced %d visible replies, want selective progress plus one final", replyCount)
+	}
+	resolver := &serverResolver{srv: h.server}
+	inst, err := resolver.OwnedInstance(h.agent.UserID, h.agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainDirective, err := resolver.MainDirective(inst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(mainDirective, "09:00") || strings.Contains(mainDirective, "0 9 * * *") {
+		t.Fatalf("exact cadence leaked into the directive instead of remaining in Tasks:\n%s", mainDirective)
+	}
+
+	if verifyScheduleChange {
+		verifyRealStructuredScheduleChange(
+			t, h, created.ID, conversationThreadID, scheduleTask.ID, notificationCalls.Load,
+		)
+		scheduleTask, err = h.server.store.GetAgentTask(h.agent.ID, scheduleTask.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	deleteReq, _ := http.NewRequest(http.MethodDelete, h.url+"/apps/channel-chat/conversation?id="+created.ID, nil)
+	deleteReq.Header.Set("Authorization", "Bearer "+h.apiKey)
+	deleteResp, err := http.DefaultClient.Do(deleteReq)
+	if err != nil {
+		t.Fatalf("delete scheduled-task conversation: %v", err)
+	}
+	defer deleteResp.Body.Close()
+	if deleteResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(deleteResp.Body)
+		t.Fatalf("delete scheduled-task conversation status=%d body=%s", deleteResp.StatusCode, body)
+	}
+	persisted, err := h.server.store.GetAgentTask(h.agent.ID, scheduleTask.ID)
+	if err != nil {
+		t.Fatalf("structured schedule disappeared with conversation deletion: %v", err)
+	}
+	wantExpression := "0 9 * * *"
+	if verifyScheduleChange {
+		wantExpression = "0 10 * * *"
+	}
+	if persisted.ScheduleExpression != wantExpression || !persisted.ScheduleEnabled {
+		t.Fatalf("unexpected schedule after conversation deletion: %+v", persisted)
+	}
+}
+
+func runRealConversationOneTimeSchedule(
+	t *testing.T,
+	setupHarness func(*testing.T, string, string) *realChannelChatHarness,
+) {
+	t.Helper()
+	t.Setenv("APTEVA_TASK_TRACKING", "1")
+	t.Setenv("APTEVA_TASK_SCHEDULING", "1")
+	var notificationCalls atomic.Int64
+	notificationsMCP := newScheduledNotificationTestMCP(t, &notificationCalls)
+	directive := strings.Join([]string{
+		"# Role",
+		"You help the operator send notifications at explicitly requested times.",
+		"# Operating Rules",
+		"Never send a future notification early.",
+	}, "\n")
+	config := fmt.Sprintf(`{"include_apteva_server":false,"include_channels":true,"mcp_servers":[{"name":"notifications","transport":"http","url":%q}]}`, notificationsMCP.URL)
+	h := setupHarness(t, directive, config)
+	waitForInitialAgentTurn(t, h)
+
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineActivity := telemetryEventIDs(t, h.server, h.agent.ID, "")
+	baselineMessageID := int64(0)
+	_ = h.server.store.db.QueryRow(
+		`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`,
+		h.chatID,
+	).Scan(&baselineMessageID)
+	requestedAt := time.Now().UTC()
+	h.post(t, "In 10 minutes, send me a notification saying exactly: Follow up now.")
+
+	var tasks []AgentTask
+	var finalRows int
+	deadline := time.Now().Add(4 * time.Minute)
+	for time.Now().Before(deadline) {
+		var err error
+		tasks, err = h.server.store.ListAgentTasks(h.agent.ID, AgentTaskListFilter{
+			OriginConversationID: h.chatID, Limit: 20,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = h.server.store.db.QueryRow(`
+			SELECT COUNT(*) FROM channel_chat_messages
+			WHERE chat_id=? AND role='agent' AND id>?
+			  AND COALESCE(json_extract(metadata_json, '$.phase'), 'final')='final'`,
+			h.chatID, baselineMessageID,
+		).Scan(&finalRows)
+		if len(tasks) == 1 && tasks[0].ScheduleKind == taskScheduleOnce &&
+			tasks[0].NextRunAt != nil && finalRows == 1 {
+			break
+		}
+		time.Sleep(400 * time.Millisecond)
+	}
+	waitForAgentActivityQuiet(t, h, baselineActivity, 6*time.Second)
+	tasks, err := h.server.store.ListAgentTasks(h.agent.ID, AgentTaskListFilter{
+		OriginConversationID: h.chatID, Limit: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalRows = 0
+	_ = h.server.store.db.QueryRow(`
+		SELECT COUNT(*) FROM channel_chat_messages
+		WHERE chat_id=? AND role='agent' AND id>?
+		  AND COALESCE(json_extract(metadata_json, '$.phase'), 'final')='final'`,
+		h.chatID, baselineMessageID,
+	).Scan(&finalRows)
+	if len(tasks) != 1 {
+		t.Fatalf("relative one-time request created %d tasks, want exactly one: %+v", len(tasks), tasks)
+	}
+	task := tasks[0]
+	if task.ScheduleKind != taskScheduleOnce || task.ParentTaskID != "" ||
+		task.OriginConversationID != h.chatID || task.AssignedThreadID != "main" ||
+		task.State != taskStateWaiting || !task.ScheduleEnabled ||
+		task.NextRunAt == nil || task.HandoffDeliveryStatus != "" {
+		t.Fatalf("unexpected one-time scheduled task: %+v", task)
+	}
+	if task.NextRunAt.Before(requestedAt.Add(9*time.Minute)) ||
+		task.NextRunAt.After(requestedAt.Add(11*time.Minute)) {
+		t.Fatalf("server-relative due time=%s, want about ten minutes after %s", task.NextRunAt, requestedAt)
+	}
+	if finalRows != 1 {
+		t.Fatalf("one-time schedule final rows=%d, want exactly one", finalRows)
+	}
+	if notificationCalls.Load() != 0 {
+		t.Fatalf("notification tool called %d times before the task was due", notificationCalls.Load())
+	}
+
+	conversationThreadID := "chat-" + h.chatID
+	var conversationCreates, mainCreates, completions, parentSends int
+	var usedAfter bool
+	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+		var data struct {
+			Name string         `json:"name"`
+			Args map[string]any `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil {
+			continue
+		}
+		switch {
+		case event.ThreadID == conversationThreadID && realToolNameMatches(data.Name, "task_create"):
+			conversationCreates++
+			schedule := realTaskScheduleArgumentMap(data.Args["schedule"])
+			after, _ := schedule["after"].(string)
+			usedAfter = strings.TrimSpace(after) == "10m"
+		case event.ThreadID == "main" && realToolNameMatches(data.Name, "task_create"):
+			mainCreates++
+		case realToolNameMatches(data.Name, "task_complete"):
+			completions++
+		case event.ThreadID == conversationThreadID && realToolNameMatches(data.Name, "send"):
+			target, _ := data.Args["id"].(string)
+			if target == "main" || target == "parent" {
+				parentSends++
+			}
+		}
+	}
+	if conversationCreates != 1 || !usedAfter || mainCreates != 0 ||
+		completions != 0 || parentSends != 0 {
+		t.Fatalf("one-time flow create=%d used_after=%v main_create=%d complete=%d parent_send=%d",
+			conversationCreates, usedAfter, mainCreates, completions, parentSends)
+	}
+	reply := strings.ToLower(latestAgentChatReply(t, h.server, h.chatID))
+	if !strings.Contains(reply, "follow up now") ||
+		(!strings.Contains(reply, "10 minute") && !strings.Contains(reply, "scheduled")) {
+		t.Fatalf("one-time schedule confirmation was unclear: %q", reply)
+	}
+}
+
+func realToolNameMatches(name, want string) bool {
+	name = strings.TrimSpace(name)
+	want = strings.TrimSpace(want)
+	return name == want || strings.HasSuffix(name, "_"+want)
+}
+
+func realTaskScheduleArgumentPresent(value any) bool {
+	return len(realTaskScheduleArgumentMap(value)) > 0
+}
+
+func realTaskScheduleArgumentMap(value any) map[string]any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed
+	case string:
+		var decoded map[string]any
+		if json.Unmarshal([]byte(typed), &decoded) == nil {
+			return decoded
+		}
+		return nil
+	default:
+		return nil
+	}
+}
+
+func newScheduledNotificationTestMCP(t *testing.T, notificationCalls *atomic.Int64) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		respond := func(result any, errMsg string) {
+			response := map[string]any{"jsonrpc": "2.0", "id": req.ID}
+			if errMsg != "" {
+				response["error"] = map[string]any{"code": -32603, "message": errMsg}
+			} else {
+				response["result"] = result
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(response)
+		}
+		switch req.Method {
+		case "initialize":
+			respond(map[string]any{
+				"protocolVersion": "2025-03-26",
+				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"serverInfo":      map[string]string{"name": "notifications", "version": "1.0.0"},
+			}, "")
+		case "tools/list":
+			respond(map[string]any{"tools": []map[string]any{{
+				"name":        "send_notification",
+				"description": "Send a notification immediately. Call only when it is due; configuring a future recurring task must not call this tool early.",
+				"inputSchema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"text": map[string]any{"type": "string"},
+					},
+					"required": []string{"text"},
+				},
+			}}}, "")
+		case "tools/call":
+			var params struct {
+				Name string `json:"name"`
+			}
+			_ = json.Unmarshal(req.Params, &params)
+			if params.Name != "send_notification" {
+				respond(nil, "unknown tool: "+params.Name)
+				return
+			}
+			notificationCalls.Add(1)
+			respond(map[string]any{"content": []map[string]any{{
+				"type": "text", "text": `{"status":"sent"}`,
+			}}}, "")
+		default:
+			respond(nil, "method not found: "+req.Method)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func findDirectConversationSchedule(t *testing.T, store *Store, agentID int64, conversationID string) *AgentTask {
+	t.Helper()
+	tasks, err := store.ListAgentTasks(agentID, AgentTaskListFilter{Limit: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schedule *AgentTask
+	for i := range tasks {
+		task := &tasks[i]
+		if task.ScheduleKind != "" && task.OriginConversationID == conversationID &&
+			task.ParentTaskID == "" {
+			if schedule == nil || task.CreatedAt.After(schedule.CreatedAt) {
+				schedule = task
+			}
+		}
+	}
+	return schedule
+}
+
+func validDirectConversationSchedule(schedule *AgentTask, conversationID, expression string) bool {
+	return schedule != nil &&
+		schedule.ParentTaskID == "" &&
+		schedule.OriginConversationID == conversationID &&
+		schedule.ScheduleKind == taskScheduleCron &&
+		schedule.ScheduleExpression == expression &&
+		schedule.ScheduleTimezone == "UTC" &&
+		schedule.ScheduleEnabled &&
+		schedule.NextRunAt != nil &&
+		schedule.AssignedThreadID == "main"
+}
+
+func verifyRealStructuredScheduleChange(
+	t *testing.T,
+	h *realChannelChatHarness,
+	conversationID, conversationThreadID, scheduleTaskID string,
+	notificationCount func() int64,
+) {
+	t.Helper()
+	baselineCalls := telemetryEventIDs(t, h.server, h.agent.ID, "tool.call")
+	baselineDone := telemetryEventIDs(t, h.server, h.agent.ID, "llm.done")
+	baselineResults := telemetryEventIDs(t, h.server, h.agent.ID, "tool.result")
+	var baselineMessageID int64
+	_ = h.server.store.db.QueryRow(
+		`SELECT COALESCE(MAX(id),0) FROM channel_chat_messages WHERE chat_id=?`,
+		h.chatID,
+	).Scan(&baselineMessageID)
+
+	h.post(t, "Change that schedule to 10:00 UTC instead.")
+
+	var changed *AgentTask
+	deadline := time.Now().Add(5 * time.Minute)
+	for time.Now().Before(deadline) {
+		changed, _ = h.server.store.GetAgentTask(h.agent.ID, scheduleTaskID)
+		latest := latestAgentChatReply(t, h.server, h.chatID)
+		if changed != nil && changed.ScheduleExpression == "0 10 * * *" &&
+			strings.Contains(latest, "10:00") {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	waitForAgentTurnSettled(t, h, baselineDone, baselineResults, 8*time.Second)
+	changed, err := h.server.store.GetAgentTask(h.agent.ID, scheduleTaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.ScheduleExpression != "0 10 * * *" || changed.ScheduleTimezone != "UTC" ||
+		!changed.ScheduleEnabled || changed.NextRunAt == nil {
+		t.Fatalf("main did not replace the structured schedule: %+v", changed)
+	}
+
+	var handoffs, replacementCreates, scheduleUpdates, conversationEvolves int
+	for _, event := range newTelemetryEvents(t, h.server, h.agent.ID, "tool.call", baselineCalls) {
+		var data struct {
+			Name string         `json:"name"`
+			Args map[string]any `json:"args"`
+		}
+		if json.Unmarshal(event.Data, &data) != nil {
+			continue
+		}
+		switch {
+		case event.ThreadID == conversationThreadID && realToolNameMatches(data.Name, "task_create"):
+			if assignTo, _ := data.Args["assign_to"].(string); assignTo == "main" {
+				replacementCreates++
+			}
+		case event.ThreadID == conversationThreadID && realToolNameMatches(data.Name, "send"):
+			target, _ := data.Args["id"].(string)
+			message, _ := data.Args["message"].(string)
+			if (target == "main" || target == "parent") &&
+				strings.Contains(strings.ToLower(message), "action required") {
+				handoffs++
+			}
+		case event.ThreadID == "main" && realToolNameMatches(data.Name, "task_update"):
+			if taskID, _ := data.Args["task_id"].(string); taskID == scheduleTaskID {
+				if realTaskScheduleArgumentPresent(data.Args["schedule"]) {
+					scheduleUpdates++
+				}
+			}
+		case event.ThreadID == conversationThreadID && data.Name == "evolve":
+			conversationEvolves++
+		}
+	}
+	if handoffs != 1 || replacementCreates != 0 || scheduleUpdates != 1 || conversationEvolves != 0 {
+		t.Fatalf("schedule edit path handoffs=%d replacement_creates=%d updates=%d conversation_evolves=%d",
+			handoffs, replacementCreates, scheduleUpdates, conversationEvolves)
+	}
+	if notificationCount() != 0 {
+		t.Fatalf("notification was sent while only changing its future schedule")
+	}
+	latest := latestAgentChatReply(t, h.server, h.chatID)
+	if !strings.Contains(latest, "10:00") {
+		t.Fatalf("schedule-change final confirmation is unclear: %q", latest)
+	}
+	var replyCount int
+	if err := h.server.store.db.QueryRow(`
+		SELECT COUNT(*) FROM channel_chat_messages
+		WHERE chat_id=? AND role='agent' AND id>?`,
+		conversationID, baselineMessageID,
+	).Scan(&replyCount); err != nil {
+		t.Fatal(err)
+	}
+	if replyCount < 1 || replyCount > 3 {
+		t.Fatalf("schedule change persisted %d replies, want selective progress plus one final", replyCount)
+	}
+}
+
+// runRealLegacyDirectiveScheduleHandoff retains the former test harness for
+// diagnosing old installations whose exact cadence still lives in a directive.
+// New tests above deliberately use the structured Tasks scheduler instead.
+func runRealLegacyDirectiveScheduleHandoff(t *testing.T, setupHarness func(*testing.T, string, string) *realChannelChatHarness, verifyScheduleChange, ownershipOnly bool) {
+	t.Helper()
 	var notificationCalls atomic.Int64
 	notificationsMCP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -1456,7 +3476,11 @@ func runRealNonPrimaryConversationDurableHandoff(t *testing.T, setupHarness func
 	}
 	childVisibleCalls := map[string]visibleCall{}
 	var childHandoffAt, mainReplyAt time.Time
-	deadline := time.Now().Add(120 * time.Second)
+	// GLM can take more than two minutes across the acknowledgement, main
+	// handoff, directive update, main reply, and final visible confirmation.
+	// Keep the behavioral assertions strict while allowing the full protocol
+	// enough wall-clock time to complete.
+	deadline := time.Now().Add(5 * time.Minute)
 	for time.Now().Before(deadline) {
 		mainDirective, _ = resolver.MainDirective(inst)
 		visibleReply = latestAgentChatReply(t, h.server, h.chatID)
@@ -2770,15 +4794,17 @@ func runRealStatusWorkSemantics(t *testing.T, h *realChannelChatHarness) {
 	})
 
 	t.Run("completed-recurring-work-stays-completed", func(t *testing.T) {
+		now := time.Now().UTC()
+		nextOccurrence := time.Date(now.Year(), now.Month(), now.Day()+1, 9, 0, 0, 0, time.UTC).Format(time.RFC3339)
 		calls := runRealStatusSemanticTurn(t, h, strings.Join([]string{
 			"You just finished a meaningful multi-step daily CRM check and found no unresolved conversations.",
 			"Update operator monitoring for that completed work.",
 			"The nearest next responsibility is exactly: Run the next daily CRM check.",
-			"That next responsibility is due at 2026-07-20T09:00:00Z.",
+			"That next responsibility is due at " + nextOccurrence + ".",
 		}, "\n"))
 		call := assertSingleStatusCall(t, calls, "completed")
 		assertProgress(t, call, 100, false)
-		if call.Next != "Run the next daily CRM check." || call.NextAt != "2026-07-20T09:00:00Z" {
+		if call.Next != "Run the next daily CRM check." || call.NextAt != nextOccurrence {
 			t.Fatalf("completed recurring status next=%q next_at=%q, want exact scheduled responsibility; call=%+v", call.Next, call.NextAt, call)
 		}
 		assertTitleDoesNotDescribeFutureOrWait(t, call.Title)
@@ -3002,6 +5028,10 @@ func setupOpenCodeChannelChatHarnessWithDirective(t *testing.T, agentName, model
 
 func setupOpenCodeChannelChatHarnessWithDirectiveAndConfig(t *testing.T, agentName, model, directive, config string) *realChannelChatHarness {
 	t.Helper()
+	if override := strings.TrimSpace(os.Getenv("OPENCODE_GO_REAL_LLM_MODEL_OVERRIDE")); override != "" {
+		t.Logf("OpenCode Go real-LLM model override: %s -> %s", model, override)
+		model = override
+	}
 	key := loadOpenCodeGoAPIKey(t)
 	providerState := map[string]any{
 		"OPENCODE_GO_API_KEY": key,
@@ -3420,6 +5450,33 @@ func waitForAgentTurnSettled(t *testing.T, h *realChannelChatHarness, baselineDo
 	t.Fatalf("agent turn did not settle: done=%s results=%s",
 		telemetryEventSignature(newTelemetryEvents(t, h.server, h.agent.ID, "llm.done", baselineDone)),
 		telemetryEventSignature(newChannelResultEvents(t, h.server, h.agent.ID, baselineResults)))
+}
+
+// waitForAgentActivityQuiet is intentionally provider-neutral. Some providers
+// finish a turn immediately after a terminal visible tool result, while others
+// emit a receipt-consumption model round and pace. Both are valid when Core is
+// inactive. Requiring inactivity plus a stable telemetry window catches late
+// duplicate calls without inventing a mandatory extra round.
+func waitForAgentActivityQuiet(t *testing.T, h *realChannelChatHarness, baseline map[string]bool, quietFor time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(45 * time.Second)
+	var stableSince time.Time
+	lastSignature := ""
+	for time.Now().Before(deadline) {
+		events := newTelemetryEvents(t, h.server, h.agent.ID, "", baseline)
+		signature := telemetryEventSignature(events)
+		active, err := readRealCoreLLMActive(h)
+		if err != nil || active || signature != lastSignature {
+			stableSince = time.Time{}
+			lastSignature = signature
+		} else if stableSince.IsZero() {
+			stableSince = time.Now()
+		} else if time.Since(stableSince) >= quietFor {
+			return
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	t.Fatalf("agent activity did not become quiet: events=%s", lastSignature)
 }
 
 func allStatusResultEvents(events []TelemetryEvent) bool {

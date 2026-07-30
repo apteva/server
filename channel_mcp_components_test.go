@@ -74,7 +74,7 @@ func TestBuildSendDescription_MessageWakesAgain(t *testing.T) {
 		"After any non-channel tool result used for the request",
 		"never leave it only in thoughts or plain assistant output",
 		"Use publish for approvals/reports/alerts",
-		"set_status for mutable work state",
+		"set_status for a non-task operational summary or next scheduled action",
 		"later outcome of work explicitly requested in that chat",
 		"Do NOT send ordinary chat for autonomous or scheduled checks",
 		"unchanged or no-op results",
@@ -262,20 +262,25 @@ func TestChannelMCPAdvertisesUnconditionalSchemas(t *testing.T) {
 			t.Fatalf("set_status schema still advertises legacy field %q", legacy)
 		}
 	}
+	if _, exists := statusProps["progress"]; exists {
+		t.Fatal("set_status schema still advertises deprecated progress; task_update owns percentages")
+	}
 	statusDescription, _ := byName["set_status"]["description"].(string)
 	titleDescription, _ := statusProps["title"].(map[string]any)["description"].(string)
-	progressDescription, _ := statusProps["progress"].(map[string]any)["description"].(string)
 	nextDescription, _ := statusProps["next"].(map[string]any)["description"].(string)
 	nextAtDescription, _ := nextAt["description"].(string)
 	for _, want := range []string{
-		"meaningful operator-relevant work",
+		"meaningful non-task operator-relevant work",
+		"durable task is the authoritative record",
+		"use task_update and task_complete",
+		"never mirror task state or percentage",
 		"Every due cycle of a directive-defined recurring monitor MUST call this tool exactly once",
 		"required completion receipt",
 		"always set next_at",
 		"scheduler event",
 		"recurring-cycle requirement overrides the general read-only, isolated quick-action, and channel-publication exclusions",
 		"multi-step, long-running, or cannot currently continue",
-		"always call this tool at meaningful phase changes",
+		"call this tool at meaningful phase changes",
 		"do not merely describe the state in thoughts or chat",
 		"even when no other action tool remains",
 		"expected pause in that same unfinished work unit",
@@ -285,7 +290,6 @@ func TestChannelMCPAdvertisesUnconditionalSchemas(t *testing.T) {
 		"never a future action or waiting/blocking condition",
 		`title="Customer update publication" over "Waiting for approval"`,
 		`title="CRM contact import" over "CRM import blocked"`,
-		"never use waiting with 100 percent",
 		"directive or memory edits",
 		"channel messages or publications",
 		"merely sleeping until future recurring work",
@@ -318,9 +322,8 @@ func TestChannelMCPAdvertisesUnconditionalSchemas(t *testing.T) {
 		}
 	}
 	for label, pair := range map[string][2]string{
-		"title":    {titleDescription, "Never use a future action, waiting condition, or internal agent administration"},
-		"progress": {progressDescription, "Never use waiting with 100 percent"},
-		"next":     {nextDescription, "No pending work"},
+		"title": {titleDescription, "Never use a future action, waiting condition, or internal agent administration"},
+		"next":  {nextDescription, "No pending work"},
 	} {
 		if !strings.Contains(pair[0], pair[1]) {
 			t.Fatalf("set_status %s description missing %q: %s", label, pair[1], pair[0])
@@ -334,12 +337,18 @@ func TestChannelMCPAdvertisesUnconditionalSchemas(t *testing.T) {
 func TestChannelMCPSetStatusDescriptionSeparatesCurrentWorkFromFutureSchedule(t *testing.T) {
 	desc := buildSetStatusDescription()
 	for _, want := range []string{
-		"Status answers: what meaningful operator-relevant work",
+		"Status answers: what meaningful non-task operator-relevant work",
+		"TASK-BACKED WORK RULE",
+		"never mirror task state or percentage",
+		"SCHEDULE-ADOPTION RULE",
+		"Creating or editing a recurring schedule is not a due cycle",
+		"do not start the scheduled work, search for its tools, or emit working, blocked, waiting, or completed status",
+		"already passed before adoption never implies a missed run or catch-up",
+		"first run is the next future occurrence",
 		"Use waiting only for an expected pause in that same unfinished work unit",
 		"A future recurring task does not make completed work waiting",
 		"title names the current work unit or completed outcome",
 		"never a future action or waiting/blocking condition",
-		"never use waiting with 100 percent",
 		"Except for the completed recurring-monitor cycle defined above",
 		"skip status for directive or memory edits",
 		"status maintenance itself",
@@ -386,8 +395,11 @@ func TestChannelMCPRoleProfilesExposeOnlyOwnedTools(t *testing.T) {
 		description, _ := tool["description"].(string)
 		for _, required := range []string{
 			"Main is their only writer",
-			"updating main's own directive with evolve",
-			"Do not spawn a persistent child merely to hold that schedule or behavior",
+			"conversation creates one structured task assigned to main",
+			"must not create a setup task or linked schedule",
+			"Never copy cron, interval, timestamp, or task identity into the directive",
+			"Evolve the directive separately only when the user changes the agent's broader continuing responsibility",
+			"Do not create a persistent child thread to hold a schedule",
 			"Never grant a child any agent-output tool",
 			"report results and state changes to main with core send",
 		} {

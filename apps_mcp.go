@@ -31,6 +31,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strings"
 
@@ -209,37 +210,43 @@ func (s *Server) unregisterAppMCP(installID int64) error {
 // One-shot at boot. Failures for one install don't stop others.
 func (s *Server) backfillAppMCPs() {
 	rows, err := s.store.db.Query(
-		`SELECT i.id FROM app_installs i WHERE i.status = 'running'`,
+		`SELECT i.id, COALESCE(i.app_token_hash,''), COALESCE(m.url,'')
+		 FROM app_installs i
+		 LEFT JOIN mcp_servers m ON m.upstream_id = 'app:' || i.id
+		 WHERE i.status = 'running'`,
 	)
 	if err != nil {
 		log.Printf("[APPS-MCP] backfill query failed: %v", err)
 		return
 	}
 	defer rows.Close()
-	var ids []int64
+	type candidate struct {
+		id        int64
+		tokenHash string
+		mcpURL    string
+	}
+	var candidates []candidate
 	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err == nil {
-			ids = append(ids, id)
+		var item candidate
+		if err := rows.Scan(&item.id, &item.tokenHash, &item.mcpURL); err == nil {
+			candidates = append(candidates, item)
 		}
 	}
 	registered := 0
 	skipped := 0
-	for _, id := range ids {
-		// Skip ones that already have a bridge row — registerAppMCP
-		// would update them, but at boot we want to avoid the chatty
-		// log line for every steady-state install.
-		var exists int
-		err := s.store.db.QueryRow(
-			`SELECT 1 FROM mcp_servers WHERE upstream_id = ?`,
-			appMCPUpstreamID(id),
-		).Scan(&exists)
-		if err == nil {
+	for _, item := range candidates {
+		// A bridge row is only reusable when its embedded capability is
+		// still the install's current token. Older releases used dev-<id>
+		// URLs, and a lazily rotated encrypted token can also make an
+		// otherwise present row unusable. Merely checking row existence
+		// left both new selections and persisted agents pointing at a URL
+		// that returned HTTP 401.
+		if appMCPURLMatchesTokenHash(item.mcpURL, item.tokenHash) {
 			skipped++
 			continue
 		}
-		if err := s.registerAppMCP(id); err != nil {
-			log.Printf("[APPS-MCP] backfill install=%d failed: %v", id, err)
+		if err := s.registerAppMCP(item.id); err != nil {
+			log.Printf("[APPS-MCP] backfill install=%d failed: %v", item.id, err)
 			continue
 		}
 		registered++
@@ -247,4 +254,46 @@ func (s *Server) backfillAppMCPs() {
 	if registered > 0 || skipped > 0 {
 		log.Printf("[APPS-MCP] backfill complete: registered=%d already_present=%d", registered, skipped)
 	}
+}
+
+func appMCPURLMatchesTokenHash(rawURL, tokenHash string) bool {
+	if rawURL == "" || tokenHash == "" {
+		return false
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	token := strings.TrimSpace(parsed.Query().Get("api_key"))
+	return token != "" && HashAPIKey(token) == tokenHash
+}
+
+// ListAppMCPsForProject returns app tool surfaces as project resources.
+// Their user_id records who installed the app; it does not make the surface
+// private to that operator. Every project member who can manage an agent must
+// see the same project/global app inventory.
+func (s *Store) ListAppMCPsForProject(projectID string) ([]MCPServerRecord, error) {
+	rows, err := s.db.Query(
+		`SELECT id FROM mcp_servers
+		 WHERE source='app' AND (COALESCE(project_id,'')='' OR project_id=?)
+		 ORDER BY id`,
+		projectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []MCPServerRecord
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		record, err := s.GetMCPServerByIDUnscoped(id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *record)
+	}
+	return out, rows.Err()
 }

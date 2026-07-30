@@ -73,6 +73,26 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 			}
 		}
 	}
+	if !quarantined {
+		if app, ok := cc.(interface {
+			EnsureConversationThreadForDelivery(agentID int64, conversationID string) error
+		}); ok {
+			s.taskConversationEnsure = app.EnsureConversationThreadForDelivery
+		}
+		if app, ok := cc.(interface {
+			SetConversationDeleteHook(func(string) error)
+		}); ok {
+			app.SetConversationDeleteHook(func(conversationID string) error {
+				_, err := s.store.ReconcileAgentTasksForDeletedConversation(conversationID)
+				return err
+			})
+			if count, err := s.store.ReconcileOrphanedConversationTasks(); err != nil {
+				logger.Warn("orphaned conversation task reconciliation incomplete", "err", err)
+			} else if count > 0 {
+				logger.Info("reconciled tasks whose conversations no longer exist", "count", count)
+			}
+		}
+	}
 	// Seed inventory-visible built-ins alongside sidecar apps. Internal
 	// platform components (channel-chat) stay loaded but are deliberately
 	// excluded from the operator's Installed-app inventory.

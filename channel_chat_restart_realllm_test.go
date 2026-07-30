@@ -22,8 +22,11 @@ import (
 // TestChannelChat_RealLLM_Codex_ServerAndCoreRestartConversation is the
 // process-boundary persistence test. It boots the real apteva-server binary,
 // lets that process spawn a real apteva-core using Codex, creates and uses a
-// saved conversation, terminates the whole server/core tree, then boots both
-// binaries again from the same data directory and continues the same chat.
+// saved conversation, creates a durable task, terminates the whole server/core
+// tree, records the task outcome while both processes are offline, then boots
+// both binaries again from the same data directory. The restarted server must
+// recover that outcome into the original conversation exactly once before the
+// user continues the same chat.
 //
 // Opt-in:
 //
@@ -86,16 +89,18 @@ func TestChannelChat_RealLLM_Codex_ServerAndCoreRestartConversation(t *testing.T
 	_ = listener.Close()
 	baseURL := "http://127.0.0.1:" + strconv.Itoa(port)
 	processEnv := childEnvWithOverrides(os.Environ(), map[string]string{
-		"PORT":                    strconv.Itoa(port),
-		"DB_PATH":                 dbPath,
-		"DATA_DIR":                dataDir,
-		"CORE_CMD":                corePath,
-		"SERVER_SECRET":           hex.EncodeToString(secret),
-		"REGISTRATION_MODE":       "locked",
-		"APTEVA_CONFIG":           "",
-		"APTEVA_HOME":             "",
-		"APTEVA_PUBLIC_URL":       baseURL,
-		"APTEVA_CLONE_QUARANTINE": "0",
+		"PORT":                     strconv.Itoa(port),
+		"DB_PATH":                  dbPath,
+		"DATA_DIR":                 dataDir,
+		"CORE_CMD":                 corePath,
+		"SERVER_SECRET":            hex.EncodeToString(secret),
+		"REGISTRATION_MODE":        "locked",
+		"APTEVA_CONFIG":            "",
+		"APTEVA_HOME":              "",
+		"APTEVA_PUBLIC_URL":        baseURL,
+		"APTEVA_CLONE_QUARANTINE":  "0",
+		"APTEVA_AGENT_BOOT_RESUME": "auto",
+		"APTEVA_TASK_TRACKING":     "1",
 	})
 
 	proc := startRestartServerProcess(t, serverPath, processEnv, baseURL)
@@ -106,26 +111,93 @@ func TestChannelChat_RealLLM_Codex_ServerAndCoreRestartConversation(t *testing.T
 	stream := openRestartConversationStream(t, baseURL, apiKey, conversation.ID)
 	postRestartConversationMessage(t, baseURL, apiKey, conversation.ID, "Reply exactly BEFORE RESTART.", project.ID)
 	waitForRestartConversationReply(t, baseURL, apiKey, conversation.ID, "BEFORE RESTART", 120*time.Second)
+	taskID := createRestartDurableTask(t, baseURL, apiKey, agent.ID, conversation.ID)
 	_ = stream.Close()
 
 	firstCorePID := waitForPersistedCorePID(t, dbPath, user.ID, agent.ID, 15*time.Second)
 	proc.stop(t)
 	waitForProcessExit(t, firstCorePID, 15*time.Second)
+	offlineStore, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("open offline restart store: %v", err)
+	}
+	const recoveredMarker = "RESTART-RECOVERY-OK-9A7"
+	if _, changed, completeErr := offlineStore.CompleteAgentTask(
+		agent.ID, taskID, "main",
+		"Full server and Core restart outcome verified: "+recoveredMarker,
+	); completeErr != nil || !changed {
+		_ = offlineStore.Close()
+		t.Fatalf("complete task while process tree is offline changed=%v err=%v", changed, completeErr)
+	}
+	if err := offlineStore.Close(); err != nil {
+		t.Fatalf("close offline restart store: %v", err)
+	}
 
 	proc = startRestartServerProcess(t, serverPath, processEnv, baseURL)
-	startRestartAgent(t, baseURL, apiKey, agent.ID)
+	secondCorePID := waitForReplacedPersistedCorePID(t, dbPath, user.ID, agent.ID, firstCorePID, 45*time.Second)
+	recoveredReplies := waitForRestartConversationReply(
+		t, baseURL, apiKey, conversation.ID, recoveredMarker, 120*time.Second,
+	)
+	if occurrences := strings.Count(strings.Join(recoveredReplies, "\n"), recoveredMarker); occurrences != 1 {
+		t.Fatalf("recovered task outcome occurrences=%d, want exactly one: %q", occurrences, recoveredReplies)
+	}
+	assertRestartTaskDelivered(t, baseURL, apiKey, taskID)
 	stream = openRestartConversationStream(t, baseURL, apiKey, conversation.ID)
 	t.Cleanup(func() { _ = stream.Close() })
 	postRestartConversationMessage(t, baseURL, apiKey, conversation.ID, "Reply exactly AFTER RESTART.", project.ID)
 	replies := waitForRestartConversationReply(t, baseURL, apiKey, conversation.ID, "AFTER RESTART", 120*time.Second)
 
-	secondCorePID := waitForPersistedCorePID(t, dbPath, user.ID, agent.ID, 15*time.Second)
 	if firstCorePID == secondCorePID {
 		t.Fatalf("core process was not replaced across full restart: pid=%d", firstCorePID)
 	}
 	joined := strings.Join(replies, "\n")
 	if !strings.Contains(joined, "BEFORE RESTART") || !strings.Contains(joined, "AFTER RESTART") {
 		t.Fatalf("saved conversation did not retain both sides of restart: %q", replies)
+	}
+}
+
+func createRestartDurableTask(t *testing.T, baseURL, apiKey string, agentID int64, conversationID string) string {
+	t.Helper()
+	resp := restartRequest(t, http.MethodPost, baseURL+"/api/tasks", apiKey, map[string]any{
+		"agent_id":               agentID,
+		"title":                  "Full process restart recovery",
+		"description":            "Return the offline outcome after both server and Core restart.",
+		"assigned_thread_id":     "main",
+		"origin_conversation_id": conversationID,
+		"idempotency_key":        "full-process-restart-recovery",
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("create restart task status=%d body=%s", resp.StatusCode, body)
+	}
+	var decoded struct {
+		Task AgentTask `json:"task"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil || decoded.Task.ID == "" {
+		t.Fatalf("decode restart task: %+v err=%v", decoded, err)
+	}
+	return decoded.Task.ID
+}
+
+func assertRestartTaskDelivered(t *testing.T, baseURL, apiKey, taskID string) {
+	t.Helper()
+	resp := restartRequest(t, http.MethodGet, baseURL+"/api/tasks/"+taskID, apiKey, nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("get recovered restart task status=%d body=%s", resp.StatusCode, body)
+	}
+	var decoded struct {
+		Task AgentTask `json:"task"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatalf("decode recovered restart task: %v", err)
+	}
+	if decoded.Task.State != taskStateCompleted ||
+		decoded.Task.CompletionDeliveryStatus != "delivered" ||
+		decoded.Task.CompletionDeliveredAt == nil {
+		t.Fatalf("restart task not durably delivered: %+v", decoded.Task)
 	}
 }
 
@@ -325,6 +397,26 @@ func waitForPersistedCorePID(t *testing.T, dbPath string, userID, agentID int64,
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatalf("agent %d never persisted a core pid", agentID)
+	return 0
+}
+
+func waitForReplacedPersistedCorePID(t *testing.T, dbPath string, userID, agentID int64, previousPID int, timeout time.Duration) int {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		db, err := NewStore(dbPath)
+		if err == nil {
+			agent, getErr := db.GetAgent(userID, agentID)
+			_ = db.Close()
+			if getErr == nil && agent.Pid > 0 && agent.Pid != previousPID {
+				if err := syscall.Kill(agent.Pid, 0); err == nil {
+					return agent.Pid
+				}
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("agent %d never auto-restored with a replacement core pid", agentID)
 	return 0
 }
 

@@ -282,6 +282,14 @@ func TestRealtimeAudioProxyPropagatesGracefulCoreClose(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("core did not receive a close acknowledgement")
 	}
+	closeEvent := waitForRealtimeProxyCloseEvent(t, s, 42, "voice-close")
+	if closeEvent.InitiatedBy != "core" ||
+		closeEvent.CloseCode != websocket.CloseNormalClosure ||
+		closeEvent.CloseReason != "thread complete" ||
+		closeEvent.TransportCategory != "websocket_close" ||
+		closeEvent.RelayCategory != "" {
+		t.Fatalf("close telemetry = %#v", closeEvent)
+	}
 }
 
 func TestRealtimeAudioProxyPropagatesGracefulClientClose(t *testing.T) {
@@ -331,6 +339,13 @@ func TestRealtimeAudioProxyPropagatesGracefulClientClose(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("core did not receive the client close")
 	}
+	closeEvent := waitForRealtimeProxyCloseEvent(t, s, 42, "voice-client-close")
+	if closeEvent.InitiatedBy != "client" ||
+		closeEvent.CloseCode != websocket.CloseGoingAway ||
+		closeEvent.CloseReason != "caller finished" ||
+		closeEvent.TransportCategory != "websocket_close" {
+		t.Fatalf("close telemetry = %#v", closeEvent)
+	}
 }
 
 func TestRealtimeProxyCloseDetailsPreservesPeerReason(t *testing.T) {
@@ -350,5 +365,128 @@ func TestRealtimeProxyCloseDetailsPreservesPeerReason(t *testing.T) {
 	_, reason = realtimeProxyCloseDetails(&websocket.CloseError{Code: websocket.CloseNormalClosure, Text: longReason})
 	if len(reason) > 123 || !strings.HasPrefix(longReason, reason) {
 		t.Fatalf("bounded reason bytes=%d value=%q", len(reason), reason)
+	}
+}
+
+func TestRealtimeProxyKeepaliveCorrelatesPingsAndPongs(t *testing.T) {
+	keepalive := &realtimeProxyKeepalive{}
+	now := time.Date(2026, time.July, 29, 12, 0, 0, 123_000_000, time.UTC)
+	var payloads [][]byte
+	write := func(destination string, payload []byte, deadline time.Time) error {
+		if destination != "client" && destination != "core" {
+			t.Fatalf("unexpected destination %q", destination)
+		}
+		if want := now.Add(realtimeProxyPingTimeout); !deadline.Equal(want) {
+			t.Fatalf("deadline = %s, want %s", deadline, want)
+		}
+		payloads = append(payloads, append([]byte(nil), payload...))
+		return nil
+	}
+	keepalive.sendPings(now, write, nil)
+	if len(payloads) != 2 || string(payloads[0]) != string(payloads[1]) {
+		t.Fatalf("first ping payloads = %q", payloads)
+	}
+	sequence, sentAtUnixMS, ok := parseRealtimeProxyPingPayload(string(payloads[0]))
+	if !ok || sequence != 1 || sentAtUnixMS != now.UnixMilli() {
+		t.Fatalf("first ping parsed as sequence=%d sent_at=%d ok=%v", sequence, sentAtUnixMS, ok)
+	}
+
+	now = now.Add(realtimeProxyPingInterval)
+	payloads = nil
+	keepalive.sendPings(now, write, nil)
+	sequence, sentAtUnixMS, ok = parseRealtimeProxyPingPayload(string(payloads[0]))
+	if !ok || sequence != 2 || sentAtUnixMS != now.UnixMilli() {
+		t.Fatalf("second ping parsed as sequence=%d sent_at=%d ok=%v", sequence, sentAtUnixMS, ok)
+	}
+
+	clientPongAt := now.Add(15 * time.Millisecond)
+	corePongAt := now.Add(25 * time.Millisecond)
+	keepalive.recordPong("client", string(payloads[0]), clientPongAt)
+	keepalive.recordPong("core", string(payloads[0]), corePongAt)
+	keepalive.recordPong("client", "unrelated-provider-pong", now.Add(time.Second))
+	snapshot := keepalive.snapshot()
+	if snapshot.Client.LastPingSequence != 2 ||
+		snapshot.Client.LastPongSequence != 2 ||
+		snapshot.Client.LastPongUnixMS != clientPongAt.UnixMilli() {
+		t.Fatalf("client keepalive = %#v", snapshot.Client)
+	}
+	if snapshot.Core.LastPingSequence != 2 ||
+		snapshot.Core.LastPongSequence != 2 ||
+		snapshot.Core.LastPongUnixMS != corePongAt.UnixMilli() {
+		t.Fatalf("core keepalive = %#v", snapshot.Core)
+	}
+}
+
+func TestRealtimeProxyKeepaliveRecordsPingFailuresPerDestination(t *testing.T) {
+	keepalive := &realtimeProxyKeepalive{}
+	now := time.Date(2026, time.July, 29, 12, 0, 0, 0, time.UTC)
+	failures := make(map[string]uint64)
+	keepalive.sendPings(
+		now,
+		func(destination string, _ []byte, _ time.Time) error {
+			if destination == "client" {
+				return errors.New("client write failed")
+			}
+			return nil
+		},
+		func(destination string, sequence uint64, err error) {
+			if err == nil {
+				t.Fatal("failure callback received nil error")
+			}
+			failures[destination] = sequence
+		},
+	)
+	keepalive.sendPings(
+		now.Add(realtimeProxyPingInterval),
+		func(destination string, _ []byte, _ time.Time) error {
+			if destination == "core" {
+				return errors.New("core write failed")
+			}
+			return nil
+		},
+		func(destination string, sequence uint64, err error) {
+			if err == nil {
+				t.Fatal("failure callback received nil error")
+			}
+			failures[destination] = sequence
+		},
+	)
+
+	snapshot := keepalive.snapshot()
+	if snapshot.Client.PingFailures != 1 || snapshot.Core.PingFailures != 1 {
+		t.Fatalf("keepalive failures = %#v", snapshot)
+	}
+	if failures["client"] != 1 || failures["core"] != 2 {
+		t.Fatalf("failure callbacks = %#v", failures)
+	}
+}
+
+func waitForRealtimeProxyCloseEvent(
+	t *testing.T,
+	s *Server,
+	agentID int64,
+	threadID string,
+) realtimeProxyCloseTelemetry {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		events, err := s.store.QueryTelemetry(agentID, "realtime.proxy.closed", time.Time{}, 10, threadID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(events) > 0 {
+			if len(events) != 1 {
+				t.Fatalf("close events = %d, want 1", len(events))
+			}
+			var data realtimeProxyCloseTelemetry
+			if err := json.Unmarshal(events[0].Data, &data); err != nil {
+				t.Fatalf("decode close telemetry: %v", err)
+			}
+			return data
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no realtime.proxy.closed telemetry for agent=%d thread=%q", agentID, threadID)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

@@ -61,6 +61,70 @@ func TestAppProxy_NoAuthRoutePreservesCallerAuthorization(t *testing.T) {
 	}
 }
 
+func TestAppProxy_PushNoAuthRoutesReachSidecarWithRelayGrant(t *testing.T) {
+	s := newTestServer(t)
+	s.installedApps = NewInstalledAppsRegistry()
+
+	const (
+		projectID  = "proj-push"
+		appToken   = "install-token"
+		relayGrant = "push_relay_grant"
+	)
+
+	var seenPath string
+	var seenAuth string
+	var seenAppToken string
+	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenPath = r.URL.Path
+		seenAuth = r.Header.Get("Authorization")
+		seenAppToken = r.Header.Get("X-Apteva-App-Token")
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer sidecar.Close()
+
+	s.installedApps.Add(&InstalledApp{
+		InstallID:  1013,
+		AppName:    "push",
+		SidecarURL: sidecar.URL,
+		Token:      appToken,
+		Manifest: sdk.Manifest{Provides: sdk.Provides{HTTPRoutes: []sdk.RouteSpec{
+			{Method: http.MethodPost, Prefix: "/v1/deliveries", NoAuth: true},
+			{Method: http.MethodPost, Prefix: "/v1/devices/{id}/test", NoAuth: true},
+		}}},
+	})
+
+	apiMux := http.NewServeMux()
+	s.registerAppRuntimeRoutes(apiMux)
+	handler := s.authMiddleware(apiMux.ServeHTTP)
+	for _, path := range []string{
+		"/v1/deliveries",
+		"/v1/devices/device-123/test",
+	} {
+		seenPath, seenAuth, seenAppToken = "", "", ""
+		req := httptest.NewRequest(
+			http.MethodPost,
+			"/apps/push"+path+"?project_id="+projectID,
+			nil,
+		)
+		req.Header.Set("Authorization", "Bearer "+relayGrant)
+		rec := httptest.NewRecorder()
+		handler(rec, req)
+
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("proxy %s status=%d, want 201: %s", path, rec.Code, rec.Body.String())
+		}
+		if seenPath != path {
+			t.Fatalf("sidecar path=%q, want %q", seenPath, path)
+		}
+		if seenAuth != "Bearer "+relayGrant {
+			t.Fatalf("Authorization=%q, want relay grant", seenAuth)
+		}
+		if seenAppToken != appToken {
+			t.Fatalf("X-Apteva-App-Token=%q, want install token", seenAppToken)
+		}
+	}
+}
+
 func TestAppProxy_PrivateRouteStillUsesInstallAuthorization(t *testing.T) {
 	s := newTestServer(t)
 	apiKey := testPrivateAPIKey(t, s)

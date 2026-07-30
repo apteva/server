@@ -1,0 +1,1501 @@
+{
+  "slug": "aerodatabox",
+  "name": "AeroDataBox",
+  "description": "Affordable aviation data for flight status and schedules, airport boards, aircraft and airport reference data, delays, feed health, and credit-based flight webhooks. Endpoint tiers consume different numbers of API units.",
+  "logo": "https://www.google.com/s2/favicons?domain=aerodatabox.com&sz=128",
+  "categories": [
+    "aviation",
+    "flight-tracking",
+    "flight-status",
+    "airports",
+    "travel",
+    "webhooks"
+  ],
+  "base_url": "https://api.aerodatabox.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-Api-Key": "{{api_key}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Direct AeroDataBox API key from the AeroDataBox portal.",
+        "required": true,
+        "secret": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_aircraft",
+      "description": "Single aircraft (by tail-number, Mode-S or ID) / TIER 1",
+      "method": "GET",
+      "path": "/aircrafts/{searchBy}/{searchParam}",
+      "query_params": [
+        "withImage",
+        "withRegistrations"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "searchBy": {
+            "type": "string",
+            "description": "Criteria to search aircraft by",
+            "enum": [
+              "Id",
+              "Reg",
+              "Icao24"
+            ]
+          },
+          "searchParam": {
+            "type": "string",
+            "maxLength": 10,
+            "description": "Value of the search criteria. If `searchBy` is: * `id`: then this field should be an ID of an aircraft (as specified in the database of this API); * `reg`: then this field should be a tail-number of an aircraft (with or without spaces or dashes, any case formats are acceptable, e.g.PH-BXO, DeMhJ), multiple matches are possible - see below; * `icao24`, then this field should be a ICAO 24-bit Mode-S address of an aircraft specified in hexadecimal format (e.g. 484161, 483EFD), multiple matches are possible - see below. *If multiple matches are possible:* There cannot be more than one aircraft actively flying with the same tail-number or ICAO 24-bit Mode-S address at any moment of time. However, historically aircraft tail-numbers or addresses may be used multiple times by different aircraft. This endpoint is supposed to return a **single** aircraft data. In case if multiple aircraft satisfy the search criteria, the best match will be chosen as follows: * If an active aircraft is found according to the requested critera, it is returned. * Otherwise, an aircraft that used requested tail-number/address the most recently is returned. * If usage time may not be determined, the aircraft stored in the database the most recently is returned."
+          },
+          "withImage": {
+            "type": "boolean",
+            "default": false,
+            "description": "Should include aircraft image (default: false)."
+          },
+          "withRegistrations": {
+            "type": "boolean",
+            "default": false,
+            "description": "Should include the history of aircraft registrations (default: false)."
+          }
+        },
+        "required": [
+          "searchBy",
+          "searchParam"
+        ]
+      }
+    },
+    {
+      "name": "get_aircraft_registrations",
+      "description": "Single aircraft registration history (by tail-number, Mode-S or ID) / TIER 1",
+      "method": "GET",
+      "path": "/aircrafts/{searchBy}/{searchParam}/registrations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "searchBy": {
+            "type": "string",
+            "description": "Criteria to search aircraft by",
+            "enum": [
+              "Id",
+              "Reg",
+              "Icao24"
+            ]
+          },
+          "searchParam": {
+            "type": "string",
+            "maxLength": 10,
+            "description": "Value of the search criteria. If `searchBy` is: * `id`, then this field should be an ID of an aircraft (as specified in the database of this API); * `reg`, then this field should be a tail-number of an aircraft (with or without spaces or dashes, any case formats are acceptable, e.g.PH-BXO, DeMhJ), multiple matches are possible - see below; * `icao24`, then this field should be a ICAO 24-bit Mode-S address of an aircraft specified in hexadecimal format (e.g. 484161, 483EFD), multiple matches are possible - see below. *If multiple matches are possible:* see similar remark to `Single aircraft` endpoint."
+          }
+        },
+        "required": [
+          "searchBy",
+          "searchParam"
+        ]
+      }
+    },
+    {
+      "name": "get_all_aircraft",
+      "description": "Aircraft by tail-number, Mode-S or ID / TIER 1",
+      "method": "GET",
+      "path": "/aircrafts/{searchBy}/{searchParam}/all",
+      "query_params": [
+        "withImage",
+        "withRegistrations"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "searchBy": {
+            "type": "string",
+            "description": "Criteria to search aircraft by",
+            "enum": [
+              "Id",
+              "Reg",
+              "Icao24"
+            ]
+          },
+          "searchParam": {
+            "type": "string",
+            "maxLength": 10,
+            "description": "Value of the search criteria. If `searchBy` is: * `id`, then this field should be an ID of an aircraft (as specified in the database of this API); * `reg`, then this field should be a tail-number of an aircraft (with or without spaces or dashes, any case formats are acceptable, e.g.PH-BXO, DeMhJ); * `icao24`, then this field should be a ICAO 24-bit Mode-S address of an aircraft specified in hexadecimal format (e.g. 484161, 483EFD)."
+          },
+          "withImage": {
+            "type": "boolean",
+            "default": false,
+            "description": "Should include aircraft image (default: false)."
+          },
+          "withRegistrations": {
+            "type": "boolean",
+            "default": false,
+            "description": "Should include the history of aircraft registrations (default: false)."
+          }
+        },
+        "required": [
+          "searchBy",
+          "searchParam"
+        ]
+      }
+    },
+    {
+      "name": "get_airline_fleet",
+      "description": "Airline fleet / Aircraft list by airline code (BETA) / TIER 3",
+      "method": "GET",
+      "path": "/airlines/{airlineCode}/aircrafts",
+      "query_params": [
+        "pageSize",
+        "pageOffset",
+        "withRegistrations"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "airlineCode": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 3,
+            "description": "3-character ICAO-code of the airliner (e.g., KLM, ACA); or 2-character IATA-code of the airline (e.g., KL, AC). Please note that more than one active airline may have the same IATA code, therefore IATA codes are not recommended for this endpoint."
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0,
+            "maximum": 2147483647,
+            "description": "The number of returned records will be capped at this value. Must be a positive value and not exceed the limit stipulated by your pricing plan."
+          },
+          "pageOffset": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0,
+            "minimum": 0,
+            "maximum": 2147483647,
+            "description": "The number of records to skip before listing a page of records. In conjunction with `pageSize` effectively determines the page number (default - 0)."
+          },
+          "withRegistrations": {
+            "type": "boolean",
+            "default": false,
+            "description": "Should include the history of aircraft registrations (default: false)."
+          }
+        },
+        "required": [
+          "airlineCode",
+          "pageSize"
+        ]
+      }
+    },
+    {
+      "name": "get_aircraft_image_by_registration",
+      "description": "Aircraft image by tail-number / TIER 2",
+      "method": "GET",
+      "path": "/aircrafts/reg/{reg}/image/beta",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "reg": {
+            "type": "string",
+            "description": "Tail-number of the aircraft (full, stripped and any case formats are acceptable)."
+          }
+        },
+        "required": [
+          "reg"
+        ]
+      }
+    },
+    {
+      "name": "search_aircraft_by_term",
+      "description": "Search active aircraft tail numbers by term / TIER 2",
+      "method": "GET",
+      "path": "/aircrafts/search/term",
+      "query_params": [
+        "q",
+        "limit"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search term (min. 4 non whitespace characters length)"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "default": 5,
+            "description": "Maximum number of items to be returned (max. 10, defaut = 5)"
+          }
+        },
+        "required": [
+          "q"
+        ]
+      }
+    },
+    {
+      "name": "get_airport",
+      "description": "Airport by code / TIER 1",
+      "method": "GET",
+      "path": "/airports/{codeType}/{code}",
+      "query_params": [
+        "withRunways",
+        "withTime"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "codeType": {
+            "type": "string",
+            "description": "Type of code to search airport by (`iata` or `icao`)",
+            "enum": [
+              "Icao",
+              "Iata"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4,
+            "description": "If `codeType` is: * `icao`, then this field must be a 4-character ICAO-code of the airport (e.g.: EHAM, KLAX, UUEE, etc.); * `iata`, then this field must be a 3-character IATA-code of the airport (e.g.: AMS, SFO, LAX, etc.). Full, stripped and any case formats are acceptable."
+          },
+          "withRunways": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include runways data (default - false)"
+          },
+          "withTime": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include current local time (default - false)"
+          }
+        },
+        "required": [
+          "codeType",
+          "code"
+        ]
+      }
+    },
+    {
+      "name": "get_airport_runways",
+      "description": "Airport runways / TIER 1",
+      "method": "GET",
+      "path": "/airports/{codeType}/{code}/runways",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "codeType": {
+            "type": "string",
+            "description": "Type of code to search airport by (`iata` or `icao`)",
+            "enum": [
+              "Icao",
+              "Iata"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4,
+            "description": "If `codeType` is: * `icao`, then this field must be a 4-character ICAO-code of the airport (e.g.: EHAM, KLAX, UUEE, etc.); * `iata`, then this field must be a 3-character IATA-code of the airport (e.g.: AMS, SFO, LAX, etc.). Full, stripped and any case formats are acceptable."
+          }
+        },
+        "required": [
+          "codeType",
+          "code"
+        ]
+      }
+    },
+    {
+      "name": "search_airports_by_location",
+      "description": "Search airports by location / TIER 2",
+      "method": "GET",
+      "path": "/airports/search/location",
+      "query_params": [
+        "lat",
+        "lon",
+        "radiusKm",
+        "limit",
+        "withFlightInfoOnly"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lat": {
+            "type": "number",
+            "format": "float",
+            "description": "Latitude location coordinate in decimal format (between -90 and 90)"
+          },
+          "lon": {
+            "type": "number",
+            "format": "float",
+            "description": "Longitude location coordinate in decimal format (between -180 and 180)"
+          },
+          "radiusKm": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Radius of search around specified location in kilometers (max. 1000 km)"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maximum number of airports to be returned (max. 250)"
+          },
+          "withFlightInfoOnly": {
+            "type": "boolean",
+            "default": false,
+            "description": "If set to true, will only return airports which have flight data (scheduled or live) available. Default = false."
+          }
+        },
+        "required": [
+          "lat",
+          "lon",
+          "radiusKm",
+          "limit"
+        ]
+      }
+    },
+    {
+      "name": "search_airports_by_ip_geo_location",
+      "description": "Search airports by IP address geolocation / TIER 2",
+      "method": "GET",
+      "path": "/airports/search/ip",
+      "query_params": [
+        "q",
+        "radiusKm",
+        "limit",
+        "withFlightInfoOnly"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "A valid public IP v4 address"
+          },
+          "radiusKm": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Radius of search around specified location in kilometers (max. 1000 km)"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maximum number of airports to be returned (max. 250)"
+          },
+          "withFlightInfoOnly": {
+            "type": "boolean",
+            "default": false,
+            "description": "If set to true, will only return airports which have flight data (scheduled or live) available. Default = false."
+          }
+        },
+        "required": [
+          "q",
+          "radiusKm",
+          "limit"
+        ]
+      }
+    },
+    {
+      "name": "search_airport_by_term",
+      "description": "Search airports by free text / TIER 2",
+      "method": "GET",
+      "path": "/airports/search/term",
+      "query_params": [
+        "q",
+        "limit",
+        "withFlightInfoOnly",
+        "withSearchByCode"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search query (min. 3 non whitespace characters length)"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "default": 10,
+            "description": "Maximum number of airports to be returned (max. 250, defaut = 10)"
+          },
+          "withFlightInfoOnly": {
+            "type": "boolean",
+            "default": false,
+            "description": "If set to true, will only return airports which have flight data (scheduled or live) available. Default = false."
+          },
+          "withSearchByCode": {
+            "type": "boolean",
+            "default": true,
+            "description": "If set to true, will attempt to interpret short words within the search query as IATA or ICAO code and prioritize exact matches by these codes (they will appear higher than others). Otherwise, the search by code will be completely excluded (only the name of an airport or its city will be searched). Default = true."
+          }
+        },
+        "required": [
+          "q"
+        ]
+      }
+    },
+    {
+      "name": "subscribe_webhook",
+      "description": "Create web-hook subscription / FREE TIER",
+      "method": "POST",
+      "path": "/subscriptions/webhook/{subjectType}/{subjectId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subjectType": {
+            "type": "string",
+            "description": "Subject type",
+            "enum": [
+              "FlightByNumber",
+              "FlightByAirportIcao"
+            ]
+          },
+          "subjectId": {
+            "type": "string",
+            "description": "Subject ID. If `subjectType` is: * `FlightByNumber`, then this field must be a flight number (with or without spaces, IATA or ICAO, any case formats are acceptable, e.g. KL1395, Klm 1395); * `FlightByAirportIcao`, then this field must be a 4-character ICAO-code of the airport where flights are operated (e.g.: EHAM, KLAX, UUEE, etc.);"
+          },
+          "url": {
+            "type": "string",
+            "description": "Destination HTTP-endpoint where notifications will be sent to. Requirements: * must be a valid public HTTP(S) URL not requiring additional authorization; * must use standard or alternative HTTP or HTTPS ports (80, 443, 8008, 8080) or any dynamic port greater or equal to 49152; * must be able to accept HTTP POST request with JSON-formatted body (application/json); * must respond with one of successful HTTP status codes (2XX) within 10 seconds; * the endpoint owner must be aware of and consent to receiving notifications at it. If endpoint is unavailable, responds with error status code or does not respond within timeout, notification delivery retry may be attempted according to subscription settings.",
+            "minLength": 1
+          },
+          "maxDeliveryRetries": {
+            "type": "integer",
+            "description": "Maximum number of times a delivery attempt is retried after initial delivery attempt failure. Current default value is: * `2` for the old, lifetime-based web-hook subscriptions (will be phased out after the 4th of April, 2026); * `0` for the new, credit-based web-hook subscriptions (will be the default value for any web-hook subscription after the 4th of April, 2026).",
+            "format": "int32",
+            "minimum": 0,
+            "maximum": 2,
+            "nullable": true
+          }
+        },
+        "required": [
+          "subjectType",
+          "subjectId",
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "get_webhook",
+      "description": "Get web-hook subscription / FREE TIER",
+      "method": "GET",
+      "path": "/subscriptions/webhook/{subscriptionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Subscription ID"
+          }
+        },
+        "required": [
+          "subscriptionId"
+        ]
+      }
+    },
+    {
+      "name": "unsubscribe_webhook",
+      "description": "Remove web-hook subscription / FREE TIER",
+      "method": "DELETE",
+      "path": "/subscriptions/webhook/{subscriptionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Subscription ID"
+          }
+        },
+        "required": [
+          "subscriptionId"
+        ]
+      }
+    },
+    {
+      "name": "get_webhook_list",
+      "description": "List web-hook subscriptions / FREE TIER",
+      "method": "GET",
+      "path": "/subscriptions/webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_balance",
+      "description": "Get web-hook subscription balance / FREE TIER",
+      "method": "GET",
+      "path": "/subscriptions/balance",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "refill_balance",
+      "description": "Refill web-hook subscription balance / TIER 1",
+      "method": "POST",
+      "path": "/subscriptions/balance/refill",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "credits": {
+            "type": "integer",
+            "description": "Number of credits to add to the notification subscription balance.",
+            "format": "int32",
+            "minimum": 1,
+            "maximum": 2147483647
+          }
+        },
+        "required": [
+          "credits"
+        ]
+      }
+    },
+    {
+      "name": "get_nearest_flight_status",
+      "description": "Flight Status (single day) / TIER 2",
+      "method": "GET",
+      "path": "/flights/{searchBy}/{searchParam}",
+      "query_params": [
+        "dateLocalRole",
+        "withAircraftImage",
+        "withLocation",
+        "withFlightPlan"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "searchBy": {
+            "type": "string",
+            "description": "Criteria to search flight by",
+            "enum": [
+              "Number",
+              "Reg",
+              "CallSign",
+              "Icao24"
+            ]
+          },
+          "searchParam": {
+            "type": "string",
+            "maxLength": 10,
+            "description": "Value of the search criteria. If `searchBy` is: * `number`, then this field shoud be Flight number (with or without spaces, IATA or ICAO, any case formats are acceptable, e.g. KL1395, Klm 1395) * `callsign`, then this field should be ATC call-sign of the flight (with or without spaces, any case formats are acceptable, e.g.AFL1482, nca 008X); * `reg`, then this field should be Aircraft tail-number (with or without spaces or dashes, any case formats are acceptable, e.g.PH-BXO, DeMhJ); * `icao24`, then this field should be Aircraft ICAO 24-bit Mode-S address specified in hexadecimal format (e.g. 484161, 483EFD)."
+          },
+          "dateLocalRole": {
+            "type": "string",
+            "description": "* If set to `Both` (default, recommended for best results) then the dateLocal parameter shall be considered as both departure and arrival date. If a flight departs OR arrives on that date (in the local timezone of the origin or destination, respectively), it will be returned. * If set to `Departure` then the dateLocal parameter shall be considered as departure date only. Only the flights departing on that date (in the local timezone of origin) will be returned. * If set to `Arrival` then the dateLocal parameter shall be considered as arrival date only. Only the flights arriving on that date (in the local timezone of destination) will be returned.",
+            "enum": [
+              "Arrival",
+              "Departure",
+              "Both"
+            ]
+          },
+          "withAircraftImage": {
+            "type": "boolean",
+            "default": false,
+            "description": "Should include aircraft image (default: false). Aircraft images are being searched in external sources by certain criteria without any manual intervention. Therefore, false matches may be returned. Only images with licenses approved for commercial use are returned. Please be advised that you may be required to mention author attribution before using the image."
+          },
+          "withLocation": {
+            "type": "boolean",
+            "default": false,
+            "description": "Should include real-time positional data, e.g.: location, speed, altitude, etc., if available (default: false)."
+          },
+          "withFlightPlan": {
+            "type": "boolean",
+            "default": false,
+            "description": "Should include the flight plan filed with the ATC for the flight (default: false). * NOTE 1: Generally availabe to flights departing from, arriving to or crossing the mainland U.S. airspace. * NOTE 2: Only available on Basic and Ultra, Ultra-2 and Mega pricing plans. * NOTE 3: If set to true and the flight plan is found for one or more flights returned, **the request will be billed as 2 requests** against your API quota (except on Mega plan)."
+          }
+        },
+        "required": [
+          "searchBy",
+          "searchParam"
+        ]
+      }
+    },
+    {
+      "name": "get_flight_status",
+      "description": "Flight Status (single day) / TIER 2",
+      "method": "GET",
+      "path": "/flights/{searchBy}/{searchParam}/{dateLocal}",
+      "query_params": [
+        "dateLocalRole",
+        "withAircraftImage",
+        "withLocation",
+        "withFlightPlan"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "searchBy": {
+            "type": "string",
+            "description": "Criteria to search flight by",
+            "enum": [
+              "Number",
+              "Reg",
+              "CallSign",
+              "Icao24"
+            ]
+          },
+          "searchParam": {
+            "type": "string",
+            "maxLength": 10,
+            "description": "Value of the search criteria. If `searchBy` is: * `number`, then this field shoud be Flight number (with or without spaces, IATA or ICAO, any case formats are acceptable, e.g. KL1395, Klm 1395) * `callsign`, then this field should be ATC call-sign of the flight (with or without spaces, any case formats are acceptable, e.g.AFL1482, nca 008X); * `reg`, then this field should be Aircraft tail-number (with or without spaces or dashes, any case formats are acceptable, e.g.PH-BXO, DeMhJ); * `icao24`, then this field should be Aircraft ICAO 24-bit Mode-S address specified in hexadecimal format (e.g. 484161, 483EFD)."
+          },
+          "dateLocal": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?",
+            "description": "Local date of departure or arrival (in format: YYYY-MM-DD, e.g.: 2019-08-29). Maximum/minimum allowable date is determined by the current data coverage limitations and your pricing plan."
+          },
+          "dateLocalRole": {
+            "type": "string",
+            "description": "* If set to `Both` (default, recommended for best results) then the dateLocal parameter shall be considered as both departure and arrival date. If a flight departs OR arrives on that date (in the local timezone of the origin or destination, respectively), it will be returned. * If set to `Departure` then the dateLocal parameter shall be considered as departure date only. Only the flights departing on that date (in the local timezone of origin) will be returned. * If set to `Arrival` then the dateLocal parameter shall be considered as arrival date only. Only the flights arriving on that date (in the local timezone of destination) will be returned.",
+            "enum": [
+              "Arrival",
+              "Departure",
+              "Both"
+            ]
+          },
+          "withAircraftImage": {
+            "type": "boolean",
+            "default": false,
+            "description": "Should include aircraft image (default: false). Aircraft images are being searched in external sources by certain criteria without any manual intervention. Therefore, false matches may be returned. Only images with licenses approved for commercial use are returned. Please be advised that you may be required to mention author attribution before using the image."
+          },
+          "withLocation": {
+            "type": "boolean",
+            "default": false,
+            "description": "Should include real-time positional data, e.g.: location, speed, altitude, etc., if available (default: false)."
+          },
+          "withFlightPlan": {
+            "type": "boolean",
+            "default": false,
+            "description": "Should include the flight plan filed with the ATC for the flight (default: false). * NOTE 1: Generally availabe to flights departing from, arriving to or crossing the mainland U.S. airspace. * NOTE 2: Only available on Basic and Ultra, Ultra-2 and Mega pricing plans. * NOTE 3: If set to true and the flight plan is found for one or more flights returned, **the request will be billed as 2 requests** against your API quota (except on Mega plan)."
+          }
+        },
+        "required": [
+          "searchBy",
+          "searchParam",
+          "dateLocal"
+        ]
+      }
+    },
+    {
+      "name": "get_flight_history",
+      "description": "Flight History and Schedule (range of days) / TIER 3",
+      "method": "GET",
+      "path": "/flights/{searchBy}/{searchParam}/{dateFromLocal}/{dateToLocal}",
+      "query_params": [
+        "dateLocalRole"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "searchBy": {
+            "type": "string",
+            "description": "Criteria to search flight by",
+            "enum": [
+              "Number",
+              "Reg",
+              "CallSign",
+              "Icao24"
+            ]
+          },
+          "searchParam": {
+            "type": "string",
+            "maxLength": 10,
+            "description": "Value of the search criteria. If `searchBy` is: * `number`, then this field shoud be Flight number (with or without spaces, IATA or ICAO, any case formats are acceptable, e.g. KL1395, Klm 1395) * `callsign`, then this field should be ATC call-sign of the flight (with or without spaces, any case formats are acceptable, e.g.AFL1482, nca 008X); * `reg`, then this field should be Aircraft tail-number (with or without spaces or dashes, any case formats are acceptable, e.g.PH-BXO, DeMhJ); * `icao24`, then this field should be Aircraft ICAO 24-bit Mode-S address specified in hexadecimal format (e.g. 484161, 483EFD)."
+          },
+          "dateFromLocal": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?",
+            "description": "Beginning of the range of local dates of departure or arrival (in format: YYYY-MM-DD, e.g.: 2019-08-29). Maximum/minimum allowable value is determined by the current data coverage limitations and your pricing plan."
+          },
+          "dateToLocal": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?",
+            "description": "End of the range of local dates of departure or arrival (in format: YYYY-MM-DD, e.g.: 2019-08-29). Maximum/minimum allowable value is determined by the current data coverage limitations and your pricing plan. This date must be bigger than the dateFromLocal. The maximum difference between this date and dateFromLocal is limited and is determined by your pricing plan (ranging from 7 to 30 days as per moment of writing)."
+          },
+          "dateLocalRole": {
+            "type": "string",
+            "description": "* If set to `Both` (default, recommended for best results) then the dateFromLocal and dateToLocal parameters shall be considered as both departure and arrival dates. If a flight departs OR arrives on dates within the specified range (in the local timezone of the origin or destination, respectively), it will be returned. * If set to `Departure` then the dateFromLocal and dateToLocal parameters shall be considered as departure dates only. Only the flights departing on dates within the specified rang(in the local timezone of origin) will be returned. * If set to `Arrival` then the dateFromLocal and dateToLocal parameters shall be considered as arrival dates only. Only the flights arriving on dates within the specified rangd (in the local timezone of destination) will be returned.",
+            "enum": [
+              "Arrival",
+              "Departure",
+              "Both"
+            ]
+          }
+        },
+        "required": [
+          "searchBy",
+          "searchParam",
+          "dateFromLocal",
+          "dateToLocal"
+        ]
+      }
+    },
+    {
+      "name": "list_flight_dates",
+      "description": "Flight departure dates / TIER 2",
+      "method": "GET",
+      "path": "/flights/{searchBy}/{searchParam}/dates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "searchBy": {
+            "type": "string",
+            "description": "Criteria to search flight by",
+            "enum": [
+              "Number",
+              "Reg",
+              "CallSign",
+              "Icao24"
+            ]
+          },
+          "searchParam": {
+            "type": "string",
+            "maxLength": 10,
+            "description": "Value of the search criteria. If **searchBy** is: * `number`, then this field shoud be Flight number (with or without spaces, IATA or ICAO, any case formats are acceptable, e.g. KL1395, Klm 1395) * `callsign`, then this field should be ATC call-sign of the flight (with or without spaces, any case formats are acceptable, e.g.AFL1482, nca 008X); * `reg`: then this field should be Aircraft tail-number (with or without spaces or dashes, any case formats are acceptable, e.g.PH-BXO, DeMhJ); * `icao24`, then this field should be Aircraft ICAO 24-bit Mode-S address specified in hexadecimal format (e.g. 484161, 483EFD)."
+          }
+        },
+        "required": [
+          "searchBy",
+          "searchParam"
+        ]
+      }
+    },
+    {
+      "name": "list_flight_dates_in_range",
+      "description": "Flight departure dates / TIER 2",
+      "method": "GET",
+      "path": "/flights/{searchBy}/{searchParam}/dates/{fromLocal}/{toLocal}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "searchBy": {
+            "type": "string",
+            "description": "Criteria to search flight by",
+            "enum": [
+              "Number",
+              "Reg",
+              "CallSign",
+              "Icao24"
+            ]
+          },
+          "searchParam": {
+            "type": "string",
+            "maxLength": 10,
+            "description": "Value of the search criteria. If **searchBy** is: * `number`, then this field shoud be Flight number (with or without spaces, IATA or ICAO, any case formats are acceptable, e.g. KL1395, Klm 1395) * `callsign`, then this field should be ATC call-sign of the flight (with or without spaces, any case formats are acceptable, e.g.AFL1482, nca 008X); * `reg`: then this field should be Aircraft tail-number (with or without spaces or dashes, any case formats are acceptable, e.g.PH-BXO, DeMhJ); * `icao24`, then this field should be Aircraft ICAO 24-bit Mode-S address specified in hexadecimal format (e.g. 484161, 483EFD)."
+          },
+          "fromLocal": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?",
+            "description": "Beginning of the search range (local time, format: YYYY-MM-DD)"
+          },
+          "toLocal": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?",
+            "description": "End of the search range (local time, format: YYYY-MM-DD)"
+          }
+        },
+        "required": [
+          "searchBy",
+          "searchParam",
+          "fromLocal",
+          "toLocal"
+        ]
+      }
+    },
+    {
+      "name": "get_airport_flights",
+      "description": "FIDS (airport departures and arrivals) - by local time range / TIER 2",
+      "method": "GET",
+      "path": "/flights/airports/{codeType}/{code}/{fromLocal}/{toLocal}",
+      "query_params": [
+        "direction",
+        "withLeg",
+        "withCancelled",
+        "withCodeshared",
+        "withCargo",
+        "withPrivate",
+        "withLocation"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "codeType": {
+            "type": "string",
+            "description": "Type of code to search airport by (`iata` or `icao`)",
+            "enum": [
+              "Icao",
+              "Iata"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4,
+            "description": "If `codeType` is: * `icao`, then this field must be a 4-character ICAO-code of the airport (e.g.: EHAM, KLAX, UUEE, etc.); * `iata`, then this field must be a 3-character IATA-code of the airport (e.g.: AMS, SFO, LAX, etc.). Full, stripped and any case formats are acceptable."
+          },
+          "fromLocal": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?",
+            "description": "Beginning of the search range (local time, format: YYYY-MM-DDTHH:mm)"
+          },
+          "toLocal": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?",
+            "description": "End of the search range (local time, format: YYYY-MM-DDTHH:mm). Must be more than beginning of the search range by no more than 12 hours."
+          },
+          "direction": {
+            "type": "string",
+            "description": "Direction of flights: Arrival, Departure or Both (default)",
+            "enum": [
+              "Arrival",
+              "Departure",
+              "Both"
+            ]
+          },
+          "withLeg": {
+            "type": "boolean",
+            "default": false,
+            "description": "If set to true, the result will include movement information from airport opposite in this flight leg (airport of origin for arriving flight or airport of destination for departing flight). In this case, Movement property will be replaced with Departure and Arrival properties for each flight. Default: false."
+          },
+          "withCancelled": {
+            "type": "boolean",
+            "default": true,
+            "description": "If set to true, result will include cancelled, divered, likely cancelled (CanceledUncertain) flights. Default: true."
+          },
+          "withCodeshared": {
+            "type": "boolean",
+            "default": true,
+            "description": "If set to true, the result will include flights with all code-shared statuses. Otherwise, code-sharing flights will be exclued. For airports, where no information about code-share statuses of flights are supplied (all flights are CodeshareStatus=Unknown), complex filtering will be applied to determine which flights are likely to be operational (caution: false results are possible)."
+          },
+          "withCargo": {
+            "type": "boolean",
+            "default": true,
+            "description": "If set to true, the result will include cargo flights (subject to availability)."
+          },
+          "withPrivate": {
+            "type": "boolean",
+            "default": true,
+            "description": "If set to true, the result will include private flights (subject to availability)."
+          },
+          "withLocation": {
+            "type": "boolean",
+            "default": false,
+            "description": "If set to true, each currently active flight within the result will be populated with its present real-time location, altitude, speed and track (subject to availability)."
+          }
+        },
+        "required": [
+          "codeType",
+          "code",
+          "fromLocal",
+          "toLocal"
+        ]
+      }
+    },
+    {
+      "name": "get_airport_flights_relative",
+      "description": "FIDS (airport departures and arrivals) - by relative time / by current time / TIER 2",
+      "method": "GET",
+      "path": "/flights/airports/{codeType}/{code}",
+      "query_params": [
+        "offsetMinutes",
+        "durationMinutes",
+        "direction",
+        "withLeg",
+        "withCancelled",
+        "withCodeshared",
+        "withCargo",
+        "withPrivate",
+        "withLocation"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "codeType": {
+            "type": "string",
+            "description": "Type of code to search airport by (`iata` or `icao`)",
+            "enum": [
+              "Icao",
+              "Iata"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4,
+            "description": "If `codeType` is: * `icao`, then this field must be a 4-character ICAO-code of the airport (e.g.: EHAM, KLAX, UUEE, etc.); * `iata`, then this field must be a 3-character IATA-code of the airport (e.g.: AMS, SFO, LAX, etc.). Full, stripped and any case formats are acceptable."
+          },
+          "offsetMinutes": {
+            "type": "integer",
+            "format": "int64",
+            "default": -120,
+            "description": "Beginning of the search range expressed in minutes relative to the current time at the airport (default: `-120`)"
+          },
+          "durationMinutes": {
+            "type": "integer",
+            "format": "int64",
+            "default": 720,
+            "description": "Length (duration) of the search range expressed in minutes (default: `720`)"
+          },
+          "direction": {
+            "type": "string",
+            "description": "Direction of flights: Arrival, Departure or Both (default)",
+            "enum": [
+              "Arrival",
+              "Departure",
+              "Both"
+            ]
+          },
+          "withLeg": {
+            "type": "boolean",
+            "default": false,
+            "description": "If set to true, the result will include movement information from airport opposite in this flight leg (airport of origin for arriving flight or airport of destination for departing flight). In this case, Movement property will be replaced with Departure and Arrival properties for each flight. Default: false."
+          },
+          "withCancelled": {
+            "type": "boolean",
+            "default": true,
+            "description": "If set to true, result will include cancelled, divered, likely cancelled (CanceledUncertain) flights. Default: true."
+          },
+          "withCodeshared": {
+            "type": "boolean",
+            "default": true,
+            "description": "If set to true, the result will include flights with all code-shared statuses. Otherwise, code-sharing flights will be exclued. For airports, where no information about code-share statuses of flights are supplied (all flights are CodeshareStatus=Unknown), complex filtering will be applied to determine which flights are likely to be operational (caution: false results are possible)."
+          },
+          "withCargo": {
+            "type": "boolean",
+            "default": true,
+            "description": "If set to true, the result will include cargo flights (subject to availability)."
+          },
+          "withPrivate": {
+            "type": "boolean",
+            "default": true,
+            "description": "If set to true, the result will include private flights (subject to availability)."
+          },
+          "withLocation": {
+            "type": "boolean",
+            "default": false,
+            "description": "If set to true, each currently active flight within the result will be populated with its present real-time location, altitude, speed and track (subject to availability)."
+          }
+        },
+        "required": [
+          "codeType",
+          "code"
+        ]
+      }
+    },
+    {
+      "name": "search_flights_by_term",
+      "description": "Search flight numbers by term / TIER 2",
+      "method": "GET",
+      "path": "/flights/search/term",
+      "query_params": [
+        "q",
+        "limit"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search query (min. 2 non whitespace characters length)"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "default": 10,
+            "description": "Maximum number of items to be returned (max. 100, defaut = 10)"
+          }
+        },
+        "required": [
+          "q"
+        ]
+      }
+    },
+    {
+      "name": "get_feed_service_status",
+      "description": "General status of data feed services / FREE TIER",
+      "method": "GET",
+      "path": "/health/services/feeds/{service}",
+      "query_params": [
+        "withHttpCode"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "description": "Data feed service name",
+            "enum": [
+              "FlightSchedules",
+              "FlightLiveUpdates",
+              "AdsbUpdates"
+            ]
+          },
+          "withHttpCode": {
+            "type": "boolean",
+            "default": false,
+            "description": "If true, reflect status of the service in the HTTP code of the response (if the service is down, HTTP code will be 503)."
+          }
+        },
+        "required": [
+          "service"
+        ]
+      }
+    },
+    {
+      "name": "get_airport_feed_status",
+      "description": "Data feed services status by ICAO code / FREE TIER",
+      "method": "GET",
+      "path": "/health/services/airports/{icao}/feeds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "icao": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 4,
+            "description": "4-digit ICAO-code of the airport (e.g.: EHAM, KLAX, UUEE, etc.). Full, stripped and any case formats are acceptable."
+          }
+        },
+        "required": [
+          "icao"
+        ]
+      }
+    },
+    {
+      "name": "get_feed_airports",
+      "description": "Airports supporting data feed service / FREE TIER",
+      "method": "GET",
+      "path": "/health/services/feeds/{service}/airports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "description": "Airport data feed service name",
+            "enum": [
+              "FlightSchedules",
+              "FlightLiveUpdates",
+              "AdsbUpdates"
+            ]
+          }
+        },
+        "required": [
+          "service"
+        ]
+      }
+    },
+    {
+      "name": "get_faa_ladd_aircraft_status",
+      "description": "FAA LADD Aircraft Status / TIER 3",
+      "method": "GET",
+      "path": "/industry/faa-ladd/{id}/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 15,
+            "description": "Callsign or aircraft tail number"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_airport_local_time",
+      "description": "Current local time at the airport / TIER 1",
+      "method": "GET",
+      "path": "/airports/{codeType}/{code}/time/local",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "codeType": {
+            "type": "string",
+            "description": "Type of code to search airport by (`iata` or `icao`)",
+            "enum": [
+              "Icao",
+              "Iata"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4,
+            "description": "If `codeType` is: * `icao`, then this field must be a 4-character ICAO-code of the airport (e.g.: EHAM, KLAX, UUEE, etc.); * `iata`, then this field must be a 3-character IATA-code of the airport (e.g.: AMS, SFO, LAX, etc.). Full, stripped and any case formats are acceptable."
+          }
+        },
+        "required": [
+          "codeType",
+          "code"
+        ]
+      }
+    },
+    {
+      "name": "get_current_airport_solar_time",
+      "description": "Solar and day time at the airport / TIER 1",
+      "method": "GET",
+      "path": "/airports/{codeType}/{code}/time/solar",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "codeType": {
+            "type": "string",
+            "description": "Type of code to search airport by (`iata` or `icao`)",
+            "enum": [
+              "Icao",
+              "Iata"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4,
+            "description": "If `codeType` is: * `icao`, then this field must be a 4-character ICAO-code of the airport (e.g.: EHAM, KLAX, UUEE, etc.); * `iata`, then this field must be a 3-character IATA-code of the airport (e.g.: AMS, SFO, LAX, etc.). Full, stripped and any case formats are acceptable."
+          }
+        },
+        "required": [
+          "codeType",
+          "code"
+        ]
+      }
+    },
+    {
+      "name": "get_airport_solar_time_on_date",
+      "description": "Solar and day time at the airport / TIER 1",
+      "method": "GET",
+      "path": "/airports/{codeType}/{code}/time/solar/{dateLocal}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "codeType": {
+            "type": "string",
+            "description": "Type of code to search airport by (`iata` or `icao`)",
+            "enum": [
+              "Icao",
+              "Iata"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4,
+            "description": "If `codeType` is: * `icao`, then this field must be a 4-character ICAO-code of the airport (e.g.: EHAM, KLAX, UUEE, etc.); * `iata`, then this field must be a 3-character IATA-code of the airport (e.g.: AMS, SFO, LAX, etc.). Full, stripped and any case formats are acceptable."
+          },
+          "dateLocal": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?",
+            "description": "The moment of time which solar data is request for (local time, format: YYYY-MM-DDTHH:mm). Default - current time."
+          }
+        },
+        "required": [
+          "codeType",
+          "code",
+          "dateLocal"
+        ]
+      }
+    },
+    {
+      "name": "get_airport_distance_time",
+      "description": "Distance and flight time between airports / TIER 2",
+      "method": "GET",
+      "path": "/airports/{codeType}/{codeFrom}/distance-time/{codeTo}",
+      "query_params": [
+        "aircraftName",
+        "flightTimeModel"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "codeType": {
+            "type": "string",
+            "description": "Type of code to search airport by (`iata` or `icao`)",
+            "enum": [
+              "Icao",
+              "Iata"
+            ]
+          },
+          "codeFrom": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4,
+            "description": "If `codeType` is: * `icao`, then this field must be a 4-character ICAO-code of the origin airport (e.g.: EHAM, KLAX, UUEE, etc.); * `iata`, then this field must be a 3-character IATA-code of the origin airport (e.g.: AMS, SFO, LAX, etc.). Full, stripped and any case formats are acceptable."
+          },
+          "codeTo": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4,
+            "description": "If `codeType` is: * `icao`, then this field must be a 4-character ICAO-code of the destination airport (e.g.: EHAM, KLAX, UUEE, etc.); * `iata`, then this field must be a 3-character IATA-code of the destination airport (e.g.: AMS, SFO, LAX, etc.); * `local`, then the format of this field is subject to specific standards of relevant national or local airport codification systems. Full, stripped and any case formats are acceptable."
+          },
+          "aircraftName": {
+            "type": "string",
+            "description": "Aircraft type name (free text). If specified, the aircraft type will be attempted to be taken into account to provide more accurate result."
+          },
+          "flightTimeModel": {
+            "type": "string",
+            "description": "Model of calculation of the flight time. Default is More advanced model(s) is available, including machine learning-based models. See ModelFlightTimeEnum for details.",
+            "enum": [
+              "Standard",
+              "ML01"
+            ]
+          }
+        },
+        "required": [
+          "codeType",
+          "codeFrom",
+          "codeTo"
+        ]
+      }
+    },
+    {
+      "name": "get_current_airport_delays",
+      "description": "Airport delays (current or historical moment) / TIER 3",
+      "method": "GET",
+      "path": "/airports/{codeType}/{code}/delays",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "codeType": {
+            "type": "string",
+            "description": "Type of code to search airport by (`iata` or `icao`)",
+            "enum": [
+              "Icao",
+              "Iata"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4,
+            "description": "If `codeType` is: * `icao`, then this field must be a 4-character ICAO-code of the airport (e.g.: EHAM, KLAX, UUEE, etc.); * `iata`, then this field must be a 3-character IATA-code of the airport (e.g.: AMS, SFO, LAX, etc.). Full, stripped and any case formats are acceptable."
+          }
+        },
+        "required": [
+          "codeType",
+          "code"
+        ]
+      }
+    },
+    {
+      "name": "get_airport_delays_at_time",
+      "description": "Airport delays (current or historical moment) / TIER 3",
+      "method": "GET",
+      "path": "/airports/{codeType}/{code}/delays/{dateLocal}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "codeType": {
+            "type": "string",
+            "description": "Type of code to search airport by (`iata` or `icao`)",
+            "enum": [
+              "Icao",
+              "Iata"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4,
+            "description": "If `codeType` is: * `icao`, then this field must be a 4-character ICAO-code of the airport (e.g.: EHAM, KLAX, UUEE, etc.); * `iata`, then this field must be a 3-character IATA-code of the airport (e.g.: AMS, SFO, LAX, etc.). Full, stripped and any case formats are acceptable."
+          },
+          "dateLocal": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?",
+            "description": "The moment of time for / from which delay data is requested (local time, format: YYYY-MM-DDTHH:mm). Default - current time."
+          }
+        },
+        "required": [
+          "codeType",
+          "code",
+          "dateLocal"
+        ]
+      }
+    },
+    {
+      "name": "get_airport_delays",
+      "description": "Airport delays (historical period) / TIER 3",
+      "method": "GET",
+      "path": "/airports/{codeType}/{code}/delays/{dateFromLocal}/{dateToLocal}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "codeType": {
+            "type": "string",
+            "description": "Type of code to search airport by (`iata` or `icao`)",
+            "enum": [
+              "Icao",
+              "Iata"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4,
+            "description": "If `codeType` is: * `icao`, then this field must be a 4-character ICAO-code of the airport (e.g.: EHAM, KLAX, UUEE, etc.); * `iata`, then this field must be a 3-character IATA-code of the airport (e.g.: AMS, SFO, LAX, etc.). Full, stripped and any case formats are acceptable."
+          },
+          "dateFromLocal": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?",
+            "description": "The beginning of the period of time for which delay data is requested (local time, format: YYYY-MM-DDTHH:mm)."
+          },
+          "dateToLocal": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?",
+            "description": "The end of the period of time for which delay data is requested (local time, format: YYYY-MM-DDTHH:mm)."
+          }
+        },
+        "required": [
+          "codeType",
+          "code",
+          "dateFromLocal",
+          "dateToLocal"
+        ]
+      }
+    },
+    {
+      "name": "get_current_daily_routes",
+      "description": "Airport routes and daily flight destinations / TIER 3",
+      "method": "GET",
+      "path": "/airports/{codeType}/{code}/stats/routes/daily",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "codeType": {
+            "type": "string",
+            "description": "Type of code to search airport by (`iata` or `icao`)",
+            "enum": [
+              "Icao",
+              "Iata"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4,
+            "description": "If `codeType` is: * `icao`, then this field must be a 4-character ICAO-code of the airport (e.g.: EHAM, KLAX, UUEE, etc.); * `iata`, then this field must be a 3-character IATA-code of the airport (e.g.: AMS, SFO, LAX, etc.). Full, stripped and any case formats are acceptable."
+          }
+        },
+        "required": [
+          "codeType",
+          "code"
+        ]
+      }
+    },
+    {
+      "name": "get_daily_routes_on_date",
+      "description": "Airport routes and daily flight destinations / TIER 3",
+      "method": "GET",
+      "path": "/airports/{codeType}/{code}/stats/routes/daily/{dateLocal}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "codeType": {
+            "type": "string",
+            "description": "Type of code to search airport by (`iata` or `icao`)",
+            "enum": [
+              "Icao",
+              "Iata"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4,
+            "description": "If `codeType` is: * `icao`, then this field must be a 4-character ICAO-code of the airport (e.g.: EHAM, KLAX, UUEE, etc.); * `iata`, then this field must be a 3-character IATA-code of the airport (e.g.: AMS, SFO, LAX, etc.). Full, stripped and any case formats are acceptable."
+          },
+          "dateLocal": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?",
+            "description": "Local date at the airport (default = null). If specified, returns statistics based on 7 days prior to the date specified. Otherwise, returns statistics based on 7 days prior to the current local date at the airport."
+          }
+        },
+        "required": [
+          "codeType",
+          "code",
+          "dateLocal"
+        ]
+      }
+    },
+    {
+      "name": "get_current_global_delays",
+      "description": "Global delays (current or historical moment) / TIER 3",
+      "method": "GET",
+      "path": "/airports/delays",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_global_delays_at_time",
+      "description": "Global delays (current or historical moment) / TIER 3",
+      "method": "GET",
+      "path": "/airports/delays/{dateUtc}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dateUtc": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?",
+            "description": "The moment of time for / from which delay data is requested (UTC time, format: YYYY-MM-DDTHH:mm). Default - current time."
+          }
+        },
+        "required": [
+          "dateUtc"
+        ]
+      }
+    },
+    {
+      "name": "get_flight_delays",
+      "description": "Flight delay statistics by flight number / TIER 3",
+      "method": "GET",
+      "path": "/flights/{number}/delays",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "string",
+            "maxLength": 8,
+            "description": "Flight number (with or without spaces, IATA or ICAO, any case formats are acceptable, e.g. KL1395, Klm 1395)"
+          }
+        },
+        "required": [
+          "number"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_feed_service_status",
+    "input": {
+      "service": "FlightLiveUpdates",
+      "withHttpCode": false
+    }
+  }
+}

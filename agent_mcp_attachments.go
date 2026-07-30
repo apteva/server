@@ -184,10 +184,114 @@ func mutateMCPServers(current, selected []map[string]any, action string) []map[s
 	case "set":
 		return append(filterSystemMCPConfigs(current), selected...)
 	case "remove":
-		return removeMCPConfigsByName(current, selected)
+		return removeMatchingMCPConfigs(current, selected)
 	default:
-		return append(removeMCPConfigsByName(current, selected), selected...)
+		return append(removeMatchingMCPConfigs(current, selected), selected...)
 	}
+}
+
+// refreshAgentAppMCPConfigs replaces stale embedded app credentials and names
+// with the current registry config before a core starts or is reattached.
+// The install_id in the URL is the durable identity; app tokens and display
+// names are allowed to change without disconnecting the agent from the app.
+func (s *Server) refreshAgentAppMCPConfigs(inst *Agent) error {
+	if inst == nil {
+		return nil
+	}
+	current, err := s.currentAgentMCPServers(inst, 0)
+	if err != nil {
+		return err
+	}
+	port := s.port
+	if port == "" {
+		port = localServerPort()
+	}
+	refreshed := make([]map[string]any, 0, len(current))
+	changed := false
+	for _, entry := range current {
+		installID := appInstallIDFromMCPConfig(entry)
+		if installID <= 0 {
+			refreshed = append(refreshed, entry)
+			continue
+		}
+		var serverID int64
+		err := s.store.db.QueryRow(
+			`SELECT id FROM mcp_servers
+			 WHERE source='app' AND upstream_id=?
+			   AND (COALESCE(project_id,'')='' OR project_id=?)`,
+			appMCPUpstreamID(installID), inst.ProjectID,
+		).Scan(&serverID)
+		if err != nil {
+			// An uninstalled or temporarily unavailable app must not cause us
+			// to destructively drop the user's desired attachment.
+			refreshed = append(refreshed, entry)
+			continue
+		}
+		record, err := s.store.GetMCPServerByIDUnscoped(serverID)
+		if err != nil {
+			return err
+		}
+		replacement, err := gatewayMCPConfigFromRecord(*record, inst.ProjectID, port, "")
+		if err != nil {
+			refreshed = append(refreshed, entry)
+			continue
+		}
+		if !mcpConfigsEqual(entry, replacement) {
+			changed = true
+		}
+		refreshed = append(refreshed, replacement)
+	}
+
+	configPath := filepath.Join(s.agents.instanceDir(inst.ID), "config.json")
+	if changed {
+		if _, err := os.Stat(configPath); err == nil {
+			if err := s.writeStoppedConfigAtomic(inst.ID, func(cfg map[string]any) error {
+				cfg["mcp_servers"] = mcpMapsAsAny(refreshed)
+				return nil
+			}); err != nil {
+				return err
+			}
+		} else if !os.IsNotExist(err) {
+			return err
+		} else {
+			var cfg map[string]any
+			if strings.TrimSpace(inst.Config) != "" {
+				if err := json.Unmarshal([]byte(inst.Config), &cfg); err != nil {
+					return err
+				}
+			}
+			if cfg == nil {
+				cfg = map[string]any{}
+			}
+			cfg["mcp_servers"] = mcpMapsAsAny(refreshed)
+			encoded, err := json.Marshal(cfg)
+			if err != nil {
+				return err
+			}
+			inst.Config = string(encoded)
+			if err := s.store.UpdateAgent(inst); err != nil {
+				return err
+			}
+		}
+		log.Printf("[MCP-ATTACH] refreshed stale app configs agent=%d", inst.ID)
+	}
+	return s.syncAppBindingsFromMCPServers(inst.ID, inst.ProjectID, mcpMapsAsAny(refreshed))
+}
+
+func appInstallIDFromMCPConfig(config map[string]any) int64 {
+	rawURL, _ := config["url"].(string)
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return 0
+	}
+	id, _ := strconv.ParseInt(parsed.Query().Get("install_id"), 10, 64)
+	return id
+}
+
+func mcpConfigsEqual(a, b map[string]any) bool {
+	left, _ := json.Marshal(a)
+	right, _ := json.Marshal(b)
+	return bytes.Equal(left, right)
 }
 
 // syncAppBindingsFromMCPServers makes app_agent_bindings derived metadata for

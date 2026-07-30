@@ -1,225 +1,401 @@
 {
   "slug": "amadeus",
   "name": "Amadeus",
-  "description": "MCP server for Amadeus travel API - flights, hotels, airports",
+  "description": "Official Amadeus Self-Service travel APIs for on-demand flight status, flight offers and pricing, flight orders, schedules, airports, airlines, check-in links, seat maps, delay and price predictions, air-traffic analytics, hotels, hotel offers, hotel orders, and hotel sentiment.",
   "logo": "https://www.google.com/s2/favicons?domain=amadeus.com&sz=128",
-  "categories": [
-    "travel",
-    "flights",
-    "hotels",
-    "booking"
-  ],
-  "base_url": "https://api.amadeus.com",
+  "categories": ["travel", "flights", "flight-status", "airports", "hotels", "booking"],
+  "base_url": "https://{{credential.api_host}}",
   "auth": {
-    "types": [
-      "bearer"
-    ],
+    "types": ["api_key"],
+    "token_exchange": {
+      "url": "https://{{credential.api_host}}/v1/security/oauth2/token",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "body_params": {
+        "grant_type": "client_credentials",
+        "client_id": "{{credential.client_id}}",
+        "client_secret": "{{credential.client_secret}}"
+      },
+      "access_token_path": "access_token",
+      "expires_in_path": "expires_in",
+      "expiry_skew_seconds": 60
+    },
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Authorization": "Bearer {{access_token}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
     },
     "credential_fields": [
       {
-        "name": "token",
-        "label": "API Key"
+        "name": "api_host",
+        "label": "API Host",
+        "description": "Use test.api.amadeus.com for free test credentials or api.amadeus.com for production credentials.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "client_id",
+        "label": "API Key",
+        "description": "Amadeus Self-Service application API key.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "client_secret",
+        "label": "API Secret",
+        "description": "Amadeus Self-Service application API secret.",
+        "required": true,
+        "secret": true
       }
     ]
   },
+  "health_check": {
+    "tool": "search_locations",
+    "input": { "keyword": "MAD", "subType": ["AIRPORT"] }
+  },
   "tools": [
     {
-      "name": "flight_search",
-      "description": "Search for flight offers",
+      "name": "get_flight_status",
+      "description": "Get on-demand schedule and real-time status for one flight, including updated departure/arrival times, terminal, gate, duration, and delay status.",
       "method": "GET",
-      "path": "/flight-search",
+      "path": "/v2/schedule/flights",
+      "query_params": ["carrierCode", "flightNumber", "scheduledDepartureDate", "operationalSuffix"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "origin": {
-            "type": "string",
-            "description": "Origin IATA code"
-          },
-          "destination": {
-            "type": "string",
-            "description": "Destination IATA code"
-          },
-          "departure_date": {
-            "type": "string"
-          },
-          "return_date": {
-            "type": "string"
-          },
-          "adults": {
-            "type": "number"
-          },
-          "cabin": {
-            "type": "string",
-            "enum": [
-              "ECONOMY",
-              "PREMIUM_ECONOMY",
-              "BUSINESS",
-              "FIRST"
-            ]
-          }
+          "carrierCode": { "type": "string", "description": "Two-character IATA airline code, such as IB." },
+          "flightNumber": { "type": "string", "description": "Flight number without the carrier code." },
+          "scheduledDepartureDate": { "type": "string", "description": "Scheduled departure date in YYYY-MM-DD." },
+          "operationalSuffix": { "type": "string", "maxLength": 1 }
         },
-        "required": [
-          "origin",
-          "destination",
-          "departure_date",
-          "adults"
-        ]
+        "required": ["carrierCode", "flightNumber", "scheduledDepartureDate"]
       }
     },
     {
-      "name": "flight_inspiration",
-      "description": "Get flight destination inspiration",
+      "name": "search_flight_offers",
+      "description": "Search bookable flight offers. Returns priced itineraries and fare details; production access is required for complete live inventory.",
       "method": "GET",
-      "path": "/flight-inspiration",
+      "path": "/v2/shopping/flight-offers",
+      "query_params": ["originLocationCode", "destinationLocationCode", "departureDate", "returnDate", "adults", "children", "infants", "travelClass", "includedAirlineCodes", "excludedAirlineCodes", "nonStop", "currencyCode", "maxPrice", "max"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "origin": {
-            "type": "string"
-          },
-          "max_price": {
-            "type": "number"
-          }
+          "originLocationCode": { "type": "string", "description": "Origin IATA city or airport code." },
+          "destinationLocationCode": { "type": "string", "description": "Destination IATA city or airport code." },
+          "departureDate": { "type": "string", "description": "YYYY-MM-DD." },
+          "returnDate": { "type": "string", "description": "YYYY-MM-DD for a round trip." },
+          "adults": { "type": "integer", "minimum": 1, "maximum": 9 },
+          "children": { "type": "integer", "minimum": 0 },
+          "infants": { "type": "integer", "minimum": 0 },
+          "travelClass": { "type": "string", "enum": ["ECONOMY", "PREMIUM_ECONOMY", "BUSINESS", "FIRST"] },
+          "includedAirlineCodes": { "type": "string", "description": "Comma-separated IATA airline codes." },
+          "excludedAirlineCodes": { "type": "string" },
+          "nonStop": { "type": "boolean" },
+          "currencyCode": { "type": "string" },
+          "maxPrice": { "type": "integer" },
+          "max": { "type": "integer", "minimum": 1, "maximum": 250 }
         },
-        "required": [
-          "origin"
-        ]
+        "required": ["originLocationCode", "destinationLocationCode", "departureDate", "adults"]
       }
     },
     {
-      "name": "airport_search",
-      "description": "Search for airports",
-      "method": "GET",
-      "path": "/airport-search",
+      "name": "price_flight_offers",
+      "description": "Confirm current price and availability for selected flight offers before booking.",
+      "method": "POST",
+      "path": "/v1/shopping/flight-offers/pricing",
       "input_schema": {
         "type": "object",
         "properties": {
-          "keyword": {
-            "type": "string"
+          "data": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["flight-offers-pricing"] },
+              "flightOffers": { "type": "array", "items": { "type": "object", "additionalProperties": true }, "description": "Flight offers returned by search_flight_offers." },
+              "payments": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+            },
+            "required": ["type", "flightOffers"]
           }
         },
-        "required": [
-          "keyword"
-        ]
+        "required": ["data"]
       }
     },
     {
-      "name": "city_search",
-      "description": "Search for cities",
-      "method": "GET",
-      "path": "/city-search",
+      "name": "create_flight_order",
+      "description": "Book a priced flight offer. This can create a charge or reservation and requires production booking access.",
+      "method": "POST",
+      "path": "/v1/booking/flight-orders",
       "input_schema": {
         "type": "object",
         "properties": {
-          "keyword": {
-            "type": "string"
+          "data": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["flight-order"] },
+              "flightOffers": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+              "travelers": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+              "remarks": { "type": "object", "additionalProperties": true },
+              "ticketingAgreement": { "type": "object", "additionalProperties": true },
+              "contacts": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+            },
+            "required": ["type", "flightOffers", "travelers"]
           }
         },
-        "required": [
-          "keyword"
-        ]
+        "required": ["data"]
       }
     },
     {
-      "name": "hotel_search",
-      "description": "Search for hotels",
+      "name": "get_flight_order",
+      "description": "Retrieve a flight order by order ID.",
       "method": "GET",
-      "path": "/hotel-search",
+      "path": "/v1/booking/flight-orders/{orderId}",
+      "input_schema": { "type": "object", "properties": { "orderId": { "type": "string" } }, "required": ["orderId"] }
+    },
+    {
+      "name": "cancel_flight_order",
+      "description": "Cancel a flight order when permitted by its fare and booking state.",
+      "method": "DELETE",
+      "path": "/v1/booking/flight-orders/{orderId}",
+      "input_schema": { "type": "object", "properties": { "orderId": { "type": "string" } }, "required": ["orderId"] }
+    },
+    {
+      "name": "search_flight_destinations",
+      "description": "Find affordable destinations from an origin using cached flight prices.",
+      "method": "GET",
+      "path": "/v1/shopping/flight-destinations",
+      "query_params": ["origin", "departureDate", "oneWay", "duration", "nonStop", "maxPrice", "viewBy"],
+      "input_schema": { "type": "object", "properties": { "origin": { "type": "string" }, "departureDate": { "type": "string" }, "oneWay": { "type": "boolean" }, "duration": { "type": "string" }, "nonStop": { "type": "boolean" }, "maxPrice": { "type": "integer" }, "viewBy": { "type": "string" } }, "required": ["origin"] }
+    },
+    {
+      "name": "search_cheapest_flight_dates",
+      "description": "Find cheapest travel dates for a route using cached flight prices.",
+      "method": "GET",
+      "path": "/v1/shopping/flight-dates",
+      "query_params": ["origin", "destination", "departureDate", "oneWay", "duration", "nonStop", "maxPrice", "viewBy"],
+      "input_schema": { "type": "object", "properties": { "origin": { "type": "string" }, "destination": { "type": "string" }, "departureDate": { "type": "string" }, "oneWay": { "type": "boolean" }, "duration": { "type": "string" }, "nonStop": { "type": "boolean" }, "maxPrice": { "type": "integer" }, "viewBy": { "type": "string" } }, "required": ["origin", "destination"] }
+    },
+    {
+      "name": "get_seatmap_by_order",
+      "description": "Get seat maps for an existing flight order.",
+      "method": "GET",
+      "path": "/v1/shopping/seatmaps",
+      "query_params": ["flight-orderId"],
+      "input_schema": { "type": "object", "properties": { "flight-orderId": { "type": "string", "description": "Flight order ID." } }, "required": ["flight-orderId"] }
+    },
+    {
+      "name": "get_seatmaps_for_offers",
+      "description": "Get seat maps for one or more flight offers before booking.",
+      "method": "POST",
+      "path": "/v1/shopping/seatmaps",
       "input_schema": {
         "type": "object",
         "properties": {
-          "city_code": {
-            "type": "string"
-          },
-          "check_in_date": {
-            "type": "string"
-          },
-          "check_out_date": {
-            "type": "string"
-          },
-          "adults": {
-            "type": "number"
-          },
-          "radius": {
-            "type": "number"
-          }
+          "data": { "type": "array", "items": { "type": "object", "additionalProperties": true }, "description": "Flight offers returned by search_flight_offers." }
         },
-        "required": [
-          "city_code"
-        ]
+        "required": ["data"]
       }
     },
     {
-      "name": "hotel_offers",
-      "description": "Get offers for a hotel",
+      "name": "search_locations",
+      "description": "Search airports and cities by keyword, IATA code, or name.",
       "method": "GET",
-      "path": "/hotel-offers",
+      "path": "/v1/reference-data/locations",
+      "query_params": ["subType", "keyword", "countryCode", "page[limit]", "page[offset]", "sort", "view"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "hotel_id": {
-            "type": "string"
-          },
-          "check_in_date": {
-            "type": "string"
-          },
-          "check_out_date": {
-            "type": "string"
-          },
-          "adults": {
-            "type": "number"
-          }
+          "subType": { "type": "array", "items": { "type": "string", "enum": ["AIRPORT", "CITY"] } },
+          "keyword": { "type": "string", "minLength": 1 },
+          "countryCode": { "type": "string" },
+          "page[limit]": { "type": "integer" },
+          "page[offset]": { "type": "integer" },
+          "sort": { "type": "string", "enum": ["analytics.travelers.score"] },
+          "view": { "type": "string", "enum": ["LIGHT", "FULL"] }
         },
-        "required": [
-          "hotel_id"
-        ]
+        "required": ["keyword", "subType"]
       }
     },
     {
-      "name": "hotel_booking",
-      "description": "Create a hotel booking",
+      "name": "get_location",
+      "description": "Get one airport or city location by Amadeus location ID.",
       "method": "GET",
-      "path": "/hotel-booking",
+      "path": "/v1/reference-data/locations/{locationId}",
+      "input_schema": { "type": "object", "properties": { "locationId": { "type": "string" } }, "required": ["locationId"] }
+    },
+    {
+      "name": "find_nearest_airports",
+      "description": "Find airports near a geographic point.",
+      "method": "GET",
+      "path": "/v1/reference-data/locations/airports",
+      "query_params": ["latitude", "longitude", "radius", "page[limit]", "page[offset]", "sort"],
+      "input_schema": { "type": "object", "properties": { "latitude": { "type": "number", "minimum": -90, "maximum": 90 }, "longitude": { "type": "number", "minimum": -180, "maximum": 180 }, "radius": { "type": "integer", "minimum": 0, "maximum": 500 }, "page[limit]": { "type": "integer" }, "page[offset]": { "type": "integer" }, "sort": { "type": "string" } }, "required": ["latitude", "longitude"] }
+    },
+    {
+      "name": "get_airport",
+      "description": "Get detailed airport information by IATA code.",
+      "method": "GET",
+      "path": "/v1/reference-data/locations/airports/{airportCode}",
+      "input_schema": { "type": "object", "properties": { "airportCode": { "type": "string" } }, "required": ["airportCode"] }
+    },
+    {
+      "name": "list_airport_direct_destinations",
+      "description": "List destinations reachable directly from an airport.",
+      "method": "GET",
+      "path": "/v1/airport/direct-destinations",
+      "query_params": ["departureAirportCode", "max"],
+      "input_schema": { "type": "object", "properties": { "departureAirportCode": { "type": "string" }, "max": { "type": "integer" } }, "required": ["departureAirportCode"] }
+    },
+    {
+      "name": "predict_airport_on_time_performance",
+      "description": "Predict the probability that a flight departing an airport at a date/time will be on time.",
+      "method": "GET",
+      "path": "/v1/airport/predictions/on-time",
+      "query_params": ["airportCode", "date"],
+      "input_schema": { "type": "object", "properties": { "airportCode": { "type": "string" }, "date": { "type": "string", "description": "Local airport date-time in ISO 8601." } }, "required": ["airportCode", "date"] }
+    },
+    {
+      "name": "get_airline",
+      "description": "Get airline names and IATA/ICAO codes.",
+      "method": "GET",
+      "path": "/v1/reference-data/airlines",
+      "query_params": ["airlineCodes"],
+      "input_schema": { "type": "object", "properties": { "airlineCodes": { "type": "string", "description": "Comma-separated IATA or ICAO airline codes." } }, "required": ["airlineCodes"] }
+    },
+    {
+      "name": "get_checkin_links",
+      "description": "Get airline check-in URLs for a flight.",
+      "method": "GET",
+      "path": "/v2/reference-data/urls/checkin-links",
+      "query_params": ["airlineCode", "language"],
+      "input_schema": { "type": "object", "properties": { "airlineCode": { "type": "string" }, "language": { "type": "string" } }, "required": ["airlineCode"] }
+    },
+    {
+      "name": "predict_flight_delay",
+      "description": "Predict delay probabilities for a flight route and schedule.",
+      "method": "GET",
+      "path": "/v1/travel/predictions/flight-delay",
+      "query_params": ["originLocationCode", "destinationLocationCode", "departureDate", "departureTime", "arrivalDate", "arrivalTime", "aircraftCode", "carrierCode", "flightNumber", "duration"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "offer_id": {
-            "type": "string"
-          },
-          "guests": {
-            "type": "array"
-          },
-          "payments": {
-            "type": "array"
-          }
+          "originLocationCode": { "type": "string" },
+          "destinationLocationCode": { "type": "string" },
+          "departureDate": { "type": "string" },
+          "departureTime": { "type": "string" },
+          "arrivalDate": { "type": "string" },
+          "arrivalTime": { "type": "string" },
+          "aircraftCode": { "type": "string" },
+          "carrierCode": { "type": "string" },
+          "flightNumber": { "type": "string" },
+          "duration": { "type": "string" }
         },
-        "required": [
-          "offer_id",
-          "guests"
-        ]
+        "required": ["originLocationCode", "destinationLocationCode", "departureDate", "departureTime", "arrivalDate", "arrivalTime", "aircraftCode", "carrierCode", "flightNumber", "duration"]
       }
     },
     {
-      "name": "hotel_ratings",
-      "description": "Get hotel sentiment ratings",
+      "name": "predict_flight_price",
+      "description": "Predict whether flight-offer prices are low or high.",
+      "method": "POST",
+      "path": "/v1/travel/predictions/flight-price",
+      "input_schema": {
+        "type": "object",
+        "properties": { "data": { "type": "array", "items": { "type": "object", "additionalProperties": true }, "description": "Flight offers to evaluate." } },
+        "required": ["data"]
+      }
+    },
+    {
+      "name": "get_traveled_air_traffic",
+      "description": "Get the most traveled destinations from an origin for a period.",
       "method": "GET",
-      "path": "/hotel-ratings",
+      "path": "/v1/travel/analytics/air-traffic/traveled",
+      "query_params": ["originCityCode", "period", "max"],
+      "input_schema": { "type": "object", "properties": { "originCityCode": { "type": "string" }, "period": { "type": "string", "description": "YYYY-MM." }, "max": { "type": "integer" } }, "required": ["originCityCode", "period"] }
+    },
+    {
+      "name": "get_booked_air_traffic",
+      "description": "Get the most booked destinations from an origin for a period.",
+      "method": "GET",
+      "path": "/v1/travel/analytics/air-traffic/booked",
+      "query_params": ["originCityCode", "period", "max"],
+      "input_schema": { "type": "object", "properties": { "originCityCode": { "type": "string" }, "period": { "type": "string", "description": "YYYY-MM." }, "max": { "type": "integer" } }, "required": ["originCityCode", "period"] }
+    },
+    {
+      "name": "get_busiest_travel_period",
+      "description": "Get the busiest travel periods for an origin/destination pair.",
+      "method": "GET",
+      "path": "/v1/travel/analytics/air-traffic/busiest-period",
+      "query_params": ["cityCode", "period", "direction"],
+      "input_schema": { "type": "object", "properties": { "cityCode": { "type": "string" }, "period": { "type": "string" }, "direction": { "type": "string", "enum": ["ARRIVING", "DEPARTING"] } }, "required": ["cityCode", "period", "direction"] }
+    },
+    {
+      "name": "list_hotels_by_city",
+      "description": "List hotel IDs in a city by IATA city code.",
+      "method": "GET",
+      "path": "/v1/reference-data/locations/hotels/by-city",
+      "query_params": ["cityCode", "radius", "radiusUnit", "chainCodes", "amenities", "ratings", "hotelSource"],
+      "input_schema": { "type": "object", "properties": { "cityCode": { "type": "string" }, "radius": { "type": "integer" }, "radiusUnit": { "type": "string", "enum": ["KM", "MILE"] }, "chainCodes": { "type": "string" }, "amenities": { "type": "string" }, "ratings": { "type": "string" }, "hotelSource": { "type": "string", "enum": ["BEDBANK", "DIRECTCHAIN", "ALL"] } }, "required": ["cityCode"] }
+    },
+    {
+      "name": "list_hotels_by_geocode",
+      "description": "List hotel IDs near a latitude/longitude point.",
+      "method": "GET",
+      "path": "/v1/reference-data/locations/hotels/by-geocode",
+      "query_params": ["latitude", "longitude", "radius", "radiusUnit", "chainCodes", "amenities", "ratings", "hotelSource"],
+      "input_schema": { "type": "object", "properties": { "latitude": { "type": "number" }, "longitude": { "type": "number" }, "radius": { "type": "integer" }, "radiusUnit": { "type": "string", "enum": ["KM", "MILE"] }, "chainCodes": { "type": "string" }, "amenities": { "type": "string" }, "ratings": { "type": "string" }, "hotelSource": { "type": "string", "enum": ["BEDBANK", "DIRECTCHAIN", "ALL"] } }, "required": ["latitude", "longitude"] }
+    },
+    {
+      "name": "get_hotels_by_ids",
+      "description": "Get hotel metadata for a comma-separated list of Amadeus hotel IDs.",
+      "method": "GET",
+      "path": "/v1/reference-data/locations/hotels/by-hotels",
+      "query_params": ["hotelIds"],
+      "input_schema": { "type": "object", "properties": { "hotelIds": { "type": "string" } }, "required": ["hotelIds"] }
+    },
+    {
+      "name": "search_hotel_offers",
+      "description": "Search current room offers for one or more hotel IDs.",
+      "method": "GET",
+      "path": "/v3/shopping/hotel-offers",
+      "query_params": ["hotelIds", "adults", "checkInDate", "checkOutDate", "countryOfResidence", "roomQuantity", "priceRange", "currency", "paymentPolicy", "boardType", "includeClosed", "bestRateOnly", "lang"],
+      "input_schema": { "type": "object", "properties": { "hotelIds": { "type": "string" }, "adults": { "type": "integer" }, "checkInDate": { "type": "string" }, "checkOutDate": { "type": "string" }, "countryOfResidence": { "type": "string" }, "roomQuantity": { "type": "integer" }, "priceRange": { "type": "string" }, "currency": { "type": "string" }, "paymentPolicy": { "type": "string", "enum": ["GUARANTEE", "DEPOSIT", "NONE"] }, "boardType": { "type": "string" }, "includeClosed": { "type": "boolean" }, "bestRateOnly": { "type": "boolean" }, "lang": { "type": "string" } }, "required": ["hotelIds", "adults"] }
+    },
+    {
+      "name": "get_hotel_offer",
+      "description": "Get current details for one hotel offer before booking.",
+      "method": "GET",
+      "path": "/v3/shopping/hotel-offers/{offerId}",
+      "query_params": ["lang"],
+      "input_schema": { "type": "object", "properties": { "offerId": { "type": "string" }, "lang": { "type": "string" } }, "required": ["offerId"] }
+    },
+    {
+      "name": "create_hotel_order",
+      "description": "Book a hotel offer. This can create a charge or reservation and requires production booking access.",
+      "method": "POST",
+      "path": "/v2/booking/hotel-orders",
       "input_schema": {
         "type": "object",
         "properties": {
-          "hotel_ids": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+          "data": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["hotel-order"] },
+              "guests": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+              "travelAgent": { "type": "object", "additionalProperties": true },
+              "roomAssociations": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+              "payment": { "type": "object", "additionalProperties": true }
+            },
+            "required": ["type", "guests", "roomAssociations", "payment"]
           }
         },
-        "required": [
-          "hotel_ids"
-        ]
+        "required": ["data"]
       }
+    },
+    {
+      "name": "get_hotel_sentiments",
+      "description": "Get hotel review sentiment scores by category for hotel IDs.",
+      "method": "GET",
+      "path": "/v2/e-reputation/hotel-sentiments",
+      "query_params": ["hotelIds"],
+      "input_schema": { "type": "object", "properties": { "hotelIds": { "type": "string" } }, "required": ["hotelIds"] }
     }
   ]
 }

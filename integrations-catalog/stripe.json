@@ -898,13 +898,14 @@
           },
           "ui_mode": {
             "type": "string",
-            "description": "Checkout presentation. hosted returns a redirect URL; elements returns client_secret for Stripe Elements. custom remains accepted for accounts pinned to the 2025 Basil API.",
+            "description": "Checkout presentation. hosted_page returns a redirect URL; elements returns client_secret for Stripe Elements. hosted remains accepted for older Stripe API versions and custom for accounts pinned to the 2025 Basil API.",
             "enum": [
+              "hosted_page",
               "hosted",
               "elements",
               "custom"
             ],
-            "default": "hosted"
+            "default": "hosted_page"
           },
           "line_items": {
             "type": "array",

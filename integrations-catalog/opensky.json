@@ -1,0 +1,112 @@
+{
+  "slug": "opensky",
+  "name": "OpenSky Network",
+  "description": "OpenSky live state vectors, receiver states, recent flight history, airport arrivals/departures, and aircraft tracks. Intended for research and non-commercial use; commercial use requires OpenSky consent.",
+  "logo": "https://www.google.com/s2/favicons?domain=opensky-network.org&sz=128",
+  "categories": ["aviation", "flight-tracking", "aircraft", "ads-b", "research"],
+  "base_url": "https://opensky-network.org/api",
+  "auth": {
+    "types": ["api_key"],
+    "token_exchange": {
+      "url": "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "body_params": {
+        "grant_type": "client_credentials",
+        "client_id": "{{credential.client_id}}",
+        "client_secret": "{{credential.client_secret}}"
+      },
+      "access_token_path": "access_token",
+      "expires_in_path": "expires_in",
+      "expiry_skew_seconds": 30
+    },
+    "headers": {
+      "Authorization": "Bearer {{access_token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      { "name": "client_id", "label": "OAuth Client ID", "description": "API client ID created on the OpenSky account page.", "required": true },
+      { "name": "client_secret", "label": "OAuth Client Secret", "description": "Secret for the OpenSky API client.", "required": true, "secret": true }
+    ]
+  },
+  "health_check": {
+    "tool": "get_states",
+    "input": { "icao24": ["3c675a"] }
+  },
+  "tools": [
+    {
+      "name": "get_states",
+      "description": "Get live/recent aircraft state vectors. Filter by ICAO24 identifiers or a complete geographic bounding box to reduce credit use. State rows contain position, altitude, velocity, track, vertical rate, squawk, and category.",
+      "method": "GET",
+      "path": "/states/all",
+      "query_params": ["time", "icao24", "lamin", "lomin", "lamax", "lomax", "extended"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "time": { "type": "integer", "description": "Unix seconds; authenticated access supports up to one hour in the past." },
+          "icao24": { "type": "array", "items": { "type": "string" }, "description": "ICAO24 hex identifiers; sent as repeated query parameters." },
+          "lamin": { "type": "number", "minimum": -90, "maximum": 90 },
+          "lomin": { "type": "number", "minimum": -180, "maximum": 180 },
+          "lamax": { "type": "number", "minimum": -90, "maximum": 90 },
+          "lomax": { "type": "number", "minimum": -180, "maximum": 180 },
+          "extended": { "type": "integer", "enum": [0, 1] }
+        }
+      }
+    },
+    {
+      "name": "get_own_receiver_states",
+      "description": "Get live states observed by receivers belonging to the authenticated account. This endpoint does not consume normal state-vector credits.",
+      "method": "GET",
+      "path": "/states/own",
+      "query_params": ["time", "icao24", "serials"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "time": { "type": "integer" },
+          "icao24": { "type": "array", "items": { "type": "string" } },
+          "serials": { "type": "array", "items": { "type": "integer" } }
+        }
+      }
+    },
+    {
+      "name": "list_flights",
+      "description": "List flights that departed or arrived in a Unix-time interval no longer than two hours.",
+      "method": "GET",
+      "path": "/flights/all",
+      "query_params": ["begin", "end"],
+      "input_schema": { "type": "object", "properties": { "begin": { "type": "integer" }, "end": { "type": "integer" } }, "required": ["begin", "end"] }
+    },
+    {
+      "name": "list_aircraft_flights",
+      "description": "List completed flights for one aircraft in an interval no longer than two days. Flight history is batch-updated, not live schedule data.",
+      "method": "GET",
+      "path": "/flights/aircraft",
+      "query_params": ["icao24", "begin", "end"],
+      "input_schema": { "type": "object", "properties": { "icao24": { "type": "string" }, "begin": { "type": "integer" }, "end": { "type": "integer" } }, "required": ["icao24", "begin", "end"] }
+    },
+    {
+      "name": "list_airport_arrivals",
+      "description": "List completed arrivals for an ICAO airport and interval no longer than two days. Results are batch-updated.",
+      "method": "GET",
+      "path": "/flights/arrival",
+      "query_params": ["airport", "begin", "end"],
+      "input_schema": { "type": "object", "properties": { "airport": { "type": "string" }, "begin": { "type": "integer" }, "end": { "type": "integer" } }, "required": ["airport", "begin", "end"] }
+    },
+    {
+      "name": "list_airport_departures",
+      "description": "List completed departures for an ICAO airport and interval no longer than two days. Results are batch-updated.",
+      "method": "GET",
+      "path": "/flights/departure",
+      "query_params": ["airport", "begin", "end"],
+      "input_schema": { "type": "object", "properties": { "airport": { "type": "string" }, "begin": { "type": "integer" }, "end": { "type": "integer" } }, "required": ["airport", "begin", "end"] }
+    },
+    {
+      "name": "get_aircraft_track",
+      "description": "Get an experimental waypoint trajectory for an aircraft at a Unix timestamp; use time=0 for the current flight. Tracks older than 30 days are unavailable.",
+      "method": "GET",
+      "path": "/tracks/all",
+      "query_params": ["icao24", "time"],
+      "input_schema": { "type": "object", "properties": { "icao24": { "type": "string" }, "time": { "type": "integer", "default": 0 } }, "required": ["icao24"] }
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "slug": "airplanes-live",
+  "name": "Airplanes.live",
+  "description": "Live ADS-B aircraft positions by hex, callsign, registration, type, squawk, military/privacy category, or geographic radius. The public REST API is non-commercial, limited to 500 requests/day and one request/second, and has no SLA.",
+  "logo": "https://www.google.com/s2/favicons?domain=airplanes.live&sz=128",
+  "categories": ["aviation", "flight-tracking", "aircraft", "ads-b", "open-data"],
+  "base_url": "https://api.airplanes.live/v2",
+  "auth": {
+    "types": ["none"],
+    "headers": { "Accept": "application/json" },
+    "credential_fields": []
+  },
+  "health_check": {
+    "tool": "aircraft_near_point",
+    "input": { "lat": 50.0379, "lon": 8.5622, "radius": 1 }
+  },
+  "tools": [
+    {
+      "name": "get_aircraft_by_hex",
+      "description": "Get live state for aircraft matching one or more Mode-S/ICAO hex identifiers.",
+      "method": "GET",
+      "path": "/hex/{hex}",
+      "input_schema": { "type": "object", "properties": { "hex": { "type": "string", "description": "One identifier or comma-separated identifiers, up to 1000." } }, "required": ["hex"] }
+    },
+    {
+      "name": "get_aircraft_by_callsign",
+      "description": "Get live aircraft matching one or more exact callsigns.",
+      "method": "GET",
+      "path": "/callsign/{callsign}",
+      "input_schema": { "type": "object", "properties": { "callsign": { "type": "string", "description": "One callsign or a comma-separated set." } }, "required": ["callsign"] }
+    },
+    {
+      "name": "get_aircraft_by_registration",
+      "description": "Get live aircraft matching one or more registrations/tail numbers.",
+      "method": "GET",
+      "path": "/reg/{registration}",
+      "input_schema": { "type": "object", "properties": { "registration": { "type": "string" } }, "required": ["registration"] }
+    },
+    {
+      "name": "get_aircraft_by_type",
+      "description": "Get live aircraft matching an ICAO aircraft type code such as A321 or B738.",
+      "method": "GET",
+      "path": "/type/{aircraft_type}",
+      "input_schema": { "type": "object", "properties": { "aircraft_type": { "type": "string" } }, "required": ["aircraft_type"] }
+    },
+    {
+      "name": "get_aircraft_by_squawk",
+      "description": "Get live aircraft broadcasting an exact four-digit octal squawk.",
+      "method": "GET",
+      "path": "/squawk/{squawk}",
+      "input_schema": { "type": "object", "properties": { "squawk": { "type": "string", "pattern": "^[0-7]{4}$" } }, "required": ["squawk"] }
+    },
+    {
+      "name": "aircraft_near_point",
+      "description": "List live aircraft within a radius of a point. Radius is in nautical miles and cannot exceed 250.",
+      "method": "GET",
+      "path": "/point/{lat}/{lon}/{radius}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+          "lon": { "type": "number", "minimum": -180, "maximum": 180 },
+          "radius": { "type": "number", "minimum": 0, "maximum": 250 }
+        },
+        "required": ["lat", "lon", "radius"]
+      }
+    },
+    { "name": "list_military_aircraft", "description": "List live aircraft tagged as military.", "method": "GET", "path": "/mil", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "list_ladd_aircraft", "description": "List live aircraft tagged under Limiting Aircraft Data Displayed (LADD).", "method": "GET", "path": "/ladd", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "list_pia_aircraft", "description": "List live aircraft using Privacy ICAO Address identifiers.", "method": "GET", "path": "/pia", "input_schema": { "type": "object", "properties": {} } }
+  ]
+}

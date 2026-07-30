@@ -9,6 +9,7 @@ package channelchat
 import (
 	"context"
 	_ "embed"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -45,13 +46,14 @@ func New(resolver InstanceResolver) framework.App {
 }
 
 type App struct {
-	resolver  InstanceResolver
-	store     *store
-	hub       *hub
-	handlers  *handlers
-	factories []framework.ChannelFactory
-	bus       *framework.AppBus
-	streamer  *Streamer
+	resolver               InstanceResolver
+	store                  *store
+	hub                    *hub
+	handlers               *handlers
+	factories              []framework.ChannelFactory
+	bus                    *framework.AppBus
+	streamer               *Streamer
+	conversationDeleteHook func(string) error
 }
 
 // Streamer returns the channelchat Streamer that converts LLM
@@ -61,6 +63,47 @@ type App struct {
 // thing the agent emits to. Nil-safe: callers can pass the result
 // to any Ingest call site even before OnMount finishes.
 func (a *App) Streamer() *Streamer { return a.streamer }
+
+// SetConversationDeleteHook lets the server reconcile durable work before a
+// conversation row is permanently removed. The app deliberately depends only
+// on this callback, not on the server task store.
+func (a *App) SetConversationDeleteHook(hook func(string) error) {
+	a.conversationDeleteHook = hook
+	if a.handlers != nil {
+		a.handlers.conversationDeleteHook = hook
+	}
+}
+
+// EnsureConversationThreadForDelivery idempotently restores the complete
+// user-conversation thread profile before a server-originated event is sent
+// to Core. Normal user messages already call handlers.ensureChatThread; this
+// hook gives restart recovery and other server-owned deliveries the same
+// guarantee instead of relying on Core's generic lazy-spawn fallback.
+func (a *App) EnsureConversationThreadForDelivery(agentID int64, conversationID string) error {
+	if a == nil || a.store == nil || a.handlers == nil || a.resolver == nil {
+		return fmt.Errorf("channel-chat is not mounted")
+	}
+	chat, err := a.store.GetChat(conversationID)
+	if err != nil {
+		return err
+	}
+	if chat.ArchivedAt != nil {
+		return fmt.Errorf("conversation %s is archived", conversationID)
+	}
+	participant := chat.AgentID == agentID
+	for _, id := range chat.AgentIDs {
+		participant = participant || id == agentID
+	}
+	if !participant {
+		return fmt.Errorf("agent %d is not a participant in conversation %s", agentID, conversationID)
+	}
+	inst, err := a.resolver.OwnedInstance(chat.OwnerUserID, agentID)
+	if err != nil {
+		return err
+	}
+	_, err = a.handlers.ensureChatThread(inst, conversationID)
+	return err
+}
 
 func (a *App) Manifest() framework.Manifest {
 	return framework.Manifest{
@@ -104,10 +147,11 @@ func (a *App) OnMount(ctx *framework.AppCtx) error {
 	a.bus = ctx.Bus
 	a.streamer = newStreamer(a.hub)
 	a.handlers = &handlers{
-		store:     a.store,
-		hub:       a.hub,
-		bus:       ctx.Bus,
-		instances: a.resolver,
+		store:                  a.store,
+		hub:                    a.hub,
+		bus:                    ctx.Bus,
+		instances:              a.resolver,
+		conversationDeleteHook: a.conversationDeleteHook,
 	}
 	if removed, err := a.handlers.cleanupOrphanConversationThreads(); err != nil {
 		if ctx.Logger != nil {

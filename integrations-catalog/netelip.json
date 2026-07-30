@@ -15,8 +15,7 @@
       "token": "{{api_key}}"
     },
     "credential_fields": [
-      { "name": "api_key", "label": "API Voice Token", "description": "netelip API Voice security token from the control panel." },
-      { "name": "api_name", "label": "Default API Name", "description": "Optional default API Voice name to use when launching calls.", "required": false, "type": "text" }
+      { "name": "api_key", "label": "API Voice Token", "description": "netelip API Voice security token from the control panel.", "secret": true, "required": true }
     ]
   },
   "tools": [
@@ -31,7 +30,7 @@
           "api": { "type": "string", "description": "API Voice application name." },
           "src": { "type": "string", "description": "Caller ID shown to the called party." },
           "dst": { "type": "string", "description": "Destination phone number or extension." },
-          "duration": { "type": "integer", "description": "Maximum call attempt duration in seconds, 1 to 60." },
+          "duration": { "type": "integer", "minimum": 1, "maximum": 60, "description": "Maximum call attempt duration in seconds, 1 to 60." },
           "typedst": { "type": "string", "enum": ["pstn", "extension"], "description": "Destination type." },
           "userdata": { "type": "string", "description": "Optional user-defined value returned in callbacks." }
         },

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,6 +32,18 @@ type channelMCPServer struct {
 	// degrades to a generic "available components depend on installed
 	// apps" line, same as v1.
 	componentCatalog func() []componentEntry
+
+	// The task ledger shares the trusted Channels transport so Core's opaque
+	// caller context reaches it without a Core change. The conversation
+	// profile dynamically grants conversation vs worker authority from that
+	// context; agent-output is a main-only transport.
+	taskStore   *Store
+	taskAgent   *Agent
+	taskDeliver taskCompletionDelivery
+	taskHandoff taskHandoffDelivery
+	taskExecute taskStepExecutor
+	taskSpawn   taskWorkerSpawner
+	taskEnabled bool
 
 	mu     sync.Mutex
 	closed bool
@@ -298,10 +311,9 @@ func (s *channelMCPServer) toolsList() map[string]any {
 						"enum":        []string{"working", "waiting", "blocked", "completed"},
 						"description": "Required state. waiting is an expected pause with a known resume condition such as time, approval, or an external job. blocked is an unexpected failure, missing access, or missing capability requiring corrective action.",
 					},
-					"detail":   map[string]any{"type": "string", "description": "Optional concise current phase, concrete result, dependency, or blocker for this work unit."},
-					"progress": map[string]any{"type": "number", "minimum": 0, "maximum": 100, "description": "Optional completion percentage for this work unit. Never use waiting with 100 percent."},
-					"next":     map[string]any{"type": "string", "description": "Optional nearest distinct operator-relevant responsibility after this work or phase. Do not use placeholders such as No pending work, restate the title, or record internal pacing."},
-					"next_at":  map[string]any{"type": "string", "description": "RFC3339 occurrence or deadline for next; include only when the same call contains a non-empty next. Required for recurring or scheduled work: use the supplied exact occurrence or derive it from the recurrence rule. For relative derivations, read the exact current [CURRENT TIME] UTC: timestamp, add the interval directly in UTC, preserve Z, and never use local wall-clock time. For non-recurring work, include only a known deadline and never estimate one from expected duration or the current work phase."},
+					"detail":  map[string]any{"type": "string", "description": "Optional concise current phase, concrete result, dependency, or blocker for this work unit."},
+					"next":    map[string]any{"type": "string", "description": "Optional nearest distinct operator-relevant responsibility after this work or phase. Do not use placeholders such as No pending work, restate the title, or record internal pacing."},
+					"next_at": map[string]any{"type": "string", "description": "RFC3339 occurrence or deadline for next; include only when the same call contains a non-empty next. Required for recurring or scheduled work: use the supplied exact occurrence or derive it from the recurrence rule. For relative derivations, read the exact current [CURRENT TIME] UTC: timestamp, add the interval directly in UTC, preserve Z, and never use local wall-clock time. For non-recurring work, include only a known deadline and never estimate one from expected duration or the current work phase."},
 				},
 			},
 		},
@@ -313,9 +325,27 @@ func (s *channelMCPServer) toolsList() map[string]any {
 	}
 	switch s.profile {
 	case channelMCPProfileConversation:
-		return map[string]any{"tools": conversationChannelTools(tools, components)}
+		tools = conversationChannelTools(tools, components)
+		if s.taskEnabled && s.taskStore != nil && s.taskAgent != nil {
+			taskServer := &taskMCPServer{
+				store: s.taskStore, agent: s.taskAgent,
+				profile: taskMCPProfileConversation, deliver: s.taskDeliver,
+				handoff: s.taskHandoff, executeStep: s.taskExecute, spawnWorker: s.taskSpawn,
+			}
+			tools = append(tools, taskServer.tools()...)
+		}
+		return map[string]any{"tools": tools}
 	case channelMCPProfileAgentOutput:
-		return map[string]any{"tools": agentOutputChannelTools(tools, channelIDs)}
+		tools = agentOutputChannelTools(tools, channelIDs)
+		if s.taskEnabled && s.taskStore != nil && s.taskAgent != nil {
+			taskServer := &taskMCPServer{
+				store: s.taskStore, agent: s.taskAgent,
+				profile: taskMCPProfileMain, deliver: s.taskDeliver,
+				handoff: s.taskHandoff, executeStep: s.taskExecute, spawnWorker: s.taskSpawn,
+			}
+			tools = append(tools, taskServer.tools()...)
+		}
+		return map[string]any{"tools": tools}
 	default:
 		return map[string]any{"tools": tools}
 	}
@@ -396,7 +426,7 @@ func agentOutputChannelTools(all []map[string]any, channelIDs []string) []map[st
 func buildAgentOutputOwnershipDescription() string {
 	return `MAIN-ONLY OWNERSHIP: These tools represent the agent's one global operator-output surface. Main is their only writer.
 
-For a simple recurring schedule or persistent behavior requested by a user conversation, main must adopt it by updating main's own directive with evolve, wait for that receipt, and return the result with core send to the originating conversation. Do not spawn a persistent child merely to hold that schedule or behavior.
+For explicit scheduled work requested by a user conversation, the conversation creates one structured task assigned to main. It is already the authoritative schedule: main must not create a setup task or linked schedule. The server owns exact cadence and wakes main with one child task per due occurrence. Never copy cron, interval, timestamp, or task identity into the directive or reproduce the cadence with pace. Evolve the directive separately only when the user changes the agent's broader continuing responsibility. Do not create a persistent child thread to hold a schedule.
 
 Children are for bounded delegated work unless the directive explicitly defines a long-lived subdivision. They report results and state changes to main with core send. Never grant a child any agent-output tool (set_status, publish, notify, or list_channels); main consumes the child report and emits any required global output itself.`
 }
@@ -531,7 +561,7 @@ func buildSendDescription(channelIDs []string, components []componentEntry) stri
 	}
 
 	return fmt.Sprintf(
-		"Send one complete user-visible message through a communication channel. Thoughts and plain assistant output are INVISIBLE; only this tool delivers chat text. Use publish for approvals/reports/alerts and set_status for mutable work state.\n\n"+
+		"Send one complete user-visible message through a communication channel. Thoughts and plain assistant output are INVISIBLE; only this tool delivers chat text. Use publish for approvals/reports/alerts and set_status for a non-task operational summary or next scheduled action.\n\n"+
 			"channel=\"current\" replies where the event originated. For dashboard chat it resolves to apteva. channel=\"apteva\" is durable and saves messages even while the operator is offline.\n"+
 			"Use this tool for a direct [chat] turn and for the later outcome of work explicitly requested in that chat, even if the operator disconnected before completion. Outside a direct [chat] request, send ordinary chat only when the operator or directive explicitly asks for a chat message at that time. Do NOT send ordinary chat for autonomous or scheduled checks, routine monitoring, unchanged or no-op results, idle updates, repeated progress, connect/disconnect events, or internal/system events. A request to \"send a status update\" or \"update the status\" means set_status unless it explicitly asks for a chat message. Every due directive-defined recurring monitor cycle must call set_status exactly once with its completed result, even when the result is unchanged or empty, and must include both next and the derived next_at for the following cycle. In that original turn, also call pace exactly once for the next cycle; next_at only describes the schedule and does not create the wake.\n"+
 			"For a direct [chat] turn that requires one or more non-channel tools, including dashboard conversation threads, first send exactly one short visible acknowledgement with phase=\"acknowledgement\" stating the concrete next action. This acknowledgement is required before the first non-channel tool call, including quick or read-only lookups. Wait for this send to succeed before action tools; never parallelize the acknowledgement with them. One acknowledgement covers a parallel batch and its immediately dependent tool calls—do not narrate each tool separately. Use phase=\"progress\" only for a genuinely useful intermediate update during longer work. After the promised work, send exactly one final outcome with phase=\"final\"; the acknowledgement never replaces it. Omitted phase defaults to final. A normal tool-work turn has exactly two intentional messages—acknowledgement then final—and never more. For a durable handoff, send the required acknowledgement before send(main), never after it.\n"+
@@ -579,7 +609,7 @@ func buildConversationSendDescription(components []componentEntry) string {
 		"Use phase=\"final\" for a direct answer. Before noticeable non-channel tool work, send one short phase=\"acknowledgement\", wait for its receipt, perform the work, and then send exactly one phase=\"final\" outcome. " +
 		"Use phase=\"progress\" only for a meaningful achievement, plan change, blocker, request for input, or a slow phase transition during longer work. Do not narrate individual tools, routine retries, temporary plans, or unchanged waiting. " +
 		"The conversation is durable, so send the requested final outcome even if the user disconnected. A successful receipt means that exact message is already delivered; never repeat or paraphrase it. " +
-		"Global agent status is owned by main and is not a conversation progress mechanism. Work that becomes recurring, autonomous, or otherwise must outlive this conversation must be handed to main with the core send tool; after main replies, send the user one final outcome here.\n\n" +
+		"Global agent status is owned by main and is not a conversation progress mechanism. Explicit scheduled work must be created as one main-owned scheduled task; its successful creation receipt is enough to confirm it without waking main early. Other durable work that requires main coordination uses the task handoff path; after its result returns, send the user one final outcome here.\n\n" +
 		componentDocs
 }
 
@@ -652,9 +682,13 @@ func normalizeVisibleMessagePhase(phase string) string {
 }
 
 func buildSetStatusDescription() string {
-	return `Set the agent's single mutable current-work status. Status is operational state: it replaces the previous status and never appears in chat or the Inbox. Every call requires both title and state.
+	return `Set the agent's compact mutable operational summary and next scheduled action. Status replaces the previous summary and never appears in chat or the Inbox. Every call requires both title and state.
 
 When an autonomous instruction says to "send a status update" or "update the status" without explicitly requesting a chat message, use this tool rather than send.
+
+SCHEDULE-ADOPTION RULE: Creating or editing a recurring schedule is not a due cycle and does not execute its work. For that event, do not start the scheduled work, search for its tools, or emit working, blocked, waiting, or completed status. A schedule time that already passed before adoption never implies a missed run or catch-up. The first run is the next future occurrence unless an authoritative scheduler event or operator instruction explicitly says this cycle is due, run now, or catch up.
+
+TASK-BACKED WORK RULE: A durable task is the authoritative record of its state, milestones, percentage, blocker, and result. For work with a task_id, use task_update and task_complete; never mirror task state or percentage into this global status. Status remains a compact agent-level summary for recurring-cycle results and meaningful non-task operational conditions.
 
 Every due cycle of a directive-defined recurring monitor MUST call this tool exactly once after it runs, including quick or read-only checks whose result is unchanged or empty. This completed status is the cycle's required completion receipt: record state=completed and a concrete result in detail. Do not also create an ordinary chat message. Set next to the operator-facing action for that next cycle and always set next_at to its expected RFC3339 occurrence. Use an exact time supplied by the directive, scheduler event, operator, or external system when available. Otherwise derive the next occurrence from the recurring rule and current UTC time: for example, an hourly cycle completed now is due about one hour from now, while a daily 09:00 UTC cycle is due at the next 09:00 UTC occurrence after the completed cycle.
 
@@ -662,19 +696,19 @@ RELATIVE-TIME RULE: Read the exact timestamp from the current [CURRENT TIME] blo
 
 In the same original model turn, call pace exactly once for that next occurrence; next_at is display metadata and does not schedule the wake. A successful status result intentionally does not wake you, so never defer pace until after its receipt. If a status error wakes you after pace was already accepted, correct only the status and never schedule the same cycle again. This recurring-cycle requirement overrides the general read-only, isolated quick-action, and channel-publication exclusions below when status summarizes the whole cycle. It does not apply when a cycle is not due or the agent is merely sleeping between cycles.
 
-Status answers: what meaningful operator-relevant work is this agent actively doing, waiting on, blocked by, or most recently completed? Use it only for a work unit that is multi-step, long-running, or cannot currently continue. When qualifying work can start immediately, call set_status and the first action tool in the same parallel batch.
+Status answers: what meaningful non-task operator-relevant work is this agent actively doing, waiting on, blocked by, or most recently completed? Use it only for a non-task work unit that is multi-step, long-running, or cannot currently continue. When qualifying non-task work can start immediately, call set_status and the first action tool in the same parallel batch.
 
-For qualifying work, always call this tool at meaningful phase changes; do not merely describe the state in thoughts or chat. If an event reports that qualifying work you performed has completed, begun waiting, or become blocked, update status even when no other action tool remains.
+For qualifying non-task work, call this tool at meaningful phase changes; do not merely describe the state in thoughts or chat. If an event reports that qualifying non-task work you performed has completed, begun waiting, or become blocked, update status even when no other action tool remains.
 
 Use working while the work unit is actively executing. Use waiting only for an expected pause in that same unfinished work unit whose resume condition is known, including a scheduled time, operator approval, or an external job. Use blocked for an unexpected failure, missing access, or missing capability that requires corrective action before work can resume; do not use blocked for ordinary approval or a scheduled delay. Use completed after the meaningful work unit finishes. A future recurring task does not make completed work waiting.
 
-The title names the current work unit or completed outcome, never a future action or waiting/blocking condition. Put the current phase, concrete result, dependency, or blocker in detail. Prefer title="Customer update publication" over "Waiting for approval", title="Delayed notification" over "Notification scheduled", and title="CRM contact import" over "CRM import blocked". Progress measures only this work unit; never use waiting with 100 percent.
+The title names the current work unit or completed outcome, never a future action or waiting/blocking condition. Put the current phase, concrete result, dependency, or blocker in detail. Prefer title="Customer update publication" over "Waiting for approval", title="Delayed notification" over "Notification scheduled", and title="CRM contact import" over "CRM import blocked".
 
 Use next for only the nearest distinct operator-relevant responsibility after this work or phase. It is secondary metadata and must not replace the current title or detail. Never use placeholders such as "No pending work", restate the title, or record internal pacing. next_at is its optional deadline and is valid only when the SAME tool call also contains a non-empty next; never send next_at alone. For recurring or scheduled work it is required and must be the next occurrence derived from the schedule as described above. For non-recurring work, use it only for an RFC3339 deadline explicitly stated by the operator or directive, supplied by a scheduler event, or obtained from an external system; never estimate an unscheduled deadline from expected duration or the current work phase. A completed recurring task may remain completed while next and next_at describe its next scheduled run. If a non-recurring responsibility has no known deadline, send next without next_at. If nothing meaningful is planned, omit both. Replacing a status without them clears the previous next action.
 
 Examples:
-- Completed recurring work: {"title":"Daily CRM check completed","state":"completed","detail":"No unresolved conversations found.","progress":100,"next":"Run the next daily CRM check.","next_at":"2026-07-20T09:00:00Z"}
-- Expected approval: {"title":"Customer update publication","state":"waiting","detail":"Draft is ready and requires operator approval.","progress":70,"next":"Publish customer update after approval."}
+- Completed recurring work: {"title":"Daily CRM check completed","state":"completed","detail":"No unresolved conversations found.","next":"Run the next daily CRM check.","next_at":"2026-07-20T09:00:00Z"}
+- Expected approval: {"title":"Customer update publication","state":"waiting","detail":"Draft is ready and requires operator approval.","next":"Publish customer update after approval."}
 - Corrective failure: {"title":"CRM contact import","state":"blocked","detail":"Authentication expired; reconnect the integration to resume."}
 
 Emit at most one status per work phase. If the request already specifies a status call, that call satisfies this rule; never add a separate preliminary status. Except for the completed recurring-monitor cycle defined above, skip status for directive or memory edits, thread management, internal configuration, planning, pacing, retries, tool discovery, chat connectivity, channel messages or publications, status maintenance itself, read-only lookups, brief answers, isolated quick actions, individual tools within one phase, and merely sleeping until future recurring work. Do not set a status just to announce what you may do later.`
@@ -767,7 +801,41 @@ func (s *channelMCPServer) handleToolCall(params json.RawMessage) (any, *mcpRPCE
 	if err := json.Unmarshal(params, &call); err != nil {
 		return nil, &mcpRPCError{Code: -32602, Message: "invalid params"}
 	}
+	if call.Arguments == nil {
+		call.Arguments = map[string]any{}
+	}
 	callerContext, _ := call.Arguments["_apteva_caller_context"].(string)
+	if strings.HasPrefix(call.Name, "task_") && s.taskEnabled &&
+		s.taskStore != nil && s.taskAgent != nil {
+		profile := taskMCPProfileWorker
+		switch s.profile {
+		case channelMCPProfileAgentOutput:
+			profile = taskMCPProfileMain
+			if strings.TrimSpace(callerContext) == "" {
+				// agent-output is injected only into main and cannot be
+				// granted to children, so the transport itself is the
+				// trusted main capability.
+				callerContext = "main"
+				call.Arguments["_apteva_caller_context"] = callerContext
+			}
+		case channelMCPProfileConversation:
+			if strings.HasPrefix(strings.TrimSpace(callerContext), "chat-conv-") {
+				profile = taskMCPProfileConversation
+			}
+		}
+		taskParams, err := json.Marshal(map[string]any{
+			"name": call.Name, "arguments": call.Arguments,
+		})
+		if err != nil {
+			return nil, &mcpRPCError{Code: -32603, Message: err.Error()}
+		}
+		taskServer := &taskMCPServer{
+			store: s.taskStore, agent: s.taskAgent,
+			profile: profile, deliver: s.taskDeliver,
+			handoff: s.taskHandoff, executeStep: s.taskExecute, spawnWorker: s.taskSpawn,
+		}
+		return taskServer.handleToolCall(context.Background(), taskParams)
+	}
 	delete(call.Arguments, "_apteva_caller_context")
 	scopeChannel := func(ch Channel) Channel {
 		if ch == nil || strings.TrimSpace(callerContext) == "" {

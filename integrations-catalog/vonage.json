@@ -1,531 +1,211 @@
 {
   "slug": "vonage",
   "name": "Vonage",
-  "description": "Vonage APIs for voice calls, SMS messaging, and phone number management",
+  "description": "Vonage Voice API call control, live audio, recordings, SMS, and virtual-number management. Voice requests are signed automatically from the application private key.",
   "logo": "https://www.google.com/s2/favicons?domain=vonage.com&sz=128",
-  "categories": [
-    "voice",
-    "calls",
-    "sms",
-    "messaging",
-    "phone",
-    "communications"
-  ],
-  "base_url": "https://api.nexmo.com",
+  "categories": ["voice", "calls", "sms", "messaging", "phone", "communications"],
+  "base_url": "https://api.nexmo.com/v1",
   "auth": {
-    "types": [
-      "bearer"
-    ],
-    "headers": {
-      "Authorization": "Bearer {{token}}"
-    },
+    "types": ["api_key"],
+    "signers": [{ "name": "vonage_jwt" }],
+    "headers": { "Accept": "application/json", "Content-Type": "application/json" },
     "credential_fields": [
-      {
-        "name": "token",
-        "label": "Bearer JWT",
-        "description": "Vonage Voice API JWT. Generate from a Vonage application private key with voice capability enabled.",
-        "type": "password",
-        "required": true
-      },
-      {
-        "name": "phone_number",
-        "label": "Default From Number",
-        "description": "Default Vonage phone number to call from, in E.164 format without leading '+'."
-      },
-      {
-        "name": "api_key",
-        "label": "API Key",
-        "description": "Vonage account API key used by number inventory and purchase endpoints.",
-        "required": false
-      },
-      {
-        "name": "api_secret",
-        "label": "API Secret",
-        "description": "Vonage account API secret used by number inventory and purchase endpoints.",
-        "type": "password",
-        "required": false
-      }
+      { "name": "api_key", "label": "API Key", "description": "Vonage account API key for SMS and number-management routes.", "required": true },
+      { "name": "api_secret", "label": "API Secret", "description": "Vonage account API secret for SMS and number-management routes.", "type": "password", "required": true },
+      { "name": "application_id", "label": "Voice Application ID", "description": "Vonage Voice application UUID. Required for Voice API tools.", "required": false },
+      { "name": "private_key", "label": "Voice Application Private Key", "description": "Paste the complete RSA private-key PEM downloaded for the Vonage application. Required for Voice API tools.", "type": "multiline_password", "required": false },
+      { "name": "phone_number", "label": "Default From Number", "description": "Optional Vonage virtual number in E.164 format without a leading plus.", "required": false }
     ]
   },
+  "health_check": { "tool": "list_owned_numbers", "input": { "size": 1 } },
   "tools": [
     {
-      "name": "create_voice_call",
-      "description": "Create a Vonage Voice API call using official /v1/calls. For AI voice agents, provide ncco with a connect action whose endpoint type is websocket.",
+      "name": "create_call",
+      "description": "Create an outbound Voice API call. Supply either inline NCCO instructions or answer_url. A connect action can target phone, SIP, WebSocket, or app endpoints.",
       "method": "POST",
-      "base_url": "https://api.nexmo.com/v1",
       "path": "/calls",
       "input_schema": {
         "type": "object",
         "properties": {
-          "to": {
-            "type": "array",
-            "description": "Vonage endpoint array, e.g. [{\"type\":\"phone\",\"number\":\"14155551234\"}]."
-          },
-          "from": {
-            "type": "object",
-            "description": "Vonage from endpoint, e.g. {\"type\":\"phone\",\"number\":\"14155550100\"}."
-          },
-          "ncco": {
-            "type": "array",
-            "description": "NCCO call control array. Use connect/websocket endpoint for live bidirectional audio."
-          },
-          "answer_url": {
-            "type": "array",
-            "description": "Optional URL array returning NCCO."
-          },
-          "event_url": {
-            "type": "array",
-            "description": "Optional webhook URL array for call events."
-          },
-          "machine_detection": {
-            "type": "string",
-            "enum": [
-              "continue",
-              "hangup"
-            ]
-          },
-          "random_from_number": {
-            "type": "boolean"
-          }
+          "to": { "type": "array", "items": { "type": "object" }, "description": "Destination endpoints, e.g. [{\"type\":\"phone\",\"number\":\"14155551234\"}]." },
+          "from": { "type": "object", "description": "Origin endpoint, e.g. {\"type\":\"phone\",\"number\":\"14155550100\"}." },
+          "ncco": { "type": "array", "items": { "type": "object" }, "description": "Inline NCCO actions for talk, stream, input, record, connect, conversation, notify, or transfer." },
+          "answer_url": { "type": "array", "items": { "type": "string" } },
+          "answer_method": { "type": "string", "enum": ["GET", "POST"] },
+          "event_url": { "type": "array", "items": { "type": "string" } },
+          "event_method": { "type": "string", "enum": ["GET", "POST"] },
+          "machine_detection": { "type": "string", "enum": ["continue", "hangup"] },
+          "length_timer": { "type": "integer" },
+          "ringing_timer": { "type": "integer" },
+          "advanced_machine_detection": { "type": "object" },
+          "random_from_number": { "type": "boolean" }
         },
-        "required": [
-          "to",
-          "from"
-        ]
-      },
-      "mock_response": {
-        "uuid": "mock-call-uuid",
-        "status": "started",
-        "direction": "outbound"
-      }
-    },
-    {
-      "name": "update_voice_call",
-      "description": "Transfer or redirect a Vonage Voice API call to a new NCCO or answer URL.",
-      "method": "PUT",
-      "base_url": "https://api.nexmo.com/v1",
-      "path": "/calls/{uuid}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "uuid": {
-            "type": "string"
-          },
-          "action": {
-            "type": "string",
-            "enum": [
-              "transfer"
-            ],
-            "default": "transfer"
-          },
-          "destination": {
-            "type": "object",
-            "description": "Transfer destination, e.g. {\"type\":\"ncco\",\"ncco\":[...]} or {\"type\":\"url\",\"url\":[...]}"
-          }
-        },
-        "required": [
-          "uuid",
-          "destination"
-        ]
-      }
-    },
-    {
-      "name": "hangup_voice_call",
-      "description": "Hang up a Vonage Voice API call.",
-      "method": "PUT",
-      "base_url": "https://api.nexmo.com/v1",
-      "path": "/calls/{uuid}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "uuid": {
-            "type": "string"
-          },
-          "action": {
-            "type": "string",
-            "enum": [
-              "hangup"
-            ],
-            "default": "hangup"
-          }
-        },
-        "required": [
-          "uuid"
-        ]
-      }
-    },
-    {
-      "name": "make_call",
-      "description": "Make an outbound voice call using Vonage Voice API. Supports TTS (text-to-speech), NCCO (call control), or answer URL for webhooks.",
-      "method": "GET",
-      "path": "/make-call",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "to": {
-            "type": "string",
-            "description": "Phone number to call (E.164 format, e.g., 14155551234)"
-          },
-          "from": {
-            "type": "string",
-            "description": "Your Vonage virtual number (E.164 format)"
-          },
-          "text": {
-            "type": "string",
-            "description": "Text to speak when call is answered (TTS mode)"
-          },
-          "language": {
-            "type": "string",
-            "description": "TTS language code (e.g., en-US, es-ES, fr-FR)",
-            "default": "en-US"
-          },
-          "style": {
-            "type": "integer",
-            "description": "TTS voice style (0-5 depending on language)",
-            "default": 0
-          },
-          "ncco": {
-            "type": "array",
-            "description": "NCCO actions array for complex call flows"
-          },
-          "answer_url": {
-            "type": "string",
-            "description": "URL returning NCCO JSON for call control"
-          },
-          "event_url": {
-            "type": "string",
-            "description": "Webhook URL for call events"
-          },
-          "machine_detection": {
-            "type": "string",
-            "enum": [
-              "continue",
-              "hangup"
-            ],
-            "description": "Action when answering machine detected"
-          }
-        },
-        "required": [
-          "to",
-          "from"
-        ]
-      }
-    },
-    {
-      "name": "get_call",
-      "description": "Get details of a specific call by its UUID",
-      "method": "GET",
-      "path": "/get-call",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "call_uuid": {
-            "type": "string",
-            "description": "The UUID of the call to retrieve"
-          }
-        },
-        "required": [
-          "call_uuid"
-        ]
+        "required": ["to", "from"]
       }
     },
     {
       "name": "list_calls",
-      "description": "List all calls with optional filtering by status, date range, and pagination",
+      "description": "List recent Voice API calls. Use the Reports API outside this integration for records older than the Voice API retention window.",
       "method": "GET",
-      "path": "/list-calls",
+      "path": "/calls",
+      "query_params": ["status", "date_start", "date_end", "page_size", "record_index", "order", "conversation_uuid"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "started",
-              "ringing",
-              "answered",
-              "machine",
-              "completed",
-              "timeout",
-              "failed",
-              "rejected",
-              "cancelled",
-              "busy"
-            ],
-            "description": "Filter by call status"
-          },
-          "date_start": {
-            "type": "string",
-            "description": "Filter calls starting after this date (ISO 8601)"
-          },
-          "date_end": {
-            "type": "string",
-            "description": "Filter calls starting before this date (ISO 8601)"
-          },
-          "page_size": {
-            "type": "integer",
-            "description": "Number of results per page (max 100)",
-            "default": 10
-          },
-          "record_index": {
-            "type": "integer",
-            "description": "Start index for pagination",
-            "default": 0
-          },
-          "order": {
-            "type": "string",
-            "enum": [
-              "asc",
-              "desc"
-            ],
-            "description": "Sort order by start time",
-            "default": "desc"
-          },
-          "conversation_uuid": {
-            "type": "string",
-            "description": "Filter by conversation UUID"
-          }
+          "status": { "type": "string", "enum": ["started", "ringing", "answered", "machine", "completed", "busy", "cancelled", "failed", "rejected", "timeout", "unanswered"] },
+          "date_start": { "type": "string" },
+          "date_end": { "type": "string" },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "record_index": { "type": "integer", "minimum": 0 },
+          "order": { "type": "string", "enum": ["asc", "desc"] },
+          "conversation_uuid": { "type": "string" }
         }
       }
     },
     {
-      "name": "hangup_call",
-      "description": "End an active call by its UUID",
+      "name": "get_call",
+      "description": "Get one Voice API call by UUID.",
       "method": "GET",
-      "path": "/hangup-call",
+      "path": "/calls/{uuid}",
+      "path_params": ["uuid"],
+      "input_schema": { "type": "object", "properties": { "uuid": { "type": "string" } }, "required": ["uuid"] }
+    },
+    {
+      "name": "update_call",
+      "description": "Apply one official call update action. Use transfer with a destination containing NCCO or URL; mute, unmute, earmuff, unearmuff, or hangup need only the action.",
+      "method": "PUT",
+      "path": "/calls/{uuid}",
+      "path_params": ["uuid"],
       "input_schema": {
         "type": "object",
         "properties": {
-          "call_uuid": {
-            "type": "string",
-            "description": "The UUID of the call to end"
-          }
+          "uuid": { "type": "string" },
+          "action": { "type": "string", "enum": ["transfer", "mute", "unmute", "earmuff", "unearmuff", "hangup"] },
+          "destination": { "type": "object", "description": "For transfer: {\"type\":\"ncco\",\"ncco\":[...]} or {\"type\":\"url\",\"url\":[\"https://...\"]}." }
         },
-        "required": [
-          "call_uuid"
-        ]
+        "required": ["uuid", "action"]
       }
     },
     {
-      "name": "transfer_call",
-      "description": "Transfer an active call to a new destination using NCCO or URL",
+      "name": "start_call_stream",
+      "description": "Start playing one or more audio stream URLs into an active call.",
+      "method": "PUT",
+      "path": "/calls/{uuid}/stream",
+      "path_params": ["uuid"],
+      "input_schema": { "type": "object", "properties": { "uuid": { "type": "string" }, "stream_url": { "type": "array", "items": { "type": "string" } }, "loop": { "type": "integer" }, "level": { "type": "number" }, "barge_in": { "type": "boolean" } }, "required": ["uuid", "stream_url"] }
+    },
+    {
+      "name": "stop_call_stream",
+      "description": "Stop audio streaming on an active call.",
+      "method": "DELETE",
+      "path": "/calls/{uuid}/stream",
+      "path_params": ["uuid"],
+      "input_schema": { "type": "object", "properties": { "uuid": { "type": "string" } }, "required": ["uuid"] }
+    },
+    {
+      "name": "start_call_talk",
+      "description": "Speak text into an active call.",
+      "method": "PUT",
+      "path": "/calls/{uuid}/talk",
+      "path_params": ["uuid"],
+      "input_schema": { "type": "object", "properties": { "uuid": { "type": "string" }, "text": { "type": "string" }, "language": { "type": "string" }, "style": { "type": "integer" }, "premium": { "type": "boolean" }, "level": { "type": "number" }, "loop": { "type": "integer" }, "barge_in": { "type": "boolean" } }, "required": ["uuid", "text"] }
+    },
+    {
+      "name": "stop_call_talk",
+      "description": "Stop text-to-speech playback on an active call.",
+      "method": "DELETE",
+      "path": "/calls/{uuid}/talk",
+      "path_params": ["uuid"],
+      "input_schema": { "type": "object", "properties": { "uuid": { "type": "string" } }, "required": ["uuid"] }
+    },
+    {
+      "name": "send_call_dtmf",
+      "description": "Send DTMF digits into an active call.",
+      "method": "PUT",
+      "path": "/calls/{uuid}/dtmf",
+      "path_params": ["uuid"],
+      "input_schema": { "type": "object", "properties": { "uuid": { "type": "string" }, "digits": { "type": "string" } }, "required": ["uuid", "digits"] }
+    },
+    {
+      "name": "download_recording",
+      "description": "Download a recording or transcription file from the authenticated URL returned by a Vonage recording webhook.",
       "method": "GET",
-      "path": "/transfer-call",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "call_uuid": {
-            "type": "string",
-            "description": "The UUID of the call to transfer"
-          },
-          "ncco": {
-            "type": "array",
-            "description": "NCCO actions array for the transfer destination"
-          },
-          "url": {
-            "type": "string",
-            "description": "URL returning NCCO for the transfer (alternative to ncco)"
-          }
-        },
-        "required": [
-          "call_uuid"
-        ]
-      }
+      "path": "/files/{file_id}",
+      "path_params": ["file_id"],
+      "response_type": "binary",
+      "input_schema": { "type": "object", "properties": { "file_id": { "type": "string", "description": "Recording UUID/file identifier from the webhook URL." } }, "required": ["file_id"] }
     },
     {
       "name": "send_sms",
-      "description": "Send an SMS message using Vonage SMS API",
+      "description": "Send an SMS with the classic Vonage SMS API.",
       "method": "POST",
-      "path": "/send-sms",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "to": {
-            "type": "string",
-            "description": "Recipient phone number (E.164 format)"
-          },
-          "from": {
-            "type": "string",
-            "description": "Sender ID (phone number or alphanumeric, max 11 chars)"
-          },
-          "text": {
-            "type": "string",
-            "description": "Message text (max 1600 chars for concatenated SMS)"
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "text",
-              "unicode"
-            ],
-            "description": "Message type (unicode for special characters)",
-            "default": "text"
-          },
-          "ttl": {
-            "type": "integer",
-            "description": "Message validity in milliseconds (default 259200000 = 3 days)"
-          },
-          "status_report_req": {
-            "type": "boolean",
-            "description": "Request delivery receipt",
-            "default": false
-          },
-          "callback": {
-            "type": "string",
-            "description": "Webhook URL for delivery receipts"
-          },
-          "client_ref": {
-            "type": "string",
-            "description": "Your reference for tracking (max 40 chars)"
-          }
-        },
-        "required": [
-          "to",
-          "from",
-          "text"
-        ]
-      }
+      "base_url": "https://rest.nexmo.com",
+      "path": "/sms/json?api_key={{credential.api_key}}&api_secret={{credential.api_secret}}",
+      "headers": { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
+      "signing": { "signers": [] },
+      "input_schema": { "type": "object", "properties": { "to": { "type": "string" }, "from": { "type": "string" }, "text": { "type": "string" }, "type": { "type": "string", "enum": ["text", "unicode"] }, "ttl": { "type": "integer" }, "status-report-req": { "type": "boolean" }, "callback": { "type": "string" }, "client-ref": { "type": "string" } }, "required": ["to", "from", "text"] }
     },
     {
-      "name": "numbers_search",
-      "description": "Search for available phone numbers to purchase by country, type, and features",
+      "name": "search_available_numbers",
+      "description": "Search Vonage virtual-number inventory.",
       "method": "GET",
       "base_url": "https://rest.nexmo.com",
       "path": "/number/search?api_key={{credential.api_key}}&api_secret={{credential.api_secret}}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "country": {
-            "type": "string",
-            "description": "2-letter ISO country code (e.g., US, GB, DE)"
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "landline",
-              "mobile-lvn",
-              "landline-toll-free"
-            ],
-            "description": "Number type filter"
-          },
-          "pattern": {
-            "type": "string",
-            "description": "Number pattern to search (e.g., 1555 for numbers containing 1555)"
-          },
-          "search_pattern": {
-            "type": "integer",
-            "enum": [
-              0,
-              1,
-              2
-            ],
-            "description": "Pattern match type: 0=starts with, 1=anywhere, 2=ends with"
-          },
-          "features": {
-            "type": "string",
-            "enum": [
-              "SMS",
-              "VOICE",
-              "SMS,VOICE"
-            ],
-            "description": "Required features"
-          },
-          "size": {
-            "type": "integer",
-            "description": "Number of results to return (max 100)",
-            "default": 10
-          }
-        },
-        "required": [
-          "country"
-        ]
-      }
+      "query_params": ["country", "type", "pattern", "search_pattern", "features", "size", "index"],
+      "signing": { "signers": [] },
+      "input_schema": { "type": "object", "properties": { "country": { "type": "string" }, "type": { "type": "string", "enum": ["landline", "mobile-lvn", "landline-toll-free"] }, "pattern": { "type": "string" }, "search_pattern": { "type": "integer", "enum": [0, 1, 2] }, "features": { "type": "string" }, "size": { "type": "integer" }, "index": { "type": "integer" } }, "required": ["country"] }
     },
     {
-      "name": "number_buy",
-      "description": "Purchase a phone number for your Vonage account",
+      "name": "buy_number",
+      "description": "Buy a virtual number returned by search_available_numbers.",
       "method": "POST",
       "base_url": "https://rest.nexmo.com",
       "path": "/number/buy?api_key={{credential.api_key}}&api_secret={{credential.api_secret}}",
-      "headers": {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "country": {
-            "type": "string",
-            "description": "2-letter ISO country code"
-          },
-          "msisdn": {
-            "type": "string",
-            "description": "The phone number to purchase (from search results)"
-          }
-        },
-        "required": [
-          "country",
-          "msisdn"
-        ]
-      }
+      "headers": { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
+      "signing": { "signers": [] },
+      "input_schema": { "type": "object", "properties": { "country": { "type": "string" }, "msisdn": { "type": "string" }, "target_api_key": { "type": "string" } }, "required": ["country", "msisdn"] }
     },
     {
-      "name": "numbers_list",
-      "description": "List all phone numbers owned by your Vonage account",
+      "name": "list_owned_numbers",
+      "description": "List virtual numbers owned by the account.",
       "method": "GET",
       "base_url": "https://rest.nexmo.com",
       "path": "/account/numbers?api_key={{credential.api_key}}&api_secret={{credential.api_secret}}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "application_id": {
-            "type": "string",
-            "description": "Filter by application ID"
-          },
-          "has_application": {
-            "type": "boolean",
-            "description": "Filter numbers with/without application linked"
-          },
-          "country": {
-            "type": "string",
-            "description": "Filter by country code"
-          },
-          "pattern": {
-            "type": "string",
-            "description": "Number pattern filter"
-          },
-          "size": {
-            "type": "integer",
-            "description": "Number of results (max 100)",
-            "default": 100
-          }
-        }
-      }
+      "query_params": ["application_id", "has_application", "country", "pattern", "search_pattern", "size", "index"],
+      "signing": { "signers": [] },
+      "input_schema": { "type": "object", "properties": { "application_id": { "type": "string" }, "has_application": { "type": "boolean" }, "country": { "type": "string" }, "pattern": { "type": "string" }, "search_pattern": { "type": "integer" }, "size": { "type": "integer" }, "index": { "type": "integer" } } }
     },
     {
-      "name": "number_cancel",
-      "description": "Cancel/release a phone number from your Vonage account",
+      "name": "update_number",
+      "description": "Update routing for an owned number, including application assignment and inbound SMS callback.",
+      "method": "POST",
+      "base_url": "https://rest.nexmo.com",
+      "path": "/number/update?api_key={{credential.api_key}}&api_secret={{credential.api_secret}}",
+      "headers": { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
+      "signing": { "signers": [] },
+      "input_schema": { "type": "object", "properties": { "country": { "type": "string" }, "msisdn": { "type": "string" }, "application_id": { "type": "string" }, "moHttpUrl": { "type": "string" }, "moSmppSysType": { "type": "string" }, "voiceCallbackType": { "type": "string" }, "voiceCallbackValue": { "type": "string" }, "voiceStatusCallback": { "type": "string" } }, "required": ["country", "msisdn"] }
+    },
+    {
+      "name": "cancel_number",
+      "description": "Release an owned virtual number.",
       "method": "POST",
       "base_url": "https://rest.nexmo.com",
       "path": "/number/cancel?api_key={{credential.api_key}}&api_secret={{credential.api_secret}}",
-      "headers": {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "country": {
-            "type": "string",
-            "description": "2-letter ISO country code"
-          },
-          "msisdn": {
-            "type": "string",
-            "description": "The phone number to cancel"
-          }
-        },
-        "required": [
-          "country",
-          "msisdn"
-        ]
-      }
+      "headers": { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
+      "signing": { "signers": [] },
+      "input_schema": { "type": "object", "properties": { "country": { "type": "string" }, "msisdn": { "type": "string" } }, "required": ["country", "msisdn"] }
     }
-  ]
+  ],
+  "webhooks": {
+    "events": [
+      { "name": "call.started", "description": "Voice API call started." },
+      { "name": "call.ringing", "description": "Voice API call is ringing." },
+      { "name": "call.answered", "description": "Voice API call was answered." },
+      { "name": "call.completed", "description": "Voice API call completed." },
+      { "name": "call.failed", "description": "Voice API call failed." },
+      { "name": "call.input", "description": "DTMF or speech input was captured." },
+      { "name": "call.recording", "description": "A recording is available for authenticated download." },
+      { "name": "call.transfer", "description": "A call transfer event occurred." }
+    ]
+  }
 }

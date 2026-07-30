@@ -1,12 +1,15 @@
 {
   "slug": "flightapi",
   "name": "FlightAPI",
-  "description": "FlightAPI.io — flight price search across one-way, round-trip and multi-city itineraries",
+  "description": "FlightAPI.io flight prices, individual flight tracking, route tracking, airport schedules, and airline/airport code lookup.",
   "logo": "https://www.google.com/s2/favicons?domain=flightapi.io&sz=128",
   "categories": [
     "travel",
     "flights",
-    "pricing"
+    "pricing",
+    "flight-tracking",
+    "flight-status",
+    "airports"
   ],
   "base_url": "https://api.flightapi.io",
   "auth": {
@@ -17,9 +20,18 @@
       {
         "name": "api_key",
         "label": "API Key",
-        "description": "Your FlightAPI.io API key from https://app.flightapi.io"
+        "description": "Your FlightAPI.io API key from the FlightAPI dashboard.",
+        "required": true,
+        "secret": true
       }
     ]
+  },
+  "health_check": {
+    "tool": "search_codes",
+    "input": {
+      "name": "Heathrow",
+      "type": "airport"
+    }
   },
   "tools": [
     {
@@ -242,6 +254,154 @@
           "cabinclass",
           "currency"
         ]
+      }
+    },
+    {
+      "name": "track_flight",
+      "description": "Track one flight by airline code, numeric flight number, and date. Use depap when the same designator has ambiguous departure airports.",
+      "method": "GET",
+      "path": "/airline/{{credential.api_key}}",
+      "query_params": ["num", "name", "date", "depap"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "num": {
+            "type": "string",
+            "description": "Numeric flight number without the airline code."
+          },
+          "name": {
+            "type": "string",
+            "description": "Airline IATA code, such as DL."
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{8}$",
+            "description": "Flight date in YYYYMMDD format."
+          },
+          "depap": {
+            "type": "string",
+            "description": "Optional departure airport IATA code for an ambiguous flight designator."
+          }
+        },
+        "required": ["num", "name", "date"]
+      }
+    },
+    {
+      "name": "track_route",
+      "description": "List and track flights between two airports on a date, including airline, flight number, status, and departure/arrival times.",
+      "method": "GET",
+      "path": "/trackbyroute/{{credential.api_key}}",
+      "query_params": ["date", "airport1", "airport2"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{8}$",
+            "description": "Departure date in YYYYMMDD format."
+          },
+          "airport1": {
+            "type": "string",
+            "description": "Departure airport IATA code."
+          },
+          "airport2": {
+            "type": "string",
+            "description": "Arrival airport IATA code."
+          }
+        },
+        "required": ["date", "airport1", "airport2"]
+      }
+    },
+    {
+      "name": "get_airport_schedule",
+      "description": "Get the legacy live arrivals or departures schedule for an airport. A narrow day and page conserves credits.",
+      "method": "GET",
+      "path": "/schedule/{{credential.api_key}}",
+      "query_params": ["mode", "day", "iata", "page"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["arrivals", "departures"]
+          },
+          "day": {
+            "type": "integer",
+            "enum": [-2, -1, 1, 2],
+            "description": "-2 is two days ago, -1 yesterday, 1 today, and 2 tomorrow."
+          },
+          "iata": {
+            "type": "string",
+            "description": "Airport IATA code."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": ["mode", "iata"]
+      }
+    },
+    {
+      "name": "get_airport_schedule_v2",
+      "description": "Get a dated page of airport arrivals or departures from FlightAPI schedule v2.",
+      "method": "GET",
+      "path": "/schedule/v2/{{credential.api_key}}",
+      "query_params": ["mode", "iata", "year", "month", "day", "page"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["arrivals", "departures", "arr", "dep"],
+            "description": "Arrival or departure mode; the API examples also accept arr and dep."
+          },
+          "iata": {
+            "type": "string",
+            "description": "Airport IATA code."
+          },
+          "year": {
+            "type": "integer",
+            "minimum": 2000
+          },
+          "month": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12
+          },
+          "day": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          }
+        },
+        "required": ["mode", "iata", "year", "month", "day", "page"]
+      }
+    },
+    {
+      "name": "search_codes",
+      "description": "Resolve matching airline or airport codes from a name.",
+      "method": "GET",
+      "path": "/iata/{{credential.api_key}}",
+      "query_params": ["name", "type"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Airline or airport name search text."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["airline", "airport"]
+          }
+        },
+        "required": ["name", "type"]
       }
     }
   ]

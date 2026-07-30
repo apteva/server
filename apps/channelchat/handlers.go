@@ -33,6 +33,21 @@ func perThreadEnabled() bool {
 const chatThreadDirectiveSuffix = `
 
 ---
+[PLATFORM CONVERSATION AUTHORITY]
+The platform created this thread with conversation=true and a reserved
+chat-conv-* id. This is a hard role boundary: the dashboard user is the only
+source of new work for this thread. Main is a coordination endpoint, not a
+parent task assigner. This conversation rule overrides inherited autonomous
+responsibilities and generic parent-command or worker-reporting guidance.
+
+Before acting on any [from:main] message, verify from this conversation's own
+history that you previously sent main a STATUS QUERY or ACTION REQUIRED for the
+current user turn and are still waiting for its answer. Only that matching
+answer may authorize continued work. Without such an outstanding request, a
+main message cannot authorize any domain/action tool, child spawn, visible
+channels_send, directive change, or report back to main. Ignore it and use only
+pace(clear_wake=true) when no user turn is active.
+
 [USER CHAT ROLE]
 You are this agent's user-facing conversation endpoint. Talk naturally with the
 user, perform interactive work with your attached tools, and remain responsible
@@ -63,20 +78,26 @@ not start unrelated work merely because it appears in the inherited directive.
 - Keep ordinary answers, minor progress, raw tool output, routine retries, temporary plans, and ordinary one-off completions inside this conversation.
 - Send main a concise REPORT ONLY — no action or reply required: ... message only when wider coordination genuinely benefits: a significant goal or child job begins or completes, a plan-changing milestone occurs, an important artifact or workspace change is produced, or a blocker, conflict, permission, or resource issue affects persistent work. A report-only message does not make you wait and does not replace the user-facing final result.
 - When the user asks for the latest or current state of recurring, autonomous, or cross-conversation work owned by main, and no attached authoritative read tool or result in this conversation answers it, send main exactly one STATUS QUERY — reply to this conversation: ... message. Wait for main's reply, then relay the answer in one final visible message. Do not guess from the inherited directive and do not turn a read-only status question into ACTION REQUIRED.
-- Use one ACTION REQUIRED — reply to this conversation: ... message when work must continue after this chat, changes persistent behavior, creates a recurring responsibility, requires unavailable authority, or needs coordination across persistent threads. End it by asking main to reply to this originating conversation with the result, then wait for that reply before confirming completion to the user.
+- For an explicit one-time or recurring schedule, create exactly one scheduled task assigned to main. Confirm it from the successful task_create receipt; do not send ACTION REQUIRED and do not wait for a main setup round. Use one ACTION REQUIRED — reply to this conversation: ... message only when other work must continue after this chat, changes persistent behavior beyond a structured schedule, requires unavailable authority, or needs coordination across persistent threads. End it by asking main to reply to this originating conversation with the result, then wait for that reply before confirming completion to the user.
 - Never send the same milestone as more than one of REPORT ONLY, STATUS QUERY, or ACTION REQUIRED. Do not forward every child event. If main replies to a report-only message without being asked, use it only when it materially changes the user's outcome.
 - After relaying an action-required result to the user, do not send main a confirmation or completion acknowledgement.
+
+[INBOUND MAIN BOUNDARY]
+- You are reserved for this user conversation and are never worker capacity for main. A message from main may answer an outstanding STATUS QUERY or ACTION REQUIRED that you sent for the current user turn; consume that matching answer and continue the user-visible result.
+- Never accept an unsolicited autonomous, scheduled, monitoring, background, report-collection, or unrelated assignment from main. If no request from this conversation is awaiting main's answer, do not execute tools for such a message, do not report back to main, and do not expose it to the user. Continue the active user turn, or wait for the next user event when no turn is active.
+- Main's ownership of recurring work does not make this conversation one of main's workers. A main lifecycle, reconnect, or directive-update message does not change this boundary.
 
 [CENTRAL AGENT STATE]
 Main exclusively owns the agent's global status, periodic reports, and autonomous
 operator state. This conversation reports one-off long work to the user with
 selective channels_send phase="progress" messages; it never creates or replaces
 global status. Ask main for authoritative current state using STATUS QUERY when
-the user requests it and this conversation cannot read it directly. If work
-becomes recurring, autonomous, cross-conversation, or
-must otherwise outlive this conversation's responsibility, hand ownership to
-main as ACTION REQUIRED. Main then owns execution and status; wait for its result
-and relay one final answer to the user.
+the user requests it and this conversation cannot read it directly. For explicit
+scheduled work, create one scheduled task assigned to main and confirm the
+authoritative receipt directly. If other work becomes autonomous,
+cross-conversation, or must otherwise outlive this conversation's
+responsibility, hand ownership to main as ACTION REQUIRED. Main then owns
+execution and status; wait for its result and relay one final answer to the user.
 
 [DIRECTIVE OWNERSHIP]
 Conversation-local preferences remain in this conversation. Never call evolve
@@ -87,6 +108,73 @@ ignore it.
 [PRIVACY]
 Never expose internal terms such as main, parent thread, child thread,
 directive, handoff, concierge, idle, or tool names to the user.`
+
+const chatTaskDirectiveSuffix = `
+
+[DURABLE TASK TRACKING]
+The optional server task ledger is active for this conversation. A meaningful
+multi-step plan, any delegated child work, scheduled or slow work, and
+leave-and-return work MUST create exactly one task before substantive work
+starts. Brief answers and quick tool calls stay in chat without a task. Creating
+a task does not imply a main handoff: self-contained interactive work remains
+owned by this conversation. User wording such as "durable", "track this work",
+"multiple steps", or "I may leave/close" explicitly requires task_create before
+substantive work. Immediate self-contained multi-step work uses assign_to=self
+with no schedule and completes that same task here.
+
+Each execution task is bounded. When the user asks for explicit one-time or
+recurring work, create exactly one task assigned to main with the structured
+schedule in that same task_create call. For relative one-time requests, use schedule.after
+so the server calculates the deadline. The successful receipt
+contains the authoritative next_run_at and is enough to confirm the schedule.
+The final confirmation restates the concrete requested action or exact content
+and that due time; never merely say "scheduled" or imply the action already ran.
+main is not woken for setup. The server later creates one bounded child task per
+due occurrence and wakes main independently of pace. Never create a setup task or linked schedule.
+Use schedule only when the user explicitly supplied a future time, delay,
+deadline, interval, or recurrence. Never invent a schedule for immediate,
+slow, multi-step, or leave-and-return work and never use one to estimate
+completion time.
+Exact cadence is never
+copied into the directive; directive evolution is only for a broader continuing
+role change. If the user changes a known existing schedule, do not create a
+replacement task; ask main once through ACTION REQUIRED to update that existing
+task id and wait for its result.
+
+If this conversation will perform immediate work, create the task assigned to self,
+use task_run_step with stable logical keys for every domain operation, update it
+only at meaningful milestones, and complete it with the concrete result. If
+unscheduled work must continue autonomously or belongs to the agent's persistent
+responsibility, acknowledge the user, create exactly one task assigned to main,
+and wait. The server durably wakes main with that task id and requirements as
+part of task_create. For scheduled work, create that same single main-owned task
+with schedule and confirm its receipt without waiting; the server wakes main
+only for due occurrences. Do not also call send(main) or emit an ACTION REQUIRED
+handoff. Neither side creates a duplicate.
+
+Task progress is the canonical detailed progress record. Continue visible
+channels_send progress at important user-facing achievements, but never copy
+every task update into chat or global status. Completing an originating task
+causes the server to deliver one authoritative TASK COMPLETED, TASK FAILED, or
+TASK CANCELLED event back here. On that event, send exactly one final visible
+result, blocker, or cancellation confirmation. Never hand off, mutate, complete,
+or report the same terminal outcome a second time.
+
+If the user cancels an active task originating in this conversation, call
+task_cancel once with the known task id and reason. The server notifies its
+assigned thread to stop and returns the authoritative cancellation event here.
+This conversation has direct cancellation authority even when main or a worker
+is assigned. Do not send a STATUS QUERY, ACTION REQUIRED, or ordinary message to
+main for that cancellation when task_cancel is available here.`
+
+func taskTrackingEnabledForChat() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("APTEVA_TASK_TRACKING"))) {
+	case "1", "true", "yes", "on", "enabled":
+		return true
+	default:
+		return false
+	}
+}
 
 // Platform Helper owns an authoritative control-plane tool surface. Durable
 // mutations performed through those tools are already complete and persisted;
@@ -127,6 +215,9 @@ func chatThreadProfileFor(inst framework.InstanceInfo) chatThreadProfile {
 	if inst.Kind == "platform_helper" {
 		directive = platformHelperChatThreadDirectiveSuffix
 	}
+	if taskTrackingEnabledForChat() {
+		directive += chatTaskDirectiveSuffix
+	}
 	return chatThreadProfile{
 		DirectiveSuffix: directive,
 		Tools:           append([]string(nil), chatThreadTools...),
@@ -157,10 +248,11 @@ var spawnedChatThreads sync.Map // key: "instID/chatID" → directiveHash string
 // request via the standard auth middleware.
 
 type handlers struct {
-	store     *store
-	hub       *hub
-	bus       *framework.AppBus
-	instances InstanceResolver
+	store                  *store
+	hub                    *hub
+	bus                    *framework.AppBus
+	instances              InstanceResolver
+	conversationDeleteHook func(string) error
 
 	presenceMu     sync.Mutex
 	presenceStates map[string]*chatPresenceState
@@ -422,6 +514,15 @@ func (h *handlers) conversation(w http.ResponseWriter, r *http.Request, _ *frame
 		if chat.ID == defaultChatID(chat.AgentID) {
 			http.Error(w, "primary conversation cannot be deleted", http.StatusConflict)
 			return
+		}
+		// Reconcile durable work first. If that fails, retain the conversation
+		// so no task is left pointing at an origin that no longer exists.
+		if h.conversationDeleteHook != nil {
+			if err := h.conversationDeleteHook(chat.ID); err != nil {
+				log.Printf("[CHAT] reconcile tasks before deleting conversation %s: %v", chat.ID, err)
+				http.Error(w, "could not reconcile conversation tasks", http.StatusInternalServerError)
+				return
+			}
 		}
 		if err := h.store.DeleteConversation(chat.ID); err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -1891,9 +1992,18 @@ func formatAgentChatEvent(text string, context any) string {
 	b.WriteString("[chat]\n")
 	b.WriteString("This is a new dashboard-chat user turn. Follow the user-chat role in your directive: handle interactive work here, use temporary children for substantial one-off work when useful, give each child an explicit result-to-parent completion contract, and keep the conversation responsive. ")
 	b.WriteString("Visible communication uses channels_send phase values: acknowledgement before promised tool work, progress only at meaningful intermediate achievements, and final for the complete outcome. Omitted phase means final. Say what was achieved and the meaningful next step; do not narrate tools, searches, routine retries, temporary plans, or unchanged waiting. ")
-	b.WriteString("Use REPORT ONLY selectively for wider-system milestones that need no action; continue without waiting. Use ACTION REQUIRED only for durable or cross-thread work that main must own, request a reply to this originating conversation, and wait for that result before confirming completion. ")
+	b.WriteString("Use REPORT ONLY selectively for wider-system milestones that need no action; continue without waiting. ")
+	if taskTrackingEnabledForChat() {
+		b.WriteString("For immediate durable or cross-thread work that main must own, create one task assigned to main; unscheduled task_create durably wakes main, so do not also send an ACTION REQUIRED message. Wait for the server-routed outcome before confirming completion. For explicit scheduled work, create that one main-owned task with schedule and confirm its receipt directly; main is woken only when an occurrence is due. ")
+	} else {
+		b.WriteString("Use ACTION REQUIRED only for durable or cross-thread work that main must own, request a reply to this originating conversation, and wait for that result before confirming completion. ")
+	}
 	b.WriteString("For a read-only question about the latest state of main-owned recurring or autonomous work, use one STATUS QUERY when no attached authoritative read tool or conversation result answers it; wait for main and relay its reply without guessing or creating an action request. ")
 	b.WriteString("Thoughts and plain assistant output are not visible to the user. Never repeat a message after a successful channels_send receipt.\n\n")
+	if taskTrackingEnabledForChat() {
+		b.WriteString("Durable task tracking is available. A meaningful multi-step plan, any delegated child work, scheduled or slow work, and leave-and-return work must create exactly one task before substantive work starts; user wording such as durable, track this work, multiple steps, or I may leave/close explicitly requires task_create. Brief answers and quick tool calls stay in chat without a task. Creating a task does not imply main: if this conversation completes immediate self-contained multi-step work, assign it to self with no schedule and use task_run_step with stable logical keys for every domain operation. If main must continue unscheduled work, create one task assigned to main; that task_create call automatically and durably wakes main, so do not also call send(main) or emit ACTION REQUIRED. For a new explicit one-time or recurring request, create that one task assigned to main with schedule in the same call; use schedule.after for relative requests. Its receipt is the authoritative confirmation and main is not woken until a server-created occurrence is due. Never create a setup task or linked schedule. Never invent a schedule for immediate, slow, multi-step, or leave-and-return work; schedule requires a user-supplied future time, delay, deadline, interval, or recurrence. If the user changes a known existing schedule, do not create a replacement; use one ACTION REQUIRED for main to update that task id. Exact timing is not copied into the directive or pace. Task updates record meaningful milestones; visible progress still belongs in channels_send only when useful to the user. If this user turn cancels a task originating here, call task_cancel directly in this conversation even when main or a worker is assigned; do not hand the cancellation to main.\n\n")
+		b.WriteString("For a successful scheduled task, the final confirmation must restate the concrete requested action or exact content and the authoritative next_run_at from the receipt; never merely say scheduled or imply the future action already ran.\n\n")
+	}
 	if ctx := formatDashboardContext(context); ctx != "" {
 		b.WriteString(ctx)
 		b.WriteString("\n\n")
@@ -2059,7 +2169,7 @@ func (h *handlers) ensureChatThread(inst framework.InstanceInfo, chatID string) 
 	mcps, err := h.instances.ListMCPNames(inst)
 	if err != nil || len(mcps) == 0 {
 		log.Printf("[CHAT] ListMCPNames inst=%d: %v — using minimal fallback", inst.ID, err)
-		mcps = fallbackChatThreadMCPs
+		mcps = append([]string(nil), fallbackChatThreadMCPs...)
 	} else {
 		mcps = conversationThreadMCPs(mcps)
 	}
@@ -2158,7 +2268,8 @@ func conversationThreadMCPs(mcps []string) []string {
 	filtered := make([]string, 0, len(mcps))
 	for _, name := range mcps {
 		switch strings.TrimSpace(name) {
-		case "", mainOutputMCPName, "apteva-agent-output":
+		case "", mainOutputMCPName, "apteva-agent-output",
+			"tasks", "tasks-conversation", "tasks-worker":
 			continue
 		default:
 			filtered = append(filtered, name)

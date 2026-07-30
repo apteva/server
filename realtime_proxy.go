@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -8,13 +9,121 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
 )
 
-const realtimeProxyMaxMessageBytes = 1 << 20
+const (
+	realtimeProxyMaxMessageBytes = 1 << 20
+	realtimeProxyPingInterval    = 30 * time.Second
+	realtimeProxyPingTimeout     = 10 * time.Second
+)
+
+type realtimeProxyPeerKeepalive struct {
+	LastPingSequence uint64 `json:"last_ping_sequence,omitempty"`
+	LastPingUnixMS   int64  `json:"last_ping_unix_ms,omitempty"`
+	LastPongSequence uint64 `json:"last_pong_sequence,omitempty"`
+	LastPongUnixMS   int64  `json:"last_pong_unix_ms,omitempty"`
+	PingFailures     uint64 `json:"ping_failures,omitempty"`
+}
+
+type realtimeProxyKeepalive struct {
+	mu       sync.Mutex
+	sequence uint64
+	client   realtimeProxyPeerKeepalive
+	core     realtimeProxyPeerKeepalive
+}
+
+type realtimeProxyKeepaliveSnapshot struct {
+	Client realtimeProxyPeerKeepalive `json:"client"`
+	Core   realtimeProxyPeerKeepalive `json:"core"`
+}
+
+func (k *realtimeProxyKeepalive) sendPings(
+	now time.Time,
+	write func(destination string, payload []byte, deadline time.Time) error,
+	onFailure func(destination string, sequence uint64, err error),
+) {
+	k.mu.Lock()
+	k.sequence++
+	sequence := k.sequence
+	sentAtUnixMS := now.UnixMilli()
+	payload := []byte(fmt.Sprintf("rp:%d:%d", sequence, sentAtUnixMS))
+	k.client.LastPingSequence = sequence
+	k.client.LastPingUnixMS = sentAtUnixMS
+	k.core.LastPingSequence = sequence
+	k.core.LastPingUnixMS = sentAtUnixMS
+	k.mu.Unlock()
+
+	deadline := now.Add(realtimeProxyPingTimeout)
+	for _, destination := range []string{"client", "core"} {
+		if err := write(destination, payload, deadline); err != nil {
+			k.mu.Lock()
+			k.peer(destination).PingFailures++
+			k.mu.Unlock()
+			if onFailure != nil {
+				onFailure(destination, sequence, err)
+			}
+		}
+	}
+}
+
+func (k *realtimeProxyKeepalive) recordPong(destination, payload string, receivedAt time.Time) {
+	sequence, _, ok := parseRealtimeProxyPingPayload(payload)
+	if !ok {
+		return
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	peer := k.peer(destination)
+	if sequence > peer.LastPingSequence || sequence < peer.LastPongSequence {
+		return
+	}
+	peer.LastPongSequence = sequence
+	peer.LastPongUnixMS = receivedAt.UnixMilli()
+}
+
+func (k *realtimeProxyKeepalive) snapshot() realtimeProxyKeepaliveSnapshot {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return realtimeProxyKeepaliveSnapshot{Client: k.client, Core: k.core}
+}
+
+func (k *realtimeProxyKeepalive) peer(destination string) *realtimeProxyPeerKeepalive {
+	if destination == "core" {
+		return &k.core
+	}
+	return &k.client
+}
+
+func parseRealtimeProxyPingPayload(payload string) (sequence uint64, sentAtUnixMS int64, ok bool) {
+	parts := strings.Split(payload, ":")
+	if len(parts) != 3 || parts[0] != "rp" {
+		return 0, 0, false
+	}
+	sequence, err := strconv.ParseUint(parts[1], 10, 64)
+	if err != nil || sequence == 0 {
+		return 0, 0, false
+	}
+	sentAtUnixMS, err = strconv.ParseInt(parts[2], 10, 64)
+	if err != nil || sentAtUnixMS <= 0 {
+		return 0, 0, false
+	}
+	return sequence, sentAtUnixMS, true
+}
+
+type realtimeProxyCloseTelemetry struct {
+	InitiatedBy       string                         `json:"initiated_by"`
+	CloseCode         int                            `json:"close_code"`
+	CloseReason       string                         `json:"close_reason,omitempty"`
+	DurationMS        int64                          `json:"duration_ms"`
+	TransportCategory string                         `json:"transport_category"`
+	RelayCategory     string                         `json:"relay_category,omitempty"`
+	Keepalive         realtimeProxyKeepaliveSnapshot `json:"keepalive"`
+}
 
 var realtimeProxyUpgrader = websocket.Upgrader{
 	ReadBufferSize:  32 * 1024,
@@ -72,25 +181,48 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 		return
 	}
 	defer clientConn.Close()
+	startedAt := time.Now()
 	clientConn.SetReadLimit(realtimeProxyMaxMessageBytes)
 	coreConn.SetReadLimit(realtimeProxyMaxMessageBytes)
 	refreshDeadline := func(conn *websocket.Conn) {
 		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
 	}
-	clientConn.SetPongHandler(func(string) error { refreshDeadline(clientConn); return nil })
-	coreConn.SetPongHandler(func(string) error { refreshDeadline(coreConn); return nil })
+	keepalive := &realtimeProxyKeepalive{}
+	clientConn.SetPongHandler(func(payload string) error {
+		refreshDeadline(clientConn)
+		keepalive.recordPong("client", payload, time.Now())
+		return nil
+	})
+	coreConn.SetPongHandler(func(payload string) error {
+		refreshDeadline(coreConn)
+		keepalive.recordPong("core", payload, time.Now())
+		return nil
+	})
 	pingDone := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		ticker := time.NewTicker(realtimeProxyPingInterval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-pingDone:
 				return
-			case deadline := <-ticker.C:
-				writeDeadline := deadline.Add(10 * time.Second)
-				_ = clientConn.WriteControl(websocket.PingMessage, nil, writeDeadline)
-				_ = coreConn.WriteControl(websocket.PingMessage, nil, writeDeadline)
+			case now := <-ticker.C:
+				keepalive.sendPings(
+					now,
+					func(destination string, payload []byte, deadline time.Time) error {
+						conn := clientConn
+						if destination == "core" {
+							conn = coreConn
+						}
+						return conn.WriteControl(websocket.PingMessage, payload, deadline)
+					},
+					func(destination string, sequence uint64, err error) {
+						log.Printf(
+							"[REALTIME-PROXY] agent=%d thread=%q ping_failed destination=%s sequence=%d elapsed=%s err=%v",
+							agentID, threadID, destination, sequence, time.Since(startedAt).Round(time.Millisecond), err,
+						)
+					},
+				)
 			}
 		}
 	}()
@@ -141,6 +273,82 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 		log.Printf("[REALTIME-PROXY] agent=%d thread=%q initiated_by=%s code=%d transport_err=%v relay_err=%v",
 			agentID, threadID, first.initiator, code, first.err, relayErr)
 	}
+	s.recordRealtimeProxyClose(
+		agentID,
+		threadID,
+		startedAt,
+		time.Now(),
+		first.initiator,
+		code,
+		reason,
+		realtimeProxyErrorCategory(first.err),
+		realtimeProxyErrorCategory(relayErr),
+		keepalive.snapshot(),
+	)
+}
+
+func (s *Server) recordRealtimeProxyClose(
+	agentID int64,
+	threadID string,
+	startedAt time.Time,
+	closedAt time.Time,
+	initiatedBy string,
+	code int,
+	reason string,
+	transportCategory string,
+	relayCategory string,
+	keepalive realtimeProxyKeepaliveSnapshot,
+) {
+	if s == nil || s.store == nil {
+		return
+	}
+	duration := closedAt.Sub(startedAt)
+	if duration < 0 {
+		duration = 0
+	}
+	data, err := json.Marshal(realtimeProxyCloseTelemetry{
+		InitiatedBy:       initiatedBy,
+		CloseCode:         code,
+		CloseReason:       boundedWebSocketCloseReason(reason),
+		DurationMS:        duration.Milliseconds(),
+		TransportCategory: transportCategory,
+		RelayCategory:     relayCategory,
+		Keepalive:         keepalive,
+	})
+	if err != nil {
+		log.Printf("[REALTIME-PROXY] agent=%d thread=%q telemetry_encode_failed err=%v", agentID, threadID, err)
+		return
+	}
+	event := TelemetryEvent{
+		ID:       generateID(),
+		AgentID:  agentID,
+		ThreadID: threadID,
+		Type:     "realtime.proxy.closed",
+		Time:     closedAt.UTC(),
+		Data:     data,
+	}
+	if err := s.store.InsertTelemetry([]TelemetryEvent{event}); err != nil {
+		log.Printf("[REALTIME-PROXY] agent=%d thread=%q telemetry_persist_failed err=%v", agentID, threadID, err)
+		return
+	}
+	if s.broadcaster != nil {
+		s.broadcaster.Broadcast([]TelemetryEvent{event})
+	}
+}
+
+func realtimeProxyErrorCategory(err error) string {
+	if err == nil {
+		return ""
+	}
+	var closeErr *websocket.CloseError
+	if errors.As(err, &closeErr) {
+		return "websocket_close"
+	}
+	var timeout interface{ Timeout() bool }
+	if errors.As(err, &timeout) && timeout.Timeout() {
+		return "timeout"
+	}
+	return "transport_error"
 }
 
 func realtimeProxyCloseDetails(err error) (int, string) {

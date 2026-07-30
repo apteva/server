@@ -366,6 +366,12 @@ func (s *Server) ensureAgentDefaultProvider(inst *Agent, pool []ProviderInfo) (s
 }
 
 func (s *Server) startManagedAgent(inst *Agent, providerEnv map[string]string, pool []ProviderInfo, channelConfigs ...ChannelConfig) (coreRuntimeInfo, error) {
+	unlockConfig := s.lockAgentConfig(inst.ID)
+	err := s.refreshAgentAppMCPConfigs(inst)
+	unlockConfig()
+	if err != nil {
+		return coreRuntimeInfo{}, fmt.Errorf("refresh agent MCP attachments: %w", err)
+	}
 	if _, err := s.ensureAgentDefaultProvider(inst, pool); err != nil {
 		return coreRuntimeInfo{}, err
 	}
@@ -383,6 +389,12 @@ func (s *Server) startManagedAgent(inst *Agent, providerEnv map[string]string, p
 // reattachManagedAgent applies the same durable activation contract when a
 // replacement server adopts a core that survived the old server process.
 func (s *Server) reattachManagedAgent(inst *Agent, channelConfigs ...ChannelConfig) (coreRuntimeInfo, error) {
+	unlockConfig := s.lockAgentConfig(inst.ID)
+	err := s.refreshAgentAppMCPConfigs(inst)
+	unlockConfig()
+	if err != nil {
+		return coreRuntimeInfo{}, fmt.Errorf("refresh agent MCP attachments: %w", err)
+	}
 	if err := s.agents.Reattach(inst, s.port, channelConfigs...); err != nil {
 		return coreRuntimeInfo{}, err
 	}

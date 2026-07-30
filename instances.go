@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -21,6 +22,8 @@ import (
 
 	"github.com/apteva/server/apps/framework"
 )
+
+var errAgentAlreadyRunning = errors.New("agent already running")
 
 type runningAgent struct {
 	cmd        *exec.Cmd
@@ -160,6 +163,16 @@ type AgentManager struct {
 	// spawning core with live=false, while Reattach calls it after the
 	// live core is recorded with live=true.
 	CapabilityMemorySync func(inst *Agent, includeChannels bool, live bool) error
+
+	// Task tracking is a server-owned, feature-gated durable ledger. Its
+	// profile-specific tools share the trusted Channels transports so Core's
+	// opaque thread context enforces main, conversation, and worker authority.
+	TaskStore              *Store
+	TaskTracking           bool
+	TaskCompletionDelivery taskCompletionDelivery
+	TaskHandoffDelivery    taskHandoffDelivery
+	TaskCapabilitySync     func(inst *Agent, enabled bool, live bool) error
+	TaskDeliveryRecovery   func(agentID int64)
 }
 
 func describeProcessState(ps *os.ProcessState) string {
@@ -227,9 +240,9 @@ func monitorCoreProc(ri *runningAgent, pid int, stop <-chan struct{}) {
 // extractMCPNames pulls the user-configured MCP server names off
 // a parsed instance config, in the order they appear. Used at
 // instance start to seed the channel MCP's component catalog
-// filter. System MCPs (`channels`, `apteva-server`) are added
-// later in Start and are never present at this point — which is
-// exactly what we want, since they don't ship UI components.
+// filter. System MCPs are added later on the first Start but remain
+// in config.json on subsequent restarts, so filter them explicitly:
+// they do not ship UI components.
 func extractMCPNames(config map[string]any) []string {
 	raw, ok := config["mcp_servers"].([]any)
 	if !ok {
@@ -242,6 +255,9 @@ func extractMCPNames(config map[string]any) []string {
 			continue
 		}
 		if name, _ := m["name"].(string); name != "" {
+			if name == "apteva-server" || isServerOwnedOutputMCP(name) || isServerOwnedTaskMCP(name) {
+				continue
+			}
 			out = append(out, name)
 		}
 	}
@@ -256,15 +272,18 @@ const agentOutputMCPName = "agent-output"
 // absent from main's active prompt. Runtime caller-context checks remain the
 // authority boundary.
 func channelsMCPConfig(url string) map[string]any {
-	return map[string]any{
+	entry := map[string]any{
 		"name":      "channels",
 		"url":       url,
 		"transport": "http",
-		"no_spawn":  true,
 		"tool_loading": map[string]any{
 			"default": "deferred",
 		},
 	}
+	if !taskTrackingEnabled() {
+		entry["no_spawn"] = true
+	}
+	return entry
 }
 
 // agentOutputMCPConfig is main's central operator-output surface: one mutable
@@ -416,7 +435,7 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 
 	if ri, running := im.processes[inst.ID]; running && ri.isRunning() {
 		log.Printf("[SPAWN] agent=%d already running pid=%d port=%d", inst.ID, ri.processID(), ri.port)
-		return fmt.Errorf("instance %d already running", inst.ID)
+		return fmt.Errorf("%w: instance %d", errAgentAlreadyRunning, inst.ID)
 	}
 
 	port := im.allocPort()
@@ -584,6 +603,26 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		return fmt.Errorf("failed to start agent output MCP: %w", err)
 	}
 	outputMCP.ic = ic
+	if im.TaskTracking {
+		stepExecutor := taskStepExecutorFromConfig(config)
+		workerSpawner := func(ctx context.Context, task *AgentTask, workerID, instructions string) error {
+			return spawnTaskWorkerOnCore(ctx, port, inst.CoreAPIKey, task, workerID, instructions)
+		}
+		channelsMCP.taskStore = im.TaskStore
+		channelsMCP.taskAgent = inst
+		channelsMCP.taskDeliver = im.TaskCompletionDelivery
+		channelsMCP.taskHandoff = im.TaskHandoffDelivery
+		channelsMCP.taskExecute = stepExecutor
+		channelsMCP.taskSpawn = workerSpawner
+		channelsMCP.taskEnabled = true
+		outputMCP.taskStore = im.TaskStore
+		outputMCP.taskAgent = inst
+		outputMCP.taskDeliver = im.TaskCompletionDelivery
+		outputMCP.taskHandoff = im.TaskHandoffDelivery
+		outputMCP.taskExecute = stepExecutor
+		outputMCP.taskSpawn = workerSpawner
+		outputMCP.taskEnabled = true
+	}
 	ic.mcp = channelsMCP
 	ic.outputMCP = outputMCP
 	go channelsMCP.serve()
@@ -627,7 +666,7 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		for _, s := range existing {
 			if sm, ok := s.(map[string]any); ok {
 				name, _ := sm["name"].(string)
-				if isServerOwnedOutputMCP(name) || name == "apteva-server" {
+				if isServerOwnedOutputMCP(name) || isServerOwnedTaskMCP(name) || name == "apteva-server" {
 					continue // will be re-added with fresh URLs (if enabled)
 				}
 				userServers = append(userServers, sm)
@@ -646,6 +685,11 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	if im.CapabilityMemorySync != nil {
 		if err := im.CapabilityMemorySync(inst, includeChannels, false); err != nil {
 			log.Printf("[CAPABILITY-MEMORY] startup sync agent=%d include_channels=%v: %v", inst.ID, includeChannels, err)
+		}
+	}
+	if im.TaskCapabilitySync != nil {
+		if err := im.TaskCapabilitySync(inst, im.TaskTracking, false); err != nil {
+			log.Printf("[TASKS] startup capability sync agent=%d enabled=%v: %v", inst.ID, im.TaskTracking, err)
 		}
 	}
 
@@ -719,6 +763,20 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	inst.Status = "running"
 	procDiagStop := make(chan struct{})
 	go monitorCoreProc(ri, cmd.Process.Pid, procDiagStop)
+	if im.TaskTracking && im.TaskDeliveryRecovery != nil {
+		agentID := inst.ID
+		go func() {
+			deadline := time.Now().Add(10 * time.Second)
+			for time.Now().Before(deadline) {
+				if coreHealthOK(port, coreAPIKey, 250*time.Millisecond) {
+					im.TaskDeliveryRecovery(agentID)
+					return
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+			log.Printf("[TASKS] delivery recovery skipped agent=%d: core not ready", agentID)
+		}()
+	}
 
 	// Auto-start persisted channels (e.g. telegram)
 	for _, cc := range channelConfigs {
@@ -1018,7 +1076,7 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 	im.mu.Lock()
 	if ri, running := im.processes[inst.ID]; running && ri.isRunning() {
 		im.mu.Unlock()
-		return fmt.Errorf("instance %d already running", inst.ID)
+		return fmt.Errorf("%w: instance %d", errAgentAlreadyRunning, inst.ID)
 	}
 	im.mu.Unlock()
 
@@ -1047,6 +1105,26 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 	}
 	channelsMCP.ic = ic
 	outputMCP.ic = ic
+	if im.TaskTracking {
+		stepExecutor := taskStepExecutorFromConfig(config)
+		workerSpawner := func(ctx context.Context, task *AgentTask, workerID, instructions string) error {
+			return spawnTaskWorkerOnCore(ctx, inst.Port, inst.CoreAPIKey, task, workerID, instructions)
+		}
+		channelsMCP.taskStore = im.TaskStore
+		channelsMCP.taskAgent = inst
+		channelsMCP.taskDeliver = im.TaskCompletionDelivery
+		channelsMCP.taskHandoff = im.TaskHandoffDelivery
+		channelsMCP.taskExecute = stepExecutor
+		channelsMCP.taskSpawn = workerSpawner
+		channelsMCP.taskEnabled = true
+		outputMCP.taskStore = im.TaskStore
+		outputMCP.taskAgent = inst
+		outputMCP.taskDeliver = im.TaskCompletionDelivery
+		outputMCP.taskHandoff = im.TaskHandoffDelivery
+		outputMCP.taskExecute = stepExecutor
+		outputMCP.taskSpawn = workerSpawner
+		outputMCP.taskEnabled = true
+	}
 	ic.mcp = channelsMCP
 	ic.outputMCP = outputMCP
 	if im.ComponentCatalog != nil {
@@ -1090,7 +1168,7 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 		for _, s := range existing {
 			if sm, ok := s.(map[string]any); ok {
 				name, _ := sm["name"].(string)
-				if isServerOwnedOutputMCP(name) || name == "apteva-server" {
+				if isServerOwnedOutputMCP(name) || isServerOwnedTaskMCP(name) || name == "apteva-server" {
 					continue
 				}
 				userServers = append(userServers, sm)
@@ -1131,10 +1209,18 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 	im.mu.Lock()
 	im.processes[inst.ID] = ri
 	im.mu.Unlock()
+	if im.TaskTracking && im.TaskDeliveryRecovery != nil {
+		go im.TaskDeliveryRecovery(inst.ID)
+	}
 
 	if im.CapabilityMemorySync != nil {
 		if err := im.CapabilityMemorySync(inst, includeChannels, true); err != nil {
 			log.Printf("[CAPABILITY-MEMORY] reattach sync agent=%d include_channels=%v: %v", inst.ID, includeChannels, err)
+		}
+	}
+	if im.TaskCapabilitySync != nil {
+		if err := im.TaskCapabilitySync(inst, im.TaskTracking, true); err != nil {
+			log.Printf("[TASKS] reattach capability sync agent=%d enabled=%v: %v", inst.ID, im.TaskTracking, err)
 		}
 	}
 
@@ -2098,7 +2184,7 @@ func (s *Server) ResumeRunningInstances() {
 			// "already running" is a benign race with another start
 			// path (bootMetaAgents typically) — the process is up,
 			// just not via us. Don't flip status to stopped.
-			if strings.Contains(err.Error(), "already running") {
+			if errors.Is(err, errAgentAlreadyRunning) {
 				log.Printf("[RESUME] instance %d (%s): already running via another path, leaving as-is", inst.ID, inst.Name)
 				continue
 			}
@@ -2207,7 +2293,9 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.agents.IsRunning(inst.ID) {
-		http.Error(w, "instance already running", http.StatusConflict)
+		// Starting is idempotent: the requested state has already been
+		// reached, including when boot recovery won the race.
+		writeJSON(w, inst)
 		return
 	}
 
@@ -2227,6 +2315,16 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := s.startManagedAgent(inst, providerEnv, pool, s.loadChannelConfigs(inst.ID)...); err != nil {
+		if errors.Is(err, errAgentAlreadyRunning) {
+			// Auto-resume or another start request may have won between the
+			// IsRunning check and AgentManager.Start. Treat that race exactly
+			// like the fast path above instead of leaking a spurious 500.
+			if current, getErr := s.store.GetAgentByID(inst.ID); getErr == nil {
+				inst = current
+			}
+			writeJSON(w, inst)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

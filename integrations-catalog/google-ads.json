@@ -113,10 +113,6 @@
             "type": "string",
             "description": "GAQL query string. Example: SELECT campaign.name, metrics.clicks FROM campaign WHERE segments.date DURING LAST_7_DAYS"
           },
-          "page_size": {
-            "type": "integer",
-            "description": "Max results per page (default 10000, max 10000)"
-          },
           "page_token": {
             "type": "string",
             "description": "Token for fetching next page of results"
@@ -558,9 +554,6 @@
           },
           "query": {
             "type": "string"
-          },
-          "page_size": {
-            "type": "integer"
           },
           "page_token": {
             "type": "string"

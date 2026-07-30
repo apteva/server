@@ -153,6 +153,116 @@ func TestAgentMCPMutationIsAdditiveAndSynchronizesAppBinding(t *testing.T) {
 	}
 }
 
+func TestAgentMCPMutationMatchesAppByStableInstallID(t *testing.T) {
+	current := []map[string]any{
+		{"name": "existing", "transport": "http", "url": "http://127.0.0.1/mcp/12"},
+		{
+			"name":      "legacy-crm-name",
+			"transport": "http",
+			"url":       "http://127.0.0.1:5280/api/apps/legacy-crm/mcp?api_key=stale&install_id=18",
+		},
+	}
+	selected := []map[string]any{
+		{
+			"name":      "crm",
+			"transport": "http",
+			"url":       "http://127.0.0.1:5280/api/apps/crm/mcp?api_key=current&install_id=18&project_id=proj-1",
+		},
+	}
+
+	added := mutateMCPServers(current, selected, "add")
+	if len(added) != 2 || !hasMCPName(added, "existing") || !hasMCPName(added, "crm") ||
+		hasMCPName(added, "legacy-crm-name") {
+		t.Fatalf("add did not replace stale identity: %#v", added)
+	}
+	removed := mutateMCPServers(added, selected, "remove")
+	if len(removed) != 1 || !hasMCPName(removed, "existing") || hasMCPName(removed, "crm") {
+		t.Fatalf("remove did not match stable app identity: %#v", removed)
+	}
+}
+
+func TestRefreshAgentAppMCPConfigsRepairsStaleURLAndBinding(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	if _, err := s.store.db.Exec(
+		`INSERT OR IGNORE INTO projects(id,user_id,name,description) VALUES('proj-1',1,'Project','')`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	installID := seedAppWithTools(t, s, "crm", "proj-1", []string{"contacts_get"})
+	if err := s.registerAppMCP(installID); err != nil {
+		t.Fatal(err)
+	}
+	row := readMCPRow(t, s, installID)
+	currentURL := row["url"].(string)
+	parsed, err := url.Parse(currentURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := parsed.Query()
+	query.Set("api_key", "stale-token")
+	parsed.RawQuery = query.Encode()
+
+	agent, err := s.store.CreateAgent(1, "stale-app-agent", "directive", "autonomous", `{}`, "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.writeStoppedConfigAtomic(agent.ID, func(cfg map[string]any) error {
+		cfg["mcp_servers"] = []any{
+			map[string]any{
+				"name":      "old-crm-name",
+				"transport": "http",
+				"url":       parsed.String(),
+			},
+			map[string]any{
+				"name":      "unrelated",
+				"transport": "http",
+				"url":       "https://mcp.example.test",
+			},
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.refreshAgentAppMCPConfigs(agent); err != nil {
+		t.Fatal(err)
+	}
+	servers, err := s.currentAgentMCPServers(agent, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasMCPName(servers, "crm") || !hasMCPName(servers, "unrelated") ||
+		hasMCPName(servers, "old-crm-name") {
+		t.Fatalf("refresh produced the wrong MCP set: %#v", servers)
+	}
+	var refreshedURL string
+	for _, server := range servers {
+		if server["name"] == "crm" {
+			refreshedURL, _ = server["url"].(string)
+		}
+	}
+	refreshedParsed, err := url.Parse(refreshedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshedParsed.Query().Get("api_key") == "stale-token" ||
+		refreshedParsed.Query().Get("install_id") != itoa64(installID) ||
+		refreshedParsed.Query().Get("project_id") != "proj-1" {
+		t.Fatalf("app URL was not refreshed from inventory: %s", refreshedURL)
+	}
+	var bound int
+	if err := s.store.db.QueryRow(
+		`SELECT COUNT(*) FROM app_agent_bindings WHERE agent_id=? AND install_id=? AND enabled=1`,
+		agent.ID, installID,
+	).Scan(&bound); err != nil {
+		t.Fatal(err)
+	}
+	if bound != 1 {
+		t.Fatalf("refreshed config did not repair binding metadata: %d", bound)
+	}
+}
+
 func TestConcurrentAgentMCPAddsDoNotOverwriteEachOther(t *testing.T) {
 	s := newTestServer(t)
 	ensureTestAdmin(t, s)

@@ -748,13 +748,19 @@ func (s *Server) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		projectApps, listErr := s.store.ListAppMCPsForProject(projectID)
+		if listErr != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 		seen := make(map[int64]bool, len(servers))
 		for _, row := range servers {
 			seen[row.ID] = true
 		}
-		for _, row := range projectManaged {
+		for _, row := range append(projectManaged, projectApps...) {
 			if !seen[row.ID] {
 				servers = append(servers, row)
+				seen[row.ID] = true
 			}
 		}
 	}

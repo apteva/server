@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +15,22 @@ import (
 	"testing"
 	"time"
 )
+
+func TestExtractMCPNamesExcludesPersistedSystemTransportsAfterRestart(t *testing.T) {
+	config := map[string]any{
+		"mcp_servers": []any{
+			map[string]any{"name": "crm"},
+			map[string]any{"name": "channels"},
+			map[string]any{"name": "agent-output"},
+			map[string]any{"name": "apteva-server"},
+			map[string]any{"name": "tasks-conversation"},
+			map[string]any{"name": "calendar"},
+		},
+	}
+	if got := strings.Join(extractMCPNames(config), ","); got != "crm,calendar" {
+		t.Fatalf("component MCP names=%q, want only user/domain MCPs", got)
+	}
+}
 
 // helper: register + login (creates user, session cookie set as side effect)
 func registerAndLogin(t *testing.T, s *Server) {
@@ -585,6 +603,52 @@ func TestInstanceManager_PortTracking(t *testing.T) {
 	}
 	if im.GetPort(1) != 0 {
 		t.Error("port should be 0 after stop")
+	}
+}
+
+func TestAgentManagerStartReturnsTypedAlreadyRunningError(t *testing.T) {
+	im := NewAgentManager(t.TempDir(), "sleep")
+	cmd := exec.Command("sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+
+	im.mu.Lock()
+	im.processes[1] = &runningAgent{cmd: cmd, port: 5001}
+	im.mu.Unlock()
+
+	err := im.Start(&Agent{ID: 1, Name: "already-running"}, nil, "5280", nil, "agent-secret")
+	if !errors.Is(err, errAgentAlreadyRunning) {
+		t.Fatalf("Start error=%v, want errAgentAlreadyRunning", err)
+	}
+}
+
+func TestHandleStartInstanceIsIdempotentWhenAlreadyRunning(t *testing.T) {
+	s := newTestServer(t)
+	user, err := s.store.CreateUser("start-idempotent@test.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst, err := s.store.CreateAgent(user.ID, "already-running", "directive", "autonomous", "{}", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	s.agents.mu.Lock()
+	s.agents.processes[inst.ID] = &runningAgent{cmd: cmd, port: 5001}
+	s.agents.mu.Unlock()
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/instances/%d/start", inst.ID), nil)
+	rec := httptest.NewRecorder()
+	s.handleStartInstance(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start status=%d body=%s, want idempotent 200", rec.Code, rec.Body.String())
 	}
 }
 

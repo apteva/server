@@ -1751,21 +1751,53 @@ func filterSystemMCPConfigs(servers []map[string]any) []map[string]any {
 	return out
 }
 
-func removeMCPConfigsByName(servers []map[string]any, targets []map[string]any) []map[string]any {
-	names := map[string]bool{}
+func removeMatchingMCPConfigs(servers []map[string]any, targets []map[string]any) []map[string]any {
+	identities := map[string]bool{}
 	for _, target := range targets {
-		name, _ := target["name"].(string)
-		if name != "" {
-			names[name] = true
+		for _, identity := range mcpConfigIdentities(target) {
+			identities[identity] = true
 		}
 	}
 	out := make([]map[string]any, 0, len(servers))
 	for _, srv := range servers {
-		name, _ := srv["name"].(string)
-		if name != "" && names[name] {
+		remove := false
+		for _, identity := range mcpConfigIdentities(srv) {
+			if identities[identity] {
+				remove = true
+				break
+			}
+		}
+		if remove {
 			continue
 		}
 		out = append(out, srv)
+	}
+	return out
+}
+
+func mcpConfigIdentities(config map[string]any) []string {
+	var out []string
+	if name, _ := config["name"].(string); strings.TrimSpace(name) != "" {
+		out = append(out, "name:"+strings.TrimSpace(name))
+	}
+	rawURL, _ := config["url"].(string)
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return out
+	}
+	if installID := strings.TrimSpace(parsed.Query().Get("install_id")); installID != "" {
+		out = append(out, "app-install:"+installID)
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) == 2 && parts[0] == "mcp" {
+		if _, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+			out = append(out, "registry:"+parts[1])
+		}
+	}
+	if len(parts) == 3 && parts[0] == "mcp" && parts[1] == "custom" {
+		if _, err := strconv.ParseInt(parts[2], 10, 64); err == nil {
+			out = append(out, "registry:"+parts[2])
+		}
 	}
 	return out
 }

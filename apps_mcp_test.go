@@ -7,6 +7,7 @@ package main
 import (
 	"encoding/json"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -238,6 +239,84 @@ func TestRegisterAppMCP_InsertsRow(t *testing.T) {
 	if len(tools) != 3 || tools[0] != "files_upload" {
 		t.Errorf("allowed_tools = %v", tools)
 	}
+}
+
+func TestBackfillAppMCPsRefreshesStaleInstallToken(t *testing.T) {
+	s := newTestServer(t)
+	installID := seedAppWithTools(t, s, "crm", "proj-1", []string{"contacts_get"})
+	if err := s.registerAppMCP(installID); err != nil {
+		t.Fatal(err)
+	}
+	before := readMCPRow(t, s, installID)["url"].(string)
+
+	// Simulate the lazy credential migration/rotation that made an existing
+	// bridge row return 401 while backfill incorrectly skipped it.
+	if _, err := s.store.db.Exec(
+		`UPDATE app_installs SET app_token_hash='', app_token_encrypted='' WHERE id=?`,
+		installID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.appInstallToken(installID); err != nil {
+		t.Fatal(err)
+	}
+
+	s.backfillAppMCPs()
+	after := readMCPRow(t, s, installID)["url"].(string)
+	var currentHash string
+	if err := s.store.db.QueryRow(
+		`SELECT app_token_hash FROM app_installs WHERE id=?`, installID,
+	).Scan(&currentHash); err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("backfill retained the stale app MCP URL")
+	}
+	if !appMCPURLMatchesTokenHash(after, currentHash) {
+		t.Fatal("refreshed app MCP URL does not contain the current install token")
+	}
+}
+
+func TestListMCPServersIncludesProjectAppsInstalledByAnotherMember(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	member, err := s.store.CreateUser("project-member@test.local", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.db.Exec(
+		`INSERT INTO projects(id,user_id,name,description) VALUES('proj-1',1,'Project','')`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.db.Exec(
+		`INSERT INTO project_members(project_id,user_id,role,added_by) VALUES('proj-1',?,'viewer',1)`,
+		member.ID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	installID := seedAppWithTools(t, s, "crm", "proj-1", []string{"contacts_get"})
+	if err := s.registerAppMCP(installID); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/mcp-servers?project_id=proj-1", nil)
+	req.Header.Set("X-User-ID", itoa64(member.ID))
+	rec := httptest.NewRecorder()
+	s.handleListMCPServers(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var rows []MCPServerRecord
+	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.Source == "app" && row.UpstreamID == appMCPUpstreamID(installID) {
+			return
+		}
+	}
+	t.Fatalf("project app MCP installed by another member was hidden: %#v", rows)
 }
 
 func TestInjectProjectIntoMCPRequestAddsProjectID(t *testing.T) {

@@ -232,6 +232,7 @@ func setupRealServerWithProviderState(t *testing.T, corePath, agentName, agentDi
 		environments: NewEnvironmentManager(environmentDataRoot(dataDir)),
 	}
 	s.environments.server = s
+	s.installTaskTrackingHooks()
 	s.appEventDispatcher = NewAppEventDispatcher(s)
 	s.appEventDispatcher.Start()
 	apiMux := http.NewServeMux()

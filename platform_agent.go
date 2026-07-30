@@ -26,12 +26,15 @@ import (
 const helperGlobalMCPServerIDsKey = "helper_global_mcp_server_ids"
 
 var reservedPlatformHelperMCPNames = map[string]bool{
-	"apteva-server":   true,
-	"channels":        true,
-	"apteva-channels": true,
-	"agent-output":    true,
-	"environments":    true,
-	"worlds":          true,
+	"apteva-server":      true,
+	"channels":           true,
+	"apteva-channels":    true,
+	"agent-output":       true,
+	"tasks":              true,
+	"tasks-conversation": true,
+	"tasks-worker":       true,
+	"environments":       true,
+	"worlds":             true,
 }
 
 // isCoreListening dials the agent's allocated port to confirm the

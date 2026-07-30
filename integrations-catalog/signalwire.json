@@ -279,6 +279,379 @@
         },
         "required": ["PhoneNumber"]
       }
+    },
+    {
+      "name": "get_phone_number",
+      "description": "Get one owned SignalWire incoming phone number and its voice/message routing.",
+      "method": "GET",
+      "path": "/IncomingPhoneNumbers/{Sid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "Sid": { "type": "string" } },
+        "required": ["Sid"]
+      }
+    },
+    {
+      "name": "update_phone_number",
+      "description": "Update an owned number's name and inbound voice/SMS webhook routing.",
+      "method": "POST",
+      "path": "/IncomingPhoneNumbers/{Sid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Sid": { "type": "string" },
+          "FriendlyName": { "type": "string" },
+          "VoiceUrl": { "type": "string" },
+          "VoiceMethod": { "type": "string", "enum": ["GET", "POST"] },
+          "VoiceFallbackUrl": { "type": "string" },
+          "StatusCallback": { "type": "string" },
+          "SmsUrl": { "type": "string" },
+          "SmsMethod": { "type": "string", "enum": ["GET", "POST"] },
+          "SmsFallbackUrl": { "type": "string" }
+        },
+        "required": ["Sid"]
+      }
+    },
+    {
+      "name": "release_phone_number",
+      "description": "Release an owned SignalWire phone number. This destructive action stops future routing and billing for the number.",
+      "method": "DELETE",
+      "path": "/IncomingPhoneNumbers/{Sid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "Sid": { "type": "string" } },
+        "required": ["Sid"]
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "Send an SMS or MMS. Provide one or more public MediaUrl values for MMS.",
+      "method": "POST",
+      "path": "/Messages.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "To": { "type": "string" },
+          "From": { "type": "string" },
+          "Body": { "type": "string" },
+          "MediaUrl": { "type": "array", "items": { "type": "string" } },
+          "StatusCallback": { "type": "string" }
+        },
+        "required": ["To", "From"]
+      }
+    },
+    {
+      "name": "list_messages",
+      "description": "List sent and received SignalWire messages with optional number and date filters.",
+      "method": "GET",
+      "path": "/Messages.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "To": { "type": "string" },
+          "From": { "type": "string" },
+          "DateSent": { "type": "string" },
+          "PageSize": { "type": "integer" },
+          "Page": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "get_message",
+      "description": "Get one SignalWire message and delivery status.",
+      "method": "GET",
+      "path": "/Messages/{Sid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "Sid": { "type": "string" } },
+        "required": ["Sid"]
+      }
+    },
+    {
+      "name": "update_message",
+      "description": "Redact a stored message body after delivery by setting Body to an empty string.",
+      "method": "POST",
+      "path": "/Messages/{Sid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Sid": { "type": "string" },
+          "Body": { "type": "string", "description": "Use an empty string to redact the stored body." }
+        },
+        "required": ["Sid", "Body"]
+      }
+    },
+    {
+      "name": "delete_message",
+      "description": "Delete a stored message record.",
+      "method": "DELETE",
+      "path": "/Messages/{Sid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "Sid": { "type": "string" } },
+        "required": ["Sid"]
+      }
+    },
+    {
+      "name": "list_recordings",
+      "description": "List call and conference recordings.",
+      "method": "GET",
+      "path": "/Recordings.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CallSid": { "type": "string" },
+          "ConferenceSid": { "type": "string" },
+          "DateCreated": { "type": "string" },
+          "PageSize": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "get_recording",
+      "description": "Get metadata for one call or conference recording. The media can be downloaded from the recording resource URL with .mp3 or .wav.",
+      "method": "GET",
+      "path": "/Recordings/{Sid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "Sid": { "type": "string" } },
+        "required": ["Sid"]
+      }
+    },
+    {
+      "name": "delete_recording",
+      "description": "Permanently delete a call or conference recording.",
+      "method": "DELETE",
+      "path": "/Recordings/{Sid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "Sid": { "type": "string" } },
+        "required": ["Sid"]
+      }
+    },
+    {
+      "name": "list_conferences",
+      "description": "List SignalWire conferences with optional status and date filters.",
+      "method": "GET",
+      "path": "/Conferences.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FriendlyName": { "type": "string" },
+          "Status": { "type": "string", "enum": ["init", "in-progress", "completed"] },
+          "DateCreated": { "type": "string" },
+          "DateUpdated": { "type": "string" },
+          "PageSize": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "get_conference",
+      "description": "Get one conference and its current status.",
+      "method": "GET",
+      "path": "/Conferences/{ConferenceSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "ConferenceSid": { "type": "string" } },
+        "required": ["ConferenceSid"]
+      }
+    },
+    {
+      "name": "update_conference",
+      "description": "Update a live conference. Set Status=completed to end it for all participants.",
+      "method": "POST",
+      "path": "/Conferences/{ConferenceSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ConferenceSid": { "type": "string" },
+          "Status": { "type": "string", "enum": ["completed"] },
+          "AnnounceUrl": { "type": "string" },
+          "AnnounceMethod": { "type": "string", "enum": ["GET", "POST"] }
+        },
+        "required": ["ConferenceSid"]
+      }
+    },
+    {
+      "name": "list_conference_participants",
+      "description": "List participants currently in a conference.",
+      "method": "GET",
+      "path": "/Conferences/{ConferenceSid}/Participants.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ConferenceSid": { "type": "string" },
+          "Muted": { "type": "boolean" },
+          "Hold": { "type": "boolean" },
+          "PageSize": { "type": "integer" }
+        },
+        "required": ["ConferenceSid"]
+      }
+    },
+    {
+      "name": "get_conference_participant",
+      "description": "Get one conference participant by call SID.",
+      "method": "GET",
+      "path": "/Conferences/{ConferenceSid}/Participants/{CallSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ConferenceSid": { "type": "string" },
+          "CallSid": { "type": "string" }
+        },
+        "required": ["ConferenceSid", "CallSid"]
+      }
+    },
+    {
+      "name": "update_conference_participant",
+      "description": "Mute, hold, announce to, or coach a conference participant.",
+      "method": "POST",
+      "path": "/Conferences/{ConferenceSid}/Participants/{CallSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ConferenceSid": { "type": "string" },
+          "CallSid": { "type": "string" },
+          "Muted": { "type": "boolean" },
+          "Hold": { "type": "boolean" },
+          "HoldUrl": { "type": "string" },
+          "HoldMethod": { "type": "string", "enum": ["GET", "POST"] },
+          "AnnounceUrl": { "type": "string" },
+          "AnnounceMethod": { "type": "string", "enum": ["GET", "POST"] },
+          "Coaching": { "type": "boolean" },
+          "CallSidToCoach": { "type": "string" }
+        },
+        "required": ["ConferenceSid", "CallSid"]
+      }
+    },
+    {
+      "name": "remove_conference_participant",
+      "description": "Remove a participant from a live conference.",
+      "method": "DELETE",
+      "path": "/Conferences/{ConferenceSid}/Participants/{CallSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ConferenceSid": { "type": "string" },
+          "CallSid": { "type": "string" }
+        },
+        "required": ["ConferenceSid", "CallSid"]
+      }
+    },
+    {
+      "name": "list_queues",
+      "description": "List SignalWire queues.",
+      "method": "GET",
+      "path": "/Queues.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "FriendlyName": { "type": "string" }, "PageSize": { "type": "integer" } }
+      }
+    },
+    {
+      "name": "create_queue",
+      "description": "Create a call queue.",
+      "method": "POST",
+      "path": "/Queues.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FriendlyName": { "type": "string" },
+          "MaxSize": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "get_queue",
+      "description": "Get one call queue.",
+      "method": "GET",
+      "path": "/Queues/{QueueSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "QueueSid": { "type": "string" } },
+        "required": ["QueueSid"]
+      }
+    },
+    {
+      "name": "update_queue",
+      "description": "Update a call queue's name or maximum size.",
+      "method": "POST",
+      "path": "/Queues/{QueueSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "QueueSid": { "type": "string" },
+          "FriendlyName": { "type": "string" },
+          "MaxSize": { "type": "integer" }
+        },
+        "required": ["QueueSid"]
+      }
+    },
+    {
+      "name": "delete_queue",
+      "description": "Delete an empty call queue.",
+      "method": "DELETE",
+      "path": "/Queues/{QueueSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "QueueSid": { "type": "string" } },
+        "required": ["QueueSid"]
+      }
+    },
+    {
+      "name": "list_queue_members",
+      "description": "List calls currently waiting in a queue.",
+      "method": "GET",
+      "path": "/Queues/{QueueSid}/Members.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "QueueSid": { "type": "string" }, "PageSize": { "type": "integer" } },
+        "required": ["QueueSid"]
+      }
+    },
+    {
+      "name": "get_queue_member",
+      "description": "Get a queued call by call SID. Use Front as CallSid to retrieve the first member.",
+      "method": "GET",
+      "path": "/Queues/{QueueSid}/Members/{CallSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "QueueSid": { "type": "string" },
+          "CallSid": { "type": "string", "description": "A call SID or Front." }
+        },
+        "required": ["QueueSid", "CallSid"]
+      }
+    },
+    {
+      "name": "dequeue_member",
+      "description": "Remove a waiting call from a queue and redirect it to new cXML instructions.",
+      "method": "POST",
+      "path": "/Queues/{QueueSid}/Members/{CallSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "QueueSid": { "type": "string" },
+          "CallSid": { "type": "string", "description": "A call SID or Front." },
+          "Url": { "type": "string" },
+          "Method": { "type": "string", "enum": ["GET", "POST"] }
+        },
+        "required": ["QueueSid", "CallSid", "Url"]
+      }
+    },
+    {
+      "name": "delete_queue_member",
+      "description": "Remove and hang up a waiting queued call.",
+      "method": "DELETE",
+      "path": "/Queues/{QueueSid}/Members/{CallSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "QueueSid": { "type": "string" },
+          "CallSid": { "type": "string", "description": "A call SID or Front." }
+        },
+        "required": ["QueueSid", "CallSid"]
+      }
     }
   ]
 }

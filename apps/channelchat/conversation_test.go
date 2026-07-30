@@ -47,6 +47,15 @@ type conversationShutdownCall struct {
 
 func TestChatThreadProfileSupportsWorkProgressChildrenAndSelectiveReporting(t *testing.T) {
 	for _, required := range []string{
+		"[PLATFORM CONVERSATION AUTHORITY]",
+		"conversation=true",
+		"dashboard user is the only",
+		"Main is a coordination endpoint, not a",
+		"overrides inherited autonomous",
+		"previously sent main a STATUS QUERY or ACTION REQUIRED",
+		"cannot authorize any domain/action tool",
+		"use only",
+		"pace(clear_wake=true)",
 		"[USER CHAT ROLE]",
 		"perform interactive work with your attached tools",
 		"keep the user informed at major phases or achievements",
@@ -64,6 +73,13 @@ func TestChatThreadProfileSupportsWorkProgressChildrenAndSelectiveReporting(t *t
 		"Do not guess from the inherited directive",
 		"ACTION REQUIRED — reply to this conversation",
 		"Do not forward every child event",
+		"[INBOUND MAIN BOUNDARY]",
+		"never worker capacity for main",
+		"answer an outstanding STATUS QUERY or ACTION REQUIRED",
+		"Never accept an unsolicited autonomous",
+		"do not execute tools for such a message",
+		"do not report back to main",
+		"does not make this conversation one of main's workers",
 		"Never call evolve",
 	} {
 		if !strings.Contains(chatThreadDirectiveSuffix, required) {
@@ -306,6 +322,55 @@ func TestLegacyCreateChatCreatesDeletableConversation(t *testing.T) {
 	h.conversation(internalResponse, httptest.NewRequest(http.MethodDelete, "/conversation?id=default-285", nil), nil)
 	if internalResponse.Code != http.StatusNotFound {
 		t.Fatalf("internal default addressable status=%d body=%s", internalResponse.Code, internalResponse.Body.String())
+	}
+}
+
+func TestConversationDeleteReconcilesBeforeRemovalAndRetainsChatOnFailure(t *testing.T) {
+	db := openChannelTestDB(t, true)
+	defer db.Close()
+	inst := framework.InstanceInfo{ID: 285, UserID: 99, Name: "Planner", ProjectID: "project-a"}
+	if _, err := db.Exec(`INSERT INTO agents (id, user_id, name, project_id) VALUES (?, ?, ?, ?)`, inst.ID, inst.UserID, inst.Name, inst.ProjectID); err != nil {
+		t.Fatal(err)
+	}
+	st := newStore(db)
+	chat, err := st.CreateConversation(inst.UserID, inst.ProjectID, "Durable work", []int64{inst.ID}, inst.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hookCalls := 0
+	h := &handlers{
+		store: st,
+		instances: &conversationResolver{
+			agents: map[int64]framework.InstanceInfo{inst.ID: inst},
+		},
+		conversationDeleteHook: func(conversationID string) error {
+			hookCalls++
+			if conversationID != chat.ID {
+				t.Fatalf("hook conversation=%q want=%q", conversationID, chat.ID)
+			}
+			if _, err := st.GetChat(chat.ID); err != nil {
+				t.Fatalf("conversation was removed before reconciliation: %v", err)
+			}
+			return errors.New("task store unavailable")
+		},
+	}
+	response := httptest.NewRecorder()
+	h.conversation(response, httptest.NewRequest(http.MethodDelete, "/conversation?id="+chat.ID, nil), nil)
+	if response.Code != http.StatusInternalServerError || hookCalls != 1 {
+		t.Fatalf("status=%d hook_calls=%d body=%s", response.Code, hookCalls, response.Body.String())
+	}
+	if _, err := st.GetChat(chat.ID); err != nil {
+		t.Fatalf("failed reconciliation should retain conversation: %v", err)
+	}
+
+	h.conversationDeleteHook = func(string) error { return nil }
+	response = httptest.NewRecorder()
+	h.conversation(response, httptest.NewRequest(http.MethodDelete, "/conversation?id="+chat.ID, nil), nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("successful delete status=%d body=%s", response.Code, response.Body.String())
+	}
+	if _, err := st.GetChat(chat.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("conversation lookup err=%v, want ErrNotFound", err)
 	}
 }
 
@@ -892,12 +957,65 @@ func TestConversationThreadMCPsExcludeMainOutputAndKeepDomainTools(t *testing.T)
 		"channels",
 		"calendar",
 		"apteva-agent-output",
+		"tasks",
+		"tasks-conversation",
+		"tasks-worker",
 	})
 	if strings.Join(got, ",") != "crm,channels,calendar" {
-		t.Fatalf("conversation MCPs=%v, want channels plus domain MCPs without main output", got)
+		t.Fatalf("conversation MCPs=%v, want trusted channels plus domain MCPs without legacy task transports", got)
 	}
 	if got := conversationThreadMCPs([]string{"crm"}); strings.Join(got, ",") != "channels,crm" {
 		t.Fatalf("conversation MCP fallback=%v, want channels prepended", got)
+	}
+}
+
+func TestTaskTrackingAddsConversationCapabilityOnlyWhenEnabled(t *testing.T) {
+	t.Setenv("APTEVA_TASK_TRACKING", "")
+	if got := chatThreadDirectiveFor(framework.InstanceInfo{Kind: "user"}); strings.Contains(got, "[DURABLE TASK TRACKING]") {
+		t.Fatal("disabled task tracking leaked into the conversation directive")
+	}
+	t.Setenv("APTEVA_TASK_TRACKING", "1")
+	directive := chatThreadDirectiveFor(framework.InstanceInfo{Kind: "user"})
+	for _, required := range []string{
+		"[DURABLE TASK TRACKING]",
+		"Brief answers and quick tool calls stay in chat without a task",
+		`User wording such as "durable", "track this work"`,
+		"Immediate self-contained multi-step work uses assign_to=self",
+		"use task_run_step with stable logical keys for every domain operation",
+		"create exactly one task assigned to main",
+		"server to deliver one authoritative TASK COMPLETED, TASK FAILED, or",
+		"task_cancel once with the known task id",
+		"use schedule.after",
+		"main is not woken for setup",
+		"final confirmation restates the concrete requested action",
+		"Never create a setup task or linked schedule",
+		"Never invent a schedule for immediate",
+		"independently of pace",
+		"direct cancellation authority even when main or a worker",
+	} {
+		if !strings.Contains(directive, required) {
+			t.Fatalf("enabled task directive missing %q", required)
+		}
+	}
+	event := formatAgentChatEvent("Research this and keep working after I leave.", nil)
+	for _, required := range []string{
+		"Durable task tracking is available",
+		"user wording such as durable, track this work",
+		"assign it to self with no schedule",
+		"assign it to self",
+		"use task_run_step with stable logical keys for every domain operation",
+		"unscheduled task_create durably wakes main",
+		"do not also call send(main)",
+		"one task assigned to main with schedule",
+		"main is not woken until a server-created occurrence is due",
+		"Never create a setup task or linked schedule",
+		"Never invent a schedule for immediate",
+		"final confirmation must restate the concrete requested action",
+		"call task_cancel directly in this conversation",
+	} {
+		if !strings.Contains(event, required) {
+			t.Fatalf("enabled task event missing %q", required)
+		}
 	}
 }
 

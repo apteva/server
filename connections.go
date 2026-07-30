@@ -1317,7 +1317,8 @@ func ensureCredentialExchangeToken(app *AppTemplate, credentials map[string]stri
 	if method == "" {
 		method = http.MethodPost
 	}
-	req, err := http.NewRequest(method, cfg.URL, body)
+	exchangeURL := resolveTemplate(cfg.URL, credentials)
+	req, err := http.NewRequest(method, exchangeURL, body)
 	if err != nil {
 		return false, err
 	}

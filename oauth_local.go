@@ -72,7 +72,8 @@ func (s *Server) findStoredOAuthClient(userID int64, projectID, slug string) (cl
 	if err != nil {
 		return "", ""
 	}
-	for _, c := range conns {
+	for i := len(conns) - 1; i >= 0; i-- {
+		c := conns[i]
 		if c.AppSlug != slug || c.Source != "local" {
 			continue
 		}
@@ -98,6 +99,73 @@ func (s *Server) findStoredOAuthClient(userID int64, projectID, slug string) (cl
 		}
 	}
 	return "", ""
+}
+
+// findStoredOAuthSetup returns the required non-OAuth credentials that an
+// app-initiated OAuth connection must retain. This lets an app reuse deployment
+// configuration such as a Google Ads developer token while the person signing
+// in receives a completely separate access and refresh token.
+func (s *Server) findStoredOAuthSetup(userID int64, projectID string, app *AppTemplate) (map[string]string, error) {
+	required := make([]CredentialField, 0)
+	for _, field := range app.Auth.CredentialFields {
+		isRequired := field.Required == nil || *field.Required
+		if field.Source == "user" && !field.Hidden && isRequired {
+			required = append(required, field)
+		}
+	}
+	if len(required) == 0 {
+		return nil, nil
+	}
+
+	conns, err := s.store.ListConnections(userID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list OAuth setup connections: %w", err)
+	}
+	for i := len(conns) - 1; i >= 0; i-- {
+		conn := conns[i]
+		if conn.AppSlug != app.Slug || conn.Source != "local" || conn.Status != "active" {
+			continue
+		}
+		_, encrypted, err := s.store.GetConnection(userID, conn.ID)
+		if err != nil || encrypted == "" {
+			continue
+		}
+		plaintext, err := Decrypt(s.secret, encrypted)
+		if err != nil {
+			continue
+		}
+		var credentials map[string]string
+		if err := json.Unmarshal([]byte(plaintext), &credentials); err != nil {
+			continue
+		}
+		setup := make(map[string]string, len(required))
+		complete := true
+		for _, field := range required {
+			value := strings.TrimSpace(credentials[field.Name])
+			if value == "" {
+				complete = false
+				break
+			}
+			setup[field.Name] = value
+		}
+		if complete {
+			return setup, nil
+		}
+	}
+
+	labels := make([]string, 0, len(required))
+	for _, field := range required {
+		label := strings.TrimSpace(field.Label)
+		if label == "" {
+			label = field.Name
+		}
+		labels = append(labels, label)
+	}
+	return nil, fmt.Errorf(
+		"%s integration is missing required shared configuration: %s",
+		app.Name,
+		strings.Join(labels, ", "),
+	)
 }
 
 // handleOAuthClientStatus tells the dashboard whether OAuth client credentials

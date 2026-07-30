@@ -306,6 +306,61 @@ func TestAuthMiddleware_AnonymousNoAuthAppRoute_MethodSpecific(t *testing.T) {
 	}
 }
 
+func TestAuthMiddleware_AnonymousNoAuthAppRoute_ServeMuxParameter(t *testing.T) {
+	s := newTestServer(t)
+	s.installedApps = NewInstalledAppsRegistry()
+	s.installedApps.Add(&InstalledApp{
+		InstallID: 1,
+		AppName:   "push",
+		Manifest: sdk.Manifest{
+			Provides: sdk.Provides{HTTPRoutes: []sdk.RouteSpec{
+				{Method: http.MethodPost, Prefix: "/v1/deliveries", NoAuth: true},
+				{Method: http.MethodPost, Prefix: "/v1/devices/{id}/test", NoAuth: true},
+			}},
+		},
+	})
+
+	handler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer push_relay_grant" {
+			t.Errorf("Authorization = %q, want relay grant preserved", got)
+		}
+		w.WriteHeader(http.StatusCreated)
+	})
+	for _, path := range []string{
+		"/apps/push/v1/deliveries",
+		"/apps/push/v1/devices/device-123/test",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("Authorization", "Bearer push_relay_grant")
+		rec := httptest.NewRecorder()
+		handler(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Errorf("POST %s status=%d, want 201", path, rec.Code)
+		}
+	}
+
+	for _, path := range []string{
+		"/apps/push/v1/devices/device-123",
+		"/apps/push/v1/devices/device-123/test/extra",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("Authorization", "Bearer push_relay_grant")
+		rec := httptest.NewRecorder()
+		handler(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("POST %s status=%d, want 401", path, rec.Code)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/apps/push/v1/devices/device-123/test", nil)
+	req.Header.Set("Authorization", "Bearer push_relay_grant")
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("GET method on POST-only parameter route status=%d, want 401", rec.Code)
+	}
+}
+
 func TestAuthMiddleware_AnonymousNoAuthAppRoute_DoesNotExposeOtherRoutes(t *testing.T) {
 	s := newTestServer(t)
 	s.installedApps = NewInstalledAppsRegistry()
