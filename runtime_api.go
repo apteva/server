@@ -140,7 +140,7 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		if len(req.AppInstallIDs) > maxRuntimeApps || len(req.ConnectionIDs) > maxRuntimeConnections || len(req.MCPServerIDs) > maxRuntimeManagedMCPs || len(req.HTTPMocks) > maxRuntimeMocks || len(req.IntegrationFixtures) > maxRuntimeMocks || len(req.IntegrationBindings) > maxRuntimeConnections || len(req.Subscriptions) > maxRuntimeMocks {
+		if len(req.AppInstallIDs) > maxRuntimeApps || len(req.ConnectionIDs) > maxRuntimeConnections || len(req.MCPServerIDs) > maxRuntimeManagedMCPs || len(req.HTTPMocks) > maxRuntimeMocks || len(req.IntegrationFixtures) > maxRuntimeMocks || len(req.IntegrationBindings) > maxRuntimeConnections || len(req.ConnectionBindings) > maxRuntimeConnections || len(req.Subscriptions) > maxRuntimeMocks {
 			http.Error(w, "runtime resource limit exceeded", http.StatusRequestEntityTooLarge)
 			return
 		}
@@ -196,7 +196,7 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 			}
 		}
 		req.AppInstallIDs = appendUniqueInt64(req.AppInstallIDs, mcpAppIDs...)
-		if len(req.AppInstallIDs) > maxRuntimeApps || len(req.ConnectionIDs) > maxRuntimeConnections || len(selectedMCPs) > maxRuntimeManagedMCPs || len(req.HTTPMocks) > maxRuntimeMocks || len(req.IntegrationFixtures) > maxRuntimeMocks || len(req.IntegrationBindings) > maxRuntimeConnections || len(req.Subscriptions) > maxRuntimeMocks {
+		if len(req.AppInstallIDs) > maxRuntimeApps || len(req.ConnectionIDs) > maxRuntimeConnections || len(selectedMCPs) > maxRuntimeManagedMCPs || len(req.HTTPMocks) > maxRuntimeMocks || len(req.IntegrationFixtures) > maxRuntimeMocks || len(req.IntegrationBindings) > maxRuntimeConnections || len(req.ConnectionBindings) > maxRuntimeConnections || len(req.Subscriptions) > maxRuntimeMocks {
 			http.Error(w, "runtime resource limit exceeded", http.StatusRequestEntityTooLarge)
 			return
 		}
@@ -250,6 +250,10 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 		for _, binding := range req.IntegrationBindings {
 			bindings = append(bindings, RuntimeIntegrationBinding{App: binding.App, Role: binding.Role, Slug: binding.Slug, AppName: binding.AppName, Name: binding.Name, AuthType: binding.AuthType, Credentials: binding.Credentials, ExposeToAgents: binding.ExposeToAgents})
 		}
+		if err := validateRuntimeBindingOverlap(req.ConnectionBindings, bindings); err != nil {
+			http.Error(w, "runtime connection bindings: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		sourceIDs := map[string]int64{}
 		for _, info := range s.environmentInstallInfos(req.AppInstallIDs) {
 			sourceIDs[info.Name] = info.InstallID
@@ -288,6 +292,13 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			http.Error(w, "create runtime: "+err.Error(), http.StatusBadRequest)
 			return
+		}
+		if len(req.ConnectionBindings) > 0 {
+			if err := s.bindEnvironmentConnections(userID, projectID, runtime, req.ConnectionBindings); err != nil {
+				s.environments.Destroy(runtime.ID)
+				http.Error(w, "runtime connection bindings: "+err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 		if len(bindings) > 0 {
 			if err := s.bindEnvironmentIntegrationMocks(userID, runtime, bindings); err != nil {

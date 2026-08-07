@@ -1084,6 +1084,114 @@ func (s *Server) bindEnvironmentIntegrationMocks(userID int64, w *Environment, b
 	return nil
 }
 
+func validateRuntimeBindingOverlap(real []sdk.RuntimeConnectionBinding, fake []RuntimeIntegrationBinding) error {
+	fakeRoles := map[string]bool{}
+	for _, binding := range fake {
+		if binding.ExposeToAgents {
+			continue
+		}
+		app := strings.TrimSpace(binding.App)
+		role := strings.TrimSpace(binding.Role)
+		if app != "" && role != "" {
+			fakeRoles[app+"\x00"+role] = true
+		}
+	}
+	for i, binding := range real {
+		app := strings.TrimSpace(binding.App)
+		role := strings.TrimSpace(binding.Role)
+		if fakeRoles[app+"\x00"+role] {
+			return fmt.Errorf("binding %d: app %q role %q cannot use both a real and fake connection", i, app, role)
+		}
+	}
+	return nil
+}
+
+// bindEnvironmentConnections binds existing source-project connections to
+// cloned runtime installs. It never copies credentials or mutates source apps.
+func (s *Server) bindEnvironmentConnections(userID int64, sourceProjectID string, w *Environment, bindings []sdk.RuntimeConnectionBinding) error {
+	if w == nil {
+		return fmt.Errorf("environment required")
+	}
+	type validatedBinding struct {
+		installID    int64
+		app          string
+		role         string
+		connectionID int64
+	}
+	validated := make([]validatedBinding, 0, len(bindings))
+	seen := map[string]int64{}
+	for i, binding := range bindings {
+		app := strings.TrimSpace(binding.App)
+		role := strings.TrimSpace(binding.Role)
+		if app == "" || role == "" || binding.ConnectionID <= 0 {
+			return fmt.Errorf("binding %d: app, role, and positive connection_id required", i)
+		}
+		key := app + "\x00" + role
+		if existing, ok := seen[key]; ok {
+			if existing == binding.ConnectionID {
+				continue
+			}
+			return fmt.Errorf("binding %d: app %q role %q has conflicting connection IDs", i, app, role)
+		}
+		seen[key] = binding.ConnectionID
+
+		clone, ok := w.Install(app)
+		if !ok {
+			return fmt.Errorf("binding %d: app %q is not installed in environment", i, app)
+		}
+		dep, err := installRoleDep(s, clone.InstallID, role)
+		if err != nil {
+			return fmt.Errorf("binding %d: read %s role %q: %w", i, app, role, err)
+		}
+		if dep == nil {
+			return fmt.Errorf("binding %d: app %q does not declare integration role %q", i, app, role)
+		}
+		if strings.EqualFold(dep.Kind, "app") {
+			return fmt.Errorf("binding %d: role %q on app %q is an app dependency, not an integration", i, role, app)
+		}
+		conn, _, err := s.store.GetConnection(userID, binding.ConnectionID)
+		if err != nil || conn == nil {
+			return fmt.Errorf("binding %d: connection %d not found", i, binding.ConnectionID)
+		}
+		if !strings.EqualFold(strings.TrimSpace(conn.Status), "active") {
+			return fmt.Errorf("binding %d: connection %d is %s, not active", i, binding.ConnectionID, conn.Status)
+		}
+		if sourceProjectID != "" && conn.ProjectID != "" && conn.ProjectID != sourceProjectID {
+			return fmt.Errorf("binding %d: connection %d is scoped to another project", i, binding.ConnectionID)
+		}
+		if len(dep.CompatibleSlugs) > 0 && !containsString(dep.CompatibleSlugs, conn.AppSlug) {
+			return fmt.Errorf("binding %d: app %q role %q is not compatible with integration %q", i, app, role, conn.AppSlug)
+		}
+		validated = append(validated, validatedBinding{installID: clone.InstallID, app: app, role: role, connectionID: binding.ConnectionID})
+	}
+
+	byInstall := map[int64]map[string]any{}
+	for _, binding := range validated {
+		current := byInstall[binding.installID]
+		if current == nil {
+			current = bindingsForInstall(s, binding.installID)
+			byInstall[binding.installID] = current
+		}
+		if existing := current[binding.role]; appBindingIsSet(existing) && !appBindingContains(existing, binding.connectionID) {
+			return fmt.Errorf("app %q role %q is already bound", binding.app, binding.role)
+		}
+		current[binding.role] = binding.connectionID
+	}
+	for installID, nextBindings := range byInstall {
+		next, err := json.Marshal(nextBindings)
+		if err != nil {
+			return fmt.Errorf("encode bindings for install %d: %w", installID, err)
+		}
+		if _, err := s.store.db.Exec(`UPDATE app_installs SET integration_bindings = ? WHERE id = ?`, string(next), installID); err != nil {
+			return fmt.Errorf("update bindings for install %d: %w", installID, err)
+		}
+	}
+	if len(byInstall) > 0 {
+		s.LoadInstalledApps()
+	}
+	return nil
+}
+
 func (s *Server) createEnvironmentMockConnection(userID int64, w *Environment, b RuntimeIntegrationBinding, ownerInstallID int64) (*Connection, error) {
 	slug := strings.TrimSpace(b.Slug)
 	if slug == "" {
