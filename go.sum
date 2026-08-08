@@ -1,7 +1,7 @@
 github.com/Masterminds/semver/v3 v3.2.1 h1:RN9w6+7QoMeJVGyfmbcgs28Br8cvmnucEXnY0rYXWg0=
 github.com/Masterminds/semver/v3 v3.2.1/go.mod h1:qvl/7zhW3nngYb5+80sSMF+FG2BjYrf8m9wsX0PNOMQ=
-github.com/apteva/app-sdk v0.46.0 h1:O69wMIUau18lErrrA1vKLHatCnr7Y7UpQB0j/hEBWIc=
-github.com/apteva/app-sdk v0.46.0/go.mod h1:Im4hJoe7MLxQD8epNJXVMGzqM3mpKPe3ioow6P6YYw0=
+github.com/apteva/app-sdk v0.48.0 h1:oKzLr+YTwLE5q8cL2zhba0Rm65PmSSbvd02PkEeI6AE=
+github.com/apteva/app-sdk v0.48.0/go.mod h1:Im4hJoe7MLxQD8epNJXVMGzqM3mpKPe3ioow6P6YYw0=
 github.com/decred/dcrd/crypto/blake256 v1.1.0 h1:zPMNGQCm0g4QTY27fOCorQW7EryeQ/U0x++OzVrdms8=
 github.com/decred/dcrd/crypto/blake256 v1.1.0/go.mod h1:2OfgNZ5wDpcsFmHmCK5gZTPcCXqlm2ArzUIkw9czNJo=
 github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 h1:5RVFMOWjMyRy8cARdy79nAmgYw3hK/4HUq48LQ6Wwqo=
