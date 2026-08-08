@@ -14,17 +14,30 @@
   "base_url": "https://developers.cjdropshipping.com/api2.0/v1",
   "auth": {
     "types": [
-      "bearer"
+      "api_key"
     ],
+    "token_exchange": {
+      "url": "https://developers.cjdropshipping.com/api2.0/v1/authentication/getAccessToken",
+      "method": "POST",
+      "content_type": "application/json",
+      "body_params": {
+        "apiKey": "{{credential.api_key}}"
+      },
+      "access_token_path": "data.accessToken",
+      "expires_at_path": "data.accessTokenExpiryDate",
+      "expiry_skew_seconds": 300
+    },
     "headers": {
-      "CJ-Access-Token": "{{token}}",
+      "CJ-Access-Token": "{{access_token}}",
       "Content-Type": "application/json"
     },
     "credential_fields": [
       {
-        "name": "token",
-        "label": "Access Token",
-        "description": "CJ Dropshipping access token. Generate it from your CJ developer API key using CJ's access-token endpoint, then paste the token here."
+        "name": "api_key",
+        "label": "CJ API Key",
+        "description": "API key from CJ Dropshipping's API app. Apteva exchanges it for access tokens automatically.",
+        "required": true,
+        "type": "password"
       }
     ]
   },

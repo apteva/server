@@ -373,6 +373,7 @@ type CredentialTokenExchangeConfig struct {
 	Headers           map[string]string `json:"headers,omitempty"`
 	BodyParams        map[string]string `json:"body_params"`
 	AccessTokenPath   string            `json:"access_token_path,omitempty"`
+	ExpiresAtPath     string            `json:"expires_at_path,omitempty"`
 	ExpiresInPath     string            `json:"expires_in_path,omitempty"`
 	ExpirySkewSeconds int               `json:"expiry_skew_seconds,omitempty"`
 }

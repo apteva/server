@@ -630,6 +630,58 @@ func (s *Store) UpdateConnectionCredentials(connID int64, encryptedCreds string)
 	return err
 }
 
+// MarkLegacyCJDropshippingConnectionsForReconnect invalidates connections
+// created under the old manual-access-token catalog contract. The replacement
+// contract stores the user's durable CJ API key and exchanges it for access
+// tokens automatically. New connections already contain api_key and are left
+// untouched, making this safe to run on every boot.
+func (s *Store) MarkLegacyCJDropshippingConnectionsForReconnect(secret []byte) (int, error) {
+	rows, err := s.db.Query(`
+		SELECT id, encrypted_credentials
+		FROM connections
+		WHERE app_slug = 'cjdropshipping' AND status != 'failed'`)
+	if err != nil {
+		return 0, err
+	}
+	var legacyIDs []int64
+	for rows.Next() {
+		var id int64
+		var encrypted string
+		if err := rows.Scan(&id, &encrypted); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		plain, err := Decrypt(secret, encrypted)
+		if err != nil {
+			continue
+		}
+		credentials := map[string]string{}
+		if err := json.Unmarshal([]byte(plain), &credentials); err != nil {
+			continue
+		}
+		if strings.TrimSpace(credentials["api_key"]) != "" {
+			continue
+		}
+		if strings.TrimSpace(credentials["token"]) != "" ||
+			strings.TrimSpace(credentials["access_token"]) != "" ||
+			strings.TrimSpace(credentials["accessToken"]) != "" {
+			legacyIDs = append(legacyIDs, id)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	for _, id := range legacyIDs {
+		if _, err := s.db.Exec("UPDATE connections SET status = 'failed' WHERE id = ?", id); err != nil {
+			return 0, err
+		}
+	}
+	return len(legacyIDs), nil
+}
+
 // UpdateMCPServerEnv replaces the encrypted_env blob for a single
 // mcp_servers row. Used by the OAuth refresh path: when an upstream
 // hosted MCP returns 401 because the access token expired, we
@@ -1320,7 +1372,7 @@ func ensureCredentialExchangeToken(app *AppTemplate, credentials map[string]stri
 	exchangeURL := resolveTemplate(cfg.URL, credentials)
 	req, err := http.NewRequest(method, exchangeURL, body)
 	if err != nil {
-		return false, err
+		return false, credentialExchangeError(app, credentials, nil, "credential token exchange request is invalid: "+err.Error())
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", contentType)
@@ -1331,16 +1383,19 @@ func ensureCredentialExchangeToken(app *AppTemplate, credentials map[string]stri
 	}
 	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
 	if err != nil {
-		return false, err
+		return false, credentialExchangeError(app, credentials, nil, "credential token exchange request failed: "+err.Error())
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1_000_000))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return false, fmt.Errorf("credential token exchange http %d: %s", resp.StatusCode, string(raw))
+		var response map[string]any
+		_ = json.Unmarshal(raw, &response)
+		return false, credentialExchangeError(app, credentials, response,
+			fmt.Sprintf("credential token exchange failed (HTTP %d)", resp.StatusCode))
 	}
 	var decoded any
 	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return false, fmt.Errorf("credential token exchange decode: %w", err)
+		return false, credentialExchangeError(app, credentials, nil, "credential token exchange returned invalid JSON")
 	}
 	tokenPath := cfg.AccessTokenPath
 	if tokenPath == "" {
@@ -1349,22 +1404,65 @@ func ensureCredentialExchangeToken(app *AppTemplate, credentials map[string]stri
 	root, _ := decoded.(map[string]any)
 	token := fmt.Sprint(extractPath(root, tokenPath))
 	if token == "" || token == "<nil>" {
-		return false, errors.New("credential token exchange returned no access token")
+		return false, credentialExchangeError(app, credentials, root, "credential token exchange returned no access token")
 	}
 	credentials["access_token"] = token
 	credentials["accessToken"] = token
 	credentials["token"] = token
 
-	expiresPath := cfg.ExpiresInPath
-	if expiresPath == "" {
-		expiresPath = "expires_in"
+	now := time.Now()
+	var expiresAt time.Time
+	if cfg.ExpiresAtPath != "" {
+		rawExpiresAt := strings.TrimSpace(fmt.Sprint(extractPath(root, cfg.ExpiresAtPath)))
+		if rawExpiresAt != "" && rawExpiresAt != "<nil>" {
+			if parsed, err := time.Parse(time.RFC3339, rawExpiresAt); err == nil {
+				expiresAt = parsed
+			}
+		}
 	}
-	expiresIn, _ := strconv.ParseFloat(fmt.Sprint(extractPath(root, expiresPath)), 64)
-	if expiresIn <= 0 {
-		expiresIn = 300
+	if expiresAt.IsZero() {
+		expiresPath := cfg.ExpiresInPath
+		if expiresPath == "" {
+			expiresPath = "expires_in"
+		}
+		expiresIn, _ := strconv.ParseFloat(fmt.Sprint(extractPath(root, expiresPath)), 64)
+		if expiresIn > 0 {
+			expiresAt = now.Add(time.Duration(expiresIn * float64(time.Second)))
+		}
 	}
-	credentials["token_expires_at"] = time.Now().Add(time.Duration(expiresIn * float64(time.Second))).UTC().Format(time.RFC3339)
+	if expiresAt.IsZero() {
+		expiresAt = now.Add(5 * time.Minute)
+	}
+	credentials["token_expires_at"] = expiresAt.UTC().Format(time.RFC3339)
 	return true, nil
+}
+
+func credentialExchangeError(app *AppTemplate, credentials map[string]string, response map[string]any, fallback string) error {
+	name := "Integration"
+	if app != nil {
+		if strings.TrimSpace(app.Name) != "" {
+			name = strings.TrimSpace(app.Name)
+		} else if strings.TrimSpace(app.Slug) != "" {
+			name = strings.TrimSpace(app.Slug)
+		}
+	}
+	message := ""
+	if response != nil {
+		message = strings.TrimSpace(fmt.Sprint(response["message"]))
+		if message == "<nil>" || strings.EqualFold(message, "success") {
+			message = ""
+		}
+	}
+	if message == "" {
+		message = fallback
+	}
+	for _, secret := range credentials {
+		secret = strings.TrimSpace(secret)
+		if len(secret) >= 4 {
+			message = strings.ReplaceAll(message, secret, "[redacted]")
+		}
+	}
+	return errors.New(name + ": " + message)
 }
 
 func addQueryValue(q neturl.Values, key string, v any) {

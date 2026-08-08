@@ -379,6 +379,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "failed to load encryption key: %v\n", err)
 		os.Exit(1)
 	}
+	if marked, err := store.MarkLegacyCJDropshippingConnectionsForReconnect(secret); err != nil {
+		fmt.Fprintf(os.Stderr, "CJ Dropshipping connection migration failed: %v\n", err)
+	} else if marked > 0 {
+		fmt.Fprintf(os.Stderr, "marked %d legacy CJ Dropshipping connection(s) for reconnection\n", marked)
+	}
 	if user, err := applyAptevaBootstrap(store, aptevaCfg); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to apply Apteva bootstrap: %v\n", err)
 		os.Exit(1)
