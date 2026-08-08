@@ -1306,8 +1306,8 @@ func (s *Server) handleCallbackOAuth(w http.ResponseWriter, r *http.Request, par
 		http.Error(w, "unknown integration: "+body.IntegrationSlug, http.StatusNotFound)
 		return
 	}
-	if app.Auth.OAuth2 == nil {
-		http.Error(w, body.IntegrationSlug+" has no OAuth2 config — cannot use platform.oauth.start", http.StatusBadRequest)
+	if app.Auth.OAuth1 == nil && app.Auth.OAuth2 == nil {
+		http.Error(w, body.IntegrationSlug+" has no browser OAuth config — cannot use platform.oauth.start", http.StatusBadRequest)
 		return
 	}
 	// Default name + project from the install if the caller didn't

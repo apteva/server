@@ -331,6 +331,7 @@ type AppAuthConfig struct {
 	QueryParams      map[string]string              `json:"query_params,omitempty"`
 	BodyParams       map[string]string              `json:"body_params,omitempty"`
 	CredentialFields []CredentialField              `json:"credential_fields,omitempty"`
+	OAuth1           *OAuth1Config                  `json:"oauth1,omitempty"`
 	OAuth2           *OAuthConfig                   `json:"oauth2,omitempty"`
 	TokenExchange    *CredentialTokenExchangeConfig `json:"token_exchange,omitempty"`
 	MTLS             *MutualTLSConfig               `json:"mtls,omitempty"`
@@ -353,6 +354,16 @@ type AppAuthConfig struct {
 	// Order matters: body-mutating signers (EIP-712) must run before
 	// header-only signers (HMAC/AWS) that sign over the final body.
 	Signers []SignerSpec `json:"signers,omitempty"`
+}
+
+type OAuth1Config struct {
+	RequestTokenURL  string   `json:"request_token_url"`
+	AuthorizeURL     string   `json:"authorize_url"`
+	AccessTokenURL   string   `json:"access_token_url"`
+	ClientIDRequired bool     `json:"client_id_required"`
+	SignatureMethod  string   `json:"signature_method,omitempty"`
+	SetupURL         string   `json:"setup_url,omitempty"`
+	SetupSteps       []string `json:"setup_steps,omitempty"`
 }
 
 type CredentialTokenExchangeConfig struct {
@@ -457,6 +468,10 @@ type AppToolDef struct {
 	// stay consistent but the upstream API uses an odd name, e.g. Bunny Stream
 	// list_videos accepts input collectionId but requires query key collection.
 	QueryParamAliases map[string]string `json:"query_param_aliases,omitempty"`
+	// ContinuationURLParam names an input field containing an opaque absolute
+	// next-page URL returned by the provider. The executor requires the same
+	// scheme and host as the resolved tool base URL before following it.
+	ContinuationURLParam string `json:"continuation_url_param,omitempty"`
 	// HeaderParams maps agent-facing input names to upstream HTTP header
 	// names. Values are copied from the input and excluded from the normal
 	// request body/query. Fish Audio uses this for its required model header.
@@ -1278,6 +1293,23 @@ func buildURL(baseURL, path string, input map[string]any) string {
 		return resolved
 	}
 	return baseURL + resolved
+}
+
+func validateContinuationURL(raw, resolvedBase string) (string, error) {
+	candidate, err := url.Parse(raw)
+	if err != nil || !candidate.IsAbs() || candidate.Host == "" {
+		return "", fmt.Errorf("continuation URL must be absolute")
+	}
+	base, err := url.Parse(resolvedBase)
+	if err != nil || !base.IsAbs() || base.Host == "" {
+		return "", fmt.Errorf("invalid integration base URL")
+	}
+	if (candidate.Scheme != "https" && candidate.Scheme != "http") ||
+		!strings.EqualFold(candidate.Scheme, base.Scheme) ||
+		!strings.EqualFold(candidate.Host, base.Host) {
+		return "", fmt.Errorf("continuation URL must use the integration API origin")
+	}
+	return candidate.String(), nil
 }
 
 func replaceURLPathParam(path, placeholder, value string) string {

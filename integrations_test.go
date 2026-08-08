@@ -1426,6 +1426,44 @@ func TestExecuteIntegrationTool_HeaderParamsExcludedFromBody(t *testing.T) {
 	}
 }
 
+func TestExecuteIntegrationTool_ContinuationURLIsOpaqueAndSameOrigin(t *testing.T) {
+	var gotPath, gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	app := &AppTemplate{BaseURL: srv.URL, Auth: AppAuthConfig{QueryParams: map[string]string{"key": "{{api_key}}"}}}
+	tool := &AppToolDef{
+		Method:               "GET",
+		Path:                 "/items",
+		ContinuationURLParam: "next_url",
+		QueryParams:          []string{"page.size"},
+	}
+	next := srv.URL + "/opaque/next?provider_cursor=a%2Fb"
+	_, err := executeIntegrationTool(app, tool, map[string]string{"api_key": "secret"}, map[string]any{
+		"next_url":  next,
+		"page.size": 200,
+		"filter":    "must-not-leak",
+	}, "")
+	if err != nil {
+		t.Fatalf("executeIntegrationTool: %v", err)
+	}
+	if gotPath != "/opaque/next" || gotQuery != "provider_cursor=a%2Fb" {
+		t.Fatalf("request=%s?%s, want opaque continuation URL", gotPath, gotQuery)
+	}
+
+	_, err = executeIntegrationTool(app, tool, nil, map[string]any{
+		"next_url": "https://attacker.example/steal",
+	}, "")
+	if err == nil || !strings.Contains(err.Error(), "integration API origin") {
+		t.Fatalf("cross-origin continuation err=%v", err)
+	}
+}
+
 func TestExecuteIntegrationTool_ByteRangeHeaderTransform(t *testing.T) {
 	var gotRange string
 	var gotQuery url.Values

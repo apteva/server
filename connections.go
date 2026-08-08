@@ -1614,10 +1614,22 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 	resolvedBase := resolveTemplate(baseURL, credentials)
 	resolvedPath := resolveTemplate(tool.Path, credentials)
 	url := buildURL(resolvedBase, resolvedPath, input)
+	usingContinuationURL := false
+	if tool.ContinuationURLParam != "" {
+		if raw := strings.TrimSpace(fmt.Sprint(input[tool.ContinuationURLParam])); raw != "" && raw != "<nil>" {
+			continuationURL, err := validateContinuationURL(raw, resolvedBase)
+			if err != nil {
+				return nil, err
+			}
+			url = continuationURL
+			usingContinuationURL = true
+		}
+		delete(input, tool.ContinuationURLParam)
+	}
 
 	// Add auth query params. buildAuthQuery returns raw "k=v&k=v" — pick
 	// the separator based on whether tool.path already injected a "?".
-	if authQ := buildAuthQuery(app.Auth.QueryParams, credentials); authQ != "" {
+	if authQ := buildAuthQuery(app.Auth.QueryParams, credentials); authQ != "" && !usingContinuationURL {
 		sep := "?"
 		if strings.Contains(url, "?") {
 			sep = "&"
@@ -1712,7 +1724,7 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		}
 		addQueryValue(toolQuery, queryName, v)
 	}
-	if encoded := toolQuery.Encode(); encoded != "" {
+	if encoded := toolQuery.Encode(); encoded != "" && !usingContinuationURL {
 		sep := "&"
 		if !strings.Contains(url, "?") {
 			sep = "?"
@@ -1907,6 +1919,9 @@ func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[
 		// mismatches. Encoding fixes both at once.
 		q := neturl.Values{}
 		for k, v := range input {
+			if usingContinuationURL {
+				continue
+			}
 			if strings.Contains(tool.Path, "{"+k+"}") {
 				continue
 			}
@@ -2393,6 +2408,8 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		// server stored an empty credentials blob and marked the row
 		// active without ever triggering the OAuth popup.
 		switch {
+		case app.Auth.OAuth1 != nil && containsString(app.Auth.Types, "oauth1"):
+			body.AuthType = "oauth1"
 		case app.Auth.OAuth2 != nil && containsString(app.Auth.Types, "oauth2"):
 			body.AuthType = "oauth2"
 		case len(app.Auth.Types) > 0:
@@ -2414,8 +2431,8 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Local OAuth2 — two-phase: start flow, return authorize URL, finish in callback.
-	if body.AuthType == "oauth2" {
+	// Local browser OAuth — two-phase: start flow, return authorize URL, finish in callback.
+	if body.AuthType == "oauth1" || body.AuthType == "oauth2" {
 		supplementalCredentials, err := collectOAuthSupplementalCredentials(app, body.Credentials)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)

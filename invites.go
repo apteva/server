@@ -228,6 +228,7 @@ func (s *Server) handlePublicInvite(w http.ResponseWriter, r *http.Request) {
 		resp["auth_types"] = app.Auth.Types
 		resp["credential_fields"] = app.Auth.CredentialFields
 		resp["has_oauth2"] = app.Auth.OAuth2 != nil
+		resp["has_oauth1"] = app.Auth.OAuth1 != nil
 	} else if p.Src == "composio" {
 		resp["app_name"] = p.App
 	}
@@ -308,6 +309,8 @@ func (s *Server) fulfillLocalInvite(w http.ResponseWriter, p *InvitePayload, bod
 	// handleCreateConnection's logic so invite flow == dashboard flow).
 	authType := ""
 	switch {
+	case app.Auth.OAuth1 != nil && containsString(app.Auth.Types, "oauth1"):
+		authType = "oauth1"
 	case app.Auth.OAuth2 != nil && containsString(app.Auth.Types, "oauth2"):
 		authType = "oauth2"
 	case len(app.Auth.Types) > 0:
@@ -323,7 +326,7 @@ func (s *Server) fulfillLocalInvite(w http.ResponseWriter, p *InvitePayload, bod
 			http.Error(w, "connection not found", http.StatusNotFound)
 			return
 		}
-		if authType == "oauth2" {
+		if authType == "oauth1" || authType == "oauth2" {
 			// Full reauth via OAuth isn't in this MVP — would require
 			// deleting the pending row created by startLocalOAuth and
 			// patching the original on callback. Point users at the
@@ -357,7 +360,7 @@ func (s *Server) fulfillLocalInvite(w http.ResponseWriter, p *InvitePayload, bod
 	clientSecret := ""
 	var supplementalCredentials map[string]string
 	if p.TemplateConnID != 0 {
-		if authType != "oauth2" {
+		if authType != "oauth1" && authType != "oauth2" {
 			http.Error(w, "template connections are only supported for OAuth integrations", http.StatusBadRequest)
 			return
 		}
@@ -377,7 +380,7 @@ func (s *Server) fulfillLocalInvite(w http.ResponseWriter, p *InvitePayload, bod
 		}
 	}
 
-	if authType == "oauth2" {
+	if authType == "oauth1" || authType == "oauth2" {
 		// startLocalOAuth uses the operator's saved OAuth client creds
 		// (resolveOAuthClient walks DB → env). The client never sees the
 		// client_id/secret. Standard callback creates the connection.

@@ -144,6 +144,9 @@ func effectiveSigners(app *AppTemplate, tool *AppToolDef) []SignerSpec {
 	if len(app.Auth.Signers) > 0 {
 		return app.Auth.Signers
 	}
+	if hasAuthType(app.Auth.Types, "oauth1") && app.Auth.OAuth1 != nil {
+		return []SignerSpec{{Name: "oauth1"}}
+	}
 	// Backwards compatibility — every existing aws_sigv4 catalog entry
 	// declares auth.types=["aws_sigv4"] with the Service in
 	// auth.aws_sigv4. Translate that to the registry call so the new

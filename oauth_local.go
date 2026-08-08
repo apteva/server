@@ -476,6 +476,9 @@ func pkcePair() (verifier, challenge string, err error) {
 // token so the callback can 302 the browser back into the app's panel
 // instead of rendering the dashboard's auto-close page.
 func (s *Server) startLocalOAuth(userID int64, app *AppTemplate, connName, projectID, explicitClientID, explicitClientSecret string, supplementalCredentials map[string]string, ownerAppInstallID int64, returnURL string, autoMCP *bool) (*Connection, string, error) {
+	if app.Auth.OAuth1 != nil && containsString(app.Auth.Types, "oauth1") {
+		return s.startLocalOAuth1(userID, app, connName, projectID, explicitClientID, explicitClientSecret, supplementalCredentials, ownerAppInstallID, returnURL, autoMCP)
+	}
 	if app.Auth.OAuth2 == nil {
 		return nil, "", fmt.Errorf("app %s has no oauth2 config", app.Slug)
 	}
@@ -560,12 +563,12 @@ func (s *Server) startLocalOAuthReauth(userID, connID int64) (*Connection, strin
 	if conn.Source != "" && conn.Source != "local" {
 		return nil, "", fmt.Errorf("re-auth is only supported for local OAuth integrations")
 	}
-	if conn.AuthType != "oauth2" {
-		return nil, "", fmt.Errorf("connection does not use OAuth2")
+	if conn.AuthType != "oauth2" && conn.AuthType != "oauth1" {
+		return nil, "", fmt.Errorf("connection does not use browser OAuth")
 	}
 	app := s.catalog.Get(conn.AppSlug)
-	if app == nil || app.Auth.OAuth2 == nil {
-		return nil, "", fmt.Errorf("app %s has no oauth2 config", conn.AppSlug)
+	if app == nil || (app.Auth.OAuth2 == nil && app.Auth.OAuth1 == nil) {
+		return nil, "", fmt.Errorf("app %s has no browser OAuth config", conn.AppSlug)
 	}
 
 	creds := map[string]string{}
@@ -595,6 +598,12 @@ func (s *Server) startLocalOAuthReauth(userID, connID int64) (*Connection, strin
 				return nil, "", fmt.Errorf("persist client creds: %w", err)
 			}
 		}
+	}
+	if conn.AuthType == "oauth1" {
+		if clientID == "" || clientSecret == "" {
+			return nil, "", fmt.Errorf("missing OAuth consumer key or secret for %s", app.Slug)
+		}
+		return s.startOAuth1Authorization(userID, app, conn, clientID, clientSecret, 0, "", oauthStatePurposeReauth)
 	}
 	if app.Auth.OAuth2.ClientIDRequired && clientID == "" {
 		return nil, "", fmt.Errorf("missing client_id for %s — set it on an OAuth connection or via env var OAUTH_%s_CLIENT_ID",
@@ -696,6 +705,9 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 	state := r.URL.Query().Get("state")
 	code := r.URL.Query().Get("code")
 	errParam := r.URL.Query().Get("error")
+	if errParam == "" && r.URL.Query().Get("denied") != "" {
+		errParam = "access_denied"
+	}
 
 	log.Printf("[OAUTH-CB] received state=%s code=%s err=%s", maskMiddle(state, 6, 4), maskMiddle(code, 6, 4), errParam)
 
@@ -724,7 +736,9 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 		renderOAuthResult(w, false, "provider returned error: "+errParam)
 		return
 	}
-	if code == "" {
+	app := s.catalog.Get(row.AppSlug)
+	isOAuth1 := app != nil && app.Auth.OAuth1 != nil
+	if code == "" && !isOAuth1 {
 		log.Printf("[OAUTH-CB] missing code conn=%d", row.ConnectionID)
 		if row.Purpose != oauthStatePurposeReauth {
 			s.store.UpdateConnectionStatus(row.ConnectionID, "failed")
@@ -733,14 +747,13 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	app := s.catalog.Get(row.AppSlug)
-	if app == nil || app.Auth.OAuth2 == nil {
-		log.Printf("[OAUTH-CB] app missing from catalog or no oauth2 config slug=%s app_present=%t", row.AppSlug, app != nil)
+	if app == nil || (app.Auth.OAuth2 == nil && app.Auth.OAuth1 == nil) {
+		log.Printf("[OAUTH-CB] app missing from catalog or no OAuth config slug=%s app_present=%t", row.AppSlug, app != nil)
 		http.Error(w, "app missing from catalog", http.StatusInternalServerError)
 		return
 	}
-	log.Printf("[OAUTH-CB] catalog hit slug=%s kind=%q has_mcp=%t authorize_url=%s token_url=%s pkce=%t",
-		app.Slug, app.Kind, app.MCP != nil, app.Auth.OAuth2.AuthorizeURL, app.Auth.OAuth2.TokenURL, app.Auth.OAuth2.PKCE)
+	log.Printf("[OAUTH-CB] catalog hit slug=%s kind=%q has_mcp=%t oauth1=%t",
+		app.Slug, app.Kind, app.MCP != nil, isOAuth1)
 
 	// Recover any client_id/client_secret the user supplied at start. They
 	// were stored on the pending connection's encrypted blob by
@@ -757,7 +770,17 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 	log.Printf("[OAUTH-CB] pre-blob: client_id_present=%t client_secret_present=%t other_keys=%v",
 		preClientID != "", preClientSecret != "", filterKeys(preBlobCreds, "client_id", "client_secret"))
 
-	tokens, err := s.exchangeOAuthCode(app, code, row.PKCEVerifier, row.UserID, preClientID, preClientSecret)
+	var tokens map[string]string
+	if isOAuth1 {
+		verifier := r.URL.Query().Get("oauth_verifier")
+		if verifier == "" {
+			err = fmt.Errorf("missing oauth_verifier")
+		} else {
+			tokens, err = s.exchangeOAuth1AccessToken(app, verifier, r.URL.Query().Get("oauth_token"), row.PKCEVerifier, preClientID, preClientSecret)
+		}
+	} else {
+		tokens, err = s.exchangeOAuthCode(app, code, row.PKCEVerifier, row.UserID, preClientID, preClientSecret)
+	}
 	if err != nil {
 		log.Printf("[OAUTH-CB] token exchange FAILED conn=%d slug=%s: %v", row.ConnectionID, app.Slug, err)
 		if row.Purpose != oauthStatePurposeReauth {

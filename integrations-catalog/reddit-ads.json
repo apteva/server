@@ -1,511 +1,235 @@
 {
   "slug": "reddit-ads",
   "name": "Reddit Ads",
-  "description": "Reddit Ads API v3 — manage ad accounts, campaigns, ad groups, ads, custom audiences, and pull performance reports for Reddit's promoted-post and conversation-targeted ads",
-  "logo": "https://www.google.com/s2/favicons?domain=ads.reddit.com&sz=128",
-  "categories": [
-    "advertising",
-    "marketing",
-    "campaigns",
-    "social-ads",
-    "reddit",
-    "community-ads"
-  ],
+  "description": "Reddit Ads API v3 for businesses, ad accounts, campaigns, ad groups, ads, structured posts, resources, audiences, and reporting.",
+  "logo": "https://www.google.com/s2/favicons?domain=reddit.com&sz=128",
+  "categories": ["advertising", "marketing", "campaigns", "social-ads", "reddit"],
   "base_url": "https://ads-api.reddit.com/api/v3",
   "auth": {
-    "types": [
-      "bearer",
-      "oauth2"
-    ],
-    "headers": {
-      "Authorization": "Bearer {{token}}",
-      "User-Agent": "{{user_agent}}"
-    },
+    "types": ["oauth2"],
+    "headers": {"Authorization": "Bearer {{token}}", "User-Agent": "{{user_agent}}"},
     "credential_fields": [
-      {
-        "name": "token",
-        "label": "access_token",
-        "type": "password"
-      },
-      {
-        "name": "refresh_token",
-        "label": "refresh_token",
-        "type": "password"
-      },
-      {
-        "name": "expires_in",
-        "label": "expires_in"
-      },
-      {
-        "name": "user_agent",
-        "label": "User-Agent",
-        "description": "Required by Reddit on every request. Use format \"<platform>:<app id>:<version> (by /u/<reddit_username>)\""
-      },
-      {
-        "name": "ad_account_id",
-        "label": "Default Ad Account ID",
-        "description": "Format a2_xxxxx"
-      }
+      {"name": "token", "label": "Access token", "source": "oauth", "hidden": true},
+      {"name": "refresh_token", "label": "Refresh token", "source": "oauth", "hidden": true},
+      {"name": "expires_in", "label": "Expires in", "source": "oauth", "hidden": true},
+      {"name": "scope", "label": "Scope", "source": "oauth", "hidden": true},
+      {"name": "user_agent", "label": "User-Agent", "source": "user", "type": "text", "description": "A descriptive Reddit API user agent, for example apteva:ads:1.0 (by /u/username)."}
     ],
     "oauth2": {
       "authorize_url": "https://www.reddit.com/api/v1/authorize",
       "token_url": "https://www.reddit.com/api/v1/access_token",
-      "scopes": [
-        "adsread",
-        "adsedit",
-        "adsconversions",
-        "identity"
-      ],
+      "scopes": ["adsread", "adsedit", "adsconversions", "identity"],
       "client_id_required": true,
       "pkce": false,
-      "extra_authorize_params": {
-        "duration": "permanent"
-      }
+      "extra_authorize_params": {"duration": "permanent"},
+      "setup_url": "https://www.reddit.com/prefs/apps",
+      "setup_steps": [
+        "Create a web app and enter the callback URL shown here.",
+        "Use the app ID as client ID and app secret as client secret.",
+        "Reddit approval is required for third-party write operations."
+      ]
     }
   },
   "tools": [
     {
-      "name": "list_ad_accounts",
-      "description": "List ad accounts the authenticated user has access to.",
-      "method": "GET",
-      "path": "/me/ad_accounts",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "page.size": {
-            "type": "integer",
-            "default": 25,
-            "description": "Max 200"
-          },
-          "after": {
-            "type": "string",
-            "description": "Cursor from previous response"
-          }
-        }
-      }
+      "name": "get_me", "description": "Get the authenticated Reddit user.", "method": "GET", "path": "/me",
+      "input_schema": {"type": "object", "properties": {}}
     },
     {
-      "name": "list_campaigns",
-      "description": "List campaigns under an ad account.",
-      "method": "GET",
-      "path": "/ad_accounts/{ad_account_id}/campaigns",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "ad_account_id": {
-            "type": "string"
-          },
-          "page.size": {
-            "type": "integer",
-            "default": 25
-          },
-          "after": {
-            "type": "string"
-          },
-          "filter[id]": {
-            "type": "string",
-            "description": "Comma-separated campaign IDs"
-          },
-          "filter[effective_status]": {
-            "type": "string",
-            "description": "Comma-separated: ACTIVE,PAUSED,ARCHIVED,DRAFT"
-          }
-        },
-        "required": [
-          "ad_account_id"
-        ]
-      }
+      "name": "list_my_businesses", "description": "List businesses available to the authenticated user.", "method": "GET", "path": "/me/businesses", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"page.size": {"type": "integer", "maximum": 200}, "next_url": {"type": "string", "description": "Opaque pagination.next_url from the previous response."}}}
     },
     {
-      "name": "create_campaign",
-      "description": "Create a campaign. Required: name, objective (TRAFFIC|CONVERSIONS|APP_INSTALLS|VIDEO_VIEWABLE_IMPRESSIONS|IMPRESSIONS|REACH|CATALOG_SALES|LEAD_GENERATION). Optional: spend_cap (micros), goal_type (LIFETIME_SPEND|DAILY_SPEND), goal_value, configured_status (ACTIVE|PAUSED|DELETED).",
-      "method": "POST",
-      "path": "/ad_accounts/{ad_account_id}/campaigns",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "ad_account_id": {
-            "type": "string"
-          },
-          "data": {
-            "type": "object",
-            "description": "Campaign fields under the data wrapper"
-          }
-        },
-        "required": [
-          "ad_account_id",
-          "data"
-        ]
-      }
+      "name": "list_ad_accounts_by_business", "description": "List direct ad accounts in a business. Partner/shared accounts may require query_ad_accounts.", "method": "GET", "path": "/businesses/{business_id}/ad_accounts", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"business_id": {"type": "string"}, "page.size": {"type": "integer", "maximum": 200}, "next_url": {"type": "string"}}, "required": ["business_id"]}
     },
     {
-      "name": "update_campaign",
-      "description": "Update a single campaign by id.",
-      "method": "PATCH",
-      "path": "/ad_accounts/{ad_account_id}/campaigns/{campaign_id}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "ad_account_id": {
-            "type": "string"
-          },
-          "campaign_id": {
-            "type": "string"
-          },
-          "data": {
-            "type": "object"
-          }
-        },
-        "required": [
-          "ad_account_id",
-          "campaign_id",
-          "data"
-        ]
-      }
+      "name": "query_ad_accounts", "description": "Find direct and shared ad accounts within a business.", "method": "POST", "path": "/businesses/{business_id}/ad_accounts/query",
+      "input_schema": {"type": "object", "properties": {"business_id": {"type": "string"}, "data": {"type": "object"}}, "required": ["business_id", "data"]}
     },
     {
-      "name": "list_ad_groups",
-      "description": "List ad groups under an ad account, optionally filtered by campaign id.",
-      "method": "GET",
-      "path": "/ad_accounts/{ad_account_id}/ad_groups",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "ad_account_id": {
-            "type": "string"
-          },
-          "page.size": {
-            "type": "integer",
-            "default": 25
-          },
-          "after": {
-            "type": "string"
-          },
-          "filter[campaign_id]": {
-            "type": "string",
-            "description": "Comma-separated campaign IDs"
-          },
-          "filter[effective_status]": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "ad_account_id"
-        ]
-      }
+      "name": "get_ad_account", "description": "Get an ad account.", "method": "GET", "path": "/ad_accounts/{ad_account_id}",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}}, "required": ["ad_account_id"]}
     },
     {
-      "name": "create_ad_group",
-      "description": "Create an ad group. Required: campaign_id, name, bid_strategy (MANUAL|AUTOMATIC|TARGET_CPA), bid_value (micros), goal_type (DAILY_SPEND|LIFETIME_SPEND), goal_value, optimization_goal (CLICKS|IMPRESSIONS|VIDEO_VIEWABLE_IMPRESSIONS|CONVERSIONS|APP_INSTALLS|LEAD_GEN_FORM_SUBMITS|REACH), targeting object, schedule {start_time, end_time?}.",
-      "method": "POST",
-      "path": "/ad_accounts/{ad_account_id}/ad_groups",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "ad_account_id": {
-            "type": "string"
-          },
-          "data": {
-            "type": "object"
-          }
-        },
-        "required": [
-          "ad_account_id",
-          "data"
-        ]
-      }
+      "name": "list_profiles", "description": "List Reddit profiles that may be shown on ads for this account.", "method": "GET", "path": "/ad_accounts/{ad_account_id}/profiles", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "page.size": {"type": "integer"}, "next_url": {"type": "string"}}, "required": ["ad_account_id"]}
     },
     {
-      "name": "list_ads",
-      "description": "List ads under an ad account, optionally filtered by ad_group_id or campaign_id.",
-      "method": "GET",
-      "path": "/ad_accounts/{ad_account_id}/ads",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "ad_account_id": {
-            "type": "string"
-          },
-          "page.size": {
-            "type": "integer",
-            "default": 25
-          },
-          "after": {
-            "type": "string"
-          },
-          "filter[ad_group_id]": {
-            "type": "string"
-          },
-          "filter[campaign_id]": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "ad_account_id"
-        ]
-      }
+      "name": "list_pixels", "description": "List conversion pixels associated with an ad account.", "method": "GET", "path": "/ad_accounts/{ad_account_id}/pixels", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "page.size": {"type": "integer"}, "next_url": {"type": "string"}}, "required": ["ad_account_id"]}
     },
     {
-      "name": "create_ad",
-      "description": "Create an ad under an ad group. type: TEXT_POST_AD|IMAGE_POST_AD|LINK_POST_AD|VIDEO_POST_AD|CAROUSEL_POST_AD|CONVERSATION_AD. post_url references an existing Reddit post (or new promoted-only post created via create_post_ad). Required: ad_group_id, name, type, configured_status, post (post_id|post_url) or creative.",
-      "method": "POST",
-      "path": "/ad_accounts/{ad_account_id}/ads",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "ad_account_id": {
-            "type": "string"
-          },
-          "data": {
-            "type": "object"
-          }
-        },
-        "required": [
-          "ad_account_id",
-          "data"
-        ]
-      }
+      "name": "list_funding_instruments", "description": "List funding instruments used by an ad account.", "method": "GET", "path": "/ad_accounts/{ad_account_id}/funding_instruments", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "page.size": {"type": "integer"}, "next_url": {"type": "string"}}, "required": ["ad_account_id"]}
     },
     {
-      "name": "list_custom_audiences",
-      "description": "List custom audiences (CRM upload, website visitor, engagement).",
-      "method": "GET",
-      "path": "/ad_accounts/{ad_account_id}/custom_audiences",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "ad_account_id": {
-            "type": "string"
-          },
-          "page.size": {
-            "type": "integer",
-            "default": 25
-          },
-          "after": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "ad_account_id"
-        ]
-      }
+      "name": "get_feature_access", "description": "Get Reddit Ads feature access for account, business, or pixel context.", "method": "GET", "path": "/feature_access",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "business_id": {"type": "string"}, "conversion_pixel_id": {"type": "string"}}}
     },
     {
-      "name": "create_custom_audience",
-      "description": "Create a custom audience. type: CUSTOMER_LIST|PIXEL|ENGAGEMENT|MOBILE_APP. For CUSTOMER_LIST, populate via the audiences/{id}/users endpoint after creation.",
-      "method": "POST",
-      "path": "/ad_accounts/{ad_account_id}/custom_audiences",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "ad_account_id": {
-            "type": "string"
-          },
-          "data": {
-            "type": "object"
-          }
-        },
-        "required": [
-          "ad_account_id",
-          "data"
-        ]
-      }
+      "name": "list_campaigns", "description": "List campaigns by ad account.", "method": "GET", "path": "/ad_accounts/{ad_account_id}/campaigns", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "page.size": {"type": "integer", "maximum": 200}, "id": {"type": "string"}, "configured_status": {"type": "string"}, "effective_status": {"type": "string"}, "next_url": {"type": "string"}}, "required": ["ad_account_id"]}
     },
     {
-      "name": "report",
-      "description": "Pull performance metrics. breakdowns (DATE|CAMPAIGN_ID|AD_GROUP_ID|AD_ID|COUNTRY|PLACEMENT|DEVICE|...) and fields (e.g. impressions,clicks,spend,ctr,cpc,conversions,video_started,video_completed,viewable_impressions). time_zone_id defaults to advertiser TZ.",
-      "method": "POST",
-      "path": "/ad_accounts/{ad_account_id}/reports",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "ad_account_id": {
-            "type": "string"
-          },
-          "data": {
-            "type": "object",
-            "description": "{\"breakdowns\": [\"DATE\",\"CAMPAIGN_ID\"], \"starts_at\": \"2026-01-01T00:00:00Z\", \"ends_at\": \"2026-01-31T00:00:00Z\", \"fields\": [\"impressions\",\"clicks\",\"spend\"], \"time_zone_id\": \"GMT\"}"
-          }
-        },
-        "required": [
-          "ad_account_id",
-          "data"
-        ]
-      }
+      "name": "get_campaign", "description": "Get a campaign.", "method": "GET", "path": "/campaigns/{campaign_id}",
+      "input_schema": {"type": "object", "properties": {"campaign_id": {"type": "string"}}, "required": ["campaign_id"]}
     },
     {
-      "name": "update_ad_group",
-      "description": "Update an ad group by id.",
-      "method": "PATCH",
-      "path": "/ad_accounts/{ad_account_id}/ad_groups/{ad_group_id}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "ad_account_id": {
-            "type": "string"
-          },
-          "ad_group_id": {
-            "type": "string"
-          },
-          "data": {
-            "type": "object",
-            "description": "Raw vendor payload object."
-          }
-        },
-        "required": [
-          "ad_account_id",
-          "ad_group_id",
-          "data"
-        ]
-      }
+      "name": "create_campaign", "description": "Create a campaign. Funding instrument is required; new objective names roll out September 2026 while legacy values remain readable.", "method": "POST", "path": "/ad_accounts/{ad_account_id}/campaigns",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "data": {"type": "object", "description": "Campaign payload including name, objective, funding_instrument_id, budget/status, and conversion_pixel_id when applicable."}}, "required": ["ad_account_id", "data"]}
     },
     {
-      "name": "delete_ad_group",
-      "description": "Archive/delete an ad group by setting configured_status/effective status through the API.",
-      "method": "PATCH",
-      "path": "/ad_accounts/{ad_account_id}/ad_groups/{ad_group_id}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "ad_account_id": {
-            "type": "string"
-          },
-          "ad_group_id": {
-            "type": "string"
-          },
-          "data": {
-            "type": "object",
-            "description": "{\"configured_status\":\"DELETED\"}"
-          }
-        },
-        "required": [
-          "ad_account_id",
-          "ad_group_id",
-          "data"
-        ]
-      }
+      "name": "update_campaign", "description": "Update or archive a campaign.", "method": "PATCH", "path": "/campaigns/{campaign_id}",
+      "input_schema": {"type": "object", "properties": {"campaign_id": {"type": "string"}, "data": {"type": "object"}}, "required": ["campaign_id", "data"]}
     },
     {
-      "name": "update_ad",
-      "description": "Update an ad by id.",
-      "method": "PATCH",
-      "path": "/ad_accounts/{ad_account_id}/ads/{ad_id}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "ad_account_id": {
-            "type": "string"
-          },
-          "ad_id": {
-            "type": "string"
-          },
-          "data": {
-            "type": "object",
-            "description": "Raw vendor payload object."
-          }
-        },
-        "required": [
-          "ad_account_id",
-          "ad_id",
-          "data"
-        ]
-      }
+      "name": "list_ad_groups", "description": "List ad groups by ad account.", "method": "GET", "path": "/ad_accounts/{ad_account_id}/ad_groups", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "page.size": {"type": "integer"}, "campaign_id": {"type": "string"}, "id": {"type": "string"}, "configured_status": {"type": "string"}, "effective_status": {"type": "string"}, "next_url": {"type": "string"}}, "required": ["ad_account_id"]}
     },
     {
-      "name": "delete_ad",
-      "description": "Archive/delete an ad by setting configured_status/effective status through the API.",
-      "method": "PATCH",
-      "path": "/ad_accounts/{ad_account_id}/ads/{ad_id}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "ad_account_id": {
-            "type": "string"
-          },
-          "ad_id": {
-            "type": "string"
-          },
-          "data": {
-            "type": "object",
-            "description": "{\"configured_status\":\"DELETED\"}"
-          }
-        },
-        "required": [
-          "ad_account_id",
-          "ad_id",
-          "data"
-        ]
-      }
+      "name": "get_ad_group", "description": "Get an ad group.", "method": "GET", "path": "/ad_groups/{ad_group_id}",
+      "input_schema": {"type": "object", "properties": {"ad_group_id": {"type": "string"}}, "required": ["ad_group_id"]}
     },
     {
-      "name": "upload_media",
-      "description": "Upload or register media for promoted posts/ads. Use the raw Reddit Ads media payload supported by the account.",
-      "method": "POST",
-      "path": "/ad_accounts/{ad_account_id}/media",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "ad_account_id": {
-            "type": "string"
-          },
-          "data": {
-            "type": "object",
-            "description": "Raw vendor payload object."
-          }
-        },
-        "required": [
-          "ad_account_id",
-          "data"
-        ]
-      }
+      "name": "create_ad_group", "description": "Create an ad group. conversion_pixel_id is required from July 13, 2026.", "method": "POST", "path": "/ad_accounts/{ad_account_id}/ad_groups",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "data": {"type": "object", "description": "Ad-group payload including campaign, schedule, budget/bid, targeting, optimization, and conversion_pixel_id."}}, "required": ["ad_account_id", "data"]}
     },
     {
-      "name": "create_post_ad",
-      "description": "Create a promoted-only post/ad creative that can be referenced by create_ad.",
-      "method": "POST",
-      "path": "/ad_accounts/{ad_account_id}/ads/posts",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "ad_account_id": {
-            "type": "string"
-          },
-          "data": {
-            "type": "object",
-            "description": "Raw post creative payload."
-          }
-        },
-        "required": [
-          "ad_account_id",
-          "data"
-        ]
-      }
+      "name": "update_ad_group", "description": "Update or archive an ad group.", "method": "PATCH", "path": "/ad_groups/{ad_group_id}",
+      "input_schema": {"type": "object", "properties": {"ad_group_id": {"type": "string"}, "data": {"type": "object"}}, "required": ["ad_group_id", "data"]}
     },
     {
-      "name": "update_custom_audience",
-      "description": "Update a custom audience.",
-      "method": "PATCH",
-      "path": "/ad_accounts/{ad_account_id}/custom_audiences/{audience_id}",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "ad_account_id": {
-            "type": "string"
-          },
-          "audience_id": {
-            "type": "string"
-          },
-          "data": {
-            "type": "object",
-            "description": "Raw vendor payload object."
-          }
-        },
-        "required": [
-          "ad_account_id",
-          "audience_id",
-          "data"
-        ]
-      }
+      "name": "list_ads", "description": "List ads by account, campaign, or ad group.", "method": "GET", "path": "/ad_accounts/{ad_account_id}/ads", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "page.size": {"type": "integer"}, "campaign_id": {"type": "string"}, "ad_group_id": {"type": "string"}, "id": {"type": "string"}, "configured_status": {"type": "string"}, "effective_status": {"type": "string"}, "next_url": {"type": "string"}}, "required": ["ad_account_id"]}
+    },
+    {
+      "name": "get_ad", "description": "Get an ad.", "method": "GET", "path": "/ads/{ad_id}",
+      "input_schema": {"type": "object", "properties": {"ad_id": {"type": "string"}}, "required": ["ad_id"]}
+    },
+    {
+      "name": "create_ad", "description": "Create an ad from an ad group and structured post.", "method": "POST", "path": "/ad_accounts/{ad_account_id}/ads",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "data": {"type": "object", "description": "Ad payload including ad_group_id, post_id, name, status, and tracking parameters."}}, "required": ["ad_account_id", "data"]}
+    },
+    {
+      "name": "update_ad", "description": "Update or archive an ad.", "method": "PATCH", "path": "/ads/{ad_id}",
+      "input_schema": {"type": "object", "properties": {"ad_id": {"type": "string"}, "data": {"type": "object"}}, "required": ["ad_id", "data"]}
+    },
+    {
+      "name": "list_structured_posts", "description": "List current structured creative posts for a profile.", "method": "GET", "path": "/profiles/{profile_id}/structured_posts", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"profile_id": {"type": "string"}, "page.size": {"type": "integer"}, "next_url": {"type": "string"}}, "required": ["profile_id"]}
+    },
+    {
+      "name": "create_structured_post_job", "description": "Create image, video, carousel, text, free-form, or promoted-community-post creative content asynchronously. Media may be supplied by HTTPS URL.", "method": "POST", "path": "/profiles/{profile_id}/structured_posts/jobs",
+      "input_schema": {"type": "object", "properties": {"profile_id": {"type": "string"}, "data": {"type": "object"}}, "required": ["profile_id", "data"]}
+    },
+    {
+      "name": "get_structured_post_job", "description": "Poll a structured post creation job.", "method": "GET", "path": "/structured_posts/jobs/{post_creation_job_id}",
+      "input_schema": {"type": "object", "properties": {"post_creation_job_id": {"type": "string"}}, "required": ["post_creation_job_id"]}
+    },
+    {
+      "name": "get_structured_post", "description": "Get a structured creative post.", "method": "GET", "path": "/structured_posts/{post_id}",
+      "input_schema": {"type": "object", "properties": {"post_id": {"type": "string"}}, "required": ["post_id"]}
+    },
+    {
+      "name": "update_structured_post", "description": "Update mutable structured post fields.", "method": "PATCH", "path": "/structured_posts/{post_id}",
+      "input_schema": {"type": "object", "properties": {"post_id": {"type": "string"}, "data": {"type": "object"}}, "required": ["post_id", "data"]}
+    },
+    {
+      "name": "list_creative_assets", "description": "List creative assets for a profile. The asset library currently requires Reddit Max beta access.", "method": "GET", "path": "/profiles/{profile_id}/creative_assets", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"profile_id": {"type": "string"}, "page.size": {"type": "integer"}, "next_url": {"type": "string"}}, "required": ["profile_id"]}
+    },
+    {
+      "name": "get_creative_asset", "description": "Get creative asset metadata. The asset library currently requires Reddit Max beta access.", "method": "GET", "path": "/creative_assets/{creative_asset_id}",
+      "input_schema": {"type": "object", "properties": {"creative_asset_id": {"type": "string"}}, "required": ["creative_asset_id"]}
+    },
+    {
+      "name": "list_geolocations", "description": "List targetable countries, regions, cities, DMAs, and postal codes.", "method": "GET", "path": "/targeting/geolocations", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"search": {"type": "string"}, "country_code": {"type": "string"}, "page.size": {"type": "integer"}, "next_url": {"type": "string"}}}
+    },
+    {
+      "name": "validate_geolocations", "description": "Validate provider geolocation targeting values.", "method": "POST", "path": "/targeting/geolocations_validations",
+      "input_schema": {"type": "object", "properties": {"data": {"type": "object"}}, "required": ["data"]}
+    },
+    {
+      "name": "list_interests", "description": "List targetable Reddit interests.", "method": "GET", "path": "/targeting/interests", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"page.size": {"type": "integer"}, "next_url": {"type": "string"}}}
+    },
+    {
+      "name": "list_communities", "description": "List targetable Reddit communities.", "method": "GET", "path": "/targeting/communities", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"page.size": {"type": "integer"}, "next_url": {"type": "string"}}}
+    },
+    {
+      "name": "search_communities", "description": "Search targetable Reddit communities.", "method": "GET", "path": "/targeting/communities/search", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"query": {"type": "string"}, "page.size": {"type": "integer"}, "next_url": {"type": "string"}}, "required": ["query"]}
+    },
+    {
+      "name": "suggest_communities", "description": "Suggest targetable communities from keywords or a website.", "method": "GET", "path": "/targeting/communities/suggestions", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"keywords": {"type": "string"}, "url": {"type": "string"}, "page.size": {"type": "integer"}, "next_url": {"type": "string"}}}
+    },
+    {
+      "name": "list_devices", "description": "List targetable device values.", "method": "GET", "path": "/targeting/devices",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_carriers", "description": "List targetable mobile carriers.", "method": "GET", "path": "/targeting/carriers", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"country_code": {"type": "string"}, "page.size": {"type": "integer"}, "next_url": {"type": "string"}}}
+    },
+    {
+      "name": "list_languages", "description": "List targetable languages.", "method": "GET", "path": "/targeting/languages",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_third_party_audiences", "description": "List third-party audience targeting values available to the advertiser.", "method": "GET", "path": "/targeting/third_party_audiences", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "page.size": {"type": "integer"}, "next_url": {"type": "string"}}}
+    },
+    {
+      "name": "list_saved_audiences", "description": "List reusable saved targeting audiences for an ad account.", "method": "GET", "path": "/ad_accounts/{ad_account_id}/saved_audiences", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "page.size": {"type": "integer"}, "next_url": {"type": "string"}}, "required": ["ad_account_id"]}
+    },
+    {
+      "name": "get_saved_audience", "description": "Get a reusable saved targeting audience.", "method": "GET", "path": "/saved_audiences/{saved_audience_id}",
+      "input_schema": {"type": "object", "properties": {"saved_audience_id": {"type": "string"}}, "required": ["saved_audience_id"]}
+    },
+    {
+      "name": "create_saved_audience", "description": "Create a reusable saved targeting audience.", "method": "POST", "path": "/ad_accounts/{ad_account_id}/saved_audiences",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "data": {"type": "object"}}, "required": ["ad_account_id", "data"]}
+    },
+    {
+      "name": "update_saved_audience", "description": "Update a reusable saved targeting audience.", "method": "PATCH", "path": "/saved_audiences/{saved_audience_id}",
+      "input_schema": {"type": "object", "properties": {"saved_audience_id": {"type": "string"}, "data": {"type": "object"}}, "required": ["saved_audience_id", "data"]}
+    },
+    {
+      "name": "list_custom_audiences", "description": "List custom audiences visible to the authenticated user.", "method": "GET", "path": "/me/custom_audiences", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "page.size": {"type": "integer"}, "next_url": {"type": "string"}}}
+    },
+    {
+      "name": "get_custom_audience", "description": "Get a custom audience.", "method": "GET", "path": "/custom_audiences/{custom_audience_id}",
+      "input_schema": {"type": "object", "properties": {"custom_audience_id": {"type": "string"}}, "required": ["custom_audience_id"]}
+    },
+    {
+      "name": "create_custom_audience", "description": "Create a customer-list custom audience.", "method": "POST", "path": "/ad_accounts/{ad_account_id}/custom_audiences",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "data": {"type": "object"}}, "required": ["ad_account_id", "data"]}
+    },
+    {
+      "name": "update_custom_audience_users", "description": "Add or remove hashed users from a custom audience.", "method": "PATCH", "path": "/custom_audiences/{custom_audience_id}/users",
+      "input_schema": {"type": "object", "properties": {"custom_audience_id": {"type": "string"}, "data": {"type": "object"}}, "required": ["custom_audience_id", "data"]}
+    },
+    {
+      "name": "delete_custom_audience", "description": "Delete a custom audience.", "method": "DELETE", "path": "/custom_audiences/{custom_audience_id}",
+      "input_schema": {"type": "object", "properties": {"custom_audience_id": {"type": "string"}}, "required": ["custom_audience_id"]}
+    },
+    {
+      "name": "list_lead_forms", "description": "List historical lead-generation forms. Onsite forms become read-only and are sunset in September 2026.", "method": "GET", "path": "/ad_accounts/{ad_account_id}/lead_generation_forms", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "page.size": {"type": "integer"}, "next_url": {"type": "string"}}, "required": ["ad_account_id"]}
+    },
+    {
+      "name": "get_report", "description": "Get a paginated Reddit Ads performance report. Monetary metrics are returned in micros.", "method": "POST", "path": "/ad_accounts/{ad_account_id}/reports", "continuation_url_param": "next_url",
+      "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "data": {"type": "object", "description": "Report view with date range, level, breakdowns, fields, filters, attribution, and pagination."}, "next_url": {"type": "string", "description": "Opaque pagination.next_url from the previous response."}}, "required": ["ad_account_id"]}
+    },
+    {
+      "name": "post_conversion_events", "description": "Send server-side conversion events for a Reddit pixel/action source.", "method": "POST", "path": "/pixels/{pixel_id}/conversion_events",
+      "input_schema": {"type": "object", "properties": {"pixel_id": {"type": "string"}, "data": {"type": "object"}}, "required": ["pixel_id", "data"]}
     }
   ]
 }
