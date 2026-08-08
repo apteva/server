@@ -1,14 +1,16 @@
 {
   "slug": "scaleway",
   "name": "Scaleway Cloud",
-  "description": "Manage Scaleway cloud infrastructure - servers, volumes, IPs, security groups, images, and snapshots",
+  "description": "Manage Scaleway cloud infrastructure - virtual instances, Apple silicon Mac minis, volumes, IPs, security groups, images, snapshots, and SSH keys",
   "logo": "https://www.google.com/s2/favicons?domain=scaleway.com&sz=128",
   "categories": [
     "cloud",
     "vps",
     "hosting",
     "infrastructure",
-    "storage"
+    "storage",
+    "bare-metal",
+    "mac"
   ],
   "base_url": "https://api.scaleway.com",
   "auth": {
@@ -930,6 +932,220 @@
           "content": { "type": "string" }
         },
         "required": ["zone", "server_id", "content"]
+      }
+    },
+    {
+      "name": "apple_products_list",
+      "description": "List live Scaleway Apple silicon products, locations, lifecycle status, hardware, and prices from the public product catalog",
+      "method": "GET",
+      "path": "/product-catalog/v2alpha1/public-catalog/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "minimum": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "default": 100 },
+          "product_types": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["apple_silicon"] },
+            "default": ["apple_silicon"]
+          },
+          "status": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["public_beta", "preview", "general_availability", "end_of_new_features", "end_of_growth", "end_of_deployment", "end_of_support", "end_of_sale", "end_of_life", "retired"]
+            }
+          },
+          "api_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    {
+      "name": "apple_server_types_list",
+      "description": "List Apple silicon Mac mini server types and current stock in a zone",
+      "method": "GET",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/server-types",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" }
+        },
+        "required": ["zone"]
+      }
+    },
+    {
+      "name": "apple_os_list",
+      "description": "List operating-system images available for Apple silicon Mac minis in a zone",
+      "method": "GET",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/os",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" },
+          "page": { "type": "integer", "minimum": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 }
+        },
+        "required": ["zone"]
+      }
+    },
+    {
+      "name": "apple_servers_list",
+      "description": "List Apple silicon Mac mini servers in a zone",
+      "method": "GET",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/servers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" },
+          "project_id": { "type": "string" },
+          "organization_id": { "type": "string" },
+          "page": { "type": "integer", "minimum": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "order_by": { "type": "string", "enum": ["created_at_asc", "created_at_desc", "updated_at_asc", "updated_at_desc"] }
+        },
+        "required": ["zone"]
+      }
+    },
+    {
+      "name": "apple_server_get",
+      "description": "Get an Apple silicon Mac mini server by ID",
+      "method": "GET",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/servers/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" },
+          "server_id": { "type": "string" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "apple_server_create",
+      "description": "Provision a dedicated Apple silicon Mac mini. macOS servers have a mandatory 24-hour minimum allocation.",
+      "method": "POST",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/servers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" },
+          "name": { "type": "string" },
+          "project_id": { "type": "string" },
+          "type": { "type": "string", "description": "Apple silicon server type, for example M4-S" },
+          "os_id": { "type": "string" },
+          "enable_vpc": { "type": "boolean", "default": false },
+          "enable_kext": { "type": "boolean", "default": false },
+          "commitment_type": { "type": "string", "enum": ["duration_24h", "renewed_monthly", "none"], "default": "duration_24h" },
+          "public_bandwidth_bps": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["zone", "name", "project_id", "type"]
+      }
+    },
+    {
+      "name": "apple_server_update",
+      "description": "Update an Apple silicon Mac mini name, deletion schedule, VPC support, commitment, or public bandwidth",
+      "method": "PATCH",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/servers/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" },
+          "server_id": { "type": "string" },
+          "name": { "type": "string" },
+          "schedule_deletion": { "type": "boolean" },
+          "enable_vpc": { "type": "boolean" },
+          "commitment_type": { "type": "string", "enum": ["duration_24h", "renewed_monthly", "none"] },
+          "public_bandwidth_bps": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "apple_server_delete",
+      "description": "Delete an Apple silicon Mac mini after its minimum allocation period",
+      "method": "DELETE",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/servers/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" },
+          "server_id": { "type": "string" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "apple_server_reboot",
+      "description": "Reboot an Apple silicon Mac mini through the control plane",
+      "method": "POST",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/servers/{server_id}/reboot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" },
+          "server_id": { "type": "string" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "apple_server_reinstall",
+      "description": "Reinstall an Apple silicon Mac mini. This permanently erases all data on its disk.",
+      "method": "POST",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/servers/{server_id}/reinstall",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" },
+          "server_id": { "type": "string" },
+          "os_id": { "type": "string" },
+          "enable_kext": { "type": "boolean" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "ssh_keys_list",
+      "description": "List IAM SSH keys, optionally scoped to one Scaleway project",
+      "method": "GET",
+      "path": "/iam/v1alpha1/ssh-keys",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "name": { "type": "string" },
+          "disabled": { "type": "boolean" },
+          "page": { "type": "integer", "minimum": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100 }
+        }
+      }
+    },
+    {
+      "name": "ssh_key_create",
+      "description": "Create a project-scoped IAM SSH key",
+      "method": "POST",
+      "path": "/iam/v1alpha1/ssh-keys",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "public_key": { "type": "string" },
+          "project_id": { "type": "string" }
+        },
+        "required": ["name", "public_key", "project_id"]
+      }
+    },
+    {
+      "name": "ssh_key_delete",
+      "description": "Delete one IAM SSH key by its exact ID",
+      "method": "DELETE",
+      "path": "/iam/v1alpha1/ssh-keys/{ssh_key_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ssh_key_id": { "type": "string" }
+        },
+        "required": ["ssh_key_id"]
       }
     }
   ]
