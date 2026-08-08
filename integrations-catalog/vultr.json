@@ -29,7 +29,7 @@
       "name": "list_instances",
       "description": "List all instances",
       "method": "GET",
-      "path": "/list-instances",
+      "path": "/instances",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -46,7 +46,7 @@
       "name": "get_instance",
       "description": "Get instance details",
       "method": "GET",
-      "path": "/get-instance",
+      "path": "/instances/{instance_id}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -63,7 +63,7 @@
       "name": "create_instance",
       "description": "Create a new instance",
       "method": "POST",
-      "path": "/create-instance",
+      "path": "/instances",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -79,9 +79,10 @@
           "label": {
             "type": "string"
           },
-          "sshkey_id": {
-            "type": "array"
-          }
+          "sshkey_id": { "type": "array" },
+          "hostname": { "type": "string" },
+          "user_data": { "type": "string" },
+          "enable_ipv6": { "type": "boolean" }
         },
         "required": [
           "region",
@@ -93,7 +94,7 @@
       "name": "delete_instance",
       "description": "Delete an instance",
       "method": "DELETE",
-      "path": "/delete-instance",
+      "path": "/instances/{instance_id}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -109,8 +110,8 @@
     {
       "name": "start_instance",
       "description": "Start an instance",
-      "method": "GET",
-      "path": "/start-instance",
+      "method": "POST",
+      "path": "/instances/{instance_id}/start",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -126,8 +127,8 @@
     {
       "name": "stop_instance",
       "description": "Stop an instance",
-      "method": "GET",
-      "path": "/stop-instance",
+      "method": "POST",
+      "path": "/instances/{instance_id}/halt",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -143,8 +144,8 @@
     {
       "name": "restart_instance",
       "description": "Restart an instance",
-      "method": "GET",
-      "path": "/restart-instance",
+      "method": "POST",
+      "path": "/instances/{instance_id}/reboot",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -161,23 +162,22 @@
       "name": "list_regions",
       "description": "List available regions",
       "method": "GET",
-      "path": "/list-regions",
+      "path": "/regions",
       "input_schema": {
         "type": "object",
-        "properties": {}
+          "properties": { "per_page": { "type": "number" } }
       }
     },
     {
       "name": "list_plans",
       "description": "List available plans",
       "method": "GET",
-      "path": "/list-plans",
+      "path": "/plans",
       "input_schema": {
         "type": "object",
         "properties": {
-          "type": {
-            "type": "string"
-          }
+            "type": { "type": "string" },
+            "per_page": { "type": "number" }
         }
       }
     },
@@ -185,17 +185,17 @@
       "name": "list_os",
       "description": "List available OS options",
       "method": "GET",
-      "path": "/list-os",
+      "path": "/os",
       "input_schema": {
         "type": "object",
-        "properties": {}
+          "properties": { "per_page": { "type": "number" } }
       }
     },
     {
       "name": "list_snapshots",
       "description": "List snapshots",
       "method": "GET",
-      "path": "/list-snapshots",
+      "path": "/snapshots",
       "input_schema": {
         "type": "object",
         "properties": {}
@@ -205,7 +205,7 @@
       "name": "create_snapshot",
       "description": "Create a snapshot",
       "method": "POST",
-      "path": "/create-snapshot",
+      "path": "/snapshots",
       "input_schema": {
         "type": "object",
         "properties": {

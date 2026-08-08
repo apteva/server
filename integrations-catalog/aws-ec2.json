@@ -1,199 +1,166 @@
 {
   "slug": "aws-ec2",
   "name": "AWS EC2",
-  "description": "MCP server for Amazon EC2 compute instances, security groups, volumes, and elastic IPs",
+  "description": "Amazon EC2 Query API with SigV4 authentication for instances, instance types, images, availability zones, security groups, and Elastic IPs",
   "logo": "https://www.google.com/s2/favicons?domain=aws.amazon.com&sz=128",
-  "categories": [
-    "aws",
-    "ec2",
-    "compute",
-    "instances",
-    "cloud",
-    "virtual-machines"
-  ],
-  "base_url": "https://ec2.{{region}}.amazonaws.com",
+  "categories": ["aws", "ec2", "compute", "instances", "cloud", "virtual-machines"],
+  "base_url": "https://ec2.{{credential.region}}.amazonaws.com",
   "auth": {
-    "types": [
-      "bearer"
-    ],
-    "headers": {
-      "Authorization": "Bearer {{token}}"
-    },
+    "types": ["aws_sigv4"],
+    "aws_sigv4": { "service": "ec2" },
     "credential_fields": [
-      {
-        "name": "access_key_id",
-        "label": "Access_key_id",
-        "description": "Your AWS Access Key ID"
-      },
-      {
-        "name": "secret_access_key",
-        "label": "Secret_access_key",
-        "description": "Your AWS Secret Access Key"
-      },
-      {
-        "name": "region",
-        "label": "Region",
-        "description": "AWS Region (e.g., us-east-1)"
-      },
-      {
-        "name": "session_token",
-        "label": "Session_token",
-        "description": "Temporary session token (for temporary credentials)"
-      }
+      { "name": "access_key_id", "label": "Access Key ID", "description": "AWS access key with scoped EC2 permissions" },
+      { "name": "secret_access_key", "label": "Secret Access Key", "description": "AWS secret access key" },
+      { "name": "region", "label": "Region", "description": "AWS region used for the endpoint and SigV4 scope, for example eu-west-1", "type": "text", "exposure": "public" },
+      { "name": "subnet_id", "label": "Subnet ID", "description": "Subnet used for new instances; it must belong to the configured region" },
+      { "name": "security_group_id", "label": "Security Group ID", "description": "Security group used for new instances; it must allow inbound TCP 22 from the Apteva server" },
+      { "name": "session_token", "label": "Session Token", "description": "Optional token for temporary credentials", "required": false }
     ]
   },
   "tools": [
     {
       "name": "create_instance",
-      "description": "Create a new EC2 instance",
-      "method": "POST",
-      "path": "/create-instance",
+      "description": "Run one or more EC2 instances using RunInstances Query API parameters",
+      "method": "GET",
+      "path": "/?SubnetId={{credential.subnet_id}}&SecurityGroupId.1={{credential.security_group_id}}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "image_id": {
-            "type": "string",
-            "description": "AMI ID to launch"
-          },
-          "instance_type": {
-            "type": "string",
-            "description": "EC2 instance type",
-            "default": "t2.micro"
-          },
-          "key_name": {
-            "type": "string",
-            "description": "Name of the key pair"
-          },
-          "security_group_ids": {
-            "type": "array",
-            "description": "Security group IDs",
-            "items": {
-              "type": "string"
-            }
-          }
+          "Action": { "type": "string", "default": "RunInstances" },
+          "Version": { "type": "string", "default": "2016-11-15" },
+          "ImageId": { "type": "string" },
+          "InstanceType": { "type": "string" },
+          "MinCount": { "type": "integer", "default": 1 },
+          "MaxCount": { "type": "integer", "default": 1 },
+          "Placement.AvailabilityZone": { "type": "string" },
+          "UserData": { "type": "string", "description": "Base64-encoded cloud-init" },
+          "TagSpecification.1.ResourceType": { "type": "string" },
+          "TagSpecification.1.Tag.1.Key": { "type": "string" },
+          "TagSpecification.1.Tag.1.Value": { "type": "string" }
         },
-        "required": [
-          "image_id"
-        ]
+        "required": ["Action", "Version", "ImageId", "InstanceType", "MinCount", "MaxCount"]
       }
     },
     {
       "name": "list_instances",
-      "description": "List EC2 instances in the account",
+      "description": "Describe EC2 instances, optionally restricted by InstanceId.N parameters",
       "method": "GET",
-      "path": "/list-instances",
+      "path": "/",
       "input_schema": {
         "type": "object",
         "properties": {
-          "instance_ids": {
-            "type": "array",
-            "description": "Specific instance IDs to list",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
+          "Action": { "type": "string", "default": "DescribeInstances" },
+          "Version": { "type": "string", "default": "2016-11-15" },
+          "InstanceId.1": { "type": "string" }
+        },
+        "required": ["Action", "Version"]
+      }
+    },
+    {
+      "name": "list_instance_types",
+      "description": "Describe EC2 instance type capabilities",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "default": "DescribeInstanceTypes" },
+          "Version": { "type": "string", "default": "2016-11-15" },
+          "MaxResults": { "type": "integer", "maximum": 100 },
+          "NextToken": { "type": "string" }
+        },
+        "required": ["Action", "Version"]
+      }
+    },
+    {
+      "name": "list_availability_zones",
+      "description": "List availability zones in the connection's AWS region",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "default": "DescribeAvailabilityZones" },
+          "Version": { "type": "string", "default": "2016-11-15" },
+          "AllAvailabilityZones": { "type": "boolean" }
+        },
+        "required": ["Action", "Version"]
+      }
+    },
+    {
+      "name": "list_images",
+      "description": "Describe EC2 AMIs using Owners.N and Filter.N Query API parameters",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "default": "DescribeImages" },
+          "Version": { "type": "string", "default": "2016-11-15" },
+          "Owner.1": { "type": "string" },
+          "Filter.1.Name": { "type": "string" },
+          "Filter.1.Value.1": { "type": "string" },
+          "Filter.2.Name": { "type": "string" },
+          "Filter.2.Value.1": { "type": "string" },
+          "Filter.3.Name": { "type": "string" },
+          "Filter.3.Value.1": { "type": "string" }
+        },
+        "required": ["Action", "Version"]
       }
     },
     {
       "name": "start_instance",
-      "description": "Start a stopped EC2 instance",
+      "description": "Start an EC2 instance",
       "method": "GET",
-      "path": "/start-instance",
+      "path": "/",
       "input_schema": {
         "type": "object",
-        "properties": {
-          "instance_id": {
-            "type": "string",
-            "description": "Instance ID to start"
-          }
-        },
-        "required": [
-          "instance_id"
-        ]
+        "properties": { "Action": { "type": "string", "default": "StartInstances" }, "Version": { "type": "string", "default": "2016-11-15" }, "InstanceId.1": { "type": "string" } },
+        "required": ["Action", "Version", "InstanceId.1"]
       }
     },
     {
       "name": "stop_instance",
-      "description": "Stop a running EC2 instance",
+      "description": "Stop an EC2 instance",
       "method": "GET",
-      "path": "/stop-instance",
+      "path": "/",
       "input_schema": {
         "type": "object",
-        "properties": {
-          "instance_id": {
-            "type": "string",
-            "description": "Instance ID to stop"
-          }
-        },
-        "required": [
-          "instance_id"
-        ]
+        "properties": { "Action": { "type": "string", "default": "StopInstances" }, "Version": { "type": "string", "default": "2016-11-15" }, "InstanceId.1": { "type": "string" } },
+        "required": ["Action", "Version", "InstanceId.1"]
       }
     },
     {
       "name": "terminate_instance",
       "description": "Permanently terminate an EC2 instance",
       "method": "GET",
-      "path": "/terminate-instance",
+      "path": "/",
       "input_schema": {
         "type": "object",
-        "properties": {
-          "instance_id": {
-            "type": "string",
-            "description": "Instance ID to terminate"
-          }
-        },
-        "required": [
-          "instance_id"
-        ]
+        "properties": { "Action": { "type": "string", "default": "TerminateInstances" }, "Version": { "type": "string", "default": "2016-11-15" }, "InstanceId.1": { "type": "string" } },
+        "required": ["Action", "Version", "InstanceId.1"]
       }
     },
     {
       "name": "create_security_group",
-      "description": "Create a new EC2 security group",
-      "method": "POST",
-      "path": "/create-security-group",
+      "description": "Create an EC2 security group using Query API parameters",
+      "method": "GET",
+      "path": "/",
       "input_schema": {
         "type": "object",
-        "properties": {
-          "group_name": {
-            "type": "string",
-            "description": "Name of the security group"
-          },
-          "description": {
-            "type": "string",
-            "description": "Description of the security group"
-          },
-          "vpc_id": {
-            "type": "string",
-            "description": "VPC ID (optional)"
-          }
-        },
-        "required": [
-          "group_name",
-          "description"
-        ]
+        "properties": { "Action": { "type": "string", "default": "CreateSecurityGroup" }, "Version": { "type": "string", "default": "2016-11-15" }, "GroupName": { "type": "string" }, "GroupDescription": { "type": "string" }, "VpcId": { "type": "string" } },
+        "required": ["Action", "Version", "GroupName", "GroupDescription"]
       }
     },
     {
       "name": "allocate_elastic_ip",
-      "description": "Allocate a new Elastic IP address",
+      "description": "Allocate an EC2 Elastic IP",
       "method": "GET",
-      "path": "/allocate-elastic-ip",
+      "path": "/",
       "input_schema": {
         "type": "object",
-        "properties": {
-          "domain": {
-            "type": "string",
-            "description": "Domain type",
-            "enum": [
-              "vpc",
-              "standard"
-            ],
-            "default": "vpc"
-          }
-        }
+        "properties": { "Action": { "type": "string", "default": "AllocateAddress" }, "Version": { "type": "string", "default": "2016-11-15" }, "Domain": { "type": "string", "default": "vpc" } },
+        "required": ["Action", "Version"]
       }
     }
   ]

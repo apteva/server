@@ -25,35 +25,35 @@
       "name": "list_instances",
       "description": "List instances in a project",
       "method": "GET",
-      "path": "/cloud/project/{serviceName}/instance",
+      "path": "/cloud/project/{{credential.service_name}}/instance",
       "input_schema": {
         "type": "object",
         "properties": {
           "serviceName": { "type": "string" },
           "region": { "type": "string" }
         },
-        "required": ["serviceName"]
+        "required": []
       }
     },
     {
       "name": "get_instance",
       "description": "Get an instance by ID",
       "method": "GET",
-      "path": "/cloud/project/{serviceName}/instance/{instanceId}",
+      "path": "/cloud/project/{{credential.service_name}}/instance/{instanceId}",
       "input_schema": {
         "type": "object",
         "properties": {
           "serviceName": { "type": "string" },
           "instanceId": { "type": "string" }
         },
-        "required": ["serviceName", "instanceId"]
+        "required": ["instanceId"]
       }
     },
     {
       "name": "create_instance",
       "description": "Create a Public Cloud instance",
       "method": "POST",
-      "path": "/cloud/project/{serviceName}/instance",
+      "path": "/cloud/project/{{credential.service_name}}/instance",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -66,28 +66,28 @@
           "userData": { "type": "string" },
           "monthlyBilling": { "type": "boolean" }
         },
-        "required": ["serviceName", "name", "region", "flavorId", "imageId"]
+        "required": ["name", "region", "flavorId", "imageId"]
       }
     },
     {
       "name": "delete_instance",
       "description": "Delete an instance",
       "method": "DELETE",
-      "path": "/cloud/project/{serviceName}/instance/{instanceId}",
+      "path": "/cloud/project/{{credential.service_name}}/instance/{instanceId}",
       "input_schema": {
         "type": "object",
         "properties": {
           "serviceName": { "type": "string" },
           "instanceId": { "type": "string" }
         },
-        "required": ["serviceName", "instanceId"]
+        "required": ["instanceId"]
       }
     },
     {
       "name": "reboot_instance",
       "description": "Reboot an instance (soft or hard)",
       "method": "POST",
-      "path": "/cloud/project/{serviceName}/instance/{instanceId}/reboot",
+      "path": "/cloud/project/{{credential.service_name}}/instance/{instanceId}/reboot",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -95,56 +95,56 @@
           "instanceId": { "type": "string" },
           "type": { "type": "string", "description": "soft | hard" }
         },
-        "required": ["serviceName", "instanceId", "type"]
+        "required": ["instanceId", "type"]
       }
     },
     {
       "name": "start_instance",
       "description": "Start a stopped instance",
       "method": "POST",
-      "path": "/cloud/project/{serviceName}/instance/{instanceId}/start",
+      "path": "/cloud/project/{{credential.service_name}}/instance/{instanceId}/start",
       "input_schema": {
         "type": "object",
         "properties": {
           "serviceName": { "type": "string" },
           "instanceId": { "type": "string" }
         },
-        "required": ["serviceName", "instanceId"]
+        "required": ["instanceId"]
       }
     },
     {
       "name": "stop_instance",
       "description": "Stop a running instance",
       "method": "POST",
-      "path": "/cloud/project/{serviceName}/instance/{instanceId}/stop",
+      "path": "/cloud/project/{{credential.service_name}}/instance/{instanceId}/stop",
       "input_schema": {
         "type": "object",
         "properties": {
           "serviceName": { "type": "string" },
           "instanceId": { "type": "string" }
         },
-        "required": ["serviceName", "instanceId"]
+        "required": ["instanceId"]
       }
     },
     {
       "name": "list_flavors",
       "description": "List instance flavors (sizes)",
       "method": "GET",
-      "path": "/cloud/project/{serviceName}/flavor",
+      "path": "/cloud/project/{{credential.service_name}}/flavor",
       "input_schema": {
         "type": "object",
         "properties": {
           "serviceName": { "type": "string" },
           "region": { "type": "string" }
         },
-        "required": ["serviceName"]
+        "required": []
       }
     },
     {
       "name": "list_images",
       "description": "List OS images",
       "method": "GET",
-      "path": "/cloud/project/{serviceName}/image",
+      "path": "/cloud/project/{{credential.service_name}}/image",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -152,57 +152,57 @@
           "region": { "type": "string" },
           "osType": { "type": "string" }
         },
-        "required": ["serviceName"]
+        "required": []
       }
     },
     {
       "name": "list_regions",
       "description": "List regions available to the project",
       "method": "GET",
-      "path": "/cloud/project/{serviceName}/region",
+      "path": "/cloud/project/{{credential.service_name}}/region",
       "input_schema": {
         "type": "object",
         "properties": { "serviceName": { "type": "string" } },
-        "required": ["serviceName"]
+        "required": []
       }
     },
     {
       "name": "list_ssh_keys",
       "description": "List SSH keys for the project",
       "method": "GET",
-      "path": "/cloud/project/{serviceName}/sshkey",
+      "path": "/cloud/project/{{credential.service_name}}/sshkey",
       "input_schema": {
         "type": "object",
         "properties": { "serviceName": { "type": "string" } },
-        "required": ["serviceName"]
+        "required": []
       }
     },
     {
       "name": "list_volumes",
       "description": "List block storage volumes",
       "method": "GET",
-      "path": "/cloud/project/{serviceName}/volume",
+      "path": "/cloud/project/{{credential.service_name}}/volume",
       "input_schema": {
         "type": "object",
         "properties": {
           "serviceName": { "type": "string" },
           "region": { "type": "string" }
         },
-        "required": ["serviceName"]
+        "required": []
       }
     },
     {
       "name": "list_snapshots",
       "description": "List instance snapshots",
       "method": "GET",
-      "path": "/cloud/project/{serviceName}/snapshot",
+      "path": "/cloud/project/{{credential.service_name}}/snapshot",
       "input_schema": {
         "type": "object",
         "properties": {
           "serviceName": { "type": "string" },
           "region": { "type": "string" }
         },
-        "required": ["serviceName"]
+        "required": []
       }
     }
   ]

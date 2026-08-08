@@ -12,16 +12,14 @@
   ],
   "base_url": "https://api.scaleway.com",
   "auth": {
-    "types": [
-      "bearer"
-    ],
+    "types": ["api_key"],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "X-Auth-Token": "{{token}}"
     },
     "credential_fields": [
       {
         "name": "token",
-        "label": "API Key"
+        "label": "Secret Key"
       }
     ]
   },
@@ -30,7 +28,7 @@
       "name": "server_list",
       "description": "List all Scaleway servers/instances in a zone. Returns server details including ID, name, state, IP addresses, and type.",
       "method": "GET",
-      "path": "/server-list",
+      "path": "/instance/v1/zones/{zone}/servers",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -62,7 +60,7 @@
       "name": "server_get",
       "description": "Get detailed information about a specific Scaleway server/instance by ID",
       "method": "GET",
-      "path": "/server-get",
+      "path": "/instance/v1/zones/{zone}/servers/{server_id}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -84,8 +82,8 @@
     {
       "name": "server_create",
       "description": "Create a new Scaleway server/instance. Requires commercial_type (e.g., DEV1-S, GP1-S) and image ID.",
-      "method": "GET",
-      "path": "/server-create",
+      "method": "POST",
+      "path": "/instance/v1/zones/{zone}/servers",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -122,7 +120,10 @@
             "type": "string",
             "description": "Boot type (local, bootscript, rescue)",
             "default": "local"
-          }
+          },
+          "project": { "type": "string" },
+          "dynamic_ip_required": { "type": "boolean" },
+          "routed_ip_enabled": { "type": "boolean" }
         },
         "required": [
           "name",
@@ -134,8 +135,8 @@
     {
       "name": "server_delete",
       "description": "Delete/terminate a Scaleway server/instance",
-      "method": "GET",
-      "path": "/server-delete",
+      "method": "DELETE",
+      "path": "/instance/v1/zones/{zone}/servers/{server_id}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -157,8 +158,8 @@
     {
       "name": "server_action",
       "description": "Perform an action on a Scaleway server (poweron, poweroff, reboot, terminate, stop_in_place, backup)",
-      "method": "GET",
-      "path": "/server-action",
+      "method": "POST",
+      "path": "/instance/v1/zones/{zone}/servers/{server_id}/action",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -720,7 +721,7 @@
       "name": "image_list",
       "description": "List available Scaleway images for creating servers",
       "method": "GET",
-      "path": "/image-list",
+      "path": "/instance/v1/zones/{zone}/images",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -756,7 +757,7 @@
       "name": "image_get",
       "description": "Get details of a specific Scaleway image",
       "method": "GET",
-      "path": "/image-get",
+      "path": "/instance/v1/zones/{zone}/images/{image_id}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -885,6 +886,50 @@
         "required": [
           "snapshot_id"
         ]
+      }
+    },
+    {
+      "name": "project_list",
+      "description": "List Scaleway projects available to this API key",
+      "method": "GET",
+      "path": "/account/v3/projects",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "page_size": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "server_types_list",
+      "description": "List server products available in a Scaleway zone",
+      "method": "GET",
+      "path": "/instance/v1/zones/{zone}/products/servers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "default": "fr-par-1" },
+          "per_page": { "type": "integer" }
+        },
+        "required": ["zone"]
+      }
+    },
+    {
+      "name": "server_set_cloud_init",
+      "description": "Set cloud-init user data before starting a Scaleway server",
+      "method": "PUT",
+      "path": "/instance/v1/zones/{zone}/servers/{server_id}/user_data/cloud-init",
+      "headers": { "Content-Type": "text/plain" },
+      "body_root_param": "content",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string" },
+          "server_id": { "type": "string" },
+          "content": { "type": "string" }
+        },
+        "required": ["zone", "server_id", "content"]
       }
     }
   ]

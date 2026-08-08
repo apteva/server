@@ -105,21 +105,21 @@
       "description": "List instance types (sizes)",
       "method": "GET",
       "path": "/linode/types",
-      "input_schema": { "type": "object", "properties": {} }
+      "input_schema": { "type": "object", "properties": { "page": { "type": "number" }, "page_size": { "type": "number" } } }
     },
     {
       "name": "list_regions",
       "description": "List regions",
       "method": "GET",
       "path": "/regions",
-      "input_schema": { "type": "object", "properties": {} }
+      "input_schema": { "type": "object", "properties": { "page": { "type": "number" }, "page_size": { "type": "number" } } }
     },
     {
       "name": "list_images",
       "description": "List available images",
       "method": "GET",
       "path": "/images",
-      "input_schema": { "type": "object", "properties": {} }
+      "input_schema": { "type": "object", "properties": { "page": { "type": "number" }, "page_size": { "type": "number" } } }
     },
     {
       "name": "list_volumes",

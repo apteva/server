@@ -4,7 +4,7 @@
   "description": "MCP server for Huawei Cloud Elastic Cloud Server - cloud servers, flavors, images, key pairs, snapshots, volumes (covers China, AP, EMEA, LATAM regions)",
   "logo": "https://www.google.com/s2/favicons?domain=huaweicloud.com&sz=128",
   "categories": ["cloud", "servers", "vps", "infrastructure", "china", "asia"],
-  "base_url": "https://ecs.{{region}}.myhuaweicloud.com",
+  "base_url": "https://ecs.{{credential.region}}.myhuaweicloud.com",
   "auth": {
     "types": ["api_key"],
     "headers": { "X-Auth-Token": "{{token}}" },
@@ -19,123 +19,116 @@
       "name": "list_servers",
       "description": "List ECS cloud servers (detail)",
       "method": "GET",
-      "path": "/v1/{project_id}/cloudservers/detail",
+      "path": "/v1/{{credential.project_id}}/cloudservers/detail",
       "input_schema": {
         "type": "object",
         "properties": {
-          "project_id": { "type": "string" },
           "limit": { "type": "number" },
           "offset": { "type": "number" },
           "name": { "type": "string" },
           "status": { "type": "string" }
         },
-        "required": ["project_id"]
+        "required": []
       }
     },
     {
       "name": "get_server",
       "description": "Get an ECS server by ID",
       "method": "GET",
-      "path": "/v1/{project_id}/cloudservers/{server_id}",
+      "path": "/v1/{{credential.project_id}}/cloudservers/{server_id}",
       "input_schema": {
         "type": "object",
         "properties": {
-          "project_id": { "type": "string" },
           "server_id": { "type": "string" }
         },
-        "required": ["project_id", "server_id"]
+        "required": ["server_id"]
       }
     },
     {
       "name": "create_server",
       "description": "Create a pay-per-use ECS server",
       "method": "POST",
-      "path": "/v1/{project_id}/cloudservers",
+      "path": "/v1/{{credential.project_id}}/cloudservers",
       "input_schema": {
         "type": "object",
         "properties": {
-          "project_id": { "type": "string" },
           "server": { "type": "object", "description": "Body wraps under 'server': { name, imageRef, flavorRef, vpcid, nics:[{subnet_id}], root_volume:{volumetype}, key_name, count }" }
         },
-        "required": ["project_id", "server"]
+        "required": ["server"]
       }
     },
     {
       "name": "delete_servers",
       "description": "Delete one or more ECS servers",
       "method": "POST",
-      "path": "/v1/{project_id}/cloudservers/delete",
+      "path": "/v1/{{credential.project_id}}/cloudservers/delete",
       "input_schema": {
         "type": "object",
         "properties": {
-          "project_id": { "type": "string" },
           "servers": { "type": "array", "description": "[{ id: 'xxx' }]" },
           "delete_publicip": { "type": "boolean" },
           "delete_volume": { "type": "boolean" }
         },
-        "required": ["project_id", "servers"]
+        "required": ["servers"]
       }
     },
     {
       "name": "batch_start_servers",
       "description": "Batch start ECS servers",
       "method": "POST",
-      "path": "/v1/{project_id}/cloudservers/action",
+      "path": "/v1/{{credential.project_id}}/cloudservers/action",
       "input_schema": {
         "type": "object",
         "properties": {
-          "project_id": { "type": "string" },
           "os-start": { "type": "object", "description": "{ servers: [{ id }] }" }
         },
-        "required": ["project_id", "os-start"]
+        "required": ["os-start"]
       }
     },
     {
       "name": "batch_stop_servers",
       "description": "Batch stop ECS servers",
       "method": "POST",
-      "path": "/v1/{project_id}/cloudservers/action",
+      "path": "/v1/{{credential.project_id}}/cloudservers/action",
       "input_schema": {
         "type": "object",
         "properties": {
-          "project_id": { "type": "string" },
           "os-stop": { "type": "object", "description": "{ type: 'SOFT'|'HARD', servers: [{ id }] }" }
         },
-        "required": ["project_id", "os-stop"]
+        "required": ["os-stop"]
       }
     },
     {
       "name": "batch_reboot_servers",
       "description": "Batch reboot ECS servers",
       "method": "POST",
-      "path": "/v1/{project_id}/cloudservers/action",
+      "path": "/v1/{{credential.project_id}}/cloudservers/action",
       "input_schema": {
         "type": "object",
         "properties": {
-          "project_id": { "type": "string" },
           "reboot": { "type": "object", "description": "{ type: 'SOFT'|'HARD', servers: [{ id }] }" }
         },
-        "required": ["project_id", "reboot"]
+        "required": ["reboot"]
       }
     },
     {
       "name": "list_flavors",
       "description": "List available ECS flavors (sizes)",
       "method": "GET",
-      "path": "/v1/{project_id}/cloudservers/flavors",
+      "path": "/v1/{{credential.project_id}}/cloudservers/flavors",
       "input_schema": {
         "type": "object",
         "properties": {
-          "project_id": { "type": "string" },
           "availability_zone": { "type": "string" }
         },
-        "required": ["project_id"]
+        "required": []
       }
     },
     {
       "name": "list_images",
       "description": "List images via IMS (Image Management Service)",
       "method": "GET",
+      "base_url": "https://ims.{{credential.region}}.myhuaweicloud.com",
       "path": "/v2/cloudimages",
       "input_schema": {
         "type": "object",
@@ -150,39 +143,80 @@
       "name": "list_key_pairs",
       "description": "List SSH key pairs",
       "method": "GET",
-      "path": "/v2.1/{project_id}/os-keypairs",
+      "path": "/v2.1/{{credential.project_id}}/os-keypairs",
       "input_schema": {
         "type": "object",
-        "properties": { "project_id": { "type": "string" } },
-        "required": ["project_id"]
+        "properties": {},
+        "required": []
       }
     },
     {
       "name": "create_snapshot",
       "description": "Create a volume snapshot via EVS",
       "method": "POST",
-      "path": "/v2/{project_id}/cloudsnapshots",
+      "path": "/v2/{{credential.project_id}}/cloudsnapshots",
       "input_schema": {
         "type": "object",
         "properties": {
-          "project_id": { "type": "string" },
           "snapshot": { "type": "object", "description": "{ volume_id, name, description, force }" }
         },
-        "required": ["project_id", "snapshot"]
+        "required": ["snapshot"]
       }
     },
     {
       "name": "list_volumes",
       "description": "List block storage volumes",
       "method": "GET",
-      "path": "/v2/{project_id}/cloudvolumes/detail",
+      "path": "/v2/{{credential.project_id}}/cloudvolumes/detail",
       "input_schema": {
         "type": "object",
         "properties": {
-          "project_id": { "type": "string" },
           "limit": { "type": "number" }
         },
-        "required": ["project_id"]
+        "required": []
+      }
+    },
+    {
+      "name": "list_availability_zones",
+      "description": "List availability zones for the configured project",
+      "method": "GET",
+      "path": "/v1/{{credential.project_id}}/availability-zones",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_vpcs",
+      "description": "List VPCs for the configured project",
+      "method": "GET",
+      "base_url": "https://vpc.{{credential.region}}.myhuaweicloud.com",
+      "path": "/v1/{{credential.project_id}}/vpcs",
+      "input_schema": {
+        "type": "object",
+        "properties": { "limit": { "type": "number" } }
+      }
+    },
+    {
+      "name": "list_subnets",
+      "description": "List subnets for the configured project",
+      "method": "GET",
+      "base_url": "https://vpc.{{credential.region}}.myhuaweicloud.com",
+      "path": "/v1/{{credential.project_id}}/subnets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "vpc_id": { "type": "string" },
+          "limit": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "get_job",
+      "description": "Get an asynchronous ECS job",
+      "method": "GET",
+      "path": "/v1/{{credential.project_id}}/jobs/{job_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "job_id": { "type": "string" } },
+        "required": ["job_id"]
       }
     }
   ]

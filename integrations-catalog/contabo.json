@@ -12,17 +12,30 @@
   ],
   "base_url": "https://api.contabo.com",
   "auth": {
-    "types": [
-      "bearer"
-    ],
+    "types": ["bearer"],
     "headers": {
-      "Authorization": "Bearer {{token}}"
+      "Authorization": "Bearer {{access_token}}"
+    },
+    "token_exchange": {
+      "url": "https://auth.contabo.com/auth/realms/contabo/protocol/openid-connect/token",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "body_params": {
+        "client_id": "{{client_id}}",
+        "client_secret": "{{client_secret}}",
+        "username": "{{api_user}}",
+        "password": "{{api_password}}",
+        "grant_type": "password"
+      },
+      "access_token_path": "access_token",
+      "expires_in_path": "expires_in",
+      "expiry_skew_seconds": 60
     },
     "credential_fields": [
-      {
-        "name": "token",
-        "label": "API Key"
-      }
+      { "name": "client_id", "label": "Client ID" },
+      { "name": "client_secret", "label": "Client Secret" },
+      { "name": "api_user", "label": "API User", "description": "Contabo account email", "type": "text" },
+      { "name": "api_password", "label": "API Password", "description": "Dedicated API password from the Contabo control panel" }
     ]
   },
   "tools": [
@@ -30,7 +43,8 @@
       "name": "instance_list",
       "description": "List all VPS/VDS instances in your Contabo account",
       "method": "GET",
-      "path": "/instance-list",
+      "path": "/v1/compute/instances",
+      "header_params": { "request_id": "x-request-id" },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -49,7 +63,8 @@
           "region": {
             "type": "string",
             "description": "Filter by region"
-          }
+          },
+          "request_id": { "type": "string" }
         }
       }
     },
@@ -57,14 +72,16 @@
       "name": "instance_get",
       "description": "Get details of a specific Contabo instance by ID",
       "method": "GET",
-      "path": "/instance-get",
+      "path": "/v1/compute/instances/{instanceId}",
+      "header_params": { "request_id": "x-request-id" },
       "input_schema": {
         "type": "object",
         "properties": {
           "instanceId": {
             "type": "integer",
             "description": "Instance ID"
-          }
+          },
+          "request_id": { "type": "string" }
         },
         "required": [
           "instanceId"
@@ -74,8 +91,9 @@
     {
       "name": "instance_create",
       "description": "Create a new VPS/VDS instance on Contabo",
-      "method": "GET",
-      "path": "/instance-create",
+      "method": "POST",
+      "path": "/v1/compute/instances",
+      "header_params": { "request_id": "x-request-id" },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -104,7 +122,7 @@
           },
           "userData": {
             "type": "string",
-            "description": "Cloud-init user data (base64)"
+            "description": "Plain-text cloud-init user data"
           },
           "displayName": {
             "type": "string",
@@ -113,7 +131,9 @@
           "period": {
             "type": "integer",
             "description": "Contract period in months"
-          }
+          },
+          "defaultUser": { "type": "string", "enum": ["root", "admin"] },
+          "request_id": { "type": "string" }
         },
         "required": [
           "imageId",
@@ -125,8 +145,8 @@
     {
       "name": "instance_start",
       "description": "Start a stopped Contabo instance",
-      "method": "GET",
-      "path": "/instance-start",
+      "method": "POST",
+      "path": "/v1/compute/instances/{instanceId}/actions/start",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -143,8 +163,8 @@
     {
       "name": "instance_stop",
       "description": "Stop a running Contabo instance",
-      "method": "GET",
-      "path": "/instance-stop",
+      "method": "POST",
+      "path": "/v1/compute/instances/{instanceId}/actions/stop",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -161,8 +181,8 @@
     {
       "name": "instance_restart",
       "description": "Restart a Contabo instance",
-      "method": "GET",
-      "path": "/instance-restart",
+      "method": "POST",
+      "path": "/v1/compute/instances/{instanceId}/actions/restart",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -179,8 +199,8 @@
     {
       "name": "instance_reinstall",
       "description": "Reinstall a Contabo instance with a new image (wipes data)",
-      "method": "GET",
-      "path": "/instance-reinstall",
+      "method": "POST",
+      "path": "/v1/compute/instances/{instanceId}",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -217,15 +237,18 @@
     {
       "name": "instance_cancel",
       "description": "Cancel/terminate a Contabo instance at the next possible date",
-      "method": "GET",
-      "path": "/instance-cancel",
+      "method": "POST",
+      "path": "/v1/compute/instances/{instanceId}/cancel",
+      "header_params": { "request_id": "x-request-id" },
       "input_schema": {
         "type": "object",
         "properties": {
           "instanceId": {
             "type": "integer",
             "description": "Instance ID"
-          }
+          },
+          "cancelDate": { "type": "string", "description": "Earliest requested cancellation date" },
+          "request_id": { "type": "string" }
         },
         "required": [
           "instanceId"
@@ -358,7 +381,8 @@
       "name": "image_list",
       "description": "List available standard and custom images on Contabo",
       "method": "GET",
-      "path": "/image-list",
+      "path": "/v1/compute/images",
+      "header_params": { "request_id": "x-request-id" },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -377,7 +401,8 @@
           "standardImage": {
             "type": "boolean",
             "description": "Filter by standard (true) or custom (false) images"
-          }
+          },
+          "request_id": { "type": "string" }
         }
       }
     },
@@ -385,7 +410,7 @@
       "name": "image_get",
       "description": "Get details of a specific Contabo image",
       "method": "GET",
-      "path": "/image-get",
+      "path": "/v1/compute/images/{imageId}",
       "input_schema": {
         "type": "object",
         "properties": {
