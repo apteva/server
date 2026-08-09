@@ -476,7 +476,7 @@ func (s *Server) handleCallbackConnectionCredentials(w http.ResponseWriter, r *h
 		}
 	}
 
-	log.Printf("[CRED-READ] install=%d conn=%d slug=%s role=%s fields=%d",
+	debugLogf("[CRED-READ] install=%d conn=%d slug=%s role=%s fields=%d",
 		installID, connID, conn.AppSlug, role, len(fields))
 
 	writeJSON(w, sdk.ConnectionCredentials{
@@ -794,6 +794,7 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 
 	// 2. Permission check.
 	if !installHasPermission(s, installID, sdk.PermConnectionsExecute) {
+		log.Printf("[INTEGRATIONS-EXEC] DENY install=%d conn=%d reason=missing-permission", installID, connID)
 		http.Error(w, "missing permission: "+string(sdk.PermConnectionsExecute), http.StatusForbidden)
 		return
 	}
@@ -814,7 +815,7 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	role, bound := installBoundConnection(s, installID, connID)
 	ownerID := connectionOwnerInstallID(s, connID)
 	createdVia := connectionCreatedVia(s, connID)
-	log.Printf("[INTEGRATIONS-EXEC] install=%d conn=%d slug=%s tool=%s bound=%t role=%q owner=%d created_via=%q",
+	debugLogf("[INTEGRATIONS-EXEC] install=%d conn=%d slug=%s tool=%s bound=%t role=%q owner=%d created_via=%q",
 		installID, connID, conn.AppSlug, body.Tool, bound, role, ownerID, createdVia)
 	switch {
 	case bound:
@@ -827,20 +828,21 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		if dep != nil && dep.Kind != "app" && len(dep.CompatibleSlugs) > 0 && !contains(dep.CompatibleSlugs, conn.AppSlug) {
+			log.Printf("[INTEGRATIONS-EXEC] DENY install=%d conn=%d slug=%s reason=incompatible-role role=%q", installID, connID, conn.AppSlug, role)
 			http.Error(w, fmt.Sprintf("connection slug %q not in role %q compatible_slugs", conn.AppSlug, role), http.StatusForbidden)
 			return
 		}
 	case ownerID == installID:
-		log.Printf("[INTEGRATIONS-EXEC] grant=owner install=%d conn=%d", installID, connID)
+		debugLogf("[INTEGRATIONS-EXEC] grant=owner install=%d conn=%d", installID, connID)
 	case createdVia == "integration":
-		log.Printf("[INTEGRATIONS-EXEC] grant=operator install=%d conn=%d slug=%s", installID, connID, conn.AppSlug)
+		debugLogf("[INTEGRATIONS-EXEC] grant=operator install=%d conn=%d slug=%s", installID, connID, conn.AppSlug)
 	default:
 		// Dynamic bypass — caller declares requires.dynamic_integration_
 		// access and is identified as official (apps_dynamic_call.go).
 		// Project isolation is preserved: the connection's project_id
 		// must match the caller install's.
 		if ok, msg := s.resolveDynamicIntegration(installID, connID, conn.ProjectID, delegatedProject); ok {
-			log.Printf("[INTEGRATIONS-EXEC] grant=dynamic install=%d conn=%d slug=%s", installID, connID, conn.AppSlug)
+			debugLogf("[INTEGRATIONS-EXEC] grant=dynamic install=%d conn=%d slug=%s", installID, connID, conn.AppSlug)
 		} else if msg != "" {
 			// Eligible caller, wrong project — distinct diagnostic so
 			// consumers can tell this apart from "not eligible".
@@ -864,6 +866,7 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	// the executor rejects.
 	app := s.catalog.Get(conn.AppSlug)
 	if app == nil {
+		log.Printf("[INTEGRATIONS-EXEC] ERROR install=%d conn=%d slug=%s reason=catalog-entry-missing", installID, connID, conn.AppSlug)
 		http.Error(w, "integration app not in catalog: "+conn.AppSlug, http.StatusBadGateway)
 		return
 	}
@@ -883,6 +886,7 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	// Decrypt + execute. Mirrors handleExecuteTool exactly.
 	plain, err := Decrypt(s.secret, encCreds)
 	if err != nil {
+		log.Printf("[INTEGRATIONS-EXEC] ERROR install=%d conn=%d slug=%s reason=decrypt-failed", installID, connID, conn.AppSlug)
 		http.Error(w, "decryption failed", http.StatusInternalServerError)
 		return
 	}
@@ -890,11 +894,13 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	_ = json.Unmarshal([]byte(plain), &credentials)
 
 	if grant, ok, err := parseDelegatedProviderCredentials(plain); err != nil {
+		log.Printf("[INTEGRATIONS-EXEC] ERROR install=%d conn=%d slug=%s reason=delegated-credentials-invalid", installID, connID, conn.AppSlug)
 		http.Error(w, "delegated provider credentials invalid: "+err.Error(), http.StatusBadGateway)
 		return
 	} else if ok {
 		result, err := s.executeDelegatedProviderTool(installID, connID, conn, grant, tool.Name, executionInput)
 		if err != nil {
+			log.Printf("[INTEGRATIONS-EXEC] ERROR install=%d conn=%d slug=%s tool=%s error=%s", installID, connID, conn.AppSlug, tool.Name, truncate(err.Error(), 500))
 			writeJSON(w, map[string]any{"success": false, "data": err.Error()})
 			return
 		}
@@ -908,6 +914,7 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 
 	ctx, err := s.resolveConnectionContext(userID, app, credentials, executionInput)
 	if err != nil {
+		log.Printf("[INTEGRATIONS-EXEC] ERROR install=%d conn=%d slug=%s tool=%s error=%s", installID, connID, conn.AppSlug, tool.Name, truncate(err.Error(), 500))
 		s.recordIntegrationUsage(integrationUsageFromResult(conn, installID, s.callerAppName(installID), tool.Name, executionInput, nil, err))
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -933,6 +940,7 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 	}
 	result, err := executeIntegrationToolWithRefresh(ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
 	if err != nil {
+		log.Printf("[INTEGRATIONS-EXEC] ERROR install=%d conn=%d slug=%s tool=%s error=%s", installID, connID, conn.AppSlug, tool.Name, truncate(err.Error(), 500))
 		if ev, ok := delegatedUsageFromHeaders(r, connID, conn, tool.Name, executionInput, "error", err.Error()); ok {
 			s.recordDelegatedProviderUsage(ev)
 		} else {
@@ -1028,6 +1036,7 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		return
 	}
 	if !installHasPermission(s, installID, sdk.PermAppsCall) {
+		log.Printf("[APPS-CALL] DENY caller_install=%d target=%s reason=missing-permission", installID, targetAppName)
 		http.Error(w, "missing permission: "+string(sdk.PermAppsCall), http.StatusForbidden)
 		return
 	}
@@ -1060,6 +1069,7 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 		// absent".
 		id, msg, ok := s.resolveDynamicTarget(installID, targetAppName, effectiveProjectID)
 		if !ok {
+			log.Printf("[APPS-CALL] DENY caller_install=%d project=%s target=%s reason=%s", installID, effectiveProjectID, targetAppName, msg)
 			http.Error(w, msg, http.StatusForbidden)
 			return
 		}
@@ -1067,10 +1077,12 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 	}
 	target := s.installedApps.Get(targetInstallID)
 	if target == nil {
+		log.Printf("[APPS-CALL] ERROR caller_install=%d project=%s target=%s reason=not-running", installID, effectiveProjectID, targetAppName)
 		http.Error(w, "target app not running: "+targetAppName, http.StatusBadGateway)
 		return
 	}
 	if target.SidecarURL == "" {
+		log.Printf("[APPS-CALL] ERROR caller_install=%d project=%s target=%s reason=no-sidecar-url", installID, effectiveProjectID, targetAppName)
 		http.Error(w, "target app has no sidecar URL", http.StatusBadGateway)
 		return
 	}
@@ -1084,6 +1096,7 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 				return
 			}
 		} else if effectiveProjectID != target.ProjectID {
+			log.Printf("[APPS-CALL] DENY caller_install=%d project=%s target=%s target_project=%s reason=project-mismatch", installID, effectiveProjectID, targetAppName, target.ProjectID)
 			http.Error(w, "project_id does not match target app install", http.StatusForbidden)
 			return
 		}
@@ -1114,10 +1127,14 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		log.Printf("[APPS-CALL] ERROR caller_install=%d project=%s target=%s tool=%s error=%s", installID, effectiveProjectID, targetAppName, body.Tool, truncate(err.Error(), 500))
 		http.Error(w, "target unreachable: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Printf("[APPS-CALL] ERROR caller_install=%d project=%s target=%s tool=%s status=%d", installID, effectiveProjectID, targetAppName, body.Tool, resp.StatusCode)
+	}
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 	w.WriteHeader(resp.StatusCode)

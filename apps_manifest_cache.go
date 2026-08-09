@@ -57,22 +57,28 @@ func (s *Server) fetchAndCacheManifest(url string) (*sdk.Manifest, error) {
 	}
 	manifestCacheMu.RUnlock()
 
+	// Preserve the marketplace cache's existing timeout and document limit for
+	// native manifests. Agent Plugin resolution is an additive second step.
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Accept", "application/x-yaml, text/yaml, text/plain, */*")
+	req.Header.Set("Accept", "application/json, application/x-yaml, text/yaml, text/plain, */*")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s returned http %d", url, resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+	if err != nil {
+		return nil, err
+	}
+	body, err = s.resolveAgentPluginManifestDocument(url, body)
 	if err != nil {
 		return nil, err
 	}

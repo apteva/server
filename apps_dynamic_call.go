@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 
@@ -124,14 +123,14 @@ func (s *Server) resolveDynamicIntegration(callerInstallID, connID int64, connPr
 		return false, fmt.Sprintf("connection %d is in another project (caller=%s, connection=%s)",
 			connID, callerProject, connProjectID)
 	}
-	log.Printf("[INT-CALL] dynamic caller=%s caller_install=%d project=%s connection=%d",
+	debugLogf("[INT-CALL] dynamic caller=%s caller_install=%d project=%s connection=%d",
 		callerMan.Name, callerInstallID, callerProject, connID)
 	return true, ""
 }
 
 // resolveDynamicTarget is the cross-app-call gate's bypass path.
 // Consulted by the gate when installBoundAppID returned 0. Returns
-// the target install_id on success and emits an audit log; on
+// the target install_id on success and emits a debug trace; on
 // failure, returns the appropriate 403 message so the consumer's
 // error distinguishes "not eligible" from "eligible but target
 // absent".
@@ -155,7 +154,7 @@ func (s *Server) resolveDynamicTarget(callerInstallID int64, targetAppName, dele
 		}
 		return 0, "app not reachable: " + targetAppName + " (no install in " + scope + ")", false
 	}
-	log.Printf("[APPS-CALL] dynamic caller=%s caller_install=%d project=%s target=%s target_install=%d",
+	debugLogf("[APPS-CALL] dynamic caller=%s caller_install=%d project=%s target=%s target_install=%d",
 		callerMan.Name, callerInstallID, callerProject, targetAppName, id)
 	return id, "", true
 }

@@ -2069,19 +2069,10 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		); err != nil {
 			log.Printf("[APPS] prune obsolete permissions install=%d: %v", installID, err)
 		}
-		// The healthy sidecar and install snapshot now point at the new
-		// version. Only now refresh app-owned skills; failed upgrades keep
-		// both their old manifest and old skill surface.
-		if len(live.Provides.Skills) > 0 {
-			fetcher := s.makeSkillBodyFileFetcher(deriveManifestURL(live))
-			if err := s.registerAppSkills(installID, live.Name, projectID, live.Provides.Skills, fetcher); err != nil {
-				log.Printf("[APPS-SKILLS] upgrade refresh install=%d failed: %v", installID, err)
-			} else {
-				log.Printf("[APPS-SKILLS] refreshed %d skill(s) on upgrade install=%d", len(live.Provides.Skills), installID)
-			}
-		} else if err := s.deleteAppSkillsForInstall(installID, "app skill removed"); err != nil {
-			log.Printf("[APPS-SKILLS] clear install=%d failed: %v", installID, err)
-		}
+		// installFromSource already refreshed native app skills and merged any
+		// valid portable skills from plugin.json after the successful build.
+		// Do not register the manifest-only list again here: that would erase
+		// portable-only skills immediately after an Agent Plugin upgrade.
 		// Refresh the bridge row so a manifest that adds new tools
 		// across versions surfaces them in mcp_servers.allowed_tools.
 		// installFromSource already calls registerAppMCP on the success
@@ -2289,22 +2280,16 @@ func (s *Server) makeSkillBodyFileFetcher(manifestURL string) func(string) (stri
 // parsed manifest is then validated.
 func (s *Server) fetchManifestBytes(manifestURL, inline string) ([]byte, error) {
 	if inline != "" {
-		return []byte(inline), nil
+		return s.resolveAgentPluginManifestDocument("", []byte(inline))
 	}
 	if manifestURL == "" {
 		return nil, fmt.Errorf("manifest_url or manifest_yaml required")
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(manifestURL)
+	document, err := fetchAgentPluginDocument(manifestURL)
 	if err != nil {
-		return nil, fmt.Errorf("fetch %s: %w", manifestURL, err)
+		return nil, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("fetch %s: http %d", manifestURL, resp.StatusCode)
-	}
-	const maxManifest = 256 * 1024 // 256 KiB is plenty for any manifest
-	return io.ReadAll(io.LimitReader(resp.Body, maxManifest))
+	return s.resolveAgentPluginManifestDocument(manifestURL, document)
 }
 
 func manifestAllowsScope(m *sdk.Manifest, scope sdk.Scope) bool {

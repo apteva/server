@@ -713,6 +713,18 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 		}
 		return err
 	}
+	// Agent Plugins compatibility is additive to the native app install. The
+	// source checkout is now complete, so discover fixed skills/*/SKILL.md
+	// paths and merge valid portable skills with the existing manifest list.
+	// A malformed plugin never takes the healthy native sidecar down; the
+	// manifest-declared skills registered earlier remain in place.
+	pluginRoot := filepath.Join(filepath.Dir(binPath), "src")
+	if m.Runtime.Source != nil && m.Runtime.Source.Entry != "" && m.Runtime.Source.Entry != "." {
+		pluginRoot = filepath.Join(pluginRoot, filepath.FromSlash(m.Runtime.Source.Entry))
+	}
+	if err := s.syncAgentPluginSkillsForInstall(installID, m, projectID, pluginRoot); err != nil {
+		log.Printf("[AGENT-PLUGIN] app=%s install=%d compatibility sync failed: %v", m.Name, installID, err)
+	}
 	pid := s.localApps.PID(installID)
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
 	manifestJSON, _ := json.Marshal(m)

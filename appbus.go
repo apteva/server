@@ -231,12 +231,14 @@ func (b *AppEventBus) Publish(app, projectID string, installID int64, topic stri
 	wildcardDelivered, wildcardDropped, wildcardSubs := b.publishWildcard(app, base)
 	allDelivered, allDropped, allSubs := b.publishAll(base)
 
-	log.Printf("[APPBUS] publish app=%s project=%s topic=%s install=%d project_subs=%d project_delivered=%d project_dropped=%d project_all_subs=%d project_all_delivered=%d project_all_dropped=%d wildcard_subs=%d wildcard_delivered=%d wildcard_dropped=%d all_subs=%d all_delivered=%d all_dropped=%d",
-		app, projectID, topic, installID,
-		projectSubs, projectDelivered, projectDropped,
-		projectAllSubs, projectAllDelivered, projectAllDropped,
-		wildcardSubs, wildcardDelivered, wildcardDropped,
-		allSubs, allDelivered, allDropped)
+	if shouldLogAppBusPublish(projectDropped, projectAllDropped, wildcardDropped, allDropped) {
+		log.Printf("[APPBUS] publish app=%s project=%s topic=%s install=%d project_subs=%d project_delivered=%d project_dropped=%d project_all_subs=%d project_all_delivered=%d project_all_dropped=%d wildcard_subs=%d wildcard_delivered=%d wildcard_dropped=%d all_subs=%d all_delivered=%d all_dropped=%d",
+			app, projectID, topic, installID,
+			projectSubs, projectDelivered, projectDropped,
+			projectAllSubs, projectAllDelivered, projectAllDropped,
+			wildcardSubs, wildcardDelivered, wildcardDropped,
+			allSubs, allDelivered, allDropped)
+	}
 
 	if projectID != "" {
 		return projectEv
@@ -394,9 +396,10 @@ func (b *AppEventBus) Subscribe(app, projectID string, since uint64) (chan AppEv
 			}
 		}
 	}
+	totalSubs := len(lane.subs)
 	lane.mu.Unlock()
-	log.Printf("[APPBUS] subscribe lane=%s app=%s project=%s since=%d sub_id=%d replay=%d total_subs=%d",
-		laneTag, app, projectID, since, id, len(replay), len(lane.subs))
+	debugLogf("[APPBUS] subscribe lane=%s app=%s project=%s since=%d sub_id=%d replay=%d total_subs=%d",
+		laneTag, app, projectID, since, id, len(replay), totalSubs)
 	cancel := func() {
 		lane.mu.Lock()
 		if existing, ok := lane.subs[id]; ok && existing == sub {
@@ -405,7 +408,7 @@ func (b *AppEventBus) Subscribe(app, projectID string, since uint64) (chan AppEv
 		}
 		remaining := len(lane.subs)
 		lane.mu.Unlock()
-		log.Printf("[APPBUS] unsubscribe lane=%s app=%s project=%s sub_id=%d remaining=%d",
+		debugLogf("[APPBUS] unsubscribe lane=%s app=%s project=%s sub_id=%d remaining=%d",
 			laneTag, app, projectID, id, remaining)
 	}
 	return sub.ch, replay, cancel
