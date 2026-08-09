@@ -262,7 +262,7 @@ func (s *Server) LoadInstalledApps() {
 		// the orchestrator at all.
 		sidecarURL := sidecarOverride
 		if sidecarURL == "" {
-			sidecarURL = s.resolveSidecarURL(serviceName)
+			sidecarURL = s.resolveSidecarURL(serviceName, manifest.Runtime.Port)
 		}
 		entry.SidecarURL = sidecarURL
 		s.installedApps.Add(entry)
@@ -276,11 +276,11 @@ func (s *Server) LoadInstalledApps() {
 // resolveSidecarURL asks the orchestrator where the named service is
 // running and returns http://<ip>:<host_port>. Empty string if the
 // orchestrator can't tell us — callers fall back gracefully.
-func (s *Server) resolveSidecarURL(serviceName string) string {
+func (s *Server) resolveSidecarURL(serviceName string, primaryPort int) string {
 	if serviceName == "" || s.orchestratorURL == "" {
 		return ""
 	}
-	resp, err := http.Get(s.orchestratorURL + "/api/v1/services/" + serviceName)
+	resp, err := http.Get(s.orchestratorURL + "/api/v1/services/" + url.PathEscape(serviceName))
 	if err != nil {
 		log.Printf("[APPS] orchestrator unreachable for %s: %v", serviceName, err)
 		return ""
@@ -292,11 +292,8 @@ func (s *Server) resolveSidecarURL(serviceName string) string {
 	var body struct {
 		Data struct {
 			Containers []struct {
-				AgentID string `json:"instance_id"`
-				Ports   []struct {
-					HostPort      int `json:"host_port"`
-					ContainerPort int `json:"container_port"`
-				} `json:"ports"`
+				AgentID string             `json:"instance_id"`
+				Ports   []orchestratorPort `json:"ports"`
 			} `json:"containers"`
 		} `json:"data"`
 	}
@@ -311,7 +308,31 @@ func (s *Server) resolveSidecarURL(serviceName string) string {
 	if ip == "" {
 		return ""
 	}
-	return fmt.Sprintf("http://%s:%d", ip, c.Ports[0].HostPort)
+	hostPort := selectPrimaryHostPort(c.Ports, primaryPort)
+	if hostPort == 0 {
+		return ""
+	}
+	return fmt.Sprintf("http://%s:%d", ip, hostPort)
+}
+
+type orchestratorPort struct {
+	HostPort      int `json:"host_port"`
+	ContainerPort int `json:"container_port"`
+}
+
+// selectPrimaryHostPort keeps the HTTP proxy pinned to runtime.port even when
+// a sidecar also exposes raw TCP/UDP listeners. The legacy fallback preserves
+// compatibility with orchestrators that did not return container_port.
+func selectPrimaryHostPort(ports []orchestratorPort, primaryPort int) int {
+	for _, p := range ports {
+		if p.ContainerPort == primaryPort && p.HostPort > 0 {
+			return p.HostPort
+		}
+	}
+	if len(ports) == 1 && ports[0].ContainerPort == 0 {
+		return ports[0].HostPort
+	}
+	return 0
 }
 
 // workerIP returns the public IP of the named worker instance from the
