@@ -93,7 +93,11 @@ type Server struct {
 	// config. MCP attachment changes are additive at the API, but ultimately
 	// core consumes one desired mcp_servers list; without this lock two
 	// concurrent attach/detach or directive edits can overwrite each other.
-	agentConfigLocks  sync.Map // agent id -> *sync.Mutex
+	agentConfigLocks sync.Map // agent id -> *sync.Mutex
+	// agentSkillLocks serializes reconciliation of app-owned skill memories for
+	// one agent. App attachment changes, app upgrades, and startup repair can
+	// otherwise race and create parallel supersede chains for the same skill.
+	agentSkillLocks   sync.Map // agent id -> *sync.Mutex
 	port              string   // server port for telemetry callback
 	dataDir           string   // data directory for downloads, etc.
 	appsDir           string   // path to integration app definitions
@@ -179,12 +183,7 @@ type Server struct {
 	// so the whole feature can be turned off with a single env var
 	// without redeploying. Set once at startApps boot.
 	liveTelemetryHook func([]TelemetryEvent)
-	// taskConversationEnsure restores channel-chat's complete conversation
-	// thread profile before terminal task recovery posts to Core. Without this,
-	// Core's generic lazy-spawn fallback lacks the conversation Channels MCP.
-	taskConversationEnsure func(agentID int64, conversationID string) error
-	taskSchedulerCancel    context.CancelFunc
-	latestLLMDone          latestLLMDoneCache
+	latestLLMDone     latestLLMDoneCache
 
 	appTokenMu sync.Mutex
 
@@ -546,7 +545,6 @@ func main() {
 	quarantined := cloneQuarantineEnabled()
 	s.agentRollouts = newAgentRolloutCoordinator(s.updateAgentCore)
 	s.installCapabilityMemoryHooks()
-	s.installTaskTrackingHooks()
 	s.ingressCerts = NewIngressCertManager(s)
 	// Back-reference so Environments can drive real (install-backed) app
 	// seeding + teardown. Only ever used by environment endpoints.
@@ -693,12 +691,6 @@ func main() {
 			http.Error(w, "GET, POST, or DELETE", http.StatusMethodNotAllowed)
 		}
 	})
-	// Optional server-owned durable work ledger. The handlers deliberately
-	// return 404 while APTEVA_TASK_TRACKING is disabled, so rolling the MVP
-	// back does not expose a half-active API or discard persisted rows.
-	apiMux.HandleFunc("/tasks", s.authMiddleware(s.handleTasks))
-	apiMux.HandleFunc("/tasks/", s.authMiddleware(s.handleTaskByID))
-
 	// Webhook receiver (unauthenticated — external services POST here).
 	// One route, one handler, one URL shape: /webhooks/<opaque_token>.
 	// The handler dispatches internally based on which table the token
@@ -1630,7 +1622,6 @@ func main() {
 	// Now safe to spawn agents — their MCP proxies will resolve.
 	resumeInstancesAfterApps()
 	if !quarantined {
-		s.startTaskScheduler()
 	}
 	s.ready.Store(true)
 	if !quarantined && providerAuthRefreshEnvEnabled() {
@@ -1660,7 +1651,6 @@ func main() {
 			log.Printf("[SHUTDOWN] marked %d platform agent(s) stopped for clean shutdown", stopped)
 		}
 		s.stopMobilePushWorker()
-		s.stopTaskScheduler()
 		s.stopApps(appsReg)
 		if preserveAgents {
 			log.Printf("[SHUTDOWN] leaving user agent core process(es) alive for reattach")

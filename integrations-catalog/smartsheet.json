@@ -1,0 +1,487 @@
+{
+  "slug": "smartsheet",
+  "name": "Smartsheet",
+  "description": "Smartsheet work management API for sheets, rows, columns, workspaces, attachments, comments, search, users, and webhooks.",
+  "logo": "https://www.google.com/s2/favicons?domain=smartsheet.com&sz=128",
+  "categories": [
+    "project-management",
+    "spreadsheets",
+    "collaboration",
+    "workflows"
+  ],
+  "base_url": "https://api.smartsheet.com/2.0",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Smartsheet Access Token",
+        "type": "password",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_sheets"
+  },
+  "tools": [
+    {
+      "name": "list_sheets",
+      "description": "List sheets accessible to the authenticated user.",
+      "method": "GET",
+      "path": "/sheets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "includeAll": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_sheet",
+      "description": "Get a sheet including columns and rows.",
+      "method": "GET",
+      "path": "/sheets/{sheet_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sheet_id": {
+            "type": "number"
+          },
+          "include": {
+            "type": "string",
+            "description": "Comma-separated optional data such as attachments,discussions."
+          },
+          "exclude": {
+            "type": "string"
+          },
+          "rowIds": {
+            "type": "string"
+          },
+          "columnIds": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sheet_id"
+        ]
+      }
+    },
+    {
+      "name": "create_sheet",
+      "description": "Create a sheet with named columns.",
+      "method": "POST",
+      "path": "/sheets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "columns": {
+            "type": "array",
+            "description": "Column definitions with title, type, and primary where applicable.",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "columns"
+        ]
+      }
+    },
+    {
+      "name": "update_sheet",
+      "description": "Rename a sheet or update project settings.",
+      "method": "PUT",
+      "path": "/sheets/{sheet_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sheet_id": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "projectSettings": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "sheet_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_sheet",
+      "description": "Delete a sheet.",
+      "method": "DELETE",
+      "path": "/sheets/{sheet_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sheet_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "sheet_id"
+        ]
+      }
+    },
+    {
+      "name": "add_rows",
+      "description": "Add one or more rows to a sheet.",
+      "method": "POST",
+      "path": "/sheets/{sheet_id}/rows",
+      "body_root_param": "rows",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sheet_id": {
+            "type": "number"
+          },
+          "rows": {
+            "type": "array",
+            "description": "Rows containing cells and placement fields.",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "sheet_id",
+          "rows"
+        ]
+      }
+    },
+    {
+      "name": "update_rows",
+      "description": "Update one or more existing rows.",
+      "method": "PUT",
+      "path": "/sheets/{sheet_id}/rows",
+      "body_root_param": "rows",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sheet_id": {
+            "type": "number"
+          },
+          "rows": {
+            "type": "array",
+            "description": "Rows with id and changed cells.",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "sheet_id",
+          "rows"
+        ]
+      }
+    },
+    {
+      "name": "delete_rows",
+      "description": "Delete rows from a sheet.",
+      "method": "DELETE",
+      "path": "/sheets/{sheet_id}/rows",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sheet_id": {
+            "type": "number"
+          },
+          "ids": {
+            "type": "string",
+            "description": "Comma-separated row IDs."
+          },
+          "ignoreRowsNotFound": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sheet_id",
+          "ids"
+        ]
+      }
+    },
+    {
+      "name": "add_columns",
+      "description": "Add columns to a sheet.",
+      "method": "POST",
+      "path": "/sheets/{sheet_id}/columns",
+      "body_root_param": "columns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sheet_id": {
+            "type": "number"
+          },
+          "columns": {
+            "type": "array",
+            "description": "Column definitions.",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "sheet_id",
+          "columns"
+        ]
+      }
+    },
+    {
+      "name": "list_workspaces",
+      "description": "List workspaces.",
+      "method": "GET",
+      "path": "/workspaces",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "includeAll": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_workspace",
+      "description": "Get a workspace and its sheets, folders, and reports.",
+      "method": "GET",
+      "path": "/workspaces/{workspace_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "number"
+          },
+          "loadAll": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "search",
+      "description": "Search Smartsheet content.",
+      "method": "GET",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "modifiedSince": {
+            "type": "string",
+            "description": "ISO-8601 date-time."
+          },
+          "scopes": {
+            "type": "string",
+            "description": "Comma-separated scopes."
+          },
+          "include": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "list_attachments",
+      "description": "List attachments on a sheet.",
+      "method": "GET",
+      "path": "/sheets/{sheet_id}/attachments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sheet_id": {
+            "type": "number"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sheet_id"
+        ]
+      }
+    },
+    {
+      "name": "attach_url",
+      "description": "Attach a public URL to a sheet.",
+      "method": "POST",
+      "path": "/sheets/{sheet_id}/attachments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sheet_id": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "attachmentType": {
+            "type": "string",
+            "description": "Use LINK."
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sheet_id",
+          "name",
+          "attachmentType",
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "list_users",
+      "description": "List organization users when the token has admin access.",
+      "method": "GET",
+      "path": "/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "includeAll": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List webhooks owned by the user.",
+      "method": "GET",
+      "path": "/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "includeAll": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a webhook for sheet events.",
+      "method": "POST",
+      "path": "/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "callbackUrl": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "description": "Usually sheet."
+          },
+          "scopeObjectId": {
+            "type": "number",
+            "description": "Sheet ID."
+          },
+          "events": {
+            "type": "array",
+            "description": "Event names; use ['*.*'] for all supported sheet events.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "description": "Webhook version, normally 1."
+          },
+          "subscope": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "callbackUrl",
+          "scope",
+          "scopeObjectId",
+          "events",
+          "version"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete a Smartsheet webhook.",
+      "method": "DELETE",
+      "path": "/webhooks/{webhook_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "webhook_id"
+        ]
+      }
+    }
+  ]
+}

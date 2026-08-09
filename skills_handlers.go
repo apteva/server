@@ -335,12 +335,25 @@ func (s *Server) handleSetSkillEnabled(w http.ResponseWriter, r *http.Request) {
 	if body.Enabled {
 		v = 1
 	}
+	var source string
+	var installID sql.NullInt64
+	if err := s.store.db.QueryRow(`SELECT source, install_id FROM skills WHERE id = ?`, id).
+		Scan(&source, &installID); err != nil {
+		http.Error(w, "skill not found", http.StatusNotFound)
+		return
+	}
 	if _, err := s.store.db.Exec(
 		`UPDATE skills SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		v, id,
 	); err != nil {
 		http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if source == "app" && installID.Valid {
+		if err := s.reconcileAppSkillsForInstall(installID.Int64); err != nil {
+			http.Error(w, "skill updated but bound agents could not be synchronized: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	writeJSON(w, map[string]any{"enabled": body.Enabled})
 }

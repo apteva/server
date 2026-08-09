@@ -1,0 +1,520 @@
+{
+  "slug": "lever",
+  "name": "Lever",
+  "description": "Lever recruiting API for opportunities, postings, applications, stages, interviews, feedback, offers, requisitions, files, notes, and users.",
+  "logo": "https://www.google.com/s2/favicons?domain=lever.co&sz=128",
+  "categories": [
+    "recruiting",
+    "ats",
+    "hr",
+    "candidates"
+  ],
+  "base_url": "https://api.lever.co/v1",
+  "auth": {
+    "types": [
+      "basic"
+    ],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "username",
+        "label": "Lever API Key",
+        "type": "password",
+        "required": true
+      },
+      {
+        "name": "password",
+        "label": "Basic Auth Password",
+        "type": "password",
+        "description": "Leave empty for Lever API-key authentication.",
+        "required": false
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_users",
+    "input": {
+      "limit": 1
+    }
+  },
+  "tools": [
+    {
+      "name": "list_opportunities",
+      "description": "List candidate opportunities with pipeline filters.",
+      "method": "GET",
+      "path": "/opportunities",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "include": {
+            "type": "string"
+          },
+          "expand": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "confidentiality": {
+            "type": "string"
+          },
+          "stage_id": {
+            "type": "string"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "posting_id": {
+            "type": "string"
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_opportunity",
+      "description": "Get an opportunity.",
+      "method": "GET",
+      "path": "/opportunities/{opportunity_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "opportunity_id": {
+            "type": "string"
+          },
+          "expand": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "opportunity_id"
+        ]
+      }
+    },
+    {
+      "name": "create_opportunity",
+      "description": "Create a candidate opportunity.",
+      "method": "POST",
+      "path": "/opportunities",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "headline": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "emails": {
+            "type": "array",
+            "description": "Email addresses.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "phones": {
+            "type": "array",
+            "description": "Phone objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "links": {
+            "type": "array",
+            "description": "Profile URLs.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "description": "Tags.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sources": {
+            "type": "array",
+            "description": "Sources.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "origin": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "postings": {
+            "type": "array",
+            "description": "Posting IDs.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "confidentiality": {
+            "type": "string"
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_opportunity",
+      "description": "Update opportunity fields.",
+      "method": "PUT",
+      "path": "/opportunities/{opportunity_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "opportunity_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "headline": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "description": "Tags.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sources": {
+            "type": "array",
+            "description": "Sources.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "confidentiality": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "opportunity_id"
+        ]
+      }
+    },
+    {
+      "name": "archive_opportunity",
+      "description": "Archive or hire an opportunity with a reason.",
+      "method": "PUT",
+      "path": "/opportunities/{opportunity_id}/archived",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "opportunity_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "cleanInterviews": {
+            "type": "boolean"
+          },
+          "requisitionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "opportunity_id",
+          "reason"
+        ]
+      }
+    },
+    {
+      "name": "unarchive_opportunity",
+      "description": "Return an archived opportunity to the active pipeline.",
+      "method": "DELETE",
+      "path": "/opportunities/{opportunity_id}/archived",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "opportunity_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "opportunity_id"
+        ]
+      }
+    },
+    {
+      "name": "list_opportunity_applications",
+      "description": "List applications for an opportunity.",
+      "method": "GET",
+      "path": "/opportunities/{opportunity_id}/applications",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "opportunity_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "opportunity_id"
+        ]
+      }
+    },
+    {
+      "name": "list_opportunity_interviews",
+      "description": "List interviews for an opportunity.",
+      "method": "GET",
+      "path": "/opportunities/{opportunity_id}/interviews",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "opportunity_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "opportunity_id"
+        ]
+      }
+    },
+    {
+      "name": "list_opportunity_feedback",
+      "description": "List interview feedback for an opportunity.",
+      "method": "GET",
+      "path": "/opportunities/{opportunity_id}/feedback",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "opportunity_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "opportunity_id"
+        ]
+      }
+    },
+    {
+      "name": "list_opportunity_offers",
+      "description": "List offers for an opportunity.",
+      "method": "GET",
+      "path": "/opportunities/{opportunity_id}/offers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "opportunity_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "opportunity_id"
+        ]
+      }
+    },
+    {
+      "name": "list_opportunity_notes",
+      "description": "List notes for an opportunity.",
+      "method": "GET",
+      "path": "/opportunities/{opportunity_id}/notes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "opportunity_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "opportunity_id"
+        ]
+      }
+    },
+    {
+      "name": "create_note",
+      "description": "Add a note to an opportunity.",
+      "method": "POST",
+      "path": "/opportunities/{opportunity_id}/notes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "opportunity_id": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "boolean"
+          },
+          "notifyFollowers": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "opportunity_id",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "list_postings",
+      "description": "List job postings.",
+      "method": "GET",
+      "path": "/postings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "include": {
+            "type": "string"
+          },
+          "expand": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "skip": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_posting",
+      "description": "Get a posting.",
+      "method": "GET",
+      "path": "/postings/{posting_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "posting_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "posting_id"
+        ]
+      }
+    },
+    {
+      "name": "list_stages",
+      "description": "List pipeline stages.",
+      "method": "GET",
+      "path": "/stages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_users",
+      "description": "List Lever users.",
+      "method": "GET",
+      "path": "/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "include": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_requisitions",
+      "description": "List requisitions.",
+      "method": "GET",
+      "path": "/requisitions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_archive_reasons",
+      "description": "List opportunity archive reasons.",
+      "method": "GET",
+      "path": "/archive_reasons",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ]
+}

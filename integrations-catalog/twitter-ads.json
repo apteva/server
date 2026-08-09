@@ -205,6 +205,10 @@
       "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "count": {"type": "integer"}, "cursor": {"type": "string"}, "with_deleted": {"type": "boolean"}}, "required": ["account_id"]}
     },
     {
+      "name": "get_custom_audience", "description": "Get one custom audience.", "method": "GET", "path": "/accounts/{account_id}/custom_audiences/{custom_audience_id}",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "custom_audience_id": {"type": "string"}}, "required": ["account_id", "custom_audience_id"]}
+    },
+    {
       "name": "create_custom_audience", "description": "Create a custom audience.", "method": "POST", "path": "/accounts/{account_id}/custom_audiences", "headers": {"Content-Type": "application/x-www-form-urlencoded"},
       "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "name": {"type": "string"}, "list_type": {"type": "string"}, "description": {"type": "string"}}, "required": ["account_id", "name", "list_type"]}
     },
@@ -215,6 +219,20 @@
     {
       "name": "delete_custom_audience", "description": "Delete a custom audience.", "method": "DELETE", "path": "/accounts/{account_id}/custom_audiences/{custom_audience_id}",
       "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "custom_audience_id": {"type": "string"}}, "required": ["account_id", "custom_audience_id"]}
+    },
+    {
+      "name": "add_custom_audience_users", "description": "Add up to 2,500 normalized and SHA-256 hashed identifiers to a custom audience.", "method": "POST", "path": "/accounts/{account_id}/custom_audiences/{custom_audience_id}/users",
+      "body_root_param": "users",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "custom_audience_id": {"type": "string"}, "users": {"type": "array", "items": {"type": "object"}}}, "required": ["account_id", "custom_audience_id", "users"]}
+    },
+    {
+      "name": "remove_custom_audience_users", "description": "Remove up to 2,500 normalized and SHA-256 hashed identifiers from a custom audience.", "method": "POST", "path": "/accounts/{account_id}/custom_audiences/{custom_audience_id}/users",
+      "body_root_param": "users",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "custom_audience_id": {"type": "string"}, "users": {"type": "array", "items": {"type": "object"}}}, "required": ["account_id", "custom_audience_id", "users"]}
+    },
+    {
+      "name": "get_custom_audience_usage", "description": "List campaigns and line items targeting a custom audience.", "method": "GET", "path": "/accounts/{account_id}/custom_audiences/{custom_audience_id}/targeted",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "custom_audience_id": {"type": "string"}, "with_active": {"type": "boolean"}, "cursor": {"type": "string"}}, "required": ["account_id", "custom_audience_id"]}
     },
     {
       "name": "get_stats", "description": "Get synchronous X Ads metrics for up to seven days and twenty entity IDs.", "method": "GET", "path": "/stats/accounts/{account_id}",

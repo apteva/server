@@ -1,0 +1,633 @@
+{
+  "slug": "wrike",
+  "name": "Wrike",
+  "description": "Wrike project and work management for spaces, folders, projects, tasks, comments, attachments, time logs, users, and webhooks.",
+  "logo": "https://www.google.com/s2/favicons?domain=wrike.com&sz=128",
+  "categories": [
+    "project-management",
+    "tasks",
+    "collaboration",
+    "time-tracking"
+  ],
+  "base_url": "https://www.wrike.com/api/v4",
+  "auth": {
+    "types": [
+      "oauth2",
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Access Token",
+        "type": "password",
+        "source": "oauth"
+      },
+      {
+        "name": "refresh_token",
+        "label": "Refresh Token",
+        "type": "password",
+        "source": "oauth",
+        "required": false
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://www.wrike.com/oauth2/authorize/v4",
+      "token_url": "https://www.wrike.com/oauth2/token",
+      "scopes": [
+        "Default"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "health_check": {
+    "tool": "get_account"
+  },
+  "tools": [
+    {
+      "name": "get_account",
+      "description": "Get the current Wrike account.",
+      "method": "GET",
+      "path": "/account",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_contacts",
+      "description": "List users and contacts in the account.",
+      "method": "GET",
+      "path": "/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          },
+          "me": {
+            "type": "boolean"
+          },
+          "metadata": {
+            "type": "string"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "nextPageToken": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_spaces",
+      "description": "List accessible spaces.",
+      "method": "GET",
+      "path": "/spaces",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "withArchived": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_space",
+      "description": "Get one space.",
+      "method": "GET",
+      "path": "/spaces/{space_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "space_id"
+        ]
+      }
+    },
+    {
+      "name": "list_folders",
+      "description": "List folders and projects in an account.",
+      "method": "GET",
+      "path": "/folders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "descendants": {
+            "type": "boolean"
+          },
+          "metadata": {
+            "type": "string"
+          },
+          "project": {
+            "type": "boolean"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "nextPageToken": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_folder",
+      "description": "Get a folder or project.",
+      "method": "GET",
+      "path": "/folders/{folder_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "folder_id"
+        ]
+      }
+    },
+    {
+      "name": "create_folder",
+      "description": "Create a folder or project under a parent folder or space.",
+      "method": "POST",
+      "path": "/folders/{parent_id}/folders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "parent_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string",
+            "description": "JSON object string containing project owners, dates, and status."
+          },
+          "shareds": {
+            "type": "string",
+            "description": "JSON array string of contact IDs."
+          },
+          "metadata": {
+            "type": "string",
+            "description": "JSON array string of metadata entries."
+          }
+        },
+        "required": [
+          "parent_id",
+          "title"
+        ]
+      },
+      "query_params": [
+        "title",
+        "description",
+        "project",
+        "shareds",
+        "metadata"
+      ]
+    },
+    {
+      "name": "update_folder",
+      "description": "Update a folder or project.",
+      "method": "PUT",
+      "path": "/folders/{folder_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string",
+            "description": "JSON project settings object or null."
+          },
+          "addShareds": {
+            "type": "string",
+            "description": "JSON array string of contact IDs."
+          },
+          "removeShareds": {
+            "type": "string",
+            "description": "JSON array string of contact IDs."
+          }
+        },
+        "required": [
+          "folder_id"
+        ]
+      },
+      "query_params": [
+        "title",
+        "description",
+        "project",
+        "addShareds",
+        "removeShareds"
+      ]
+    },
+    {
+      "name": "list_tasks",
+      "description": "List tasks across the account with filters.",
+      "method": "GET",
+      "path": "/tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "descendants": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          },
+          "importance": {
+            "type": "string"
+          },
+          "authors": {
+            "type": "string"
+          },
+          "responsibles": {
+            "type": "string"
+          },
+          "createdDate": {
+            "type": "string",
+            "description": "Wrike date filter JSON."
+          },
+          "updatedDate": {
+            "type": "string"
+          },
+          "dueDate": {
+            "type": "string"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "nextPageToken": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_task",
+      "description": "Get one task.",
+      "method": "GET",
+      "path": "/tasks/{task_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      }
+    },
+    {
+      "name": "create_task",
+      "description": "Create a task in a folder or project.",
+      "method": "POST",
+      "path": "/folders/{folder_id}/tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "importance": {
+            "type": "string"
+          },
+          "dates": {
+            "type": "string",
+            "description": "JSON date object string."
+          },
+          "responsibles": {
+            "type": "string",
+            "description": "JSON array string of contact IDs."
+          },
+          "followers": {
+            "type": "string",
+            "description": "JSON array string of contact IDs."
+          },
+          "parentTaskId": {
+            "type": "string"
+          },
+          "customFields": {
+            "type": "string",
+            "description": "JSON array string of custom-field id/value objects."
+          }
+        },
+        "required": [
+          "folder_id",
+          "title"
+        ]
+      },
+      "query_params": [
+        "title",
+        "description",
+        "status",
+        "importance",
+        "dates",
+        "responsibles",
+        "followers",
+        "parentTaskId",
+        "customFields"
+      ]
+    },
+    {
+      "name": "update_task",
+      "description": "Update task fields and assignments.",
+      "method": "PUT",
+      "path": "/tasks/{task_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "importance": {
+            "type": "string"
+          },
+          "dates": {
+            "type": "string",
+            "description": "JSON date object string."
+          },
+          "addResponsibles": {
+            "type": "string",
+            "description": "JSON array string of contact IDs."
+          },
+          "removeResponsibles": {
+            "type": "string",
+            "description": "JSON array string of contact IDs."
+          },
+          "customFields": {
+            "type": "string",
+            "description": "JSON array string of custom-field values."
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      },
+      "query_params": [
+        "title",
+        "description",
+        "status",
+        "importance",
+        "dates",
+        "addResponsibles",
+        "removeResponsibles",
+        "customFields"
+      ]
+    },
+    {
+      "name": "delete_task",
+      "description": "Delete a task.",
+      "method": "DELETE",
+      "path": "/tasks/{task_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      }
+    },
+    {
+      "name": "list_task_comments",
+      "description": "List comments on a task.",
+      "method": "GET",
+      "path": "/tasks/{task_id}/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "plainText": {
+            "type": "boolean"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "nextPageToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      }
+    },
+    {
+      "name": "create_task_comment",
+      "description": "Add a comment to a task.",
+      "method": "POST",
+      "path": "/tasks/{task_id}/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "plainText": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "task_id",
+          "text"
+        ]
+      },
+      "query_params": [
+        "text",
+        "plainText"
+      ]
+    },
+    {
+      "name": "list_task_attachments",
+      "description": "List task attachments.",
+      "method": "GET",
+      "path": "/tasks/{task_id}/attachments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "versions": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      }
+    },
+    {
+      "name": "list_timelogs",
+      "description": "List time log entries.",
+      "method": "GET",
+      "path": "/timelogs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "trackedDate": {
+            "type": "string"
+          },
+          "createdDate": {
+            "type": "string"
+          },
+          "updatedDate": {
+            "type": "string"
+          },
+          "me": {
+            "type": "boolean"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "nextPageToken": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_timelog",
+      "description": "Create a time log for a task.",
+      "method": "POST",
+      "path": "/tasks/{task_id}/timelogs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "hours": {
+            "type": "number"
+          },
+          "trackedDate": {
+            "type": "string",
+            "description": "YYYY-MM-DD."
+          },
+          "comment": {
+            "type": "string"
+          },
+          "categoryId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "hours",
+          "trackedDate"
+        ]
+      },
+      "query_params": [
+        "hours",
+        "trackedDate",
+        "comment",
+        "categoryId"
+      ]
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List account webhooks.",
+      "method": "GET",
+      "path": "/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_account_webhook",
+      "description": "Create an account webhook.",
+      "method": "POST",
+      "path": "/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "hookUrl": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "description": "Wrike event names.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "hookUrl"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete a webhook.",
+      "method": "DELETE",
+      "path": "/webhooks/{webhook_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "webhook_id"
+        ]
+      }
+    }
+  ]
+}

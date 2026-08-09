@@ -16,9 +16,9 @@ package main
 //   - Stopped instance → append directly to memory.jsonl (the core
 //     picks it up at next boot via its own load() path)
 //
-// Errors are returned but never bubble to user-facing operations: a
-// push that misses one instance shouldn't block the dashboard mutation
-// that triggered it. Callers log and continue.
+// Errors are returned to the caller. Bulk refresh/sweep paths log and continue;
+// direct agent reconciliation can surface a partial synchronization failure so
+// the dashboard does not silently claim that an app capability is complete.
 
 import (
 	"bytes"

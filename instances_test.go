@@ -23,11 +23,11 @@ func TestExtractMCPNamesExcludesPersistedSystemTransportsAfterRestart(t *testing
 			map[string]any{"name": "channels"},
 			map[string]any{"name": "agent-output"},
 			map[string]any{"name": "apteva-server"},
-			map[string]any{"name": "tasks-conversation"},
+			map[string]any{"name": "work-ledger"},
 			map[string]any{"name": "calendar"},
 		},
 	}
-	if got := strings.Join(extractMCPNames(config), ","); got != "crm,calendar" {
+	if got := strings.Join(extractMCPNames(config), ","); got != "crm,work-ledger,calendar" {
 		t.Fatalf("component MCP names=%q, want only user/domain MCPs", got)
 	}
 }

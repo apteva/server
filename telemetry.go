@@ -654,35 +654,6 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "insert failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if taskTrackingEnabled() {
-		// Telemetry is evidence of activity, not authority to change task
-		// state. Record only the latest observed activity for tasks explicitly
-		// assigned to the emitting thread.
-		type taskThreadActivityKey struct {
-			agentID int64
-			thread  string
-		}
-		latestByThread := make(map[taskThreadActivityKey]time.Time)
-		for _, ev := range events {
-			if ev.AgentID <= 0 || strings.TrimSpace(ev.ThreadID) == "" {
-				continue
-			}
-			key := taskThreadActivityKey{agentID: ev.AgentID, thread: ev.ThreadID}
-			at := ev.Time
-			if at.IsZero() {
-				at = time.Now().UTC()
-			}
-			if previous, ok := latestByThread[key]; !ok || at.After(previous) {
-				latestByThread[key] = at
-			}
-		}
-		for key, at := range latestByThread {
-			if err := s.store.TouchAgentTasksByThread(key.agentID, key.thread, at); err != nil {
-				log.Printf("[TASKS] telemetry activity agent=%d thread=%s: %v", key.agentID, key.thread, err)
-			}
-		}
-	}
-
 	// React to directive changes — update DB so dashboard sees it immediately
 	for _, ev := range events {
 		if ev.Type == "directive.evolved" && ev.AgentID > 0 {
@@ -691,9 +662,6 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 			}
 			if json.Unmarshal(ev.Data, &data) == nil && data.New != "" {
 				s.store.db.Exec("UPDATE agents SET directive=? WHERE id=?", data.New, ev.AgentID)
-				if strings.TrimSpace(ev.ThreadID) == "main" {
-					s.scheduleMainTaskResumeAfterDirectiveEvolution(ev.AgentID)
-				}
 			}
 		}
 	}

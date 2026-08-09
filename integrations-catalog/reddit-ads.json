@@ -200,6 +200,10 @@
       "input_schema": {"type": "object", "properties": {"saved_audience_id": {"type": "string"}, "data": {"type": "object"}}, "required": ["saved_audience_id", "data"]}
     },
     {
+      "name": "delete_saved_audience", "description": "Delete a reusable saved targeting audience.", "method": "DELETE", "path": "/saved_audiences/{saved_audience_id}",
+      "input_schema": {"type": "object", "properties": {"saved_audience_id": {"type": "string"}}, "required": ["saved_audience_id"]}
+    },
+    {
       "name": "list_custom_audiences", "description": "List custom audiences visible to the authenticated user.", "method": "GET", "path": "/me/custom_audiences", "continuation_url_param": "next_url",
       "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "page.size": {"type": "integer"}, "next_url": {"type": "string"}}}
     },
@@ -212,8 +216,23 @@
       "input_schema": {"type": "object", "properties": {"ad_account_id": {"type": "string"}, "data": {"type": "object"}}, "required": ["ad_account_id", "data"]}
     },
     {
-      "name": "update_custom_audience_users", "description": "Add or remove hashed users from a custom audience.", "method": "PATCH", "path": "/custom_audiences/{custom_audience_id}/users",
-      "input_schema": {"type": "object", "properties": {"custom_audience_id": {"type": "string"}, "data": {"type": "object"}}, "required": ["custom_audience_id", "data"]}
+      "name": "update_custom_audience_users", "description": "Add or remove up to 2,500 SHA-256 hashed email or mobile-advertising identifiers from a custom audience.", "method": "PATCH", "path": "/custom_audiences/{custom_audience_id}/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "custom_audience_id": {"type": "string"},
+          "data": {
+            "type": "object",
+            "properties": {
+              "action_type": {"type": "string", "enum": ["ADD", "REMOVE"]},
+              "column_order": {"type": "array", "minItems": 1, "maxItems": 2, "items": {"type": "string", "enum": ["EMAIL_SHA256", "MAID_SHA256"]}},
+              "user_data": {"type": "array", "minItems": 1, "maxItems": 2500, "items": {"type": "array", "minItems": 1, "maxItems": 2, "items": {"type": "string"}}}
+            },
+            "required": ["action_type", "column_order", "user_data"]
+          }
+        },
+        "required": ["custom_audience_id", "data"]
+      }
     },
     {
       "name": "delete_custom_audience", "description": "Delete a custom audience.", "method": "DELETE", "path": "/custom_audiences/{custom_audience_id}",

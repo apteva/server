@@ -1,0 +1,410 @@
+{
+  "slug": "adobe-acrobat-sign",
+  "name": "Adobe Acrobat Sign",
+  "description": "Adobe Acrobat Sign REST API for transient document upload, agreements, recipients, signing URLs, downloads, library documents, reminders, and webhooks.",
+  "logo": "https://www.google.com/s2/favicons?domain=adobe.com&sz=128",
+  "categories": [
+    "esignature",
+    "documents",
+    "agreements",
+    "adobe"
+  ],
+  "base_url": "{{api_base_url}}/api/rest/v6",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Acrobat Sign Access Token",
+        "type": "password",
+        "required": true
+      },
+      {
+        "name": "api_base_url",
+        "label": "Acrobat Sign API Base URL",
+        "type": "text",
+        "description": "Regional base URL returned by GET /baseUris, for example https://api.na1.adobesign.com.",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_base_uris"
+  },
+  "tools": [
+    {
+      "name": "get_base_uris",
+      "description": "Return the regional API and web access points for the authenticated account.",
+      "method": "GET",
+      "path": "/baseUris",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_agreements",
+      "description": "List agreements visible to the user.",
+      "method": "GET",
+      "path": "/agreements",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_agreement",
+      "description": "Get agreement metadata and status.",
+      "method": "GET",
+      "path": "/agreements/{agreement_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "agreement_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "agreement_id"
+        ]
+      }
+    },
+    {
+      "name": "create_transient_document",
+      "description": "Upload one document for later use when creating an agreement. The returned transientDocumentId is valid for seven days.",
+      "method": "POST",
+      "path": "/transientDocuments",
+      "multipart_form": {
+        "file_fields": {
+          "file": "File"
+        },
+        "field_names": [
+          "fileName",
+          "mimeType"
+        ]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Document bytes as base64, data URL, or binary envelope."
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "MIME type such as application/pdf."
+          }
+        },
+        "required": [
+          "file",
+          "fileName"
+        ]
+      }
+    },
+    {
+      "name": "create_agreement",
+      "description": "Create and optionally send an agreement.",
+      "method": "POST",
+      "path": "/agreements",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "fileInfos": {
+            "type": "array",
+            "description": "File references containing transientDocumentId, libraryDocumentId, or documentURL.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "participantSetsInfo": {
+            "type": "array",
+            "description": "Recipient sets with memberInfos, order, and role.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "signatureType": {
+            "type": "string",
+            "description": "ESIGN or WRITTEN."
+          },
+          "state": {
+            "type": "string",
+            "description": "DRAFT, AUTHORING, or IN_PROCESS."
+          },
+          "message": {
+            "type": "string"
+          },
+          "emailOption": {
+            "type": "object"
+          },
+          "reminderFrequency": {
+            "type": "string"
+          },
+          "mergeFieldInfo": {
+            "type": "array",
+            "description": "Merge field values.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "securityOption": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "fileInfos",
+          "participantSetsInfo",
+          "signatureType",
+          "state"
+        ]
+      }
+    },
+    {
+      "name": "get_agreement_documents",
+      "description": "List documents belonging to an agreement.",
+      "method": "GET",
+      "path": "/agreements/{agreement_id}/documents",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "agreement_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "agreement_id"
+        ]
+      }
+    },
+    {
+      "name": "download_combined_document",
+      "description": "Download the current combined agreement PDF.",
+      "method": "GET",
+      "path": "/agreements/{agreement_id}/combinedDocument",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "agreement_id": {
+            "type": "string"
+          },
+          "versionId": {
+            "type": "string"
+          },
+          "participantEmail": {
+            "type": "string"
+          },
+          "attachSupportingDocuments": {
+            "type": "boolean"
+          },
+          "auditReport": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "agreement_id"
+        ]
+      }
+    },
+    {
+      "name": "get_signing_urls",
+      "description": "Get hosted signing URLs for current participants.",
+      "method": "GET",
+      "path": "/agreements/{agreement_id}/signingUrls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "agreement_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "agreement_id"
+        ]
+      }
+    },
+    {
+      "name": "update_agreement_state",
+      "description": "Cancel an agreement or replace its state using Acrobat Sign's state transition payload.",
+      "method": "PUT",
+      "path": "/agreements/{agreement_id}/state",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "agreement_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "description": "Usually CANCELLED."
+          },
+          "agreementCancellationInfo": {
+            "type": "object",
+            "description": "Cancellation comment and notification behavior."
+          }
+        },
+        "required": [
+          "agreement_id",
+          "state"
+        ]
+      }
+    },
+    {
+      "name": "create_reminder",
+      "description": "Create a reminder for an agreement.",
+      "method": "POST",
+      "path": "/reminders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "agreementId": {
+            "type": "string"
+          },
+          "recipientParticipantIds": {
+            "type": "array",
+            "description": "Participant IDs.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "description": "ACTIVE or CANCELLED."
+          },
+          "reminderFrequency": {
+            "type": "string"
+          },
+          "startReminderCounterFrom": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "agreementId",
+          "status"
+        ]
+      }
+    },
+    {
+      "name": "list_library_documents",
+      "description": "List reusable library documents and templates.",
+      "method": "GET",
+      "path": "/libraryDocuments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "showHiddenLibraryDocuments": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List Acrobat Sign webhooks.",
+      "method": "GET",
+      "path": "/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create an Acrobat Sign webhook.",
+      "method": "POST",
+      "path": "/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "description": "ACCOUNT, GROUP, USER, AGREEMENT, or RESOURCE."
+          },
+          "state": {
+            "type": "string",
+            "description": "ACTIVE."
+          },
+          "webhookSubscriptionEvents": {
+            "type": "array",
+            "description": "Event names.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "webhookUrlInfo": {
+            "type": "object",
+            "description": "Object containing url."
+          },
+          "webhookConditionalParams": {
+            "type": "object"
+          },
+          "applicationDisplayName": {
+            "type": "string"
+          },
+          "applicationName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "scope",
+          "state",
+          "webhookSubscriptionEvents",
+          "webhookUrlInfo"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete an Acrobat Sign webhook.",
+      "method": "DELETE",
+      "path": "/webhooks/{webhook_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "webhook_id"
+        ]
+      }
+    }
+  ]
+}

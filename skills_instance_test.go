@@ -273,6 +273,12 @@ func TestRegisterAppSkillsRefreshesAssignedMemoriesBySlug(t *testing.T) {
 	oldSkillID, _ := skillRes.LastInsertId()
 	assigned, _ := s.store.CreateAgent(1, "assigned", "d", "autonomous", "{}", "proj-x")
 	unassigned, _ := s.store.CreateAgent(1, "unassigned", "d", "autonomous", "{}", "proj-x")
+	boundMissing, _ := s.store.CreateAgent(1, "bound-missing", "d", "autonomous", "{}", "proj-x")
+	if _, err := s.store.db.Exec(`
+		INSERT INTO app_agent_bindings (install_id, agent_id, enabled)
+		VALUES (?, ?, 1)`, installID, boundMissing.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	oldSkill, err := s.loadSkillByID(oldSkillID)
 	if err != nil {
@@ -306,6 +312,15 @@ func TestRegisterAppSkillsRefreshesAssignedMemoriesBySlug(t *testing.T) {
 	}
 	if _, ok := unassignedActive["media:clip"]; ok {
 		t.Fatalf("unassigned agent should not receive app skill refresh")
+	}
+	boundActive, err := journalActiveSkillRecords(s.agents.instanceDir(boundMissing.ID) + "/memory.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec, ok := boundActive["media:clip"]; !ok {
+		t.Fatalf("bound agent missing newly registered app skill")
+	} else if extractTag(rec.Tags, SkillHashTagPrefix) != skillBodyHash("new body") {
+		t.Fatalf("bound agent app skill hash = %q, want %q", extractTag(rec.Tags, SkillHashTagPrefix), skillBodyHash("new body"))
 	}
 	var count int
 	if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM skills WHERE install_id = ? AND slug = 'media:clip'`, installID).Scan(&count); err != nil {

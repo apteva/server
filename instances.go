@@ -163,16 +163,6 @@ type AgentManager struct {
 	// spawning core with live=false, while Reattach calls it after the
 	// live core is recorded with live=true.
 	CapabilityMemorySync func(inst *Agent, includeChannels bool, live bool) error
-
-	// Task tracking is a server-owned, feature-gated durable ledger. Its
-	// profile-specific tools share the trusted Channels transports so Core's
-	// opaque thread context enforces main, conversation, and worker authority.
-	TaskStore              *Store
-	TaskTracking           bool
-	TaskCompletionDelivery taskCompletionDelivery
-	TaskHandoffDelivery    taskHandoffDelivery
-	TaskCapabilitySync     func(inst *Agent, enabled bool, live bool) error
-	TaskDeliveryRecovery   func(agentID int64)
 }
 
 func describeProcessState(ps *os.ProcessState) string {
@@ -255,7 +245,7 @@ func extractMCPNames(config map[string]any) []string {
 			continue
 		}
 		if name, _ := m["name"].(string); name != "" {
-			if name == "apteva-server" || isServerOwnedOutputMCP(name) || isServerOwnedTaskMCP(name) {
+			if name == "apteva-server" || isServerOwnedOutputMCP(name) {
 				continue
 			}
 			out = append(out, name)
@@ -279,9 +269,7 @@ func channelsMCPConfig(url string) map[string]any {
 		"tool_loading": map[string]any{
 			"default": "deferred",
 		},
-	}
-	if !taskTrackingEnabled() {
-		entry["no_spawn"] = true
+		"no_spawn": true,
 	}
 	return entry
 }
@@ -603,26 +591,6 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		return fmt.Errorf("failed to start agent output MCP: %w", err)
 	}
 	outputMCP.ic = ic
-	if im.TaskTracking {
-		stepExecutor := taskStepExecutorFromConfig(config)
-		workerSpawner := func(ctx context.Context, task *AgentTask, workerID, instructions string) error {
-			return spawnTaskWorkerOnCore(ctx, port, inst.CoreAPIKey, task, workerID, instructions)
-		}
-		channelsMCP.taskStore = im.TaskStore
-		channelsMCP.taskAgent = inst
-		channelsMCP.taskDeliver = im.TaskCompletionDelivery
-		channelsMCP.taskHandoff = im.TaskHandoffDelivery
-		channelsMCP.taskExecute = stepExecutor
-		channelsMCP.taskSpawn = workerSpawner
-		channelsMCP.taskEnabled = true
-		outputMCP.taskStore = im.TaskStore
-		outputMCP.taskAgent = inst
-		outputMCP.taskDeliver = im.TaskCompletionDelivery
-		outputMCP.taskHandoff = im.TaskHandoffDelivery
-		outputMCP.taskExecute = stepExecutor
-		outputMCP.taskSpawn = workerSpawner
-		outputMCP.taskEnabled = true
-	}
 	ic.mcp = channelsMCP
 	ic.outputMCP = outputMCP
 	go channelsMCP.serve()
@@ -666,7 +634,7 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		for _, s := range existing {
 			if sm, ok := s.(map[string]any); ok {
 				name, _ := sm["name"].(string)
-				if isServerOwnedOutputMCP(name) || isServerOwnedTaskMCP(name) || name == "apteva-server" {
+				if isServerOwnedOutputMCP(name) || name == "apteva-server" {
 					continue // will be re-added with fresh URLs (if enabled)
 				}
 				userServers = append(userServers, sm)
@@ -685,11 +653,6 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	if im.CapabilityMemorySync != nil {
 		if err := im.CapabilityMemorySync(inst, includeChannels, false); err != nil {
 			log.Printf("[CAPABILITY-MEMORY] startup sync agent=%d include_channels=%v: %v", inst.ID, includeChannels, err)
-		}
-	}
-	if im.TaskCapabilitySync != nil {
-		if err := im.TaskCapabilitySync(inst, im.TaskTracking, false); err != nil {
-			log.Printf("[TASKS] startup capability sync agent=%d enabled=%v: %v", inst.ID, im.TaskTracking, err)
 		}
 	}
 
@@ -763,20 +726,6 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	inst.Status = "running"
 	procDiagStop := make(chan struct{})
 	go monitorCoreProc(ri, cmd.Process.Pid, procDiagStop)
-	if im.TaskTracking && im.TaskDeliveryRecovery != nil {
-		agentID := inst.ID
-		go func() {
-			deadline := time.Now().Add(10 * time.Second)
-			for time.Now().Before(deadline) {
-				if coreHealthOK(port, coreAPIKey, 250*time.Millisecond) {
-					im.TaskDeliveryRecovery(agentID)
-					return
-				}
-				time.Sleep(100 * time.Millisecond)
-			}
-			log.Printf("[TASKS] delivery recovery skipped agent=%d: core not ready", agentID)
-		}()
-	}
 
 	// Auto-start persisted channels (e.g. telegram)
 	for _, cc := range channelConfigs {
@@ -1105,26 +1054,6 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 	}
 	channelsMCP.ic = ic
 	outputMCP.ic = ic
-	if im.TaskTracking {
-		stepExecutor := taskStepExecutorFromConfig(config)
-		workerSpawner := func(ctx context.Context, task *AgentTask, workerID, instructions string) error {
-			return spawnTaskWorkerOnCore(ctx, inst.Port, inst.CoreAPIKey, task, workerID, instructions)
-		}
-		channelsMCP.taskStore = im.TaskStore
-		channelsMCP.taskAgent = inst
-		channelsMCP.taskDeliver = im.TaskCompletionDelivery
-		channelsMCP.taskHandoff = im.TaskHandoffDelivery
-		channelsMCP.taskExecute = stepExecutor
-		channelsMCP.taskSpawn = workerSpawner
-		channelsMCP.taskEnabled = true
-		outputMCP.taskStore = im.TaskStore
-		outputMCP.taskAgent = inst
-		outputMCP.taskDeliver = im.TaskCompletionDelivery
-		outputMCP.taskHandoff = im.TaskHandoffDelivery
-		outputMCP.taskExecute = stepExecutor
-		outputMCP.taskSpawn = workerSpawner
-		outputMCP.taskEnabled = true
-	}
 	ic.mcp = channelsMCP
 	ic.outputMCP = outputMCP
 	if im.ComponentCatalog != nil {
@@ -1168,7 +1097,7 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 		for _, s := range existing {
 			if sm, ok := s.(map[string]any); ok {
 				name, _ := sm["name"].(string)
-				if isServerOwnedOutputMCP(name) || isServerOwnedTaskMCP(name) || name == "apteva-server" {
+				if isServerOwnedOutputMCP(name) || name == "apteva-server" {
 					continue
 				}
 				userServers = append(userServers, sm)
@@ -1209,18 +1138,10 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 	im.mu.Lock()
 	im.processes[inst.ID] = ri
 	im.mu.Unlock()
-	if im.TaskTracking && im.TaskDeliveryRecovery != nil {
-		go im.TaskDeliveryRecovery(inst.ID)
-	}
 
 	if im.CapabilityMemorySync != nil {
 		if err := im.CapabilityMemorySync(inst, includeChannels, true); err != nil {
 			log.Printf("[CAPABILITY-MEMORY] reattach sync agent=%d include_channels=%v: %v", inst.ID, includeChannels, err)
-		}
-	}
-	if im.TaskCapabilitySync != nil {
-		if err := im.TaskCapabilitySync(inst, im.TaskTracking, true); err != nil {
-			log.Printf("[TASKS] reattach capability sync agent=%d enabled=%v: %v", inst.ID, im.TaskTracking, err)
 		}
 	}
 
@@ -1692,8 +1613,11 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 				inst.Config = string(out)
 			}
 		}
-		// Skills and non-MCP app metadata use the same validated selection.
-		s.inheritAppSkills(inst, validInstallIDs)
+		// Skills are agent-scoped companions to the attached apps. One memory
+		// assignment is shared by main and every existing or future thread.
+		if _, err := s.reconcileAgentAppSkills(inst); err != nil {
+			log.Printf("[CREATE] reconcile app skills → agent=%d: %v", inst.ID, err)
+		}
 	}
 	if len(body.BoundAppGrants) > 0 {
 		allowedInstalls := map[int64]bool{}
@@ -1834,42 +1758,6 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 
 	s.store.UpdateAgent(inst)
 	writeJSON(w, inst)
-}
-
-// inheritAppSkills attaches the skills shipped by each bound app to the
-// agent, so binding an app brings its playbooks along. MCP-capable apps are
-// attached separately through the agent's mcp_servers config. Best-effort;
-// returns the number attached. Safe to
-// call before the agent is started — PushSkillToInstance writes to the
-// instance's on-disk memory journal, which the core reads at boot.
-func (s *Server) inheritAppSkills(inst *Agent, boundInstallIDs []int64) int {
-	if inst == nil || len(boundInstallIDs) == 0 {
-		return 0
-	}
-	boundSet := make(map[int64]bool, len(boundInstallIDs))
-	for _, id := range boundInstallIDs {
-		boundSet[id] = true
-	}
-	skills, err := s.listProjectSkills(inst.ProjectID)
-	if err != nil {
-		log.Printf("[CREATE] list skills for inheritance (agent=%d): %v", inst.ID, err)
-		return 0
-	}
-	attached := 0
-	for _, sk := range skills {
-		if sk.InstallID == nil || !boundSet[*sk.InstallID] {
-			continue
-		}
-		if perr := s.PushSkillToInstance(inst.ID, sk); perr != nil {
-			log.Printf("[CREATE] attach app skill=%d (%s) → agent=%d: %v", sk.ID, sk.Slug, inst.ID, perr)
-			continue
-		}
-		attached++
-	}
-	if attached > 0 {
-		log.Printf("[CREATE] inherited %d app skill(s) from %d bound app(s) → agent=%d", attached, len(boundSet), inst.ID)
-	}
-	return attached
 }
 
 // GET /instances

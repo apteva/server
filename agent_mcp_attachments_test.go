@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -99,6 +100,25 @@ func TestAgentMCPMutationIsAdditiveAndSynchronizesAppBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	installID := seedAppWithTools(t, s, "crm", "proj-1", []string{"contacts_get"})
+	if _, err := s.store.db.Exec(`
+		INSERT INTO skills (slug, name, description, body, source, install_id, project_id, enabled)
+		VALUES ('crm:how-to-use-crm', 'how-to-use-crm', 'Use CRM tools correctly', 'Call CRM directly.', 'app', ?, 'proj-1', 1)`, installID); err != nil {
+		t.Fatal(err)
+	}
+	userSkillRes, err := s.store.db.Exec(`
+		INSERT INTO skills (slug, name, description, body, source, project_id, enabled)
+		VALUES ('user:keep-me', 'keep-me', 'User guidance', 'Keep this skill.', 'user', 'proj-1', 1)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userSkillID, _ := userSkillRes.LastInsertId()
+	userSkill, err := s.loadSkillByID(userSkillID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PushSkillToInstance(agent.ID, userSkill); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.registerAppMCP(installID); err != nil {
 		t.Fatal(err)
 	}
@@ -134,6 +154,16 @@ func TestAgentMCPMutationIsAdditiveAndSynchronizesAppBinding(t *testing.T) {
 	if bound != 1 {
 		t.Fatalf("app binding count=%d, want 1 after attach", bound)
 	}
+	activeSkills, err := journalActiveSkillRecords(filepath.Join(s.agents.instanceDir(agent.ID), "memory.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := activeSkills["crm:how-to-use-crm"]; !ok {
+		t.Fatalf("dynamic app attachment did not assign its skill: %#v", activeSkills)
+	}
+	if _, ok := activeSkills["user:keep-me"]; !ok {
+		t.Fatalf("app attachment removed user skill: %#v", activeSkills)
+	}
 
 	mutate("remove")
 	servers, err = s.currentAgentMCPServers(agent, 0)
@@ -150,6 +180,16 @@ func TestAgentMCPMutationIsAdditiveAndSynchronizesAppBinding(t *testing.T) {
 	}
 	if bound != 0 {
 		t.Fatalf("app binding count=%d, want 0 after detach", bound)
+	}
+	activeSkills, err = journalActiveSkillRecords(filepath.Join(s.agents.instanceDir(agent.ID), "memory.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := activeSkills["crm:how-to-use-crm"]; ok {
+		t.Fatalf("dynamic app detachment retained its skill: %#v", activeSkills)
+	}
+	if _, ok := activeSkills["user:keep-me"]; !ok {
+		t.Fatalf("app detachment removed user skill: %#v", activeSkills)
 	}
 }
 
@@ -336,6 +376,11 @@ func TestStartupReconciliationRepairsHistoricalAppBindingDrift(t *testing.T) {
 	s := newTestServer(t)
 	ensureTestAdmin(t, s)
 	installID := seedAppWithTools(t, s, "crm", "proj-1", []string{"contacts_get"})
+	if _, err := s.store.db.Exec(`
+		INSERT INTO skills (slug, name, description, body, source, install_id, project_id, enabled)
+		VALUES ('crm:startup-guide', 'startup-guide', 'Startup guidance', 'Use CRM directly.', 'app', ?, 'proj-1', 1)`, installID); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.registerAppMCP(installID); err != nil {
 		t.Fatal(err)
 	}
@@ -360,6 +405,13 @@ func TestStartupReconciliationRepairsHistoricalAppBindingDrift(t *testing.T) {
 	if bound != 1 {
 		t.Fatalf("startup reconciliation did not add missing binding: count=%d", bound)
 	}
+	activeSkills, err := journalActiveSkillRecords(filepath.Join(s.agents.instanceDir(agent.ID), "memory.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := activeSkills["crm:startup-guide"]; !ok {
+		t.Fatalf("startup reconciliation did not repair missing app skill: %#v", activeSkills)
+	}
 
 	agent.Config = `{}`
 	if err := s.store.UpdateAgent(agent); err != nil {
@@ -373,6 +425,13 @@ func TestStartupReconciliationRepairsHistoricalAppBindingDrift(t *testing.T) {
 	}
 	if bound != 0 {
 		t.Fatalf("startup reconciliation retained stale binding: count=%d", bound)
+	}
+	activeSkills, err = journalActiveSkillRecords(filepath.Join(s.agents.instanceDir(agent.ID), "memory.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := activeSkills["crm:startup-guide"]; ok {
+		t.Fatalf("startup reconciliation retained detached app skill: %#v", activeSkills)
 	}
 }
 

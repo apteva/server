@@ -96,6 +96,12 @@ func (s *Server) registerAppSkills(
 			fmt.Printf("[APPS-SKILLS] refreshed skill=%s install=%d agents=%d\n", sk.Slug, installID, n)
 		}
 	}
+	// Existing refreshes above preserve explicitly assigned legacy skills.
+	// Reconciliation additionally covers agents already bound to this app but
+	// missing a newly introduced skill (for example after an app upgrade).
+	if err := s.reconcileAppSkillsForInstall(installID); err != nil {
+		return fmt.Errorf("reconcile bound agents: %w", err)
+	}
 	return nil
 }
 

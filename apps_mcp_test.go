@@ -366,6 +366,37 @@ func TestInjectProjectIntoMCPRequestOverridesSpoofedProjectID(t *testing.T) {
 	}
 }
 
+func TestExtractCallerThreadFromMCPRequestCreatesTrustedHeader(t *testing.T) {
+	req := httptest.NewRequest("POST", "/api/apps/example/mcp", strings.NewReader(`{
+		"jsonrpc":"2.0","id":1,"method":"tools/call",
+		"params":{"name":"work_create","arguments":{"title":"x","_apteva_caller_thread":"thread-a"}}
+	}`))
+	req.Header.Set("X-Apteva-Caller-Agent", "42")
+	if err := extractCallerThreadFromMCPRequest(req); err != nil {
+		t.Fatal(err)
+	}
+	if got := req.Header.Get("X-Apteva-Caller-Thread"); got != "thread-a" {
+		t.Fatalf("thread header=%q", got)
+	}
+	body, _ := io.ReadAll(req.Body)
+	if strings.Contains(string(body), "_apteva_caller_thread") {
+		t.Fatalf("hidden caller leaked to sidecar args: %s", body)
+	}
+}
+
+func TestExtractCallerThreadRejectsUntrustedArgument(t *testing.T) {
+	req := httptest.NewRequest("POST", "/api/apps/example/mcp", strings.NewReader(`{
+		"jsonrpc":"2.0","id":1,"method":"tools/call",
+		"params":{"name":"work_create","arguments":{"_apteva_caller_thread":"forged"}}
+	}`))
+	if err := extractCallerThreadFromMCPRequest(req); err != nil {
+		t.Fatal(err)
+	}
+	if got := req.Header.Get("X-Apteva-Caller-Thread"); got != "" {
+		t.Fatalf("accepted untrusted thread %q", got)
+	}
+}
+
 func TestInstallIDFromDevAPIKey(t *testing.T) {
 	if got := installIDFromDevAPIKey("dev-42"); got != 42 {
 		t.Fatalf("installIDFromDevAPIKey(dev-42)=%d, want 42", got)

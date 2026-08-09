@@ -129,11 +129,14 @@ type AppHealthCheck struct {
 // in the agent-facing description — the dashboard's runtime is the
 // authority for prop validation.
 type IntegrationUIComponent struct {
-	Name         string         `json:"name"`
-	Entry        string         `json:"entry"`
-	Slots        []string       `json:"slots,omitempty"`
-	PropsSchema  map[string]any `json:"props_schema,omitempty"`
-	PreviewProps map[string]any `json:"preview_props,omitempty"`
+	Name           string         `json:"name"`
+	Entry          string         `json:"entry"`
+	Slots          []string       `json:"slots,omitempty"`
+	SupportedSizes []string       `json:"supported_sizes,omitempty"`
+	DefaultSize    string         `json:"default_size,omitempty"`
+	PropsSchema    map[string]any `json:"props_schema,omitempty"`
+	SettingsSchema map[string]any `json:"settings_schema,omitempty"`
+	PreviewProps   map[string]any `json:"preview_props,omitempty"`
 }
 
 // IntegrationExplorerConfig mirrors @apteva/integrations/src/types.ts.

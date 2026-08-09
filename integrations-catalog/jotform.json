@@ -1,0 +1,418 @@
+{
+  "slug": "jotform",
+  "name": "Jotform",
+  "description": "Jotform API for forms, questions, submissions, reports, files, users, folders, and webhooks.",
+  "logo": "https://www.google.com/s2/favicons?domain=jotform.com&sz=128",
+  "categories": [
+    "forms",
+    "surveys",
+    "submissions",
+    "documents"
+  ],
+  "base_url": "https://api.jotform.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "APIKEY": "{{api_key}}",
+      "Accept": "application/json",
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Jotform API Key",
+        "type": "password",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_user"
+  },
+  "tools": [
+    {
+      "name": "get_user",
+      "description": "Get the API-key owner's profile and account limits.",
+      "method": "GET",
+      "path": "/user",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_forms",
+      "description": "List forms owned by the user.",
+      "method": "GET",
+      "path": "/user/forms",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "filter": {
+            "type": "string",
+            "description": "JSON filter."
+          },
+          "orderby": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_form",
+      "description": "Get a form.",
+      "method": "GET",
+      "path": "/form/{form_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "form_id"
+        ]
+      }
+    },
+    {
+      "name": "create_form",
+      "description": "Create a form using Jotform properties and question definitions.",
+      "method": "POST",
+      "path": "/user/forms",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "properties": {
+            "type": "object",
+            "description": "Form properties keyed by Jotform property names."
+          },
+          "questions": {
+            "type": "object",
+            "description": "Question map keyed by question number."
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_form",
+      "description": "Delete a form.",
+      "method": "DELETE",
+      "path": "/form/{form_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "form_id"
+        ]
+      }
+    },
+    {
+      "name": "list_questions",
+      "description": "List questions in a form.",
+      "method": "GET",
+      "path": "/form/{form_id}/questions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "form_id"
+        ]
+      }
+    },
+    {
+      "name": "create_question",
+      "description": "Add a question to a form.",
+      "method": "POST",
+      "path": "/form/{form_id}/questions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "order": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "required": {
+            "type": "string",
+            "description": "Yes or No."
+          },
+          "options": {
+            "type": "string",
+            "description": "Pipe-separated choices where required."
+          },
+          "validation": {
+            "type": "string"
+          },
+          "hint": {
+            "type": "string"
+          },
+          "special": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "form_id",
+          "type",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "update_question",
+      "description": "Update a form question.",
+      "method": "POST",
+      "path": "/form/{form_id}/question/{question_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "string"
+          },
+          "question_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "order": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "required": {
+            "type": "string"
+          },
+          "options": {
+            "type": "string"
+          },
+          "validation": {
+            "type": "string"
+          },
+          "hint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "form_id",
+          "question_id"
+        ]
+      }
+    },
+    {
+      "name": "list_submissions",
+      "description": "List submissions for a form.",
+      "method": "GET",
+      "path": "/form/{form_id}/submissions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "filter": {
+            "type": "string",
+            "description": "JSON filter."
+          },
+          "orderby": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "form_id"
+        ]
+      }
+    },
+    {
+      "name": "get_submission",
+      "description": "Get one submission including answers.",
+      "method": "GET",
+      "path": "/submission/{submission_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "submission_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id"
+        ]
+      }
+    },
+    {
+      "name": "create_submission",
+      "description": "Submit answers to a form. The integration form-encodes the map as submission[question]=value fields.",
+      "method": "POST",
+      "path": "/form/{form_id}/submissions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "string"
+          },
+          "submission": {
+            "type": "object",
+            "description": "Map of Jotform question IDs or field names to submitted values."
+          }
+        },
+        "required": [
+          "form_id",
+          "submission"
+        ]
+      }
+    },
+    {
+      "name": "delete_submission",
+      "description": "Delete a submission.",
+      "method": "DELETE",
+      "path": "/submission/{submission_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "submission_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id"
+        ]
+      }
+    },
+    {
+      "name": "list_reports",
+      "description": "List reports for a form.",
+      "method": "GET",
+      "path": "/form/{form_id}/reports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "form_id"
+        ]
+      }
+    },
+    {
+      "name": "list_files",
+      "description": "List files uploaded through a form.",
+      "method": "GET",
+      "path": "/form/{form_id}/files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "form_id"
+        ]
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List form webhooks.",
+      "method": "GET",
+      "path": "/form/{form_id}/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "form_id"
+        ]
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Register a webhook URL for new submissions.",
+      "method": "POST",
+      "path": "/form/{form_id}/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "string"
+          },
+          "webhookURL": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "form_id",
+          "webhookURL"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete a form webhook.",
+      "method": "DELETE",
+      "path": "/form/{form_id}/webhooks/{webhook_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "string"
+          },
+          "webhook_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "form_id",
+          "webhook_id"
+        ]
+      }
+    }
+  ]
+}

@@ -722,6 +722,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"created_at": u.CreatedAt.UTC().Format(time.RFC3339),
 		"onboarded":  u.OnboardedAt != nil,
 		"language":   normalizedDashboardLanguage(s.store.GetUserLanguage(u.ID)),
+		"ui_layout":  s.store.GetUserUILayout(u.ID),
 	}
 	if u.OnboardedAt != nil {
 		resp["onboarded_at"] = u.OnboardedAt.UTC().Format(time.RFC3339)
@@ -741,7 +742,7 @@ func normalizedDashboardLanguage(value string) string {
 }
 
 // PUT /auth/preferences — update lightweight user preferences that should
-// follow the account across browsers. Currently only dashboard language.
+// follow the account across browsers. Omitted fields are left unchanged.
 func (s *Server) handleAuthPreferences(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		http.Error(w, "PUT only", http.StatusMethodNotAllowed)
@@ -753,19 +754,29 @@ func (s *Server) handleAuthPreferences(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Language string `json:"language"`
+		Language *string         `json:"language"`
+		UILayout json.RawMessage `json:"ui_layout"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err != io.EOF {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	language := normalizedDashboardLanguage(body.Language)
-	if err := s.store.SetUserLanguage(userID, language); err != nil {
-		http.Error(w, "failed to save preferences", http.StatusInternalServerError)
-		return
+	if body.Language != nil {
+		language := normalizedDashboardLanguage(*body.Language)
+		if err := s.store.SetUserLanguage(userID, language); err != nil {
+			http.Error(w, "failed to save preferences", http.StatusInternalServerError)
+			return
+		}
+	}
+	if body.UILayout != nil {
+		if err := s.store.SetUserUILayout(userID, body.UILayout); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 	writeJSON(w, map[string]any{
-		"language": language,
+		"language":  normalizedDashboardLanguage(s.store.GetUserLanguage(userID)),
+		"ui_layout": s.store.GetUserUILayout(userID),
 	})
 }
 

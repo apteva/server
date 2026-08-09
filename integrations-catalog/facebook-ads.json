@@ -55,6 +55,24 @@
   },
   "tools": [
     {
+      "name": "targeting_search",
+      "description": "Search Meta targetable interests, geolocations, and other targeting catalog values.",
+      "method": "GET",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {"type": "string", "description": "Meta search type such as adinterest, adinterestvalid, or adgeolocation."},
+          "q": {"type": "string"},
+          "location_types": {"type": "array", "items": {"type": "string"}},
+          "country_code": {"type": "string"},
+          "limit": {"type": "integer"},
+          "after": {"type": "string"}
+        },
+        "required": ["type"]
+      }
+    },
+    {
       "name": "account_list",
       "description": "List ad accounts the current user can access through the Meta Marketing API.",
       "method": "GET",
@@ -418,9 +436,10 @@
               "WHATSAPP",
               "INSTAGRAM_DIRECT",
               "PHONE_CALL",
-              "ON_PAGE"
+              "ON_PAGE",
+              "ON_AD"
             ],
-            "description": "Where people go when they click. WEBSITE for sales/leads/traffic. ON_PAGE for PAGE_LIKES campaigns (REQUIRED). Do NOT set for POST_ENGAGEMENT or AWARENESS."
+            "description": "Where people go when they click. WEBSITE for site destinations, ON_AD for Instant Forms, and ON_PAGE for PAGE_LIKES campaigns. Do not set for POST_ENGAGEMENT or AWARENESS."
           },
           "dsa_beneficiary": {
             "type": "string",
@@ -999,6 +1018,20 @@
       }
     },
     {
+      "name": "audience_get",
+      "description": "Get one custom audience, including delivery and approximate-size fields.",
+      "method": "GET",
+      "path": "/{audience_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "audience_id": {"type": "string"},
+          "fields": {"type": "string", "default": "id,name,subtype,approximate_count_lower_bound,approximate_count_upper_bound,delivery_status,description,retention_days,lookalike_spec"}
+        },
+        "required": ["audience_id"]
+      }
+    },
+    {
       "name": "audience_create_custom",
       "description": "Create a custom audience for ad targeting.",
       "method": "POST",
@@ -1060,11 +1093,11 @@
             "description": "Prefill with existing data"
           }
         },
-        "required": [
-          "adAccountId",
-          "name",
-          "subtype"
-        ]
+      "required": [
+        "adAccountId",
+        "name",
+        "subtype"
+      ]
       }
     },
     {
@@ -1107,6 +1140,61 @@
           "origin_audience_id",
           "lookalike_spec"
         ]
+      }
+    },
+    {
+      "name": "audience_update",
+      "description": "Update supported custom audience fields.",
+      "method": "POST",
+      "path": "/{audience_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "audience_id": {"type": "string"},
+          "name": {"type": "string"},
+          "description": {"type": "string"},
+          "retention_days": {"type": "integer"}
+        },
+        "required": ["audience_id"]
+      }
+    },
+    {
+      "name": "audience_delete",
+      "description": "Delete a custom audience after removing it from active targeting.",
+      "method": "DELETE",
+      "path": "/{audience_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {"audience_id": {"type": "string"}},
+        "required": ["audience_id"]
+      }
+    },
+    {
+      "name": "audience_users_add",
+      "description": "Add normalized and SHA-256 hashed users to a customer-list custom audience.",
+      "method": "POST",
+      "path": "/{audience_id}/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "audience_id": {"type": "string"},
+          "payload": {"type": "object", "description": "Meta payload with schema and hashed data rows."}
+        },
+        "required": ["audience_id", "payload"]
+      }
+    },
+    {
+      "name": "audience_users_remove",
+      "description": "Remove normalized and SHA-256 hashed users from a customer-list custom audience.",
+      "method": "DELETE",
+      "path": "/{audience_id}/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "audience_id": {"type": "string"},
+          "payload": {"type": "object", "description": "Meta payload with schema and hashed data rows."}
+        },
+        "required": ["audience_id", "payload"]
       }
     },
     {
@@ -1226,6 +1314,38 @@
           "filtering": {
             "type": "array",
             "description": "Filters"
+          }
+        },
+        "required": [
+          "adAccountId"
+        ]
+      }
+    },
+    {
+      "name": "pixel_list",
+      "description": "List Meta Pixels available in an ad account.",
+      "method": "GET",
+      "path": "/{adAccountId}/adspixels",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adAccountId": {
+            "type": "string",
+            "description": "Ad Account ID (format: act_123456789)"
+          },
+          "fields": {
+            "type": "string",
+            "default": "id,name,last_fired_time,is_unavailable",
+            "description": "Comma-separated Pixel fields"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Maximum number of Pixels"
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor"
           }
         },
         "required": [
@@ -1445,19 +1565,28 @@
     },
     {
       "name": "leadform_delete",
-      "description": "Archive a lead form (Facebook archives rather than permanently deletes).",
-      "method": "DELETE",
+      "description": "Archive a lead form. Meta lead forms are archived with status=ARCHIVED rather than permanently deleted.",
+      "method": "POST",
       "path": "/{formId}",
       "input_schema": {
         "type": "object",
         "properties": {
           "formId": {
             "type": "string",
-            "description": "Lead form ID to delete"
+            "description": "Lead form ID to archive"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ARCHIVED"
+            ],
+            "default": "ARCHIVED",
+            "description": "Archive status"
           }
         },
         "required": [
-          "formId"
+          "formId",
+          "status"
         ]
       }
     },

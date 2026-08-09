@@ -75,7 +75,8 @@
       "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
       "token_url": "https://oauth2.googleapis.com/token",
       "scopes": [
-        "https://www.googleapis.com/auth/adwords"
+        "https://www.googleapis.com/auth/adwords",
+        "https://www.googleapis.com/auth/datamanager"
       ],
       "client_id_required": true,
       "pkce": false,
@@ -431,6 +432,161 @@
           "customer_id",
           "operations"
         ]
+      }
+    },
+    {
+      "name": "data_manager_user_lists_list",
+      "description": "List Google Ads Customer Match user lists through the Google Data Manager API.",
+      "method": "GET",
+      "base_url": "https://datamanager.googleapis.com",
+      "path": "/v1/accountTypes/{account_type}/accounts/{account_id}/userLists",
+      "header_params": {"login_account": "login-account"},
+      "omit_auth_headers": ["developer-token", "login-customer-id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_type": {"type": "string", "default": "GOOGLE_ADS"},
+          "account_id": {"type": "string"},
+          "login_account": {"type": "string", "description": "Optional manager resource name, for example accountTypes/GOOGLE_ADS/accounts/1234567890."},
+          "pageSize": {"type": "integer"},
+          "pageToken": {"type": "string"}
+        },
+        "required": ["account_type", "account_id"]
+      }
+    },
+    {
+      "name": "data_manager_user_list_get",
+      "description": "Get one Google Ads Customer Match user list through the Google Data Manager API.",
+      "method": "GET",
+      "base_url": "https://datamanager.googleapis.com",
+      "path": "/v1/accountTypes/{account_type}/accounts/{account_id}/userLists/{user_list_id}",
+      "header_params": {"login_account": "login-account"},
+      "omit_auth_headers": ["developer-token", "login-customer-id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_type": {"type": "string", "default": "GOOGLE_ADS"},
+          "account_id": {"type": "string"},
+          "login_account": {"type": "string"},
+          "user_list_id": {"type": "string"}
+        },
+        "required": ["account_type", "account_id", "user_list_id"]
+      }
+    },
+    {
+      "name": "data_manager_user_list_create",
+      "description": "Create a Google Ads Customer Match user list through the Google Data Manager API.",
+      "method": "POST",
+      "base_url": "https://datamanager.googleapis.com",
+      "path": "/v1/accountTypes/{account_type}/accounts/{account_id}/userLists",
+      "body_root_param": "userList",
+      "header_params": {"login_account": "login-account"},
+      "omit_auth_headers": ["developer-token", "login-customer-id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_type": {"type": "string", "default": "GOOGLE_ADS"},
+          "account_id": {"type": "string"},
+          "login_account": {"type": "string"},
+          "userList": {"type": "object"}
+        },
+        "required": ["account_type", "account_id", "userList"]
+      }
+    },
+    {
+      "name": "data_manager_user_list_update",
+      "description": "Update a Google Ads Customer Match user list through the Google Data Manager API.",
+      "method": "PATCH",
+      "base_url": "https://datamanager.googleapis.com",
+      "path": "/v1/accountTypes/{account_type}/accounts/{account_id}/userLists/{user_list_id}",
+      "body_root_param": "userList",
+      "query_params": ["updateMask"],
+      "header_params": {"login_account": "login-account"},
+      "omit_auth_headers": ["developer-token", "login-customer-id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_type": {"type": "string", "default": "GOOGLE_ADS"},
+          "account_id": {"type": "string"},
+          "login_account": {"type": "string"},
+          "user_list_id": {"type": "string"},
+          "userList": {"type": "object"},
+          "updateMask": {"type": "string"}
+        },
+        "required": ["account_type", "account_id", "user_list_id", "userList", "updateMask"]
+      }
+    },
+    {
+      "name": "data_manager_user_list_delete",
+      "description": "Delete a Google Ads Customer Match user list through the Google Data Manager API.",
+      "method": "DELETE",
+      "base_url": "https://datamanager.googleapis.com",
+      "path": "/v1/accountTypes/{account_type}/accounts/{account_id}/userLists/{user_list_id}",
+      "header_params": {"login_account": "login-account"},
+      "omit_auth_headers": ["developer-token", "login-customer-id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_type": {"type": "string", "default": "GOOGLE_ADS"},
+          "account_id": {"type": "string"},
+          "login_account": {"type": "string"},
+          "user_list_id": {"type": "string"}
+        },
+        "required": ["account_type", "account_id", "user_list_id"]
+      }
+    },
+    {
+      "name": "data_manager_audience_members_ingest",
+      "description": "Add normalized and hashed identifiers to a Google Ads Customer Match user list.",
+      "method": "POST",
+      "base_url": "https://datamanager.googleapis.com",
+      "path": "/v1/audienceMembers:ingest",
+      "omit_auth_headers": ["developer-token", "login-customer-id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "destinations": {"type": "array", "items": {"type": "object"}},
+          "audienceMembers": {"type": "array", "items": {"type": "object"}},
+          "consent": {"type": "object"},
+          "encoding": {"type": "string"},
+          "termsOfService": {"type": "object"},
+          "validateOnly": {"type": "boolean"}
+        },
+        "required": ["destinations", "audienceMembers"]
+      }
+    },
+    {
+      "name": "data_manager_audience_members_remove",
+      "description": "Remove normalized and hashed identifiers from a Google Ads Customer Match user list.",
+      "method": "POST",
+      "base_url": "https://datamanager.googleapis.com",
+      "path": "/v1/audienceMembers:remove",
+      "omit_auth_headers": ["developer-token", "login-customer-id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "destinations": {"type": "array", "items": {"type": "object"}},
+          "audienceMembers": {"type": "array", "items": {"type": "object"}},
+          "consent": {"type": "object"},
+          "encoding": {"type": "string"},
+          "termsOfService": {"type": "object"},
+          "validateOnly": {"type": "boolean"}
+        },
+        "required": ["destinations", "audienceMembers"]
+      }
+    },
+    {
+      "name": "data_manager_request_status_get",
+      "description": "Retrieve ingestion diagnostics and completion status for a Google Data Manager request.",
+      "method": "GET",
+      "base_url": "https://datamanager.googleapis.com",
+      "path": "/v1/requestStatus:retrieve",
+      "query_params": ["requestId"],
+      "omit_auth_headers": ["developer-token", "login-customer-id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {"requestId": {"type": "string"}},
+        "required": ["requestId"]
       }
     },
     {

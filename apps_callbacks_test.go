@@ -107,6 +107,68 @@ func TestCallbackAgentForInstallEnforcesOwnerAndProject(t *testing.T) {
 	}
 }
 
+func TestCallbackOpaqueThreadSpawnRequiresPermissionAndProjectScope(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	agent, err := s.store.CreateAgent(1, "opaque-target", "directive", "autonomous", "{}", "proj-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := s.store.CreateAgent(1, "other-project", "directive", "autonomous", "{}", "proj-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := sdk.Manifest{Schema: sdk.SchemaCurrent, Name: "opaque-owner"}
+	installID := seedInstallWithBindings(t, s, "opaque-owner", manifest, nil)
+
+	call := func(agentID int64) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(sdk.ThreadSpawnRequest{AgentID: agentID, ThreadID: "opaque-run-17"})
+		req := httptest.NewRequest(http.MethodPost, "/apps/callback/threads/spawn", strings.NewReader(string(body)))
+		req.Header.Set("X-Apteva-App-Install-ID", itoa(installID))
+		req.Header.Set("X-User-ID", "1")
+		rec := httptest.NewRecorder()
+		s.handleAppCallback(rec, req)
+		return rec
+	}
+
+	if rec := call(agent.ID); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), string(sdk.PermThreadsWrite)) {
+		t.Fatalf("missing permission status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	permissions, _ := json.Marshal([]sdk.Permission{sdk.PermThreadsWrite})
+	if _, err := s.store.db.Exec(`UPDATE app_installs SET permissions_json=? WHERE id=?`, permissions, installID); err != nil {
+		t.Fatal(err)
+	}
+	if rec := call(other.ID); rec.Code != http.StatusForbidden {
+		t.Fatalf("cross-project status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	// The target is authorized now; this stopped test agent has no Core port,
+	// so reaching the resolver produces 502 rather than an auth rejection.
+	if rec := call(agent.ID); rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), "agent is not running") {
+		t.Fatalf("authorized spawn status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestNormalizeCallbackEventMessageBridgesStructuredAppsToCore(t *testing.T) {
+	structured, err := normalizeCallbackEventMessage(json.RawMessage(`{"type":"work.ready","task_id":"task-7"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if structured != `{"task_id":"task-7","type":"work.ready"}` {
+		t.Fatalf("structured=%q", structured)
+	}
+	parts, err := normalizeCallbackEventMessage(json.RawMessage(`[{"type":"text","text":"hello"}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := parts.([]any); !ok {
+		t.Fatalf("content parts lost native array shape: %#v", parts)
+	}
+	text, err := normalizeCallbackEventMessage(json.RawMessage(`"plain"`))
+	if err != nil || text != "plain" {
+		t.Fatalf("text=%#v err=%v", text, err)
+	}
+}
+
 // --- /callback/projects ---------------------------------------------
 
 // Project-scoped install — singleton listing of the install's own

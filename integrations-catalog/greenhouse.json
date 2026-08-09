@@ -1,0 +1,644 @@
+{
+  "slug": "greenhouse",
+  "name": "Greenhouse",
+  "description": "Greenhouse Harvest recruiting API for candidates, applications, jobs, interviews, offers, scorecards, users, departments, offices, attachments, and pipeline metadata.",
+  "logo": "https://www.google.com/s2/favicons?domain=greenhouse.io&sz=128",
+  "categories": [
+    "recruiting",
+    "ats",
+    "hr",
+    "candidates"
+  ],
+  "base_url": "https://harvest.greenhouse.io/v1",
+  "auth": {
+    "types": [
+      "basic"
+    ],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "username",
+        "label": "Harvest API Key",
+        "type": "password",
+        "required": true
+      },
+      {
+        "name": "password",
+        "label": "Basic Auth Password",
+        "type": "password",
+        "description": "Leave empty for Greenhouse Harvest API-key authentication.",
+        "required": false
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_users",
+    "input": {
+      "per_page": 1
+    }
+  },
+  "tools": [
+    {
+      "name": "list_candidates",
+      "description": "List candidates and prospects.",
+      "method": "GET",
+      "path": "/candidates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "per_page": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "skip_count": {
+            "type": "boolean"
+          },
+          "created_before": {
+            "type": "string"
+          },
+          "created_after": {
+            "type": "string"
+          },
+          "updated_before": {
+            "type": "string"
+          },
+          "updated_after": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "integer"
+          },
+          "email": {
+            "type": "string"
+          },
+          "candidate_ids": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_candidate",
+      "description": "Get a candidate with applications, attachments, and contact data.",
+      "method": "GET",
+      "path": "/candidates/{candidate_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "candidate_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "candidate_id"
+        ]
+      }
+    },
+    {
+      "name": "create_candidate",
+      "description": "Create a candidate or prospect with at least one application.",
+      "method": "POST",
+      "path": "/candidates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "company": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "phone_numbers": {
+            "type": "array",
+            "description": "Phone number objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "email_addresses": {
+            "type": "array",
+            "description": "Email objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "website_addresses": {
+            "type": "array",
+            "description": "Website objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "social_media_addresses": {
+            "type": "array",
+            "description": "Social media objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "addresses": {
+            "type": "array",
+            "description": "Address objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "applications": {
+            "type": "array",
+            "description": "Application objects containing job_id.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "activity_feed_notes": {
+            "type": "array",
+            "description": "Initial notes.",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "first_name",
+          "last_name",
+          "applications"
+        ]
+      }
+    },
+    {
+      "name": "update_candidate",
+      "description": "Update candidate profile fields.",
+      "method": "PATCH",
+      "path": "/candidates/{candidate_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "candidate_id": {
+            "type": "integer"
+          },
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "company": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "phone_numbers": {
+            "type": "array",
+            "description": "Phone objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "email_addresses": {
+            "type": "array",
+            "description": "Email objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "website_addresses": {
+            "type": "array",
+            "description": "Website objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "social_media_addresses": {
+            "type": "array",
+            "description": "Social objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "addresses": {
+            "type": "array",
+            "description": "Address objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "custom_fields": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "candidate_id"
+        ]
+      }
+    },
+    {
+      "name": "add_candidate_attachment",
+      "description": "Attach a resume, cover letter, or admin-only document by URL or base64 content.",
+      "method": "POST",
+      "path": "/candidates/{candidate_id}/attachments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "candidate_id": {
+            "type": "integer"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "description": "resume, cover_letter, or admin_only."
+          },
+          "content": {
+            "type": "string",
+            "description": "Base64 document content."
+          },
+          "url": {
+            "type": "string",
+            "description": "Machine-accessible public file URL."
+          },
+          "content_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "filename",
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "list_applications",
+      "description": "List applications with job and status filters.",
+      "method": "GET",
+      "path": "/applications",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "per_page": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "skip_count": {
+            "type": "boolean"
+          },
+          "created_before": {
+            "type": "string"
+          },
+          "created_after": {
+            "type": "string"
+          },
+          "last_activity_after": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_application",
+      "description": "Get an application.",
+      "method": "GET",
+      "path": "/applications/{application_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "application_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "application_id"
+        ]
+      }
+    },
+    {
+      "name": "advance_application",
+      "description": "Advance an application to its next stage.",
+      "method": "POST",
+      "path": "/applications/{application_id}/advance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "application_id": {
+            "type": "integer"
+          },
+          "from_stage_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "application_id"
+        ]
+      }
+    },
+    {
+      "name": "move_application",
+      "description": "Move an application to a selected stage.",
+      "method": "POST",
+      "path": "/applications/{application_id}/move",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "application_id": {
+            "type": "integer"
+          },
+          "from_stage_id": {
+            "type": "integer"
+          },
+          "to_stage_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "application_id",
+          "to_stage_id"
+        ]
+      }
+    },
+    {
+      "name": "reject_application",
+      "description": "Reject an application.",
+      "method": "POST",
+      "path": "/applications/{application_id}/reject",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "application_id": {
+            "type": "integer"
+          },
+          "rejection_reason_id": {
+            "type": "integer"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "rejection_email": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "application_id",
+          "rejection_reason_id"
+        ]
+      }
+    },
+    {
+      "name": "list_jobs",
+      "description": "List jobs.",
+      "method": "GET",
+      "path": "/jobs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "per_page": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "created_before": {
+            "type": "string"
+          },
+          "created_after": {
+            "type": "string"
+          },
+          "updated_before": {
+            "type": "string"
+          },
+          "updated_after": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_job",
+      "description": "Get a job.",
+      "method": "GET",
+      "path": "/jobs/{job_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "list_departments",
+      "description": "List departments.",
+      "method": "GET",
+      "path": "/departments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "per_page": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_offices",
+      "description": "List offices.",
+      "method": "GET",
+      "path": "/offices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "per_page": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_users",
+      "description": "List Greenhouse users.",
+      "method": "GET",
+      "path": "/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "per_page": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "created_before": {
+            "type": "string"
+          },
+          "created_after": {
+            "type": "string"
+          },
+          "updated_before": {
+            "type": "string"
+          },
+          "updated_after": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_scheduled_interviews",
+      "description": "List scheduled interviews.",
+      "method": "GET",
+      "path": "/scheduled_interviews",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "per_page": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "created_before": {
+            "type": "string"
+          },
+          "created_after": {
+            "type": "string"
+          },
+          "updated_before": {
+            "type": "string"
+          },
+          "updated_after": {
+            "type": "string"
+          },
+          "starts_before": {
+            "type": "string"
+          },
+          "starts_after": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "integer"
+          },
+          "job_id": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_offers",
+      "description": "List offers.",
+      "method": "GET",
+      "path": "/offers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "per_page": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "created_before": {
+            "type": "string"
+          },
+          "created_after": {
+            "type": "string"
+          },
+          "updated_before": {
+            "type": "string"
+          },
+          "updated_after": {
+            "type": "string"
+          },
+          "sent_before": {
+            "type": "string"
+          },
+          "sent_after": {
+            "type": "string"
+          },
+          "resolved_before": {
+            "type": "string"
+          },
+          "resolved_after": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_rejection_reasons",
+      "description": "List rejection reasons.",
+      "method": "GET",
+      "path": "/rejection_reasons",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "per_page": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_sources",
+      "description": "List candidate sources.",
+      "method": "GET",
+      "path": "/sources",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "per_page": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  ]
+}

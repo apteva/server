@@ -7,10 +7,9 @@ import (
 	"testing"
 )
 
-// TestInheritAppSkills proves the app→agent binding's skill half: binding an
-// app (by install id) attaches that app's skills to the agent's memory
-// journal, which the core reads at boot.
-func TestInheritAppSkills(t *testing.T) {
+// TestReconcileAgentAppSkills proves the app→agent binding's skill half:
+// binding an app attaches its skills to the agent's shared memory journal.
+func TestReconcileAgentAppSkills(t *testing.T) {
 	dataDir := t.TempDir()
 	store, err := NewStore(filepath.Join(dataDir, "s.db"))
 	if err != nil {
@@ -44,13 +43,20 @@ func TestInheritAppSkills(t *testing.T) {
 	}
 
 	// No bindings → nothing inherited.
-	if n := s.inheritAppSkills(agent, nil); n != 0 {
-		t.Fatalf("expected 0 with no bindings, got %d", n)
+	if stats, err := s.reconcileAgentAppSkills(agent); err != nil {
+		t.Fatal(err)
+	} else if stats.Added != 0 {
+		t.Fatalf("expected 0 with no bindings, got %+v", stats)
 	}
 
 	// Bound → the app's skill is inherited.
-	if n := s.inheritAppSkills(agent, []int64{installID}); n != 1 {
-		t.Fatalf("expected 1 inherited skill, got %d", n)
+	if _, err := store.db.Exec(`INSERT INTO app_agent_bindings (install_id, agent_id, enabled) VALUES (?, ?, 1)`, installID, agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if stats, err := s.reconcileAgentAppSkills(agent); err != nil {
+		t.Fatal(err)
+	} else if stats.Added != 1 {
+		t.Fatalf("expected 1 inherited skill, got %+v", stats)
 	}
 
 	data, err := os.ReadFile(filepath.Join(s.agents.instanceDir(agent.ID), "memory.jsonl"))

@@ -5,9 +5,10 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -95,12 +96,7 @@ type Agent struct {
 	CreatedAt           time.Time `json:"created_at"`
 }
 
-type Store struct {
-	db *sql.DB
-
-	taskEventMu   sync.RWMutex
-	taskEventHook func(AgentTaskEvent)
-}
+type Store struct{ db *sql.DB }
 
 const (
 	sqliteBusyTimeoutMS = 30000
@@ -133,10 +129,7 @@ func NewStore(path string) (*Store, error) {
 	// those transactions with BEGIN IMMEDIATE so SQLite queues for the single
 	// writer reservation before any reads occur. A deferred transaction that
 	// reads and then upgrades to a writer can return SQLITE_BUSY immediately
-	// when a parallel status/task write wins the reservation, bypassing the
-	// configured busy_timeout. This was visible when an agent emitted
-	// task_update and set_status in the same tool batch: one durable update was
-	// randomly lost even though both operations were valid.
+	// when a parallel write wins the reservation, bypassing busy_timeout.
 	dsn += fmt.Sprintf("_pragma=busy_timeout(%d)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_txlock=immediate", sqliteBusyTimeoutMS)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -593,115 +586,6 @@ func (s *Store) migrate() error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 
-		-- Server-owned durable task ledger. This is deliberately separate from
-		-- the Tasks app: it records work delegated between an agent's main,
-		-- user-conversation, and worker threads even when no task-management
-		-- app is installed.
-		CREATE TABLE IF NOT EXISTS agent_tasks (
-			id TEXT PRIMARY KEY,
-			agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-			project_id TEXT NOT NULL DEFAULT '',
-			title TEXT NOT NULL,
-			description TEXT NOT NULL DEFAULT '',
-			state TEXT NOT NULL DEFAULT 'queued'
-				CHECK (state IN ('queued','running','waiting','blocked','completed','failed','cancelled')),
-			progress INTEGER
-				CHECK (progress IS NULL OR (progress >= 0 AND progress <= 100)),
-			current_step TEXT NOT NULL DEFAULT '',
-			assigned_thread_id TEXT NOT NULL DEFAULT 'main',
-			origin_conversation_id TEXT NOT NULL DEFAULT '',
-			origin_message_id TEXT NOT NULL DEFAULT '',
-			parent_task_id TEXT NOT NULL DEFAULT '',
-			idempotency_key TEXT NOT NULL DEFAULT '',
-			schedule_kind TEXT NOT NULL DEFAULT '',
-			schedule_expression TEXT NOT NULL DEFAULT '',
-			schedule_timezone TEXT NOT NULL DEFAULT '',
-			schedule_enabled INTEGER NOT NULL DEFAULT 0,
-			schedule_overlap_policy TEXT NOT NULL DEFAULT 'skip',
-			schedule_catchup_policy TEXT NOT NULL DEFAULT 'skip',
-			next_run_at DATETIME,
-			last_run_at DATETIME,
-			scheduled_for DATETIME,
-			schedule_occurrence_key TEXT NOT NULL DEFAULT '',
-			result TEXT NOT NULL DEFAULT '',
-			error TEXT NOT NULL DEFAULT '',
-			handoff_delivery_status TEXT NOT NULL DEFAULT '',
-			handoff_delivery_error TEXT NOT NULL DEFAULT '',
-			handoff_delivered_at DATETIME,
-			handoff_nudge_count INTEGER NOT NULL DEFAULT 0,
-			completion_delivery_status TEXT NOT NULL DEFAULT '',
-			completion_delivery_error TEXT NOT NULL DEFAULT '',
-			completion_delivered_at DATETIME,
-			last_activity_at DATETIME,
-			created_by_thread_id TEXT NOT NULL DEFAULT '',
-			created_at DATETIME NOT NULL,
-			updated_at DATETIME NOT NULL,
-			started_at DATETIME,
-			completed_at DATETIME
-		);
-		CREATE INDEX IF NOT EXISTS idx_agent_tasks_agent_state_updated
-			ON agent_tasks(agent_id, state, updated_at DESC);
-		CREATE INDEX IF NOT EXISTS idx_agent_tasks_project_updated
-			ON agent_tasks(project_id, updated_at DESC);
-		CREATE INDEX IF NOT EXISTS idx_agent_tasks_assigned
-			ON agent_tasks(agent_id, assigned_thread_id, state);
-		CREATE INDEX IF NOT EXISTS idx_agent_tasks_origin
-			ON agent_tasks(agent_id, origin_conversation_id);
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_tasks_idempotency
-			ON agent_tasks(agent_id, idempotency_key)
-			WHERE idempotency_key <> '';
-		CREATE INDEX IF NOT EXISTS idx_agent_tasks_schedule_due
-			ON agent_tasks(schedule_enabled, next_run_at)
-			WHERE schedule_kind <> '' AND state NOT IN ('completed','failed','cancelled');
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_tasks_schedule_occurrence
-			ON agent_tasks(parent_task_id, schedule_occurrence_key)
-			WHERE parent_task_id <> '' AND schedule_occurrence_key <> '';
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_tasks_active_schedule_setup
-			ON agent_tasks(parent_task_id)
-			WHERE schedule_kind <> '' AND parent_task_id <> ''
-			  AND state NOT IN ('completed','failed','cancelled');
-
-		CREATE TABLE IF NOT EXISTS agent_task_events (
-			id TEXT PRIMARY KEY,
-			task_id TEXT NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE,
-			agent_id INTEGER NOT NULL,
-			event_type TEXT NOT NULL,
-			thread_id TEXT NOT NULL DEFAULT '',
-			from_state TEXT NOT NULL DEFAULT '',
-			to_state TEXT NOT NULL DEFAULT '',
-			data TEXT NOT NULL DEFAULT '{}',
-			created_at DATETIME NOT NULL
-		);
-		CREATE INDEX IF NOT EXISTS idx_agent_task_events_task_created
-			ON agent_task_events(task_id, created_at, id);
-		CREATE INDEX IF NOT EXISTS idx_agent_task_events_agent_created
-			ON agent_task_events(agent_id, created_at DESC);
-
-		-- Server-owned idempotency boundary for task-backed domain work.
-		-- Repeated model calls for one logical step receive the persisted
-		-- receipt instead of executing the downstream MCP tool again.
-		CREATE TABLE IF NOT EXISTS agent_task_steps (
-			task_id TEXT NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE,
-			step_key TEXT NOT NULL,
-			agent_id INTEGER NOT NULL,
-			thread_id TEXT NOT NULL,
-			mcp_server TEXT NOT NULL,
-			tool_name TEXT NOT NULL,
-			input_hash TEXT NOT NULL,
-			state TEXT NOT NULL
-				CHECK (state IN ('running','completed','failed')),
-			result_json TEXT NOT NULL DEFAULT '',
-			error TEXT NOT NULL DEFAULT '',
-			created_at DATETIME NOT NULL,
-			updated_at DATETIME NOT NULL,
-			completed_at DATETIME,
-			PRIMARY KEY (task_id, step_key)
-		);
-		CREATE INDEX IF NOT EXISTS idx_agent_task_steps_agent_task
-			ON agent_task_steps(agent_id, task_id, created_at);
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_task_steps_input
-			ON agent_task_steps(task_id, input_hash);
-
 		CREATE TABLE IF NOT EXISTS projects (
 			id TEXT PRIMARY KEY,
 			user_id INTEGER NOT NULL REFERENCES users(id),
@@ -874,38 +758,6 @@ func (s *Store) migrate() error {
 	s.db.Exec("ALTER TABLE mcp_servers ADD COLUMN project_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE subscriptions ADD COLUMN project_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE agents ADD COLUMN project_id TEXT DEFAULT ''")
-	s.db.Exec("ALTER TABLE agent_tasks ADD COLUMN handoff_delivery_status TEXT NOT NULL DEFAULT ''")
-	s.db.Exec("ALTER TABLE agent_tasks ADD COLUMN handoff_delivery_error TEXT NOT NULL DEFAULT ''")
-	s.db.Exec("ALTER TABLE agent_tasks ADD COLUMN handoff_delivered_at DATETIME")
-	s.db.Exec("ALTER TABLE agent_tasks ADD COLUMN handoff_nudge_count INTEGER NOT NULL DEFAULT 0")
-	s.db.Exec("ALTER TABLE agent_tasks ADD COLUMN schedule_kind TEXT NOT NULL DEFAULT ''")
-	s.db.Exec("ALTER TABLE agent_tasks ADD COLUMN schedule_expression TEXT NOT NULL DEFAULT ''")
-	s.db.Exec("ALTER TABLE agent_tasks ADD COLUMN schedule_timezone TEXT NOT NULL DEFAULT ''")
-	s.db.Exec("ALTER TABLE agent_tasks ADD COLUMN schedule_enabled INTEGER NOT NULL DEFAULT 0")
-	s.db.Exec("ALTER TABLE agent_tasks ADD COLUMN schedule_overlap_policy TEXT NOT NULL DEFAULT 'skip'")
-	s.db.Exec("ALTER TABLE agent_tasks ADD COLUMN schedule_catchup_policy TEXT NOT NULL DEFAULT 'skip'")
-	s.db.Exec("ALTER TABLE agent_tasks ADD COLUMN next_run_at DATETIME")
-	s.db.Exec("ALTER TABLE agent_tasks ADD COLUMN last_run_at DATETIME")
-	s.db.Exec("ALTER TABLE agent_tasks ADD COLUMN scheduled_for DATETIME")
-	s.db.Exec("ALTER TABLE agent_tasks ADD COLUMN schedule_occurrence_key TEXT NOT NULL DEFAULT ''")
-	s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_agent_tasks_schedule_due
-		ON agent_tasks(schedule_enabled, next_run_at)
-		WHERE schedule_kind <> '' AND state NOT IN ('completed','failed','cancelled')`)
-	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_tasks_schedule_occurrence
-		ON agent_tasks(parent_task_id, schedule_occurrence_key)
-		WHERE parent_task_id <> '' AND schedule_occurrence_key <> ''`)
-	s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_tasks_active_schedule_setup
-		ON agent_tasks(parent_task_id)
-		WHERE schedule_kind <> '' AND parent_task_id <> ''
-		  AND state NOT IN ('completed','failed','cancelled')`)
-	// Conversation tasks assigned to main pre-dating server-owned handoff
-	// delivery must be picked up by normal startup recovery.
-	s.db.Exec(`UPDATE agent_tasks
-		SET handoff_delivery_status = 'pending'
-		WHERE origin_conversation_id <> ''
-		  AND assigned_thread_id = 'main'
-		  AND state IN ('queued','running','waiting','blocked')
-		  AND handoff_delivery_status = ''`)
 	s.db.Exec("ALTER TABLE providers ADD COLUMN project_id TEXT DEFAULT ''")
 	s.db.Exec("ALTER TABLE channels ADD COLUMN project_id TEXT DEFAULT ''")
 	// is_default removed — default is per-instance, stored in agents.config
@@ -1146,9 +998,11 @@ func (s *Store) migrate() error {
 		CREATE TABLE IF NOT EXISTS user_preferences (
 			user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
 			language TEXT NOT NULL DEFAULT '',
+			ui_layout TEXT NOT NULL DEFAULT '{}',
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
+	s.db.Exec("ALTER TABLE user_preferences ADD COLUMN ui_layout TEXT NOT NULL DEFAULT '{}'")
 	s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS mobile_push_subscriptions (
 			id TEXT PRIMARY KEY,
@@ -1506,7 +1360,7 @@ func (s *Store) migrate() error {
 }
 
 func (s *Store) validateMigratedSchema() error {
-	requiredTables := []string{"users", "agents", "projects", "project_members", "app_installs", "skills", "telemetry", "mobile_push_subscriptions", "agent_tasks", "agent_task_events"}
+	requiredTables := []string{"users", "agents", "projects", "project_members", "app_installs", "skills", "telemetry", "mobile_push_subscriptions"}
 	for _, table := range requiredTables {
 		if !tableExists(s.db, table) {
 			return fmt.Errorf("migration incomplete: required table %s is missing", table)
@@ -1516,7 +1370,6 @@ func (s *Store) validateMigratedSchema() error {
 		"agents":       {"project_id", "core_api_key"},
 		"app_installs": {"app_token_hash", "app_token_encrypted", "integration_bindings"},
 		"api_keys":     {"kind", "scopes", "allowed_origins"},
-		"agent_tasks":  {"schedule_kind", "schedule_enabled", "next_run_at", "scheduled_for", "schedule_occurrence_key"},
 	}
 	for table, columns := range requiredColumns {
 		for _, column := range columns {
@@ -1636,6 +1489,39 @@ func (s *Store) SetUserLanguage(userID int64, language string) error {
 		 VALUES (?, ?, CURRENT_TIMESTAMP)
 		 ON CONFLICT(user_id) DO UPDATE SET language = excluded.language, updated_at = CURRENT_TIMESTAMP`,
 		userID, language,
+	)
+	return err
+}
+
+func (s *Store) GetUserUILayout(userID int64) json.RawMessage {
+	var raw string
+	if err := s.db.QueryRow("SELECT ui_layout FROM user_preferences WHERE user_id = ?", userID).Scan(&raw); err != nil {
+		return json.RawMessage(`{}`)
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" || !json.Valid([]byte(raw)) {
+		return json.RawMessage(`{}`)
+	}
+	return json.RawMessage(raw)
+}
+
+func (s *Store) SetUserUILayout(userID int64, layout json.RawMessage) error {
+	raw := strings.TrimSpace(string(layout))
+	if raw == "" {
+		raw = "{}"
+	}
+	if len(raw) > 128<<10 || !json.Valid([]byte(raw)) {
+		return errors.New("ui_layout must be valid JSON no larger than 128 KiB")
+	}
+	var object map[string]any
+	if err := json.Unmarshal([]byte(raw), &object); err != nil || object == nil {
+		return errors.New("ui_layout must be a JSON object")
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO user_preferences (user_id, ui_layout, updated_at)
+		 VALUES (?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(user_id) DO UPDATE SET ui_layout = excluded.ui_layout, updated_at = CURRENT_TIMESTAMP`,
+		userID, raw,
 	)
 	return err
 }
@@ -2452,8 +2338,6 @@ func (s *Store) DeleteAgent(userID, instanceID int64) error {
 		"DELETE FROM channels              WHERE agent_id = ?",
 		"DELETE FROM subscriptions         WHERE agent_id = ?",
 		"DELETE FROM app_agent_bindings WHERE agent_id = ?",
-		"DELETE FROM agent_task_events   WHERE agent_id = ?",
-		"DELETE FROM agent_tasks         WHERE agent_id = ?",
 		"DELETE FROM agents             WHERE id = ? AND user_id = ?",
 	}
 	for i, q := range stmts {

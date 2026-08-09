@@ -490,6 +490,12 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if tail == "/mcp" && r.Method == http.MethodPost {
+		if err := extractCallerThreadFromMCPRequest(r); err != nil {
+			http.Error(w, "invalid MCP caller context: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	var asyncReq *appMCPAsyncRequest
 	if tail == "/mcp" && r.Method == http.MethodPost {
 		asyncReq = s.inspectAppMCPAsyncRequest(entry, r)
@@ -617,6 +623,54 @@ func injectProjectIntoMCPRequest(r *http.Request, projectID string) error {
 		params["arguments"] = args
 	}
 	injectProjectArgAny(args, projectID)
+	rewritten, err := json.Marshal(rpc)
+	if err != nil {
+		return err
+	}
+	nextBody = rewritten
+	return nil
+}
+
+// extractCallerThreadFromMCPRequest converts Core's hidden, post-telemetry
+// caller value into a server-owned header for the app SDK and removes it from
+// tool arguments. The value is accepted only alongside the authenticated
+// caller-agent header; dashboard/API callers cannot forge thread identity.
+func extractCallerThreadFromMCPRequest(r *http.Request) error {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return err
+	}
+	_ = r.Body.Close()
+	nextBody := body
+	defer func() {
+		r.Body = io.NopCloser(bytes.NewReader(nextBody))
+		r.ContentLength = int64(len(nextBody))
+		r.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(nextBody)), nil
+		}
+	}()
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil
+	}
+	var rpc map[string]any
+	if err := json.Unmarshal(body, &rpc); err != nil {
+		return nil
+	}
+	if method, _ := rpc["method"].(string); method != "tools/call" {
+		return nil
+	}
+	params, _ := rpc["params"].(map[string]any)
+	args, _ := params["arguments"].(map[string]any)
+	if args == nil {
+		return nil
+	}
+	threadID, _ := args["_apteva_caller_thread"].(string)
+	delete(args, "_apteva_caller_thread")
+	if strings.TrimSpace(r.Header.Get("X-Apteva-Caller-Agent")) != "" && strings.TrimSpace(threadID) != "" {
+		r.Header.Set("X-Apteva-Caller-Thread", strings.TrimSpace(threadID))
+	} else {
+		r.Header.Del("X-Apteva-Caller-Thread")
+	}
 	rewritten, err := json.Marshal(rpc)
 	if err != nil {
 		return err

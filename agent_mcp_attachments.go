@@ -342,7 +342,17 @@ func (s *Server) syncAppBindingsFromMCPServers(agentID int64, projectID string, 
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	inst, err := s.store.GetAgentByID(agentID)
+	if err != nil {
+		return fmt.Errorf("load agent for app skill reconciliation: %w", err)
+	}
+	if _, err := s.reconcileAgentAppSkills(inst); err != nil {
+		return fmt.Errorf("reconcile app skills: %w", err)
+	}
+	return nil
 }
 
 // reconcileAllAgentAppBindings repairs historical split-brain rows at boot.

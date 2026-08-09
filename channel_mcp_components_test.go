@@ -74,7 +74,7 @@ func TestBuildSendDescription_MessageWakesAgain(t *testing.T) {
 		"After any non-channel tool result used for the request",
 		"never leave it only in thoughts or plain assistant output",
 		"Use publish for approvals/reports/alerts",
-		"set_status for a non-task operational summary or next scheduled action",
+		"set_status for the compact agent-level operational summary or next scheduled action",
 		"later outcome of work explicitly requested in that chat",
 		"Do NOT send ordinary chat for autonomous or scheduled checks",
 		"unchanged or no-op results",
@@ -263,17 +263,16 @@ func TestChannelMCPAdvertisesUnconditionalSchemas(t *testing.T) {
 		}
 	}
 	if _, exists := statusProps["progress"]; exists {
-		t.Fatal("set_status schema still advertises deprecated progress; task_update owns percentages")
+		t.Fatal("set_status schema still advertises deprecated percentage tracking")
 	}
 	statusDescription, _ := byName["set_status"]["description"].(string)
 	titleDescription, _ := statusProps["title"].(map[string]any)["description"].(string)
 	nextDescription, _ := statusProps["next"].(map[string]any)["description"].(string)
 	nextAtDescription, _ := nextAt["description"].(string)
 	for _, want := range []string{
-		"meaningful non-task operator-relevant work",
-		"durable task is the authoritative record",
-		"use task_update and task_complete",
-		"never mirror task state or percentage",
+		"meaningful operator-relevant work",
+		"installed app may provide a more specific durable progress ledger",
+		"keep detailed milestones and percentages there",
 		"Every due cycle of a directive-defined recurring monitor MUST call this tool exactly once",
 		"required completion receipt",
 		"always set next_at",
@@ -337,9 +336,9 @@ func TestChannelMCPAdvertisesUnconditionalSchemas(t *testing.T) {
 func TestChannelMCPSetStatusDescriptionSeparatesCurrentWorkFromFutureSchedule(t *testing.T) {
 	desc := buildSetStatusDescription()
 	for _, want := range []string{
-		"Status answers: what meaningful non-task operator-relevant work",
-		"TASK-BACKED WORK RULE",
-		"never mirror task state or percentage",
+		"Status answers: what meaningful operator-relevant work",
+		"APP-OWNED PROGRESS RULE",
+		"keep detailed milestones and percentages there",
 		"SCHEDULE-ADOPTION RULE",
 		"Creating or editing a recurring schedule is not a due cycle",
 		"do not start the scheduled work, search for its tools, or emit working, blocked, waiting, or completed status",

@@ -85,6 +85,54 @@ func TestServerResolverUpdateThreadSendsMergedTools(t *testing.T) {
 	}
 }
 
+func TestServerResolverSpawnOpaqueThreadPreservesAppOwnedContract(t *testing.T) {
+	var got map[string]any
+	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/threads/app-run-42" {
+			t.Fatalf("request=%s %s", r.Method, r.URL.Path)
+		}
+		if auth := r.Header.Get("Authorization"); auth != "Bearer core-secret" {
+			t.Fatalf("authorization=%q", auth)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode spawn body: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "created"})
+	}))
+	defer core.Close()
+
+	parsed, err := url.Parse(core.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portText, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	status, err := (&serverResolver{}).SpawnOpaqueThread(framework.InstanceInfo{
+		ID: 7, Port: port, CoreAPIKey: "core-secret",
+	}, "app-run-42", "app-owned instructions", []string{"send", "pace"}, []string{"work-ledger"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != "created" {
+		t.Fatalf("status=%q", status)
+	}
+	if got["directive_suffix"] != "app-owned instructions" || got["ephemeral"] != true {
+		t.Fatalf("spawn body=%v", got)
+	}
+	for _, forbidden := range []string{"role", "kind", "conversation", "worker", "main"} {
+		if _, exists := got[forbidden]; exists {
+			t.Fatalf("platform classified opaque thread with %q: %v", forbidden, got)
+		}
+	}
+}
+
 func TestServerResolverThreadToolsReadsEffectiveAllowlist(t *testing.T) {
 	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode([]map[string]any{

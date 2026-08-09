@@ -748,6 +748,47 @@ func TestAuthPreferencesLanguagePersistsIntoMe(t *testing.T) {
 	}
 }
 
+func TestAuthPreferencesUILayoutPersistsAndPreservesLanguage(t *testing.T) {
+	s := newTestServer(t)
+	user, err := s.store.CreateUser("layout@test.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.store.SetUserLanguage(user.ID, "fr"); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"ui_layout":{"projects":{"project-a":{"slots":{"dashboard.home":["work:overview"]},"sidebar":["work"]}}}}`)
+	req := httptest.NewRequest(http.MethodPut, "/auth/preferences", bytes.NewReader(body))
+	req.Header.Set("X-User-ID", itoa(user.ID))
+	w := httptest.NewRecorder()
+	s.handleAuthPreferences(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("preferences status=%d body=%s", w.Code, w.Body.String())
+	}
+	var response struct {
+		Language string         `json:"language"`
+		UILayout map[string]any `json:"ui_layout"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Language != "fr" {
+		t.Fatalf("layout-only update reset language to %q", response.Language)
+	}
+	projects, ok := response.UILayout["projects"].(map[string]any)
+	if !ok || projects["project-a"] == nil {
+		t.Fatalf("ui_layout did not round-trip as an object: %#v", response.UILayout)
+	}
+
+	bad := httptest.NewRequest(http.MethodPut, "/auth/preferences", strings.NewReader(`{"ui_layout":[]}`))
+	bad.Header.Set("X-User-ID", itoa(user.ID))
+	badResponse := httptest.NewRecorder()
+	s.handleAuthPreferences(badResponse, bad)
+	if badResponse.Code != http.StatusBadRequest {
+		t.Fatalf("array layout status=%d body=%s", badResponse.Code, badResponse.Body.String())
+	}
+}
+
 // Simple cookie jar for testing
 type testCookieJar struct {
 	cookies []*http.Cookie

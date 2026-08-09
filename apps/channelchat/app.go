@@ -46,14 +46,13 @@ func New(resolver InstanceResolver) framework.App {
 }
 
 type App struct {
-	resolver               InstanceResolver
-	store                  *store
-	hub                    *hub
-	handlers               *handlers
-	factories              []framework.ChannelFactory
-	bus                    *framework.AppBus
-	streamer               *Streamer
-	conversationDeleteHook func(string) error
+	resolver  InstanceResolver
+	store     *store
+	hub       *hub
+	handlers  *handlers
+	factories []framework.ChannelFactory
+	bus       *framework.AppBus
+	streamer  *Streamer
 }
 
 // Streamer returns the channelchat Streamer that converts LLM
@@ -63,16 +62,6 @@ type App struct {
 // thing the agent emits to. Nil-safe: callers can pass the result
 // to any Ingest call site even before OnMount finishes.
 func (a *App) Streamer() *Streamer { return a.streamer }
-
-// SetConversationDeleteHook lets the server reconcile durable work before a
-// conversation row is permanently removed. The app deliberately depends only
-// on this callback, not on the server task store.
-func (a *App) SetConversationDeleteHook(hook func(string) error) {
-	a.conversationDeleteHook = hook
-	if a.handlers != nil {
-		a.handlers.conversationDeleteHook = hook
-	}
-}
 
 // EnsureConversationThreadForDelivery idempotently restores the complete
 // user-conversation thread profile before a server-originated event is sent
@@ -147,11 +136,10 @@ func (a *App) OnMount(ctx *framework.AppCtx) error {
 	a.bus = ctx.Bus
 	a.streamer = newStreamer(a.hub)
 	a.handlers = &handlers{
-		store:                  a.store,
-		hub:                    a.hub,
-		bus:                    ctx.Bus,
-		instances:              a.resolver,
-		conversationDeleteHook: a.conversationDeleteHook,
+		store:     a.store,
+		hub:       a.hub,
+		bus:       ctx.Bus,
+		instances: a.resolver,
 	}
 	if removed, err := a.handlers.cleanupOrphanConversationThreads(); err != nil {
 		if ctx.Logger != nil {

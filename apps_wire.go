@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net/http"
@@ -33,12 +34,10 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	reg := framework.NewRegistry(s.store.db, logger)
 
-	// Built-in apps mounted in-process via the legacy framework.
-	// Tasks + status moved to standalone repos (github.com/apteva/app-tasks,
-	// app-status) — they are now distributed via the sidecar Apps system
-	// (see apps_loader.go) and no longer compiled in here. Channelchat
-	// stays in-process for now because it's deeply tied to the channel
-	// dispatch infrastructure; it'll graduate to a sidecar in a follow-up.
+	// Built-in apps mounted in-process via the legacy framework. Product
+	// capabilities are distributed through the sidecar Apps system instead.
+	// Channelchat stays in-process for now because it is still tied to the
+	// channel dispatch infrastructure.
 	resolver := &serverResolver{srv: s}
 	cc := channelchat.New(resolver)
 	apps := []framework.App{cc}
@@ -70,26 +69,6 @@ func (s *Server) startApps(apiMux *http.ServeMux) (*framework.Registry, error) {
 						st.Ingest(ev.Type, ev.AgentID, ev.ThreadID, string(ev.Data), ev.Time)
 					}
 				}
-			}
-		}
-	}
-	if !quarantined {
-		if app, ok := cc.(interface {
-			EnsureConversationThreadForDelivery(agentID int64, conversationID string) error
-		}); ok {
-			s.taskConversationEnsure = app.EnsureConversationThreadForDelivery
-		}
-		if app, ok := cc.(interface {
-			SetConversationDeleteHook(func(string) error)
-		}); ok {
-			app.SetConversationDeleteHook(func(conversationID string) error {
-				_, err := s.store.ReconcileAgentTasksForDeletedConversation(conversationID)
-				return err
-			})
-			if count, err := s.store.ReconcileOrphanedConversationTasks(); err != nil {
-				logger.Warn("orphaned conversation task reconciliation incomplete", "err", err)
-			} else if count > 0 {
-				logger.Info("reconciled tasks whose conversations no longer exist", "count", count)
 			}
 		}
 	}
@@ -569,6 +548,46 @@ func (r *serverResolver) SpawnThread(inst framework.InstanceInfo, threadID, dire
 		return fmt.Errorf("spawn thread %q: HTTP %d", threadID, resp.StatusCode)
 	}
 	return nil
+}
+
+// SpawnOpaqueThread creates a normal app-owned thread without assigning any
+// platform role to it. The app records what the thread means to its resources.
+func (r *serverResolver) SpawnOpaqueThread(inst framework.InstanceInfo, threadID, directiveSuffix string, tools, mcp []string, ephemeral bool) (string, error) {
+	if inst.Port == 0 {
+		return "", fmt.Errorf("agent %d has no core port — is it running?", inst.ID)
+	}
+	body, _ := json.Marshal(map[string]any{
+		"directive_suffix": directiveSuffix,
+		"tools":            tools,
+		"mcp":              mcp,
+		"ephemeral":        ephemeral,
+	})
+	coreURL := fmt.Sprintf("http://127.0.0.1:%d/threads/%s", inst.Port, url.PathEscape(threadID))
+	req, err := http.NewRequest(http.MethodPost, coreURL, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if inst.CoreAPIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+inst.CoreAPIKey)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return "", fmt.Errorf("spawn thread %q: HTTP %d %s", threadID, resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	var result struct {
+		Status string `json:"status"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&result)
+	if result.Status == "" {
+		result.Status = "created"
+	}
+	return result.Status, nil
 }
 
 // SpawnRealtimeThread POSTs to core's /threads/{id} with realtime:true.

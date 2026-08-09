@@ -1,0 +1,489 @@
+{
+  "slug": "personio",
+  "name": "Personio",
+  "description": "Personio HR and recruiting API for employees, attendance, absences, projects, positions, applications, documents, and custom attributes.",
+  "logo": "https://www.google.com/s2/favicons?domain=personio.com&sz=128",
+  "categories": [
+    "hr",
+    "employees",
+    "recruiting",
+    "time-off",
+    "attendance"
+  ],
+  "base_url": "https://api.personio.de/v1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "token_exchange": {
+      "url": "https://api.personio.de/v1/auth",
+      "method": "POST",
+      "content_type": "application/json",
+      "body_params": {
+        "client_id": "{{credential.client_id}}",
+        "client_secret": "{{credential.client_secret}}"
+      },
+      "access_token_path": "data.token",
+      "expiry_skew_seconds": 120
+    },
+    "headers": {
+      "Authorization": "Bearer {{access_token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "client_id",
+        "label": "Personio Client ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "client_secret",
+        "label": "Personio Client Secret",
+        "type": "password",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_employees",
+    "input": {
+      "limit": 1
+    }
+  },
+  "tools": [
+    {
+      "name": "list_employees",
+      "description": "List employees and whitelisted attributes.",
+      "method": "GET",
+      "path": "/company/employees",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "email": {
+            "type": "string"
+          },
+          "attributes": {
+            "type": "string",
+            "description": "Comma-separated attribute names."
+          },
+          "updated_since": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_employee",
+      "description": "Get an employee.",
+      "method": "GET",
+      "path": "/company/employees/{employee_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "employee_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "employee_id"
+        ]
+      }
+    },
+    {
+      "name": "create_employee",
+      "description": "Create an employee.",
+      "method": "POST",
+      "path": "/company/employees",
+      "body_root_param": "employee",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "employee": {
+            "type": "object",
+            "description": "Employee attributes including email, first_name, last_name and optional position/department data."
+          }
+        },
+        "required": [
+          "employee"
+        ]
+      }
+    },
+    {
+      "name": "update_employee",
+      "description": "Update employee attributes.",
+      "method": "PATCH",
+      "path": "/company/employees/{employee_id}",
+      "body_root_param": "employee",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "employee_id": {
+            "type": "integer"
+          },
+          "employee": {
+            "type": "object",
+            "description": "Changed employee attributes."
+          }
+        },
+        "required": [
+          "employee_id",
+          "employee"
+        ]
+      }
+    },
+    {
+      "name": "list_employee_absence_balances",
+      "description": "Get absence balances for an employee.",
+      "method": "GET",
+      "path": "/company/employees/{employee_id}/absences/balance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "employee_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "employee_id"
+        ]
+      }
+    },
+    {
+      "name": "list_attendances",
+      "description": "List attendance periods.",
+      "method": "GET",
+      "path": "/company/attendances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "description": "YYYY-MM-DD."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "YYYY-MM-DD."
+          },
+          "employees": {
+            "type": "string",
+            "description": "Comma-separated employee IDs."
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start_date",
+          "end_date"
+        ]
+      }
+    },
+    {
+      "name": "create_attendance",
+      "description": "Create an attendance period.",
+      "method": "POST",
+      "path": "/company/attendances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "attendances": {
+            "type": "array",
+            "description": "Attendance objects with employee, date, start_time, end_time, break, comment, and project_id.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "skip_approval": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "attendances"
+        ]
+      }
+    },
+    {
+      "name": "delete_attendance",
+      "description": "Delete an attendance period.",
+      "method": "DELETE",
+      "path": "/company/attendances/{attendance_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "attendance_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "attendance_id"
+        ]
+      }
+    },
+    {
+      "name": "list_absences",
+      "description": "List absence periods.",
+      "method": "GET",
+      "path": "/company/time-offs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_date": {
+            "type": "string"
+          },
+          "end_date": {
+            "type": "string"
+          },
+          "updated_from": {
+            "type": "string"
+          },
+          "updated_to": {
+            "type": "string"
+          },
+          "employees": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_absence",
+      "description": "Create a time-off period.",
+      "method": "POST",
+      "path": "/company/time-offs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "employee_id": {
+            "type": "integer"
+          },
+          "time_off_type_id": {
+            "type": "integer"
+          },
+          "start_date": {
+            "type": "string"
+          },
+          "end_date": {
+            "type": "string"
+          },
+          "half_day_start": {
+            "type": "boolean"
+          },
+          "half_day_end": {
+            "type": "boolean"
+          },
+          "comment": {
+            "type": "string"
+          },
+          "skip_approval": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "employee_id",
+          "time_off_type_id",
+          "start_date",
+          "end_date"
+        ]
+      }
+    },
+    {
+      "name": "list_time_off_types",
+      "description": "List configured time-off types.",
+      "method": "GET",
+      "path": "/company/time-off-types",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_projects",
+      "description": "List attendance projects.",
+      "method": "GET",
+      "path": "/company/attendances/projects",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_positions",
+      "description": "List recruiting positions.",
+      "method": "GET",
+      "path": "/recruiting/positions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "language": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_position",
+      "description": "Get a recruiting position.",
+      "method": "GET",
+      "path": "/recruiting/positions/{position_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "position_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "position_id"
+        ]
+      }
+    },
+    {
+      "name": "list_applications",
+      "description": "List recruiting applications.",
+      "method": "GET",
+      "path": "/recruiting/applications",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "created_from": {
+            "type": "string"
+          },
+          "created_to": {
+            "type": "string"
+          },
+          "updated_from": {
+            "type": "string"
+          },
+          "updated_to": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_application",
+      "description": "Get a recruiting application.",
+      "method": "GET",
+      "path": "/recruiting/applications/{application_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "application_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "application_id"
+        ]
+      }
+    },
+    {
+      "name": "list_document_categories",
+      "description": "List document categories available for employee document uploads.",
+      "method": "GET",
+      "path": "/company/document-categories",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "upload_employee_document",
+      "description": "Upload a document to an employee profile.",
+      "method": "POST",
+      "path": "/company/documents",
+      "multipart_form": {
+        "file_fields": {
+          "file": "file"
+        },
+        "field_names": [
+          "employee_id",
+          "category_id",
+          "title",
+          "date",
+          "comment"
+        ]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "employee_id": {
+            "type": "integer"
+          },
+          "category_id": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "description": "Document date in YYYY-MM-DD format."
+          },
+          "comment": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string",
+            "description": "Document bytes as base64, data URL, or binary envelope."
+          }
+        },
+        "required": [
+          "employee_id",
+          "category_id",
+          "title",
+          "file"
+        ]
+      }
+    }
+  ]
+}

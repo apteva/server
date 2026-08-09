@@ -1,0 +1,459 @@
+{
+  "slug": "pandadoc",
+  "name": "PandaDoc",
+  "description": "PandaDoc document automation and e-signing for templates, documents, recipients, sending, downloads, contacts, folders, and webhooks.",
+  "logo": "https://www.google.com/s2/favicons?domain=pandadoc.com&sz=128",
+  "categories": [
+    "documents",
+    "esignature",
+    "proposals",
+    "contracts"
+  ],
+  "base_url": "https://api.pandadoc.com/public/v1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "Authorization": "API-Key {{api_key}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "PandaDoc API Key",
+        "type": "password",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_documents",
+    "input": {
+      "count": 1
+    }
+  },
+  "tools": [
+    {
+      "name": "list_documents",
+      "description": "List documents with status, tag, metadata, template, and date filters.",
+      "method": "GET",
+      "path": "/documents",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "string"
+          },
+          "template_id": {
+            "type": "string"
+          },
+          "folder_uuid": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "order_by": {
+            "type": "string"
+          },
+          "deleted": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_document",
+      "description": "Get document details after asynchronous creation completes.",
+      "method": "GET",
+      "path": "/documents/{document_id}/details",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id"
+        ]
+      }
+    },
+    {
+      "name": "get_document_status",
+      "description": "Get lightweight document creation/signing status.",
+      "method": "GET",
+      "path": "/documents/{document_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id"
+        ]
+      }
+    },
+    {
+      "name": "create_document_from_template",
+      "description": "Create a document from a PandaDoc template with recipients and merge data.",
+      "method": "POST",
+      "path": "/documents",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "template_uuid": {
+            "type": "string"
+          },
+          "recipients": {
+            "type": "array",
+            "description": "Recipients with email, first_name, last_name, and role.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "tokens": {
+            "type": "array",
+            "description": "Template token name/value objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "fields": {
+            "type": "object",
+            "description": "Map merge-field names to {value:...}."
+          },
+          "metadata": {
+            "type": "object"
+          },
+          "tags": {
+            "type": "array",
+            "description": "Document tags.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "folder_uuid": {
+            "type": "string"
+          },
+          "pricing_tables": {
+            "type": "array",
+            "description": "Pricing table data.",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "template_uuid",
+          "recipients"
+        ]
+      }
+    },
+    {
+      "name": "send_document",
+      "description": "Send a created draft document to recipients.",
+      "method": "POST",
+      "path": "/documents/{document_id}/send",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "silent": {
+            "type": "boolean"
+          },
+          "sender": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "document_id"
+        ]
+      }
+    },
+    {
+      "name": "download_document",
+      "description": "Download the document PDF.",
+      "method": "GET",
+      "path": "/documents/{document_id}/download",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document_id": {
+            "type": "string"
+          },
+          "watermark_color": {
+            "type": "string"
+          },
+          "watermark_text": {
+            "type": "string"
+          },
+          "separate_files": {
+            "type": "boolean"
+          },
+          "protected": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "document_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_document",
+      "description": "Move a document to trash.",
+      "method": "DELETE",
+      "path": "/documents/{document_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id"
+        ]
+      }
+    },
+    {
+      "name": "list_templates",
+      "description": "List templates.",
+      "method": "GET",
+      "path": "/templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "folder_uuid": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "deleted": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_template_details",
+      "description": "Get template roles, tokens, fields, and metadata.",
+      "method": "GET",
+      "path": "/templates/{template_id}/details",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "template_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id"
+        ]
+      }
+    },
+    {
+      "name": "list_folders",
+      "description": "List document/template folders.",
+      "method": "GET",
+      "path": "/folders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "parent_uuid": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_contacts",
+      "description": "List workspace contacts.",
+      "method": "GET",
+      "path": "/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "q": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_contact",
+      "description": "Create a contact.",
+      "method": "POST",
+      "path": "/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "company": {
+            "type": "string"
+          },
+          "job_title": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "street_address": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "postal_code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "first_name",
+          "last_name"
+        ]
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List workspace webhook subscriptions.",
+      "method": "GET",
+      "path": "/webhook-subscriptions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Subscribe an HTTPS endpoint to PandaDoc events.",
+      "method": "POST",
+      "path": "/webhook-subscriptions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "description": "Event names such as document_state_changed.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "payload": {
+            "type": "array",
+            "description": "Additional payload fields.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "url",
+          "events"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete a webhook subscription.",
+      "method": "DELETE",
+      "path": "/webhook-subscriptions/{subscription_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscription_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subscription_id"
+        ]
+      }
+    }
+  ]
+}

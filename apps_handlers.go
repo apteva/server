@@ -799,11 +799,14 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 				uiComps := make([]sdk.UIComponent, 0, len(tmpl.UIComponents))
 				for _, c := range tmpl.UIComponents {
 					uiComps = append(uiComps, sdk.UIComponent{
-						Name:         c.Name,
-						Entry:        c.Entry,
-						Slots:        c.Slots,
-						PropsSchema:  c.PropsSchema,
-						PreviewProps: c.PreviewProps,
+						Name:           c.Name,
+						Entry:          c.Entry,
+						Slots:          c.Slots,
+						SupportedSizes: c.SupportedSizes,
+						DefaultSize:    c.DefaultSize,
+						PropsSchema:    c.PropsSchema,
+						SettingsSchema: c.SettingsSchema,
+						PreviewProps:   c.PreviewProps,
 					})
 				}
 				icon := ""

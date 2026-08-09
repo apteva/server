@@ -12,7 +12,7 @@ import (
 const (
 	channelsCapabilityMemoryID        = "system_channels_v1"
 	channelsCapabilityTag             = "capability:channels"
-	channelsCapabilityVersionTag      = "capability-version:channels:v27"
+	channelsCapabilityVersionTag      = "capability-version:channels:v29"
 	channelsCapabilityHashTagPrefix   = "capability-hash:"
 	channelsCapabilitySystemTag       = "system"
 	channelsCapabilityMemoryReason    = "channels capability sync"
@@ -22,7 +22,7 @@ const (
 func channelsCapabilityMemoryContent() string {
 	return `# Main operator output
 
-Main owns the agent's global operator state. User-facing Apteva conversations have a separate, conversation-scoped reply capability. They create explicit scheduled work directly in the Tasks ledger and use the core send tool only for other durable ownership changes that require main coordination.
+Main owns the agent's global operator state. User-facing Apteva conversations have a separate, conversation-scoped reply capability. Installed apps may give any thread additional durable-work or domain capabilities. Use those capabilities according to their own guidance; use core send only when another thread must coordinate or take ownership.
 
 ## Main tools
 
@@ -43,17 +43,11 @@ Never proactively use core send or update to assign a chat-conv-* thread autonom
 
 Send to a chat-conv-* thread only to answer a matching request that arrived from that same "[from-conversation:chat-conv-...]" source and began "STATUS QUERY — reply to this conversation:" or "ACTION REQUIRED — reply to this conversation:". A "REPORT ONLY — no action or reply required:" message never authorizes a reply, update, or follow-up assignment.
 
-## Durable ownership
-
-When a user conversation asks for explicit one-time or recurring work, it creates one structured scheduled task assigned to main. That existing task is the authoritative schedule; main must not create a setup task or linked schedule. The server stores it without waking main early and creates one bounded child occurrence when due. Exact timing belongs only in the task schedule; never duplicate it in the directive, status next_at, or pace. Evolve the directive separately only when the request changes the agent's broader continuing role, and then record only that responsibility without cron, interval, timestamp, or task identity. Do not create a persistent child thread to hold a schedule.
-
 Children and other worker threads report their results and state changes to main with core send. They never own the agent's global operator output. When spawning or updating a child, never grant agent-output tools, including set_status, publish, notify, or list_channels. Main consumes the child's report and performs any required global status, Inbox publication, or external notification itself.
 
 ## Status
 
 Status answers what meaningful operator-relevant work the agent is actively doing, waiting on, blocked by, or most recently completed. Main is its only writer.
-
-For work with a durable task, including a server-created scheduled occurrence, the task is the authoritative record of state, milestones, percentage, blocker, result, and timing. Every task owner, including main, uses task_run_step with stable logical step keys for domain operations so another wake or retry receives the stored receipt instead of repeating a side effect. Use task_update and task_complete for milestones and outcome, and never mirror task state, percentage, or exact cadence into global status. Status remains for legacy directive-defined recurring-cycle summaries and meaningful non-task operational conditions.
 
 Use working while a meaningful multi-step or long-running work unit is actively executing. Use waiting only for an expected pause with a known resume condition, including a scheduled time, operator approval, or an external job. Use blocked for an unexpected failure, missing access, or missing capability requiring corrective action. Use completed after the meaningful work unit finishes. A future recurring task does not make completed work waiting.
 
@@ -73,7 +67,7 @@ Every due cycle of a directive-defined recurring monitor must call set_status ex
 
 ## Inbox
 
-Publish an approval only when a real decision is required, an alert only for an important problem requiring attention, and a report only as a substantive periodic digest or when explicitly requested. Reports summarize meaningful outcomes across their period; they are not receipts for every action, check, or completed task. Never publish placeholders, routine progress, unchanged checks, internal reasoning, or duplicates.
+Publish an approval only when a real decision is required, an alert only for an important problem requiring attention, and a report only as a substantive periodic digest or when explicitly requested. Reports summarize meaningful outcomes across their period; they are not receipts for every action or check. Never publish placeholders, routine progress, unchanged checks, internal reasoning, or duplicates.
 
 ## External notification
 

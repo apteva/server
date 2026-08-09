@@ -616,7 +616,7 @@ func (s *Server) handleCallbackInstances(w http.ResponseWriter, r *http.Request,
 		}
 		writeJSON(w, sdk.PlatformInstance{
 			ID: agent.ID, Name: agent.Name, Status: agent.Status,
-			Mode: agent.Mode, ProjectID: agent.ProjectID,
+			Mode: agent.Mode, ProjectID: agent.ProjectID, DefaultThreadID: "main",
 		})
 		return
 	}
@@ -633,13 +633,17 @@ func (s *Server) handleCallbackInstances(w http.ResponseWriter, r *http.Request,
 			http.Error(w, "message required", http.StatusBadRequest)
 			return
 		}
+		if strings.TrimSpace(body.ThreadID) != "" && !installHasPermission(s, installID, sdk.PermThreadsWrite) {
+			http.Error(w, "missing permission: "+string(sdk.PermThreadsWrite), http.StatusForbidden)
+			return
+		}
 		port := s.agents.GetPort(id)
 		if port == 0 {
 			http.Error(w, "agent is not running", http.StatusBadGateway)
 			return
 		}
-		var message any
-		if err := json.Unmarshal(body.Message, &message); err != nil {
+		message, err := normalizeCallbackEventMessage(body.Message)
+		if err != nil {
 			http.Error(w, "invalid message", http.StatusBadRequest)
 			return
 		}
@@ -672,6 +676,32 @@ func (s *Server) handleCallbackInstances(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	http.Error(w, "not found", http.StatusNotFound)
+}
+
+// normalizeCallbackEventMessage bridges the richer app callback contract to
+// Core's stable event contract without making Core app-aware. Text remains
+// text, content-part arrays remain multimodal arrays, and structured app
+// events become compact JSON text that any addressed thread can interpret.
+func normalizeCallbackEventMessage(raw json.RawMessage) (any, error) {
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		if strings.TrimSpace(text) == "" {
+			return nil, errors.New("message required")
+		}
+		return text, nil
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil || value == nil {
+		return nil, errors.New("invalid message")
+	}
+	if _, ok := value.([]any); ok {
+		return value, nil
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	return string(encoded), nil
 }
 
 // ─── /channels/send ────────────────────────────────────────────────
@@ -1360,7 +1390,8 @@ func (s *Server) handleCallbackOAuth(w http.ResponseWriter, r *http.Request, par
 //                                    Idempotent — 404 on unknown id is
 //                                    treated as success.
 //
-// Both paths require platform.realtime.spawn in the install's manifest.
+// Generic operations require platform.threads.write. Realtime operations keep
+// their separate platform.realtime.spawn cost/safety permission.
 // The target agent (RealtimeSpawnRequest.AgentID) must be owned by the
 // install's user — otherwise installs could spawn threads inside other
 // users' agents.
@@ -1371,21 +1402,70 @@ func (s *Server) handleCallbackThreads(w http.ResponseWriter, r *http.Request, p
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
-	if !installHasPermission(s, installID, sdk.PermRealtimeSpawn) {
-		http.Error(w, "missing permission: "+string(sdk.PermRealtimeSpawn), http.StatusForbidden)
-		return
-	}
-
 	switch {
+	case len(parts) == 1 && parts[0] == "spawn" && r.Method == http.MethodPost:
+		if !installHasPermission(s, installID, sdk.PermThreadsWrite) {
+			http.Error(w, "missing permission: "+string(sdk.PermThreadsWrite), http.StatusForbidden)
+			return
+		}
+		s.handleCallbackSpawnThread(w, r, installID)
 	case len(parts) == 1 && parts[0] == "spawn-realtime" && r.Method == http.MethodPost:
+		if !installHasPermission(s, installID, sdk.PermRealtimeSpawn) {
+			http.Error(w, "missing permission: "+string(sdk.PermRealtimeSpawn), http.StatusForbidden)
+			return
+		}
 		s.handleCallbackSpawnRealtime(w, r, installID)
 	case len(parts) == 1 && parts[0] != "" && r.Method == http.MethodDelete:
+		if !installHasPermission(s, installID, sdk.PermThreadsWrite) &&
+			!installHasPermission(s, installID, sdk.PermRealtimeSpawn) {
+			http.Error(w, "missing permission: "+string(sdk.PermThreadsWrite), http.StatusForbidden)
+			return
+		}
 		s.handleCallbackKillThread(w, r, installID, parts[0])
 	case len(parts) == 2 && parts[0] != "" && parts[1] == "audio-token" && r.Method == http.MethodPost:
+		if !installHasPermission(s, installID, sdk.PermRealtimeSpawn) {
+			http.Error(w, "missing permission: "+string(sdk.PermRealtimeSpawn), http.StatusForbidden)
+			return
+		}
 		s.handleCallbackRenewRealtimeAudio(w, r, installID, parts[0])
 	default:
 		http.Error(w, "unsupported threads operation", http.StatusNotFound)
 	}
+}
+
+func (s *Server) handleCallbackSpawnThread(w http.ResponseWriter, r *http.Request, installID int64) {
+	var body sdk.ThreadSpawnRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if body.AgentID <= 0 || strings.TrimSpace(body.ThreadID) == "" {
+		http.Error(w, "agent_id and thread_id required", http.StatusBadRequest)
+		return
+	}
+	agent, err := s.callbackAgentForInstall(r, installID, body.AgentID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	inst := framework.InstanceInfo{
+		ID: agent.ID, Name: agent.Name, UserID: agent.UserID, ProjectID: agent.ProjectID,
+		Port: s.agents.GetPort(agent.ID), CoreAPIKey: s.agents.GetCoreAPIKey(agent.ID),
+	}
+	mcps := body.MCP
+	if mcps == nil {
+		mcps, err = s.agentSpawnableMCPNames(agent.ID)
+		if err != nil {
+			http.Error(w, "load agent capabilities: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+	}
+	status, err := s.resolver().SpawnOpaqueThread(inst, body.ThreadID, body.DirectiveSuffix, body.Tools, mcps, body.Ephemeral)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, sdk.ThreadSpawnResult{Status: status, Thread: sdk.ThreadRef{AgentID: body.AgentID, ThreadID: body.ThreadID}})
 }
 
 func (s *Server) handleCallbackSpawnRealtime(w http.ResponseWriter, r *http.Request, installID int64) {
