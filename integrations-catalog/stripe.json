@@ -877,9 +877,12 @@
     },
     {
       "name": "create_checkout_session",
-      "description": "Create a Stripe Checkout Session — a hosted payment page. Returns { id, url } where url is the Stripe-hosted page the customer is redirected to. mode=payment for one-time; mode=subscription for recurring (uses price IDs from create_price). Webhook event checkout.session.completed fires on payment success.",
+      "description": "Create a Stripe Checkout Session. ui_mode=hosted_page returns a Stripe-hosted redirect URL; ui_mode=elements returns a client_secret for Stripe Elements; ui_mode=embedded_page returns a client_secret for embedded Checkout. mode=payment is one-time and mode=subscription is recurring. Webhook event checkout.session.completed fires on payment success.",
       "method": "POST",
       "path": "/checkout/sessions",
+      "headers": {
+        "Stripe-Version": "2026-03-25.dahlia"
+      },
       "header_params": {
         "idempotency_key": "Idempotency-Key"
       },
@@ -898,12 +901,11 @@
           },
           "ui_mode": {
             "type": "string",
-            "description": "Checkout presentation. hosted_page returns a redirect URL; elements returns client_secret for Stripe Elements. hosted remains accepted for older Stripe API versions and custom for accounts pinned to the 2025 Basil API.",
+            "description": "Checkout presentation for the pinned Stripe API version. hosted_page returns a redirect URL; elements returns a client_secret for Stripe Elements; embedded_page returns a client_secret for embedded Checkout.",
             "enum": [
               "hosted_page",
-              "hosted",
               "elements",
-              "custom"
+              "embedded_page"
             ],
             "default": "hosted_page"
           },
@@ -929,11 +931,11 @@
           },
           "return_url": {
             "type": "string",
-            "description": "Return URL for ui_mode=elements/custom, including redirect-based payment authentication."
+            "description": "Return URL for ui_mode=elements or embedded_page, including redirect-based payment authentication."
           },
           "redirect_on_completion": {
             "type": "string",
-            "description": "Redirect behavior for embedded/elements/custom checkout where supported.",
+            "description": "Redirect behavior for embedded_page checkout where supported.",
             "enum": [
               "always",
               "if_required",

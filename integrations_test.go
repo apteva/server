@@ -2271,9 +2271,11 @@ func TestExecuteIntegrationTool_ToolHeadersOverrideAppHeaders(t *testing.T) {
 
 func TestExecuteIntegrationTool_StripeCheckoutSessionFormEncoding(t *testing.T) {
 	var capturedCT string
+	var capturedVersion string
 	var capturedBody []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedCT = r.Header.Get("Content-Type")
+		capturedVersion = r.Header.Get("Stripe-Version")
 		capturedBody, _ = io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
@@ -2281,18 +2283,24 @@ func TestExecuteIntegrationTool_StripeCheckoutSessionFormEncoding(t *testing.T) 
 	}))
 	defer srv.Close()
 
-	app := &AppTemplate{
-		Slug:    "stripe",
-		BaseURL: srv.URL,
-		Auth: AppAuthConfig{Headers: map[string]string{
-			"Authorization": "Bearer {{token}}",
-			"Content-Type":  "application/x-www-form-urlencoded",
-		}},
+	raw, err := integrationsCatalogFS.ReadFile("integrations-catalog/stripe.json")
+	if err != nil {
+		t.Fatalf("read embedded Stripe catalog: %v", err)
 	}
-	tool := &AppToolDef{
-		Name:   "create_checkout_session",
-		Method: "POST",
-		Path:   "/checkout/sessions",
+	var app AppTemplate
+	if err := json.Unmarshal(raw, &app); err != nil {
+		t.Fatalf("parse embedded Stripe catalog: %v", err)
+	}
+	app.BaseURL = srv.URL
+	var tool *AppToolDef
+	for i := range app.Tools {
+		if app.Tools[i].Name == "create_checkout_session" {
+			tool = &app.Tools[i]
+			break
+		}
+	}
+	if tool == nil {
+		t.Fatal("embedded Stripe catalog has no create_checkout_session tool")
 	}
 	input := map[string]any{
 		"mode":        "payment",
@@ -2314,7 +2322,7 @@ func TestExecuteIntegrationTool_StripeCheckoutSessionFormEncoding(t *testing.T) 
 			"apteva_invoice_id": "123",
 		},
 	}
-	res, err := executeIntegrationTool(app, tool, map[string]string{"token": "sk_test_123"}, input, "")
+	res, err := executeIntegrationTool(&app, tool, map[string]string{"token": "sk_test_123"}, input, "")
 	if err != nil {
 		t.Fatalf("executeIntegrationTool: %v", err)
 	}
@@ -2323,6 +2331,9 @@ func TestExecuteIntegrationTool_StripeCheckoutSessionFormEncoding(t *testing.T) 
 	}
 	if capturedCT != "application/x-www-form-urlencoded" {
 		t.Fatalf("Content-Type=%q, want application/x-www-form-urlencoded", capturedCT)
+	}
+	if capturedVersion != "2026-03-25.dahlia" {
+		t.Fatalf("Stripe-Version=%q, want 2026-03-25.dahlia", capturedVersion)
 	}
 	if strings.Contains(string(capturedBody), `"line_items"`) {
 		t.Fatalf("body appears JSON/object-string encoded: %s", capturedBody)
