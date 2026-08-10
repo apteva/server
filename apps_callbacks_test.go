@@ -571,7 +571,9 @@ func TestCallback_AppCall_GlobalCallerPreservesValidatedProject(t *testing.T) {
 	}
 
 	var gotArguments map[string]any
+	var gotBoundCaller string
 	targetHTTP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBoundCaller = r.Header.Get(sdk.HeaderBoundCallerInstallID)
 		var rpc struct {
 			Params struct {
 				Arguments map[string]any `json:"arguments"`
@@ -625,6 +627,9 @@ func TestCallback_AppCall_GlobalCallerPreservesValidatedProject(t *testing.T) {
 	}
 	if gotArguments["_project_id"] != project.ID {
 		t.Fatalf("delegated _project_id=%v, want %s", gotArguments["_project_id"], project.ID)
+	}
+	if gotBoundCaller != itoa(callerID) {
+		t.Fatalf("bound caller header=%q, want %d", gotBoundCaller, callerID)
 	}
 
 	// Preserve compatibility with global callers bound directly to a

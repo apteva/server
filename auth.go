@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	sdk "github.com/apteva/app-sdk"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -164,6 +165,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			"X-Apteva-Project-ID", "X-Apteva-Issuer-App", "X-Apteva-Issuer-Install-ID",
 			"X-Apteva-Subject-Type", "X-Apteva-Subject-ID", "X-Apteva-Subject-Email",
 			"X-Apteva-Organization-ID", "X-Apteva-Organization-Slug", "X-Apteva-Scopes",
+			sdk.HeaderBoundCallerInstallID,
 		} {
 			r.Header.Del(header)
 		}

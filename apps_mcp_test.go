@@ -418,6 +418,51 @@ func TestRegisterAppMCP_NoToolsSkips(t *testing.T) {
 	}
 }
 
+func TestRegisterAppMCP_AppOnlyToolsStayOutOfAgentBridge(t *testing.T) {
+	s := newTestServer(t)
+	manifest := sdk.Manifest{
+		Schema: sdk.SchemaCurrent, Name: "computer", DisplayName: "Computer", Version: "1.0.0",
+		Provides: sdk.Provides{MCPTools: []sdk.MCPToolSpec{
+			{Name: "browser_session"},
+			{Name: "browser_extract", Exposure: sdk.ToolExposureAppOnly},
+		}},
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.db.Exec(
+		`INSERT INTO apps (name, source, repo, ref, manifest_json) VALUES (?, 'git', '', '', ?)`,
+		"computer", string(manifestJSON),
+	); err != nil {
+		t.Fatal(err)
+	}
+	var appID int64
+	if err := s.store.db.QueryRow(`SELECT id FROM apps WHERE name='computer'`).Scan(&appID); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.store.db.Exec(
+		`INSERT INTO app_installs (app_id, project_id, status, installed_by) VALUES (?, '', 'running', 1)`, appID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installID, _ := res.LastInsertId()
+	_, _ = s.store.db.Exec(`INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (1, 'test@test.local', 'x')`)
+
+	if err := s.registerAppMCP(installID); err != nil {
+		t.Fatal(err)
+	}
+	row := readMCPRow(t, s, installID)
+	if got := row["tool_count"]; got != int64(1) {
+		t.Fatalf("agent tool_count=%v, want 1", got)
+	}
+	allowed := row["allowed_tools"].(string)
+	if !strings.Contains(allowed, "browser_session") || strings.Contains(allowed, "browser_extract") {
+		t.Fatalf("agent allowed_tools leaked app-only tool: %s", allowed)
+	}
+}
+
 func TestRegisterAppMCP_IsIdempotentAndRefreshes(t *testing.T) {
 	// Calling register twice should produce one row, not two — and the
 	// second call should pick up an updated allowed_tools list (the

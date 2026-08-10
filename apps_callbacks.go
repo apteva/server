@@ -1125,6 +1125,11 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 	if target.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+target.Token)
 	}
+	// This identity is minted only after the caller token, platform.apps.call,
+	// dependency binding, and project scope have all been verified above. The
+	// target SDK uses it to admit app_only tools while rejecting the same tool
+	// through an agent-facing MCP connection.
+	req.Header.Set(sdk.HeaderBoundCallerInstallID, strconv.FormatInt(installID, 10))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Printf("[APPS-CALL] ERROR caller_install=%d project=%s target=%s tool=%s error=%s", installID, effectiveProjectID, targetAppName, body.Tool, truncate(err.Error(), 500))

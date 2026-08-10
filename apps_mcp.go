@@ -93,7 +93,7 @@ func (s *Server) registerAppMCP(installID int64) error {
 		return fmt.Errorf("parse manifest for install %d: %w", installID, err)
 	}
 
-	tools := manifest.Provides.MCPTools
+	tools := agentVisibleMCPTools(manifest.Provides.MCPTools)
 	if len(tools) == 0 {
 		// App has no MCP surface — nothing to expose. Make sure no
 		// stale row lingers from a previous version that did.
@@ -183,6 +183,21 @@ func (s *Server) registerAppMCP(installID int64) error {
 	log.Printf("[APPS-MCP] registered %s install=%d server_id=%d tools=%d project=%q",
 		appName, installID, newID, len(toolNames), projectID)
 	return nil
+}
+
+// agentVisibleMCPTools is the single platform-side filter for surfaces that
+// become part of an agent's MCP configuration. app_only tools are still
+// declared in the install manifest so authenticated apps can call them, but
+// they never create or widen an agent-facing MCP row.
+func agentVisibleMCPTools(tools []sdk.MCPToolSpec) []sdk.MCPToolSpec {
+	out := make([]sdk.MCPToolSpec, 0, len(tools))
+	for _, tool := range tools {
+		if tool.Exposure == sdk.ToolExposureAppOnly {
+			continue
+		}
+		out = append(out, tool)
+	}
+	return out
 }
 
 // unregisterAppMCP removes the bridge row for an install. Used on

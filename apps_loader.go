@@ -533,6 +533,9 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
 		req.URL.Path = tail
+		// Ordinary app routes are agent/user-facing. Only the authenticated
+		// /apps/callback/apps/:name/call bridge may mint this identity.
+		req.Header.Del(sdk.HeaderBoundCallerInstallID)
 		req.Header.Del("X-Apteva-Project-ID")
 		if effectiveProjectID != "" {
 			req.Header.Set("X-Apteva-Project-ID", effectiveProjectID)

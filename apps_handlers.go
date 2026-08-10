@@ -870,9 +870,10 @@ func surfacesFromFrameworkApp(a framework.App) AppSurfaces {
 }
 
 func surfacesFromManifest(m *sdk.Manifest) AppSurfaces {
+	visibleTools := agentVisibleMCPTools(m.Provides.MCPTools)
 	s := AppSurfaces{
 		Kind:            m.Runtime.Kind,
-		MCPToolCount:    len(m.Provides.MCPTools),
+		MCPToolCount:    len(visibleTools),
 		SkillCount:      len(m.Provides.Skills),
 		HTTPRouteCount:  len(m.Provides.HTTPRoutes),
 		UIPanelCount:    len(m.Provides.UIPanels),
@@ -881,7 +882,7 @@ func surfacesFromManifest(m *sdk.Manifest) AppSurfaces {
 		WorkerCount:     len(m.Provides.Workers),
 		PromptFragments: len(m.Provides.PromptFragments),
 	}
-	for _, t := range m.Provides.MCPTools {
+	for _, t := range visibleTools {
 		s.MCPToolNames = append(s.MCPToolNames, t.Name)
 	}
 	for _, rt := range m.Provides.HTTPRoutes {

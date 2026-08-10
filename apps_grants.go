@@ -179,8 +179,9 @@ func (s *Server) handleListPermissionsCatalog(w http.ResponseWriter, r *http.Req
 		Requires     string `json:"requires,omitempty"`
 		ResourceFrom string `json:"resource_from,omitempty"`
 	}
-	tools := make([]toolEntry, 0, len(manifest.Provides.MCPTools))
-	for _, t := range manifest.Provides.MCPTools {
+	visibleTools := agentVisibleMCPTools(manifest.Provides.MCPTools)
+	tools := make([]toolEntry, 0, len(visibleTools))
+	for _, t := range visibleTools {
 		tools = append(tools, toolEntry{
 			Name: t.Name, Description: t.Description,
 			Requires: t.Requires, ResourceFrom: t.ResourceFrom,
